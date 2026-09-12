@@ -110,7 +110,7 @@ async function fetch_survival_rank_data(lfw: LFW, period: SurvivalRankPeriod): P
 const ele_root = document.firstElementChild;
 const low_device = ['mobile', 'tablet'].some(v => ele_root?.classList.contains(v))
 const init_app_state = () => ({
-  show_fps: false,
+  show_stats: false,
   show_bg_scroll: false,
   showing_panel: "" as showing_panel,
   dev_ui_open: false,
@@ -191,12 +191,15 @@ function App() {
   const [app_state, set_app_state, app_state_ready] = useForage({
     key: 'app_state', version: app_state_version, init: init_app_state,
     preprocess: v => {
+      if (v.show_stats === void 0) v.show_stats = !!(v as any).show_fps;
       v.cheat_1 = false;
       v.cheat_2 = false;
       v.cheat_3 = false;
       return v;
     }
   })
+  const ref_show_stats = useRef(app_state.show_stats);
+  ref_show_stats.current = app_state.show_stats;
   const [world_dataset, set_world_dataset, world_dataset_ready] = useForage({
     key: 'world_dataset',
     version: world_dataset_version,
@@ -269,6 +272,13 @@ function App() {
           if (!is_toy_env()) break
           fetch_survival_rank_data(lfw, lfw.survival_rank_period).catch(() => { })
           break;
+        case 'stats_visible_set:1':
+        case 'stats_visible_set:0':
+          set_app_state(d => { d.show_stats = message.endsWith('1') })
+          break;
+        case 'stats_visible_get':
+          lfw.broadcast('stats_visible:' + (ref_show_stats.current ? 1 : 0))
+          break;
       }
     },
     on_ui_loaded: (ui) => {
@@ -297,7 +307,7 @@ function App() {
           break;
         case CheatEnum.GIM_INK:
           set_app_state(d => {
-            d.cheat_3 = d.dev_ui_open = d.show_fps = enabled
+            d.cheat_3 = d.dev_ui_open = d.show_stats = enabled
           })
           break;
       }
@@ -321,6 +331,10 @@ function App() {
       btn?.set_disabled(networking)
     }
   }, [networking, lfw])
+
+  useEffect(() => {
+    lfw?.broadcast('stats_visible:' + (app_state.show_stats ? 1 : 0))
+  }, [lfw, app_state.show_stats])
 
   useEffect(() => {
     if (typeof params.lang === 'string' && params.lang) {
@@ -573,7 +587,7 @@ function App() {
   useShortcut("F11", 0, () => toggle_fullscreen());
   useShortcut("ctrl+F1", 0, () => lfw?.is_cheat(CheatEnum.GIM_INK) && set_app_state(d => { d.dev_ui_open = !d.dev_ui_open }));
   useShortcut("ctrl+F3", 0, () => lfw?.is_cheat(CheatEnum.GIM_INK) && set_app_state(d => {
-    d.show_fps = !d.show_fps;
+    d.show_stats = !d.show_stats;
   }));
   useEffect(() => {
     const ele = ele_game_canvas;
@@ -663,8 +677,8 @@ function App() {
         onDragOver={e => { if (lfw?.ui?.id === 'entry') e.preventDefault() }}
         onDrop={on_drop}
       />
-      <div className={classNames(csses.game_overlay, { [csses.gone]: !app_state.show_fps })} >
-        {app_state.show_fps && <DevStatsView lf2={lfw} />}
+      <div className={classNames(csses.game_overlay, { [csses.gone]: !app_state.show_stats })} >
+        {app_state.show_stats && <DevStatsView lf2={lfw} />}
         {app_state.show_bg_scroll && <BgScrollerView lfw={lfw} />}
       </div>
       <DanmuOverlay lfw={lfw} />
@@ -981,8 +995,8 @@ function App() {
         <Combine>
           <ToggleButton
             title="ctrl+F3"
-            value={app_state.show_fps}
-            onChange={v => set_app_state(d => { d.show_fps = v })}>
+            value={app_state.show_stats}
+            onChange={v => set_app_state(d => { d.show_stats = v })}>
             <>FPS</>
             <>FPS ✓</>
           </ToggleButton>

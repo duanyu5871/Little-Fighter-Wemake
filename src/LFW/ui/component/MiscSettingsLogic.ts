@@ -1,5 +1,6 @@
 import { SyncRenderEnum } from "../../defines/SyncRenderEnum";
 import type { ISoundsCallback } from "../../ditto/sounds/ISoundsCallback";
+import type { ILFWCallback } from "../../ILFWCallback";
 import type { IWorldCallbacks } from "../../IWorldCallbacks";
 import { round_float } from "../../utils/math/round_float";
 import { ArrowSwitcher } from "./Slider/ArrowSwitcher";
@@ -26,6 +27,7 @@ export class MiscSettingsLogic extends UIComponent {
   get main_volume(): SliderHandle | undefined   /**/ { return this._anys.g ||= this.node.search_node("main_volume_row")?.search_component(SliderHandle) }
   get ups(): SliderHandle | undefined           /**/ { return this._anys.h ||= this.node.search_node("ups_row")?.search_component(SliderHandle) }
   get lang_row(): ArrowSwitcher | undefined    /**/ { return this._anys.i ||= this.node.search_node("language_row")?.search_component(ArrowSwitcher) }
+  get stats_visible(): SliderHandle | undefined /**/ { return this._anys.j ||= this.node.search_node("stats_visible_row")?.search_component(SliderHandle) }
 
 
   cbs: ISoundsCallback = {
@@ -40,9 +42,16 @@ export class MiscSettingsLogic extends UIComponent {
       if (key === 'sync_render') this.render_rate?.set_value(render_rate_options.indexOf(value))
     },
   }
+  cbs3: ILFWCallback = {
+    on_broadcast: (message) => {
+      if (message === "stats_visible:1") this.stats_visible?.set_value(1);
+      else if (message === "stats_visible:0") this.stats_visible?.set_value(0);
+    },
+  }
   override on_start(): void {
     this.lfw.sounds.callbacks.add(this.cbs)
     this.lfw.world.callbacks.add(this.cbs2)
+    this.lfw.callbacks.add(this.cbs3)
     this.main_volume?.on_value_changed((_, s) => {
       this.lfw.sounds.set_volume(s.factor)
       this.lfw.sounds.play_preset('cancel')
@@ -90,9 +99,14 @@ export class MiscSettingsLogic extends UIComponent {
       this.lfw.set_lang(lang_codes[v]);
       this.lfw.sounds.play_preset('ok')
     })
+    this.stats_visible?.on_value_changed((v) => {
+      this.lfw.broadcast("stats_visible_set:" + (v ? 1 : 0))
+      this.lfw.sounds.play_preset(v ? 'ok' : 'cancel')
+    })
   }
 
   override on_resume(): void {
+    this.lfw.broadcast("stats_visible_get");
     this.main_volume?.set_factor(this.lfw.sounds.volume())
     this.bgm_toggle?.set_value(this.lfw.sounds.bgm_muted() ? 0 : 1)
     this.bgm_volume?.set_factor(this.lfw.sounds.bgm_volume())
@@ -108,5 +122,6 @@ export class MiscSettingsLogic extends UIComponent {
   override on_stop(): void {
     this.lfw.sounds.callbacks.del(this.cbs)
     this.lfw.world.callbacks.del(this.cbs2)
+    this.lfw.callbacks.del(this.cbs3)
   }
 }

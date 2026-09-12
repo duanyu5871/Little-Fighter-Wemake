@@ -1,13 +1,27 @@
 .dev_stats_view {
+  font-family     : monospace;
+  font-size       : 16px;
+  color           : white;
+  white-space     : nowrap;
+  padding         : 0.5ch 1ch;
+  display         : inline-block;
+  background-color: rgba(0, 0, 0, 0.4);
 
-  .dev_stats_view_fps,
-  .dev_stats_view_ups,
-  .dev_stats_view_sps,
-  .dev_stats_view_loading {
-    color              : white;
-    text-align         : start;
-    -webkit-text-stroke: 0.3px black;
-    text-stroke        : 0.3px black;
-    display            : block;
+  span {
+    display: inline-block;
+  }
+
+  .dev_stats_view_counts span:nth-child(1) {
+    width: 12ch;
+  }
+
+  .dev_stats_view_counts span:nth-child(2) {
+    width: 12ch;
+  }
+  .dev_stats_view_counts span:nth-child(3) {
+    width: 14ch;
+  }
+  .dev_stats_view_counts span:nth-child(4) {
+    width: 14ch;
   }
 }

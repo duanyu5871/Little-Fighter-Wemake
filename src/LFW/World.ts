@@ -99,6 +99,8 @@ export class World {
   readonly puppets = new Map<string, Entity>();
   readonly puppet_teams = new Set<string>();
   readonly collisions = new Map<string, Collision>()
+  pairs_compared: number = 0;
+  render_cost: number = 0;
   protected readonly _pair_collisions = new NestedMultiMap<string, string, Collision>();
   private _alive_players = new Set<Entity>();
   public has_players_alive: boolean = false;
@@ -597,7 +599,7 @@ export class World {
       Ditto.debug(`[World::update_once]entities.size = ${this.entities.length}`)
     this.collisions.clear();
     this._pair_collisions.clear();
-    // const temp_entities: Entity[] = [];
+    this.pairs_compared = 0;
     const update_chasing = this._game_time.value % CHASING_UPDATE_INTERVAL === 0;
     this._dead_buffs.length = 0;
     this.buffs.forEach(this.collect_dead_buff, this);
@@ -692,6 +694,7 @@ export class World {
         if (a.aabb_max_x < b.aabb_min_x) break;
         if (a.aabb_max_z < b.aabb_min_z || b.aabb_max_z < a.aabb_min_z) continue;
         // 细致的碰撞判定
+        this.pairs_compared++;
         const c1 = collision_get(a, b);
         const c2 = collision_get(b, a);
         const p1 = c1?.priority ?? Infinity;
@@ -746,7 +749,10 @@ export class World {
   }
 
   render_once(dt: number) {
+    const t0 = Ditto.Clock.now();
     this.renderer.render(dt);
+    const spent = Ditto.Clock.now() - t0;
+    this.render_cost = this.render_cost ? this.render_cost * 0.9 + spent * 0.1 : spent;
   }
 
   update_camera() {

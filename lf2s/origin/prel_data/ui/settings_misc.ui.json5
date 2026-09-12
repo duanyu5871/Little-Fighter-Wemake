@@ -161,6 +161,16 @@
           },
           template: "ui/switcher_row.ui.json5",
         },
+        {
+          id: "stats_visible_row",
+          values: {
+            prefix: "stats_visible",
+            item0: "disable",
+            item1: "enable",
+            items: "disable,enable",
+          },
+          template: "ui/switcher_row.ui.json5",
+        },
       ],
         },
       ],

@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ChatBox } from "./ChatBox";
 import { Connection } from "./Connection";
 import { ConnectionBox } from "./ConnectionBox";
+import { current_connection } from "./current_connection";
 import { LFWNetworkDriver } from "./LFWNetworkDriver";
 import { RoomBox } from "./RoomBox";
 import { RoomsBox } from "./RoomsBox";
@@ -28,6 +29,10 @@ export function Networking(props: INetworkingProps) {
   const updater = useMemo(() => new LFWNetworkDriver(), [])
   updater.conn = conn;
   updater.lf2 = lf2;
+  useEffect(() => {
+    current_connection.conn = conn;
+    return () => { current_connection.conn = null; };
+  }, [conn]);
   const [started, set_started] = useState(false)
   useCallbacks(conn?.callbacks, {
     on_message: (resp, conn) => {

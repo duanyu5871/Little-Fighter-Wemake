@@ -21,7 +21,8 @@ export class Ticker {
   private _pending: boolean = false;
   private _base: number = 0;
   private _span: number = 1;
-  private _cost: number = 0;
+  /** 平滑后单步耗时(ms) */
+  cost: number = 0;
   private _deadline: number = 0;
   private _last_step: number = 0;
   private _timer: number = 0;
@@ -40,9 +41,6 @@ export class Ticker {
   get span(): number {
     return this._span;
   }
-  get cost(): number {
-    return this._cost;
-  }
   get rate(): number {
     return this._rate;
   }
@@ -56,7 +54,7 @@ export class Ticker {
     this._pending = false;
     this._base = this._opt.step_ms();
     this._span = 1;
-    this._cost = 0;
+    this.cost = 0;
     const now = Ditto.Clock.now();
     this._deadline = now + this._base;
     this._last_step = now;
@@ -124,7 +122,7 @@ export class Ticker {
     const base = this._opt.step_ms();
     if (base > 0 && Math.abs(base - this._base) > base * 0.05) {
       this._base = base;
-      this._span = clamp((this._cost * this.safety) / base, 1, this.max_span);
+      this._span = clamp((this.cost * this.safety) / base, 1, this.max_span);
     } else if (base > 0) {
       this._base = base;
     }
@@ -136,10 +134,10 @@ export class Ticker {
     this._last_step = t0;
     this._opt.on_step(dt);
 
-    const cost = Ditto.Clock.now() - t0;
-    this._cost = this._cost ? this._cost * 0.9 + cost * 0.1 : cost;
+    const spent = Ditto.Clock.now() - t0;
+    this.cost = this.cost ? this.cost * 0.9 + spent * 0.1 : spent;
     const want = clamp(
-      (this._cost * this.safety) / this._base,
+      (this.cost * this.safety) / this._base,
       1,
       this.max_span
     );
@@ -162,8 +160,6 @@ export class Ticker {
     if (t1 - this._deadline > this._base * this.max_lag_steps) {
       this._deadline = t1 + this._base * this._span;
       this._last_step = t1;
-      this._rate_start = t1;
-      this._rate_steps = 0;
     }
   }
 }
