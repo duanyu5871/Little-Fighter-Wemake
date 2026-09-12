@@ -1,6 +1,5 @@
 import type { Collision } from "../collision/Collision";
-import { OID, Defines, I_K, SparkEnum, WT } from "../defines";
-import { is_fighter, is_weapon } from "../entity";
+import { Defines, OID, SparkEnum, WT } from "../defines";
 import { calc_itr_velocity } from "./calc_itr_velocity";
 import { handle_injury } from "./handle_injury";
 import { handle_rest } from "./handle_rest";
@@ -49,9 +48,12 @@ export function handle_weapon_is_hit(collision: Collision): void {
     victim.set_velocity(vx)
   }
 
-  if (is_fighter(attacker) || (is_weapon(attacker) && attacker.bearer)) {
-    if (victim.position.y > victim.ground_y || is_fly) {
-      victim.team = attacker.team;
-    }
+
+  if (is_fly && !victim.bearer) {
+    /* 
+    武器被单方面命中，直接修改队伍就好
+    武器谁先判定就变谁的队
+    */
+    victim.team = attacker.team;
   }
 }
