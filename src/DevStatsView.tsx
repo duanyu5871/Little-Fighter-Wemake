@@ -19,6 +19,7 @@ export function DevStatsView(props: IDevStatsViewProps) {
   const ref_rnd = useRef<HTMLSpanElement>(null);
   const ref_span = useRef<HTMLSpanElement>(null);
   const ref_rtt = useRef<HTMLSpanElement>(null);
+  const ref_k = useRef<HTMLSpanElement>(null);
   const ref_loading = useRef<HTMLSpanElement>(null);
   const ref_tid = useRef<number>(0);
   const ref_tid2 = useRef<number>(0);
@@ -45,6 +46,8 @@ export function DevStatsView(props: IDevStatsViewProps) {
         ref_span.current!.innerText = "SPAN:" + (world.ticker?.span ?? 1).toFixed(2);
         const rtt = current_connection.conn?.rtt;
         ref_rtt.current!.innerText = "RTT:" + (rtt ? rtt + "ms" : "--");
+        const k = current_connection.driver?.lead;
+        ref_k.current!.innerText = "K:" + (k ?? "--");
       }
     }), [])
   )
@@ -83,6 +86,7 @@ export function DevStatsView(props: IDevStatsViewProps) {
       <div className={csses.dev_stats_view_counts}>
         <span ref={ref_rnd} />
         <span ref={ref_rtt} />
+        <span ref={ref_k} />
         <span ref={ref_coll} />
       </div>
       <span ref={ref_loading} className={csses.dev_stats_view_loading} />

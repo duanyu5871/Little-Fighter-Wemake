@@ -71,7 +71,7 @@ test("Ticker.resync 后仍然继续步进", () => {
   ticker.stop();
 });
 
-test("Ticker.resync(true) 立即执行(联机 awake 用)", () => {
+test("Ticker.resync(true) 立即执行", () => {
   let steps = 0;
   const ticker = new Ticker({ step_ms: () => 100, on_step: () => { steps++; } });
   ticker.start();

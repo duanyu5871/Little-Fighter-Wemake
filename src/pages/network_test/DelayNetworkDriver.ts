@@ -17,7 +17,8 @@ export class DelayNetworkDriver extends LFWNetworkDriver {
 
   protected override on_start(): void {
     this._seq = 0;
-    this._starved = false;
+    // 初始时 world 处于 sleep，等第 0 帧输入到达后由 on_tick_data 唤醒
+    this._starved = true;
     this._inputs.clear();
     const { conn } = this;
     if (!conn) return;

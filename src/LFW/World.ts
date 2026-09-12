@@ -289,10 +289,13 @@ export class World {
   get ticker(): Ticker | undefined { return this._update_worker }
   before_update?(): void;
   after_update?(): void;
-  sleep(): void { this._sleeping = true }
+  sleep(): void {
+    this._sleeping = true;
+    this._update_worker?.pause();
+  }
   awake(): void {
     this._sleeping = false;
-    this._update_worker?.resync(true);
+    this._update_worker?.resume();
   }
 
   protected base_step_ms(): number {

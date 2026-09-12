@@ -19,6 +19,7 @@ export class Ticker {
   private readonly _opt: ITickerOptions;
   private _running: boolean = false;
   private _pending: boolean = false;
+  private _paused: boolean = false;
   private _base: number = 0;
   private _span: number = 1;
   /** 平滑后单步耗时(ms) */
@@ -52,6 +53,7 @@ export class Ticker {
     if (this._running) return;
     this._running = true;
     this._pending = false;
+    this._paused = false;
     this._base = this._opt.step_ms();
     this._span = 1;
     this.cost = 0;
@@ -67,7 +69,25 @@ export class Ticker {
   stop(): void {
     if (!this._running) return;
     this._running = false;
+    this._paused = false;
     this._cancel();
+  }
+
+  /** 暂停调度（world.sleep）：期间不再产生任何步进 */
+  pause(): void {
+    if (this._paused) return;
+    this._paused = true;
+    this._cancel();
+  }
+
+  /** 恢复调度（world.awake）：距上一帧至少一个步长后才允许步进，避免被数据到达的节奏带快 */
+  resume(): void {
+    if (!this._running || !this._paused) return;
+    this._paused = false;
+    this._base = this._opt.step_ms();
+    const now = Ditto.Clock.now();
+    this._deadline = Math.max(now, this._last_step + this._base * this._span);
+    this._schedule();
   }
 
   private _cancel(): void {
@@ -95,7 +115,7 @@ export class Ticker {
   }
 
   private _schedule(): void {
-    if (!this._running || this._pending) return;
+    if (!this._running || this._pending || this._paused) return;
     const delay = this._deadline - Ditto.Clock.now();
     if (delay > this.sleep_threshold && !Ditto.Clock.hidden()) {
       this._pending = true;

@@ -43,11 +43,15 @@ export function Networking(props: INetworkingProps) {
     driver.conn = conn;
     driver.lf2 = lf2;
     ref_updater.current = driver;
+    current_connection.driver = driver;
     return driver;
   };
   useEffect(() => {
     current_connection.conn = conn;
-    return () => { current_connection.conn = null; };
+    return () => {
+      current_connection.conn = null;
+      current_connection.driver = null;
+    };
   }, [conn]);
   const [started, set_started] = useState(false)
   const chat_style = use_fade_style(!!conn_state)
