@@ -502,7 +502,6 @@ export class Entity {
         this.frame.id !== FrameId.Gone &&
         this._data.base.brokens?.length
       ) {
-        console.warn('[broken] apply brokens', this.id, 'count=', this._data.base.brokens.length, this._data.base.brokens.map(b => b.oid));
         this.apply_opoints(this._data.base.brokens);
         this.play_sound(this._data.base.dead_sounds);
       }
