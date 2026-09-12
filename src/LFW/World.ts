@@ -38,7 +38,7 @@ import { Stage } from "./stage/Stage";
 import { Transform } from "./Transform";
 import { round_float } from './utils';
 import { NestedMultiMap } from './utils/container_help/nested_multi_map';
-import { between, floor, round } from './utils/math/base';
+import { between, floor, max, min, round } from './utils/math/base';
 import { clamp } from './utils/math/clamp';
 import { Times } from './utils/Times';
 import { WorldDataset } from "./WorldDataset";
@@ -892,8 +892,32 @@ export class World {
     return this._pair_collisions.collect(aid, vid, out);
   }
 
+  weapon_section_at(x: number): number {
+    return round(x / WEAPON_X_SECTION);
+  }
+
+  random_weapon_x(exclude_section?: number): number {
+    const { mt } = this.lfw;
+    const { left, right } = this;
+    const width = right - left;
+    let band_x = 0;
+    let band_len = 0;
+    if (exclude_section != null) {
+      const half = WEAPON_X_SECTION / 2;
+      const l = max(left, exclude_section * WEAPON_X_SECTION - half);
+      const r = min(right, exclude_section * WEAPON_X_SECTION + half);
+      if (r - l < width) {
+        band_x = l;
+        band_len = max(0, r - l);
+      }
+    }
+    let x = mt.range(left, right - band_len);
+    if (band_len > 0 && x >= band_x) x += band_len;
+    return x;
+  }
+
   weapon_count_at(x: number): number {
-    return this.ground_weapon_counts.get(round(x / WEAPON_X_SECTION)) ?? 0
+    return this.ground_weapon_counts.get(this.weapon_section_at(x)) ?? 0
   }
 
   /** Map<队伍, 队伍存活人数> */
