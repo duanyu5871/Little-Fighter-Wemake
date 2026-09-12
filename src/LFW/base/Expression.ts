@@ -129,7 +129,7 @@ export class Expression<T1, T2 = T1> implements IExpression<T1, T2> {
     this.text = text.substring(0, i);
   }
 
-  private alway_false(err: string): void {
+  private always_false(err: string): void {
     this.err = err
     this.result = false;
     this.run = () => false;
@@ -137,17 +137,17 @@ export class Expression<T1, T2 = T1> implements IExpression<T1, T2> {
 
   private parse(text: string): void {
     this.text = text
-    if (!text) return this.alway_false("[empty text]")
+    if (!text) return this.always_false("[empty text]")
 
     const reg_result =
       text.match(/(\S*)\s*(==|!=|<=|>=|\{\{|\}\}|!\{|!\})\s?(\S*)/) ||
       text.match(/(\S*)\s*(=|<|>)\s?(\S*)/);
-    if (!reg_result) return this.alway_false(`[wrong expression: ${text}]`);
+    if (!reg_result) return this.always_false(`[wrong expression: ${text}]`);
     const [, word_1, op, word_2] = reg_result;
     this.op = op;
-    if (!word_1 || !word_2) return this.alway_false(`[wrong expression: ${text}]`);
+    if (!word_1 || !word_2) return this.always_false(`[wrong expression: ${text}]`);
     const predicate = predicate_maps[op as TBinOp];
-    if (!predicate) return this.alway_false(`wrong operator: ${op}`);
+    if (!predicate) return this.always_false(`wrong operator: ${op}`);
 
     const getter_1 = this.get_val_getter(word_1);
     const getter_2 = this.get_val_getter(word_2);
