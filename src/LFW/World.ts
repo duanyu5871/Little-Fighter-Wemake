@@ -37,6 +37,7 @@ import { LFW } from "./LFW";
 import { Stage } from "./stage/Stage";
 import { Transform } from "./Transform";
 import { round_float } from './utils';
+import { NestedMultiMap } from './utils/container_help/nested_multi_map';
 import { between, floor, round } from './utils/math/base';
 import { clamp } from './utils/math/clamp';
 import { Times } from './utils/Times';
@@ -97,6 +98,7 @@ export class World {
   readonly puppets = new Map<string, Entity>();
   readonly puppet_teams = new Set<string>();
   readonly collisions = new Map<string, Collision>()
+  protected readonly _pair_collisions = new NestedMultiMap<string, string, Collision>();
   private _alive_players = new Set<Entity>();
   public has_players_alive: boolean = false;
   public TU: number = 1;
@@ -588,6 +590,7 @@ export class World {
     if (Ditto.DEV && this.entities.length > MAX_DEBUG_ENTITIES)
       Ditto.debug(`[World::update_once]entities.size = ${this.entities.length}`)
     this.collisions.clear();
+    this._pair_collisions.clear();
     // const temp_entities: Entity[] = [];
     const update_chasing = this._game_time.value % CHASING_UPDATE_INTERVAL === 0;
     const dead_buffs: [string, Buff][] = []
@@ -730,9 +733,11 @@ export class World {
 
   protected add_collision(collision: Collision) {
     const prev = this.collisions.get(collision.id)
-    if (!prev || prev.m_distance > collision.m_distance) {
-      this.collisions.set(collision.id, collision);
-    }
+    if (prev && prev.m_distance <= collision.m_distance) return;
+
+    if (prev) this._pair_collisions.delete(prev.aid, prev.vid);
+    this.collisions.set(collision.id, collision);
+    this._pair_collisions.add(collision.aid, collision.vid, collision);
   }
 
   render_once(dt: number) {
@@ -873,6 +878,18 @@ export class World {
 
   find_entity(id: string) {
     return this.entity_map.get(id);
+  }
+
+  get_collision(aid: string, vid: string): Collision | undefined {
+    return this._pair_collisions.first(aid, vid);
+  }
+
+  has_collision(aid: string, vid: string): boolean {
+    return this._pair_collisions.has(aid, vid);
+  }
+
+  get_collisions(aid: string, vid: string, out: Collision[] = []): Collision[] {
+    return this._pair_collisions.collect(aid, vid, out);
   }
 
   weapon_count_at(x: number): number {
