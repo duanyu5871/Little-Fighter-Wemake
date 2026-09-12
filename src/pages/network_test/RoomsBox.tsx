@@ -4,9 +4,10 @@ import { LFW } from "@/LFW";
 import { useForwardedRef, useStateRef } from "@fimagine/dom-hooks";
 import classNames from "classnames";
 import List from "rc-virtual-list";
-import { type ForwardedRef, forwardRef, useCallback, useEffect, useRef } from "react";
+import { type ForwardedRef, forwardRef, useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../../Component/Buttons/Button";
+import { Checkbox } from "../../Component/Checkbox";
 import { Divider } from "../../Component/Divider";
 import { Flex } from "../../Component/Flex";
 import Frame, { type IFrameProps } from "../../Component/Frame";
@@ -24,6 +25,8 @@ export interface IRoomsBoxProps extends IFrameProps {
   conn?: Connection | null;
   conn_state?: TriState;
   lf2?: LFW | null;
+  /** 是否显示全部同步模式的房间（缺省由服务器过滤） */
+  show_all_rooms?: boolean;
 }
 function _RoomsBox(props: IRoomsBoxProps, f_ref: ForwardedRef<HTMLDivElement>) {
   const { t } = useTranslation()
@@ -32,18 +35,20 @@ function _RoomsBox(props: IRoomsBoxProps, f_ref: ForwardedRef<HTMLDivElement>) {
     conn_state = TriState.False,
     className,
     lf2,
+    show_all_rooms,
     ..._p
   } = props;
 
   const [room_creating, set_room_creating, ref_room_creating] = useStateRef<boolean>(false);
   const [room_joining, set_room_joining, ref_room_joining] = useStateRef<boolean>(false);
+  const [auto_refresh, set_auto_refresh] = useState<boolean>(true);
   const { room } = useRoom(conn)
   const { rooms } = useRooms(conn)
   const cls_name = classNames(styles.rooms_box, className)
   const update_rooms = useCallback(() => {
     if (!conn) return;
-    conn.send(MsgEnum.ListRooms, {}, { loose: true }).catch(e => { })
-  }, [conn])
+    conn.send(MsgEnum.ListRooms, { show_all: show_all_rooms }, { loose: true }).catch(e => { })
+  }, [conn, show_all_rooms])
 
   const ref_rtt = useRef<HTMLSpanElement>(null)
   useCallbacks(conn?.callbacks, {
@@ -73,6 +78,13 @@ function _RoomsBox(props: IRoomsBoxProps, f_ref: ForwardedRef<HTMLDivElement>) {
     });
     return () => c()
   }, [conn, conn_state === TriState.True, room])
+
+  useEffect(() => {
+    if (!conn || !auto_refresh || conn_state !== TriState.True || room)
+      return;
+    const tid = setInterval(update_rooms, 3000);
+    return () => clearInterval(tid)
+  }, [conn, auto_refresh, conn_state, room, update_rooms])
 
   async function get_version_info() {
     return {
@@ -152,6 +164,10 @@ function _RoomsBox(props: IRoomsBoxProps, f_ref: ForwardedRef<HTMLDivElement>) {
             onClick={() => update_rooms()} >
             {t('refresh')}
           </Button>
+          <Checkbox
+            prefix={t('auto_refresh')}
+            value={auto_refresh}
+            onChange={set_auto_refresh} />
           <Button
             variants={['no_border', 'no_round', 'no_shadow']}
             onClick={() => conn?.close()} >

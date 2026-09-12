@@ -8,6 +8,7 @@ import {
   IReqExitRoom,
   IReqJoinRoom, IReqKick,
   IReqRoomPwd,
+  IReqRoomSync,
   IReqRoomStart,
   IReqTick,
   IResp,
@@ -15,12 +16,17 @@ import {
   IRespCloseRoom,
   IRespExitRoom,
   IRespJoinRoom, IRespKick,
+  IRespRoomSync,
+  IRespRoomStart,
   IRespTick,
-  IDataInfo, IRoomInfo, MsgEnum, SystemPlayerInfo, TInfo
+  IDataInfo, IRoomInfo, MsgEnum, NetSyncMode, RoomSyncMode, SystemPlayerInfo, TInfo,
+  resolve_sync
 } from "./Net";
 import { random_str } from './random_str';
 
 let room_id = 0;
+
+const MAX_PIPELINE = 16;
 export class Room {
   static TAG = 'Room';
   readonly id = '' + (++room_id);
@@ -31,8 +37,12 @@ export class Room {
   max_players: number = 4;
   title: string = `ROOM_${this.id}`;
   clients = new Set<Client>();
-  tick_req_map = new Map<Client, IReqTick>()
+  tick_req_maps = new Map<number, Map<Client, IReqTick>>();
   private _tick_seq = -1;
+  /** 房主选择的同步模式 */
+  sync_mode: RoomSyncMode = 'auto';
+  /** 开局时根据成员延迟定下的实际模式 */
+  protected _start_sync: { sync_mode: NetSyncMode, input_delay: number } = { sync_mode: 'lockstep', input_delay: 1 };
   seed: number;
   pwd: string = '';
   lfw_version: string = '';
@@ -51,6 +61,7 @@ export class Room {
       min_players: this.min_players,
       max_players: this.max_players,
       started: this._tick_seq >= 0,
+      sync_mode: this.sync_mode,
       need_pwd: !!this.pwd,
       lfw_version: this.lfw_version,
       data_infos: this.data_infos,
@@ -59,6 +70,7 @@ export class Room {
   constructor(owner: Client, req: IReqCreateRoom) {
     const { ctx } = owner
     this.ctx = ctx
+    this.sync_mode = req.sync_mode ?? 'auto';
     this.owner = owner;
     this.seed = Date.now()
     while (!this._code || ctx.room_mgr.codes.has(this._code)) {
@@ -241,9 +253,29 @@ export class Room {
       return;
     }
 
-    this.broadcast(req.type, { seed: this.seed }, client)
-    client.resp(req.type, req.pid, { seed: this.seed }).catch(() => void 0)
+    this._start_sync = resolve_sync(this.sync_mode, this.max_rtt());
+    const start_info: TInfo<IRespRoomStart> = {
+      seed: this.seed,
+      sync_mode: this._start_sync.sync_mode,
+      input_delay: this._start_sync.input_delay,
+    };
+    this.broadcast(req.type, start_info, client)
+    client.resp(req.type, req.pid, start_info).catch(() => void 0)
     this._tick_seq = 0
+  }
+
+  set_sync(client: Client, req: IReqRoomSync) {
+    if (req.sync_mode) this.sync_mode = req.sync_mode;
+    const resp: TInfo<IRespRoomSync> = { room: this.room_info };
+    this.broadcast(req.type, resp);
+    client.resp(req.type, req.pid, resp).catch(() => void 0);
+  }
+
+  protected max_rtt(): number {
+    let ret = 0;
+    for (const c of this.clients)
+      ret = Math.max(ret, c.rtt);
+    return ret;
   }
 
   broadcast<T extends MsgEnum, Resp extends IResp = IMsgRespMap[T]>(type: T, resp: TInfo<Resp>, ...excludes: Client[]) {
@@ -253,20 +285,26 @@ export class Room {
   }
 
   tick(client: Client, req: IReqTick) {
-    if (req.seq !== this._tick_seq)
-      return;
+    const seq = req.seq;
+    if (typeof seq !== 'number' || seq < this._tick_seq) return;
+    if (seq > this._tick_seq + MAX_PIPELINE) return;
     req.client_id = client.client_info?.id;
-    if (this._tick_seq === 0)
+    if (seq === 0)
       req.client_name = client.client_info?.name;
-    this.tick_req_map.set(client, req)
-    if (this.tick_req_map.size !== this.clients.size)
-      return;
-    const resp: TInfo<IRespTick> = { seq: this._tick_seq, reqs: [] }
-    for (const [, req] of this.tick_req_map)
-      resp.reqs?.push(req)
-    this.broadcast(MsgEnum.Tick, resp)
-    this.tick_req_map.clear()
-    this._tick_seq++;
+    let map = this.tick_req_maps.get(seq);
+    if (!map) this.tick_req_maps.set(seq, map = new Map());
+    map.set(client, req);
+
+    for (; ;) {
+      const curr = this.tick_req_maps.get(this._tick_seq);
+      if (!curr || curr.size !== this.clients.size) break;
+      const resp: TInfo<IRespTick> = { seq: this._tick_seq, reqs: [] }
+      for (const [, r] of curr)
+        resp.reqs?.push(r)
+      this.broadcast(MsgEnum.Tick, resp)
+      this.tick_req_maps.delete(this._tick_seq);
+      this._tick_seq++;
+    }
   }
 
   set_pwd(client: Client, req: IReqRoomPwd) {

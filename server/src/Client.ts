@@ -33,6 +33,8 @@ export class Client {
   room?: Room;
   ready: boolean = false;
   is_admin: boolean = false;
+  /** 客户端最近上报的 RTT(ms) */
+  rtt: number = 0;
   constructor(ctx: Context, ws: WebSocket, req: http.IncomingMessage) {
     this.sk = req.socket
     this.ctx = ctx;
@@ -205,7 +207,11 @@ export class Client {
       case MsgEnum.ListRooms: {
         if (
           ensure_player_info(this, req)
-        ) this.resp(req.type, req.pid, { rooms: Array.from(ctx.room_mgr.all).map(v => v.room_info) }).catch(() => void 0)
+        ) {
+          const all = Array.from(ctx.room_mgr.all).map(v => v.room_info);
+          const rooms = req.show_all ? all : all.filter(v => v.sync_mode !== 'delay');
+          this.resp(req.type, req.pid, { rooms }).catch(() => void 0)
+        }
         break;
       }
       case MsgEnum.Kick: {
@@ -252,9 +258,18 @@ export class Client {
           ensure_room_owner(this, req)
         ) this.room?.set_pwd(this, req)
         break;
+      case MsgEnum.RoomSync:
+        if (
+          ensure_player_info(this, req) &&
+          ensure_in_room(this, req) &&
+          ensure_room_owner(this, req)
+        ) this.room?.set_sync(this, req)
+        break;
       case MsgEnum.Ping:
-        if (ensure_player_info(this, req))
+        if (ensure_player_info(this, req)) {
+          if (typeof req.rtt === 'number') this.rtt = req.rtt;
           this.resp(req.type, req.pid, { time: req.time, client: this.id, rtt: req.rtt })
+        }
         if (this.room)
           this.room.broadcast(req.type, { time: req.time, client: this.id, rtt: req.rtt }, this)
         break;

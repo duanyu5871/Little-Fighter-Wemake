@@ -13,6 +13,7 @@ export enum MsgEnum {
   Tick = "Tick",
   KeyTick = "KeyTick",
   RoomPwd = "RoomPwd",
+  RoomSync = 'RoomSync',
   Ping = "Ping",
   Dataset = 'Dataset',
 

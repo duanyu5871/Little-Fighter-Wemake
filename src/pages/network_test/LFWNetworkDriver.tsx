@@ -36,15 +36,15 @@ export function safe_check(fn: () => string): string {
   }
 }
 
-export class LFWNetworkDriver {
+export abstract class LFWNetworkDriver {
   static readonly TAG = 'Lf2NetworkDriver';
   debugging: boolean = true;
   conn?: Connection | null;
   lf2?: LFW | null;
   resp?: IRespTick | IRespKeyTick | null;
   _failed: boolean = false;
-  _snapshot1?: EntitySnapshotBuffer = new EntitySnapshotBuffer();
-  _snapshot2?: EntitySnapshotBuffer = new EntitySnapshotBuffer();
+  _snapshot1?: EntitySnapshotBuffer;
+  _snapshot2?: EntitySnapshotBuffer;
   _datas: SyncChecker = new SyncChecker('datas');
   _randoms?: SyncChecker;
   _objects?: SyncChecker;
@@ -60,6 +60,11 @@ export class LFWNetworkDriver {
     if (!room || !me) return false;
     return room.owner?.id === me.id;
   }
+  abstract get lead(): number;
+  abstract before_update: () => void;
+  abstract after_update: () => void;
+  protected abstract on_tick_data(resp: IRespTick | IRespKeyTick): void;
+  protected on_start(): void { }
   on_dataset_change(k?: keyof IWorldDataset, _value?: unknown, prev?: unknown) {
     const { conn, lf2 } = this;
     if (!conn || !lf2) return;
@@ -92,6 +97,8 @@ export class LFWNetworkDriver {
     }
     lf2.mt.debugging = this.debugging;
     if (this.debugging) {
+      this._snapshot1 = new EntitySnapshotBuffer();
+      this._snapshot2 = new EntitySnapshotBuffer();
       this._objects = new SyncChecker('objects');
       this._events = new SyncChecker('events');
       this._randoms = new SyncChecker('randoms');
@@ -159,45 +166,32 @@ export class LFWNetworkDriver {
     if (!conn || !lf2) return;
     if (this._failed) return;
     if (typeof resp.seq !== 'number') return;
-    if (resp.seq === 0) {
-      lf2.keyboard.enabled = true;
-      lf2.world.after_update = this.after_update;
-      lf2.world.before_update = this.before_update;
-      lf2.world.reset_game_time();
-      lf2.set_ui({ id: "main_page" });
-    }
-    this.resp = resp;
-    lf2.world.awake();
+    if (resp.seq === 0) this.start(lf2);
+    this.on_tick_data(resp);
   }
-  before_update = () => {
-    const { lf2, conn, resp } = this;
-    if (!lf2) {
-      console.error(`[${LFWNetworkDriver.TAG}::before_update] failed! 'lf2' got ${lf2}`);
-      return;
-    }
+  protected start(lf2: LFW) {
+    lf2.keyboard.enabled = true;
+    lf2.world.after_update = this.after_update;
+    lf2.world.before_update = this.before_update;
+    lf2.world.reset_game_time();
+    lf2.set_ui({ id: "main_page" });
+    this.on_start();
+  }
+  protected run_tick(seq: number, resp: IRespTick | IRespKeyTick): void {
+    const { lf2, conn } = this;
+    if (!lf2 || !conn) return;
     const { world } = lf2;
-    if (!conn) {
-      console.error(`[${LFWNetworkDriver.TAG}::before_update] failed! 'conn' got ${conn}`);
-      return;
-    }
-    if (!resp) {
-      console.error(`[${LFWNetworkDriver.TAG}::before_update] failed! 'resp' got ${resp}`);
-      return;
-    }
-    const { reqs, seq } = resp;
+    const { reqs } = resp;
     const me = conn.client;
     if (!me) {
-      console.error(`[${LFWNetworkDriver.TAG}::before_update] failed! 'conn.client' got ${me}`);
-      return world.sleep();
-    }
-    if (typeof seq !== 'number') {
-      console.error(`[${LFWNetworkDriver.TAG}::before_update] failed! 'resp.seq' got ${seq}`);
+      console.error(`[${LFWNetworkDriver.TAG}::run_tick] failed! 'conn.client' got ${me}`);
       return world.sleep();
     }
     if (!reqs?.length) {
-      console.error(`[${LFWNetworkDriver.TAG}::before_update] failed! 'resp.reqs.length' got ${reqs?.length}`);
+      console.error(`[${LFWNetworkDriver.TAG}::run_tick] failed! 'resp.reqs.length' got ${reqs?.length}`);
       return world.sleep();
     }
+    this.resp = resp;
     const req_events: IKeyEvent[] = lf2.events.map<IKeyEvent>(r => ({
       client_id: me.id,
       player_id: me.id + '#' + r.player,
@@ -205,7 +199,7 @@ export class LFWNetworkDriver {
       pressed: r.pressed,
     }));
     const req: TInfo<IReqTick> = {
-      seq: seq + 1,
+      seq: seq + this.lead,
       cmds: lf2.cmds,
       events: req_events
     };
@@ -234,7 +228,7 @@ export class LFWNetworkDriver {
       }
     }).join('￥'));
     if (this._suspicious) req._s = safe_check(() => sus_cases.submit());
-    if (!this._failed) conn.send(MsgEnum.Tick, req);
+    if (!this._failed) conn.send_nowait(MsgEnum.Tick, req);
     lf2.cmds.length = 0;
     lf2.events.length = 0;
     this._objects?.reset();
@@ -254,7 +248,7 @@ export class LFWNetworkDriver {
     if (this._failed) world.sleep();
     if (this._failed) return;
 
-    this._snapshot1?.capture(lf2.world.entities)
+    if (this.debugging) this._snapshot1?.capture(lf2.world.entities)
     for (const req of reqs) {
       const { cmds, events } = req;
       if (cmds?.length) cmds.forEach(cmd => lf2.push_cmd(cmd));
@@ -266,12 +260,6 @@ export class LFWNetworkDriver {
         lf2.events.push(le);
       }
     }
-  };
-  after_update = () => {
-    const { lf2 } = this;
-    if (!lf2) return;
-    this._snapshot2?.capture(lf2.world.entities);
-    lf2.world.sleep();
   };
   private dump_snapshots() {
     const { _snapshot1, _snapshot2 } = this;

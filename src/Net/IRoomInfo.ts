@@ -1,6 +1,7 @@
 import type { IClientInfo } from "./IClientInfo";
 import type { IDataInfo } from "./IDataInfo";
 import type { IRoomClientInfo } from "./IRoomClientInfo";
+import type { RoomSyncMode } from "./net_sync";
 
 /**
  * 房间信息
@@ -72,6 +73,14 @@ export interface IRoomInfo {
    * @memberof IRoomInfo
    */
   started?: boolean;
+
+  /**
+   * 同步模式：auto = 按成员延迟自动选择
+   *
+   * @type {RoomSyncMode}
+   * @memberof IRoomInfo
+   */
+  sync_mode?: RoomSyncMode;
 
   /**
    * 房间是否需要密码

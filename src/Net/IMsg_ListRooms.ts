@@ -25,6 +25,14 @@ export interface IReqListRooms extends IReq<MsgEnum.ListRooms> {
    * @memberof IReqListRooms
    */
   limit?: number;
+
+  /**
+   * 是否返回全部同步模式的房间（缺省时服务器只返回非延迟房间）
+   *
+   * @type {boolean}
+   * @memberof IReqListRooms
+   */
+  show_all?: boolean;
 }
 
 /**

@@ -1,13 +1,15 @@
 
 import { LFW } from "@/LFW";
-import { MsgEnum } from "@/Net";
+import { MsgEnum, type IRespRoomStart, type NetSyncMode } from "@/Net";
 import { useStateRef } from "@fimagine/dom-hooks/dist/useStateRef";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, useEffect, useRef, useState } from "react";
 import { ChatBox } from "./ChatBox";
 import { Connection } from "./Connection";
 import { ConnectionBox } from "./ConnectionBox";
 import { current_connection } from "./current_connection";
+import { DelayNetworkDriver } from "./DelayNetworkDriver";
 import { LFWNetworkDriver } from "./LFWNetworkDriver";
+import { LockstepNetworkDriver } from "./LockstepNetworkDriver";
 import { RoomBox } from "./RoomBox";
 import { RoomsBox } from "./RoomsBox";
 import styles from "./styles.module.scss";
@@ -17,41 +19,56 @@ import { useRoom } from "./useRoom";
 export interface INetworkingProps {
   lf2?: LFW | undefined | null;
   on_close?(): void;
+  /** 调试用：强制同步模式，缺省时听服务器下发 */
+  sync_mode?: NetSyncMode;
+  /** 调试用：强制提前帧数 */
+  input_delay?: number;
+  /** 调试用：房间列表返回全部同步模式的房间 */
+  show_all_rooms?: boolean;
 }
 
 export function Networking(props: INetworkingProps) {
-  const { lf2, on_close } = props;
+  const { lf2, on_close, sync_mode, input_delay, show_all_rooms } = props;
   const ref_lf2 = useRef(lf2);
   ref_lf2.current = lf2;
   const [conn_state, set_conn_state] = useState<TriState>(TriState.False);
   const [conn, set_conn] = useStateRef<Connection | null>(null)
   const { room } = useRoom(conn)
-  const updater = useMemo(() => new LFWNetworkDriver(), [])
-  updater.conn = conn;
-  updater.lf2 = lf2;
+  const ref_updater = useRef<LFWNetworkDriver | null>(null);
+  const create_driver = (resp: IRespRoomStart) => {
+    const mode = sync_mode ?? resp.sync_mode ?? 'lockstep';
+    const driver = mode === 'delay'
+      ? new DelayNetworkDriver(input_delay ?? resp.input_delay ?? 2)
+      : new LockstepNetworkDriver();
+    driver.conn = conn;
+    driver.lf2 = lf2;
+    ref_updater.current = driver;
+    return driver;
+  };
   useEffect(() => {
     current_connection.conn = conn;
     return () => { current_connection.conn = null; };
   }, [conn]);
   const [started, set_started] = useState(false)
+  const chat_style = use_fade_style(!!conn_state)
   useCallbacks(conn?.callbacks, {
     on_message: (resp, conn) => {
       const me = conn.client;
       if (!lf2 || !me) return;
       switch (resp.type) {
         case MsgEnum.ClientInfo:
-          updater.update_client(resp);
+          ref_updater.current?.update_client(resp);
           break;
         case MsgEnum.RoomStart:
-          updater.on_room_start(resp);
+          create_driver(resp).on_room_start(resp);
           set_started(true)
           break;
         case MsgEnum.Dataset:
-          updater.update_dataset(resp)
+          ref_updater.current?.update_dataset(resp)
           break;
         case MsgEnum.KeyTick:
         case MsgEnum.Tick: {
-          updater.on_tick(resp);
+          ref_updater.current?.on_tick(resp);
           break;
         }
       }
@@ -67,7 +84,7 @@ export function Networking(props: INetworkingProps) {
   }, [lf2, conn])
 
   useCallbacks(lf2?.world.callbacks, {
-    on_dataset_change: (k, value, prev) => updater.on_dataset_change(k, value, prev),
+    on_dataset_change: (k, value, prev) => ref_updater.current?.on_dataset_change(k, value, prev),
   }, [lf2, conn])
 
   useEffect(() => {
@@ -92,6 +109,7 @@ export function Networking(props: INetworkingProps) {
     <RoomsBox
       conn={conn}
       conn_state={conn_state}
+      show_all_rooms={show_all_rooms}
       style={display_or_not(conn_state && !room)} />
     <RoomBox
       conn={conn}
@@ -100,8 +118,27 @@ export function Networking(props: INetworkingProps) {
     <ChatBox
       conn={conn}
       className={styles.chat_box}
-      style={display_or_not(conn_state)} />
+      style={chat_style} />
   </>
 }
 
 const display_or_not = (v: any) => ({ display: v ? void 0 : 'none' })
+
+/** 淡入淡出：隐藏时先过渡 opacity，之后再 display:none，避免瞬间消失 */
+function use_fade_style(visible: boolean): CSSProperties | undefined {
+  const [style, set_style] = useState<CSSProperties | undefined>(() => visible ? void 0 : { display: 'none' })
+  useEffect(() => {
+    if (visible) {
+      set_style({ opacity: 0 })
+      let raf2 = 0
+      const raf1 = requestAnimationFrame(() => {
+        raf2 = requestAnimationFrame(() => set_style({ opacity: 1 }))
+      })
+      return () => { cancelAnimationFrame(raf1); cancelAnimationFrame(raf2) }
+    }
+    set_style({ opacity: 0 })
+    const tid = setTimeout(() => set_style({ display: 'none' }), 160)
+    return () => clearTimeout(tid)
+  }, [visible])
+  return style
+}

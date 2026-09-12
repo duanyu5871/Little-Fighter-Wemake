@@ -6,7 +6,7 @@ import { Input } from "@/Component/Input";
 import Show from "@/Component/Show";
 import { Strong, Text } from "@/Component/Text";
 import { useFloating } from "@/hooks/useFloating";
-import { type IRoomInfo, MsgEnum } from "@/Net";
+import { type IRoomInfo, MsgEnum, recommend_sync, type RoomSyncMode } from "@/Net";
 import type { IRoomClientInfo } from "@/Net/IRoomClientInfo";
 import { useForwardedRef } from "@fimagine/dom-hooks";
 import List from "rc-virtual-list";
@@ -15,6 +15,13 @@ import { useTranslation } from "react-i18next";
 import { Connection } from "./Connection";
 import { useCallbacks } from "./useCallbacks";
 import { useRoom } from "./useRoom";
+
+const SYNC_MODES: RoomSyncMode[] = ['auto', 'lockstep', 'delay'];
+const SYNC_MODE_LABEL: Record<RoomSyncMode, string> = {
+  auto: 'sync_auto',
+  lockstep: 'sync_lockstep',
+  delay: 'sync_delay',
+};
 export interface IRoomBoxProps extends HTMLAttributes<HTMLDivElement> {
   conn?: Connection | null
 }
@@ -32,6 +39,24 @@ export function _RoomBox(props: IRoomBoxProps, f_ref: ForwardedRef<HTMLDivElemen
     )
     return { players, me, owner, all_ready, is_owner: me === owner } as const
   }, [room])
+
+  const [rtts, set_rtts] = useState<Record<string, number>>({})
+  useCallbacks(conn?.callbacks, {
+    on_ping: (resp, conn) => {
+      const id = resp.client;
+      if (!id) return;
+      const rtt = id === conn.client?.id ? conn.rtt : resp.rtt;
+      if (!rtt) return;
+      set_rtts(prev => prev[id] === rtt ? prev : { ...prev, [id]: rtt });
+    }
+  }, [])
+  const { worst_rtt, recommend } = useMemo(() => {
+    let worst_rtt = 0;
+    for (const p of players)
+      worst_rtt = Math.max(worst_rtt, rtts[p.id!] ?? 0);
+    return { worst_rtt, recommend: worst_rtt ? recommend_sync(worst_rtt) : null };
+  }, [players, rtts])
+  const selected_sync = room?.sync_mode ?? 'auto';
   
   const [countdown, set_countdown] = useState(5);
   const [ref_floating_view, on_ref] = useForwardedRef(f_ref)
@@ -64,6 +89,26 @@ export function _RoomBox(props: IRoomBoxProps, f_ref: ForwardedRef<HTMLDivElemen
       <Flex direction='column' align='stretch'>
         <Flex gap={10} align='center' justify='space-between' style={{ margin: 5 }}>
           <Strong>{`${room?.title} (${players?.length}/${room?.max_players})`}</Strong>
+        </Flex>
+        <Divider />
+        <Flex gap={8} align='center' style={{ margin: '0 5px 5px' }}>
+          <Text size='s'>{t('sync_mode')}:</Text>
+          {SYNC_MODES.map(v => (
+            <Button
+              key={v}
+              size='s'
+              variants={['no_border', 'no_round', 'no_shadow']}
+              actived={selected_sync === v}
+              disabled={!is_owner || room?.started}
+              onClick={() => conn?.send(MsgEnum.RoomSync, { sync_mode: v })}>
+              {t(SYNC_MODE_LABEL[v])}
+            </Button>
+          ))}
+          <Text size='s' style={{ opacity: 0.6 }}>
+            {recommend ?
+              `${t('sync_recommend')}: ${recommend.sync_mode === 'delay' ? `${t('sync_delay')} K=${recommend.input_delay}` : t('sync_lockstep')} (${Math.round(worst_rtt)}ms)`
+              : ''}
+          </Text>
         </Flex>
         <Divider />
         <Show show={!!room?.lfw_version || !!room?.data_infos?.length}>

@@ -169,6 +169,23 @@ export class Connection {
     this._ws = null
   }
 
+  /**
+   * 发送不需要回包的请求（不创建 job、不返回 Promise，避免每帧一个泄漏的 job）
+   */
+  send_nowait<
+    T extends MsgEnum,
+    Req extends IReq = IMsgReqMap[T]
+  >(type: T, msg: TInfo<Req>): void {
+    const ws = this._ws;
+    if (!ws || ws.readyState !== ws.OPEN) return;
+    const _req: IReq = { pid: `${++this._pid}`, type, is_req: true, ...msg };
+    try {
+      ws.send(JSON.stringify(_req));
+    } catch (e) {
+      this.callbacks.call('on_error', req_unknown_error(_req, e as Error), this)
+    }
+  }
+
   send<
     T extends MsgEnum,
     Req extends IReq = IMsgReqMap[T],
@@ -205,6 +222,9 @@ export class Connection {
     switch (resp.type) {
       case MsgEnum.JoinRoom:
       case MsgEnum.CreateRoom:
+        this.callbacks.call('on_room_change', this.room = resp.room, this)
+        break;
+      case MsgEnum.RoomSync:
         this.callbacks.call('on_room_change', this.room = resp.room, this)
         break;
       case MsgEnum.CloseRoom:
