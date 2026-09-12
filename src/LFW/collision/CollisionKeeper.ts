@@ -2,6 +2,7 @@
 import { ALL_ENTITY_ENUM, ALL_STATES, BdyKind, EntityEnum, ItrKind, StateEnum, type TEntityEnum } from "../defines";
 import { Ditto } from "../ditto";
 import { collision_action_handlers } from "../entity/collision_action_handlers";
+import { NestedMap } from "../utils/container_help/nested_map";
 import type { Collision, ICollisionFunc } from "./Collision";
 import { handle_ball_frozen } from "./handle_ball_frozen";
 import { handle_ball_hit_other } from "./handle_ball_hit_other";
@@ -41,26 +42,26 @@ export interface IHandlerConfig {
   desc?: string;
 }
 
-function product_keys(...dims: (number[] | string[])[]): string[] {
-  const keys: string[] = [];
-  const stack: number[] = new Array(dims.length).fill(0);
-  const len = dims.reduce((a, b) => a * (b.length || 1), 1);
-  for (let n = 0; n < len; n++) {
-    const parts: (number | string)[] = [];
-    for (let d = 0; d < dims.length; d++) {
-      parts.push(dims[d][stack[d]]);
-    }
-    keys.push(parts.join("_"));
-    for (let d = dims.length - 1; d >= 0; d--) {
-      if (++stack[d] < dims[d].length) break;
-      stack[d] = 0;
-    }
-  }
-  return keys;
+function pack_a(a_type: number, itr_kind: number): number {
+  return (a_type << 12) | itr_kind;
+}
+
+function pack_b(v_type: number, bdy_kind: number): number {
+  return (v_type << 16) | bdy_kind;
+}
+
+const is_u8 = (v: number) => Number.isInteger(v) && v >= 0 && v < 256;
+const is_u12 = (v: number) => Number.isInteger(v) && v >= 0 && v < 4096;
+const is_u16 = (v: number) => Number.isInteger(v) && v >= 0 && v < 65536;
+
+interface IHandlerEntry {
+  fn: ICollisionFunc;
+  a_state?: StateEnum[];
+  v_state?: StateEnum[];
 }
 
 export class CollisionKeeper {
-  protected pair_map: Map<string, ICollisionFunc[]> = new Map();
+  protected pair_map = new NestedMap<number, number, IHandlerEntry[]>();
 
   private add(
     a_type_list: TEntityEnum[],
@@ -71,11 +72,20 @@ export class CollisionKeeper {
     a_state_list: StateEnum[] = ALL_STATES,
     v_state_list: StateEnum[] = ALL_STATES,
   ) {
-    for (const key of product_keys(
-      a_type_list, itr_kind_list, v_type_list, bdy_kind_list, a_state_list, v_state_list,
-    )) {
-      const fns = this.pair_map.get(key);
-      fns ? fns.push(fn) : this.pair_map.set(key, [fn]);
+    const entry: IHandlerEntry = { fn };
+    if (a_state_list !== ALL_STATES) entry.a_state = a_state_list;
+    if (v_state_list !== ALL_STATES) entry.v_state = v_state_list;
+    for (const a_type of a_type_list) {
+      for (const itr_kind of itr_kind_list) {
+        const k1 = pack_a(a_type, itr_kind);
+        for (const v_type of v_type_list) {
+          for (const bdy_kind of bdy_kind_list) {
+            const k2 = pack_b(v_type, bdy_kind);
+            const list = this.pair_map.get(k1, k2);
+            list ? list.push(entry) : this.pair_map.set(k1, k2, [entry]);
+          }
+        }
+      }
     }
   }
 
@@ -100,10 +110,16 @@ export class CollisionKeeper {
     const bdy_kind = collision.bdy.kind
     const a_state = collision.attacker.state
     const b_state = collision.victim.state
-    const l = this.pair_map.get(`${a_type}_${itr_kind}_${v_type}_${bdy_kind}_${a_state}_${b_state}`);
-    if (!l?.length) return false;
-    collision.handlers.push(...l);
-    return true;
+    if (!is_u8(a_type) || !is_u12(itr_kind) || !is_u8(v_type) || !is_u16(bdy_kind)) return false;
+    const list = this.pair_map.get(pack_a(a_type, itr_kind), pack_b(v_type, bdy_kind));
+    if (!list?.length) return false;
+    for (let i = 0; i < list.length; i++) {
+      const e = list[i];
+      if (e.a_state && !e.a_state.includes(a_state)) continue;
+      if (e.v_state && !e.v_state.includes(b_state)) continue;
+      collision.handlers.push(e.fn);
+    }
+    return collision.handlers.length > 0;
   }
 
   handle(collision: Collision) {
