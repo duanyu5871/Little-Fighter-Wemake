@@ -132,6 +132,7 @@ export function preprocess_itr(ctx: IItrInfoContext): IItrInfo {
         .add(C_Val.AttackerHasHolder, "==", 0)
         .and(C_Val.VictimHasHolder, "==", 0)
         .and(C_Val.VictimState, "==", StateEnum.Weapon_OnGround)
+        .and(C_Val.AHitAttack, "==", 1)
         .done();
       break;
     }
@@ -150,6 +151,7 @@ export function preprocess_itr(ctx: IItrInfoContext): IItrInfo {
       itr.test = itr.test ?? new CondMaker<C_Val>()
         .add(C_Val.VictimType, "==", EntityEnum.Fighter)
         .or(c => c
+          /* FIXME: 实在不太喜欢写死的 VictimOID -Gim*/
           .add(C_Val.VictimType, "==", EntityEnum.Weapon)
           .and(C_Val.VictimOID, "!=", OID.HenryArrow1)
           .and(C_Val.VictimOID, "!=", OID.RudolfWeapon),

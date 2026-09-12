@@ -33,17 +33,15 @@ export enum ItrKind {
    * 当角色的itr与武器的bdy碰撞，
    * 且武器的frame.state为1004(Weapon_OnGround)或2004(HeavyWeapon_OnGround)时
    *
-   * 捡起武器的动作实在preprocess中通过action实现，见preprocess_itr
    * 
    * 用于：
    * * [X] LF2
    * * [X] WEMAKE
    *
-   * WEMAKE中，该碰撞判定通过IItrInfo.test设置。
-   *
+   * WEMAKE中，该碰撞判定是否生效通过IItrInfo.test设置, 见preprocess_itr。
+   * WEMAKE中，捡起拾武器者的动作跳转通过IItrInfo.actions实现，见preprocess_itr。
    * @see {IItrInfo.test}
-   * @see {Defines.State.Weapon_OnGround}
-   * @see {Defines.State.HeavyWeapon_OnGround}
+   * @see {IItrInfo.actions}
    */
   Pick = 2,
 
@@ -88,19 +86,19 @@ export enum ItrKind {
    * 用于：
    * * [X] LF2
    * * [X] WEMAKE
+   * 
+   * WEMAKE中，该碰撞判定是否生效通过IItrInfo.test设置, 见preprocess_itr。
    */
   SuperPunchMe = 6,
 
   /**
-   * 立刻捡起武器
-   *
-   * 当角色的itr与武器的bdy碰撞，且武器的frame.state为1004(Weapon_OnGround)时
+   * 捡起武器但动作不变
    *
    * 用于：
    * * [X] LF2
    * * [X] WEMAKE
    *
-   * WEMAKE中，该碰撞判定通过IItrInfo.test设置。
+   * WEMAKE中，该碰撞判定通过IItrInfo.test设置, 见preprocess_itr。
    *
    * @see {IItrInfo.test}
    * @see {Defines.State.Weapon_OnGround}
