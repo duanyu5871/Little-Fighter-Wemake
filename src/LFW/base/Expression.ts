@@ -1,14 +1,9 @@
-import { Ditto } from "../ditto/Instance";
 import { BinOp, type TBinOp } from "../defines/BinOp";
 import {
-  type IExpression, type IJudger, type IValGetterGetter
+  type IExpression,
+  type IValGetterGetter
 } from "../defines/IExpression";
-export function ALWAY_FALSE<T = unknown>(
-  text: string,
-  err?: string,
-): IJudger<T> {
-  return { run: () => false, text, err, result: false };
-}
+import { Ditto } from "../ditto/Instance";
 const a_included_b = (a: any[], b: any[]) => {
   return !b.length || b.findIndex((i) => a.indexOf(i) < 0) === -1;
 };
@@ -68,77 +63,79 @@ export class Expression<T1, T2 = T1> implements IExpression<T1, T2> {
   val_1: any;
   val_2: any;
 
-  constructor(
-    arg_0: string | null,
-    get_val_getter: IValGetterGetter<T1 | T2>,
-  ) {
+  constructor(source: string, get_val_getter: IValGetterGetter<T1 | T2>) {
     this.get_val_getter = get_val_getter;
-    if (typeof arg_0 === "string") {
-      this.text = arg_0.replace(/\s|\n|\r/g, "");
-      let p = 0;
-      const count = this.text.length + 1;
-      let i = 0;
-      let letter: string = "";
-      let before: string = "";
-
-      for (; i < count; ++i) {
-        letter = this.text[i] || '';
-        if ("!" === letter && this.text[i + 1] === "(") {
-          const child = new Expression<T1, T2>(
-            this.text.substring(i + 2),
-            get_val_getter,
-          );
-          child.not = true;
-          child.before = before;
-          i += child.text.length + 2;
-          p = i + 2;
-          this.children.push(child);
-        } else if ("(" === letter) {
-          const child = new Expression<T1, T2>(
-            this.text.substring(i + 1),
-            get_val_getter,
-          );
-          child.before = before;
-          i += child.text.length + 1;
-          p = i + 1;
-          this.children.push(child);
-        } else if ("|" === letter || "&" === letter) {
-          let db = false
-          if (this.text[i + 1] == letter) {
-            db = true;
-            ++i
-          }
-          // 仅在切片确实非空时才创建子判断；否则（如 `(...)` 分组后紧跟 &&/||，
-          // 双字符检测 ++i 会让 p 与切片起点重合）跳过，避免产生 [empty text] 空节点
-          if (p < (db ? i - 1 : i)) {
-            const child = new Expression<T1, T2>(null, get_val_getter);
-            child.judger(this.text.substring(p, db ? i - 1 : i).replace(/\)*$/g, ""))
-            child.before = before;
-            this.children.push(child);
-            before = letter;
-          } else {
-            before = letter;
-          }
-          p = i + 1;
-        } else if (")" === letter || '' === letter) {
-          if (p < i) {
-            const child = new Expression<T1, T2>(null, get_val_getter);
-            child.judger(this.text.substring(p, i))
-            child.before = before;
-            this.children.push(child);
-          }
-          break;
-        }
-      }
-      this.text = this.text.substring(0, i);
+    if (typeof source !== "string") return
+    const text = source.replace(/\s|\n|\r/g, "");
+    if (!/[&|()]/.test(text)) {
+      this.parse(text);
+      return;
     }
+    let p = 0;
+    const count = text.length + 1;
+    let i = 0;
+    let letter: string = "";
+    let before: string = "";
+    for (; i < count; ++i) {
+      letter = text[i] || '';
+      if ("!" === letter && text[i + 1] === "(") {
+        const child = new Expression<T1, T2>(
+          text.substring(i + 2),
+          get_val_getter,
+        );
+        child.not = true;
+        child.before = before;
+        i += child.text.length + 2;
+        p = i + 2;
+        this.children.push(child);
+      } else if ("(" === letter) {
+        const child = new Expression<T1, T2>(
+          text.substring(i + 1),
+          get_val_getter,
+        );
+        child.before = before;
+        i += child.text.length + 1;
+        p = i + 1;
+        this.children.push(child);
+      } else if ("|" === letter || "&" === letter) {
+        let db = false
+        if (text[i + 1] == letter) {
+          db = true;
+          ++i
+        }
+        // 仅在切片确实非空时才创建子判断；否则（如 `(...)` 分组后紧跟 &&/||，
+        // 双字符检测 ++i 会让 p 与切片起点重合）跳过，避免产生 [empty text] 空节点
+        if (p < (db ? i - 1 : i)) {
+          const child = new Expression<T1, T2>(
+            text.substring(p, db ? i - 1 : i).replace(/\)*$/g, ""),
+            get_val_getter,
+          );
+          child.before = before;
+          this.children.push(child);
+          before = letter;
+        } else {
+          before = letter;
+        }
+        p = i + 1;
+      } else if (")" === letter || '' === letter) {
+        if (p < i) {
+          const child = new Expression<T1, T2>(text.substring(p, i), get_val_getter);
+          child.before = before;
+          this.children.push(child);
+        }
+        break;
+      }
+    }
+    this.text = text.substring(0, i);
   }
+
   private alway_false(err: string): void {
     this.err = err
     this.result = false;
     this.run = () => false;
   }
-  private judger(text: string): void {
+
+  private parse(text: string): void {
     this.text = text
     if (!text) return this.alway_false("[empty text]")
 
@@ -188,6 +185,7 @@ export class Expression<T1, T2 = T1> implements IExpression<T1, T2> {
       return this.result;
     }
   }
+
   run = (e: T1): boolean => {
     let or_result = false;
     let and_result: boolean | undefined;
@@ -218,13 +216,13 @@ export class Expression<T1, T2 = T1> implements IExpression<T1, T2> {
       Expression.is(c)
         ? c.collect()
         : {
-            text: String((c as any)?.text ?? c),
-            result: (c as any)?.result,
-            err: (c as any)?.err,
-            before: (c as any)?.before ?? '',
-            not: (c as any)?.not ?? false,
-            children: [],
-          }
+          text: String((c as any)?.text ?? c),
+          result: (c as any)?.result,
+          err: (c as any)?.err,
+          before: (c as any)?.before ?? '',
+          not: (c as any)?.not ?? false,
+          children: [],
+        }
     );
     return {
       text: this.text,
