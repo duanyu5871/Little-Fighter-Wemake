@@ -49,6 +49,8 @@
     "__OTHERS___": "__OTHERS___",
     "rn:pull": "node ./scripts/zipsync.mjs pull --url https://lf.gim.ink/convertings/rn.zip --dir ./lf2s/rn --zip ./lf2s/rn.zip",
     "rn:push": "node ./scripts/zipsync.mjs push --url https://lf.gim.ink/convertings/rn.zip --dir ./lf2s/rn --zip ./lf2s/rn.zip",
+    "public:pull": "node ./scripts/zipsync.mjs pull --url https://lf.gim.ink/convertings/public.zip --dir ./public --zip ./lf2s/public.zip",
+    "public:push": "node ./scripts/zipsync.mjs push --url https://lf.gim.ink/convertings/public.zip --dir ./public --zip ./lf2s/public.zip",
     "exports:lf2": "node ./scripts/auto-exports.mjs ./src/LFW",
     "exports:ditto": "node ./scripts/auto-exports.mjs ./src/DittoImpl",
     "register:components": "node ./scripts/auto-components.mjs",
