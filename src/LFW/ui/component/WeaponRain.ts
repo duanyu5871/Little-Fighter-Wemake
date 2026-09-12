@@ -1,4 +1,6 @@
-import { EntityGroup, type IPropsMeta } from "../../defines";
+import { EntityGroup, type IEntityData, type IPropsMeta } from "../../defines";
+import { Ditto } from "../../ditto/Instance";
+import type { Entity } from "../../entity/Entity";
 import { floor, max, pow, Times } from "../../utils";
 import { UIComponent } from "./UIComponent";
 
@@ -9,6 +11,7 @@ const DEFAULT_LIMIT = 3;
 const ROLL_SCALE = 20000;
 
 export interface IWeaponRainProps {
+  oids?: string;
   groups?: string;
   chance?: number;
   interval?: number;
@@ -18,6 +21,7 @@ export interface IWeaponRainProps {
 export class WeaponRain extends UIComponent<IWeaponRainProps> {
   static override readonly TAGS: string[] = ["WeaponRain"];
   static override readonly PROPS: IPropsMeta<IWeaponRainProps> = {
+    oids: { type: String, nullable: true },
     groups: { type: String, nullable: true },
     chance: { type: Number, nullable: true },
     interval: { type: Number, nullable: true },
@@ -26,6 +30,9 @@ export class WeaponRain extends UIComponent<IWeaponRainProps> {
   };
   protected timer = new Times(0, DEFAULT_INTERVAL);
   protected last_section?: number;
+  protected _using_oids?: string;
+  protected readonly _oid_datas: IEntityData[] = [];
+  protected readonly _warned_oids = new Set<string>();
   override on_start(): void {
     super.on_start?.();
     const { interval } = this.props;
@@ -45,7 +52,7 @@ export class WeaponRain extends UIComponent<IWeaponRainProps> {
       chance = DEFAULT_CHANCE, 
       power = DEFAULT_POWER 
     } = this.props;
-    const { mt, weapons } = this.lfw;
+    const { mt } = this.lfw;
     const limit = this.props.limit ?? DEFAULT_LIMIT;
     mt.mark = 'weapon_rain_range';
     const x = world.random_weapon_x(this.last_section);
@@ -55,8 +62,43 @@ export class WeaponRain extends UIComponent<IWeaponRainProps> {
     const left = limit > 0 ? max(0, 1 - count / limit) : 0;
     const threshold = floor(chance * pow(left, power) * ROLL_SCALE);
     if (mt.range(0, ROLL_SCALE) >= threshold) return;
-    const [entity] = weapons.add_random(1, true, groups);
+    const entity = this.drop_weapon(groups);
     if (!entity) return;
     entity.set_position(x);
+  }
+
+  protected drop_weapon(groups: string): Entity | undefined {
+    const datas = this.resolve_oid_datas();
+    if (datas.length) {
+      const { mt, weapons } = this.lfw;
+      mt.mark = 'weapon_rain_oids';
+      return weapons.add(datas[mt.range(0, datas.length)], 1)[0];
+    }
+    return this.lfw.weapons.add_random(1, true, groups)[0];
+  }
+
+  protected resolve_oid_datas(): IEntityData[] {
+    const { oids } = this.props;
+    if (this._using_oids === oids) return this._oid_datas;
+    this._using_oids = oids;
+    const { datas } = this.lfw;
+    const ret = this._oid_datas;
+    ret.length = 0;
+    if (oids) {
+      for (const raw of oids.split(',')) {
+        const oid = raw.trim();
+        if (!oid) continue;
+        const data = datas.find_weapon(oid);
+        if (data) {
+          ret.push(data);
+          continue;
+        }
+        if (!this._warned_oids.has(oid)) {
+          this._warned_oids.add(oid);
+          Ditto.warn(`[${WeaponRain.name}] oid not found: ${oid}`);
+        }
+      }
+    }
+    return ret;
   }
 }
