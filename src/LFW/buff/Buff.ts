@@ -1,3 +1,4 @@
+import type { IBuffRenderer } from "../ditto/render/IBuffRenderer";
 import type { Entity } from "../entity";
 import type { LFW } from "../LFW";
 import { Times } from "../utils/Times";
@@ -14,6 +15,7 @@ export abstract class Buff {
   protected _attacker_id: string = '';
   level: number = 0;
   protected _mounted = false;
+  renderer?: IBuffRenderer;
   protected readonly _victims: string[] = [];
   protected readonly _ticker = new Times();
   protected readonly _lifetime = new Times(0, 1).set_lifes(1);
