@@ -12,6 +12,7 @@
     sync_3: "60 FPS",
     sync_4: "120 FPS",
     render_fps: "FPS",
+    stats_visible: "Perf",
     TEA: "효과음 볼륨",
     enabled: "활성화됨",
     disabled: "비활성화됨",

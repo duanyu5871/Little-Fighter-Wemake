@@ -12,6 +12,7 @@
     sync_3: "60 FPS",
     sync_4: "120 FPS",
     render_fps: "FPS",
+    stats_visible: "Perf",
     TEA: "効果音音量",
     enabled: "有効",
     disabled: "無効",
