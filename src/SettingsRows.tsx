@@ -116,7 +116,7 @@ export default function SettingsRows(props: ISettingsRowsProps) {
     if (!lf2) return;
     if (!lf2?.world) return;
     if (!ready) return;
-    Object.assign(lf2.world, cwds)
+    Object.assign(lf2.world.dataset, cwds)
   }, [ready, cwds, lf2])
 
   useEffect(() => {
