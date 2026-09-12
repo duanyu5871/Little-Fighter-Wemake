@@ -673,6 +673,7 @@ export class World {
 
     for (let i = 0; i < len; i++) {
       const a = this.entities[i];
+      if (a.ghosted) continue;
       if (is_weapon(a) && a.is_on_ground) {
         const section = round(a.position.x / WEAPON_X_SECTION);
         const count = this.ground_weapon_counts.get(section) ?? 0;
@@ -685,7 +686,6 @@ export class World {
       if (update_chasing && is_bot_ctrl(ctrl))
         ctrl.update_lookup(i, this.entities)
 
-      if (a.ghosted) continue;
       for (let j = i + 1; j < len; j++) {
         const b = this.entities[j];
         if (b.ghosted) continue;

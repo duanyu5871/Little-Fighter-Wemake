@@ -3,7 +3,6 @@ export * from "./Bar";
 export * from "./BgLayerIndicator";
 export * from "./BgLayerRender";
 export * from "./BgRender";
-export * from "./BuffRenderer";
 export * from "./EntityCtrlRender";
 export * from "./EntityMainRender";
 export * from "./EntityNameRender";
