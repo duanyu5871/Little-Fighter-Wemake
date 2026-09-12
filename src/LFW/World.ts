@@ -45,7 +45,7 @@ import { WorldDataset } from "./WorldDataset";
 const CHASING_UPDATE_INTERVAL = 8;
 const MAX_DEBUG_ENTITIES = 355
 const MAX_STEP_ERRORS = 120
-const WEAPON_X_SECTION = 400;
+const WEAPON_X_SECTION = 750;
 const x_sorter = (a: Entity, b: Entity) => {
   const d = a.aabb_min_x - b.aabb_min_x;
   if (d !== 0) return d;
