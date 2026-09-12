@@ -1,4 +1,4 @@
-import { Entity } from "../entity";
+import type { Entity } from "../entity";
 import type { LFW } from "../LFW";
 import { Times } from "../utils/Times";
 import { World } from "../World";

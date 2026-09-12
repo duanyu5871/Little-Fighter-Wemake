@@ -26,6 +26,7 @@ export type Key = string | number | symbol
 export class Factory {
   static readonly TAG = `Factory`;
   readonly graves_maps = new Map<Key, Graves<Entity>>();
+  readonly buff_graves_maps = new Map<Key, Graves<Buff>>();
   static readonly entity_creators = new Map<Key, IEntityCreators>();
   static readonly ctrl_creators = new Map<Key, ICtrlCreator>();
   static readonly buff_creators = new Map<Key, IBuffCreator>();
@@ -61,9 +62,16 @@ export class Factory {
   create_buff(kind: Key, lfw: LFW, id: string): Buff | undefined {
     const B = Factory.buff_creators.get(kind);
     if (!B) return void 0;
-    const ret = new B(lfw, id, B.KIND);
+    const ret = this.buff_graves_maps.get(kind)?.take() ?? new B(lfw, id, B.KIND);
+    ret.reset(id);
     ret.init();
     return ret;
+  }
+  recycle_buff(buff: Buff): this {
+    let graves = this.buff_graves_maps.get(buff.kind);
+    if (!graves) this.buff_graves_maps.set(buff.kind, graves = new Graves());
+    graves.add(buff);
+    return this;
   }
   recycle_entity(e: Entity): this {
     let graves = this.graves_maps.get(e.data.type);

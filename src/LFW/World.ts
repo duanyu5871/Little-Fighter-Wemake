@@ -75,6 +75,7 @@ export class World {
    */
   private _entities_map = new Map<string, Entity[]>();
   readonly buffs = new Map<string, Buff>();
+  protected readonly _dead_buffs: Buff[] = [];
   private _game_time = new Times();
   readonly ground = new Ground(this);
   private _counts = new Map<string, number>()
@@ -571,6 +572,11 @@ export class World {
     this.has_players_alive = this._alive_players.size > 0;
   }
 
+  protected collect_dead_buff(buff: Buff): void {
+    buff.update(this.dataset.atom_time);
+    if (buff.dead) this._dead_buffs.push(buff);
+  }
+
   step() {
     this._entities_map.clear();
     this.transform.update();
@@ -593,14 +599,13 @@ export class World {
     this._pair_collisions.clear();
     // const temp_entities: Entity[] = [];
     const update_chasing = this._game_time.value % CHASING_UPDATE_INTERVAL === 0;
-    const dead_buffs: [string, Buff][] = []
-    this.buffs.forEach((buff, key) => {
-      buff.update(this.dataset.atom_time)
-      if (buff.dead) dead_buffs.push([key, buff])
-    })
-    for (const [key, buff] of dead_buffs) {
+    this._dead_buffs.length = 0;
+    this.buffs.forEach(this.collect_dead_buff, this);
+    for (let i = 0; i < this._dead_buffs.length; i++) {
+      const buff = this._dead_buffs[i];
       buff.unmount();
-      this.buffs.delete(key);
+      this.buffs.delete(buff.id);
+      this.lfw.factory.recycle_buff(buff);
     }
 
     let offset = 0;
