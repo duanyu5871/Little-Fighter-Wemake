@@ -9,7 +9,7 @@ export abstract class Buff {
   static readonly KIND: string | number = '';
   readonly lfw: LFW;
   readonly world: World;
-  readonly id: string
+  protected _id: string;
   readonly kind: string | number;
   protected _attacker: Entity | undefined;
   protected _attacker_id: string = '';
@@ -20,6 +20,7 @@ export abstract class Buff {
   protected readonly _ticker = new Times();
   protected readonly _lifetime = new Times(0, 1).set_lifes(1);
 
+  get id(): string { return this._id }
   get victims(): ReadonlyArray<string> { return this._victims; }
   get dead() { return this._lifetime.remains == 0 }
   get lifetime() { return this._lifetime.value }
@@ -39,9 +40,25 @@ export abstract class Buff {
     this.lfw = lfw;
     this.kind = kind
     this.world = lfw.world;
-    this.id = id;
+    this._id = id;
   }
   init(): void { };
+  reset(id: string): this {
+    const prev = this._id;
+    if (prev !== id)
+      for (const vid of this._victims)
+        this.world.find_entity(vid)?.buffs.delete(prev);
+    this._id = id;
+    this._attacker = void 0;
+    this._attacker_id = '';
+    this.level = 0;
+    this._mounted = false;
+    this.renderer = void 0;
+    this._victims.length = 0;
+    this._ticker.reborn();
+    this._lifetime.set_range(0, 1).set_lifes(1);
+    return this;
+  }
   on_tick?(attacker?: Entity, victim?: Entity): 'keep' | 'del';
   on_update?(attacker?: Entity, victim?: Entity): 'keep' | 'del';
   on_end?(attacker?: Entity, victim?: Entity): 'keep' | 'del';
