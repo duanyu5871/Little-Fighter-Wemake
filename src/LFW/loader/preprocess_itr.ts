@@ -36,8 +36,7 @@ export function preprocess_itr(ctx: IItrInfoContext): IItrInfo {
         且x轴速度朝向被抓着。
           -Gim
       */
-      if (itr.test) break;
-      itr.test = new CondMaker<C_Val>()
+      itr.test ??= new CondMaker<C_Val>()
         .and(C_Val.VictimState, "==", StateEnum.Tired)
         .and(C_Val.AClosingSpeedX, ">", 0)
         .done();
@@ -49,8 +48,7 @@ export function preprocess_itr(ctx: IItrInfoContext): IItrInfo {
         被击飞中的，不能抓
           -Gim
       */
-      if (itr.test) break;
-      itr.test = new CondMaker<C_Val>()
+      itr.test ??= new CondMaker<C_Val>()
         .and(C_Val.VictimState, "!=", StateEnum.Falling)
         .done();
       break;
@@ -58,31 +56,31 @@ export function preprocess_itr(ctx: IItrInfoContext): IItrInfo {
     case ItrKind.Normal: {
       switch (itr.effect as ItrEffect) {
         case ItrEffect.Fire:
-          itr.test = itr.test ?? new CondMaker<C_Val>()
+          itr.test ??= new CondMaker<C_Val>()
             .add(C_Val.VictimState, "!=", StateEnum.Burning)
             .or(C_Val.AttackerState, "!=", StateEnum.BurnRun)
             .done();
           break;
         case ItrEffect.MFire1:
-          itr.test = itr.test ?? new CondMaker<C_Val>()
+          itr.test ??= new CondMaker<C_Val>()
             .and(C_Val.VictimType, "==", EntityEnum.Fighter)
             .and(C_Val.VictimState, "!=", StateEnum.BurnRun)
             .and(C_Val.VictimState, "!=", StateEnum.Burning)
             .done();
           break;
         case ItrEffect.MFire2:
-          itr.test = itr.test ?? new CondMaker<C_Val>()
+          itr.test ??= new CondMaker<C_Val>()
             .add(C_Val.VictimState, "!=", StateEnum.BurnRun)
             .and(C_Val.VictimState, "!=", StateEnum.Burning)
             .done();
           break;
         case ItrEffect.Through:
-          itr.test = itr.test ?? new CondMaker<C_Val>()
+          itr.test ??= new CondMaker<C_Val>()
             .add(C_Val.VictimType, "!=", EntityEnum.Fighter)
             .done();
           break;
         case ItrEffect.Ice2:
-          itr.test = itr.test ?? new CondMaker<C_Val>()
+          itr.test ??= new CondMaker<C_Val>()
             .add(C_Val.VictimState, "!=", StateEnum.Frozen)
             .and(C_Val.VictimFrameId, "!=", C_Val.VictimFrameIndex_ICE)
             .done();
@@ -94,7 +92,7 @@ export function preprocess_itr(ctx: IItrInfoContext): IItrInfo {
       set_hit_flag(itr, itr.hit_flag ?? HitFlag.AllBoth)
       itr.motionless = itr.motionless ?? 0;
       itr.shaking = itr.shaking ?? 0;
-      itr.test = itr.test ?? new CondMaker<C_Val>()
+      itr.test ??= new CondMaker<C_Val>()
         .add(C_Val.AttackerHasHolder, "==", 0)
         .and(C_Val.VictimHasHolder, "==", 0)
         .and_one_of(
@@ -128,7 +126,7 @@ export function preprocess_itr(ctx: IItrInfoContext): IItrInfo {
       set_hit_flag(itr, itr.hit_flag ?? HitFlag.AllBoth)
       itr.motionless = itr.motionless ?? 0;
       itr.shaking = itr.shaking ?? 0;
-      itr.test = itr.test ?? new CondMaker<C_Val>()
+      itr.test ??= new CondMaker<C_Val>()
         .add(C_Val.AttackerHasHolder, "==", 0)
         .and(C_Val.VictimHasHolder, "==", 0)
         .and(C_Val.VictimState, "==", StateEnum.Weapon_OnGround)
@@ -139,7 +137,7 @@ export function preprocess_itr(ctx: IItrInfoContext): IItrInfo {
     case ItrKind.SuperPunchMe: {
       itr.motionless = itr.motionless ?? 0;
       itr.shaking = itr.shaking ?? 0;
-      itr.test = itr.test ?? new CondMaker<C_Val>()
+      itr.test ??= new CondMaker<C_Val>()
         .add(C_Val.VictimType, "==", EntityEnum.Fighter)
         .done();
       break;
@@ -148,7 +146,7 @@ export function preprocess_itr(ctx: IItrInfoContext): IItrInfo {
     case ItrKind.MagicFlute2: {
       itr.motionless = itr.motionless ?? 0;
       itr.shaking = itr.shaking ?? 0;
-      itr.test = itr.test ?? new CondMaker<C_Val>()
+      itr.test ??= new CondMaker<C_Val>()
         .add(C_Val.VictimType, "==", EntityEnum.Fighter)
         .or(c => c
           /* FIXME: 实在不太喜欢写死的 VictimOID -Gim*/
@@ -166,7 +164,7 @@ export function preprocess_itr(ctx: IItrInfoContext): IItrInfo {
         itr.arest = itr.vrest;
         delete itr.vrest;
       }
-      itr.test = itr.test ?? new CondMaker<C_Val>()
+      itr.test ??= new CondMaker<C_Val>()
         .and(C_Val.VictimType, "==", EntityEnum.Fighter)
         .and(C_Val.VictimState, "!=", StateEnum.Falling)
         .done();
@@ -179,7 +177,7 @@ export function preprocess_itr(ctx: IItrInfoContext): IItrInfo {
         itr.arest = itr.vrest;
         delete itr.vrest;
       }
-      itr.test = itr.test ?? new CondMaker<C_Val>()
+      itr.test ??= new CondMaker<C_Val>()
         .and(C_Val.VictimType, "==", EntityEnum.Fighter)
         .and(C_Val.VictimState, "==", StateEnum.Tired)
         .done();
@@ -189,13 +187,13 @@ export function preprocess_itr(ctx: IItrInfoContext): IItrInfo {
       set_hit_flag(itr, itr.hit_flag ?? HitFlag.AllBoth)
       itr.motionless = itr.motionless ?? 0;
       itr.shaking = itr.shaking ?? 0;
-      itr.test = itr.test ?? new CondMaker<C_Val>()
+      itr.test ??= new CondMaker<C_Val>()
         .add(C_Val.BdyKind, "==", BdyKind.Normal)
         .done();
       break;
     case ItrKind.JohnShield:
       set_hit_flag(itr, itr.hit_flag ?? HitFlag.AllBoth)
-      itr.test = itr.test ?? new CondMaker<C_Val>()
+      itr.test ??= new CondMaker<C_Val>()
         .and(C_Val.VictimType, "!=", EntityEnum.Fighter)
         .or(C_Val.SameTeam, "!=", 1)
         .done();
@@ -208,7 +206,7 @@ export function preprocess_itr(ctx: IItrInfoContext): IItrInfo {
           data: get_next_frame_by_raw_id(itr.dvx, 'frame'),
         })
       }
-      itr.test = itr.test ?? new CondMaker<C_Val>()
+      itr.test ??= new CondMaker<C_Val>()
         .and(C_Val.VictimType, "==", EntityEnum.Fighter)
         .done();
       break;
@@ -220,7 +218,7 @@ export function preprocess_itr(ctx: IItrInfoContext): IItrInfo {
       itr.dvx = itr.dvx ?? 0;
       itr.dvy = itr.dvy ?? 0;
       itr.dvz = itr.dvz ?? 0;
-      itr.test = itr.test ?? new CondMaker<C_Val>()
+      itr.test ??= new CondMaker<C_Val>()
         .add(C_Val.VictimType, "==", EntityEnum.Fighter)
         .and(c => c
           .add(C_Val.SameTeam, "==", 0)
@@ -238,7 +236,7 @@ export function preprocess_itr(ctx: IItrInfoContext): IItrInfo {
       itr.dvx = itr.dvx ?? 0;
       itr.dvy = itr.dvy ?? 0;
       itr.dvz = itr.dvz ?? 0;
-      itr.test = itr.test ?? new CondMaker<C_Val>()
+      itr.test ??= new CondMaker<C_Val>()
         .wrap(c => c
           .add(C_Val.VictimType, "==", EntityEnum.Weapon)
           .and(C_Val.VictimOID, "!=", OID.HenryArrow1)
@@ -256,7 +254,7 @@ export function preprocess_itr(ctx: IItrInfoContext): IItrInfo {
     }
     case ItrKind.CharacterThrew: {
       set_hit_flag(itr, itr.hit_flag ?? HitFlag.AllBoth)
-      itr.test = itr.test ?? new CondMaker<C_Val>()
+      itr.test ??= new CondMaker<C_Val>()
         .add(C_Val.AttackerThrew, "==", 1)
         .and(C_Val.AttackerType, "==", EntityEnum.Fighter)
         .done();
