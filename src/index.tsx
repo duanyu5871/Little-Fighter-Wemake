@@ -6,6 +6,7 @@ import './init';
 import "./LFW/defines/defines";
 import { Paths } from "./Paths";
 import { ConfigProvider } from "./Component/ConfigProvider";
+import { start_version_check } from "./version_check";
 
 const router = createHashRouter(Paths.Routes);
 ReactDOM.createRoot(document.getElementById("root")!).render(
@@ -14,4 +15,6 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
       <RouterProvider router={router} />
     </ConfigProvider>
   </React.StrictMode>,
-); 
+);
+
+start_version_check();

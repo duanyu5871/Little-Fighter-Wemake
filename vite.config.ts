@@ -1,7 +1,7 @@
 import react from '@vitejs/plugin-react';
 import { execSync } from 'child_process';
 import { resolve } from 'path';
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 import checker from 'vite-plugin-checker';
 import glsl from 'vite-plugin-glsl';
 import { createHtmlPlugin } from 'vite-plugin-html';
@@ -26,6 +26,27 @@ function isGitDirty(): boolean {
 
 const GIT_COMMIT_ID = getGitCommitId();
 const GIT_COMMIT_DIRTY = isGitDirty();
+const BUILD_STAMP = Date.now();
+
+function version_file_plugin(): Plugin {
+  return {
+    name: 'lfj-version-file',
+    generateBundle() {
+      this.emitFile({
+        type: 'asset',
+        fileName: 'version.json',
+        source: JSON.stringify({
+          version: json.version,
+          tag: process.env.BUILD_TAG ?? '',
+          commit: GIT_COMMIT_ID,
+          dirty: GIT_COMMIT_DIRTY,
+          stamp: BUILD_STAMP,
+          time: dayjs().format('YYYY-MM-DD HH:mm:ss'),
+        }, null, 2),
+      });
+    },
+  };
+}
 // bilibili-toy 构建：`vite build --mode bili-toy` → 产物输出到 dist-toy（不覆盖 web 的 dist），
 // 并把默认数据包指向 https://lf.gim.ink/<version>/（版本号取构建时 package.json 的 version，非固定）
 export default defineConfig(({ command, mode }) => {
@@ -49,13 +70,16 @@ export default defineConfig(({ command, mode }) => {
         }
       }
     }),
-    glsl()
+    glsl(),
+    version_file_plugin()
   ],
   define: {
     VERSION_NAME: JSON.stringify(json.version),
     GIT_COMMIT_ID: JSON.stringify(GIT_COMMIT_ID),
     GIT_COMMIT_DIRTY: JSON.stringify(GIT_COMMIT_DIRTY ? "dirty" : ""),
     BUILD_TIME: JSON.stringify(dayjs().format(`YYYY-MM-DD HH:mm:ss`)),
+    BUILD_STAMP: JSON.stringify(BUILD_STAMP),
+    VERSION_CHECK: is_dev_server || is_toy_build ? 'false' : 'true',
     // 构建期注入的默认数据包地址：仅 bilibili-toy 的正式构建（vite build --mode bili-toy）注入远端 URL；
     // 其它构建及 dev 服务器为 undefined，init.ts 回退到同源相对路径（本地 zip）
     DATA_ZIP_URLS: is_toy_build && !is_dev_server

@@ -79,6 +79,8 @@ declare const VERSION_NAME: string;
 declare const GIT_COMMIT_ID: string;
 declare const GIT_COMMIT_DIRTY: "dirty" | "";
 declare const BUILD_TIME: string;
+declare const BUILD_STAMP: number;
+declare const VERSION_CHECK: boolean;
 /** 构建期由 vite define 注入的默认数据包 URL 列表（init.ts 读取后覆盖 LFW.ZIPS）；普通构建为 undefined */
 declare const DATA_ZIP_URLS: string[] | undefined;
 declare type FieldKeysRow<T extends object> = (keyof T | (keyof T)[]);
