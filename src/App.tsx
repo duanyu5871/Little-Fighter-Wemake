@@ -452,6 +452,7 @@ function App() {
     if (typeof lang !== 'string') lang = navigator.language.toLowerCase()
     else lang = lang.toLowerCase()
     const lf2 = ref_lfw.current = new LFW(dev == '1');
+    ;(window as any).lfw = lf2
     lf2.toy_env = is_toy_env()
     if (is_toy_env()) {
       // B站生存排行：每进入一个新的 Survival 阶段上报“已到达的阶段数”（榜位 1）
