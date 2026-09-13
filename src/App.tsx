@@ -26,7 +26,7 @@ import { BG_INDICATINGS, ENTITY_INDICATINGS } from "./DittoImpl/renderer/INDICAT
 import { WorldRenderer } from "./DittoImpl/renderer/WorldRenderer";
 import EditorView from "./EditorView";
 import GamePad from "./GamePad";
-import { Difficulty, type IWorldDataset, LFW, WorldDataset, type SurvivalRankItem, type SurvivalRankPeriod } from "./LFW";
+import { Difficulty, type IWorldDataset, LFW, WorldDataset } from "./LFW";
 import { CheatEnum, CtrlDevice } from "./LFW/defines";
 import { CMD } from "./LFW/defines/CMD";
 import { SyncRenderEnum } from "./LFW/defines/SyncRenderEnum";
@@ -61,12 +61,11 @@ import img_btn_3_3 from "./assets/btn_3_3.png";
 import img_btn_4_3 from "./assets/btn_4_3.png";
 import { useForage } from "./hooks/useForage";
 import "./init";
-import { get_my_rank, get_rank_list, is_toy_env, SURVIVAL_RANK_BOARD, SURVIVAL_RANK_BOARD_2P, submit_rank_score } from "./toy_sdk";
-import { get_my_rank as get_my_rank_api, get_rank_list as get_rank_list_api, lookup_fighters as lookup_fighters_api, rank_api_available, submit_bili_record, submit_rank_score as submit_rank_score_api } from "./rank_api";
+import { is_toy_env } from "./toy_sdk";
 import { DatViewer } from "./pages/dat_viewer/DatViewer";
 import { useWorkspaces } from "./pages/dat_viewer/useWorkspaces";
 import { Networking } from "./pages/network_test/Networking";
-import { current_connection } from "./pages/network_test/current_connection";
+import { fetch_survival_rank, init_survival_rank } from "./survival_rank";
 import { useCallbacks } from "./pages/network_test/useCallbacks";
 
 type render_size_mode = "fixed" | "fill" | "cover" | "contain"
@@ -96,122 +95,6 @@ const load_files = async (lfw: LFW, files: File[]) => {
     lfw.load(...zips)
     lfw.set_ui({ id: 'loading' })
   }
-}
-
-/** B站生存排行：宿主拉取“榜单+我的排名”后一次性下发（limit≈SDK 上限 100） */
-async function fetch_survival_rank_data(lfw: LFW, period: SurvivalRankPeriod): Promise<void> {
-  const board = lfw.survival_rank_2p ? SURVIVAL_RANK_BOARD_2P : SURVIVAL_RANK_BOARD
-  const list = await get_rank_list({ board, period, limit: 100 })
-  const mine = await get_my_rank({ board, period })
-  if (mine && mine.ranked) {
-    const my_row = list.find(v => v.rank === mine.rank)
-    if (my_row?.nickname) set_bili_nickname(my_row.nickname)
-  }
-  apply_bili_player_name(lfw)
-  lfw.set_survival_rank_data({
-    period,
-    list: await merge_fighters(list, period, lfw.survival_rank_2p),
-    mine: mine && mine.ranked ? { rank: mine.rank, score: mine.score } : null,
-  })
-}
-
-/** B站昵称（榜单接口不提供角色信息，用提成绩时就近记下的昵称维护旁路记录） */
-const BILI_NICKNAME_KEY = 'survival_bili_nickname'
-function get_bili_nickname(): string {
-  try { return localStorage.getItem(BILI_NICKNAME_KEY) ?? '' } catch { return '' }
-}
-function set_bili_nickname(name: string) {
-  if (!name || name === get_bili_nickname()) return
-  try { localStorage.setItem(BILI_NICKNAME_KEY, name) } catch { }
-}
-
-/** 上次自动写入 Player1 名字的昵称（用于区分玩家是否手动改过） */
-const BILI_APPLIED_NAME_KEY = 'survival_bili_name_applied'
-function get_bili_applied_name(): string {
-  try { return localStorage.getItem(BILI_APPLIED_NAME_KEY) ?? '' } catch { return '' }
-}
-function set_bili_applied_name(name: string) {
-  if (!name || name === get_bili_applied_name()) return
-  try { localStorage.setItem(BILI_APPLIED_NAME_KEY, name) } catch { }
-}
-
-/** B站环境：Player1 的名字默认跟随 B站昵称；玩家手动改过则不再覆盖 */
-function apply_bili_player_name(lfw: LFW) {
-  const nickname = get_bili_nickname()
-  if (!nickname) return
-  const player = lfw.players.get('1')
-  if (!player) return
-  const name = `${player.name ?? ''}`.trim()
-  const applied = get_bili_applied_name()
-  if (name && name !== player.id && name !== applied) return
-  if (name !== nickname) player.set_name(nickname, true).save()
-  set_bili_applied_name(nickname)
-  const puppet = lfw.world.puppets.get(player.id)
-  if (puppet && puppet.name !== nickname) puppet.name = nickname
-}
-
-async function merge_fighters(list: SurvivalRankItem[], period: SurvivalRankPeriod, two: boolean = false): Promise<SurvivalRankItem[]> {
-  if (!rank_api_available() || !list.length) return list
-  const chars = await lookup_fighters_api(period, list.map(v => v.nickname), two).catch(() => null)
-  if (!chars?.size) return list
-  return list.map(v => {
-    const info = chars.get(v.nickname)
-    return {
-      ...v,
-      fighter: info?.fighter ?? v.fighter,
-      fighter2: info?.fighter2 ?? v.fighter2,
-      player: info?.player ?? v.nickname,
-      player2: info?.player2 ?? v.player2,
-    }
-  })
-}
-
-/** 联机时只有房主负责提交排行（不在房间里则自己提交） */
-function rank_is_host(): boolean {
-  const { conn } = current_connection
-  if (!conn?.room) return true
-  return conn.room.owner?.id === conn.client?.id
-}
-
-/** 本地真人玩家（在场上的优先，最多两个）：双人榜提交两个人的名字与角色；联机时包括其他客户端的玩家 */
-function rank_players(lfw: LFW) {
-  const players = Array.from(lfw.players.values()).filter(v => !v.is_com)
-  const on_field = players.filter(v => v.fighter)
-  return (on_field.length ? on_field : players.filter(v => v.local)).slice(0, 2)
-}
-
-/** 玩家所在键位的名字（当前在场上的人优先；都没有时退回键位 1） */
-function rank_player_name(lfw: LFW, player = rank_players(lfw)[0]): string {
-  return `${player?.name ?? ''}`.trim() || '玩家'
-}
-
-function rank_player_fighter(lfw: LFW, player = rank_players(lfw)[0]): string {
-  const fighter = player?.fighter
-  const data = fighter
-    ? lfw.datas.find(fighter.origin_data_id) ?? fighter.data
-    : void 0
-  return `${data?.base?.name ?? ''}`
-}
-
-/** 双人榜：玩家二的名字与角色（没有第二个玩家时为空字符串） */
-function rank_player2(lfw: LFW): { name: string; fighter: string } {
-  if (!lfw.survival_rank_2p) return { name: '', fighter: '' }
-  const player = rank_players(lfw)[1]
-  if (!player) return { name: '', fighter: '' }
-  return { name: rank_player_name(lfw, player), fighter: rank_player_fighter(lfw, player) }
-}
-
-/** 非 B站环境：从自己的服务器拉取“榜单+我的排名”后下发 */
-async function fetch_survival_rank_data_api(lfw: LFW, period: SurvivalRankPeriod): Promise<void> {
-  const [list, mine] = await Promise.all([
-    get_rank_list_api(period, lfw.survival_rank_2p),
-    get_my_rank_api(period, lfw.survival_rank_2p),
-  ])
-  lfw.set_survival_rank_data({
-    period,
-    list,
-    mine: mine ? { rank: mine.rank, score: mine.score } : null,
-  })
 }
 
 const ele_root = document.firstElementChild;
@@ -264,9 +147,6 @@ const is_mobile_container = navigator.userAgent.includes('lfw-mobile-container')
  * 用 current-device 按 UA 判定设备（手机/平板算移动平台），桌面/网页端不算。 */
 const is_toy_mobile_now = () =>
   is_toy_env() && (device.mobile() || device.tablet())
-
-/** B站生存排行：App 启动时的 0 分提交只做一次（React StrictMode 开发模式会重复执行 effect） */
-let rank_startup_submitted = false
 
 function App() {
   const l = useLocation()
@@ -385,8 +265,7 @@ function App() {
           break;
         case 'rank_request':
           // 生存排行准备页请求数据：宿主拉取后“下发”，UI 值变化时自动更新
-          if (is_toy_env()) fetch_survival_rank_data(lfw, lfw.survival_rank_period).catch(() => { })
-          else if (rank_api_available()) fetch_survival_rank_data_api(lfw, lfw.survival_rank_period).catch(() => { })
+          fetch_survival_rank(lfw, lfw.survival_rank_period)
           break;
         case 'stats_visible_set:1':
         case 'stats_visible_set:0':
@@ -485,35 +364,7 @@ function App() {
     const lf2 = ref_lfw.current = new LFW(dev == '1');
     ;(window as any).lfw = lf2
     lf2.toy_env = is_toy_env()
-    if (is_toy_env()) {
-      // B站生存排行：每进入一个新的 Survival 阶段上报“已到达的阶段数”（榜位 1）
-      lf2.on_survival_rank_phase = (reached) => {
-        if (lf2.survival_rank_invalid) return
-        if (!rank_is_host()) return
-        const p2 = rank_player2(lf2)
-        submit_rank_score(reached, lf2.survival_rank_2p ? SURVIVAL_RANK_BOARD_2P : SURVIVAL_RANK_BOARD).catch(() => { })
-        submit_bili_record(reached, get_bili_nickname(), rank_player_fighter(lf2), rank_player_name(lf2), lf2.survival_rank_2p, p2.fighter, p2.name).catch(() => { })
-      }
-      // 生存排行数据由宿主拉取后“下发”(set_survival_rank_data)，UI 侧值变化时更新
-      lf2.survival_rank_available = true
-      // App 启动时（云存储无记录时）先提交一次 0：尽早完成平台首次用户数据确认，
-      // 并让“已提交最高分”记录对齐服务端；已有记录（≥0）会被 submit_rank_score 去重跳过
-      if (!rank_startup_submitted) {
-        rank_startup_submitted = true
-        submit_rank_score(0).catch(() => { })
-      }
-      // Player1 的名字默认跟随 B站昵称（等玩家资料加载完再应用，避免被覆盖）
-      lf2.players.get('1')?.loaded.then(() => apply_bili_player_name(lf2)).catch(() => { })
-    } else if (rank_api_available()) {
-      // 非 B站环境：同样上报“已到达的阶段数”，提交到自己的服务器
-      lf2.on_survival_rank_phase = (reached) => {
-        if (lf2.survival_rank_invalid) return
-        if (!rank_is_host()) return
-        const p2 = rank_player2(lf2)
-        submit_rank_score_api(reached, rank_player_name(lf2), rank_player_fighter(lf2), lf2.survival_rank_2p, p2.fighter, p2.name).catch(() => { })
-      }
-      lf2.survival_rank_available = true
-    }
+    init_survival_rank(lf2)
     if (
       location.pathname.endsWith('demo') ||
       location.pathname.endsWith('demo/') ||

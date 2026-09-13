@@ -8,6 +8,23 @@ export function is_toy_env(): boolean {
   return !!get_toy()?.isSupport
 }
 
+/**
+ * 获取当前用户资料（头像/昵称/当前 Toy 内的稳定假名 toyOpenId）。
+ * 首次调用需由用户操作触发（平台弹数据确认）；模式未开启或用户拒绝时返回 null，调用方回退即可。
+ */
+export async function get_user_profile(): Promise<ToyUserProfile | null> {
+  const toy = get_toy()
+  if (!toy?.getUserProfile) return null
+  if (!(await toy_capable('getUserProfile'))) return null
+  try {
+    const profile = await toy.getUserProfile()
+    return profile ?? null
+  } catch (e) {
+    console.warn(LOG_TAG, 'getUserProfile 失败', e)
+    return null
+  }
+}
+
 export async function toy_capable(ability: string): Promise<boolean> {
   const toy = get_toy()
   if (!toy?.isSupport) return false

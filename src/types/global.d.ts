@@ -58,7 +58,12 @@ interface ToyMyRank {
   score: number
 }
 
-/** B站 Toy JS SDK 全局对象（仅声明本项目用到的能力） */
+/** B站 Toy 用户资料（toyOpenId 仅在当前 Toy 内有效、模式开启时才有；不要外泄/写日志） */
+interface ToyUserProfile {
+  avatar: string
+  nickname: string
+  toyOpenId?: string
+}
 interface ToySDK {
   isSupport?(ability: string): Promise<boolean>
   closeBrowser?(): Promise<void>
@@ -71,6 +76,8 @@ interface ToySDK {
   submitScore?(req: { board?: number; score: number }): Promise<{ score: number }>
   getRankList?(req?: { board?: number; period?: ToyRankPeriod; limit?: number }): Promise<ToyRankItem[]>
   getMyRank?(req?: { board?: number; period?: ToyRankPeriod }): Promise<ToyMyRank>
+  /** 用户资料：首次调用需用户操作触发（平台数据确认）；toyOpenId 仅在 OpenID 模式开启时返回 */
+  getUserProfile?(): Promise<ToyUserProfile>
   /** 云存储：按「登录用户 + Toy」隔离，key 不能以 __ 开头 */
   getCloudStorage?(keys?: string[]): Promise<Record<string, string>>
   setCloudStorage?(items: Record<string, string>): Promise<void>

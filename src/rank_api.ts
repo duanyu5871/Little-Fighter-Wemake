@@ -83,10 +83,11 @@ function rank_uid(): string {
   }
 }
 
-async function post_score(type: string, name: string, score: number, fighter: string, player: string, fighter2: string = '', player2: string = ''): Promise<void> {
-  const extra: { fighter: string; player: string; fighter2?: string; player2?: string } = { fighter, player };
+async function post_score(type: string, name: string, score: number, fighter: string, player: string, fighter2: string = '', player2: string = '', open_id: string = ''): Promise<void> {
+  const extra: { fighter: string; player: string; fighter2?: string; player2?: string; open_id?: string } = { fighter, player };
   if (fighter2) extra.fighter2 = fighter2;
   if (player2) extra.player2 = player2;
+  if (open_id) extra.open_id = open_id;
   const resp = await api('/api/ranks', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -146,12 +147,12 @@ export async function get_my_rank(period: SurvivalRankPeriod, two: boolean = fal
   return { rank, score };
 }
 
-export async function submit_bili_record(score: number, name: string, fighter: string, player: string, two: boolean = false, fighter2: string = '', player2: string = ''): Promise<void> {
+export async function submit_bili_record(score: number, name: string, fighter: string, player: string, two: boolean = false, fighter2: string = '', player2: string = '', open_id: string = ''): Promise<void> {
   const key = BILI_SUBMITTED_KEY + (two ? '_2p' : '');
   if (!rank_api_available() || !name) return;
   if (score <= submitted_max(key)) return;
   set_submitted_max(key, score);
-  await post_score(rank_api_bili_type('all', two), name, score, fighter, player, fighter2, player2);
+  await post_score(rank_api_bili_type('all', two), name, score, fighter, player, fighter2, player2, open_id);
 }
 
 export interface IRankCharInfo {

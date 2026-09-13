@@ -12,6 +12,17 @@ function uid_of(raw: string | undefined): string | undefined {
   return uid && UID_PATTERN.test(uid) ? uid : void 0;
 }
 
+/** 对外响应时剔除 extra 里的敏感字段（如 B站 toyOpenId，仅本地存储用） */
+function public_extra(extra: unknown): unknown {
+  if (!extra || typeof extra !== 'object') return extra;
+  const { open_id: _omit, ...rest } = extra as Record<string, unknown>;
+  return rest;
+}
+
+function public_score<T extends { extra?: unknown }>(v: T): T {
+  return v.extra === void 0 ? v : { ...v, extra: public_extra(v.extra) };
+}
+
 function require_type(ranks: IRankStore, type: string) {
   if (!RANK_TYPE_PATTERN.test(type))
     throw RestError.bad_request(`排行类型只能包含字母、数字、下划线、点和短横线（最长 64 字符）：${type}`);
@@ -42,7 +53,7 @@ export function register_rank_routes(rest: Rest) {
       client_id: c.client?.id,
       address: c.req.raw.socket.remoteAddress,
     });
-    return { rank: result.rank, total: result.total, kept: result.kept, ...result.score };
+    return { rank: result.rank, total: result.total, kept: result.kept, ...public_score(result.score) };
   });
 
   router.post('/api/ranks/lookup', (c) => {
@@ -67,6 +78,6 @@ export function register_rank_routes(rest: Rest) {
     const uid = uid_of(query_str(c.req.query, 'uid'));
     const result = ranks.scores(type, limit, name);
     const best = name || uid ? ranks.find(type, { name, uid }) ?? null : void 0;
-    return { type, limit, total: result.total, scores: result.scores, best };
+    return { type, limit, total: result.total, scores: result.scores.map(public_score), best: best && { ...best, score: public_score(best.score) } };
   });
 }
