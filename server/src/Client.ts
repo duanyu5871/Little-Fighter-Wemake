@@ -35,6 +35,23 @@ export class Client {
   is_admin: boolean = false;
   /** 客户端最近上报的 RTT(ms) */
   rtt: number = 0;
+  get info(): IClientInfo | undefined { return this.client_info }
+  get full_info(): IFullClientInfo {
+    const sk = this.sk;
+    return {
+      ...this.client_info,
+      admin: this.is_admin,
+      ready: this.ready,
+      room: this.room?.id,
+      rtt: this.rtt,
+      r_address: sk.remoteAddress,
+      r_port: sk.remotePort,
+      r_family: sk.remoteFamily,
+      l_address: sk.localAddress,
+      l_port: sk.localPort,
+      l_family: sk.localFamily,
+    }
+  }
   constructor(ctx: Context, ws: WebSocket, req: http.IncomingMessage) {
     this.sk = req.socket
     this.ctx = ctx;
@@ -110,6 +127,7 @@ export class Client {
     console.log(`[${Client.TAG}::handle_ws_close] ${this.id} code: ${code}, reason: ${reason}`);
     const { ctx } = this
     this.ctx.client_mgr.all.delete(this);
+    this.ctx.auth.unbind_client(this);
     const { room } = this
     if (room?.owner === this) {
       room.close(this);
@@ -234,22 +252,7 @@ export class Client {
         break;
       case MsgEnum.ListClients:
         if (!ensure_admin_info(this, req)) break;
-        const clients: IFullClientInfo[] = []
-        for (const c of ctx.client_mgr.all) {
-          c.sk.localAddress
-          clients.push({
-            ...c.client_info,
-            admin: c.is_admin,
-            ready: c.ready,
-            r_address: c.sk.remoteAddress,
-            r_port: c.sk.remotePort,
-            r_family: c.sk.remoteFamily,
-            l_address: c.sk.localAddress,
-            l_port: c.sk.localPort,
-            l_family: c.sk.localFamily,
-          })
-        }
-        this.resp(MsgEnum.ListClients, req.pid, { clients })
+        this.resp(MsgEnum.ListClients, req.pid, { clients: Array.from(ctx.client_mgr.all).map(v => v.full_info) })
         break;
       case MsgEnum.RoomPwd:
         if (
@@ -277,9 +280,11 @@ export class Client {
   }
 }
 
-interface IFullClientInfo extends IClientInfo {
+export interface IFullClientInfo extends IClientInfo {
   admin?: boolean;
   ready?: boolean;
+  room?: string;
+  rtt?: number;
   r_address?: string;
   r_port?: number;
   r_family?: string;
