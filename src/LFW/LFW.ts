@@ -123,7 +123,7 @@ export class LFW implements I.IKeyboardCallback, IDebugging {
       if (!is_str(a)) continue; // IZip 对象已包含在 loaded 中
       let info: D.IDataInfo;
       try {
-        const [raw] = await I.Ditto.Importer.import_as_json<Record<string, unknown>>([a]);
+        const [raw] = await I.Ditto.Importer.import_as_json<Record<string, unknown>>([no_cache_url(a)]);
         info = pick_data_info(raw);
       } catch (e) {
         I.Ditto.warn(`[LFW::collect_data_infos] 读取数据包信息失败: ${a}`, e)
@@ -457,7 +457,7 @@ export class LFW implements I.IKeyboardCallback, IDebugging {
   protected async _load_zip_from_url(info_url: string): Promise<ILoadedZip> {
     const check = this.dispose_guard('load_zip_from_url');
     this.emit_progress(`${info_url}`, 0);
-    const [raw] = await I.Ditto.Importer.import_as_json<Record<string, unknown>>([info_url]);
+    const [raw] = await I.Ditto.Importer.import_as_json<Record<string, unknown>>([no_cache_url(info_url)]);
     check()
 
     const info = pick_data_info(raw);
@@ -467,7 +467,8 @@ export class LFW implements I.IKeyboardCallback, IDebugging {
     let zip: I.IZip | null = null;
 
     const { url, md5 } = info;
-    const zip_url = full_zip_url(info_url, url)
+    // zip 地址附加内容标识：内容变 → URL 变（CDN 边缘缓存必然回源）；内容不变 → URL 稳定（本地缓存复用）
+    const zip_url = zip_content_url(full_zip_url(info_url, url), md5)
 
     if (md5) {
       const stored = await I.Ditto.Zip.get_stored(zip_url, md5);
@@ -910,6 +911,15 @@ function pick_data_info(raw: unknown): D.IDataInfo {
     time: str(v.time),
     md5: str(v.md5),
   }
+}
+
+function no_cache_url(url: string) {
+  return `${url}${url.includes('?') ? '&' : '?'}time=${Date.now()}`
+}
+
+function zip_content_url(zip_url: string, md5?: string) {
+  if (!md5) return zip_url
+  return `${zip_url}${zip_url.includes('?') ? '&' : '?'}md5=${md5}`
 }
 
 function full_zip_url(info_url: string, zip_url: string) {
