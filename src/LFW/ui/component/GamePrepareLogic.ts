@@ -199,17 +199,17 @@ export class GamePrepareLogic extends UIComponent<IGamePrepareLogicProps> {
       const cells = row.children
       const cell = (idx: number) => cells[idx]
       if (empty) {
-        cell(0)?.set_text("", cell(0)?.text?.style)
+        for (let c = 0; c < cells.length; c++) cell(c)?.set_text("", cell(c)?.text?.style)
         cell(1)?.set_text(this.lfw.string('survival.board_empty'), cell(1)?.text?.style)
-        cell(2)?.set_text("", cell(2)?.text?.style)
         continue
       }
       const v = entries[i]!
       cell(0)?.set_text(`${v.rank}.`, cell(0)?.text?.style)
       cell(1)?.set_text(v.nickname, cell(1)?.text?.style)
-      cell(2)?.set_text(
+      cell(2)?.set_text(v.fighter ? this.lfw.string(v.fighter) : '', cell(2)?.text?.style)
+      cell(3)?.set_text(
         i18n_fmt(this.lfw.string('survival.floor_reached'), v.score),
-        cell(2)?.text?.style,
+        cell(3)?.text?.style,
       )
     }
     if (my_node) {

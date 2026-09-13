@@ -4,6 +4,8 @@ import type { Rest } from '../index';
 import { body_of, str_of } from '../read_body';
 import { query_int, query_str } from '../utils';
 
+const MAX_LOOKUP_NAMES = 200;
+
 function require_type(ranks: RankMgr, type: string) {
   if (!RANK_TYPE_PATTERN.test(type))
     throw RestError.bad_request(`排行类型只能包含字母、数字、下划线、点和短横线（最长 64 字符）：${type}`);
@@ -34,6 +36,20 @@ export function register_rank_routes(rest: Rest) {
       address: c.req.raw.socket.remoteAddress,
     });
     return { rank: result.rank, total: result.total, kept: result.kept, ...result.score };
+  });
+
+  router.post('/api/ranks/lookup', (c) => {
+    const body = body_of(c.req.body) as { type?: unknown; names?: unknown } | undefined;
+    const type = str_of(body?.type);
+    if (!type) throw RestError.bad_request('缺少 type');
+    require_type(ranks, type);
+    const raw_names = Array.isArray(body?.names) ? body.names.slice(0, MAX_LOOKUP_NAMES) : [];
+    const names: string[] = [];
+    for (const raw of raw_names) {
+      const name = str_of(raw);
+      if (name) names.push(name);
+    }
+    return { type, chars: ranks.char_lookup(type, names) };
   });
 
   router.get('/api/ranks/:type', (c) => {

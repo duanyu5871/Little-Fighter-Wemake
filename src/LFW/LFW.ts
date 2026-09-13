@@ -36,6 +36,8 @@ export interface SurvivalRankItem {
   rank: number
   score: number
   nickname: string
+  /** 使用角色（B站榜单不提供；自有服务存于 extra.fighter） */
+  fighter?: string
 }
 
 /** 我的生存排行成绩（未上榜为 null） */

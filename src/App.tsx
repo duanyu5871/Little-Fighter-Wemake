@@ -26,7 +26,7 @@ import { BG_INDICATINGS, ENTITY_INDICATINGS } from "./DittoImpl/renderer/INDICAT
 import { WorldRenderer } from "./DittoImpl/renderer/WorldRenderer";
 import EditorView from "./EditorView";
 import GamePad from "./GamePad";
-import { Difficulty, type IWorldDataset, LFW, WorldDataset, type SurvivalRankPeriod } from "./LFW";
+import { Difficulty, type IWorldDataset, LFW, WorldDataset, type SurvivalRankItem, type SurvivalRankPeriod } from "./LFW";
 import { CheatEnum, CtrlDevice } from "./LFW/defines";
 import { CMD } from "./LFW/defines/CMD";
 import { SyncRenderEnum } from "./LFW/defines/SyncRenderEnum";
@@ -62,7 +62,7 @@ import img_btn_4_3 from "./assets/btn_4_3.png";
 import { useForage } from "./hooks/useForage";
 import "./init";
 import { get_my_rank, get_rank_list, is_toy_env, SURVIVAL_RANK_BOARD, submit_rank_score } from "./toy_sdk";
-import { get_my_rank as get_my_rank_api, get_rank_list as get_rank_list_api, rank_api_available, submit_rank_score as submit_rank_score_api } from "./rank_api";
+import { get_my_rank as get_my_rank_api, get_rank_list as get_rank_list_api, lookup_fighters as lookup_fighters_api, rank_api_available, submit_bili_record, submit_rank_score as submit_rank_score_api } from "./rank_api";
 import { DatViewer } from "./pages/dat_viewer/DatViewer";
 import { useWorkspaces } from "./pages/dat_viewer/useWorkspaces";
 import { Networking } from "./pages/network_test/Networking";
@@ -101,11 +101,33 @@ const load_files = async (lfw: LFW, files: File[]) => {
 async function fetch_survival_rank_data(lfw: LFW, period: SurvivalRankPeriod): Promise<void> {
   const list = await get_rank_list({ board: SURVIVAL_RANK_BOARD, period, limit: 100 })
   const mine = await get_my_rank({ board: SURVIVAL_RANK_BOARD, period })
+  if (mine && mine.ranked) {
+    const my_row = list.find(v => v.rank === mine.rank)
+    if (my_row?.nickname) set_bili_nickname(my_row.nickname)
+  }
   lfw.set_survival_rank_data({
     period,
-    list,
+    list: await merge_fighters(list, period),
     mine: mine && mine.ranked ? { rank: mine.rank, score: mine.score } : null,
   })
+}
+
+/** B站昵称（榜单接口不提供角色信息，用提成绩时就近记下的昵称维护旁路记录） */
+const BILI_NICKNAME_KEY = 'survival_bili_nickname'
+function get_bili_nickname(): string {
+  try { return localStorage.getItem(BILI_NICKNAME_KEY) ?? '' } catch { return '' }
+}
+function set_bili_nickname(name: string) {
+  if (!name || name === get_bili_nickname()) return
+  try { localStorage.setItem(BILI_NICKNAME_KEY, name) } catch { }
+}
+
+/** B站榜单没有角色信息：用自有服务的旁路记录补上；查不到就留空 */
+async function merge_fighters(list: SurvivalRankItem[], period: SurvivalRankPeriod): Promise<SurvivalRankItem[]> {
+  if (!rank_api_available() || !list.length) return list
+  const chars = await lookup_fighters_api(period, list.map(v => v.nickname)).catch(() => null)
+  if (!chars?.size) return list
+  return list.map(v => ({ ...v, fighter: chars.get(v.nickname) }))
 }
 
 /** 玩家所在键位的名字（当前在场上的人优先；都没有时退回键位 1） */
@@ -113,6 +135,13 @@ function rank_player_name(lfw: LFW): string {
   const players = Array.from(lfw.players.values()).filter(v => v.local && !v.is_com)
   const player = players.find(v => v.fighter) ?? players[0] ?? lfw.players.get('1')
   return `${player?.name ?? ''}`.trim() || '玩家'
+}
+
+/** 玩家当前使用的角色名（用于榜单展示；取不到时为空） */
+function rank_player_fighter(lfw: LFW): string {
+  const players = Array.from(lfw.players.values()).filter(v => v.local && !v.is_com)
+  const player = players.find(v => v.fighter) ?? players[0] ?? lfw.players.get('1')
+  return `${player?.fighter?.data?.base?.name ?? ''}`
 }
 
 /** 非 B站环境：从自己的服务器拉取“榜单+我的排名”后下发 */
@@ -404,6 +433,7 @@ function App() {
       lf2.on_survival_rank_phase = (reached) => {
         if (lf2.survival_rank_invalid) return
         submit_rank_score(reached).catch(() => { })
+        submit_bili_record(reached, get_bili_nickname(), rank_player_fighter(lf2)).catch(() => { })
       }
       // 生存排行数据由宿主拉取后“下发”(set_survival_rank_data)，UI 侧值变化时更新
       lf2.survival_rank_available = true
@@ -417,7 +447,7 @@ function App() {
       // 非 B站环境：同样上报“已到达的阶段数”，提交到自己的服务器
       lf2.on_survival_rank_phase = (reached) => {
         if (lf2.survival_rank_invalid) return
-        submit_rank_score_api(reached, rank_player_name(lf2)).catch(() => { })
+        submit_rank_score_api(reached, rank_player_name(lf2), rank_player_fighter(lf2)).catch(() => { })
       }
       lf2.survival_rank_available = true
     }

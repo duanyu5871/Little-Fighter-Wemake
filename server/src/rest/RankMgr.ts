@@ -98,6 +98,24 @@ export class RankMgr {
     return { total: filtered.length, scores: filtered.slice(0, limit) };
   }
 
+  extra_fighter(extra: unknown): string | undefined {
+    const fighter = (extra as { fighter?: unknown } | undefined)?.fighter;
+    return typeof fighter === 'string' && fighter ? fighter : void 0;
+  }
+
+  char_lookup(type: string, names: string[]): { name: string; score: number; fighter: string }[] {
+    const list = this._scores.get(type);
+    if (!list?.length || !names.length) return [];
+    const want = new Set(names);
+    const found = new Map<string, { name: string; score: number; fighter: string }>();
+    for (const v of list) {
+      if (!want.has(v.name) || found.has(v.name)) continue;
+      const fighter = this.extra_fighter(v.extra);
+      if (fighter) found.set(v.name, { name: v.name, score: v.score, fighter });
+    }
+    return Array.from(found.values());
+  }
+
   submit(info: IRankSubmit): IRankResult {
     const list = this.list_of(info.type);
     const score: IRankScore = { ...info, date: Date.now() };
