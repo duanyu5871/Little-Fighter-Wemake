@@ -253,8 +253,6 @@ export function init_survival_rank(lfw: LFW): void {
     }
     // Player1 的名字默认跟随 B站昵称（等玩家资料加载完再应用，避免被覆盖）
     lfw.players.get('1')?.loaded.then(() => apply_bili_player_name(lfw)).catch(() => { })
-    // 首次点击时申请一次 B站用户资料（昵称 + 当前 Toy 用户标识；未开启/拒绝则静默回退）
-    window.addEventListener('pointerdown', () => request_bili_profile_once(lfw), { once: true })
     return
   }
   if (rank_api_available()) {
@@ -265,6 +263,12 @@ export function init_survival_rank(lfw: LFW): void {
 
 /** 榜单页请求数据（rank_request）：按环境拉“榜单+我的排名”后一次性下发 */
 export function fetch_survival_rank(lfw: LFW, period: SurvivalRankPeriod): void {
-  if (is_toy_env()) fetch_toy_rank(lfw, period).catch(() => { })
-  else if (rank_api_available()) fetch_api_rank(lfw, period).catch(() => { })
+  if (is_toy_env()) {
+    // 第一次进入生存排行（点入口→准备页打开时的 rank_request）顺便申请一次 B站用户资料；
+    // 未开启 OpenID 模式/用户拒绝/不支持则静默回退（不重试）
+    request_bili_profile_once(lfw)
+    fetch_toy_rank(lfw, period).catch(() => { })
+  } else if (rank_api_available()) {
+    fetch_api_rank(lfw, period).catch(() => { })
+  }
 }

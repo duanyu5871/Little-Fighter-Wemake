@@ -83,7 +83,7 @@ function rank_uid(): string {
   }
 }
 
-async function post_score(type: string, name: string, score: number, fighter: string, player: string, fighter2: string = '', player2: string = '', open_id: string = ''): Promise<void> {
+async function post_score(type: string, name: string, score: number, fighter: string, player: string, fighter2: string = '', player2: string = '', open_id: string = '', owner_uid: string = ''): Promise<void> {
   const extra: { fighter: string; player: string; fighter2?: string; player2?: string; open_id?: string } = { fighter, player };
   if (fighter2) extra.fighter2 = fighter2;
   if (player2) extra.player2 = player2;
@@ -91,9 +91,24 @@ async function post_score(type: string, name: string, score: number, fighter: st
   const resp = await api('/api/ranks', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ type, name, score, uid: rank_uid(), extra }),
+    body: JSON.stringify({ type, name, score, uid: owner_uid || rank_uid(), extra }),
   });
   if (!resp.ok) throw new Error(`[rank_api] 提交失败: ${resp.status}`);
+}
+
+/**
+ * 用 B站 toyOpenId 生成稳定的去重键（同一 B站用户跨设备合并成一条记录）。
+ * 不能直接传 toyOpenId（文档要求不要外泄），用两段哈希拼一个符合 uid 规则的短标识；
+ * 没拿到 open_id 时返回空串 → 调用方回退到本机 uid。
+ */
+function bili_owner_uid(open_id: string): string {
+  const id = open_id.trim();
+  if (!id) return '';
+  let h1 = 0;
+  for (let i = 0; i < id.length; i++) h1 = (Math.imul(h1, 31) + id.charCodeAt(i)) | 0;
+  let h2 = 5381;
+  for (let i = id.length - 1; i >= 0; i--) h2 = (Math.imul(h2, 33) ^ id.charCodeAt(i)) | 0;
+  return `bili_${(h1 >>> 0).toString(36)}${(h2 >>> 0).toString(36)}`;
 }
 
 function submitted_max(key: string): number {
@@ -152,7 +167,7 @@ export async function submit_bili_record(score: number, name: string, fighter: s
   if (!rank_api_available() || !name) return;
   if (score <= submitted_max(key)) return;
   set_submitted_max(key, score);
-  await post_score(rank_api_bili_type('all', two), name, score, fighter, player, fighter2, player2, open_id);
+  await post_score(rank_api_bili_type('all', two), name, score, fighter, player, fighter2, player2, open_id, bili_owner_uid(open_id));
 }
 
 export interface IRankCharInfo {
