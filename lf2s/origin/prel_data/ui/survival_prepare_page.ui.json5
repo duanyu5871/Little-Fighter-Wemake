@@ -130,7 +130,7 @@
         },
         {
           id: "survival_rank_scroll",
-          pos: "-200, 80",
+          pos: "-210, 80",
           size: "500, 335",
           component: [
             {
@@ -148,13 +148,13 @@
               items: [
                 {
                   id: "rank_row",
-                  size: "480, 36",
+                  size: "420, 36",
                   visible: false,
                   count: 100,
                   items: [
                     {
                       id: "rank_row_rank",
-                      pos: "0, 0",
+                      pos: "0, 8",
                       size: "40, 20",
                       style: {
                         fill_style: "#ffffff",
@@ -164,27 +164,27 @@
                     },
                     {
                       id: "rank_row_name",
-                      pos: "80, 0",
+                      pos: "115, 0",
                       size: "190, 20",
                       style: {
                         fill_style: "#ffffff",
                         font: "16px Arial",
-                        text_align: "left",
+                        text_align: "center",
                       },
                     },
                     {
                       id: "rank_row_fighter",
-                      pos: "80, 19",
+                      pos: "115, 19",
                       size: "190, 17",
                       style: {
                         fill_style: "#9b9bff",
                         font: "12px Arial",
-                        text_align: "left",
+                        text_align: "center",
                       },
                     },
                     {
                       id: "rank_row_score",
-                      pos: "420, 0",
+                      pos: "348, 8",
                       size: "60, 20",
                       style: {
                         fill_style: "#ffffff",
