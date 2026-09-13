@@ -3,3 +3,5 @@ dist
 deployer.private.json5
 deployer.private.json
 .env
+server.config.json
+server.config.json5

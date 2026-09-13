@@ -5,6 +5,8 @@ import type { Client } from '../Client';
 
 export type TAuthLevel = 'guest' | 'player' | 'admin';
 
+export type TTokenList = string | string[] | undefined | null;
+
 export interface IAuth {
   level: TAuthLevel;
   token: string;
@@ -37,10 +39,10 @@ export class AuthMgr {
   get admin_tokens(): readonly string[] { return this._admin_tokens }
   get players(): ReadonlyMap<string, IPlayerToken> { return this._players }
 
-  add_admin_token(...tokens: (string | undefined | null)[]) {
+  add_admin_token(...tokens: TTokenList[]) {
     for (const token of tokens) {
-      for (const part of `${token ?? ''}`.split(',')) {
-        const v = part.trim();
+      for (const part of Array.isArray(token) ? token : `${token ?? ''}`.split(',')) {
+        const v = `${part ?? ''}`.trim();
         if (v && !this._admin_tokens.includes(v)) this._admin_tokens.push(v);
       }
     }

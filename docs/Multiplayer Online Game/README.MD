@@ -38,7 +38,19 @@
   HTTPS_PORT=443
   SSL_KEY_FILE_PATH=SSL的密钥文件（不需要SSL的话留空）
   SSL_CER_FILE_PATH=SSL的证书文件（不需要SSL的话留空）
+  ADMIN_PWD=管理员token（不需要管理接口的话留空）
+  RANKS_FILE_PATH=排行数据文件路径（可留空）
   ```
+
+- 想写得更结构化的话，可以用配置文件代替 `.env`：在运行目录放一个 `server.config.json5`（JSON5，支持注释）。
+  优先级为 命令行参数 > 环境变量 > 配置文件 > 默认值，完整配置项见 [REST API 文档的“配置文件”章节](REST%20API.MD#配置文件)。
+  构建时如果 `server/server.config.json5` 存在，它和 `.env` 一样会被拷贝到 `dist/cjs`。
+
+## REST 接口
+
+服务器同时提供 HTTP 接口（与 WebSocket 共用同一个端口），可用于查询服务器状态与房间列表、管理房间、申请玩家 token，以及提交与查询排行榜分数。
+
+接口文档：[REST API](REST%20API.MD)
 
 ## 顺带一提
 

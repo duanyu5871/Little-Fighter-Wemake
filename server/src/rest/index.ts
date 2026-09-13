@@ -2,8 +2,10 @@ import type { Server as HttpServer } from 'node:http';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Server as HttpsServer } from 'node:https';
 import { resolve } from 'node:path';
+import { to_list, to_num, to_str } from '../config';
 import type { Context } from '../Context';
 import { AuthMgr } from './AuthMgr';
+import type { TTokenList } from './AuthMgr';
 import { DEFAULT_RANKS_FILE, RankMgr } from './RankMgr';
 import { RestError } from './RestError';
 import { RestResponse } from './RestResponse';
@@ -28,11 +30,13 @@ export const DEFAULT_MAX_BODY_SIZE = 1024 * 1024;
 export type TRestServer = HttpServer | HttpsServer;
 
 export interface IRestOptions {
-  admin_tokens?: (string | undefined | null) | (string | undefined | null)[];
+  admin_tokens?: TTokenList | TTokenList[];
   max_body_size?: number;
   log?: boolean;
   info?: Record<string, unknown>;
   ranks_path?: string;
+  ranks_types?: string[] | string;
+  ranks_max_per_type?: number;
 }
 
 export class Rest {
@@ -48,7 +52,13 @@ export class Rest {
     this.ctx = ctx;
     this.auth = ctx.auth;
     this.options = options;
-    this.ranks = new RankMgr(options.ranks_path || process.env.RANKS_FILE_PATH || resolve(process.cwd(), DEFAULT_RANKS_FILE));
+    this.ranks = new RankMgr(
+      to_str(options.ranks_path) ?? to_str(process.env.RANKS_FILE_PATH) ?? resolve(process.cwd(), DEFAULT_RANKS_FILE),
+      {
+        allowed_types: to_list(options.ranks_types ?? process.env.RANKS_ALLOWED_TYPES),
+        max_per_type: to_num(options.ranks_max_per_type) ?? to_num(process.env.RANKS_MAX_PER_TYPE),
+      },
+    );
     this.auth.add_admin_token(...(Array.isArray(options.admin_tokens) ? options.admin_tokens : [options.admin_tokens]));
     register_routes(this);
   }

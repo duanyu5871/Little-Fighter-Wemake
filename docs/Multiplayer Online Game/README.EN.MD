@@ -38,8 +38,20 @@ You may want to use your own device as the online server.
   HTTPS_PORT=443
   SSL_KEY_FILE_PATH=any_ssl_key_file_path_if_u_need_ssl
   SSL_CER_FILE_PATH=any_ssl_cert_file_path_if_u_need_ssl
+  ADMIN_PWD=admin_token_if_u_need_the_admin_apis
+  RANKS_FILE_PATH=path_of_the_ranks_json_file
   ```
-  
+
+- A structured config file is also available: put `server.config.json5` (JSON5, comments allowed) in the working directory instead of extending `.env`.
+  Precedence: command line > environment variables > config file > defaults. See the "配置文件" section of the [REST API doc](REST%20API.MD) for every key.
+  If `server/server.config.json5` exists, the build copies it to `dist/cjs` just like `.env`.
+
+## REST API
+
+The server also provides HTTP APIs on the same port as the WebSocket, for querying the server status and room list, managing rooms, requesting a player token, and submitting or reading leaderboard scores.
+
+Documentation (Chinese only): [REST API](REST%20API.MD)
+
 ## Incidentally
 
 Normally, if your server does not support HTTPS,

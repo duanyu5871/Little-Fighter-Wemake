@@ -27,6 +27,11 @@ export interface IRankResult {
   score: IRankScore;
 }
 
+export interface IRankOptions {
+  max_per_type?: number;
+  allowed_types?: string[];
+}
+
 export const DEFAULT_RANKS_FILE = 'ranks.json';
 export const MAX_PER_TYPE = 10000;
 export const SAVE_DELAY = 500;
@@ -39,18 +44,25 @@ export class RankMgr {
   static readonly TAG = 'RankMgr';
   readonly path: string;
   readonly max_per_type: number;
+  readonly allowed_types?: string[];
   protected _scores = new Map<string, IRankScore[]>();
   protected _timer?: ReturnType<typeof setTimeout>;
   protected _dirty = false;
 
-  constructor(path: string, max_per_type: number = MAX_PER_TYPE) {
+  constructor(path: string, options: IRankOptions = {}) {
     this.path = path;
-    this.max_per_type = max_per_type;
+    this.max_per_type = options.max_per_type ?? MAX_PER_TYPE;
+    const allowed = options.allowed_types?.map(v => `${v}`.trim()).filter(Boolean);
+    this.allowed_types = allowed?.length ? Array.from(new Set(allowed)) : void 0;
     this.load();
     process.on('exit', () => this.flush());
   }
 
   get types(): string[] { return Array.from(this._scores.keys()) }
+
+  allows(type: string): boolean {
+    return !this.allowed_types || this.allowed_types.includes(type);
+  }
 
   total(type: string): number { return this._scores.get(type)?.length ?? 0 }
 
