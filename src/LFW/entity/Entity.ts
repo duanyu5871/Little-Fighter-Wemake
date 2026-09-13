@@ -1631,6 +1631,24 @@ export class Entity {
     this.toughness_recovering();
 
     this._state?.pre_update?.(this);
+    this._from_wait_block = true;
+    if (this.wait > 0) {
+      if (
+        this.motionless <= 0 &&
+        this.shaking <= 0 &&
+        !this.catcher &&
+        !this.bearer
+      ) {
+        this.wait = rf(this.wait - this._atom_time)
+        if (this.wait < 0) this.wait = 0;
+      }
+    } else if (this.frame.next) {
+      this.enter_frame(this.frame.next)
+    } else {
+      this.set_frame(this.find_auto_frame())
+    }
+    this._from_wait_block = false;
+
     const tick_atom_time = this._atom_time;
     const sub_steps =
       Number.isInteger(tick_atom_time) && tick_atom_time > 1 && tick_atom_time <= 8
@@ -1638,23 +1656,6 @@ export class Entity {
         : 1;
     if (sub_steps > 1) this._atom_time = round_float(tick_atom_time / sub_steps);
     for (let i = 0; i < sub_steps; ++i) {
-      this._from_wait_block = true;
-      if (this.wait > 0) {
-        if (
-          this.motionless <= 0 &&
-          this.shaking <= 0 &&
-          !this.catcher &&
-          !this.bearer
-        ) {
-          this.wait = rf(this.wait - this._atom_time)
-          if (this.wait < 0) this.wait = 0;
-        }
-      } else if (this.frame.next) {
-        this.enter_frame(this.frame.next)
-      } else {
-        this.set_frame(this.find_auto_frame())
-      }
-      this._from_wait_block = false;
       this.handle_gravity();
       this.update_velocity(this.frame);
       if (!i) this._state?.update(this);
@@ -2235,8 +2236,8 @@ export class Entity {
   }
 
   get_frame_wait(frame: IFrameInfo): number {
-    const d = max(1, frame.wait + this.world.dataset.wait_offset);
-    return this._from_wait_block ? max(0, d - this._atom_time) : d;
+    const d = frame.wait + this.world.dataset.wait_offset;
+    return this._from_wait_block ? d - this._atom_time : d;
   }
 
   /**
