@@ -77,6 +77,25 @@
       component: ["FighterName()"],
     },
     {
+      id: "player_name",
+      size: "200, 16",
+      pos: "142, 428",
+      center: "0.5, 0",
+      style: {
+        fill_style: "#ffffff",
+        font: "12px Arial",
+        text_align: "center",
+      },
+      component: [
+        {
+          cls: "PlayerName",
+          properties: {
+            prefix: "survival.player_colon",
+          },
+        },
+      ],
+    },
+    {
       // “按攻击开始游戏”提示：已加入且未倒计时时显示（CharMenuHead.start_hints_node 驱动）
       id: "start_hint",
       pos: "142, 408",

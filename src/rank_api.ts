@@ -51,7 +51,7 @@ function api(path: string, init?: RequestInit): Promise<Response> {
 interface IRankEntry {
   name?: string;
   score?: number;
-  extra?: { fighter?: string };
+  extra?: { fighter?: string; player?: string };
 }
 
 function rank_uid(): string {
@@ -69,11 +69,11 @@ function rank_uid(): string {
   }
 }
 
-async function post_score(type: string, name: string, score: number, fighter: string): Promise<void> {
+async function post_score(type: string, name: string, score: number, fighter: string, player: string): Promise<void> {
   const resp = await api('/api/ranks', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ type, name, score, uid: rank_uid(), extra: { fighter } }),
+    body: JSON.stringify({ type, name, score, uid: rank_uid(), extra: { fighter, player } }),
   });
   if (!resp.ok) throw new Error(`[rank_api] 提交失败: ${resp.status}`);
 }
@@ -98,7 +98,7 @@ function set_submitted_max(key: string, score: number) {
 export async function submit_rank_score(score: number, name: string, fighter: string): Promise<void> {
   if (score <= submitted_max(SUBMITTED_KEY)) return;
   set_submitted_max(SUBMITTED_KEY, score);
-  await post_score(TYPE_OF_PERIOD.all, name, score, fighter);
+  await post_score(TYPE_OF_PERIOD.all, name, score, fighter, name);
 }
 
 export async function get_rank_list(period: SurvivalRankPeriod): Promise<SurvivalRankItem[]> {
@@ -111,7 +111,7 @@ export async function get_rank_list(period: SurvivalRankPeriod): Promise<Surviva
     const nickname = `${entry?.name ?? ''}`;
     const score = Number(entry?.score);
     if (!nickname || !Number.isFinite(score)) continue;
-    list.push({ rank: list.length + 1, score, nickname, fighter: entry?.extra?.fighter });
+    list.push({ rank: list.length + 1, score, nickname, fighter: entry?.extra?.fighter, player: entry?.extra?.player ?? nickname });
   }
   return list;
 }
@@ -128,15 +128,20 @@ export async function get_my_rank(period: SurvivalRankPeriod): Promise<{ rank: n
   return { rank, score };
 }
 
-export async function submit_bili_record(score: number, name: string, fighter: string): Promise<void> {
+export async function submit_bili_record(score: number, name: string, fighter: string, player: string): Promise<void> {
   if (!rank_api_available() || !name) return;
   if (score <= submitted_max(BILI_SUBMITTED_KEY)) return;
   set_submitted_max(BILI_SUBMITTED_KEY, score);
-  await post_score(BILI_TYPE_OF_PERIOD.all, name, score, fighter);
+  await post_score(BILI_TYPE_OF_PERIOD.all, name, score, fighter, player);
 }
 
-export async function lookup_fighters(period: SurvivalRankPeriod, names: string[]): Promise<Map<string, string>> {
-  const ret = new Map<string, string>();
+export interface IRankCharInfo {
+  fighter?: string;
+  player?: string;
+}
+
+export async function lookup_fighters(period: SurvivalRankPeriod, names: string[]): Promise<Map<string, IRankCharInfo>> {
+  const ret = new Map<string, IRankCharInfo>();
   const wanted = names.filter(Boolean);
   if (!rank_api_available() || !wanted.length) return ret;
   const resp = await api('/api/ranks/lookup', {
@@ -145,11 +150,13 @@ export async function lookup_fighters(period: SurvivalRankPeriod, names: string[
     body: JSON.stringify({ type: rank_api_bili_type(period), names: wanted }),
   });
   if (!resp.ok) return ret;
-  const data = await resp.json() as { chars?: { name?: string; fighter?: string }[] };
+  const data = await resp.json() as { chars?: { name?: string; fighter?: string; player?: string }[] };
   for (const v of data?.chars ?? []) {
     const name = `${v?.name ?? ''}`;
     const fighter = `${v?.fighter ?? ''}`;
-    if (name && fighter) ret.set(name, fighter);
+    const player = `${v?.player ?? ''}`;
+    if (!name || (!fighter && !player)) continue;
+    ret.set(name, { fighter: fighter || void 0, player: player || void 0 });
   }
   return ret;
 }

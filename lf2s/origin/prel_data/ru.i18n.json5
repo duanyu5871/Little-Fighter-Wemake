@@ -42,6 +42,7 @@
     waiting_others_players: "Ожидание других игроков...",
     goto_github_url: "https://github.com/gimhol/Little-Fighter-Wemake",
     "char_menu.player_colon": "Игрок：",
+    "survival.player_colon": "Игрок：",
     "char_menu.fighter_colon": "Персонаж：",
     "char_menu.team_colon": "Команда：",
     "char_menu.computer": "Компьютер",

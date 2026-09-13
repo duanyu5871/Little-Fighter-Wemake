@@ -29,7 +29,8 @@ export interface IRankResult {
 export interface IRankLookup {
   name: string;
   score: number;
-  fighter: string;
+  fighter?: string;
+  player?: string;
 }
 
 export interface IRankOptions {
@@ -48,6 +49,7 @@ export interface IRankStore {
   find(type: string, opts: { name?: string; uid?: string }): { rank: number; score: IRankScore } | undefined;
   scores(type: string, limit?: number, name?: string): { total: number; scores: IRankScore[] };
   extra_fighter(extra: unknown): string | undefined;
+  extra_player(extra: unknown): string | undefined;
   char_lookup(type: string, names: string[]): IRankLookup[];
   submit(info: IRankSubmit): IRankResult;
 }
@@ -76,6 +78,11 @@ export function family_of(type: string): string[] {
 export function extra_fighter(extra: unknown): string | undefined {
   const fighter = (extra as { fighter?: unknown } | undefined)?.fighter;
   return typeof fighter === 'string' && fighter ? fighter : void 0;
+}
+
+export function extra_player(extra: unknown): string | undefined {
+  const player = (extra as { player?: unknown } | undefined)?.player;
+  return typeof player === 'string' && player ? player : void 0;
 }
 
 export function max_of(value: number | undefined): number {

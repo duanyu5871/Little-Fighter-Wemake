@@ -358,8 +358,14 @@ export class CharMenuLogic extends UIComponent<ICharMenuLogicProps> {
     }
     this.update_slots()
   }
+  protected _player_names_key = '';
   override update(dt: number): void {
     this.fsm.update(dt)
+    let key = '';
+    for (const p of this.players.keys()) key += `${p.id}\u0000${p.name}\n`;
+    if (key === this._player_names_key) return;
+    this._player_names_key = key;
+    this.update_slots();
   }
   readonly fsm = new FSM<CharMenuState, ICharMenuState>().add(
     new CharMenuState_PlayerSel(this),

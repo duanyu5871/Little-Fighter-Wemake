@@ -1,6 +1,10 @@
 import { Sine } from "../../animation/Sine";
+import type { IPropsMeta, IStyle } from "../../defines";
 import { TextInfo } from "../../ditto/image/TextInfo";
 import { UIComponent } from "./UIComponent";
+export interface IPlayerNameProps {
+  prefix?: string;
+}
 /**
  * 显示玩家名称
  *
@@ -8,21 +12,32 @@ import { UIComponent } from "./UIComponent";
  * @class PlayerName
  * @extends {UIComponent}
  */
-export class PlayerName extends UIComponent {
+export class PlayerName extends UIComponent<IPlayerNameProps> {
   static override readonly TAGS: string[] = ["PlayerName"];
+  static override readonly PROPS: IPropsMeta<IPlayerNameProps> = {
+    prefix: { type: String, nullable: true },
+  };
   private _decided?: boolean;
   private _com?: boolean;
 
+  protected make_style(com: boolean): IStyle {
+    const node_style = this.node.style?.data;
+    if (node_style && Object.keys(node_style).length)
+      return { ...node_style };
+    return {
+      fill_style: com ? "pink" : "white",
+      font: "14px Arial",
+    }
+  }
+
   join(text: string, com: boolean, decided: boolean) {
+    const { prefix } = this.props;
     this._decided = decided;
     this._com = com;
     this._decided = true;
     this.node.text = new TextInfo({
-      text,
-      style: {
-        fill_style: com ? "pink" : "white",
-        font: "14px Arial",
-      }
+      text: prefix ? `${this.lfw.string(prefix)}${text}` : text,
+      style: this.make_style(com),
     });
     this.node.visible = true
   }
@@ -33,10 +48,7 @@ export class PlayerName extends UIComponent {
     const text = this.lfw.string("char_menu.join_q")
     this.node.text = new TextInfo({
       text,
-      style: {
-        fill_style: "white",
-        font: "14px Arial",
-      }
+      style: this.make_style(false),
     });
   }
 

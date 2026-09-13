@@ -148,12 +148,18 @@ function apply_bili_player_name(lfw: LFW) {
   if (puppet && puppet.name !== nickname) puppet.name = nickname
 }
 
-/** B站榜单没有角色信息：用自有服务的旁路记录补上；查不到就留空 */
 async function merge_fighters(list: SurvivalRankItem[], period: SurvivalRankPeriod): Promise<SurvivalRankItem[]> {
   if (!rank_api_available() || !list.length) return list
   const chars = await lookup_fighters_api(period, list.map(v => v.nickname)).catch(() => null)
   if (!chars?.size) return list
-  return list.map(v => ({ ...v, fighter: chars.get(v.nickname) }))
+  return list.map(v => {
+    const info = chars.get(v.nickname)
+    return {
+      ...v,
+      fighter: info?.fighter ?? v.fighter,
+      player: info?.player ?? v.nickname,
+    }
+  })
 }
 
 /** 玩家所在键位的名字（当前在场上的人优先；都没有时退回键位 1） */
@@ -462,7 +468,7 @@ function App() {
       lf2.on_survival_rank_phase = (reached) => {
         if (lf2.survival_rank_invalid) return
         submit_rank_score(reached).catch(() => { })
-        submit_bili_record(reached, get_bili_nickname(), rank_player_fighter(lf2)).catch(() => { })
+        submit_bili_record(reached, get_bili_nickname(), rank_player_fighter(lf2), rank_player_name(lf2)).catch(() => { })
       }
       // 生存排行数据由宿主拉取后“下发”(set_survival_rank_data)，UI 侧值变化时更新
       lf2.survival_rank_available = true

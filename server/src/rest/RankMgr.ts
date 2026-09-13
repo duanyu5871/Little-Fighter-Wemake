@@ -3,11 +3,13 @@ import { dirname, join } from 'node:path';
 import {
   allowed_of,
   extra_fighter,
+  extra_player,
   max_of,
   owner_key,
   RANK_FILE_EXT,
   SAVE_DELAY,
   submit_to_family,
+  type IRankLookup,
   type IRankOptions,
   type IRankResult,
   type IRankScore,
@@ -84,15 +86,20 @@ export class RankMgr implements IRankStore {
     return extra_fighter(extra);
   }
 
-  char_lookup(type: string, names: string[]): { name: string; score: number; fighter: string }[] {
+  extra_player(extra: unknown): string | undefined {
+    return extra_player(extra);
+  }
+
+  char_lookup(type: string, names: string[]): IRankLookup[] {
     const list = this._scores.get(type);
     if (!list?.length || !names.length) return [];
     const want = new Set(names);
-    const found = new Map<string, { name: string; score: number; fighter: string }>();
+    const found = new Map<string, IRankLookup>();
     for (const v of list) {
       if (!want.has(v.name) || found.has(v.name)) continue;
       const fighter = this.extra_fighter(v.extra);
-      if (fighter) found.set(v.name, { name: v.name, score: v.score, fighter });
+      const player = this.extra_player(v.extra);
+      if (fighter || player) found.set(v.name, { name: v.name, score: v.score, fighter, player });
     }
     return Array.from(found.values());
   }
