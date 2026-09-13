@@ -443,7 +443,7 @@ curl -X POST -H "Content-Type: application/json" \
 - 排序按 `score` 从高到低，分数相同则更早达到的记录在前
 - 每个提交者在每个类型下只有一条记录（最高分），反复提交不会在榜单里产生重复行；没有 `uid` 的旧数据先按名字收敛，加载旧数据文件时也同样处理，旧文件会在下次落盘时变干净
 - 周期类型（以 `_all` / `_month` / `_week` / `_day` 结尾，例如 `survival_all`）视为同一族：提交其中任意一个，会自动把这条记录同步写入同族的其它类型，所以客户端每次提交只需发一个请求，月/周/日榜也会同时更新（各类型仍按 `uid` 去重、只留最高分；被 `RANKS_ALLOWED_TYPES` 排除的类型会跳过）
-- 每个排行类型最多保留 10000 条（可用 `RANKS_MAX_PER_TYPE` 或配置文件 `ranks.max_per_type` 调整），超出后名次靠后的记录会被丢弃，此时 `kept` 为 false
+- 每个排行类型默认最多保留 10000 条（可用 `RANKS_MAX_PER_TYPE` 或配置文件 `ranks.max_per_type` 调整），超出后名次靠后的记录会被丢弃，此时 `kept` 为 false；设为 `0` 或负数表示不限制条数
 - 可以用 `RANKS_ALLOWED_TYPES` 或配置文件 `ranks.allowed_types` 限定允许的排行类型；限制后提交未允许的类型会返回 400
 - 数据落盘有两种方式：默认全部类型写在一个 JSON 文件（`ranks.path` / `RANKS_FILE_PATH`，默认 `<运行目录>/ranks.json`）；配置了目录（`ranks.dir` / `RANKS_DIR`）时，每个类型单独一个文件 `<目录>/<type>.json`，方便单独维护（例如每周换掉 `survival_week.json` 即可重置周榜）。服务器重启后自动加载；落盘有约 0.5 秒防抖
 
@@ -542,7 +542,7 @@ curl "http://localhost/api/ranks/story?limit=3"
 
 ### 结构化配置文件
 
-支持 JSON5（可写注释、键名可省略引号、允许尾逗号），默认从**运行目录**读取 `server.config.json5`，也可以用 `--config <路径>` 或环境变量 `CONFIG_FILE_PATH` 指定其它位置。
+支持 JSON5（可写注释、键名可省略引号、允许尾逗号），默认从**运行目录**读取 `server.config.json5`（没有时再试 `server.config.json`），也可以用 `--config <路径>` 或环境变量 `CONFIG_FILE_PATH` 指定其它位置。
 
 - 文件不存在时静默跳过（用默认值启动）
 - 显式指定的路径不存在、或文件解析失败时会直接退出，并打印原因
@@ -564,7 +564,7 @@ curl "http://localhost/api/ranks/story?limit=3"
   ranks: {
     path: '/root/data/lfj/ranks.json',
     allowed_types: ['story', 'versus'],
-    max_per_type: 10000,
+    max_per_type: 0, // 0 或负数 = 不限条数
   },
 }
 ```
@@ -579,7 +579,7 @@ curl "http://localhost/api/ranks/story?limit=3"
 | `ranks.path` | string | 排行数据文件路径（所有类型集中在一个文件） |
 | `ranks.dir` | string | 排行数据目录，每个排行类型一个 `<type>.json`；配置后优先于 `ranks.path` |
 | `ranks.allowed_types` | string 或 string[] | 允许的排行类型，缺省不限制 |
-| `ranks.max_per_type` | number | 每个排行类型保留的条数上限，默认 10000 |
+| `ranks.max_per_type` | number | 每个排行类型保留的条数上限，默认 10000；`0` 或负数表示不限制 |
 
 ### 环境变量
 
@@ -606,7 +606,7 @@ RANKS_MAX_PER_TYPE=10000
 | `RANKS_FILE_PATH` | 排行数据文件路径，缺省为 `<运行目录>/ranks.json`。部署时建议指到部署目录之外，避免更新被覆盖 |
 | `RANKS_DIR` | 排行数据目录（每个类型一个文件），配置后优先于 `RANKS_FILE_PATH` |
 | `RANKS_ALLOWED_TYPES` | 允许的排行类型，逗号分隔，缺省不限制 |
-| `RANKS_MAX_PER_TYPE` | 每个排行类型保留的条数上限，缺省 10000 |
+| `RANKS_MAX_PER_TYPE` | 每个排行类型保留的条数上限，缺省 10000；`0` 或负数表示不限制 |
 
 ## 新增接口
 

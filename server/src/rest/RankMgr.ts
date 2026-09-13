@@ -80,7 +80,8 @@ export class RankMgr {
   constructor(path: string, options: IRankOptions = {}) {
     this.path = path;
     this.dir = options.dir?.trim() || void 0;
-    this.max_per_type = options.max_per_type ?? MAX_PER_TYPE;
+    const max = options.max_per_type ?? MAX_PER_TYPE;
+    this.max_per_type = max > 0 ? max : Infinity;
     const allowed = options.allowed_types?.map(v => `${v}`.trim()).filter(Boolean);
     this.allowed_types = allowed?.length ? Array.from(new Set(allowed)) : void 0;
     this.load();
