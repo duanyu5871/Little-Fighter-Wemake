@@ -105,6 +105,7 @@ async function fetch_survival_rank_data(lfw: LFW, period: SurvivalRankPeriod): P
     const my_row = list.find(v => v.rank === mine.rank)
     if (my_row?.nickname) set_bili_nickname(my_row.nickname)
   }
+  apply_bili_player_name(lfw)
   lfw.set_survival_rank_data({
     period,
     list: await merge_fighters(list, period),
@@ -120,6 +121,31 @@ function get_bili_nickname(): string {
 function set_bili_nickname(name: string) {
   if (!name || name === get_bili_nickname()) return
   try { localStorage.setItem(BILI_NICKNAME_KEY, name) } catch { }
+}
+
+/** 上次自动写入 Player1 名字的昵称（用于区分玩家是否手动改过） */
+const BILI_APPLIED_NAME_KEY = 'survival_bili_name_applied'
+function get_bili_applied_name(): string {
+  try { return localStorage.getItem(BILI_APPLIED_NAME_KEY) ?? '' } catch { return '' }
+}
+function set_bili_applied_name(name: string) {
+  if (!name || name === get_bili_applied_name()) return
+  try { localStorage.setItem(BILI_APPLIED_NAME_KEY, name) } catch { }
+}
+
+/** B站环境：Player1 的名字默认跟随 B站昵称；玩家手动改过则不再覆盖 */
+function apply_bili_player_name(lfw: LFW) {
+  const nickname = get_bili_nickname()
+  if (!nickname) return
+  const player = lfw.players.get('1')
+  if (!player) return
+  const name = `${player.name ?? ''}`.trim()
+  const applied = get_bili_applied_name()
+  if (name && name !== player.id && name !== applied) return
+  if (name !== nickname) player.set_name(nickname, true).save()
+  set_bili_applied_name(nickname)
+  const puppet = lfw.world.puppets.get(player.id)
+  if (puppet && puppet.name !== nickname) puppet.name = nickname
 }
 
 /** B站榜单没有角色信息：用自有服务的旁路记录补上；查不到就留空 */
@@ -146,10 +172,9 @@ function rank_player_fighter(lfw: LFW): string {
 
 /** 非 B站环境：从自己的服务器拉取“榜单+我的排名”后下发 */
 async function fetch_survival_rank_data_api(lfw: LFW, period: SurvivalRankPeriod): Promise<void> {
-  const name = rank_player_name(lfw)
   const [list, mine] = await Promise.all([
     get_rank_list_api(period),
-    get_my_rank_api(period, name),
+    get_my_rank_api(period),
   ])
   lfw.set_survival_rank_data({
     period,
@@ -443,6 +468,8 @@ function App() {
         rank_startup_submitted = true
         submit_rank_score(0).catch(() => { })
       }
+      // Player1 的名字默认跟随 B站昵称（等玩家资料加载完再应用，避免被覆盖）
+      lf2.players.get('1')?.loaded.then(() => apply_bili_player_name(lf2)).catch(() => { })
     } else if (rank_api_available()) {
       // 非 B站环境：同样上报“已到达的阶段数”，提交到自己的服务器
       lf2.on_survival_rank_phase = (reached) => {

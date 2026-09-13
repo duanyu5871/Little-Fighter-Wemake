@@ -5,6 +5,12 @@ import { body_of, str_of } from '../read_body';
 import { query_int, query_str } from '../utils';
 
 const MAX_LOOKUP_NAMES = 200;
+const UID_PATTERN = /^[A-Za-z0-9_-]{4,64}$/;
+
+function uid_of(raw: string | undefined): string | undefined {
+  const uid = raw?.trim();
+  return uid && UID_PATTERN.test(uid) ? uid : void 0;
+}
 
 function require_type(ranks: RankMgr, type: string) {
   if (!RANK_TYPE_PATTERN.test(type))
@@ -31,6 +37,7 @@ export function register_rank_routes(rest: Rest) {
       type,
       name,
       score,
+      uid: uid_of(str_of(body?.uid)),
       extra: body?.extra,
       client_id: c.client?.id,
       address: c.req.raw.socket.remoteAddress,
@@ -57,8 +64,9 @@ export function register_rank_routes(rest: Rest) {
     require_type(ranks, type);
     const limit = query_int(c.req.query, 'limit', 50, 1, 500);
     const name = query_str(c.req.query, 'name');
+    const uid = uid_of(query_str(c.req.query, 'uid'));
     const result = ranks.scores(type, limit, name);
-    const best = name ? ranks.best_of(type, name) ?? null : void 0;
+    const best = name || uid ? ranks.find(type, { name, uid }) ?? null : void 0;
     return { type, limit, total: result.total, scores: result.scores, best };
   });
 }

@@ -19,6 +19,7 @@ export class PlayerInfo {
   readonly callbacks = new Callbacks<IPlayerInfoCallback>();
   readonly local: boolean = true;
   readonly mine: boolean = true;
+  readonly loaded: Promise<boolean>;
   protected _info: IPurePlayerInfo;
   protected _is_com: boolean = false;
   private _fighter: Unsafe<Entity>;
@@ -38,7 +39,7 @@ export class PlayerInfo {
     this.local = local;
     this.mine = mine;
     this._info = { id, name, keys: Defines.get_default_keys(id), version: 0, ctrl: CtrlDevice.Keyboard };
-    this.load();
+    this.loaded = this.load();
   }
   async save(): Promise<void> {
     try {

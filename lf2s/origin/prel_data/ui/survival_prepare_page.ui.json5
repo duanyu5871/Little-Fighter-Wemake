@@ -138,7 +138,7 @@
               properties: {
                 direction: "col",
                 content: "survival_rank_list",
-                step: 26,
+                step: 44,
               },
             },
           ],
@@ -148,14 +148,14 @@
               items: [
                 {
                   id: "rank_row",
-                  size: "480, 24",
+                  size: "480, 36",
                   visible: false,
                   count: 100,
                   items: [
                     {
                       id: "rank_row_rank",
                       pos: "0, 0",
-                      size: "40, 24",
+                      size: "40, 20",
                       style: {
                         fill_style: "#ffffff",
                         font: "16px Arial",
@@ -165,7 +165,7 @@
                     {
                       id: "rank_row_name",
                       pos: "80, 0",
-                      size: "190, 24",
+                      size: "190, 20",
                       style: {
                         fill_style: "#ffffff",
                         font: "16px Arial",
@@ -174,18 +174,18 @@
                     },
                     {
                       id: "rank_row_fighter",
-                      pos: "280, 0",
-                      size: "130, 24",
+                      pos: "80, 19",
+                      size: "190, 17",
                       style: {
                         fill_style: "#9b9bff",
-                        font: "15px Arial",
+                        font: "12px Arial",
                         text_align: "left",
                       },
                     },
                     {
                       id: "rank_row_score",
                       pos: "420, 0",
-                      size: "60, 24",
+                      size: "60, 20",
                       style: {
                         fill_style: "#ffffff",
                         font: "16px Arial",

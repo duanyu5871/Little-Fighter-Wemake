@@ -7,6 +7,7 @@ export interface IRankScore {
   score: number;
   extra?: unknown;
   date: number;
+  uid?: string;
   client_id?: string;
   address?: string;
 }
@@ -16,6 +17,7 @@ export interface IRankSubmit {
   name: string;
   score: number;
   extra?: unknown;
+  uid?: string;
   client_id?: string;
   address?: string;
 }
@@ -38,9 +40,24 @@ export const RANK_FILE_EXT = '.json';
 export const MAX_PER_TYPE = 10000;
 export const SAVE_DELAY = 500;
 export const RANK_TYPE_PATTERN = /^[A-Za-z0-9_.-]{1,64}$/;
+export const PERIOD_SUFFIXES = ['_all', '_month', '_week', '_day'] as const;
 
 function sort_scores(list: IRankScore[]) {
   list.sort((a, b) => b.score - a.score || a.date - b.date);
+}
+
+function owner_key(v: { uid?: string; name: string }): string {
+  return v.uid ? `uid:${v.uid}` : `name:${v.name}`;
+}
+
+function family_of(type: string): string[] {
+  for (const suffix of PERIOD_SUFFIXES) {
+    if (!type.endsWith(suffix)) continue;
+    const base = type.slice(0, -suffix.length);
+    if (!base) break;
+    return PERIOD_SUFFIXES.map(v => `${base}${v}`);
+  }
+  return [];
 }
 
 function write_atomic(file: string, text: string) {
@@ -82,12 +99,16 @@ export class RankMgr {
 
   total(type: string): number { return this._scores.get(type)?.length ?? 0 }
 
-  best_of(type: string, name: string): { rank: number; score: IRankScore } | undefined {
+  find(type: string, opts: { name?: string; uid?: string }): { rank: number; score: IRankScore } | undefined {
     const list = this._scores.get(type);
     if (!list) return void 0;
     for (let i = 0; i < list.length; i++) {
       const score = list[i]!;
-      if (score.name === name) return { rank: i + 1, score };
+      if (opts.uid) {
+        if (score.uid === opts.uid) return { rank: i + 1, score };
+      } else if (opts.name && score.name === opts.name) {
+        return { rank: i + 1, score };
+      }
     }
     return void 0;
   }
@@ -117,9 +138,24 @@ export class RankMgr {
   }
 
   submit(info: IRankSubmit): IRankResult {
+    const result = this.store(info);
+    for (const type of family_of(info.type)) {
+      if (type !== info.type && this.allows(type)) this.store({ ...info, type });
+    }
+    return result;
+  }
+
+  protected store(info: IRankSubmit): IRankResult {
     const list = this.list_of(info.type);
+    const key = owner_key(info);
+    const index = list.findIndex(v => owner_key(v) === key);
+    if (index >= 0 && list[index]!.score >= info.score) {
+      const rank = index + 1;
+      return { rank, total: list.length, kept: rank <= this.max_per_type, score: list[index]! };
+    }
     const score: IRankScore = { ...info, date: Date.now() };
-    list.push(score);
+    if (index >= 0) list.splice(index, 1, score);
+    else list.push(score);
     sort_scores(list);
     const rank = list.indexOf(score) + 1;
     const total = list.length;
@@ -190,9 +226,18 @@ export class RankMgr {
 
   protected load_scores(type: string, list: unknown[]) {
     const target = this.list_of(type);
+    const parsed: IRankScore[] = [];
     for (const v of list) {
       const score = v as IRankScore;
-      if (score && typeof score.name === 'string' && Number.isFinite(score.score)) target.push(score);
+      if (score && typeof score.name === 'string' && Number.isFinite(score.score)) parsed.push(score);
+    }
+    sort_scores(parsed);
+    const kept = new Set<string>();
+    for (const score of parsed) {
+      const key = owner_key(score);
+      if (kept.has(key)) continue;
+      kept.add(key);
+      target.push(score);
     }
     sort_scores(target);
     if (target.length > this.max_per_type) target.length = this.max_per_type;

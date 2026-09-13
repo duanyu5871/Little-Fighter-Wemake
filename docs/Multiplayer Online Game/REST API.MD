@@ -403,15 +403,18 @@ curl -X POST -H "Authorization: Bearer <player token>" -H "Content-Type: applica
 | 字段 | 类型 | 必填 | 说明 |
 | - | - | - | - |
 | `type` | string | 是 | 排行类型，最长 64 字符，只能包含字母、数字、`_`、`.`、`-`（例如 `story`、`survival_week`） |
-| `name` | string | 是 | 玩家名，最长 32 字符 |
+| `name` | string | 是 | 玩家名，最长 32 字符（仅用于展示） |
 | `score` | number | 是 | 分数，数字或数字字符串 |
+| `uid` | string | 否 | 提交者标识，4~64 位字母/数字/`_`/`-`（如客户端本地生成的匿名 id）；不合法或未提供时按 `name` 去重 |
 | `extra` | any | 否 | 额外信息，任意 JSON，原样保存 |
 
 服务器会自动记录提交时间 `date`、提交者地址 `address`，以及（若已绑定 token）客户端 id `client_id`。
 
+同一 `type` + 同一提交者（`uid`，缺省时退回 `name`）只保留最高分：再次提交时只有分数更高才会覆盖原记录（名次、时间随新记录更新），低于或等于现有最高分的提交不会写入，响应里返回的是现有最高分记录。重名玩家只要 `uid` 不同就会各占一行。
+
 ``` bash
 curl -X POST -H "Content-Type: application/json" \
-  -d '{"type":"story","name":"gim","score":250,"extra":{"stage":3}}' http://localhost/api/ranks
+  -d '{"type":"story","name":"gim","score":250,"uid":"0f8c1d92","extra":{"stage":3}}' http://localhost/api/ranks
 ```
 
 ``` json
@@ -422,6 +425,7 @@ curl -X POST -H "Content-Type: application/json" \
   "type": "story",
   "name": "gim",
   "score": 250,
+  "uid": "0f8c1d92",
   "extra": { "stage": 3 },
   "address": "::ffff:127.0.0.1",
   "date": 1789305323519
@@ -430,14 +434,16 @@ curl -X POST -H "Content-Type: application/json" \
 
 | 字段 | 说明 |
 | - | - |
-| `rank` | 本次提交在改名次下的名次（从 1 开始） |
-| `total` | 该类型累计收到的提交总数（不受保留上限影响） |
+| `rank` | 该提交者在当前类型下的名次（从 1 开始） |
+| `total` | 该类型当前保留的条目数（每个提交者一条） |
 | `kept` | 是否进入服务器保留的名单（保留上限见下） |
 
 规则与限制：
 
-- 排序按 `score` 从高到低，分数相同则先提交的在前
-- 每个排行类型最多保留 10000 条（可用 `RANKS_MAX_PER_TYPE` 或配置文件 `ranks.max_per_type` 调整），超出后名次靠后的提交会被丢弃，此时 `kept` 为 false，但 `rank` 与 `total` 仍是真实值
+- 排序按 `score` 从高到低，分数相同则更早达到的记录在前
+- 每个提交者在每个类型下只有一条记录（最高分），反复提交不会在榜单里产生重复行；没有 `uid` 的旧数据先按名字收敛，加载旧数据文件时也同样处理，旧文件会在下次落盘时变干净
+- 周期类型（以 `_all` / `_month` / `_week` / `_day` 结尾，例如 `survival_all`）视为同一族：提交其中任意一个，会自动把这条记录同步写入同族的其它类型，所以客户端每次提交只需发一个请求，月/周/日榜也会同时更新（各类型仍按 `uid` 去重、只留最高分；被 `RANKS_ALLOWED_TYPES` 排除的类型会跳过）
+- 每个排行类型最多保留 10000 条（可用 `RANKS_MAX_PER_TYPE` 或配置文件 `ranks.max_per_type` 调整），超出后名次靠后的记录会被丢弃，此时 `kept` 为 false
 - 可以用 `RANKS_ALLOWED_TYPES` 或配置文件 `ranks.allowed_types` 限定允许的排行类型；限制后提交未允许的类型会返回 400
 - 数据落盘有两种方式：默认全部类型写在一个 JSON 文件（`ranks.path` / `RANKS_FILE_PATH`，默认 `<运行目录>/ranks.json`）；配置了目录（`ranks.dir` / `RANKS_DIR`）时，每个类型单独一个文件 `<目录>/<type>.json`，方便单独维护（例如每周换掉 `survival_week.json` 即可重置周榜）。服务器重启后自动加载；落盘有约 0.5 秒防抖
 
@@ -448,9 +454,10 @@ curl -X POST -H "Content-Type: application/json" \
 | 参数 | 类型 | 默认 | 说明 |
 | - | - | - | - |
 | `limit` | number | 50 | 返回条数，范围 1 到 500 |
-| `name` | string | 无 | 只返回指定玩家名的成绩 |
+| `name` | string | 无 | 只返回指定玩家名的成绩（重名时返回多行） |
+| `uid` | string | 无 | 只返回该提交者的成绩；与 `name` 同时给出时优先 `uid` |
 
-`total` 是当前保留的条数（受每个类型的保留上限影响）；传了 `name` 时会额外返回 `best`（该玩家在榜上的最好成绩与名次，没有记录时为 null）。
+`total` 是当前保留的条数；每个提交者只有一条记录（其最高分），所以同一个 `uid` 不会出现两次（重名玩家各占一行）。传了 `name` 或 `uid` 时会额外返回 `best`（在榜上的最好成绩与名次，没有记录时为 null）。
 
 ``` json
 {
@@ -459,7 +466,7 @@ curl -X POST -H "Content-Type: application/json" \
   "total": 2,
   "scores": [
     { "type": "survival_week", "name": "gim", "score": 7, "date": 1789307723535 },
-    { "type": "survival_week", "name": "gim", "score": 3, "date": 1789307723527 }
+    { "type": "survival_week", "name": "bob", "score": 3, "date": 1789307723527 }
   ],
   "best": { "rank": 1, "score": { "type": "survival_week", "name": "gim", "score": 7, "date": 1789307723535 } }
 }
@@ -477,7 +484,7 @@ curl "http://localhost/api/ranks/story?limit=3"
   "scores": [
     { "type": "story", "name": "gim", "score": 250, "date": 1789305323528 },
     { "type": "story", "name": "bob", "score": 180, "date": 1789305323530 },
-    { "type": "story", "name": "gim", "score": 100, "extra": { "stage": 3 }, "date": 1789305323519 }
+    { "type": "story", "name": "ann", "score": 100, "extra": { "stage": 3 }, "date": 1789305323519 }
   ]
 }
 ```

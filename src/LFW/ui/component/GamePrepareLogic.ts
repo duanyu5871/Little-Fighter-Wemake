@@ -29,7 +29,7 @@ const RANK_LIMIT = 100
 /** 请求外部(宿主)按当前周期拉取生存排行；外部拉到后经 set_survival_rank_data 下发 */
 const BROADCAST_RANK_REQUEST = 'rank_request'
 /** 榜单行高与行间距（列表不使用 Flex，行位置由 GamePrepareLogic 固定） */
-const RANK_ROW_H = 24
+const RANK_ROW_H = 36
 const RANK_ROW_GAP = 8
 /** 偶数行（排名 2、4、6…）的极淡白色底（斑马纹） */
 const RANK_ROW_EVEN_BG = 'rgba(255,255,255,0.04)'
