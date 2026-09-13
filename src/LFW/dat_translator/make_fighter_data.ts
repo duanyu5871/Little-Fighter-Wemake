@@ -423,7 +423,7 @@ export function make_fighter_data(ctx: IDatContext): IEntityData {
           frame.dvx = walking_speed;
           frame.dvz = walking_speedz;
           frame.ctrl_x = frame.ctrl_z = 1;
-          frame.wait = walking_frame_rate * 2 - 1;
+          frame.wait = walking_frame_rate * 2;
         }
         round_trip_frames_map[frame.name] =
           round_trip_frames_map[frame.name] || [];
@@ -468,7 +468,7 @@ export function make_fighter_data(ctx: IDatContext): IEntityData {
               原版：0 ==> 1 ==> 2 ==> 1 ==>0
               WEMAKE: 0 ==> 1 ==> 2 ==> copy_1 ==> 0
           */
-          frame.wait = running_frame_rate * 2 - 1;
+          frame.wait = running_frame_rate * 2;
         }
         round_trip_frames_map[frame.name] =
           round_trip_frames_map[frame.name] || [];

@@ -101,7 +101,9 @@ export function cook_frames(ctx: IDatContext): Record<string, IFrameInfo> {
       };
     }
 
-    const wait = take(fields, "wait") * 2 + 1;
+    let wait = take(fields, "wait");
+    if (wait == 0) wait = 1;
+    else wait = wait * 2;
     const frame: IFrameInfo = {
       id: frame_id,
       name: frame_name,
