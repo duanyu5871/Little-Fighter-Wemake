@@ -227,6 +227,8 @@ export class LFW implements I.IKeyboardCallback, IDebugging {
   on_survival_rank_phase?: (phase_reached: number) => void;
   /** 外部(宿主 App)是否注入了生存排行数据能力（未注入表示不可用/不显示） */
   survival_rank_available: boolean = false;
+  /** 当前准备页是否为双人生存排行（榜单/榜位与单人分开） */
+  survival_rank_2p: boolean = false;
   /** 当前展示的排行周期（准备页切标签时更新；外部按此周期拉取） */
   survival_rank_period: SurvivalRankPeriod = 'all';
   /** 外部最近一次下发的生存排行数据（未下发为 undefined） */

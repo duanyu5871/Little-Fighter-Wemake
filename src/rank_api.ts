@@ -6,6 +6,12 @@ const TYPE_OF_PERIOD: Record<SurvivalRankPeriod, string> = {
   week: 'survival_week',
   day: 'survival_day',
 };
+const TYPE_OF_PERIOD_2P: Record<SurvivalRankPeriod, string> = {
+  all: 'survival_2p_all',
+  month: 'survival_2p_month',
+  week: 'survival_2p_week',
+  day: 'survival_2p_day',
+};
 const SUBMITTED_KEY = 'rank_api_submitted_max';
 const BILI_SUBMITTED_KEY = 'rank_api_bili_submitted_max';
 const UID_KEY = 'rank_api_uid';
@@ -15,6 +21,12 @@ const BILI_TYPE_OF_PERIOD: Record<SurvivalRankPeriod, string> = {
   month: 'survival_bili_month',
   week: 'survival_bili_week',
   day: 'survival_bili_day',
+};
+const BILI_TYPE_OF_PERIOD_2P: Record<SurvivalRankPeriod, string> = {
+  all: 'survival_bili_2p_all',
+  month: 'survival_bili_2p_month',
+  week: 'survival_bili_2p_week',
+  day: 'survival_bili_2p_day',
 };
 
 function query_param(name: string): string {
@@ -36,12 +48,14 @@ export function rank_api_available(): boolean {
   return !!rank_api_base();
 }
 
-export function rank_api_type(period: SurvivalRankPeriod): string {
-  return TYPE_OF_PERIOD[period] ?? TYPE_OF_PERIOD.all;
+export function rank_api_type(period: SurvivalRankPeriod, two: boolean = false): string {
+  const map = two ? TYPE_OF_PERIOD_2P : TYPE_OF_PERIOD;
+  return map[period] ?? map.all;
 }
 
-export function rank_api_bili_type(period: SurvivalRankPeriod): string {
-  return BILI_TYPE_OF_PERIOD[period] ?? BILI_TYPE_OF_PERIOD.all;
+export function rank_api_bili_type(period: SurvivalRankPeriod, two: boolean = false): string {
+  const map = two ? BILI_TYPE_OF_PERIOD_2P : BILI_TYPE_OF_PERIOD;
+  return map[period] ?? map.all;
 }
 
 function api(path: string, init?: RequestInit): Promise<Response> {
@@ -95,14 +109,15 @@ function set_submitted_max(key: string, score: number) {
   }
 }
 
-export async function submit_rank_score(score: number, name: string, fighter: string): Promise<void> {
-  if (score <= submitted_max(SUBMITTED_KEY)) return;
-  set_submitted_max(SUBMITTED_KEY, score);
-  await post_score(TYPE_OF_PERIOD.all, name, score, fighter, name);
+export async function submit_rank_score(score: number, name: string, fighter: string, two: boolean = false): Promise<void> {
+  const key = SUBMITTED_KEY + (two ? '_2p' : '');
+  if (score <= submitted_max(key)) return;
+  set_submitted_max(key, score);
+  await post_score(rank_api_type('all', two), name, score, fighter, name);
 }
 
-export async function get_rank_list(period: SurvivalRankPeriod): Promise<SurvivalRankItem[]> {
-  const resp = await api(`/api/ranks/${rank_api_type(period)}?limit=${LIST_LIMIT}`);
+export async function get_rank_list(period: SurvivalRankPeriod, two: boolean = false): Promise<SurvivalRankItem[]> {
+  const resp = await api(`/api/ranks/${rank_api_type(period, two)}?limit=${LIST_LIMIT}`);
   if (!resp.ok) throw new Error(`[rank_api] 拉取榜单失败: ${resp.status}`);
   const data = await resp.json() as { scores?: IRankEntry[] };
   const entries = Array.isArray(data?.scores) ? data.scores : [];
@@ -116,10 +131,10 @@ export async function get_rank_list(period: SurvivalRankPeriod): Promise<Surviva
   return list;
 }
 
-export async function get_my_rank(period: SurvivalRankPeriod): Promise<{ rank: number; score: number } | null> {
+export async function get_my_rank(period: SurvivalRankPeriod, two: boolean = false): Promise<{ rank: number; score: number } | null> {
   const uid = rank_uid();
   if (!uid) return null;
-  const resp = await api(`/api/ranks/${rank_api_type(period)}?uid=${encodeURIComponent(uid)}&limit=1`);
+  const resp = await api(`/api/ranks/${rank_api_type(period, two)}?uid=${encodeURIComponent(uid)}&limit=1`);
   if (!resp.ok) throw new Error(`[rank_api] 查询我的排名失败: ${resp.status}`);
   const data = await resp.json() as { best?: { rank?: number; score?: { score?: number } } | null };
   const rank = Number(data?.best?.rank);
@@ -128,11 +143,12 @@ export async function get_my_rank(period: SurvivalRankPeriod): Promise<{ rank: n
   return { rank, score };
 }
 
-export async function submit_bili_record(score: number, name: string, fighter: string, player: string): Promise<void> {
+export async function submit_bili_record(score: number, name: string, fighter: string, player: string, two: boolean = false): Promise<void> {
+  const key = BILI_SUBMITTED_KEY + (two ? '_2p' : '');
   if (!rank_api_available() || !name) return;
-  if (score <= submitted_max(BILI_SUBMITTED_KEY)) return;
-  set_submitted_max(BILI_SUBMITTED_KEY, score);
-  await post_score(BILI_TYPE_OF_PERIOD.all, name, score, fighter, player);
+  if (score <= submitted_max(key)) return;
+  set_submitted_max(key, score);
+  await post_score(rank_api_bili_type('all', two), name, score, fighter, player);
 }
 
 export interface IRankCharInfo {
@@ -140,14 +156,14 @@ export interface IRankCharInfo {
   player?: string;
 }
 
-export async function lookup_fighters(period: SurvivalRankPeriod, names: string[]): Promise<Map<string, IRankCharInfo>> {
+export async function lookup_fighters(period: SurvivalRankPeriod, names: string[], two: boolean = false): Promise<Map<string, IRankCharInfo>> {
   const ret = new Map<string, IRankCharInfo>();
   const wanted = names.filter(Boolean);
   if (!rank_api_available() || !wanted.length) return ret;
   const resp = await api('/api/ranks/lookup', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ type: rank_api_bili_type(period), names: wanted }),
+    body: JSON.stringify({ type: rank_api_bili_type(period, two), names: wanted }),
   });
   if (!resp.ok) return ret;
   const data = await resp.json() as { chars?: { name?: string; fighter?: string; player?: string }[] };

@@ -1,5 +1,6 @@
 import { GameKey } from "../../../defines";
 import type { IUIKeyEvent } from "../../IUIKeyEvent";
+import { GamePrepareLogic } from "../GamePrepareLogic";
 import type { CharMenuLogic } from "./CharMenuLogic";
 import { CharMenuState } from "./CharMenuState";
 import { CharMenuState_Base } from "./CharMenuState_Base";
@@ -29,7 +30,10 @@ export class CharMenuState_PlayerSel extends CharMenuState_Base {
   }
   override update(dt: number): void | CharMenuState | undefined {
     const { players } = this.owner
-    let all_ready = players.size > 0;
+    // 生存排行（无设置菜单、人数固定）：人数不够时不进入倒计时
+    const gpl = this.owner.node.root.search_component(GamePrepareLogic)
+    const need = gpl?.auto_start_when_ready ? this.owner.min_player : 1
+    let all_ready = players.size >= need
     for (const [, { step }] of players) {
       if (step === SlotStep.Ready) continue;
       all_ready = false;

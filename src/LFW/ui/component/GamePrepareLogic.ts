@@ -18,6 +18,7 @@ export interface IGamePrepareLogicProps {
   stage_switcher: StageSwitcher | null,
   bg_switcher: BackgroundSwitcher | null,
   game_mode: string | null,
+  players: number | null,
 }
 const GAME_MODE_VS = "vs_mode"
 const GAME_MODE_STAGE = "stage_mode"
@@ -46,8 +47,12 @@ export class GamePrepareLogic extends UIComponent<IGamePrepareLogicProps> {
   static override readonly PROPS: IPropsMeta<IGamePrepareLogicProps> = {
     stage_switcher: { type: StageSwitcher, nullable: true },
     bg_switcher: { type: BackgroundSwitcher, nullable: true },
-    game_mode: String
+    game_mode: String,
+    players: { type: Number, nullable: true },
   }
+
+  /** 本准备页的玩家数（生存排行双人页为 2，缺省 1） */
+  get player_count(): number { return this.props.players ?? 1 }
 
   override on_start(): void {
     super.on_start?.();
@@ -62,8 +67,8 @@ export class GamePrepareLogic extends UIComponent<IGamePrepareLogicProps> {
       stage_row?.set_visible(false).set_disabled(true);
       if (char_menu_logic) {
         char_menu_logic.teams = [TeamEnum.Team_1]
-        char_menu_logic.min_player = 1;
-        char_menu_logic.max_player = 1;
+        char_menu_logic.min_player = this.player_count;
+        char_menu_logic.max_player = this.player_count;
         char_menu_logic.oids = [...SurvivalRankOids];
       }
     } else if (this.props.game_mode === GAME_MODE_STAGE) {
@@ -91,34 +96,35 @@ export class GamePrepareLogic extends UIComponent<IGamePrepareLogicProps> {
 
   /** 背景大头像 + 随机“?”：随机/未选 → Julian 背景；明确选中 → 角色 bg_face；随机态在选人框显示问号 */
   protected refresh_selection_face(): void {
-    const face_node = this.node.search_node('survival_bg_face')
-    if (!face_node) return
     const char_menu_logic = this.node.search_component(CharMenuLogic)
-    const slot = char_menu_logic?.players.values().next().value as
-      | { fighter?: IEntityData | null; random?: boolean }
-      | undefined
-    const random = !!slot?.random
-    // 随机状态不泄露抽到的角色 → 背景回退 Julian
-    const bg_face = !random ? slot?.fighter?.base?.bg_face : undefined
-    const next = bg_face || DEFAULT_BG_FACE
-    if (next !== this._bg_face_cur) {
-      this._bg_face_cur = next
-      face_node.search_component(Picture)?.set_src(next)
-    }
-    // 随机“?”占位（固定 RFACE 图）：仅 random 且未倒计时时显示
-    const mark = this.node.search_node('random_head')
+    if (!char_menu_logic) return
+    const count = Math.max(1, this.player_count)
+    const slots = Array.from(char_menu_logic.players.values())
     const counting = !!this.node.search_node('countdown_text')?.visible
-    const show_mark = random && !counting
-    if (mark) {
-      if (show_mark !== this._random_mark_visible) {
-        this._random_mark_visible = show_mark
+    for (let i = 0; i < count; i++) {
+      const slot = slots[i]
+      const random = !!slot?.random
+      // 随机状态不泄露抽到的角色 → 背景回退 Julian
+      const bg_face = !random ? slot?.fighter?.base?.bg_face : undefined
+      const next = bg_face || DEFAULT_BG_FACE
+      if (next !== this._bg_face_cur[i]) {
+        this._bg_face_cur[i] = next
+        const face_node = this.node.search_node(i === 0 ? 'survival_bg_face' : 'survival_bg_face_r')
+        face_node?.search_component(Picture)?.set_src(next)
+      }
+      // 随机“?”占位（固定 RFACE 图）：仅 random 且未倒计时时显示
+      const mark = char_menu_logic.slots[i]?.head?.node.find_child('random_head')
+      if (!mark) continue
+      const show_mark = random && !counting
+      if (show_mark !== this._random_mark_visible[i]) {
+        this._random_mark_visible[i] = show_mark
         mark.set_visible(show_mark)
       }
-      if (show_mark && !this._random_src_done) {
-        this._random_src_done = true
+      if (show_mark && !this._random_src_done[i]) {
+        this._random_src_done[i] = true
         mark.search_component(Picture)?.set_src(Defines.BuiltIn_Imgs.RFACE)
       }
-      if (!show_mark) this._random_src_done = false
+      if (!show_mark) this._random_src_done[i] = false
     }
   }
 
@@ -128,11 +134,11 @@ export class GamePrepareLogic extends UIComponent<IGamePrepareLogicProps> {
   protected _rank_mine: SurvivalRankMy | null = null
   protected _rank_loaded = false
   protected _rank_board_shown = false
-  /** 当前应用到的背景大头像（避免每帧重复 set_src） */
-  protected _bg_face_cur = ''
-  /** 随机“?”占位的可见状态与是否已 set_src */
-  protected _random_mark_visible = false
-  protected _random_src_done = false
+  /** 当前应用到的背景大头像（避免每帧重复 set_src；按槽位） */
+  protected _bg_face_cur: string[] = []
+  /** 随机“?”占位的可见状态与是否已 set_src（按槽位） */
+  protected _random_mark_visible: boolean[] = []
+  protected _random_src_done: boolean[] = []
 
   /** 生存排行列表不使用 Flex：把 100 行按固定行距一次性排好（ScrollView 只整体平移列表） */
   protected layout_rank_rows(): void {
@@ -174,6 +180,7 @@ export class GamePrepareLogic extends UIComponent<IGamePrepareLogicProps> {
     else this.clear_rank_rows()
     // 请求外部(宿主 App)按当前周期拉取最新数据；数据到达后经 on_survival_rank_changed 更新本页
     this.lfw.survival_rank_period = this.rank_period
+    this.lfw.survival_rank_2p = this.player_count >= 2
     this.lfw.broadcast(BROADCAST_RANK_REQUEST)
   }
 

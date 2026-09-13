@@ -57,6 +57,21 @@
           },
         },
         {
+          id: "btn_survival_2p",
+          size: "200,22",
+          center: "0.5, 0.5",
+          visible: false,
+          disabled: true,
+          template: "builtin_data/launch/main_text_button.ui.json",
+          values: {
+            text: "main_page.survival_2p",
+          },
+          component: ["Reachable(main)"],
+          actions: {
+            click: ["push_ui(survival_prepare_page_2p)", "sound(ok)"],
+          },
+        },
+        {
           id: "btn_vs_mode",
           size: "200,22",
           center: "0.5, 0.5",

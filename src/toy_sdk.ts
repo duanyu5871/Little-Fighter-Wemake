@@ -49,6 +49,8 @@ export function is_mobile_device(device_type: ToyDeviceType): boolean {
 
 /** 生存排行使用的榜位（1~3，含义自定；见 docs/dev/Toy JS SDK.md） */
 export const SURVIVAL_RANK_BOARD = 1
+/** 双人生存排行使用的榜位（与单人榜分开） */
+export const SURVIVAL_RANK_BOARD_2P = 2
 
 /** 云存储 key 前缀：已成功提交过的最高分（按榜位区分；key 只允许字母/数字/下划线/短横线） */
 const SUBMITTED_RANK_SCORE_KEY = 'rank_submitted_max_'

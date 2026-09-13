@@ -125,6 +125,8 @@ export class CharMenuLogic extends UIComponent<ICharMenuLogicProps> {
       // UI 左/右按钮（见 survival_char_menu.ui.json5）：等价键盘 L/R 切换角色
       if (message === 'char_menu_pick_prev') return this.pick_lr(-1);
       if (message === 'char_menu_pick_next') return this.pick_lr(+1);
+      if (message.startsWith('char_menu_pick_prev_')) return this.pick_lr(-1, +message.substring('char_menu_pick_prev_'.length) - 1);
+      if (message.startsWith('char_menu_pick_next_')) return this.pick_lr(+1, +message.substring('char_menu_pick_next_'.length) - 1);
     }
   }
   slots: ISlotPack[] = []
@@ -313,23 +315,33 @@ export class CharMenuLogic extends UIComponent<ICharMenuLogicProps> {
   /**
    * UI 左/右按钮：对菜单内的本地玩家切换角色（等价键盘 L/R，仅在选角状态生效）。
    * 还没有玩家加入时，先以首位本地玩家加入，再切换。
+   * 传 index 时只作用于该槽位的玩家（双人页左右两列各自的按钮）。
    */
-  pick_lr(dir: 1 | -1): void {
+  pick_lr(dir: 1 | -1, index?: number): void {
     if (!this.is_player_sel) return
     let player: PlayerInfo | undefined
-    for (const p of this.players.keys()) {
-      if (p.is_com) continue
-      player = p
-      break
-    }
-    if (!player) {
-      for (const p of this.lfw.players.values()) {
+    if (index === void 0) {
+      for (const p of this.players.keys()) {
         if (p.is_com) continue
         player = p
         break
       }
-      if (!player) return
-      this.press_a(player)
+      if (!player) {
+        for (const p of this.lfw.players.values()) {
+          if (p.is_com) continue
+          player = p
+          break
+        }
+        if (!player) return
+        this.press_a(player)
+      }
+    } else {
+      player = Array.from(this.players.keys())[index]
+      if (!player) {
+        player = Array.from(this.lfw.players.values()).filter(v => !v.is_com)[index]
+        if (!player) return
+        this.press_a(player)
+      }
     }
     this.press_lr(player, dir)
   }

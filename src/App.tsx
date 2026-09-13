@@ -61,7 +61,7 @@ import img_btn_3_3 from "./assets/btn_3_3.png";
 import img_btn_4_3 from "./assets/btn_4_3.png";
 import { useForage } from "./hooks/useForage";
 import "./init";
-import { get_my_rank, get_rank_list, is_toy_env, SURVIVAL_RANK_BOARD, submit_rank_score } from "./toy_sdk";
+import { get_my_rank, get_rank_list, is_toy_env, SURVIVAL_RANK_BOARD, SURVIVAL_RANK_BOARD_2P, submit_rank_score } from "./toy_sdk";
 import { get_my_rank as get_my_rank_api, get_rank_list as get_rank_list_api, lookup_fighters as lookup_fighters_api, rank_api_available, submit_bili_record, submit_rank_score as submit_rank_score_api } from "./rank_api";
 import { DatViewer } from "./pages/dat_viewer/DatViewer";
 import { useWorkspaces } from "./pages/dat_viewer/useWorkspaces";
@@ -99,8 +99,9 @@ const load_files = async (lfw: LFW, files: File[]) => {
 
 /** B站生存排行：宿主拉取“榜单+我的排名”后一次性下发（limit≈SDK 上限 100） */
 async function fetch_survival_rank_data(lfw: LFW, period: SurvivalRankPeriod): Promise<void> {
-  const list = await get_rank_list({ board: SURVIVAL_RANK_BOARD, period, limit: 100 })
-  const mine = await get_my_rank({ board: SURVIVAL_RANK_BOARD, period })
+  const board = lfw.survival_rank_2p ? SURVIVAL_RANK_BOARD_2P : SURVIVAL_RANK_BOARD
+  const list = await get_rank_list({ board, period, limit: 100 })
+  const mine = await get_my_rank({ board, period })
   if (mine && mine.ranked) {
     const my_row = list.find(v => v.rank === mine.rank)
     if (my_row?.nickname) set_bili_nickname(my_row.nickname)
@@ -108,7 +109,7 @@ async function fetch_survival_rank_data(lfw: LFW, period: SurvivalRankPeriod): P
   apply_bili_player_name(lfw)
   lfw.set_survival_rank_data({
     period,
-    list: await merge_fighters(list, period),
+    list: await merge_fighters(list, period, lfw.survival_rank_2p),
     mine: mine && mine.ranked ? { rank: mine.rank, score: mine.score } : null,
   })
 }
@@ -148,9 +149,9 @@ function apply_bili_player_name(lfw: LFW) {
   if (puppet && puppet.name !== nickname) puppet.name = nickname
 }
 
-async function merge_fighters(list: SurvivalRankItem[], period: SurvivalRankPeriod): Promise<SurvivalRankItem[]> {
+async function merge_fighters(list: SurvivalRankItem[], period: SurvivalRankPeriod, two: boolean = false): Promise<SurvivalRankItem[]> {
   if (!rank_api_available() || !list.length) return list
-  const chars = await lookup_fighters_api(period, list.map(v => v.nickname)).catch(() => null)
+  const chars = await lookup_fighters_api(period, list.map(v => v.nickname), two).catch(() => null)
   if (!chars?.size) return list
   return list.map(v => {
     const info = chars.get(v.nickname)
@@ -182,8 +183,8 @@ function rank_player_fighter(lfw: LFW): string {
 /** 非 B站环境：从自己的服务器拉取“榜单+我的排名”后下发 */
 async function fetch_survival_rank_data_api(lfw: LFW, period: SurvivalRankPeriod): Promise<void> {
   const [list, mine] = await Promise.all([
-    get_rank_list_api(period),
-    get_my_rank_api(period),
+    get_rank_list_api(period, lfw.survival_rank_2p),
+    get_my_rank_api(period, lfw.survival_rank_2p),
   ])
   lfw.set_survival_rank_data({
     period,
@@ -467,8 +468,8 @@ function App() {
       // B站生存排行：每进入一个新的 Survival 阶段上报“已到达的阶段数”（榜位 1）
       lf2.on_survival_rank_phase = (reached) => {
         if (lf2.survival_rank_invalid) return
-        submit_rank_score(reached).catch(() => { })
-        submit_bili_record(reached, get_bili_nickname(), rank_player_fighter(lf2), rank_player_name(lf2)).catch(() => { })
+        submit_rank_score(reached, lf2.survival_rank_2p ? SURVIVAL_RANK_BOARD_2P : SURVIVAL_RANK_BOARD).catch(() => { })
+        submit_bili_record(reached, get_bili_nickname(), rank_player_fighter(lf2), rank_player_name(lf2), lf2.survival_rank_2p).catch(() => { })
       }
       // 生存排行数据由宿主拉取后“下发”(set_survival_rank_data)，UI 侧值变化时更新
       lf2.survival_rank_available = true
@@ -484,7 +485,7 @@ function App() {
       // 非 B站环境：同样上报“已到达的阶段数”，提交到自己的服务器
       lf2.on_survival_rank_phase = (reached) => {
         if (lf2.survival_rank_invalid) return
-        submit_rank_score_api(reached, rank_player_name(lf2), rank_player_fighter(lf2)).catch(() => { })
+        submit_rank_score_api(reached, rank_player_name(lf2), rank_player_fighter(lf2), lf2.survival_rank_2p).catch(() => { })
       }
       lf2.survival_rank_available = true
     }
