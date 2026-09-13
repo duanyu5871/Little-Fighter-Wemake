@@ -4,6 +4,8 @@ import { TextInfo } from "../../ditto/image/TextInfo";
 import { UIComponent } from "./UIComponent";
 export interface IPlayerNameProps {
   prefix?: string;
+  /** 未加入时隐藏“加 入?”占位文案（生存排行等页面用）；默认保持经典显示 */
+  hide_join_q?: boolean;
 }
 /**
  * 显示玩家名称
@@ -16,6 +18,7 @@ export class PlayerName extends UIComponent<IPlayerNameProps> {
   static override readonly TAGS: string[] = ["PlayerName"];
   static override readonly PROPS: IPropsMeta<IPlayerNameProps> = {
     prefix: { type: String, nullable: true },
+    hide_join_q: { type: Boolean, nullable: true },
   };
   private _decided?: boolean;
   private _com?: boolean;
@@ -50,6 +53,7 @@ export class PlayerName extends UIComponent<IPlayerNameProps> {
       text,
       style: this.make_style(false),
     });
+    if (this.props.hide_join_q) this.node.visible = false;
   }
 
   protected _opacity: Sine = new Sine(0.65, 0.35, 3);

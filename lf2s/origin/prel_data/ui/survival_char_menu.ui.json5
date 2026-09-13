@@ -26,6 +26,8 @@
             countdown_label: "countdown_text",
             hints_node: "hints",
             start_hints_node: "start_hint",
+            pick_prev_node: "fighter_pick_prev",
+            pick_next_node: "fighter_pick_next",
           },
         },
       ],
@@ -77,11 +79,12 @@
     {
       id: "player_name",
       size: "200, 16",
-      pos: "142, 428",
+      pos: "142, 432",
       center: "0.5, 0",
+      visible: false,
       style: {
         fill_style: "#ffffff",
-        font: "12px Arial",
+        font: "16px Arial",
         text_align: "center",
       },
       component: [
@@ -89,6 +92,7 @@
           cls: "PlayerName",
           properties: {
             prefix: "survival.player_colon",
+            hide_join_q: true,
           },
         },
       ],
@@ -96,7 +100,7 @@
     {
       // “按攻击开始游戏”提示：已加入且未倒计时时显示（CharMenuHead.start_hints_node 驱动）
       id: "start_hint",
-      pos: "142, 408",
+      pos: "142, 410",
       center: "0.5,0",
       i18n: "survival.press_atk_start",
       style: {
@@ -110,6 +114,7 @@
       id: "fighter_pick_prev",
       pos: "22, 390",
       center: "0.5,0.5",
+      visible: false,
       i18n: "◀",
       actions: {
         click: ["broadcast(char_menu_pick_prev)", "sound(ok)"],
@@ -124,6 +129,7 @@
       id: "fighter_pick_next",
       pos: "262, 390",
       center: "0.5,0.5",
+      visible: false,
       i18n: "▶",
       actions: {
         click: ["broadcast(char_menu_pick_next)", "sound(ok)"],

@@ -83,11 +83,12 @@
         {
           id: "player_name",
           size: "133, 16",
-          pos: "95, 428",
+          pos: "95, 425",
           center: "0.5, 0",
+          visible: false,
           style: {
             fill_style: "#ffffff",
-            font: "7px Arial",
+            font: "8px Arial",
             text_align: "center",
           },
           component: [
@@ -95,6 +96,7 @@
               cls: "PlayerName",
               properties: {
                 prefix: "survival.player_colon",
+                hide_join_q: true,
               },
             },
           ],
@@ -210,11 +212,12 @@
         {
           id: "player_name",
           size: "133, 16",
-          pos: "699, 428",
+          pos: "699, 425",
           center: "0.5, 0",
+          visible: false,
           style: {
             fill_style: "#ffffff",
-            font: "7px Arial",
+            font: "8px Arial",
             text_align: "center",
           },
           component: [
@@ -222,6 +225,7 @@
               cls: "PlayerName",
               properties: {
                 prefix: "survival.player_colon",
+                hide_join_q: true,
               },
             },
           ],
