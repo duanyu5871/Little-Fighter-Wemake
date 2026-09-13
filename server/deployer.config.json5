@@ -9,5 +9,6 @@
     GIT_NO_BEHIND: false,
     GIT_NO_AHEAD: false,
     GIT_NO_DIRTY: false,
+    SSH_POST_CMD: ["pm2 restart lfj"],
   },
 }
