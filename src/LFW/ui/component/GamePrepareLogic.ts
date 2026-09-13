@@ -212,8 +212,12 @@ export class GamePrepareLogic extends UIComponent<IGamePrepareLogicProps> {
       }
       const v = entries[i]!
       cell(0)?.set_text(`${v.rank}.`, cell(0)?.text?.style)
-      cell(1)?.set_text(v.nickname, cell(1)?.text?.style)
-      cell(2)?.set_text(v.fighter ? this.lfw.string(v.fighter) : '', cell(2)?.text?.style)
+      cell(1)?.set_text([v.nickname, v.player2].filter(Boolean).join(' & '), cell(1)?.text?.style)
+      const fighters = [v.fighter, v.fighter2]
+        .filter((x): x is string => !!x)
+        .map(x => this.lfw.string(x))
+        .filter(Boolean)
+      cell(2)?.set_text(fighters.join(' & '), cell(2)?.text?.style)
       cell(3)?.set_text(
         i18n_fmt(this.lfw.string('survival.floor_reached'), v.score),
         cell(3)?.text?.style,

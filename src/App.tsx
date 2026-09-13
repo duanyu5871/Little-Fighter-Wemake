@@ -66,6 +66,7 @@ import { get_my_rank as get_my_rank_api, get_rank_list as get_rank_list_api, loo
 import { DatViewer } from "./pages/dat_viewer/DatViewer";
 import { useWorkspaces } from "./pages/dat_viewer/useWorkspaces";
 import { Networking } from "./pages/network_test/Networking";
+import { current_connection } from "./pages/network_test/current_connection";
 import { useCallbacks } from "./pages/network_test/useCallbacks";
 
 type render_size_mode = "fixed" | "fill" | "cover" | "contain"
@@ -158,26 +159,46 @@ async function merge_fighters(list: SurvivalRankItem[], period: SurvivalRankPeri
     return {
       ...v,
       fighter: info?.fighter ?? v.fighter,
+      fighter2: info?.fighter2 ?? v.fighter2,
       player: info?.player ?? v.nickname,
+      player2: info?.player2 ?? v.player2,
     }
   })
 }
 
+/** 联机时只有房主负责提交排行（不在房间里则自己提交） */
+function rank_is_host(): boolean {
+  const { conn } = current_connection
+  if (!conn?.room) return true
+  return conn.room.owner?.id === conn.client?.id
+}
+
+/** 本地真人玩家（在场上的优先，最多两个）：双人榜提交两个人的名字与角色；联机时包括其他客户端的玩家 */
+function rank_players(lfw: LFW) {
+  const players = Array.from(lfw.players.values()).filter(v => !v.is_com)
+  const on_field = players.filter(v => v.fighter)
+  return (on_field.length ? on_field : players.filter(v => v.local)).slice(0, 2)
+}
+
 /** 玩家所在键位的名字（当前在场上的人优先；都没有时退回键位 1） */
-function rank_player_name(lfw: LFW): string {
-  const players = Array.from(lfw.players.values()).filter(v => v.local && !v.is_com)
-  const player = players.find(v => v.fighter) ?? players[0] ?? lfw.players.get('1')
+function rank_player_name(lfw: LFW, player = rank_players(lfw)[0]): string {
   return `${player?.name ?? ''}`.trim() || '玩家'
 }
 
-function rank_player_fighter(lfw: LFW): string {
-  const players = Array.from(lfw.players.values()).filter(v => v.local && !v.is_com)
-  const player = players.find(v => v.fighter) ?? players[0] ?? lfw.players.get('1')
+function rank_player_fighter(lfw: LFW, player = rank_players(lfw)[0]): string {
   const fighter = player?.fighter
   const data = fighter
     ? lfw.datas.find(fighter.origin_data_id) ?? fighter.data
     : void 0
   return `${data?.base?.name ?? ''}`
+}
+
+/** 双人榜：玩家二的名字与角色（没有第二个玩家时为空字符串） */
+function rank_player2(lfw: LFW): { name: string; fighter: string } {
+  if (!lfw.survival_rank_2p) return { name: '', fighter: '' }
+  const player = rank_players(lfw)[1]
+  if (!player) return { name: '', fighter: '' }
+  return { name: rank_player_name(lfw, player), fighter: rank_player_fighter(lfw, player) }
 }
 
 /** 非 B站环境：从自己的服务器拉取“榜单+我的排名”后下发 */
@@ -468,8 +489,10 @@ function App() {
       // B站生存排行：每进入一个新的 Survival 阶段上报“已到达的阶段数”（榜位 1）
       lf2.on_survival_rank_phase = (reached) => {
         if (lf2.survival_rank_invalid) return
+        if (!rank_is_host()) return
+        const p2 = rank_player2(lf2)
         submit_rank_score(reached, lf2.survival_rank_2p ? SURVIVAL_RANK_BOARD_2P : SURVIVAL_RANK_BOARD).catch(() => { })
-        submit_bili_record(reached, get_bili_nickname(), rank_player_fighter(lf2), rank_player_name(lf2), lf2.survival_rank_2p).catch(() => { })
+        submit_bili_record(reached, get_bili_nickname(), rank_player_fighter(lf2), rank_player_name(lf2), lf2.survival_rank_2p, p2.fighter, p2.name).catch(() => { })
       }
       // 生存排行数据由宿主拉取后“下发”(set_survival_rank_data)，UI 侧值变化时更新
       lf2.survival_rank_available = true
@@ -485,7 +508,9 @@ function App() {
       // 非 B站环境：同样上报“已到达的阶段数”，提交到自己的服务器
       lf2.on_survival_rank_phase = (reached) => {
         if (lf2.survival_rank_invalid) return
-        submit_rank_score_api(reached, rank_player_name(lf2), rank_player_fighter(lf2), lf2.survival_rank_2p).catch(() => { })
+        if (!rank_is_host()) return
+        const p2 = rank_player2(lf2)
+        submit_rank_score_api(reached, rank_player_name(lf2), rank_player_fighter(lf2), lf2.survival_rank_2p, p2.fighter, p2.name).catch(() => { })
       }
       lf2.survival_rank_available = true
     }

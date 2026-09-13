@@ -3,7 +3,9 @@ import { dirname, join } from 'node:path';
 import {
   allowed_of,
   extra_fighter,
+  extra_fighter2,
   extra_player,
+  extra_player2,
   max_of,
   owner_key,
   RANK_FILE_EXT,
@@ -90,6 +92,14 @@ export class RankMgr implements IRankStore {
     return extra_player(extra);
   }
 
+  extra_fighter2(extra: unknown): string | undefined {
+    return extra_fighter2(extra);
+  }
+
+  extra_player2(extra: unknown): string | undefined {
+    return extra_player2(extra);
+  }
+
   char_lookup(type: string, names: string[]): IRankLookup[] {
     const list = this._scores.get(type);
     if (!list?.length || !names.length) return [];
@@ -99,7 +109,9 @@ export class RankMgr implements IRankStore {
       if (!want.has(v.name) || found.has(v.name)) continue;
       const fighter = this.extra_fighter(v.extra);
       const player = this.extra_player(v.extra);
-      if (fighter || player) found.set(v.name, { name: v.name, score: v.score, fighter, player });
+      const fighter2 = this.extra_fighter2(v.extra);
+      const player2 = this.extra_player2(v.extra);
+      if (fighter || player) found.set(v.name, { name: v.name, score: v.score, fighter, player, fighter2, player2 });
     }
     return Array.from(found.values());
   }

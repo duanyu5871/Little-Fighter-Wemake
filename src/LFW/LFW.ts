@@ -39,6 +39,9 @@ export interface SurvivalRankItem {
   /** 使用角色（B站榜单不提供；自有服务存于 extra.fighter） */
   fighter?: string
   player?: string
+  /** 双人榜：玩家二的角色/名字（extra.fighter2 / extra.player2） */
+  fighter2?: string
+  player2?: string
 }
 
 /** 我的生存排行成绩（未上榜为 null） */

@@ -65,7 +65,7 @@ function api(path: string, init?: RequestInit): Promise<Response> {
 interface IRankEntry {
   name?: string;
   score?: number;
-  extra?: { fighter?: string; player?: string };
+  extra?: { fighter?: string; player?: string; fighter2?: string; player2?: string };
 }
 
 function rank_uid(): string {
@@ -83,11 +83,14 @@ function rank_uid(): string {
   }
 }
 
-async function post_score(type: string, name: string, score: number, fighter: string, player: string): Promise<void> {
+async function post_score(type: string, name: string, score: number, fighter: string, player: string, fighter2: string = '', player2: string = ''): Promise<void> {
+  const extra: { fighter: string; player: string; fighter2?: string; player2?: string } = { fighter, player };
+  if (fighter2) extra.fighter2 = fighter2;
+  if (player2) extra.player2 = player2;
   const resp = await api('/api/ranks', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ type, name, score, uid: rank_uid(), extra: { fighter, player } }),
+    body: JSON.stringify({ type, name, score, uid: rank_uid(), extra }),
   });
   if (!resp.ok) throw new Error(`[rank_api] 提交失败: ${resp.status}`);
 }
@@ -109,11 +112,11 @@ function set_submitted_max(key: string, score: number) {
   }
 }
 
-export async function submit_rank_score(score: number, name: string, fighter: string, two: boolean = false): Promise<void> {
+export async function submit_rank_score(score: number, name: string, fighter: string, two: boolean = false, fighter2: string = '', player2: string = ''): Promise<void> {
   const key = SUBMITTED_KEY + (two ? '_2p' : '');
   if (score <= submitted_max(key)) return;
   set_submitted_max(key, score);
-  await post_score(rank_api_type('all', two), name, score, fighter, name);
+  await post_score(rank_api_type('all', two), name, score, fighter, name, fighter2, player2);
 }
 
 export async function get_rank_list(period: SurvivalRankPeriod, two: boolean = false): Promise<SurvivalRankItem[]> {
@@ -126,7 +129,7 @@ export async function get_rank_list(period: SurvivalRankPeriod, two: boolean = f
     const nickname = `${entry?.name ?? ''}`;
     const score = Number(entry?.score);
     if (!nickname || !Number.isFinite(score)) continue;
-    list.push({ rank: list.length + 1, score, nickname, fighter: entry?.extra?.fighter, player: entry?.extra?.player ?? nickname });
+    list.push({ rank: list.length + 1, score, nickname, fighter: entry?.extra?.fighter, fighter2: entry?.extra?.fighter2, player: entry?.extra?.player ?? nickname, player2: entry?.extra?.player2 });
   }
   return list;
 }
@@ -143,17 +146,19 @@ export async function get_my_rank(period: SurvivalRankPeriod, two: boolean = fal
   return { rank, score };
 }
 
-export async function submit_bili_record(score: number, name: string, fighter: string, player: string, two: boolean = false): Promise<void> {
+export async function submit_bili_record(score: number, name: string, fighter: string, player: string, two: boolean = false, fighter2: string = '', player2: string = ''): Promise<void> {
   const key = BILI_SUBMITTED_KEY + (two ? '_2p' : '');
   if (!rank_api_available() || !name) return;
   if (score <= submitted_max(key)) return;
   set_submitted_max(key, score);
-  await post_score(rank_api_bili_type('all', two), name, score, fighter, player);
+  await post_score(rank_api_bili_type('all', two), name, score, fighter, player, fighter2, player2);
 }
 
 export interface IRankCharInfo {
   fighter?: string;
   player?: string;
+  fighter2?: string;
+  player2?: string;
 }
 
 export async function lookup_fighters(period: SurvivalRankPeriod, names: string[], two: boolean = false): Promise<Map<string, IRankCharInfo>> {
@@ -166,13 +171,15 @@ export async function lookup_fighters(period: SurvivalRankPeriod, names: string[
     body: JSON.stringify({ type: rank_api_bili_type(period, two), names: wanted }),
   });
   if (!resp.ok) return ret;
-  const data = await resp.json() as { chars?: { name?: string; fighter?: string; player?: string }[] };
+  const data = await resp.json() as { chars?: { name?: string; fighter?: string; player?: string; fighter2?: string; player2?: string }[] };
   for (const v of data?.chars ?? []) {
     const name = `${v?.name ?? ''}`;
     const fighter = `${v?.fighter ?? ''}`;
     const player = `${v?.player ?? ''}`;
+    const fighter2 = `${v?.fighter2 ?? ''}`;
+    const player2 = `${v?.player2 ?? ''}`;
     if (!name || (!fighter && !player)) continue;
-    ret.set(name, { fighter: fighter || void 0, player: player || void 0 });
+    ret.set(name, { fighter: fighter || void 0, player: player || void 0, fighter2: fighter2 || void 0, player2: player2 || void 0 });
   }
   return ret;
 }

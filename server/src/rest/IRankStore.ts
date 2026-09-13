@@ -31,6 +31,8 @@ export interface IRankLookup {
   score: number;
   fighter?: string;
   player?: string;
+  fighter2?: string;
+  player2?: string;
 }
 
 export interface IRankOptions {
@@ -50,6 +52,8 @@ export interface IRankStore {
   scores(type: string, limit?: number, name?: string): { total: number; scores: IRankScore[] };
   extra_fighter(extra: unknown): string | undefined;
   extra_player(extra: unknown): string | undefined;
+  extra_fighter2(extra: unknown): string | undefined;
+  extra_player2(extra: unknown): string | undefined;
   char_lookup(type: string, names: string[]): IRankLookup[];
   submit(info: IRankSubmit): IRankResult;
 }
@@ -82,6 +86,16 @@ export function extra_fighter(extra: unknown): string | undefined {
 
 export function extra_player(extra: unknown): string | undefined {
   const player = (extra as { player?: unknown } | undefined)?.player;
+  return typeof player === 'string' && player ? player : void 0;
+}
+
+export function extra_fighter2(extra: unknown): string | undefined {
+  const fighter = (extra as { fighter2?: unknown } | undefined)?.fighter2;
+  return typeof fighter === 'string' && fighter ? fighter : void 0;
+}
+
+export function extra_player2(extra: unknown): string | undefined {
+  const player = (extra as { player2?: unknown } | undefined)?.player2;
   return typeof player === 'string' && player ? player : void 0;
 }
 

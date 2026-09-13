@@ -3,7 +3,9 @@ import { dirname } from 'node:path';
 import {
   allowed_of,
   extra_fighter,
+  extra_fighter2,
   extra_player,
+  extra_player2,
   max_of,
   owner_key,
   submit_to_family,
@@ -166,6 +168,14 @@ export class SqliteRankMgr implements IRankStore {
     return extra_player(extra);
   }
 
+  extra_fighter2(extra: unknown): string | undefined {
+    return extra_fighter2(extra);
+  }
+
+  extra_player2(extra: unknown): string | undefined {
+    return extra_player2(extra);
+  }
+
   char_lookup(type: string, names: string[]): IRankLookup[] {
     const wanted = Array.from(new Set(names.filter(Boolean)));
     if (!wanted.length) return [];
@@ -180,7 +190,9 @@ export class SqliteRankMgr implements IRankStore {
       const extra = parse_json(row.extra);
       const fighter = extra_fighter(extra);
       const player = extra_player(extra);
-      if (fighter || player) found.set(name, { name, score: Number(row.score), fighter, player });
+      const fighter2 = extra_fighter2(extra);
+      const player2 = extra_player2(extra);
+      if (fighter || player) found.set(name, { name, score: Number(row.score), fighter, player, fighter2, player2 });
     }
     return Array.from(found.values());
   }
