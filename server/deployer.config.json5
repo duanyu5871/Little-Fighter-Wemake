@@ -1,8 +1,8 @@
 {
   main: {
+    SYMLINK_MODE: true,
     REMOTE_DIR: "/root/backends/lfj",
     REMOTE_BACKUP_DIR: "/root/backends/lfj_backup",
-    REMOTE_TMP_DIR: "/root/backends/lfj_tmp",
     LOCAL_PATH: "./dist/cjs",
     GIT_BRANCH: "",
     GIT_IGNORED: true,
