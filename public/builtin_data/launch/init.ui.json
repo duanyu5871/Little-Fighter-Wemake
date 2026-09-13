@@ -10,6 +10,7 @@
         "entry": "entry",
         "loading_anim": "loading_anim",
         "tap_to_launch": "tap_to_launch",
+        "translation_note": "translation_note",
         "sound_warning": "sound_warning",
         "yeonface": "yeonface",
         "bearface": "bearface",
@@ -30,6 +31,21 @@
       },
       "center": "0.5,0.5",
       "pos": "397,225,1",
+      "component": [
+        "SineOpacity(0.1, 1, 0.5)",
+        "<fade_out>!FadeOutOpacity(250)"
+      ]
+    },
+    {
+      "id": "translation_note",
+      "i18n": "init.translation_not_verified",
+      "style": {
+        "font": "12px Arial",
+        "text_align": "center",
+        "fill_style": "#9b9b9b"
+      },
+      "center": "0.5,0.5",
+      "pos": "397,270,1",
       "component": [
         "SineOpacity(0.1, 1, 0.5)",
         "<fade_out>!FadeOutOpacity(250)"

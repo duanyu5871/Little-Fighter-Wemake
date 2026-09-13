@@ -23,6 +23,7 @@ export interface ILaunchPageProps {
   entry: string;
   loading_anim: ImgLoop;
   tap_to_launch: UINode;
+  translation_note?: UINode;
   sound_warning: UINode;
   yeonface: UINode;
   bearface: UINode;
@@ -34,6 +35,7 @@ export class LaunchPage extends UIComponent<ILaunchPageProps> {
     entry: String,
     loading_anim: { type: ImgLoop, nullable: false },
     tap_to_launch: { type: UINode, nullable: false },
+    translation_note: { type: UINode, nullable: true },
     sound_warning: { type: UINode, nullable: false },
     yeonface: { type: UINode, nullable: false },
     bearface: { type: UINode, nullable: false },
@@ -53,12 +55,20 @@ export class LaunchPage extends UIComponent<ILaunchPageProps> {
         this.props.sound_warning.find_component(SineOpacity)!.enabled = true;
         this.props.tap_to_launch.find_component(FadeOutOpacity)!.enabled = false;
         this.props.sound_warning.find_component(FadeOutOpacity)!.enabled = false;
+        const note_sine = this.props.translation_note?.find_component(SineOpacity);
+        if (note_sine) note_sine.enabled = true;
+        const note_fade = this.props.translation_note?.find_component(FadeOutOpacity);
+        if (note_fade) note_fade.enabled = false;
       },
       leave: () => {
         this.props.tap_to_launch.find_component(SineOpacity)!.enabled = false
         this.props.sound_warning.find_component(SineOpacity)!.enabled = false
         this.props.tap_to_launch.find_component(FadeOutOpacity)!.enabled = true
         this.props.sound_warning.find_component(FadeOutOpacity)!.enabled = true
+        const note_sine = this.props.translation_note?.find_component(SineOpacity);
+        if (note_sine) note_sine.enabled = false;
+        const note_fade = this.props.translation_note?.find_component(FadeOutOpacity);
+        if (note_fade) note_fade.enabled = true;
       }
     }, {
       key: Status.Introduction,
