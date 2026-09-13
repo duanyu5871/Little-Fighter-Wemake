@@ -41,6 +41,7 @@ Environment variables (.env is supported):
   CONFIG_FILE_PATH
   RANKS_FILE_PATH
   RANKS_DIR
+  RANKS_DB
   RANKS_ALLOWED_TYPES
   RANKS_MAX_PER_TYPE
 
@@ -86,6 +87,7 @@ async function main() {
     admin_tokens: [args['--admin-token'], process.env.ADMIN_TOKEN, process.env.ADMIN_PWD, config.admin_tokens],
     ranks_path: to_str(process.env.RANKS_FILE_PATH) ?? config.ranks?.path,
     ranks_dir: to_str(process.env.RANKS_DIR) ?? to_str(config.ranks?.dir),
+    ranks_db: to_str(process.env.RANKS_DB) ?? to_str(config.ranks?.db),
     ranks_types: to_list(process.env.RANKS_ALLOWED_TYPES) ?? to_list(config.ranks?.allowed_types),
     ranks_max_per_type: to_num(process.env.RANKS_MAX_PER_TYPE) ?? to_num(config.ranks?.max_per_type),
     log: to_bool(config.rest?.log),

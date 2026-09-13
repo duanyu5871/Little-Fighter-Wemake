@@ -1,63 +1,24 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import {
+  allowed_of,
+  extra_fighter,
+  max_of,
+  owner_key,
+  RANK_FILE_EXT,
+  SAVE_DELAY,
+  submit_to_family,
+  type IRankOptions,
+  type IRankResult,
+  type IRankScore,
+  type IRankStore,
+  type IRankSubmit,
+} from './IRankStore';
 
-export interface IRankScore {
-  type: string;
-  name: string;
-  score: number;
-  extra?: unknown;
-  date: number;
-  uid?: string;
-  client_id?: string;
-  address?: string;
-}
-
-export interface IRankSubmit {
-  type: string;
-  name: string;
-  score: number;
-  extra?: unknown;
-  uid?: string;
-  client_id?: string;
-  address?: string;
-}
-
-export interface IRankResult {
-  rank: number;
-  total: number;
-  kept: boolean;
-  score: IRankScore;
-}
-
-export interface IRankOptions {
-  max_per_type?: number;
-  allowed_types?: string[];
-  dir?: string;
-}
-
-export const DEFAULT_RANKS_FILE = 'ranks.json';
-export const RANK_FILE_EXT = '.json';
-export const MAX_PER_TYPE = 10000;
-export const SAVE_DELAY = 500;
-export const RANK_TYPE_PATTERN = /^[A-Za-z0-9_.-]{1,64}$/;
-export const PERIOD_SUFFIXES = ['_all', '_month', '_week', '_day'] as const;
+export * from './IRankStore';
 
 function sort_scores(list: IRankScore[]) {
   list.sort((a, b) => b.score - a.score || a.date - b.date);
-}
-
-function owner_key(v: { uid?: string; name: string }): string {
-  return v.uid ? `uid:${v.uid}` : `name:${v.name}`;
-}
-
-function family_of(type: string): string[] {
-  for (const suffix of PERIOD_SUFFIXES) {
-    if (!type.endsWith(suffix)) continue;
-    const base = type.slice(0, -suffix.length);
-    if (!base) break;
-    return PERIOD_SUFFIXES.map(v => `${base}${v}`);
-  }
-  return [];
 }
 
 function write_atomic(file: string, text: string) {
@@ -67,8 +28,9 @@ function write_atomic(file: string, text: string) {
   renameSync(tmp, file);
 }
 
-export class RankMgr {
+export class RankMgr implements IRankStore {
   static readonly TAG = 'RankMgr';
+  readonly kind = 'file';
   readonly path: string;
   readonly dir?: string;
   readonly max_per_type: number;
@@ -80,10 +42,8 @@ export class RankMgr {
   constructor(path: string, options: IRankOptions = {}) {
     this.path = path;
     this.dir = options.dir?.trim() || void 0;
-    const max = options.max_per_type ?? MAX_PER_TYPE;
-    this.max_per_type = max > 0 ? max : Infinity;
-    const allowed = options.allowed_types?.map(v => `${v}`.trim()).filter(Boolean);
-    this.allowed_types = allowed?.length ? Array.from(new Set(allowed)) : void 0;
+    this.max_per_type = max_of(options.max_per_type);
+    this.allowed_types = allowed_of(options.allowed_types);
     this.load();
     process.on('exit', () => this.flush());
   }
@@ -121,8 +81,7 @@ export class RankMgr {
   }
 
   extra_fighter(extra: unknown): string | undefined {
-    const fighter = (extra as { fighter?: unknown } | undefined)?.fighter;
-    return typeof fighter === 'string' && fighter ? fighter : void 0;
+    return extra_fighter(extra);
   }
 
   char_lookup(type: string, names: string[]): { name: string; score: number; fighter: string }[] {
@@ -139,11 +98,7 @@ export class RankMgr {
   }
 
   submit(info: IRankSubmit): IRankResult {
-    const result = this.store(info);
-    for (const type of family_of(info.type)) {
-      if (type !== info.type && this.allows(type)) this.store({ ...info, type });
-    }
-    return result;
+    return submit_to_family(this, submit => this.store(submit), info);
   }
 
   protected store(info: IRankSubmit): IRankResult {

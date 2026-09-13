@@ -1,4 +1,4 @@
-import { RANK_TYPE_PATTERN, type RankMgr } from '../RankMgr';
+import { RANK_TYPE_PATTERN, type IRankStore } from '../RankMgr';
 import { RestError } from '../RestError';
 import type { Rest } from '../index';
 import { body_of, str_of } from '../read_body';
@@ -12,7 +12,7 @@ function uid_of(raw: string | undefined): string | undefined {
   return uid && UID_PATTERN.test(uid) ? uid : void 0;
 }
 
-function require_type(ranks: RankMgr, type: string) {
+function require_type(ranks: IRankStore, type: string) {
   if (!RANK_TYPE_PATTERN.test(type))
     throw RestError.bad_request(`排行类型只能包含字母、数字、下划线、点和短横线（最长 64 字符）：${type}`);
   if (ranks.allows(type)) return;

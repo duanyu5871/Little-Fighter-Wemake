@@ -10,6 +10,7 @@ export interface IRestConfig {
 export interface IRanksConfig {
   path?: string;
   dir?: string;
+  db?: string;
   allowed_types?: string | string[];
   max_per_type?: number;
 }

@@ -7,6 +7,8 @@ import type { Context } from '../Context';
 import { AuthMgr } from './AuthMgr';
 import type { TTokenList } from './AuthMgr';
 import { DEFAULT_RANKS_FILE, RankMgr } from './RankMgr';
+import type { IRankStore } from './IRankStore';
+import { SqliteRankMgr } from './SqliteRankMgr';
 import { RestError } from './RestError';
 import { RestResponse } from './RestResponse';
 import { Router } from './Router';
@@ -17,7 +19,9 @@ import type { IRestCall, IRestReq, TAccess } from './types';
 import { split_url } from './utils';
 
 export * from './AuthMgr';
+export * from './IRankStore';
 export * from './RankMgr';
+export * from './SqliteRankMgr';
 export * from './RestError';
 export * from './RestResponse';
 export * from './Router';
@@ -36,6 +40,7 @@ export interface IRestOptions {
   info?: Record<string, unknown>;
   ranks_path?: string;
   ranks_dir?: string;
+  ranks_db?: string;
   ranks_types?: string[] | string;
   ranks_max_per_type?: number;
 }
@@ -45,7 +50,7 @@ export class Rest {
   readonly ctx: Context;
   readonly router = new Router();
   readonly auth: AuthMgr;
-  readonly ranks: RankMgr;
+  readonly ranks: IRankStore;
   readonly options: IRestOptions;
   readonly started_at = Date.now();
 
@@ -53,14 +58,7 @@ export class Rest {
     this.ctx = ctx;
     this.auth = ctx.auth;
     this.options = options;
-    this.ranks = new RankMgr(
-      to_str(options.ranks_path) ?? to_str(process.env.RANKS_FILE_PATH) ?? resolve(process.cwd(), DEFAULT_RANKS_FILE),
-      {
-        dir: to_str(options.ranks_dir) ?? to_str(process.env.RANKS_DIR),
-        allowed_types: to_list(options.ranks_types ?? process.env.RANKS_ALLOWED_TYPES),
-        max_per_type: to_num(options.ranks_max_per_type) ?? to_num(process.env.RANKS_MAX_PER_TYPE),
-      },
-    );
+    this.ranks = create_rank_store(options);
     this.auth.add_admin_token(...(Array.isArray(options.admin_tokens) ? options.admin_tokens : [options.admin_tokens]));
     register_routes(this);
   }
@@ -144,4 +142,25 @@ export function attach_rest(server: TRestServer, ctx: Context, options?: IRestOp
   const rest = new Rest(ctx, options);
   server.on('request', rest.handle);
   return rest;
+}
+
+function create_rank_store(options: IRestOptions): IRankStore {
+  const allowed_types = to_list(options.ranks_types ?? process.env.RANKS_ALLOWED_TYPES);
+  const max_per_type = to_num(options.ranks_max_per_type) ?? to_num(process.env.RANKS_MAX_PER_TYPE);
+  const db = to_str(options.ranks_db) ?? to_str(process.env.RANKS_DB);
+  if (db) {
+    try {
+      const store = new SqliteRankMgr(db, { allowed_types, max_per_type });
+      console.log(`[RankMgr] 使用 SQLite 存储: ${store.path}`);
+      return store;
+    } catch (error) {
+      console.warn(`[RankMgr] SQLite 不可用，回退到文件存储:`, error instanceof Error ? error.message : error);
+    }
+  }
+  const path = to_str(options.ranks_path) ?? to_str(process.env.RANKS_FILE_PATH) ?? resolve(process.cwd(), DEFAULT_RANKS_FILE);
+  return new RankMgr(path, {
+    dir: to_str(options.ranks_dir) ?? to_str(process.env.RANKS_DIR),
+    allowed_types,
+    max_per_type,
+  });
 }

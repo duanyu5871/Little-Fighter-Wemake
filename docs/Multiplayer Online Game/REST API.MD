@@ -578,6 +578,7 @@ curl "http://localhost/api/ranks/story?limit=3"
 | `rest.max_body_size` | number | 请求体大小上限（字节），默认 1048576 |
 | `ranks.path` | string | 排行数据文件路径（所有类型集中在一个文件） |
 | `ranks.dir` | string | 排行数据目录，每个排行类型一个 `<type>.json`；配置后优先于 `ranks.path` |
+| `ranks.db` | string | SQLite 数据库路径；配置后优先使用 SQLite，不可用时自动回退到文件存储（见下方“排行存储”） |
 | `ranks.allowed_types` | string 或 string[] | 允许的排行类型，缺省不限制 |
 | `ranks.max_per_type` | number | 每个排行类型保留的条数上限，默认 10000；`0` 或负数表示不限制 |
 
@@ -595,6 +596,7 @@ ADMIN_PWD=同上
 CONFIG_FILE_PATH=配置文件路径
 RANKS_FILE_PATH=/root/data/lfj/ranks.json
 RANKS_DIR=/root/data/lfj/ranks
+RANKS_DB=/root/data/lfj/ranks.sqlite
 RANKS_ALLOWED_TYPES=story,versus
 RANKS_MAX_PER_TYPE=10000
 ```
@@ -605,8 +607,22 @@ RANKS_MAX_PER_TYPE=10000
 | `CONFIG_FILE_PATH` | 配置文件路径，等价于 `--config` |
 | `RANKS_FILE_PATH` | 排行数据文件路径，缺省为 `<运行目录>/ranks.json`。部署时建议指到部署目录之外，避免更新被覆盖 |
 | `RANKS_DIR` | 排行数据目录（每个类型一个文件），配置后优先于 `RANKS_FILE_PATH` |
+| `RANKS_DB` | SQLite 数据库路径；配置且可用时优先，否则回退到文件存储 |
 | `RANKS_ALLOWED_TYPES` | 允许的排行类型，逗号分隔，缺省不限制 |
 | `RANKS_MAX_PER_TYPE` | 每个排行类型保留的条数上限，缺省 10000；`0` 或负数表示不限制 |
+
+### 排行存储
+
+排行数据有两种后端，按配置选择：
+
+| 后端 | 开启方式 | 特点 |
+| - | - | - |
+| SQLite | `ranks.db` / `RANKS_DB` 指定数据库文件路径 | 增量写入，不会因为条数变多而每次重写整份文件；适合配合 `max_per_type: 0`（不限条数）使用 |
+| 文件（默认） | `ranks.dir` / `RANKS_DIR`（每类型一个 `<type>.json`）或 `ranks.path` / `RANKS_FILE_PATH`（全部类型一个文件） | 纯 JSON，写入为 500ms 防抖 + tmp+rename 原子替换（整份重写） |
+
+- SQLite 用的是 Node 内置的 `node:sqlite`，**需要 Node 22.5 及以上**；启动时会打印一条 `ExperimentalWarning: SQLite is an experimental feature`（可忽略，或用 `--no-warnings` 关掉）。
+- 配置了 `ranks.db` 但打不开（Node 版本过低、路径不可写、文件损坏等）时，会打印 `[RankMgr] SQLite 不可用，回退到文件存储: ...` 并自动改用文件后端，服务不会因此启动失败。
+- 两种后端的数据**不互通**：切换后端不会自动迁移旧数据，旧榜单需要自己导入（SQLite 表结构：`scores(type, owner, name, score, date, uid, extra, client_id, address)`，其中 `owner` 为 `uid:xxx` 或 `name:xxx`）。
 
 ## 新增接口
 
