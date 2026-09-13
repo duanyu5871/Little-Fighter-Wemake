@@ -31,7 +31,16 @@ export interface ILoadedConfig {
   config: IServerConfig;
 }
 
-export const DEFAULT_CONFIG_FILE = 'server.config.json5';
+export const DEFAULT_CONFIG_FILES = ['server.config.json5', 'server.config.json'] as const;
+export const DEFAULT_CONFIG_FILE = DEFAULT_CONFIG_FILES[0];
+
+function find_default_config(): string | undefined {
+  for (const name of DEFAULT_CONFIG_FILES) {
+    const path = resolve(name);
+    if (existsSync(path)) return path;
+  }
+  return void 0;
+}
 
 export function to_str(value: unknown): string | undefined {
   if (value === undefined || value === null) return void 0;
@@ -63,7 +72,7 @@ export function to_list(value: unknown): string[] | undefined {
 
 export function load_config(value?: string): ILoadedConfig {
   const explicit_path = to_str(value);
-  const path = resolve(explicit_path ?? DEFAULT_CONFIG_FILE);
+  const path = explicit_path ? resolve(explicit_path) : find_default_config() ?? resolve(DEFAULT_CONFIG_FILE);
   if (!existsSync(path)) {
     if (explicit_path) {
       console.error(`[Config] 找不到配置文件: ${path}`);

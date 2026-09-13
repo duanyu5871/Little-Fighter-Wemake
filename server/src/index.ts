@@ -30,7 +30,7 @@ Options:
   --ssl-key-path 
   --ssl-cer-parh
   --admin-token   管理员 token（同 ADMIN_TOKEN，逗号分隔多个）
-  -c, --config    配置文件路径（缺省 ./server.config.json5）
+  -c, --config    配置文件路径（缺省 ./server.config.json5 或 ./server.config.json）
 
 Environment variables (.env is supported):
   HTTP_PORT

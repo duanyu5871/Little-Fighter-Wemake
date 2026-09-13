@@ -1,5 +1,5 @@
 /**
- * 构建后拷贝 .env 与 server.config.json5 到 dist/cjs
+ * 构建后拷贝 .env 与 server.config.json(5) 到 dist/cjs
  *
  * 仅当对应文件存在时执行拷贝（不存在则跳过），
  * 路径基于脚本自身位置解析，与运行时的当前目录无关（跨平台）。
@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 const script_dir = dirname(fileURLToPath(import.meta.url));
 const server_dir = join(script_dir, '..');
 
-const names = ['.env', 'server.config.json5'];
+const names = ['.env', 'server.config.json5', 'server.config.json'];
 const dst_dir = join(server_dir, 'dist', 'cjs');
 let copied = 0;
 
