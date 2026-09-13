@@ -13,6 +13,7 @@
     sync_4: "120 FPS",
     render_fps: "FPS",
     stats_visible: "Perf",
+    ups_hint: "30 UPS i 60 UPS mogą prowadzić do zupełnie innych wrażeń z gry.",
     TEA: "Głośność efektów dźwiękowych",
     enabled: "Włączone",
     disabled: "Wyłączone",
