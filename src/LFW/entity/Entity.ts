@@ -262,7 +262,8 @@ export class Entity {
   puppet: boolean = false;
   jumping = { x: 0, y: 0, z: 0, t: 0 }
   terrain: ITerrainInfo;
-  protected _atom_time: number; // 帧时间步长（被 Physics/Recovery/Spawn 子模块访问）
+  protected _atom_time: number;
+  protected _from_wait_block: boolean = false;
 
 
   get lifetime() {
@@ -1280,7 +1281,7 @@ export class Entity {
   }
   update_velocity(vinfo: IVelocityInfo): void {
     if (this.bearer || this.catcher || this.shaking || this.motionless) return;
-    const { atom_time } = this.world.dataset;
+    const atom_time = this._atom_time;
 
     let { dvx, dvy, dvz } = vinfo;
     if (dvx) dvx = round_float(dvx * this.dataset("fvx_f"));
@@ -1630,25 +1631,36 @@ export class Entity {
     this.toughness_recovering();
 
     this._state?.pre_update?.(this);
-    if (this.wait > 0) {
-      if (
-        this.motionless <= 0 &&
-        this.shaking <= 0 &&
-        !this.catcher &&
-        !this.bearer
-      ) {
-        this.wait = rf(this.wait - this._atom_time)
-        if (this.wait < 0) this.wait = 0;
+    const tick_atom_time = this._atom_time;
+    const sub_steps =
+      Number.isInteger(tick_atom_time) && tick_atom_time > 1 && tick_atom_time <= 8
+        ? tick_atom_time
+        : 1;
+    if (sub_steps > 1) this._atom_time = round_float(tick_atom_time / sub_steps);
+    for (let i = 0; i < sub_steps; ++i) {
+      this._from_wait_block = true;
+      if (this.wait > 0) {
+        if (
+          this.motionless <= 0 &&
+          this.shaking <= 0 &&
+          !this.catcher &&
+          !this.bearer
+        ) {
+          this.wait = rf(this.wait - this._atom_time)
+          if (this.wait < 0) this.wait = 0;
+        }
+      } else if (this.frame.next) {
+        this.enter_frame(this.frame.next)
+      } else {
+        this.set_frame(this.find_auto_frame())
       }
-    } else if (this.frame.next) {
-      this.enter_frame(this.frame.next)
-    } else {
-      this.set_frame(this.find_auto_frame())
+      this._from_wait_block = false;
+      this.handle_gravity();
+      this.update_velocity(this.frame);
+      if (!i) this._state?.update(this);
+      this.update_position();
     }
-    this.handle_gravity();
-    this.update_velocity(this.frame);
-    this._state?.update(this);
-    this.update_position();
+    this._atom_time = tick_atom_time;
     if (this.motionless > 0) {
       this.motionless = rf(this.motionless - this._atom_time);
       if (this.motionless < 0) this.motionless = 0
@@ -2215,11 +2227,16 @@ export class Entity {
   }
 
   handle_wait_flag(wait: string | number | undefined, frame?: IFrameInfo): number {
-    if (wait == void 0 && frame) return frame.wait + this.world.dataset.wait_offset;
+    if (wait == void 0 && frame) return this.get_frame_wait(frame);
     if (is_positive(wait)) return wait;
     if (wait === "i" || !frame) return this.wait;
     if (wait === "d") return max(0, frame.wait - this.frame.wait + this.wait);
-    return frame.wait + this.world.dataset.wait_offset;
+    return this.get_frame_wait(frame);
+  }
+
+  get_frame_wait(frame: IFrameInfo): number {
+    const d = max(1, frame.wait + this.world.dataset.wait_offset);
+    return this._from_wait_block ? max(0, d - this._atom_time) : d;
   }
 
   /**

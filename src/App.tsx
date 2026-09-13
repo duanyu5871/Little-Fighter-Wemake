@@ -141,6 +141,8 @@ const init_world_dataset = (): IWorldDataset => {
   ret.sync_render = SyncRenderEnum.FPS_60;
   ret.UPS = low_device ? 30 : 60;
   ret.atom_time = low_device ? 2 : 1;
+  ret.double_click_interval = low_device ? 15 : 30;
+  ret.key_hit_duration = low_device ? 5 : 10;
   ret.bg_flags = 0;
   ret.entity_flags = 0;
   return ret;
@@ -212,6 +214,13 @@ function App() {
       v.difficulty = Difficulty.Difficult;
       v.bg_flags = 0;
       v.entity_flags = 0;
+      // 只支持 30/60 UPS, 老档(90/120)与旧的速率补丁字段一并归一
+      if (v.UPS !== 30 && v.UPS !== 60) v.UPS = 60;
+      v.atom_time = v.UPS === 30 ? 2 : 1;
+      v.wait_offset = 0;
+      v.fvy_f = -0.5;
+      v.double_click_interval = v.UPS === 30 ? 15 : 30;
+      v.key_hit_duration = v.UPS === 30 ? 5 : 10;
       return v;
     }
   })

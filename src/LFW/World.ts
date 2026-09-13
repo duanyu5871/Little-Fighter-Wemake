@@ -304,9 +304,10 @@ export class World {
       Ditto.warn(`[${World.TAG}::start_update] playrate must be between 0.01 and 1000, but got ${playrate}, now reset to 1.0`);
       playrate = this.dataset.playrate = 1
     }
-    if (!between(UPS, 1, 120)) {
-      Ditto.warn(`[${World.TAG}::start_update] UPS must be between 1 and 120, but got ${UPS}, now reset to 60`);
+    if (UPS !== 30 && UPS !== 60) {
+      Ditto.warn(`[${World.TAG}::start_update] UPS must be 30 or 60, but got ${UPS}, now reset to 60`);
       UPS = this.dataset.UPS = 60
+      atom_time = this.dataset.atom_time = 1;
     }
     if (!(atom_time > 0)) {
       Ditto.warn(`[${World.TAG}::start_update] atom_time must be > 0, but got ${atom_time}, now reset to 1`);

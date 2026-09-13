@@ -15,7 +15,7 @@ export class CharacterState_Walking extends CharacterState_Base {
         is_weapon(e.holding) &&
         e.holding?.base_type === WeaponEnum.Heavy
       ) {
-        e.wait = e.frame.wait;
+        e.wait = e.handle_wait_flag(void 0, e.frame);
       } else {
         e.enter_frame_by_id(e.data.indexes?.default, true);
       }

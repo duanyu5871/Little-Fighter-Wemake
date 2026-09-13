@@ -80,17 +80,15 @@ export class MiscSettingsLogic extends UIComponent {
       this.world.dataset.sync_render = render_rate_options[v];
       this.lfw.sounds.play_preset('ok')
     })
-    const ups_arr = [30, 60, 90, 120]
+    const ups_arr = [30, 60]
     const atom_time_arr = ups_arr.map(v => round_float(60 / v))
     const double_click_interval_arr = ups_arr.map(v => 30 * v / 60)
     const key_hit_duration_arr = ups_arr.map(v => 10 * v / 60)
-    const fvy_f_arr = [-0.5, -0.5, -0.5324, -0.678];
-    const wait_offset_arr = [-1, 0, 0, 0.5]
     this.ups?.on_value_changed((v) => {
       this.world.dataset.UPS = ups_arr[v];
       this.world.dataset.atom_time = atom_time_arr[v];
-      this.world.dataset.wait_offset = wait_offset_arr[v];
-      this.world.dataset.fvy_f = fvy_f_arr[v];
+      this.world.dataset.wait_offset = 0;
+      this.world.dataset.fvy_f = -0.5;
       this.world.dataset.double_click_interval = double_click_interval_arr[v];
       this.world.dataset.key_hit_duration = key_hit_duration_arr[v];
       this.lfw.sounds.play_preset('ok')
@@ -114,8 +112,9 @@ export class MiscSettingsLogic extends UIComponent {
     this.sfx_toggle?.set_value(this.lfw.sounds.sound_muted() ? 0 : 1)
     this.team_outline?.set_factor(this.world.dataset.outline_enabled)
     this.render_rate?.set_value(render_rate_options.indexOf(this.world.dataset.sync_render));
-    const ups_arr = [30, 60, 90, 120]
-    this.ups?.set_value(ups_arr.indexOf(this.world.dataset.UPS));
+    const ups_arr = [30, 60]
+    const ups_idx = ups_arr.indexOf(this.world.dataset.UPS)
+    this.ups?.set_value(ups_idx < 0 ? 1 : ups_idx);
     const cur_lang = this.lfw.canonical_lang();
     this.lang_row?.set_value(lang_codes.indexOf(cur_lang));
   }
