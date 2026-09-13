@@ -419,7 +419,7 @@ function App() {
     lf2.sounds.set_bgm_volume(app_state.bgm_volume);
     lf2.sounds.set_sound_muted(app_state.sound_muted);
     lf2.sounds.set_sound_volume(app_state.sound_volume);
-    Object.assign(lf2.world, world_dataset);
+    Object.assign(lf2.world.dataset, world_dataset);
     _set_bg_id(lf2.world.stage.bg.id);
     const on_touchstart = () => set_app_state(d => {
       d.touchpad_enabled = true;
