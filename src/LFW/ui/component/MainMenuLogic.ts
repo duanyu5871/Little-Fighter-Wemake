@@ -12,7 +12,7 @@ export class MainMenuLogic extends UIComponent<{}> {
   protected _survival_btn: UINode | null | undefined;
   protected get survival_btn(): UINode | null {
     if (this._survival_btn !== undefined) return this._survival_btn;
-    this._survival_btn = this.node.search_node("btn_bilibili_survival") ?? null;
+    this._survival_btn = this.node.search_node("btn_survival") ?? null;
     return this._survival_btn;
   }
   protected get reachable_group(): ReachableGroup | undefined {

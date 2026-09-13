@@ -1,5 +1,5 @@
 {
-  id: "bilibili_survival_char_menu",
+  id: "survival_char_menu",
   name: "UI: 生存排行角色选择(单人)",
   component: [
     {
@@ -81,7 +81,7 @@
       id: "start_hint",
       pos: "142, 408",
       center: "0.5,0",
-      i18n: "bilibili_survival.press_atk_start",
+      i18n: "survival.press_atk_start",
       style: {
         fill_style: "#ffffff",
         font: "16px Arial",

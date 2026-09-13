@@ -122,7 +122,7 @@ export class CharMenuLogic extends UIComponent<ICharMenuLogicProps> {
     on_broadcast: (message) => {
       if (message === 'reset_gpl') return this.reset();
       if (message === 'update_random') return this.update_random();
-      // UI 左/右按钮（见 bilibili_survival_char_menu.ui.json5）：等价键盘 L/R 切换角色
+      // UI 左/右按钮（见 survival_char_menu.ui.json5）：等价键盘 L/R 切换角色
       if (message === 'char_menu_pick_prev') return this.pick_lr(-1);
       if (message === 'char_menu_pick_next') return this.pick_lr(+1);
     }

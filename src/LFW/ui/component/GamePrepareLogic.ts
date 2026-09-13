@@ -21,7 +21,7 @@ export interface IGamePrepareLogicProps {
 }
 const GAME_MODE_VS = "vs_mode"
 const GAME_MODE_STAGE = "stage_mode"
-const GAME_MODE_BILI_SURVIVAL = "bilibili_survival"
+const GAME_MODE_SURVIVAL = "survival"
 const RANK_PERIODS = ['all', 'month', 'week', 'day'] as const
 type RankPeriod = typeof RANK_PERIODS[number]
 /** 单次展示的榜单条数（SDK limit 上限约 100） */
@@ -57,7 +57,7 @@ export class GamePrepareLogic extends UIComponent<IGamePrepareLogicProps> {
     const background_row = this.node.search_node("background_row");
     const stage_row = this.node.search_node("stage_row");
     const char_menu_logic = this.node.search_component(CharMenuLogic)
-    if (this.props.game_mode === GAME_MODE_BILI_SURVIVAL) {
+    if (this.props.game_mode === GAME_MODE_SURVIVAL) {
       background_row?.set_visible(false).set_disabled(true);
       stage_row?.set_visible(false).set_disabled(true);
       if (char_menu_logic) {
@@ -85,7 +85,7 @@ export class GamePrepareLogic extends UIComponent<IGamePrepareLogicProps> {
   /** 每帧跟随选角刷新背景大头像/随机问号（无变化时零开销） */
   override update(dt: number): void {
     super.update?.(dt)
-    if (this.props.game_mode === GAME_MODE_BILI_SURVIVAL)
+    if (this.props.game_mode === GAME_MODE_SURVIVAL)
       this.refresh_selection_face()
   }
 
@@ -147,7 +147,7 @@ export class GamePrepareLogic extends UIComponent<IGamePrepareLogicProps> {
 
   /** 生存排行准备页：左侧选角、右侧展示排行榜（外部未注入数据能力时隐藏） */
   protected refresh_survival_rank(): void {
-    if (this.props.game_mode !== GAME_MODE_BILI_SURVIVAL) return
+    if (this.props.game_mode !== GAME_MODE_SURVIVAL) return
     this.layout_rank_rows()
     const title = this.node.search_node("survival_rank_title")
     const tabs = this.node.search_node("rank_period_tabs")
@@ -200,7 +200,7 @@ export class GamePrepareLogic extends UIComponent<IGamePrepareLogicProps> {
       const cell = (idx: number) => cells[idx]
       if (empty) {
         cell(0)?.set_text("", cell(0)?.text?.style)
-        cell(1)?.set_text(this.lfw.string('bilibili_survival.board_empty'), cell(1)?.text?.style)
+        cell(1)?.set_text(this.lfw.string('survival.board_empty'), cell(1)?.text?.style)
         cell(2)?.set_text("", cell(2)?.text?.style)
         continue
       }
@@ -208,7 +208,7 @@ export class GamePrepareLogic extends UIComponent<IGamePrepareLogicProps> {
       cell(0)?.set_text(`${v.rank}.`, cell(0)?.text?.style)
       cell(1)?.set_text(v.nickname, cell(1)?.text?.style)
       cell(2)?.set_text(
-        i18n_fmt(this.lfw.string('bilibili_survival.floor_reached'), v.score),
+        i18n_fmt(this.lfw.string('survival.floor_reached'), v.score),
         cell(2)?.text?.style,
       )
     }
@@ -217,11 +217,11 @@ export class GamePrepareLogic extends UIComponent<IGamePrepareLogicProps> {
       my_node.set_text(
         this._rank_mine
           ? i18n_fmt(
-            this.lfw.string('bilibili_survival.my_rank_ranked'),
+            this.lfw.string('survival.my_rank_ranked'),
             this._rank_mine.rank,
-            i18n_fmt(this.lfw.string('bilibili_survival.floor_reached'), this._rank_mine.score),
+            i18n_fmt(this.lfw.string('survival.floor_reached'), this._rank_mine.score),
           )
-          : this.lfw.string('bilibili_survival.my_rank_unranked'),
+          : this.lfw.string('survival.my_rank_unranked'),
         my_node.text?.style,
       )
     }
@@ -244,7 +244,7 @@ export class GamePrepareLogic extends UIComponent<IGamePrepareLogicProps> {
       const selected = p === this.rank_period
       const style = node.style
       style.fill_style = selected ? '#ffffff' : '#9b9bff'
-      const txt = this.lfw.string(`bilibili_survival.rank_period_${p}`)
+      const txt = this.lfw.string(`survival.rank_period_${p}`)
       node.set_text(txt, style)
       node.set_opacity(selected ? 1 : 0.5)
       if (!selected) continue
@@ -277,7 +277,7 @@ export class GamePrepareLogic extends UIComponent<IGamePrepareLogicProps> {
 
   /** 单人固定设置模式（生存排行）：角色就绪倒计时结束后直接开始，不弹设置菜单 */
   get auto_start_when_ready(): boolean {
-    return this.props.game_mode === GAME_MODE_BILI_SURVIVAL
+    return this.props.game_mode === GAME_MODE_SURVIVAL
   }
 
   protected _lf2_callbacks: ILFWCallback = {
@@ -293,7 +293,7 @@ export class GamePrepareLogic extends UIComponent<IGamePrepareLogicProps> {
       }
     },
     on_survival_rank_changed: (data) => {
-      if (this.props.game_mode !== GAME_MODE_BILI_SURVIVAL) return
+      if (this.props.game_mode !== GAME_MODE_SURVIVAL) return
       if (!data) {
         this._rank_entries = []
         this._rank_mine = null
@@ -324,7 +324,7 @@ export class GamePrepareLogic extends UIComponent<IGamePrepareLogicProps> {
     }
 
     const { bg_switcher, stage_switcher } = this.props
-    const is_survival_rank = this.props.game_mode === GAME_MODE_BILI_SURVIVAL
+    const is_survival_rank = this.props.game_mode === GAME_MODE_SURVIVAL
     if (is_survival_rank) this.reset_world_dataset()
     const survival_stage = is_survival_rank
       ? (this.lfw.datas.stages.find(v => v.chapter === 'survival' && v.is_starting)

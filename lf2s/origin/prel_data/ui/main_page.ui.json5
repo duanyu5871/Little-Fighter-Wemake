@@ -41,7 +41,7 @@
       ],
       items: [
         {
-          id: "btn_bilibili_survival",
+          id: "btn_survival",
           size: "200,22",
           center: "0.5, 0.5",
           auto_focus: true,
@@ -49,11 +49,11 @@
           disabled: true,
           template: "builtin_data/launch/main_text_button.ui.json",
           values: {
-            text: "main_page.bilibili_survival",
+            text: "main_page.survival",
           },
           component: ["Reachable(main)"],
           actions: {
-            click: ["push_ui(bilibili_survival_prepare_page)", "sound(ok)"],
+            click: ["push_ui(survival_prepare_page)", "sound(ok)"],
           },
         },
         {

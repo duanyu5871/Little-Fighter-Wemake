@@ -87,7 +87,7 @@
       pos: "0,450",
       center: "0,1",
       visible: false,
-      i18n: "bilibili_survival.not_counted_mods",
+      i18n: "survival.not_counted_mods",
       style: {
         fill_style: "#ff6666",
         font: "16px Arial",
@@ -99,7 +99,7 @@
       pos: "0,430",
       center: "0,1",
       visible: false,
-      i18n: "bilibili_survival.not_counted_cheat",
+      i18n: "survival.not_counted_cheat",
       style: {
         fill_style: "#ff6666",
         font: "16px Arial",
