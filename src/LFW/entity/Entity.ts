@@ -87,6 +87,7 @@ export class Entity {
   protected readonly _emitters: string[] = [];
 
   protected _data: IEntityData;
+  protected _origin_data_id: string = '';
   protected _reserve: number = 0;
   protected _mounted: number = 0;
   protected _ghosted: number = 0;
@@ -292,6 +293,7 @@ export class Entity {
   get ground_y(): number { return this._ground_y }
 
   get data(): IEntityData { return this._data };
+  get origin_data_id(): string { return this._origin_data_id || this._data.id };
   get group() { return this._data.base.group };
   get mounted() { return this._mounted }
   get ghosted() { return this._ghosted }
@@ -711,6 +713,7 @@ export class Entity {
     this.is_on_ground = false;
     this.terrain = Ground.horizon;
     this._data = data;
+    this._origin_data_id = data.id;
     this.id = lfw.new_id;
     this.wait = 0;
     this._lifetime = 0;
@@ -1925,9 +1928,9 @@ export class Entity {
       return true;
     }
     if (throwinjury === -1) {
-      if (this.lfw.survival_rank_mode && is_boss(this.catching)) 
-        return true
-      this.transfrom_to_another(this.catching._data);
+      if (!(this.lfw.survival_rank_mode && is_boss(this.catching))) {
+        this.transfrom_to_another(this.catching._data);
+      }
       this.enter_frame(Defines.NEXT_FRAME_AUTO)
       return true;
     }

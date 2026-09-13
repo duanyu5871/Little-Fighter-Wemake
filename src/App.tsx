@@ -163,11 +163,14 @@ function rank_player_name(lfw: LFW): string {
   return `${player?.name ?? ''}`.trim() || '玩家'
 }
 
-/** 玩家当前使用的角色名（用于榜单展示；取不到时为空） */
 function rank_player_fighter(lfw: LFW): string {
   const players = Array.from(lfw.players.values()).filter(v => v.local && !v.is_com)
   const player = players.find(v => v.fighter) ?? players[0] ?? lfw.players.get('1')
-  return `${player?.fighter?.data?.base?.name ?? ''}`
+  const fighter = player?.fighter
+  const data = fighter
+    ? lfw.datas.find(fighter.origin_data_id) ?? fighter.data
+    : void 0
+  return `${data?.base?.name ?? ''}`
 }
 
 /** 非 B站环境：从自己的服务器拉取“榜单+我的排名”后下发 */

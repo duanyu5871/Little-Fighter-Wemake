@@ -19,9 +19,9 @@ export const is_boss = (v: any) => {
   if (!v) return false;
   const { data: d } = v;
   if (!d) return false
-  if (!is_entity_data(d)) return false;
-  if (!v.data.group?.length) return false;
-  return v.data.group.some(_bossing)
+  if (!is_object_data(d)) return false;
+  if (!d.base?.group?.length) return false;
+  return d.base.group.some(_bossing)
 };
 export const is_object = (v: any): v is Entity => is_object_data(v?.data);
 export const is_base_ctrl = (v: any): v is BaseController =>
