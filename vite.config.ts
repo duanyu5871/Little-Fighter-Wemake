@@ -80,6 +80,7 @@ export default defineConfig(({ command, mode }) => {
     BUILD_TIME: JSON.stringify(dayjs().format(`YYYY-MM-DD HH:mm:ss`)),
     BUILD_STAMP: JSON.stringify(BUILD_STAMP),
     VERSION_CHECK: is_dev_server || is_toy_build ? 'false' : 'true',
+    RANK_API_URL: JSON.stringify(process.env.RANK_API_URL ?? 'https://lfj.gim.ink'),
     // 构建期注入的默认数据包地址：仅 bilibili-toy 的正式构建（vite build --mode bili-toy）注入远端 URL；
     // 其它构建及 dev 服务器为 undefined，init.ts 回退到同源相对路径（本地 zip）
     DATA_ZIP_URLS: is_toy_build && !is_dev_server

@@ -1,10 +1,12 @@
-import type { RankMgr } from '../RankMgr';
+import { RANK_TYPE_PATTERN, type RankMgr } from '../RankMgr';
 import { RestError } from '../RestError';
 import type { Rest } from '../index';
 import { body_of, str_of } from '../read_body';
 import { query_int, query_str } from '../utils';
 
 function require_type(ranks: RankMgr, type: string) {
+  if (!RANK_TYPE_PATTERN.test(type))
+    throw RestError.bad_request(`排行类型只能包含字母、数字、下划线、点和短横线（最长 64 字符）：${type}`);
   if (ranks.allows(type)) return;
   const allowed = ranks.allowed_types;
   throw RestError.bad_request(`排行类型不允许：${type}${allowed ? `（允许的类型：${allowed.join(', ')}）` : ''}`);
@@ -35,10 +37,12 @@ export function register_rank_routes(rest: Rest) {
   });
 
   router.get('/api/ranks/:type', (c) => {
-    require_type(ranks, c.req.params.type);
+    const type = c.req.params.type;
+    require_type(ranks, type);
     const limit = query_int(c.req.query, 'limit', 50, 1, 500);
     const name = query_str(c.req.query, 'name');
-    const result = ranks.scores(c.req.params.type, limit, name);
-    return { type: c.req.params.type, limit, total: result.total, scores: result.scores };
+    const result = ranks.scores(type, limit, name);
+    const best = name ? ranks.best_of(type, name) ?? null : void 0;
+    return { type, limit, total: result.total, scores: result.scores, best };
   });
 }

@@ -35,6 +35,7 @@ export interface IRestOptions {
   log?: boolean;
   info?: Record<string, unknown>;
   ranks_path?: string;
+  ranks_dir?: string;
   ranks_types?: string[] | string;
   ranks_max_per_type?: number;
 }
@@ -55,6 +56,7 @@ export class Rest {
     this.ranks = new RankMgr(
       to_str(options.ranks_path) ?? to_str(process.env.RANKS_FILE_PATH) ?? resolve(process.cwd(), DEFAULT_RANKS_FILE),
       {
+        dir: to_str(options.ranks_dir) ?? to_str(process.env.RANKS_DIR),
         allowed_types: to_list(options.ranks_types ?? process.env.RANKS_ALLOWED_TYPES),
         max_per_type: to_num(options.ranks_max_per_type) ?? to_num(process.env.RANKS_MAX_PER_TYPE),
       },

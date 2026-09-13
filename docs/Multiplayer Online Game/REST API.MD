@@ -402,7 +402,7 @@ curl -X POST -H "Authorization: Bearer <player token>" -H "Content-Type: applica
 
 | 字段 | 类型 | 必填 | 说明 |
 | - | - | - | - |
-| `type` | string | 是 | 排行类型，最长 64 字符（例如 `story`、`versus`） |
+| `type` | string | 是 | 排行类型，最长 64 字符，只能包含字母、数字、`_`、`.`、`-`（例如 `story`、`survival_week`） |
 | `name` | string | 是 | 玩家名，最长 32 字符 |
 | `score` | number | 是 | 分数，数字或数字字符串 |
 | `extra` | any | 否 | 额外信息，任意 JSON，原样保存 |
@@ -439,7 +439,7 @@ curl -X POST -H "Content-Type: application/json" \
 - 排序按 `score` 从高到低，分数相同则先提交的在前
 - 每个排行类型最多保留 10000 条（可用 `RANKS_MAX_PER_TYPE` 或配置文件 `ranks.max_per_type` 调整），超出后名次靠后的提交会被丢弃，此时 `kept` 为 false，但 `rank` 与 `total` 仍是真实值
 - 可以用 `RANKS_ALLOWED_TYPES` 或配置文件 `ranks.allowed_types` 限定允许的排行类型；限制后提交未允许的类型会返回 400
-- 数据会落盘到 JSON 文件（默认 `<运行目录>/ranks.json`），服务器重启后自动加载；落盘有约 0.5 秒防抖
+- 数据落盘有两种方式：默认全部类型写在一个 JSON 文件（`ranks.path` / `RANKS_FILE_PATH`，默认 `<运行目录>/ranks.json`）；配置了目录（`ranks.dir` / `RANKS_DIR`）时，每个类型单独一个文件 `<目录>/<type>.json`，方便单独维护（例如每周换掉 `survival_week.json` 即可重置周榜）。服务器重启后自动加载；落盘有约 0.5 秒防抖
 
 ### GET /api/ranks/:type
 
@@ -450,7 +450,20 @@ curl -X POST -H "Content-Type: application/json" \
 | `limit` | number | 50 | 返回条数，范围 1 到 500 |
 | `name` | string | 无 | 只返回指定玩家名的成绩 |
 
-`total` 是当前保留的条数（受每个类型的保留上限影响）。
+`total` 是当前保留的条数（受每个类型的保留上限影响）；传了 `name` 时会额外返回 `best`（该玩家在榜上的最好成绩与名次，没有记录时为 null）。
+
+``` json
+{
+  "type": "survival_week",
+  "limit": 50,
+  "total": 2,
+  "scores": [
+    { "type": "survival_week", "name": "gim", "score": 7, "date": 1789307723535 },
+    { "type": "survival_week", "name": "gim", "score": 3, "date": 1789307723527 }
+  ],
+  "best": { "rank": 1, "score": { "type": "survival_week", "name": "gim", "score": 7, "date": 1789307723535 } }
+}
+```
 
 ``` bash
 curl "http://localhost/api/ranks/story?limit=3"
@@ -556,7 +569,8 @@ curl "http://localhost/api/ranks/story?limit=3"
 | `admin_tokens` | string 或 string[] | 管理员 token |
 | `rest.log` | boolean | 是否打印每个请求的日志，默认 true |
 | `rest.max_body_size` | number | 请求体大小上限（字节），默认 1048576 |
-| `ranks.path` | string | 排行数据文件路径 |
+| `ranks.path` | string | 排行数据文件路径（所有类型集中在一个文件） |
+| `ranks.dir` | string | 排行数据目录，每个排行类型一个 `<type>.json`；配置后优先于 `ranks.path` |
 | `ranks.allowed_types` | string 或 string[] | 允许的排行类型，缺省不限制 |
 | `ranks.max_per_type` | number | 每个排行类型保留的条数上限，默认 10000 |
 
@@ -573,6 +587,7 @@ ADMIN_TOKEN=管理员token（与 ADMIN_PWD 等价，可用英文逗号分隔多�
 ADMIN_PWD=同上
 CONFIG_FILE_PATH=配置文件路径
 RANKS_FILE_PATH=/root/data/lfj/ranks.json
+RANKS_DIR=/root/data/lfj/ranks
 RANKS_ALLOWED_TYPES=story,versus
 RANKS_MAX_PER_TYPE=10000
 ```
@@ -582,6 +597,7 @@ RANKS_MAX_PER_TYPE=10000
 | `ADMIN_TOKEN` / `ADMIN_PWD` | 管理员 token，两者等价，可用英文逗号配置多个；也可用启动参数 `--admin-token` 指定 |
 | `CONFIG_FILE_PATH` | 配置文件路径，等价于 `--config` |
 | `RANKS_FILE_PATH` | 排行数据文件路径，缺省为 `<运行目录>/ranks.json`。部署时建议指到部署目录之外，避免更新被覆盖 |
+| `RANKS_DIR` | 排行数据目录（每个类型一个文件），配置后优先于 `RANKS_FILE_PATH` |
 | `RANKS_ALLOWED_TYPES` | 允许的排行类型，逗号分隔，缺省不限制 |
 | `RANKS_MAX_PER_TYPE` | 每个排行类型保留的条数上限，缺省 10000 |
 

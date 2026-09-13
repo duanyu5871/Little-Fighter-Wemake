@@ -62,6 +62,7 @@ import img_btn_4_3 from "./assets/btn_4_3.png";
 import { useForage } from "./hooks/useForage";
 import "./init";
 import { get_my_rank, get_rank_list, is_toy_env, SURVIVAL_RANK_BOARD, submit_rank_score } from "./toy_sdk";
+import { get_my_rank as get_my_rank_api, get_rank_list as get_rank_list_api, rank_api_available, submit_rank_score as submit_rank_score_api } from "./rank_api";
 import { DatViewer } from "./pages/dat_viewer/DatViewer";
 import { useWorkspaces } from "./pages/dat_viewer/useWorkspaces";
 import { Networking } from "./pages/network_test/Networking";
@@ -104,6 +105,27 @@ async function fetch_survival_rank_data(lfw: LFW, period: SurvivalRankPeriod): P
     period,
     list,
     mine: mine && mine.ranked ? { rank: mine.rank, score: mine.score } : null,
+  })
+}
+
+/** 玩家所在键位的名字（当前在场上的人优先；都没有时退回键位 1） */
+function rank_player_name(lfw: LFW): string {
+  const players = Array.from(lfw.players.values()).filter(v => v.local && !v.is_com)
+  const player = players.find(v => v.fighter) ?? players[0] ?? lfw.players.get('1')
+  return `${player?.name ?? ''}`.trim() || '玩家'
+}
+
+/** 非 B站环境：从自己的服务器拉取“榜单+我的排名”后下发 */
+async function fetch_survival_rank_data_api(lfw: LFW, period: SurvivalRankPeriod): Promise<void> {
+  const name = rank_player_name(lfw)
+  const [list, mine] = await Promise.all([
+    get_rank_list_api(period),
+    get_my_rank_api(period, name),
+  ])
+  lfw.set_survival_rank_data({
+    period,
+    list,
+    mine: mine ? { rank: mine.rank, score: mine.score } : null,
   })
 }
 
@@ -278,8 +300,8 @@ function App() {
           break;
         case 'rank_request':
           // 生存排行准备页请求数据：宿主拉取后“下发”，UI 值变化时自动更新
-          if (!is_toy_env()) break
-          fetch_survival_rank_data(lfw, lfw.survival_rank_period).catch(() => { })
+          if (is_toy_env()) fetch_survival_rank_data(lfw, lfw.survival_rank_period).catch(() => { })
+          else if (rank_api_available()) fetch_survival_rank_data_api(lfw, lfw.survival_rank_period).catch(() => { })
           break;
         case 'stats_visible_set:1':
         case 'stats_visible_set:0':
@@ -391,6 +413,13 @@ function App() {
         rank_startup_submitted = true
         submit_rank_score(0).catch(() => { })
       }
+    } else if (rank_api_available()) {
+      // 非 B站环境：同样上报“已到达的阶段数”，提交到自己的服务器
+      lf2.on_survival_rank_phase = (reached) => {
+        if (lf2.survival_rank_invalid) return
+        submit_rank_score_api(reached, rank_player_name(lf2)).catch(() => { })
+      }
+      lf2.survival_rank_available = true
     }
     if (
       location.pathname.endsWith('demo') ||
