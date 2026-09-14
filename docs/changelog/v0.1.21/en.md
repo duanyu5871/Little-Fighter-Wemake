@@ -2,7 +2,7 @@
 
 by [**Gim**](https://gim.ink)  2026-04-11 00:50:55
 
-- VS Mode, starting MP is set to 40%.
+- VS Mode, starting MP is set to 40%
 - Fixed wpoint.kind 3 (Freeze DvJ)
 - Fixed Henry's D^J attack damage (was too high)
 - Fixed itr.kind 15,16 (Freeze D^J)

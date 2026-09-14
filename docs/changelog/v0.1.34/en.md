@@ -8,7 +8,7 @@ by [**Gim**](https://gim.ink)  2026-06-10 13:01:41
 
 ![bat_new_duj.webp](https://lfwm.gim.ink/user/2/754/9300b5c285d074e10b7099bb1c1dda36 "bat_new_duj.webp")
 
-- Higher FPS now looks smoother.
+- Higher FPS now looks smoother
     
     Now supports fixed 60FPS / 120FPS
     

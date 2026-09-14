@@ -11,9 +11,9 @@ by [**Gim**](https://gim.ink)  2026-05-31 22:38:34
 ![bot_resp_follow.webp](https://lfwm.gim.ink/user/2/725/376d401aa631a0ec3d029184995ddf75 "bot_resp_follow.webp")
 
 - Bring "Lee on Road" back
-    - Thanks [Dan](https://github.com/Glooring) for providing the data. 
+    - Thanks [Dan](https://github.com/Glooring) for providing the data 
     - [Dan](https://github.com/Glooring) is currently working on the **LF2 Unified**
-    - **LF2 Unified** can perfectly restore the original game experience. Please Stay tuned.
+    - **LF2 Unified** can perfectly restore the original game experience. Please Stay tuned
 
 ![lorbg.webp](https://lfwm.gim.ink/user/2/725/cf6f1c2a82a2347375063c522cf69397 "lorbg.webp")
     

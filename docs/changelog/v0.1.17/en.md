@@ -2,7 +2,7 @@
 
 by [**Gim**](https://gim.ink)  2026-04-01 02:12:25
 
-Optimization of touch-screen operation experience, and other tweaks.
+Optimization of touch-screen operation experience, and other tweaks
 
 
 ![aaa.gif](https://lfwm.gim.ink/user/2/487/3768e3eb9731d41dd714144bd4d68539 "aaa.gif")

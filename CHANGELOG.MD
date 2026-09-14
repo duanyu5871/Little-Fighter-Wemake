@@ -1,20 +1,32 @@
 # Changelog
 
-## [v0.1.48](https://lf.gim.ink/0.1.48)
+## [v0.1.49](https://lf.gim.ink/0.1.49)
 
 by [**Gim**](https://gim.ink)
 
-"Bilibili 干杯"
+"榜上有名！"
 
 ### 新东西
 
-- 现在能在[Bilibili toy](https://www.bilibili.com/toy/Little-Fighter-Wemake) 玩了
-- [Bilibili toy](https://www.bilibili.com/toy/Little-Fighter-Wemake) 中，新增生存排行模式，来比比吧。
+- 新增生存排行模式
+- 新增双人生存排行
+- 数据包支持断点续传
+- 背景支持前景层
 
 ### 调整
 
-- 重做UPS控制，UPS现在更接近设定，且更稳定。
-- 其他调整
+- 重做 UPS 控制，更接近设定也更稳定；UPS 只保留 30 / 60；设置页新增「性能数据」开关
+- 联机新增「同步模式：自动 / 锁帧 / 延迟」（按房间最差延迟给出推荐），玩家名实时同步
+- Julian D>A 削弱；Firzen AI强化；书本类武器不再出现在 VS 模式与随机武器池
+- 被击落的武器不会再在下落途中打到人；滚动经过武器需要按住攻击键才会拾取
+- 武器掉落更分散
+- 新增文案补上 10 种语言（未校验）
+- 其他调整与性能优化
+
+### 修复
+
+- 修复数据包被替换后客户端仍用旧缓存的问题
+- 修复联机时键位名显示错位
 
 ## [v0.1.47](https://lf.gim.ink/0.1.47)
 
@@ -105,7 +117,7 @@ by [**Gim**](https://gim.ink)  2026-06-17 18:21:58
 ### 杂项
 
 - 修复了 v0.1.35 ~ v0.1.41 中发现的问题
-- 微调“丢人”位置计算，让一些角色不再被自己丢出的敌人砸到。
+- 微调“丢人”位置计算，让一些角色不再被自己丢出的敌人砸到
 - 修复“自定游戏”包无法下载的问题
 - “自定游戏”的页面现在可以返回游戏
 - 降低占用内存以及降低GC频率
@@ -152,9 +164,9 @@ by [**Gim**](https://gim.ink)  2026-05-31 22:38:34
 ![bot_resp_follow.webp](https://lfwm.gim.ink/user/2/725/376d401aa631a0ec3d029184995ddf75 "bot_resp_follow.webp")
 
 - 原版地图"Lee on Road"回归
-    - 感谢 [Dan](https://github.com/Glooring) 提供的数据。
+    - 感谢 [Dan](https://github.com/Glooring) 提供的数据
     - [Dan](https://github.com/Glooring)目前正在开发**LF2 Unified**，
-    - **LF2 Unified**能更完美的还原原版游戏体验，敬请期待。
+    - **LF2 Unified**能更完美的还原原版游戏体验，敬请期待
 
 ![lorbg.webp](https://lfwm.gim.ink/user/2/725/cf6f1c2a82a2347375063c522cf69397 "lorbg.webp")
 
@@ -396,7 +408,7 @@ by [**Gim**](https://gim.ink)  2026-04-01 02:12:20
 ![fn_key_counts.gif](https://lfwm.gim.ink/user/2/499/937839997343f20094b463b561a81f03 "fn_key_counts.gif")
 
 - fix: more variables in world-dataset
-- fix: no longer converts certain data.
+- fix: no longer converts certain data
 - fix: dash/jump/breakfall vy caculation
 - fix: julian/kngiht armor, henry d^j, john d^a
 - fix: touchpad ^^vv<><>dada

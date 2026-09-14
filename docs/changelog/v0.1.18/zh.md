@@ -11,7 +11,7 @@ by [**Gim**](https://gim.ink)  2026-04-01 02:12:20
 ![fn_key_counts.gif](https://lfwm.gim.ink/user/2/499/937839997343f20094b463b561a81f03 "fn_key_counts.gif")
 
 - fix: more variables in world-dataset
-- fix: no longer converts certain data.
+- fix: no longer converts certain data
 - fix: dash/jump/breakfall vy caculation
 - fix: julian/kngiht armor, henry d^j, john d^a
 - fix: touchpad ^^vv<><>dada

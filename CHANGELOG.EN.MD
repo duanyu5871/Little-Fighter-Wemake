@@ -1,20 +1,32 @@
 # Changelog
 
-## [v0.1.48](https://lf.gim.ink/0.1.48)
+## [v0.1.49](https://lf.gim.ink/0.1.49)
 
 by [**Gim**](https://gim.ink)
 
-"CHEERS, BILIBILI !"
+"ON THE BOARD!"
 
 ### What's New
 
-- The game is now playable on [Bilibili Toy](https://www.bilibili.com/toy/Little-Fighter-Wemake)
-- New mode added to [Bilibili Toy](https://www.bilibili.com/toy/Little-Fighter-Wemake): Survival Rank — come and see how you rank!
+- New Survival Rank mode
+- New 2-player Survival Rank
+- Data packs support resumable downloads
+- Backgrounds support foreground layers
 
 ### Tweaks
 
-- Reworked UPS control: UPS is now closer to the intended design and more stable
-- Other tweaks
+- Reworked UPS control: closer to the intended design and more stable; UPS is limited to 30 / 60; new "Perf" toggle in settings
+- New multiplayer "Sync mode: Auto / Lockstep / Delay" (recommended from the worst RTT in the room), plus real-time player name sync
+- Julian's D>A is weaker; Firzen's AI is stronger; book-type weapons no longer appear in VS mode or the random weapon pool
+- Knocked-away weapons no longer hurt anyone while falling; picking a weapon up by rolling over it now requires holding the attack key
+- Weapon drops are more spread out
+- New texts translated into 10 more languages (not proofread)
+- Other tweaks & performance work
+
+### Fixes
+
+- Fixed the client keeping stale data-pack info after the data pack was replaced on the server
+- Fixed misaligned player names in multiplayer
 
 ## [v0.1.47](https://lf.gim.ink/0.1.47)
 
@@ -80,7 +92,7 @@ Nekketsu!
 ### News
 
 - Terrain support is now available!
-- A new map Nekketsu F01 originating from a parallel world.
+- A new map Nekketsu F01 originating from a parallel world
 
 ![image.png](https://lfwm.gim.ink/user/2/825/2d5932aa982e7d36e5fc21c77ca0b9c2 "image.png")
 [YouTube Video](https://www.youtube.com/watch?v=mM2UD2EEK5A)
@@ -89,8 +101,8 @@ Nekketsu!
 ### Misc
 
 - Fixed the issue found in v0.1.42 ~ v0.1.44
-- Numerous adjustments have been made; potential bugs may still exist.
-- Optimized the loading logic for image assets.
+- Numerous adjustments have been made; potential bugs may still exist
+- Optimized the loading logic for image assets
 
 ## [v0.1.42](https://lf.gim.ink/0.1.42)
 
@@ -98,19 +110,19 @@ by [**Gim**](https://gim.ink)  2026-06-17 18:21:58
 
 ### News
 
-- Louis (Ex)'s run attack and dash attack now apply an electric stun effect.
+- Louis (Ex)'s run attack and dash attack now apply an electric stun effect
 
 ![ltp1.webp](https://lfwm.gim.ink/user/2/797/bb0d676ae2726a32f52f670243f0fec1 "ltp1.webp")
 
 ### Misc
 
 - Fixed the issue found in v0.1.35 ~ v0.1.41
-- Adjusted the throw position calculation to prevent characters from being hit by enemies they threw.
-- Fixed the issue where custom game packs failed to download.
-- Added a return-to-game function on the custom game page.
-- Reduced memory usage and GC frequency.
-- Tweaked the idle auto-play logic on the main menu.
-- Fixed unresponsive issues on the ending page.
+- Adjusted the throw position calculation to prevent characters from being hit by enemies they threw
+- Fixed the issue where custom game packs failed to download
+- Added a return-to-game function on the custom game page
+- Reduced memory usage and GC frequency
+- Tweaked the idle auto-play logic on the main menu
+- Fixed unresponsive issues on the ending page
 - 改进文本渲染效率
 
 ## v0.1.34
@@ -123,7 +135,7 @@ by [**Gim**](https://gim.ink)  2026-06-10 13:01:41
 
 ![bat_new_duj.webp](https://lfwm.gim.ink/user/2/754/9300b5c285d074e10b7099bb1c1dda36 "bat_new_duj.webp")
 
-- Higher FPS now looks smoother.
+- Higher FPS now looks smoother
     
     Now supports fixed 60FPS / 120FPS
     
@@ -152,9 +164,9 @@ by [**Gim**](https://gim.ink)  2026-05-31 22:38:34
 ![bot_resp_follow.webp](https://lfwm.gim.ink/user/2/725/376d401aa631a0ec3d029184995ddf75 "bot_resp_follow.webp")
 
 - Bring "Lee on Road" back
-    - Thanks [Dan](https://github.com/Glooring) for providing the data. 
+    - Thanks [Dan](https://github.com/Glooring) for providing the data 
     - [Dan](https://github.com/Glooring) is currently working on the **LF2 Unified**
-    - **LF2 Unified** can perfectly restore the original game experience. Please Stay tuned.
+    - **LF2 Unified** can perfectly restore the original game experience. Please Stay tuned
 
 ![lorbg.webp](https://lfwm.gim.ink/user/2/725/cf6f1c2a82a2347375063c522cf69397 "lorbg.webp")
     
@@ -202,38 +214,38 @@ by [**Gim**](https://gim.ink)  2026-05-31 22:38:43
 
 #### News
 - **Recapture the laggy feel of childhood**
-- Rudolf D<>A can now directly use his **Super Punch**.
-  - Designed to show the differences between LFW and classic LF2.
-  - LFW supports longer combo input sequences.
+- Rudolf D<>A can now directly use his **Super Punch**
+  - Designed to show the differences between LFW and classic LF2
+  - LFW supports longer combo input sequences
     ![jkhgfd.gif](https://lfwm.gim.ink/user/2/687/3b726f48c299348391dccdb112ecb217 "jkhgfd.gif")
 
 #### Values & Game Logic
 - Armor Mechanics
-  - Fixed an issue where armor remained effective even when a target’s current frame armor value ≤ 0.
-    - This bug made Julian and Knight overly tanky.
-  - Fixed arrows bouncing instead of disappearing when striking through armor.
+  - Fixed an issue where armor remained effective even when a target’s current frame armor value ≤ 0
+    - This bug made Julian and Knight overly tanky
+  - Fixed arrows bouncing instead of disappearing when striking through armor
 
 - Fixed bugs related to `opint.spreading = OpointSpreading.FloatRange`
-  - Caused Julian D>A’s ball projectile to only spawn with downward initial velocity.
+  - Caused Julian D>A’s ball projectile to only spawn with downward initial velocity
 
 - Fixed an issue where objects spawned by opoint would skip the 0th frame instantly
-  - Weakened certain projectiles (e.g. Henry / Monk / Louis / LouisEx D>A).
-  - Caused inconsistent behavior for multiple ball-type skills.
+  - Weakened certain projectiles (e.g. Henry / Monk / Louis / LouisEx D>A)
+  - Caused inconsistent behavior for multiple ball-type skills
 
-- Fixed a glitch allowing teleportation near 0 HP targets (Woody D^J / DvJ).
+- Fixed a glitch allowing teleportation near 0 HP targets (Woody D^J / DvJ)
 - Immediately reset `arest` if a frame contains no itr data
-  - Matches original LF2 behavior.
+  - Matches original LF2 behavior
 
 #### Controls & Gameplay
 - Revised input priority order, new sequence: **D , < , > , ^ , v , J , A**
   - Old order: `< , > , ^ , v , A , J , D`
-  - Previously, pressing J+A while standing would trigger a normal attack instead of a jump attack (same for running jump attacks).
+  - Previously, pressing J+A while standing would trigger a normal attack instead of a jump attack (same for running jump attacks)
 
 - Reworked double-tap sprint logic
-  - Removed the awkward behavior of instantly resuming sprinting after stopping.
+  - Removed the awkward behavior of instantly resuming sprinting after stopping
 
-- Adjusted `itr.dvy` calculation to enable more consistent combos.
-- Keeps input buffer states during most hit reactions (excluding knockdown and knockback).
+- Adjusted `itr.dvy` calculation to enable more consistent combos
+- Keeps input buffer states during most hit reactions (excluding knockdown and knockback)
 
 #### Misc
 
@@ -241,13 +253,13 @@ by [**Gim**](https://gim.ink)  2026-05-31 22:38:43
 - Adjusted Demo Mode
   - Demo now randomly uses bots to play stage mode
   - The demo will automatically restart after ending
-- Added zoom support for background layers.
-- Fully rewritten AI evasion logic for Bots.
-- Fixed inability to access settings from the main menu.
-- Added support for running the game at **30 UPS / 90 UPS / 120 UPS**.
+- Added zoom support for background layers
+- Fully rewritten AI evasion logic for Bots
+- Fixed inability to access settings from the main menu
+- Added support for running the game at **30 UPS / 90 UPS / 120 UPS**
   ***Certain in-game calculations will function differently across UPS values.***
-- Online matches are locked to 30 UPS.
-- Mobile devices default to 30 UPS.
+- Online matches are locked to 30 UPS
+- Mobile devices default to 30 UPS
 - ~~Attempted render interpolation (improves smooth FPS at low UPS)~~
 
 ## v0.1.25
@@ -301,7 +313,7 @@ by [**Gim**](https://gim.ink)  2026-04-14 17:30:46
 
 by [**Gim**](https://gim.ink)  2026-04-11 00:50:55
 
-- VS Mode, starting MP is set to 40%.
+- VS Mode, starting MP is set to 40%
 - Fixed wpoint.kind 3 (Freeze DvJ)
 - Fixed Henry's D^J attack damage (was too high)
 - Fixed itr.kind 15,16 (Freeze D^J)
@@ -343,7 +355,7 @@ by [**Gim**](https://gim.ink)  2026-05-31 22:39:12
 
 "Limited New Attempts"
 
-- Jump height now depends on key hold duration.
+- Jump height now depends on key hold duration
 
 ![normal_jump_small_Jump.gif](https://lfwm.gim.ink/user/2/512/9e912642f3c7b772d5a64e2f22163ea8 "normal_jump_small_Jump.gif")
 - Moves fixed
@@ -351,12 +363,12 @@ by [**Gim**](https://gim.ink)  2026-05-31 22:39:12
     - Jan D^A 
     - Jan D^J
 - Stage Mode
-  - Fixed unable to enter next stage.
-  - Fixed initial enemy count not scaling with players.
+  - Fixed unable to enter next stage
+  - Fixed initial enemy count not scaling with players
 - Others
-  - Adjusted hitstun jump logic.
-  - Fixed bots rarely attacking.
-  - Attempted fix for browser crashes.
+  - Adjusted hitstun jump logic
+  - Fixed bots rarely attacking
+  - Attempted fix for browser crashes
 
 ## v0.1.18
 
@@ -371,7 +383,7 @@ by [**Gim**](https://gim.ink)  2026-04-01 02:12:20
 ![fn_key_counts.gif](https://lfwm.gim.ink/user/2/499/937839997343f20094b463b561a81f03 "fn_key_counts.gif")
 
 - fix: more variables in world-dataset
-- fix: no longer converts certain data.
+- fix: no longer converts certain data
 - fix: dash/jump/breakfall vy caculation
 - fix: julian/kngiht armor, henry d^j, john d^a
 - fix: touchpad ^^vv<><>dada
@@ -383,7 +395,7 @@ by [**Gim**](https://gim.ink)  2026-04-01 02:12:20
 
 by [**Gim**](https://gim.ink)  2026-04-01 02:12:25
 
-Optimization of touch-screen operation experience, and other tweaks.
+Optimization of touch-screen operation experience, and other tweaks
 
 
 ![aaa.gif](https://lfwm.gim.ink/user/2/487/3768e3eb9731d41dd714144bd4d68539 "aaa.gif")
@@ -446,38 +458,38 @@ by [**Gim**](https://gim.ink)  2026-04-18 13:47:53
 
 by [**Gim**](https://gim.ink)  2026-04-01 02:12:42
 
-- fix(game): When there are no enemies for Firzen's d^a, it will no longer split.
-- fix(tool): Support negative MP consumption.
-- fix(game): Fix the problem of abnormal stat display.
-- fix(game): Fix the issues that after an enemy surrenders, the attack target is not removed and the team stroke color does not change.
-- fix(game): Fix the bug that the weapon follows with a one-frame delay.
-- fix(game): Fix the problem that when throwing someone, the position of the thrown person is incorrect.
-- fix(game): When taking damage, the armor value returns to 0.
-- fix(game): Refactored the implementation of tracking and adjusted its effect.
-- fix(game): Fix the problem of the ball having a 2-times Z-axis speed.
-- fix(game/tool): The ball no longer collides with the ground by default.
-- fix(game/tool): Itr supports on_hit_ground (For Firzen/Jan's ball, it originally only judged whether it landed based on centery).
-- fix(dev): Support exporting world-tuning data.
-- fix(game): Fix the problem of too high defense value (it takes 4 hits to break the defense).
+- fix(game): When there are no enemies for Firzen's d^a, it will no longer split
+- fix(tool): Support negative MP consumption
+- fix(game): Fix the problem of abnormal stat display
+- fix(game): Fix the issues that after an enemy surrenders, the attack target is not removed and the team stroke color does not change
+- fix(game): Fix the bug that the weapon follows with a one-frame delay
+- fix(game): Fix the problem that when throwing someone, the position of the thrown person is incorrect
+- fix(game): When taking damage, the armor value returns to 0
+- fix(game): Refactored the implementation of tracking and adjusted its effect
+- fix(game): Fix the problem of the ball having a 2-times Z-axis speed
+- fix(game/tool): The ball no longer collides with the ground by default
+- fix(game/tool): Itr supports on_hit_ground (For Firzen/Jan's ball, it originally only judged whether it landed based on centery)
+- fix(dev): Support exporting world-tuning data
+- fix(game): Fix the problem of too high defense value (it takes 4 hits to break the defense)
 
-- Thanks to "Sauce" and "Memento" for their feedback.
+- Thanks to "Sauce" and "Memento" for their feedback
 
 ## v0.1.13
 
 by [**Gim**](https://gim.ink)  2026-04-01 02:12:47
 
-- feat(prel): In the bottom-left corner of the 'VS Mode Prepare Page', the background music can be switched by clicking the left/middle/right mouse button.
+- feat(prel): In the bottom-left corner of the 'VS Mode Prepare Page', the background music can be switched by clicking the left/middle/right mouse button
 - fix(game): fix the problem of being unable to switch difficult
 - fix(game): Fix the incorrect performance when two people pick up a weapon as the same time
 - fix(game): fix the performance when two people grab one person as the same time
-- fix(game): Support background music overwrite with the same name under multiple mods.
-- fix(game): For the caught character and the held weapon, their wait value will no longer decrease.
-- fix(game): Allow the cpoint or its xy of the caught character to be lost, and its performance aligns with the original version.
-- fix(game): Fix the problem of incorrect channel effect of the battle sound in the main page (it will be quieter).
-- fix(game): After leaving the main page, objects in the scene can be correctly cleared.
-- fix(game): Allow the wpoint or its xy to be lost, and its performance aligns with the original version (comparable to Henry shooting an arrow backwards while dashing with a weapon).
-- fix(data): Beer is no longer regarded as a 'Stage Weapons' (beer will no longer drop randomly during 'Stage Mode').
-- fix(tool): Weapons outside the range of [100,199] are no longer regarded as 'Stage/VS Weapons' (they will no longer drop during Stage/VS Mode).
+- fix(game): Support background music overwrite with the same name under multiple mods
+- fix(game): For the caught character and the held weapon, their wait value will no longer decrease
+- fix(game): Allow the cpoint or its xy of the caught character to be lost, and its performance aligns with the original version
+- fix(game): Fix the problem of incorrect channel effect of the battle sound in the main page (it will be quieter)
+- fix(game): After leaving the main page, objects in the scene can be correctly cleared
+- fix(game): Allow the wpoint or its xy to be lost, and its performance aligns with the original version (comparable to Henry shooting an arrow backwards while dashing with a weapon)
+- fix(data): Beer is no longer regarded as a 'Stage Weapons' (beer will no longer drop randomly during 'Stage Mode')
+- fix(tool): Weapons outside the range of [100,199] are no longer regarded as 'Stage/VS Weapons' (they will no longer drop during Stage/VS Mode)
 
 ## v0.1.12
 
@@ -485,8 +497,8 @@ by [**Gim**](https://gim.ink)  2026-04-01 02:12:52
 
 - fix: The MP recovery speed has been corrected. (It was too fast before...)
 - feat: Mod supported
-- fix: Removed the buttons on the main page whose functions are not yet supported.
-- feat: Some pages now support viewing the version number and the file name of the Mod.
+- fix: Removed the buttons on the main page whose functions are not yet supported
+- feat: Some pages now support viewing the version number and the file name of the Mod
 - chore: there will be some fighting on the 'Main Page' :D
 
 ## v0.1.9
@@ -509,15 +521,15 @@ by [**Gim**](https://gim.ink)  2026-04-01 02:13:01
 - fix: fix the problem that the background and level buttons do not respond
 - fix: fix the problem of incorrect display on the scoreboard
 - fix: weapon will have a more reasonable effect
-- fix: Improved the performance of the weapon's bounce when it hits the ground.
-- fix: Fixed the problem of incorrect starting point for weapon throwing.
-- fix: Fixed the issue that airborne weapons can't be hit again.
-- feat: Rooms can now be password - protected.
-- fix: It's no longer possible to join a room that has already started or where all players are ready.
-- fix: The survival mode will correctly display the current stage number.
-- fix: The "GO->" will no longer be displayed in the survival mode.
-- fix: The "GO->" will no longer be displayed in the last sub-level of the mission - passing mode.
-- fix: Fixed the problem of incorrect relationship between difficulty and the number of enemies in the mission-passing/survival mode (the problem was that there were too many enemies).
+- fix: Improved the performance of the weapon's bounce when it hits the ground
+- fix: Fixed the problem of incorrect starting point for weapon throwing
+- fix: Fixed the issue that airborne weapons can't be hit again
+- feat: Rooms can now be password - protected
+- fix: It's no longer possible to join a room that has already started or where all players are ready
+- fix: The survival mode will correctly display the current stage number
+- fix: The "GO->" will no longer be displayed in the survival mode
+- fix: The "GO->" will no longer be displayed in the last sub-level of the mission - passing mode
+- fix: Fixed the problem of incorrect relationship between difficulty and the number of enemies in the mission-passing/survival mode (the problem was that there were too many enemies)
 
 ### v0.1.4
 
@@ -525,15 +537,15 @@ by [**Gim**](https://gim.ink)  2026-04-01 02:13:01
 
 - fix: fix the problem that the background and level buttons do not respond
 - fix: fix the problem of incorrect display on the scoreboard
-- fix: Improved the performance of the weapon's bounce when it hits the ground.
-- fix: Fixed the problem of incorrect starting point for weapon throwing.
-- fix: Fixed the issue that airborne weapons can't be hit again.
-- feat: Rooms can now be password - protected.
-- fix: It's no longer possible to join a room that has already started or where all players are ready.
-- fix: The survival mode will correctly display the current stage number.
-- fix: The "GO->" will no longer be displayed in the survival mode.
-- fix: The "GO->" will no longer be displayed in the last sub-level of the mission - passing mode.
-- fix: Fixed the problem of incorrect relationship between difficulty and the number of enemies in the mission-passing/survival mode (the problem was that there were too many enemies).
+- fix: Improved the performance of the weapon's bounce when it hits the ground
+- fix: Fixed the problem of incorrect starting point for weapon throwing
+- fix: Fixed the issue that airborne weapons can't be hit again
+- feat: Rooms can now be password - protected
+- fix: It's no longer possible to join a room that has already started or where all players are ready
+- fix: The survival mode will correctly display the current stage number
+- fix: The "GO->" will no longer be displayed in the survival mode
+- fix: The "GO->" will no longer be displayed in the last sub-level of the mission - passing mode
+- fix: Fixed the problem of incorrect relationship between difficulty and the number of enemies in the mission-passing/survival mode (the problem was that there were too many enemies)
 
 ### v0.1.3
 

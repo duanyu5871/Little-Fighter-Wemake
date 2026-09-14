@@ -11,9 +11,9 @@ by [**Gim**](https://gim.ink)  2026-05-31 22:38:34
 ![bot_resp_follow.webp](https://lfwm.gim.ink/user/2/725/376d401aa631a0ec3d029184995ddf75 "bot_resp_follow.webp")
 
 - 原版地图"Lee on Road"回归
-    - 感谢 [Dan](https://github.com/Glooring) 提供的数据。
+    - 感谢 [Dan](https://github.com/Glooring) 提供的数据
     - [Dan](https://github.com/Glooring)目前正在开发**LF2 Unified**，
-    - **LF2 Unified**能更完美的还原原版游戏体验，敬请期待。
+    - **LF2 Unified**能更完美的还原原版游戏体验，敬请期待
 
 ![lorbg.webp](https://lfwm.gim.ink/user/2/725/cf6f1c2a82a2347375063c522cf69397 "lorbg.webp")
 
