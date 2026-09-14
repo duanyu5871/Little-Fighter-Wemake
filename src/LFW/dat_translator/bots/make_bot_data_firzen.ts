@@ -11,11 +11,14 @@ import { frames } from "./frames";
 
 export function make_bot_data_firzen(): BotMaker {
   return new BotMaker(OID.Firzen).set_actions(
-    // d^a
+    // d>j
     bot_ball_dfj(50, void 0),
 
     // d^j
     bot_explosion_duj(250, void 0, -500, 500, 500),
+
+    // d^j x 2
+    bot_explosion_duj(250, void 0, -250, 250, 250),
 
     // ball cancell
     bot_ball_cancelling('cancel_d>j'),
@@ -25,9 +28,12 @@ export function make_bot_data_firzen(): BotMaker {
 
     // disaster + ...a
     bot_chasing_action('d^a+a', ['a'], void 0, probability(2, 0.1))
-  ).set_states(
-    [StateEnum.Attacking],
-    ['cancel_d>j', 'd^a+a']
+  ).set_frames(
+    ["270", "271", "272", "273"],
+    ['cancel_d>j']
+  ).set_frames(
+    ["243", "244", "246"],
+    ['d^a+a']
   ).set_frames(
     [
       ...frames.standings,
