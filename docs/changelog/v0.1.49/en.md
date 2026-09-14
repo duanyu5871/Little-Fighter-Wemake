@@ -18,7 +18,7 @@ by [**Gim**](https://gim.ink)
 - Julian's D>A is weaker; Firzen's AI is stronger; book-type weapons no longer appear in VS mode or the random weapon pool
 - Knocked-away weapons no longer hurt anyone while falling; picking a weapon up by rolling over it now requires holding the attack key
 - Weapon drops are more spread out
-- New texts translated into 10 more languages (not proofread)
+- Added Romanian and Hungarian, so new texts are now covered by 12 languages (not proofread): German / Spanish / French / Hungarian / Italian / Japanese / Korean / Dutch / Polish / Portuguese / Romanian / Russian
 - Other tweaks & performance work
 
 ### Fixes
