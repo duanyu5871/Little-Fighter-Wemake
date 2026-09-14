@@ -1,4 +1,4 @@
-import { FacingFlag as FF, type IFrameInfo, ItrKind, SE, StateEnum, type TNextFrame, WeaponEnum as WT } from "../defines";
+import { FacingFlag as FF, type IFrameInfo, SE, StateEnum, type TNextFrame, WeaponEnum as WT } from "../defines";
 import { ActionType } from "../defines/actions/ActionType";
 import { BdyKind } from "../defines/BdyKind";
 import { EntityEnum } from "../defines/EntityEnum";
@@ -11,11 +11,12 @@ import { ensure, foreach } from "../utils";
 import { take_number } from "../utils/container_help/take_number";
 import { traversal } from "../utils/container_help/traversal";
 import { is_num, is_str } from "../utils/type_check";
+import { frames as fids } from "./bots/frames";
 import { CondMaker } from "./CondMaker";
-import { FrameEditing } from "./FrameEditing";
 import { cook_file_variants } from "./cook_file_variants";
 import { cook_next_frame_cost } from "./cook_next_frame_cost";
 import { add_next_frame, edit_next_frame } from "./edit_next_frame";
+import { FrameEditing } from "./FrameEditing";
 import {
   get_next_frame_by_raw_id,
 } from "./get_the_next";
@@ -351,9 +352,12 @@ export function make_fighter_data(ctx: IDatContext): IEntityData {
     switch (frame.state) {
       case StateEnum.Standing:
       case StateEnum.Jump:
-      case StateEnum.Defend:
       case StateEnum.Walking:
         hit_next_frame.turn_back(frame)
+        break;
+      case StateEnum.Defend:
+        if (fids.defends.includes(frame.id))
+          hit_next_frame.turn_back(frame)
         break;
     }
 
