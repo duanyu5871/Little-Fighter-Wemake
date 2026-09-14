@@ -89,7 +89,7 @@ export abstract class LFWNetworkDriver {
       for (const client of clients) {
         for (let i = 1; i <= 4; i++) {
           const id = `${client.id}#${i}`;
-          const name = client.players?.[i] ?? i.toString();
+          const name = client.players?.[i - 1] ?? i.toString();
           const player = new PlayerInfo(id, name, false, client.id === me.id);
           lf2.players.set(id, player);
         }
@@ -153,7 +153,7 @@ export abstract class LFWNetworkDriver {
 
     for (let i = 1; i <= 4; i++) {
       const id = `${client.id}#${i}`;
-      const name = client.players?.[i] ?? i.toString();
+      const name = client.players?.[i - 1] ?? i.toString();
       const player = lf2.players.get(id);
       if (!player) continue;
       player.set_name(name, true);
