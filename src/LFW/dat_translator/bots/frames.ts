@@ -8,4 +8,5 @@ export const frames = {
   punchs: range(60, 69),
   rowings: range(103, 107),
   super_punch: range(70, 79),
+  defends: ["110", "111"],
 };

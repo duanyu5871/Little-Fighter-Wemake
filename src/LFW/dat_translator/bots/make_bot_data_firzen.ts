@@ -18,7 +18,10 @@ export function make_bot_data_firzen(): BotMaker {
     bot_explosion_duj(250, void 0, -500, 500, 500),
 
     // d^j x 2
-    bot_explosion_duj(250, void 0, -250, 250, 250),
+    bot_explosion_duj(250, void 0, -250, 250, 250)((c) => {
+      c.action_id = 'd^j_2'
+      return c;
+    }),
 
     // ball cancell
     bot_ball_cancelling('cancel_d>j'),
@@ -38,8 +41,14 @@ export function make_bot_data_firzen(): BotMaker {
     [
       ...frames.standings,
       ...frames.walkings,
+      ...frames.defends,
     ],
-    [bot_ball_dfj.ID, bot_explosion_dua.ID, bot_explosion_duj.ID]
+    [
+      'd^j',
+      'd^j_2',
+      'd^a',
+      'd>j',
+    ]
   )
 }
 
