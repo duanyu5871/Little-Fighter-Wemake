@@ -8,11 +8,11 @@ import { hp_gt_0 } from "../conditions/hp_gt_0";
 
 export function make_fb_julian_ball(frame: IFrameInfo) {
   frame.facing = FF.VX;
-  frame.dvx = 14;
-  frame.acc_x = 0.25;
+  frame.dvx = 12;
+  frame.acc_x = 0.12;
   frame.vxm = SpeedMode.AccTo;
   frame.dvz = D.DEFAULT_OPOINT_SPEED_Z;
-  frame.acc_z = 0.1;
+  frame.acc_z = 0.05;
   frame.vzm = SpeedMode.AccTo;
   frame.dvy = -0.5;
   frame.acc_y = 0.1;
