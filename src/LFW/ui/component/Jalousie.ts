@@ -12,7 +12,7 @@ export class Jalousie extends Flex<IJalousieCallbacks> {
   static override readonly TAGS: string[] = ["Jalousie"];
   protected _anim: Animation = new Sequence(
     new Easing(0, 0).set_duration(250),
-    new Sine(-1, 2, 0.5).set_duration(250),
+    new Sine(-1, 2, 1).set_duration(250),
     new Easing(1, 1).set_duration(250),
   )
   get anim(): Animation { return this._anim }
