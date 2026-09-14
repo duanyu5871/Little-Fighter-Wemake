@@ -53,7 +53,7 @@
           id: "language_row",
           values: {
             prefix: "language",
-            items: "lang.en,lang.zh-hans,lang.zh-hant,lang.de,lang.es,lang.fr,lang.it,lang.ja,lang.ko,lang.nl,lang.pl,lang.pt,lang.ru",
+            items: "lang.en,lang.zh-hans,lang.zh-hant,lang.de,lang.es,lang.fr,lang.hu,lang.it,lang.ja,lang.ko,lang.nl,lang.pl,lang.pt,lang.ro,lang.ru",
           },
           template: "ui/arrow_switcher_row.ui.json5",
         },

@@ -20,6 +20,8 @@
     "lang.de": "Deutsch (beta)",
     "lang.pl": "Polski (beta)",
     "lang.it": "Italiano (beta)",
+    "lang.hu": "Magyar (beta)",
+    "lang.ro": "Română (beta)",
     sync_0: "Unlimited",
     sync_1: "Half",
     sync_2: "Sync",
@@ -461,4 +463,6 @@
   "pl-pl": "pl",
   "it-it": "it",
   "it-ch": "it",
+  "hu-hu": "hu",
+  "ro-ro": "ro",
 }

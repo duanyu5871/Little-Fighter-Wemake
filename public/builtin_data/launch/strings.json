@@ -116,6 +116,24 @@
     "extra_data": "Mod",
     "add_mods": "Aggiungi mod"
   },
+  "hu": {
+    "init.tap_any_place_to_launch": "KATTINTS BÁRHOVÁ\nA FOLYTATÁSHOZ",
+    "init.translation_not_verified": "Fordítás: Deepseek v4 flash, ellenőrizetlen",
+    "init.sound_warning": "FIGYELEM: az indítás után hang és háttérzene fog szólni. \nKattints a jobb felső sarokban lévő hangszóró ikonra a hang kikapcsolásához. \nKattints a jobb felső sarokban lévő hangjegy ikonra a háttérzene kikapcsolásához.",
+    "init.long_description": "A játékmenet, a grafikák, a hangok és a zene nagy része a \"Little Fighter 2\"-ből származik.\nMarti Wong és Starsky Wong készítette 1999-ben.\n\nA \"Little Fighter Wemake\"-et Gim készítette 2024-ben.\n\nFordította: Deepseek v4 flash, ellenőrizetlen, elnézést a hibákért.",
+    "init.desktop_recommend": "A legjobb élmény érdekében használj asztali platformot és modern böngészőt.",
+    "extra_data": "Modok",
+    "add_mods": "Modok hozzáadása"
+  },
+  "ro": {
+    "init.tap_any_place_to_launch": "CLIC ÎN ORICE LOC\nPENTRU A CONTINUA",
+    "init.translation_not_verified": "Traducere: Deepseek v4 flash, neverificată",
+    "init.sound_warning": "ATENȚIE: după pornire se vor reda sunetul și muzica de fundal. \nClick pe pictograma difuzorului din colțul dreapta-sus pentru a opri sunetul. \nClick pe pictograma notei muzicale din colțul dreapta-sus pentru a opri muzica de fundal.",
+    "init.long_description": "Majoritatea mecanicilor de joc, grafica, sunetele și muzica provin din \"Little Fighter 2\".\nCreat de Marti Wong și Starsky Wong în 1999.\n\n\"Little Fighter Wemake\" creat de Gim în 2024.\n\nTradus de Deepseek v4 flash, neverificat, îmi cer scuze pentru eventualele greșeli.",
+    "init.desktop_recommend": "Pentru cea mai bună experiență, folosește o platformă desktop și un browser modern.",
+    "extra_data": "Moduri",
+    "add_mods": "Adaugă moduri"
+  },
   "zh": "zh-hans",
   "zh-cn": "zh-hans",
   "zh-sg": "zh-hans",
@@ -150,5 +168,7 @@
   "de-ch": "de",
   "pl-pl": "pl",
   "it-it": "it",
-  "it-ch": "it"
+  "it-ch": "it",
+  "hu-hu": "hu",
+  "ro-ro": "ro"
 }

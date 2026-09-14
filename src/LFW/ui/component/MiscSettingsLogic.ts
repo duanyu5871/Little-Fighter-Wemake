@@ -14,7 +14,7 @@ const render_rate_options = [
   SyncRenderEnum.Unlimited
 ]
 /** 语言行选项顺序，须与 language_row 的 items 一致（'' 表示英文 base） */
-const lang_codes = ["", "zh-hans", "zh-hant", "de", "es", "fr", "it", "ja", "ko", "nl", "pl", "pt", "ru"]
+const lang_codes = ["", "zh-hans", "zh-hant", "de", "es", "fr", "hu", "it", "ja", "ko", "nl", "pl", "pt", "ro", "ru"]
 export class MiscSettingsLogic extends UIComponent {
   static override readonly TAGS: string[] = ["MiscSettingsLogic"];
   protected _anys: { [x in string]?: any } = {}
