@@ -11,6 +11,7 @@ export function handle_weapon_is_hit(collision: Collision): void {
   handle_injury(collision)
   const { itr, attacker, victim, a_cube, b_cube } = collision;
 
+  victim.dropping = false;
   if (itr.bdefend && itr.bdefend >= Defines.DEFAULT_FORCE_BREAK_DEFEND_VALUE) {
     victim.hp = victim.hp_r = 0;
   }

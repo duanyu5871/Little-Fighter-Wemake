@@ -170,6 +170,7 @@ export class Entity {
   public lying_d_count: number = 0;
   public lying_c_count: number = 0;
   public drop_hurted: boolean = false;
+  public dropping: boolean = false;
 
   /**
    * 抓人剩余值
@@ -776,6 +777,7 @@ export class Entity {
     this.lying_d_count = 0;
     this.lying_c_count = 0;
     this.drop_hurted = false;
+    this.dropping = false;
     this._states = states;
     this._hp_r_tick.max = this.dataset('hp_r_ticks')
     this._hp_r_tick.value = 0;
@@ -1452,6 +1454,7 @@ export class Entity {
     const { holding } = this;
     holding.bearer = null;
     this.holding = null;
+    holding.dropping = true;
 
     const on_hands = holding.data.indexes?.on_hands;
     const in_the_skys = holding.data.indexes?.in_the_skys
@@ -2098,6 +2101,7 @@ export class Entity {
     if (this.holding) return;
     this.holding = weapon;
     weapon.bearer = this;
+    weapon.dropping = false;
     weapon.follow_bearer()
     summary_mgr.get(this.id).picking_sum += 1
     if (!is_independent(this.team))
@@ -2163,6 +2167,7 @@ export class Entity {
     if (dvx !== void 0 || dvy !== void 0 || dvz !== void 0) {
       bearer.holding = null;
       this.bearer = null;
+      this.dropping = false;
       dvx = dvx ? dvx * this.dataset('wvx_f') : 0
       dvy = dvy ? dvy * this.dataset('wvy_f') : 0
       dvz = dvz ? dvz * this.dataset('wvz_f') : 0
@@ -2562,6 +2567,7 @@ export class Entity {
     nums[NSlot.LYING_D_COUNT] = this.lying_d_count;
     nums[NSlot.LYING_C_COUNT] = this.lying_c_count;
     nums[NSlot.DROP_HURTED] = this.drop_hurted ? 1 : 0;
+    nums[NSlot.DROPPING] = this.dropping ? 1 : 0;
     nums[NSlot.IS_ON_GROUND] = this.is_on_ground ? 1 : 0;
     nums[NSlot.KEY_ROLE] = to_tri(this._key_role);
     nums[NSlot.NAME_VISIBLE] = to_tri(this._name_visible);
@@ -2679,6 +2685,7 @@ export class Entity {
     this.lying_d_count = nums[NSlot.LYING_D_COUNT];
     this.lying_c_count = nums[NSlot.LYING_C_COUNT];
     this.drop_hurted = nums[NSlot.DROP_HURTED] !== 0;
+    this.dropping = nums[NSlot.DROPPING] !== 0;
     this.is_on_ground = nums[NSlot.IS_ON_GROUND] !== 0;
     this._key_role = from_tri(nums[NSlot.KEY_ROLE]);
     this._name_visible = from_tri(nums[NSlot.NAME_VISIBLE]);

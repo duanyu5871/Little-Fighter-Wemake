@@ -39,7 +39,10 @@ export class WeaponState_InTheSky extends WeaponState_Base {
         indexes?.in_the_skys,
         indexes?.throwings
       )
-      if (nf) e.enter_frame(nf);
+      if (nf) {
+        e.dropping = false;
+        e.enter_frame(nf);
+      }
     }
   }
 }

@@ -280,6 +280,8 @@ export function collision_test(c: Collision): boolean {
   if (c.bdy_index < 0) return false; // should not happen
   if (c.itr_index < 0) return false; // should not happen
   const { itr, attacker, victim, a_cube, b_cube, bdy, rest } = c
+  // 掉落(被击落/放下)的武器：在被重新拾取/主动投掷/被击中前不产生攻击判定
+  if (attacker.dropping) return false;
   if (!rest && attacker.arest) return false;
   if (rest && victim.get_v_rest(c.aid)) return false;
 

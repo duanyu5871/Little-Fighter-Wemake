@@ -91,6 +91,7 @@ export enum NSlot {
   WAKEUP_INVULN,
   DEAD_GONE,
   CTRL_VISIBLE,
+  DROPPING,
 
   COUNT,
 }
