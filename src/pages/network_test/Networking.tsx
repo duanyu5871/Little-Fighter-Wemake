@@ -1,8 +1,9 @@
 
+import type { IPlayerInfoCallback } from "@/LFW";
 import { LFW } from "@/LFW";
 import { MsgEnum, type IRespRoomStart, type NetSyncMode } from "@/Net";
 import { useStateRef } from "@fimagine/dom-hooks/dist/useStateRef";
-import { type CSSProperties, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { ChatBox } from "./ChatBox";
 import { Connection } from "./Connection";
 import { ConnectionBox } from "./ConnectionBox";
@@ -92,13 +93,22 @@ export function Networking(props: INetworkingProps) {
   }, [lf2, conn])
 
   useEffect(() => {
-    const player_names: string[] = []
-    if (lf2)
+    if (!lf2) return;
+    const sync_player_names = () => {
+      if (!conn) return;
+      const player_names: string[] = []
       for (const [, { name }] of lf2.players)
         if (player_names.length < 8)
           player_names.push(name)
-    if (conn)
       conn.set_players(player_names)
+    }
+    const callback: IPlayerInfoCallback = { on_name_changed: sync_player_names }
+    const watched = Array.from(lf2.players.values()).filter(v => v.local)
+    for (const player of watched) player.callbacks.add(callback)
+    sync_player_names()
+    return () => {
+      for (const player of watched) player.callbacks.del(callback)
+    }
   }, [lf2, conn])
 
 
