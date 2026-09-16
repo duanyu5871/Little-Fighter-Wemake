@@ -12,7 +12,7 @@
 // import { PlayerRow } from "@/PlayerRow";
 // import SettingsRows from "@/SettingsRows";
 // import { open_file } from "@/Utils/open_file";
-// import { useLocalString } from "@fimagine/dom-hooks";
+// import { useLocalString } from "@/useLocalStorage";
 // import classNames from "classnames";
 // import { useState } from "react";
 // import styles from "./styles.module.scss";

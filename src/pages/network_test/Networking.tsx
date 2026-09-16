@@ -2,7 +2,7 @@
 import type { IPlayerInfoCallback } from "@/LFW";
 import { LFW } from "@/LFW";
 import { MsgEnum, type IRespRoomStart, type NetSyncMode } from "@/Net";
-import { useStateRef } from "@fimagine/dom-hooks/dist/useStateRef";
+import { useStateRef } from "@/hooks/useStateRef";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { ChatBox } from "./ChatBox";
 import { Connection } from "./Connection";

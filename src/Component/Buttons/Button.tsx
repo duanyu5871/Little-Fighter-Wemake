@@ -5,7 +5,8 @@ import type { IStyleProps } from "../StyleBase/IStyleProps";
 import { useStyleBase } from "../StyleBase/useStyleBase";
 import styles from "./style.module.scss";
 import { Text } from "../Text";
-import { type TShortcut, useForwardedRef, useShortcut } from "@fimagine/dom-hooks";
+import { useForwardedRef } from "@/hooks/useForwardedRef";
+import { type TShortcut, useShortcut } from "@/hooks/useShortcut";
 const is_desktop = device.desktop();
 
 export interface IButtonProps

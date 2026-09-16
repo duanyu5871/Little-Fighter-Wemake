@@ -25,7 +25,6 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@fimagine/dom-hooks": "^1.0.5",
     "arg": "^5.0.2",
     "dotenv": "^17.2.3",
     "json5": "^2.2.3",

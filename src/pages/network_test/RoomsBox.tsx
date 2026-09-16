@@ -1,7 +1,8 @@
 import { Input, type InputRef } from "@/Component/Input";
 import { useFloating } from "@/hooks/useFloating";
+import { useForwardedRef } from "@/hooks/useForwardedRef";
+import { useStateRef } from "@/hooks/useStateRef";
 import { LFW } from "@/LFW";
-import { useForwardedRef, useStateRef } from "@fimagine/dom-hooks";
 import classNames from "classnames";
 import List from "rc-virtual-list";
 import { type ForwardedRef, forwardRef, useCallback, useEffect, useRef, useState } from "react";

@@ -8,7 +8,7 @@ import { Strong, Text } from "@/Component/Text";
 import { useFloating } from "@/hooks/useFloating";
 import { type IRoomInfo, MsgEnum, recommend_sync, type RoomSyncMode } from "@/Net";
 import type { IRoomClientInfo } from "@/Net/IRoomClientInfo";
-import { useForwardedRef } from "@fimagine/dom-hooks";
+import { useForwardedRef } from "@/hooks/useForwardedRef";
 import List from "rc-virtual-list";
 import { type ForwardedRef, forwardRef, type HTMLAttributes, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";

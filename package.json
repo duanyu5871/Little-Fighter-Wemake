@@ -57,7 +57,6 @@
     "auto": "npm run exports:lf2 && npm run exports:ditto && npm run register:components"
   },
   "dependencies": {
-    "@fimagine/dom-hooks": "^1.0.6",
     "@fimagine/logger": "^1.2.1",
     "@fimagine/writeboard": "^0.2.0",
     "@fingerprintjs/fingerprintjs": "^5.2.0",

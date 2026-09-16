@@ -2,7 +2,8 @@ import device from "current-device";
 import React, { type ReactNode, useEffect, useRef, useState } from "react";
 import styles from "./ToggleImgButton.module.scss";
 import classNames from "classnames";
-import { type TShortcut, useForwardedRef, useShortcut } from "@fimagine/dom-hooks";
+import { useForwardedRef } from "@/hooks/useForwardedRef";
+import { type TShortcut, useShortcut } from "@/hooks/useShortcut";
 const is_desktop = device.desktop();
 
 export interface IToggleImgProps

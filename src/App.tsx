@@ -1,4 +1,4 @@
-import { useShortcut } from "@fimagine/dom-hooks";
+import { useShortcut } from "@/hooks/useShortcut";
 import classNames from "classnames";
 import device from "current-device";
 import qs from "qs";
