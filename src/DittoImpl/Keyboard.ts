@@ -51,6 +51,7 @@ export class __Keyboard implements IKeyboard {
   protected _on_key_down = (e: KeyboardEvent) => {
     if (!this.enabled) return;
     const key_code = e.key?.toLowerCase() || "";
+    if (key_code === "tab") e.preventDefault();
     this.key_down(key_code, 'keyboard', e)
   };
 
