@@ -5,6 +5,7 @@ export interface IRankScore {
   extra?: unknown;
   date: number;
   uid?: string;
+  group?: string;
   client_id?: string;
   address?: string;
 }
@@ -15,6 +16,7 @@ export interface IRankSubmit {
   score: number;
   extra?: unknown;
   uid?: string;
+  group?: string;
   client_id?: string;
   address?: string;
 }
@@ -65,8 +67,10 @@ export const SAVE_DELAY = 500;
 export const RANK_TYPE_PATTERN = /^[A-Za-z0-9_.-]{1,64}$/;
 export const PERIOD_SUFFIXES = ['_all', '_month', '_week', '_day'] as const;
 
-export function owner_key(v: { uid?: string; name: string }): string {
-  return v.uid ? `uid:${v.uid}` : `name:${v.name}`;
+export function owner_key(v: { uid?: string; name: string; group?: string }): string {
+  if (!v.uid) return `name:${v.name}`;
+  const group = v.group?.trim();
+  return group ? `uid:${v.uid}:${group}` : `uid:${v.uid}`;
 }
 
 export function family_of(type: string): string[] {

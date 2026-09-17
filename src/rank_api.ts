@@ -83,15 +83,17 @@ function rank_uid(): string {
   }
 }
 
-async function post_score(type: string, name: string, score: number, fighter: string, player: string, fighter2: string = '', player2: string = '', open_id: string = '', owner_uid: string = ''): Promise<void> {
+async function post_score(type: string, name: string, score: number, fighter: string, player: string, fighter2: string = '', player2: string = '', open_id: string = '', owner_uid: string = '', group: string = ''): Promise<void> {
   const extra: { fighter: string; player: string; fighter2?: string; player2?: string; open_id?: string } = { fighter, player };
   if (fighter2) extra.fighter2 = fighter2;
   if (player2) extra.player2 = player2;
   if (open_id) extra.open_id = open_id;
+  const body: { type: string; name: string; score: number; uid: string; extra: typeof extra; group?: string } = { type, name, score, uid: owner_uid || rank_uid(), extra };
+  if (group) body.group = group;
   const resp = await api('/api/ranks', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ type, name, score, uid: owner_uid || rank_uid(), extra }),
+    body: JSON.stringify(body),
   });
   if (!resp.ok) throw new Error(`[rank_api] 提交失败: ${resp.status}`);
 }
@@ -129,10 +131,11 @@ function set_submitted_max(key: string, score: number) {
 }
 
 export async function submit_rank_score(score: number, name: string, fighter: string, two: boolean = false, fighter2: string = '', player2: string = ''): Promise<void> {
-  const key = SUBMITTED_KEY + (two ? '_2p' : '');
+  const group = two ? '' : fighter;
+  const key = two ? `${SUBMITTED_KEY}_2p` : group ? `${SUBMITTED_KEY}_${group}` : SUBMITTED_KEY;
   if (score <= submitted_max(key)) return;
   set_submitted_max(key, score);
-  await post_score(rank_api_type('all', two), name, score, fighter, name, fighter2, player2);
+  await post_score(rank_api_type('all', two), name, score, fighter, name, fighter2, player2, '', '', group);
 }
 
 export async function get_rank_list(period: SurvivalRankPeriod, two: boolean = false): Promise<SurvivalRankItem[]> {

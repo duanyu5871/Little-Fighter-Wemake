@@ -58,6 +58,7 @@ function row_to_score(row: Record<string, unknown>): IRankScore {
     extra: parse_json(row.extra),
     date: Number(row.date),
     uid: row.uid ? `${row.uid}` : void 0,
+    group: row.owner_group ? `${row.owner_group}` : void 0,
     client_id: row.client_id ? `${row.client_id}` : void 0,
     address: row.address ? `${row.address}` : void 0,
   };
@@ -78,13 +79,16 @@ const SQL_CREATE_TABLE = `CREATE TABLE IF NOT EXISTS scores (
   extra TEXT,
   client_id TEXT,
   address TEXT,
+  owner_group TEXT,
   PRIMARY KEY (type, owner)
 )`;
 
+const SQL_GROUP_COLUMN = `SELECT COUNT(*) AS total FROM pragma_table_info('scores') WHERE name = 'owner_group'`;
+
 const SQL_CREATE_INDEX = `CREATE INDEX IF NOT EXISTS scores_rank_idx ON scores (type, score DESC, date ASC)`;
 
-const SQL_UPSERT = `INSERT INTO scores (type, owner, name, score, date, uid, extra, client_id, address)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+const SQL_UPSERT = `INSERT INTO scores (type, owner, name, score, date, uid, extra, client_id, address, owner_group)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(type, owner) DO UPDATE SET
   name = excluded.name,
   score = excluded.score,
@@ -92,13 +96,14 @@ ON CONFLICT(type, owner) DO UPDATE SET
   uid = excluded.uid,
   extra = excluded.extra,
   client_id = excluded.client_id,
-  address = excluded.address
+  address = excluded.address,
+  owner_group = excluded.owner_group
 WHERE excluded.score > scores.score`;
 
 const SQL_RANK = `SELECT COUNT(*) + 1 AS rank FROM scores WHERE type = ? AND (score > ? OR (score = ? AND date < ?))`;
 const SQL_TOTAL = `SELECT COUNT(*) AS total FROM scores WHERE type = ?`;
 const SQL_BY_OWNER = `SELECT * FROM scores WHERE type = ? AND owner = ?`;
-const SQL_BY_UID = `SELECT * FROM scores WHERE type = ? AND uid = ? LIMIT 1`;
+const SQL_BY_UID = `SELECT * FROM scores WHERE type = ? AND uid = ? ORDER BY score DESC, date ASC LIMIT 1`;
 const SQL_BY_NAME = `SELECT * FROM scores WHERE type = ? AND name = ? ORDER BY score DESC, date ASC LIMIT 1`;
 const SQL_FIND_TOTAL = `SELECT COUNT(*) AS total FROM scores WHERE type = ? AND name = ?`;
 const SQL_TRIM = `DELETE FROM scores WHERE type = ? AND owner NOT IN (
@@ -124,6 +129,8 @@ export class SqliteRankMgr implements IRankStore {
     this._db.exec('PRAGMA journal_mode = WAL');
     this._db.exec('PRAGMA synchronous = NORMAL');
     this._db.exec(SQL_CREATE_TABLE);
+    if (!num_of(this._db.prepare(SQL_GROUP_COLUMN).get(), 'total'))
+      this._db.exec(`ALTER TABLE scores ADD COLUMN owner_group TEXT`);
     this._db.exec(SQL_CREATE_INDEX);
     process.on('exit', () => {
       try { this._db.close(); } catch { }
@@ -214,6 +221,7 @@ export class SqliteRankMgr implements IRankStore {
       info.extra === void 0 ? null : JSON.stringify(info.extra),
       info.client_id ?? null,
       info.address ?? null,
+      info.group ?? null,
     );
     const row = this._db.prepare(SQL_BY_OWNER).get(info.type, key);
     const score = row ? row_to_score(row) : { ...info, date };

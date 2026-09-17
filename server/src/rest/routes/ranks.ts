@@ -49,6 +49,7 @@ export function register_rank_routes(rest: Rest) {
       name,
       score,
       uid: uid_of(str_of(body?.uid)),
+      group: str_of(body?.group)?.slice(0, 64),
       extra: body?.extra,
       client_id: c.client?.id,
       address: c.req.raw.socket.remoteAddress,

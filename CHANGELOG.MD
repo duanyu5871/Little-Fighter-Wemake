@@ -1,5 +1,13 @@
 # Changelog
 
+## [v0.1.50](https://lf.gim.ink/0.1.50)
+
+by [**Gim**](https://gim.ink)
+
+### 调整
+
+- 生存单人榜（非 B站环境）按「客户端+角色名」分行，同一客户端的多个角色各占一行
+
 ## [v0.1.49](https://lf.gim.ink/0.1.49)
 
 by [**Gim**](https://gim.ink)
