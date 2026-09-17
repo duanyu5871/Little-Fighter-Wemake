@@ -24,17 +24,17 @@ jobs:
       - name: Checkout (full history + tags)
         uses: actions/checkout@v7
         with:
-          ref: main
+          # 不指定 ref：默认检出触发本次运行的 ref（打 tag 时即该 tag），不再固定 main
           fetch-depth: 0
           fetch-tags: true
           # 仓库所有 *.png/*.wav/*.zip 等用 Git LFS 管理，必须拉取真实内容，否则构建出的资源是损坏的
           lfs: true
 
-      # 检出 main 上最近一个含 tag 的提交来构建；没有 tag 时退回 main 最新提交
+      # 检出触发本次运行的 ref 上最近一个含 tag 的提交来构建；没有 tag 时退回该 ref 的最新提交
       - name: Checkout latest tagged commit
         run: |
           if ! TAG=$(git describe --tags --abbrev=0 2>/dev/null); then
-            echo "::warning::No tag found on main, building from latest commit"
+            echo "::warning::No tag found, building from latest commit"
             TAG=""
           else
             echo "Building from tag: $TAG"
