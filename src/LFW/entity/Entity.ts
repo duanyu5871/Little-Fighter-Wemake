@@ -1984,10 +1984,10 @@ export class Entity {
     this.transform_index = next_idx;
     this.transform(next_data);
     if (next_idx === 0) {
-      // TODO: 这个逻辑感觉怪怪的，后续可以改成直接在数据里写死变身后的帧
-      let nf = this.get_next_frame({ id: "245" })?.frame
-      if (!nf) nf = this.find_auto_frame();
-      this.enter_frame(nf);
+      /*
+      TODO: 让数据决定变身后跳转的帧 -Gim
+      */
+      this.enter_frame_by_id("245", true);
     }
     if (this.copies.size) {
       const gones: string[] = []
