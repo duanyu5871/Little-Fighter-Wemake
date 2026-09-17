@@ -29,6 +29,7 @@ by [**Gim**](https://gim.ink)
 - Knocked-away weapons no longer hurt anyone while falling; picking a weapon up by rolling over it now requires holding the attack key
 - Weapon drops are more spread out
 - Added Romanian and Hungarian, so new texts are now covered by 12 languages (not proofread): German / Spanish / French / Hungarian / Italian / Japanese / Korean / Dutch / Polish / Portuguese / Romanian / Russian
+- Tab no longer triggers the browser's default focus switching and can be used as a game key
 - Other tweaks & performance work
 
 ### Fixes
