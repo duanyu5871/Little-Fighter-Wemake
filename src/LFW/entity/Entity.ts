@@ -1830,24 +1830,12 @@ export class Entity {
    * 被抓后，抓人者的“抓取值”降至0时，视为“被抓结束”，
    * 此时被抓者跳去的帧即为“被抓结束”帧
    *
+   * @deprecated 感觉有点蠢
    * @returns 下帧信息
    */
   get_caught_end_frame(): INextFrame {
     if (this.position.y < this.ground_y) this.position.y = this.ground_y + 1;
     return this._state?.get_caught_end_frame?.(this) || Defines.NEXT_FRAME_AUTO
-  }
-
-  /**
-   * 获取“被抓取消”帧
-   *
-   * 被抓后，抓人者的“抓取值”未降至0，且catcher的帧缺少cpoint时，视为“被抓取消”，
-   * 此时跳去的帧即为“被抓结束”帧
-   *
-   * @returns 下帧信息
-   */
-  get_caught_cancel_frame(): INextFrame {
-    if (this.position.y < this.ground_y) this.position.y = this.ground_y + 1;
-    return Defines.NEXT_FRAME_AUTO;
   }
 
   update_caught(): boolean {
@@ -1868,7 +1856,9 @@ export class Entity {
       this.catcher = null;
       this.prev_cpoint_a = null;
       this.set_velocity(null, 3);
-      this.enter_frame(this.get_caught_cancel_frame());
+      if (this.position.y <= this.ground_y)
+        this.position.y = this.ground_y + 1;
+      this.enter_frame(Defines.NEXT_FRAME_AUTO);
       return true;
     }
 
@@ -1907,7 +1897,8 @@ export class Entity {
     return true;
   }
   update_catching(): boolean {
-    if (!this.catching) return false;
+    const { catching } = this;
+    if (!catching) return false;
     if (!this._catch_time) {
       this.set_catching(null);
       this.enter_frame(Defines.NEXT_FRAME_AUTO);
@@ -1930,11 +1921,12 @@ export class Entity {
       this.enter_frame(Defines.NEXT_FRAME_GONE);
       return true;
     }
-    if (throwinjury === -1) {
-      if (!(this.lfw.survival_rank_mode && is_boss(this.catching))) {
-        this.transfrom_to_another(this.catching._data);
-      }
-      this.enter_frame(Defines.NEXT_FRAME_AUTO)
+    if (throwinjury === -1 && (!this.lfw.survival_rank_mode || !is_boss(this.catching))) {
+      this.transfrom_to_another(catching._data);
+      this.drop_catching()
+      catching.catcher = null;
+      catching.prev_cpoint_a = null;
+      catching.enter_frame(catching.get_caught_end_frame());
       return true;
     }
     if (throwvx || throwvy || throwvz) {
@@ -1943,7 +1935,7 @@ export class Entity {
     }
 
     /** "对齐颗粒度" */
-    this.follow_catcher();
+    catching.follow_catcher();
     return false;
   }
 
@@ -1979,30 +1971,6 @@ export class Entity {
     )
 
   }
-
-  /**
-   * 获取“抓人结束”帧
-   *
-   * 抓人后，“抓取值”降至0时，视为“抓人结束”，
-   *
-   * 此时跳去的帧即为“抓人结束”帧
-   *
-   * @returns 下帧信息
-   */
-  get_catching_end_frame(): INextFrame {
-    return Defines.NEXT_FRAME_AUTO;
-  }
-
-  /**
-   * 获取“抓人取消”帧
-   *
-   * 抓人后，“抓取值”未降至0，且任意一方的帧缺少cpoint时，视为“抓人取消”，
-   *
-   * 此时跳去的帧即为“抓人取消”帧
-   *
-   * @returns 下帧信息
-   */
-  get_catching_cancel_frame(): INextFrame { return Defines.NEXT_FRAME_AUTO; }
 
   transfrom_to_another(data?: IEntityData): boolean {
     const datas = this.transforms = data ?
