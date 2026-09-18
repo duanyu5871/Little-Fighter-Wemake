@@ -93,7 +93,7 @@ export function preprocess_itr(ctx: IItrInfoContext): IItrInfo {
       itr.motionless = itr.motionless ?? 0;
       itr.shaking = itr.shaking ?? 0;
       itr.test ??= new CondMaker<C_Val>()
-        .add(C_Val.AttackerHasHolder, "==", 0)
+        .add(C_Val.AttackerHasHolding, "==", 0)
         .and(C_Val.VictimHasHolder, "==", 0)
         .and_one_of(
           C_Val.VictimState,
