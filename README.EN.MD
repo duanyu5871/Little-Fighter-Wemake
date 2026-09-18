@@ -29,9 +29,13 @@ Think this project is pretty good? Consider starring it!
 ![闯关模式(生存)](./docs/image/team_outline_effect_stage_mode.png)
 ![对战模式](./docs/image/team_outline_effect_vs_mode.png)
 
+## 进行中
+
+- 支持XML格式的数据[(Why?)](./docs/dev/why_xml.MD)
+- 支持3d模型与动画
+
 ## What's next?
 
-- Support for 3D models and animations?
 - Support for more diverse level functions?
 - Continuing to implement other game modes of LF2?
 - Video recording and playback?
