@@ -656,7 +656,7 @@ export class LFW implements I.IKeyboardCallback, IDebugging {
     this.zips.add({ zip, info });
     this.callbacks.call("on_zips_changed", this.zips.zips);
 
-    const index_files = zip.file(/\.index\.(json5|xml)$/g).map(v => v.name)
+    const index_files = zip.file(/\.index\.(json5|xml)$/).map(v => v.name)
     await this.datas.load(index_files);
 
     check()
