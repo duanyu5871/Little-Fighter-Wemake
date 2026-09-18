@@ -13,6 +13,7 @@
     sync_4: "120 FPS",
     render_fps: "FPS",
     stats_visible: "Performanță",
+    render_fps_hint: [ "Rata reală de cadre poate fi mai mică decât cea selectată", "din cauza limitărilor dispozitivului." ],
     ups_hint: "30 UPS și 60 UPS pot duce la o experiență de joc complet diferită.",
     TEA: "Volum efecte sonore",
     enabled: "Activat",

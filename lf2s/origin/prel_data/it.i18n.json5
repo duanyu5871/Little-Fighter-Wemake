@@ -13,6 +13,7 @@
     sync_4: "120 FPS",
     render_fps: "FPS",
     stats_visible: "Perf",
+    render_fps_hint: [ "La frequenza effettiva può essere inferiore a quella scelta", "per i limiti del dispositivo." ],
     ups_hint: "30 UPS e 60 UPS possono dare luogo a un'esperienza di gioco completamente diversa.",
     TEA: "Volume effetti sonori",
     enabled: "Attivato",

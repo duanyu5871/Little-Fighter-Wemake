@@ -13,6 +13,7 @@
     sync_4: "120 FPS",
     render_fps: "FPS",
     stats_visible: "Teljesítmény",
+    render_fps_hint: [ "A tényleges képsebesség az eszköz korlátai miatt", "alacsonyabb lehet a választott értéknél." ],
     ups_hint: "A 30 UPS és a 60 UPS teljesen más játékélményt eredményezhet.",
     TEA: "Hangeffekt hangerő",
     enabled: "Bekapcsolva",
