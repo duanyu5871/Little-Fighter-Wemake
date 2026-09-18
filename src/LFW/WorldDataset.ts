@@ -13,9 +13,9 @@ export class WorldDataset implements IWorldDataset {
     return _DEFAULT ??= new WorldDataset();
   }
   itr_fall: number = 40
-  itr_shaking: number = 6;
-  itr_motionless: number = 6;
-  ball_itr_motionless: number = 2;
+  itr_shaking: number = 8;
+  itr_motionless: number = 8;
+  ball_itr_motionless: number = 8;
 
   fvx_f: number = 0.5;
   fvy_f: number = -0.5;
