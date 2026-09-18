@@ -74,7 +74,10 @@ export enum EntityVal {
   HoldingHeavy = "holdingHeavy",
   HoldingOID = "holdingOID",
   HpRecoverable = "hp_recoverable",
-  /** @deprecated 非常糟，应该像个办法让表达式能判断是否存在指定类型的某东西 */
+  /** 
+   * @deprecated 至少要重命名为“可否受身”...
+   * @deprecated 非常糟，应该像个办法让表达式能判断是否存在指定类型的某东西 
+   */
   HitByMagicFlute = 'hit_by_magic_flute',
   TransformListSize = 'transform_list_size',
   IsOnGround = 'is_on_ground',

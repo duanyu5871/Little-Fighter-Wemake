@@ -1,6 +1,11 @@
 import type { Collision } from "./Collision";
 import { handle_rest } from "./handle_rest";
-
+/** 
+ * @todo 要利用itr/bdy命中后上BUFF的数据支持机制，而不是这样写死的。
+ * @see IAction_ABuff
+ * @see IAction_VBuff
+ * @deprecated 
+ */
 export function handle_itr_kind_magic_flute(collision: Collision): void {
   handle_rest(collision)
   const { victim, attacker, world, lfw, itr } = collision;

@@ -157,6 +157,11 @@ export class CollisionKeeper {
 
     victim.collided_list.push((victim.lastest_collided = collision));
     attacker.collision_list.push(collision);
+    /*  
+    FIXME: 
+      总而言之要尽量少点这么硬的东西，但目前要改似乎代价太大
+        -Gim
+    */
     if (
       itr.kind !== ItrKind.Block &&
       itr.kind !== ItrKind.Whirlwind &&
