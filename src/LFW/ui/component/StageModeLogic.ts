@@ -51,7 +51,7 @@ export class StageModeLogic extends UIComponent {
         stage.data.chapter === 'survival' &&
         this.lfw.on_survival_rank_phase
       ) {
-        this.lfw.on_survival_rank_phase(stage.phase_idx + 1)
+        this.lfw.on_survival_rank_phase(stage.phase_idx)
       }
       if (stage.is_chapter_finish) return;
       if (!prev) {
@@ -137,7 +137,7 @@ export class StageModeLogic extends UIComponent {
       this.world.stage.data.chapter === 'survival' &&
       this.lfw.on_survival_rank_phase
     ) {
-      this.lfw.on_survival_rank_phase(this.world.stage.phase_idx + 1)
+      this.lfw.on_survival_rank_phase(this.world.stage.phase_idx)
     }
   }
   override on_stop(): void {

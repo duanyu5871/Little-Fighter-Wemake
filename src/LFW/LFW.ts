@@ -226,7 +226,7 @@ export class LFW implements I.IKeyboardCallback, IDebugging {
   toy_env: boolean = false;
   /** B站生存排行模式：开启时每进入一个新的 Survival 阶段触发 on_survival_rank_phase */
   survival_rank_mode: boolean = false;
-  /** 每进入一个 Survival 阶段时回调（phase_reached = 当前所在阶段数，从 1 起） */
+  /** 每进入一个 Survival 阶段时回调（phase_reached = 当前阶段编号，从 0 起） */
   on_survival_rank_phase?: (phase_reached: number) => void;
   /** 外部(宿主 App)是否注入了生存排行数据能力（未注入表示不可用/不显示） */
   survival_rank_available: boolean = false;

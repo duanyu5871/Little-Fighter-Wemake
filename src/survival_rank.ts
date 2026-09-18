@@ -212,7 +212,7 @@ async function fetch_api_rank(lfw: LFW, period: SurvivalRankPeriod): Promise<voi
 // 分数上报
 // ---------------------------------------------------------------------------
 
-/** B站：每进入一个新的 Survival 阶段上报“已到达的阶段数”（平台分数 + 旁路记录） */
+/** B站：每进入一个新的 Survival 阶段上报当前阶段编号（平台分数 + 旁路记录） */
 function submit_toy_phase(lfw: LFW, reached: number): void {
   if (lfw.survival_rank_invalid) return
   if (!rank_is_host()) return
@@ -225,7 +225,7 @@ function submit_toy_phase(lfw: LFW, reached: number): void {
   submit_bili_record(reached, get_bili_nickname(), fighter, player, two, p2.fighter, p2.name, get_bili_open_id()).catch(() => { })
 }
 
-/** 非 B站环境：同样上报“已到达的阶段数”，提交到自己的服务器 */
+/** 非 B站环境：同样上报当前阶段编号，提交到自己的服务器 */
 function submit_api_phase(lfw: LFW, reached: number): void {
   if (lfw.survival_rank_invalid) return
   if (!rank_is_host()) return

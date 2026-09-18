@@ -115,7 +115,9 @@ function bili_owner_uid(open_id: string): string {
 
 function submitted_max(key: string): number {
   try {
-    const value = Number(localStorage.getItem(key));
+    const raw = localStorage.getItem(key);
+    if (raw == null) return -1;
+    const value = Number(raw);
     return Number.isFinite(value) ? value : -1;
   } catch {
     return -1;
