@@ -8,7 +8,7 @@
 
 觉得这个项目还不错？Star 支持一下吧.
 
-**玩法、美术、音效音乐来自"Litter Fighter 2", 原作：Marti Wong，Starsky Wong.**
+**玩法、美术、音效音乐来自"Little Fighter 2", 原作：Marti Wong，Starsky Wong.**
 
 **原作者Marti Wong现已推出《[Little Fighter 2 Remastered](https://lf2.net/)》，请在[Steam](https://store.steampowered.com/app/3249650)购买，以支持原作者。**
 
@@ -18,6 +18,7 @@
 - [多人联机游戏](./docs/Multiplayer%20Online%20Game/README.MD)
 - [构建与运行](./docs/Build%20Instructions/README.MD)
 - [自定义游戏](./docs/Custom%20Game/README.MD)
+- [版权说明](./COPYRIGHT.MD)
 - [功能建议、体验反馈](https://github.com/gimhol/Little-Fighter-Wemake/discussions)
 
 ## 截图
