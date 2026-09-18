@@ -11,7 +11,7 @@ export function handle_weapon_hit_other(collision: Collision): void {
     attacker.base_type === WT.Drink;
 
   switch (attacker.state) {
-    case StateEnum.Weapon_Throwing:
+    case StateEnum.Weapon_Throwing: {
       // TODO: 这里是击中的反弹，如何更合适？ -Gim
       if (is_base_ball) {
         const vx = 0;
@@ -30,6 +30,8 @@ export function handle_weapon_hit_other(collision: Collision): void {
       const { arest } = attacker
       attacker.enter_frame(nf);
       attacker.arest = arest;
+      attacker.dropping = true;
       break;
+    }
   }
 }
