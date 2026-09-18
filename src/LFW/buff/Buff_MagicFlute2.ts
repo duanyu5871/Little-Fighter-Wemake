@@ -10,7 +10,7 @@ export class Buff_MagicFlute2 extends Buff {
 
   override init(): void {
     this.ticks = 3;
-    this.duration = 2;
+    this.duration = 3;
   }
   override on_tick(attacker?: Entity, victim?: Entity): "keep" | "del" {
     if (!victim) return 'del';
