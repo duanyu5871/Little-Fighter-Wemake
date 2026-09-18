@@ -67,6 +67,11 @@ export async function convert_whole_image(
     "rgba(0,0,0,0)",
     "-opaque",
     "rgb(0,0,0)",
+    "-strip",
+    "-define",
+    "png:compression-level=9",
+    "-define",
+    "png:exclude-chunk=time",
     dst_path,
   );
 }
@@ -113,6 +118,11 @@ export async function convert_grid_image(
     "rgba(0,0,0,0)",
     "-opaque",
     "rgb(0,0,0)",
+    "-strip",
+    "-define",
+    "png:compression-level=9",
+    "-define",
+    "png:exclude-chunk=time",
     dst_path,
   ];
   await exec_cmd(real_cmd, ...args);

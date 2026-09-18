@@ -4,6 +4,8 @@ import { find_real_cmd } from "./find_real_cmd";
 
 const md5_cache = new Map<string, Promise<string>>();
 
+const CONVERT_VERSION = 3;
+
 export function tool_md5(path: string): Promise<string> {
   let ret = md5_cache.get(path);
   if (!ret) {
@@ -19,5 +21,5 @@ export async function make_tool_salt(): Promise<string> {
   const magick = MAGICK_CMD ? find_real_cmd(MAGICK_CMD) : "";
   const ffmpeg_md5 = ffmpeg ? await tool_md5(ffmpeg) : "";
   const magick_md5 = magick ? await tool_md5(magick) : "";
-  return `${ffmpeg_md5};${magick_md5};${FFMPEG_OPTS ?? ""}`;
+  return `${ffmpeg_md5};${magick_md5};${FFMPEG_OPTS ?? ""};${CONVERT_VERSION}`;
 }

@@ -16,6 +16,7 @@ import { convert_grid_image, convert_whole_image } from "./utils/convert_image";
 import { copy_dir } from "./utils/copy_dir";
 import { debug, error, log } from "./utils/log";
 import { make_zip_and_json } from "./utils/make_zip_and_json";
+import { optimize_png } from "./utils/optimize_png";
 import { write_file } from "./utils/write_file";
 import { make_tool_salt } from "./utils/tool_identity";
 
@@ -199,8 +200,10 @@ export async function make_data() {
       log("Not changed:", src_path, "=>\n    " + dst_path);
       continue;
     }
-    log("Copy", src_path, "=>\n    " + dst_path);
-    await fs.copyFile(src_path, dst_path);
+    const optimized = /\.png$/i.test(src_path)
+      ? await optimize_png(src_path, dst_path)
+      : await fs.copyFile(src_path, dst_path).then(() => false);
+    log(optimized ? "Optimize png" : "Copy", src_path, "=>\n    " + dst_path);
     await cache_info.update();
   }
   if (IN_EXTRA_DIR) await copy_dir(IN_EXTRA_DIR, TMP_DAT_DIR);
