@@ -57,8 +57,22 @@ export const entity_val_getters: Record<E_Val, (e: Entity) => any> = {
   [E_Val.HoldingOID]: e => e.holding?.data.id,
   [E_Val.HpRecoverable]: e => e.hp_r - e.hp,
   [E_Val.HitByMagicFlute]: e => {
-    for (const { itr } of e.collision_list) {
-      if (itr.kind == ItrKind.MagicFlute || itr.kind == ItrKind.MagicFlute2)
+    /* 
+    FIXME: 
+      虽然现在可能修复了随时能受身的情况，但仍有问题。
+
+      该kind会赋予受击者获得的笛子buff，此buff会赋予一个上升的速度，
+      受害者飞起后，由于“惯性”，会让itr与bdy离开，若离开时长足够buff消失。
+      会导致受害者飞到顶上时可以按跳受身。
+
+      见 handle_itr_kind_magic_flute
+      见 Buff_MagicFlute
+      见 Buff_MagicFlute2
+    */
+    for (const buf of e.buffs.values()) {
+      if (buf.kind == ItrKind.MagicFlute)
+        return 1;
+      if (buf.kind == ItrKind.MagicFlute2)
         return 1;
     }
     return 0;
