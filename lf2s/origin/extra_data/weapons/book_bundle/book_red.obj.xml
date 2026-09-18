@@ -1,8 +1,8 @@
 <entity id="book_red" type="16" processed="true">
-  <base type="4" name="book_red" drop_hurt="48" bounce="0.6,0.3" bounce_min="2,2" hit_sounds="data/038.wav.mp3" drop_sounds="data/038.wav.mp3" dead_sounds="data/038.wav.mp3">
+  <base type="4" name="book_red" drop_hurt="20" bounce="0.6,0.3" bounce_min="2,2" hit_sounds="data/038.wav.mp3" drop_sounds="data/038.wav.mp3" dead_sounds="data/038.wav.mp3">
     <model id="1" path="weapons/book_bundle/book_red.glb" scale="15,15,15" offset="0,14,0"/>
     <dataset type="object">
-      <value type="number" value="750" name="hp_max"/>
+      <value type="number" value="200" name="hp_max"/>
     </dataset>
   </base>
   <on_dead id="gone"/>
