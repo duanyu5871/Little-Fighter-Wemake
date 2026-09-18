@@ -22,7 +22,7 @@ export function classify(
   cur_dir_path: string,
   result: ClassifyResult = new ClassifyResult(),
 ): ClassifyResult {
-  for (const name of readdirSync(cur_dir_path)) {
+  for (const name of readdirSync(cur_dir_path).sort()) {
     const sub_path = cur_dir_path + "/" + name;
     const stat = statSync(sub_path);
     if (stat.isFile()) {

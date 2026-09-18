@@ -1,13 +1,12 @@
-import { zip } from "compressing";
-import { createWriteStream, existsSync } from "fs";
+import { existsSync } from "fs";
 import { mkdir } from "fs/promises"
 import { join } from "path/posix";
-import { pipeline } from "stream/promises";
 import { Defines } from "../../src/LFW/defines";
 import { IGameZipInfo } from "../../src/LFW/defines/IFullGameZipInfo";
 import { conf } from "./conf";
 import { debug, info } from "./utils/log";
 import { write_file } from "./utils/write_file";
+import { zip_entries } from "./utils/zip_dir";
 export async function make_full_zip() {
   debug(`make_full_zip()`)
   const {
@@ -47,12 +46,13 @@ export async function make_full_zip() {
   await mkdir(TMP_FULL_DIR, { recursive: true }).catch(e => null);
   await write_file(index_path, index_str);
 
-  const zip_stream = new zip.Stream();
-  zip_stream.addEntry(prel_zip_path);
-  zip_stream.addEntry(data_zip_path);
-  zip_stream.addEntry(index_path);
-
   const full_zip_path = join(OUT_DIR, OUT_FULL_NAME);
-  const dest_stream = createWriteStream(full_zip_path);
-  await pipeline(zip_stream, dest_stream);
+  await zip_entries(
+    [
+      { file: prel_zip_path, name: OUT_PREL_NAME },
+      { file: data_zip_path, name: OUT_DATA_NAME },
+      { file: index_path, name: "index.json5" },
+    ],
+    full_zip_path,
+  );
 }

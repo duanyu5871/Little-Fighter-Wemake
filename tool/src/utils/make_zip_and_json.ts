@@ -1,4 +1,3 @@
-import { zip } from "compressing";
 import fs from "fs/promises";
 import JSON5 from "json5";
 import { join } from "path";
@@ -10,6 +9,7 @@ import { log } from "./log";
 import { read_full_dir_info_json } from "./read_full_dir_info_json";
 import { write_file } from "./write_file";
 import { write_obj_file } from "./write_obj_file";
+import { zip_dir } from "./zip_dir";
 
 export interface IDirInfo {
   info_file_ok: boolean;
@@ -63,6 +63,7 @@ export async function make_zip_and_json(
   const layout_index_file = src_dir + '/ui/_index.json5'
   await fs.unlink(layout_index_file).catch(() => { });
   await fs.readdir(layout_dir).then((names) => {
+    names.sort()
     const paths: string[] = []
     for (const name of names) {
       if (!name.match(/\.json[5?]?$/)) continue;
@@ -79,7 +80,7 @@ export async function make_zip_and_json(
   const zip_path = join(out_dir, zip_name);
   const inf_path = join(out_dir, zip_name + ".json");
   await fs.unlink(zip_path).catch(() => { });
-  await zip.compressDir(src_dir, zip_path, { ignoreBase: true });
+  await zip_dir(src_dir, zip_path);
 
   let inf: IZipFileInfo = {
     type: '',

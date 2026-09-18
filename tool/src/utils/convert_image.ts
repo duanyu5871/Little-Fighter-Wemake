@@ -5,7 +5,14 @@ import { whoami } from "../show_main_usage";
 import { exec_cmd } from "./exec_cmd";
 import { find_real_cmd } from "./find_real_cmd";
 import { info, warn } from "./log";
+import { tool_md5 } from "./tool_identity";
 export let is_magick_tried = false;
+let is_magick_logged = false;
+async function log_magick_once(real_cmd: string) {
+  if (is_magick_logged) return;
+  is_magick_logged = true;
+  info("Use magick:", real_cmd, "md5: " + await tool_md5(real_cmd));
+}
 function get_dst_path(out_dir: string, src_dir: string, src_path: string) {
   return src_path.replace(src_dir, out_dir).replace(/(.bmp)$/, ".png");
 }
@@ -47,6 +54,7 @@ export async function convert_whole_image(
   if (!MAGICK_CMD) return;
   const real_cmd = find_real_cmd(MAGICK_CMD)
   if (!real_cmd) return;
+  await log_magick_once(real_cmd);
   const dst_path = get_dst_path(out_dir, src_dir, src_path);
   await fs.rm(dst_path, { recursive: true, force: true }).catch((e) => void 0);
   info("Convert image", src_path, "=>\n    "+ dst_path);
@@ -78,6 +86,7 @@ export async function convert_grid_image(
   if (!MAGICK_CMD) return;
   const real_cmd = find_real_cmd(MAGICK_CMD)
   if (!real_cmd) return;
+  await log_magick_once(real_cmd);
   const { col: row, row: col, cell_w, cell_h } = pic;
   const w = (cell_w + 1) * col;
   const h = (cell_h + 1) * row;

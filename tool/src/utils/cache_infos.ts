@@ -89,8 +89,8 @@ export class CacheInfos {
   get unuseds(): Map<string, ICacheInfo> {
     return this._unuseds
   }
-  readonly salt = ""
-  static async create(path: string) {
+  readonly salt: string
+  static async create(path: string, salt = "") {
     const raw_obj: any = await fs
       .readFile(path)
       .then((r) => {
@@ -102,9 +102,10 @@ export class CacheInfos {
       .catch((e) => {
         return {};
       });
-    return new CacheInfos(path, raw_obj);
+    return new CacheInfos(path, raw_obj, salt);
   }
-  protected constructor(cache_infos_path: string, raw: any) {
+  protected constructor(cache_infos_path: string, raw: any, salt: string) {
+    this.salt = salt;
     this.cache_infos_path = cache_infos_path;
     this.raw = raw;
     for (const key in raw) this._unuseds.set(key, raw[key])

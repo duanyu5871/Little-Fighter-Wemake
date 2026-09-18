@@ -4,8 +4,10 @@ import { whoami } from "../show_main_usage";
 import { exec_cmd } from "./exec_cmd";
 import { find_real_cmd } from "./find_real_cmd";
 import { info, warn } from "./log";
+import { tool_md5 } from "./tool_identity";
 
 export let is_ffmpeg_tried = false;
+let is_ffmpeg_logged = false;
 function get_dst_path(
   out_dir: string,
   src_dir: string,
@@ -42,6 +44,10 @@ export async function convert_audio(dst_path: string, src_path: string) {
   if (!FFMPEG_CMD) return;
   const real_cmd = find_real_cmd(FFMPEG_CMD);
   if (!real_cmd) return; // ffmpeg 缺失时跳过转换（与图片转换行为一致），避免 spawn('') 崩溃
+  if (!is_ffmpeg_logged) {
+    is_ffmpeg_logged = true;
+    info("Use ffmpeg:", real_cmd, "md5: " + await tool_md5(real_cmd));
+  }
   info("Convert audio", src_path, "=>\n    " + dst_path);
   await fs.rm(dst_path, { recursive: true, force: true }).catch(() => void 0);
   const args = [

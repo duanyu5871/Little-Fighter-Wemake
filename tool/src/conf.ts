@@ -1,7 +1,6 @@
 import { accessSync, constants, readFileSync, writeFileSync } from "fs";
 import JSON5 from "json5";
-import { dirname, join, resolve } from "path";
-import { find_real_cmd } from "./utils/find_real_cmd";
+import { join, resolve } from "path";
 import { Logger } from "./utils/log";
 
 export interface IConf {
@@ -153,12 +152,7 @@ const key_arg_records: Record<keyof IConf, Omit<IArgInfo, 'key'>> = {
   FFMPEG_CMD: {
     type: String,
     alias: ['--ffmpeg'],
-    default: () => {
-      const subpaths = ['tools/ffmpeg.exe', 'ffmpeg.exe']
-      const fallback = 'ffmpeg'
-      const dir = dirname(process.execPath)
-      return subpaths.find(v => find_real_cmd(join(dir, v))) || fallback;
-    }
+    default: 'ffmpeg'
   },
   FFMPEG_OPTS: {
     type: String,
@@ -167,12 +161,7 @@ const key_arg_records: Record<keyof IConf, Omit<IArgInfo, 'key'>> = {
   MAGICK_CMD: {
     type: String,
     alias: ['--magick'],
-    default: () => {
-      const subpaths = ['tools/magick.exe', 'magick.exe']
-      const fallback = 'magick'
-      const dir = dirname(process.execPath)
-      return subpaths.find(v => find_real_cmd(join(dir, v))) || fallback;
-    }
+    default: 'magick'
   },
   KEEP_MIRROR: { type: Boolean },
   DONT_WAIT: { alias: ['-d', '--dont-wait'], type: Boolean },

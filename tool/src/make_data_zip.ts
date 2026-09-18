@@ -17,6 +17,7 @@ import { copy_dir } from "./utils/copy_dir";
 import { debug, error, log } from "./utils/log";
 import { make_zip_and_json } from "./utils/make_zip_and_json";
 import { write_file } from "./utils/write_file";
+import { make_tool_salt } from "./utils/tool_identity";
 
 export async function make_data() {
   debug(`make_data()`)
@@ -51,7 +52,8 @@ export async function make_data() {
     return log(`'data' will not be created, because 'IMAGE_SUFFIX' is not set in '${INDEX_FILE}'.`)
 
   const cache_infos = await CacheInfos.create(
-    path.join(TMP_DIR, "cache_infos.json5")
+    path.join(TMP_DIR, "cache_infos.json5"),
+    await make_tool_salt(),
   );
   const ress = classify(IN_LF2_DIR);
   let indexes: ITempDataLists | undefined;
