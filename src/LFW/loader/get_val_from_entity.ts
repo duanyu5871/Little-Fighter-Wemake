@@ -57,7 +57,7 @@ export const entity_val_getters: Record<E_Val, (e: Entity) => any> = {
   [E_Val.HoldingOID]: e => e.holding?.data.id,
   [E_Val.HpRecoverable]: e => e.hp_r - e.hp,
   [E_Val.HitByMagicFlute]: e => {
-    for (const [, { itr }] of e.superpunchs) {
+    for (const { itr } of e.collision_list) {
       if (itr.kind == ItrKind.MagicFlute || itr.kind == ItrKind.MagicFlute2)
         return 1;
     }

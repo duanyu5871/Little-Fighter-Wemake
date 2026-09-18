@@ -42,7 +42,13 @@ export enum StateEnum {
   Catching = 9,
   Caught = 10,
   Injured = 11,
+
+  /**
+   * 关于能否受身的判定，通过INextFrame.expression实现
+   * 见：preprocess_frame
+   */
   Falling = 12,
+
   /**
    * [LF2 & WEMAKE]
    * 冻结
