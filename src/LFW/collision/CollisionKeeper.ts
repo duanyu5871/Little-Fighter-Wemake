@@ -156,6 +156,7 @@ export class CollisionKeeper {
     }
 
     victim.collided_list.push((victim.lastest_collided = collision));
+    attacker.collision_list.push(collision);
     if (
       itr.kind !== ItrKind.Block &&
       itr.kind !== ItrKind.Whirlwind &&
