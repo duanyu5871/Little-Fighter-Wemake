@@ -100,6 +100,24 @@ function is_newer_version(a: string, b: string): boolean {
   return false;
 }
 
+interface IChromeApi {
+  runtime?: { id?: string };
+  storage?: { local?: { get?: (keys: string) => Promise<Record<string, unknown>> } };
+}
+
+const chrome_api = (globalThis as { chrome?: IChromeApi }).chrome;
+const EXT_UPDATE_KEY = 'lfw_update_available';
+
+function is_extension(): boolean {
+  return !!chrome_api?.runtime?.id;
+}
+
+async function fetch_extension_update(): Promise<string | undefined> {
+  const data = await chrome_api?.storage?.local?.get?.(EXT_UPDATE_KEY);
+  const version = data?.[EXT_UPDATE_KEY];
+  return typeof version === 'string' && version ? version : void 0;
+}
+
 function version_page_url(version: string): string {
   return new URL(`../${version}/`, location.href).href;
 }
@@ -168,9 +186,7 @@ function notice_button(label: string, primary: boolean): HTMLButtonElement {
   return el;
 }
 
-function show_latest_notice(version: string, url?: string) {
-  if (document.getElementById(NOTICE_ID)) return;
-  const zh = `${navigator.language || ''}`.toLowerCase().startsWith('zh');
+function notice_box(): HTMLDivElement {
   const box = document.createElement('div');
   box.id = NOTICE_ID;
   box.style.cssText = [
@@ -188,6 +204,13 @@ function show_latest_notice(version: string, url?: string) {
     'font:13px/1.4 system-ui,-apple-system,"Microsoft YaHei",sans-serif',
     'box-shadow:0 4px 16px rgba(0,0,0,.45)',
   ].join(';');
+  return box;
+}
+
+function show_latest_notice(version: string, url?: string) {
+  if (document.getElementById(NOTICE_ID)) return;
+  const zh = `${navigator.language || ''}`.toLowerCase().startsWith('zh');
+  const box = notice_box();
   const text = document.createElement('span');
   text.textContent = zh ? `新版本 v${version} 已发布` : `New version v${version} available`;
   const go = notice_button(zh ? '前往' : 'Update', true);
@@ -203,7 +226,37 @@ function show_latest_notice(version: string, url?: string) {
   document.body.append(box);
 }
 
+function show_extension_notice(version: string) {
+  if (document.getElementById(NOTICE_ID)) return;
+  const zh = `${navigator.language || ''}`.toLowerCase().startsWith('zh');
+  const box = notice_box();
+  const text = document.createElement('span');
+  text.textContent = zh
+    ? `扩展有新版本 v${version}，重启浏览器后生效`
+    : `Extension v${version} is ready, restart the browser to apply`;
+  const ok = notice_button(zh ? '知道了' : 'OK', true);
+  ok.onclick = () => {
+    mark_ignored(version);
+    box.remove();
+  };
+  box.append(text, ok);
+  document.body.append(box);
+}
+
+async function check_extension_update() {
+  try {
+    const version = await fetch_extension_update();
+    if (!version) return;
+    if (!is_newer_version(version, current_version())) return;
+    if (ignored_version() === version) return;
+    show_extension_notice(version);
+  } catch (e) {
+    warn('检查扩展更新失败', e);
+  }
+}
+
 async function check_latest_version() {
+  if (is_extension()) return check_extension_update();
   if (location.hostname !== LATEST_CHECK_HOST) return;
   try {
     const latest = await fetch_latest();
