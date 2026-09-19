@@ -1,10 +1,10 @@
 # Changelog
 
-## [v0.1.50](https://lf.gim.ink/0.1.50)
+## [v0.1.51](https://lf.gim.ink/0.1.51)
 
 by [**Gim**](https://gim.ink)
 
-<!-- git-range: d3d6cb08..bf78f8f3 -->
+<!-- git-range: d3d6cb08..bd610e38 -->
 
 ### Tweaks
 
@@ -14,7 +14,8 @@ by [**Gim**](https://gim.ink)
 - Airborne fighters are easier to knock down
 - Longer hit stop and hurt shaking (6 → 8); ball weapons have a much longer hit stop (2 → 8)
 - Magic flute buffs are stronger: damage 1 → 2, duration 2 → 3
-- Book weapons are much more fragile: bundle durability 800 → 400 with drop threshold 200 → 180; each book durability 750 → 200 with drop threshold 48 → 20; the bundle's hit damage 60 → 50; how books are held was also tweaked
+- Book weapons are much more fragile: bundle durability 800 → 400 (200 → 180 HP lost on landing); each book durability 750 → 200 (48 → 20 HP lost on landing); the bundle's hit damage 60 → 50; how books are held was also tweaked
+- Weapons no longer hit fighters that are falling (knocked away)
 - Julian's D>A: hover overshoot ("reverse only after passing the target by this much") is now per-axis and acceleration is higher; the ball and AI look for targets more often (every 2 frames, timed per entity)
 - Scoreboard names are simplified: human players show their player name, other fighters show the fighter name
 - Build tool: identical input now produces identical output; PNGs are optimized, so data packs are smaller
@@ -28,8 +29,8 @@ by [**Gim**](https://gim.ink)
 
 ### Thanks
 
-- Thanks to "Sauce" and "布利.白" for their feedback, support and encouragement
-- Thanks to everyone who has tried LFW
+- Thanks to "Sauce" (酱油), "布利.白" and the QQ group members I can't name, for their feedback, support and encouragement
+- Thanks to the many more who have tried LFW
 
 ## [v0.1.49](https://lf.gim.ink/0.1.49)
 
