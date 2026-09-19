@@ -22,6 +22,7 @@ Think this project is pretty good? Consider starring it!
 - [Custom Game](./docs/Custom%20Game/README.MD)
 - [Copyright Notice](./COPYRIGHT.MD)
 - [Feedback & Discussions](https://github.com/gimhol/Little-Fighter-Wemake/discussions)
+- [How to Report a Problem](./docs/问题反馈指南.EN.MD)
 
 ## Screenshots
 

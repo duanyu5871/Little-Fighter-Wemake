@@ -20,6 +20,7 @@
 - [自定义游戏](./docs/Custom%20Game/README.MD)
 - [版权说明](./COPYRIGHT.MD)
 - [功能建议、体验反馈](https://github.com/gimhol/Little-Fighter-Wemake/discussions)
+- [问题反馈指南](./docs/问题反馈指南.MD)
 
 ## 截图
 
