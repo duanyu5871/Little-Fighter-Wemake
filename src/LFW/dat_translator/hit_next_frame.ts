@@ -22,7 +22,7 @@ export function hit_next_frame_super_punch(): INextFrame[] {
     facing: FF.Ctrl,
     desc: "super_punch",
     expression: new CondMaker<EV>()
-      .add(EV.RequireSuperPunch, ">", 1)
+      .add(EV.RequireSuperPunch, ">", 0 )
       .done(),
   }]
 }
