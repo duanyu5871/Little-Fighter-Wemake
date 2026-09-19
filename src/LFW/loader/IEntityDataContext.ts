@@ -10,12 +10,14 @@ export interface IEntityDataContext {
 export interface IFrameInfoContext extends IEntityDataContext {
   frame: IFrameInfo;
 }
-export interface IBdyInfoContext extends IFrameInfoContext {
-  index: number;
+export interface IBdyInfoContext extends IEntityDataContext {
+  index?: number;
+  frame?: IFrameInfo;
   bdy: IBdyInfo;
 }
-export interface IItrInfoContext extends IFrameInfoContext {
-  index: number;
+export interface IItrInfoContext extends IEntityDataContext {
+  index?: number;
+  frame?: IFrameInfo;
   itr: IItrInfo;
 }
 

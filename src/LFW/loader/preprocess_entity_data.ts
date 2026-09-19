@@ -1,20 +1,25 @@
 import { CondMaker, make_entity_special, make_fighter_special, make_weapon_special, xml_x_entity_data } from "../dat_translator";
 import { make_ball_special } from "../dat_translator/make_ball_special";
-import { E_Val, type IEntityData } from "../defines";
+import { C_Val, E_Val, type IEntityData } from "../defines";
 import { Ditto } from "../ditto";
 import { is_ball_data, is_fighter_data, is_weapon_data } from "../entity";
 import { is_non_blank_str, max } from "../utils";
 import { traversal } from "../utils/container_help/traversal";
 import type { IEntityDataContext } from "./IEntityDataContext";
+import { preprocess_bdy } from "./preprocess_bdy";
 import { preprocess_bot_data } from "./preprocess_bot_data";
 import { preprocess_frame } from "./preprocess_frame";
+import { preprocess_itr } from "./preprocess_itr";
 import { preprocess_next_frame } from "./preprocess_next_frame";
 import { preprocess_pic } from "./preprocess_pic";
 
+const weapon_on_hand_dont_hit_falling_guy = new CondMaker().add(C_Val.VFALLING, '==', 0).done()
 export async function preprocess_entity_data(ctx: IEntityDataContext): Promise<IEntityData> {
   const { lfw, data, jobs, errors } = ctx;
 
-  if (data.processed != false) { }
+  if (data.processed != false) {
+    // ?
+  }
   if (is_ball_data(data)) make_ball_special(data)
   else if (is_weapon_data(data)) make_weapon_special(data)
   else if (is_fighter_data(data)) {
@@ -32,10 +37,24 @@ export async function preprocess_entity_data(ctx: IEntityDataContext): Promise<I
     make_fighter_special(data)
   }
 
+  const { itr_prefabs, bdy_prefabs } = data;
+  for (const key in itr_prefabs) {
+    const itr = itr_prefabs[key];
+    if (!itr) continue;
+    if (is_weapon_data(data))
+      itr.test ??= weapon_on_hand_dont_hit_falling_guy
+    itr_prefabs[key] = preprocess_itr({ itr, ...ctx, })
+  }
+  for (const key in bdy_prefabs) {
+    const bdy = bdy_prefabs[key];
+    if (!bdy) continue;
+    bdy_prefabs[key] = preprocess_bdy({ bdy, ...ctx, })
+  }
+
   const { images, sounds } = lfw;
   const { small, head } = data.base;
-  is_non_blank_str(small) && jobs.push(images.load_img(small, small));
-  is_non_blank_str(head) && jobs.push(images.load_img(head, head));
+  if (is_non_blank_str(small)) jobs.push(images.load_img(small, small));
+  if (is_non_blank_str(head)) jobs.push(images.load_img(head, head));
   data.base.dead_sounds?.forEach(i => is_non_blank_str(i) && sounds.load(i, i));
   data.base.drop_sounds?.forEach(i => is_non_blank_str(i) && sounds.load(i, i));
   data.base.hit_sounds?.forEach(i => is_non_blank_str(i) && sounds.load(i, i));

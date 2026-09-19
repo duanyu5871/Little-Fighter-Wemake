@@ -2,7 +2,7 @@ import { Expression } from "../base/Expression";
 import { CondMaker } from "../dat_translator/CondMaker";
 import { get_next_frame_by_raw_id } from "../dat_translator/get_the_next";
 import { set_hit_flag } from "../dat_translator/set_hit_flag";
-import { ActionType, BdyKind, CollisionVal as C_Val, EntityEnum, type IEntityData, type IItrInfo, ItrEffect, ItrKind, OID, StateEnum, WeaponEnum } from "../defines";
+import { ActionType, BdyKind, CollisionVal as C_Val, EntityEnum, type IItrInfo, ItrEffect, ItrKind, OID, StateEnum, WeaponEnum } from "../defines";
 import { HitFlag } from "../defines/HitFlag";
 import { ensure } from "../utils/container_help/ensure";
 import { get_val_geter_from_collision } from "./get_val_from_collision";
@@ -36,7 +36,14 @@ export function preprocess_itr(ctx: IItrInfoContext): IItrInfo {
         且x轴速度朝向被抓着。
           -Gim
       */
+      itr.motionless = itr.motionless ?? 0;
+      itr.shaking = itr.shaking ?? 0;
+      if (itr.vrest) {
+        itr.arest = itr.vrest;
+        delete itr.vrest;
+      }
       itr.test ??= new CondMaker<C_Val>()
+        .add(C_Val.VictimType, "==", EntityEnum.Fighter)
         .and(C_Val.VictimState, "==", StateEnum.Tired)
         .and(C_Val.AClosingSpeedX, ">", 0)
         .done();
@@ -48,7 +55,14 @@ export function preprocess_itr(ctx: IItrInfoContext): IItrInfo {
         被击飞中的，不能抓
           -Gim
       */
+      itr.motionless = itr.motionless ?? 0;
+      itr.shaking = itr.shaking ?? 0;
+      if (itr.vrest) {
+        itr.arest = itr.vrest;
+        delete itr.vrest;
+      }
       itr.test ??= new CondMaker<C_Val>()
+        .and(C_Val.VictimType, "==", EntityEnum.Fighter)
         .and(C_Val.VictimState, "!=", StateEnum.Falling)
         .done();
       break;
@@ -154,32 +168,6 @@ export function preprocess_itr(ctx: IItrInfoContext): IItrInfo {
           .and(C_Val.VictimOID, "!=", OID.HenryArrow1)
           .and(C_Val.VictimOID, "!=", OID.RudolfWeapon),
         )
-        .done();
-      break;
-    }
-    case ItrKind.ForceCatch: {
-      itr.motionless = itr.motionless ?? 0;
-      itr.shaking = itr.shaking ?? 0;
-      if (itr.vrest) {
-        itr.arest = itr.vrest;
-        delete itr.vrest;
-      }
-      itr.test ??= new CondMaker<C_Val>()
-        .and(C_Val.VictimType, "==", EntityEnum.Fighter)
-        .and(C_Val.VictimState, "!=", StateEnum.Falling)
-        .done();
-      break;
-    }
-    case ItrKind.Catch: {
-      itr.motionless = itr.motionless ?? 0;
-      itr.shaking = itr.shaking ?? 0;
-      if (itr.vrest) {
-        itr.arest = itr.vrest;
-        delete itr.vrest;
-      }
-      itr.test ??= new CondMaker<C_Val>()
-        .and(C_Val.VictimType, "==", EntityEnum.Fighter)
-        .and(C_Val.VictimState, "==", StateEnum.Tired)
         .done();
       break;
     }

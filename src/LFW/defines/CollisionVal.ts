@@ -109,7 +109,7 @@ export enum CollisionVal {
   VClickDown   /**/ = 'v_click_down',
   VClickLeft   /**/ = 'v_click_left',
   VClickRight  /**/ = 'v_click_right',
-  
+
   ADbcAttack /**/ = 'a_dbclick_attack',
   ADbcJump   /**/ = 'a_dbclick_jump',
   ADbcDefend /**/ = 'a_dbclick_defend',
@@ -124,6 +124,8 @@ export enum CollisionVal {
   VDbcDown   /**/ = 'v_dbclick_down',
   VDbcLeft   /**/ = 'v_dbclick_left',
   VDbcRight  /**/ = 'v_dbclick_right',
+  AFALLING   /**/ = "a_falling",
+  VFALLING   /**/ = "v_falling",
 }
 export const CollisionValDescriptions: Record<CollisionVal, string> = {
   [CollisionVal.AttackerType]: "",
@@ -195,7 +197,7 @@ export const CollisionValDescriptions: Record<CollisionVal, string> = {
   [CollisionVal.VClickUp]:/*     */ "",
   [CollisionVal.VClickDown]:/*   */ "",
   [CollisionVal.VClickLeft]:/*   */ "",
-  [CollisionVal.VClickRight]:/*  */ "",  
+  [CollisionVal.VClickRight]:/*  */ "",
   [CollisionVal.ADbcAttack]:/* */ "",
   [CollisionVal.ADbcJump]: /*   */"",
   [CollisionVal.ADbcDefend]:/* */ "",
@@ -210,6 +212,8 @@ export const CollisionValDescriptions: Record<CollisionVal, string> = {
   [CollisionVal.VDbcDown]:/*   */ "",
   [CollisionVal.VDbcLeft]:/*   */ "",
   [CollisionVal.VDbcRight]:/*  */ "",
+  [CollisionVal.AFALLING]:/*   */ "",
+  [CollisionVal.VFALLING]:/*   */ "",
 }
 export const C_Val = CollisionVal;
 export type C_Val = CollisionVal;

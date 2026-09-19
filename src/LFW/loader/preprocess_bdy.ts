@@ -16,7 +16,7 @@ export function preprocess_bdy(ctx: IBdyInfoContext): IBdyInfo {
   bdy = merged.value;
   const { kind } = bdy;
 
-  if (kind === B_K.Normal && frame.state === StateEnum.Caught && bdy.hit_flag == void 0)
+  if (kind === B_K.Normal && frame?.state === StateEnum.Caught && bdy.hit_flag == void 0)
     set_hit_flag(bdy, HitFlag.AllBoth)
 
   if (between(kind, OLD_BDY_KIND_GOTO_MIN, OLD_BDY_KIND_GOTO_MAX)) {
