@@ -428,13 +428,9 @@ export class World {
       return this._restrict_result;
     }
     const [left, right, near, far] = this.get_bound(e);
-    z = clamp(z, far, near)
-    if (is_fighter(e)) {
-      x = clamp(x, left, right);
-    } else if (is_weapon(e)) {
-      const { drink_l, drink_r } = this.stage;
-      x = clamp(x, drink_l, drink_r);
-
+    x = clamp(x, left, right);
+    z = clamp(z, far, near);
+    if (is_weapon(e)) {
       if (e.is_on_ground && x < left - e.l_len || x > right + e.r_len) {
         e.enter_frame(Defines.NEXT_FRAME_GONE);
         e.terrain = this.ground.base;

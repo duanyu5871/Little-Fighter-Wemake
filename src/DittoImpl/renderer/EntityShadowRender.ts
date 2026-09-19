@@ -1,6 +1,6 @@
 
-import { clamp, LFW, min, World, type Entity } from "@/LFW";
-import { BufferGeometry, Mesh, MeshBasicMaterial, Vector3 } from "../_t";
+import { clamp, Ditto, LFW, min, World, type Entity } from "@/LFW";
+import { BufferGeometry, Mesh, MeshBasicMaterial, Texture, Vector3 } from "../_t";
 import type { EntityRenderer } from "./EntityRenderer";
 import { get_static_plane_geometry } from "./GeometryKeeper";
 import type { WorldRenderer } from "./WorldRenderer";
@@ -16,6 +16,9 @@ export class EntityShadowRender {
   protected _w: number | undefined;
   protected _h: number | undefined;
   protected _img: string | undefined;
+  private _mat: MeshBasicMaterial | null = null;
+  private _tex: Texture | null = null;
+  private _load_attempted: string | null = null;
   private _p0 = new Vector3()
   private _p1 = new Vector3()
   private _s0 = new Vector3(1, 1, 1)
@@ -43,7 +46,7 @@ export class EntityShadowRender {
         shadow_w || 0,
         shadow_h || 0
       ),
-      this.shadow_material(),
+      this.material(),
     );
     this.mesh.visible = false;
     this.mesh.name = EntityShadowRender.name;
@@ -82,16 +85,37 @@ export class EntityShadowRender {
       this.mesh.material.opacity = this._o1;
     }
   }
-  shadow_material() {
-    const { bg, lfw } = this;
-    const { shadow } = bg.data.base;
-    const m = MaterialFactory.get(MaterialKind.Basic, MeshBasicMaterial);
-    if (lfw && shadow) m.map = lfw.images.find(shadow)?.pic?.texture;
-    return m;
+  material(): MeshBasicMaterial {
+    return (this._mat ??= MaterialFactory.get(MaterialKind.Basic, MeshBasicMaterial));
+  }
+  resolve_texture(): void {
+    const { shadow } = this.bg.data.base;
+    if (!shadow) return;
+    const info = this.lfw.images.find(shadow);
+    const tex = info?.pic?.texture ?? null;
+    if (tex) {
+      this._tex = tex;
+      return;
+    }
+    if (this._tex || this._load_attempted === shadow) return;
+    this._load_attempted = shadow;
+    this.lfw.images.load_img(shadow, shadow).then((loaded) => {
+      if (loaded?.pic?.texture) this._tex = loaded.pic.texture;
+    }).catch((e) => {
+      Ditto.warn('[EntityShadowRender::resolve_texture]', e);
+    });
+  }
+  sync_material(): void {
+    const mat = this.material();
+    if (mat.map === this._tex) return;
+    const has_map = !!mat.map;
+    mat.map = this._tex;
+    if (has_map !== !!this._tex) mat.needsUpdate = true;
   }
   render() {
     const { entity } = this;
-    if (this.owner.owner.dirty) {
+    const dirty = this.owner.owner.dirty;
+    if (dirty) {
       const { bg } = this;
       const { shadow_w, shadow_h, shadow } = bg.data.base;
       if (shadow_w !== this._w || shadow_h !== this._h) {
@@ -100,13 +124,17 @@ export class EntityShadowRender {
           (this._h = shadow_h) || 0
         );
       }
-      if (shadow !== this._img) this.mesh.material = this.shadow_material()
-      const { invisible } = this.owner;
-      const { frame } = entity;
+      if (shadow !== this._img) {
+        this._img = shadow;
+        this._tex = null;
+        this._load_attempted = null;
+      }
       this.update_position();
       this.update_scale_opacity();
-      this.mesh.visible = !(invisible || frame.no_shadow);
     }
+    if (dirty || !this._tex) this.resolve_texture();
+    this.sync_material();
+    this.mesh.visible = !!this._tex && !this.owner.invisible && !entity.frame.no_shadow;
 
     const f = this.world_renderer.dfactor;
     this.mesh.position.lerpVectors(this._p0, this._p1, f);
