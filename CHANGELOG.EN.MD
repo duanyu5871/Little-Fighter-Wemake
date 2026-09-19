@@ -4,7 +4,12 @@
 
 by [**Gim**](https://gim.ink)
 
-<!-- git-range: d3d6cb08..bd610e38 -->
+<!-- git-range: d3d6cb08..09697a3f -->
+
+### What's New
+
+- The web build now checks for new versions (on lf.gim.ink only) and shows a notice in the bottom-right corner when one is out, with a one-click update button
+- The browser extension now shows a "!" badge on its icon when an update is detected; the game then tells you to restart the browser to apply it
 
 ### Tweaks
 
@@ -19,6 +24,7 @@ by [**Gim**](https://gim.ink)
 - Julian's D>A: hover overshoot ("reverse only after passing the target by this much") is now per-axis and acceleration is higher; the ball and AI look for targets more often (every 2 frames, timed per entity)
 - Scoreboard names are simplified: human players show their player name, other fighters show the fighter name
 - Build tool: identical input now produces identical output; PNGs are optimized, so data packs are smaller
+- Bounds cleanup: players and enemies are each limited by their own bounds; drink items use the stage's drink range, while other weapons and projectiles are no longer limited by it
 
 ### Fixes
 
@@ -26,6 +32,8 @@ by [**Gim**](https://gim.ink)
 - Whether you can recover from a magic flute hit is now checked via the buff itself (no longer via collision records, so it does not break after the victim flies away)
 - Fixed caught fighters not leaving the caught state when a catching move transforms the catcher
 - Fixed "Little Fighter 2" being misspelled as "Litter Fighter 2" in the launcher texts
+- Fixed the shadow occasionally showing up as a white square (the shadow is hidden while its texture is unavailable, then comes back automatically)
+- Fixed the super punch condition: a single hit is now enough (it previously required more than one)
 
 ### Thanks
 
