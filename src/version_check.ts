@@ -1,3 +1,5 @@
+import { chrome_api, is_extension_page } from './Utils/environment';
+
 const CHECK_DELAY = 3000;
 const RELOAD_KEY = 'lfj_version_reloaded';
 
@@ -100,17 +102,7 @@ function is_newer_version(a: string, b: string): boolean {
   return false;
 }
 
-interface IChromeApi {
-  runtime?: { id?: string };
-  storage?: { local?: { get?: (keys: string) => Promise<Record<string, unknown>> } };
-}
-
-const chrome_api = (globalThis as { chrome?: IChromeApi }).chrome;
 const EXT_UPDATE_KEY = 'lfw_update_available';
-
-function is_extension(): boolean {
-  return !!chrome_api?.runtime?.id;
-}
 
 async function fetch_extension_update(): Promise<string | undefined> {
   const data = await chrome_api?.storage?.local?.get?.(EXT_UPDATE_KEY);
@@ -256,7 +248,7 @@ async function check_extension_update() {
 }
 
 async function check_latest_version() {
-  if (is_extension()) return check_extension_update();
+  if (is_extension_page()) return check_extension_update();
   if (location.hostname !== LATEST_CHECK_HOST) return;
   try {
     const latest = await fetch_latest();

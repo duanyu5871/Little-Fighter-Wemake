@@ -125,7 +125,7 @@ export class Ewents {
         'Content-Type': 'application/json',
         "Fingerprint": r.visitorId,
       }
-      fetch(`https://gim.ink/api/events/add?type=${type}`, {
+      return fetch(`https://gim.ink/api/events/add?type=${type}`, {
         method: 'POST',
         headers,
         body: JSON.stringify({

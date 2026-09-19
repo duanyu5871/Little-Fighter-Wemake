@@ -9,7 +9,11 @@ import { ConfigProvider } from "./Component/ConfigProvider";
 import { start_version_check } from "./version_check";
 
 const router = createHashRouter(Paths.Routes);
-ReactDOM.createRoot(document.getElementById("root")!).render(
+const root = document.getElementById("root")!;
+root.addEventListener("dragover", (e) => e.preventDefault());
+root.addEventListener("drop", (e) => e.preventDefault());
+
+ReactDOM.createRoot(root).render(
   <React.StrictMode>
     <ConfigProvider >
       <RouterProvider router={router} />

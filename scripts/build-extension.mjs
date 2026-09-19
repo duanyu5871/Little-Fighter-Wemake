@@ -74,6 +74,16 @@ const manifestOut = JSON.parse(readFileSync(join(EXT_DIST, 'manifest.json'), 'ut
 manifestOut.version = pkg.version;
 writeFileSync(join(EXT_DIST, 'manifest.json'), JSON.stringify(manifestOut, null, 2));
 
+const indexHtmlPath = join(EXT_DIST, 'index.html');
+if (existsSync(indexHtmlPath)) {
+  const html = readFileSync(indexHtmlPath, 'utf-8');
+  const patched = html.replace(/[ \t]*<link[^>]*rel="manifest"[^>]*>\r?\n?/i, '');
+  if (patched !== html) {
+    writeFileSync(indexHtmlPath, patched);
+    console.log('[ext] Removed PWA <link rel="manifest"> from index.html');
+  }
+}
+
 // Step 6: Validate
 const requiredFiles = ['index.html'];
 for (const f of requiredFiles) {

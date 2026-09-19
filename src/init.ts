@@ -6,6 +6,7 @@ import { WorldRenderer } from "./DittoImpl/renderer/WorldRenderer";
 import { actor, Ditto, LFW, UIActionEnum } from "./LFW";
 import { Debug, Log, Warn } from "./Log";
 import { ewents } from './Utils/ewents';
+import { is_extension_page } from './Utils/environment';
 import './i18n';
 import { Err } from "@fimagine/logger";
 import { install_mock_toy_if_requested } from "./mock_toy";
@@ -63,8 +64,10 @@ ewents.filter = async (type: string, event: object) => {
   }
   return true
 }
-ewents.mount()
-ewents.submit_visit()
+if (!is_extension_page()) {
+  ewents.mount()
+  ewents.submit_visit()
+}
 
 LFW.VERSION_NAME = [
   `v${VERSION_NAME}-${GIT_COMMIT_ID.substring(0, 7)}${GIT_COMMIT_DIRTY ? `-${GIT_COMMIT_DIRTY}` : ''}`,
