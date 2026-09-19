@@ -1,0 +1,9 @@
+{
+  objects: [
+    {
+      id: "electroshock",
+      type: "",
+      file: "data/electroshock.obj.json5",
+    },
+  ],
+}
