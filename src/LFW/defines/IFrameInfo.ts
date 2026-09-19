@@ -4,15 +4,15 @@ import { ALL_FACING_FLAG, FACING_FLAG_DESC_MAP, FACING_FLAG_LABEL_MAP, FacingFla
 import { ALL_FRAME_BEHAVIOR, FRAME_BEHAVIOR_DESC_MAP, FRAME_BEHAVIOR_LABEL_MAP, FrameBehavior } from "./FrameBehavior";
 import { bdy_info_fields, type IBdyInfo } from "./IBdyInfo";
 import { bpoint_info_fields, type IBpointInfo } from "./IBpointInfo";
-import { chase_info_fields as chase_info_fields, type IChaseInfo } from "./IChaseInfo";
+import { chase_info_fields, type IChaseInfo } from "./IChaseInfo";
 import { cpoint_info_fields, type ICpoint } from "./ICpoint";
-import { frame_pic_fields, Schema_IFramePic, type IFramePic } from "./IFramePic";
 import { frame_model_fields, Schema_IFrameModel, type IFrameModel } from "./IFrameModel";
-import { hit_key_map_fields } from "./IHitKeyMap";
+import { frame_pic_fields, Schema_IFramePic, type IFramePic } from "./IFramePic";
 import type { IHitKeyMap } from "./IHitKeyMap";
+import { hit_key_map_fields } from "./IHitKeyMap";
 import type { IItrInfo } from "./IItrInfo";
-import { next_frame_fields } from "./INextFrame";
 import type { TNextFrame } from "./INextFrame";
+import { next_frame_fields } from "./INextFrame";
 import { opoint_info_fields, type IOpointInfo } from "./IOpointInfo";
 import type { IQubePair } from "./IQubePair";
 import type { IVelocityInfo } from "./IVelocityInfo";
@@ -82,6 +82,7 @@ export interface IFrameInfo extends IVelocityInfo {
    * @type {number}
    */
   state: number | StateEnum;
+  state_name?: string;
 
   /**
    * 帧等待数
@@ -305,6 +306,7 @@ export const frame_info_fields = fields<IFrameInfo>({
   hp: int('hp', { nullable: true }),
   mp: int('mp', { nullable: true }),
   state: int("状态", { nullable: false }),
+  state_name: str("状态名", { nullable: true }),
   wait: int("等待帧数", { nullable: false, min: 0 }),
   next: obj('next', { nullable: true, array: 'auto', fields: next_frame_fields }),
   centerx: int("中心X", { nullable: false }),
@@ -405,6 +407,7 @@ export const Schema_IFrameInfo = make_schema<IFrameInfo>({
     name: { type: 'string' },
     ref: { type: 'string', nullable: true },
     state: { type: 'number' },
+    state_name: { type: 'string', nullable: true },
     wait: { type: 'number' },
     dvx: { type: 'number', nullable: true },
     dvy: { type: 'number', nullable: true },

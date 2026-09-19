@@ -20,7 +20,7 @@ import { FrameEditing } from "./FrameEditing";
 import {
   get_next_frame_by_raw_id,
 } from "./get_the_next";
-import { hit_next_frame } from "./hit_next_frame";
+import { hit_next_frame_defend, hit_next_frame_drink, hit_next_frame_jump, hit_next_frame_jump_atk, hit_next_frame_punch, hit_next_frame_super_punch, hit_next_frame_turn_back, hit_next_frame_weapon_atk } from "./hit_next_frame";
 import { make_frame_state } from "./make_frame_state";
 import { take } from "./take";
 import { take_raw_frame_mp } from "./take_raw_frame_mp";
@@ -91,9 +91,9 @@ export function make_fighter_data(ctx: IDatContext): IEntityData {
             .one_of(EV.Holding_W_Type, WT.Knife, WT.Stick)
             .done(),
         },
-          ...hit_next_frame.drink(),
-          ...hit_next_frame.super_punch(),
-          ...hit_next_frame.punch())
+          ...hit_next_frame_drink(),
+          ...hit_next_frame_super_punch(),
+          ...hit_next_frame_punch())
           .hit('j', "210") // jump
           .hit('d', "110") // defend
           .keydown('j', "210") // jump
@@ -116,7 +116,7 @@ export function make_fighter_data(ctx: IDatContext): IEntityData {
               .add(EV.PressFB, "==", 1)
               .and(EV.Holding_W_Type, "!=", WT.None),
             ).done(),
-        }, ...hit_next_frame.drink(), {
+        }, ...hit_next_frame_drink(), {
           id: "35",
           expression: new CondMaker<EV>()
             .one_of(EV.Holding_W_Type, WT.Knife, WT.Stick)
@@ -181,10 +181,10 @@ export function make_fighter_data(ctx: IDatContext): IEntityData {
       /** dash */
       case 213: case 214:
       case 216: case 217: {
-        if (frame_id === "213" && frames[214]) hit_next_frame.turn_back(frame, "214"); // turn back;
-        if (frame_id === "216" && frames[217]) hit_next_frame.turn_back(frame, "217"); // turn back;
-        if (frame_id === "214" && frames[213]) hit_next_frame.turn_back(frame, "213"); // turn back;
-        if (frame_id === "217" && frames[216]) hit_next_frame.turn_back(frame, "216"); // turn back;
+        if (frame_id === "213" && frames[214]) hit_next_frame_turn_back(frame, "214"); // turn back;
+        if (frame_id === "216" && frames[217]) hit_next_frame_turn_back(frame, "217"); // turn back;
+        if (frame_id === "214" && frames[213]) hit_next_frame_turn_back(frame, "213"); // turn back;
+        if (frame_id === "217" && frames[216]) hit_next_frame_turn_back(frame, "216"); // turn back;
         // julian和knight的dash非常特殊……
         if (frame.state === StateEnum.Dash && (frame_id === "213" || frame_id === "216")) {
           editing.keydown('a', {
@@ -353,11 +353,11 @@ export function make_fighter_data(ctx: IDatContext): IEntityData {
       case StateEnum.Standing:
       case StateEnum.Jump:
       case StateEnum.Walking:
-        hit_next_frame.turn_back(frame)
+        hit_next_frame_turn_back(frame)
         break;
       case StateEnum.Defend:
         if (fids.defends.includes(frame.id))
-          hit_next_frame.turn_back(frame)
+          hit_next_frame_turn_back(frame)
         break;
     }
 
@@ -374,13 +374,13 @@ export function make_fighter_data(ctx: IDatContext): IEntityData {
       case StateEnum.Standing:
         editing
           .hit("a",
-            ...hit_next_frame.weapon_atk(),
-            ...hit_next_frame.drink(),
-            ...hit_next_frame.super_punch(),
-            ...hit_next_frame.punch(),
+            ...hit_next_frame_weapon_atk(),
+            ...hit_next_frame_drink(),
+            ...hit_next_frame_super_punch(),
+            ...hit_next_frame_punch(),
           )
-          .hit('j', ...hit_next_frame.jump())
-          .hit('d', ...hit_next_frame.defend())
+          .hit('j', ...hit_next_frame_jump())
+          .hit('d', ...hit_next_frame_defend())
           .hit('FF', 'running_0')
           .keydown(
             ['U', 'D', 'L', 'R'], // walking
@@ -416,13 +416,13 @@ export function make_fighter_data(ctx: IDatContext): IEntityData {
         ) {
           editing
             .hit("a",
-              ...hit_next_frame.weapon_atk(),
-              ...hit_next_frame.drink(),
-              ...hit_next_frame.super_punch(),
-              ...hit_next_frame.punch(),
+              ...hit_next_frame_weapon_atk(),
+              ...hit_next_frame_drink(),
+              ...hit_next_frame_super_punch(),
+              ...hit_next_frame_punch(),
             )
-            .hit('j', ...hit_next_frame.jump())
-            .hit('d', ...hit_next_frame.defend())
+            .hit('j', ...hit_next_frame_jump())
+            .hit('d', ...hit_next_frame_defend())
             .hit('FF', 'running_0')
           frame.dvx = walking_speed;
           frame.dvz = walking_speedz;
@@ -446,7 +446,7 @@ export function make_fighter_data(ctx: IDatContext): IEntityData {
                 .add(EV.PressFB, "==", 1)
                 .and(EV.Holding_W_Type, "!=", WT.None),
               ).done(),
-          }, ...hit_next_frame.drink(), {
+          }, ...hit_next_frame_drink(), {
             id: "35", facing: FF.Ctrl,
             expression: new CondMaker<EV>()
               .one_of(
@@ -559,7 +559,7 @@ function add_key_down_jump_atk(frame: IFrameInfo) {
   frame.key_down = frame.key_down || {}
   frame.key_down.a = add_next_frame(
     frame.key_down.a,
-    ...hit_next_frame.jump_atk());
+    ...hit_next_frame_jump_atk());
 }
 
 function cook_transform_begin_expression_to_hit(frames: Record<string, IFrameInfo>) {

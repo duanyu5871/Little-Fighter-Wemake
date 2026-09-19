@@ -1,10 +1,10 @@
-import { CheatEnum, I_K, ItrKind, WeaponEnum } from "../defines";
+import { CheatEnum, ItrKind, WeaponEnum } from "../defines";
 import { E_Val } from "../defines/EntityVal";
 import type { IValGetter, IValGetterGetter } from "../defines/IExpression";
 import { Entity } from "../entity/Entity";
 import { is_ball, is_fighter, is_weapon } from "../entity/type_check";
 import { find } from "../utils/container_help";
-import { between, clamp, round } from "../utils/math";
+import { clamp, round } from "../utils/math";
 import { get_val_from_world } from "./get_val_from_world";
 
 export const entity_val_getters: Record<E_Val, (e: Entity) => any> = {
@@ -24,16 +24,7 @@ export const entity_val_getters: Record<E_Val, (e: Entity) => any> = {
   [E_Val.HAS_TRANSFORM_DATA]: e => e.transforms?.length ? 1 : 0,
   [E_Val.Catching]: e => e.catching ? 1 : 0,
   [E_Val.CAUGHT]: e => e.catcher ? 1 : 0,
-  [E_Val.RequireSuperPunch]: e => {
-    for (const [, { attacker }] of e.superpunchs) {
-      // 小于0时，眩晕者在攻击者左侧，否则在右侧
-      const diff_x = e.position.x - attacker.position.x;
-      if ((between(diff_x, -20, 20)) ||
-        (diff_x < -20 && e.facing === 1) ||
-        (diff_x > 20 && e.facing === -1)) return 1;
-    }
-    return 0;
-  },
+  [E_Val.RequireSuperPunch]: e => e.superpunchs.size,
   [E_Val.HitByCharacter]: e => find(e.collided_list, (c) => is_fighter(c.attacker)) ? 1 : 0,
   [E_Val.HitByWeapon]: e => find(e.collided_list, (c) => is_weapon(c.attacker)) ? 1 : 0,
   [E_Val.HitByBall]: e => find(e.collided_list, (c) => is_ball(c.attacker)) ? 1 : 0,
