@@ -16,6 +16,7 @@ import { generateKeyPairSync } from 'crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs';
 import { dirname, join, resolve } from 'path';
 import { fileURLToPath } from 'url';
+import { zip_dir } from './zip-dir.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
@@ -116,13 +117,8 @@ async function main() {
     // Default: create .zip for Chrome Web Store
     const zipPath = join(ROOT, 'release', `lfw-extension-v${VERSION}.zip`);
     mkdirSync(dirname(zipPath), { recursive: true });
-    try {
-      execSync(`npx bestzip "${zipPath}" dist-extension/`, { cwd: ROOT, stdio: 'inherit' });
-      console.log(`[pkg] ✅ ZIP (Chrome Web Store ready): ${zipPath}`);
-    } catch {
-      console.log(`[pkg] ⚠️  bestzip not found. Run: npm i -D bestzip`);
-      console.log(`[pkg] → Or manually zip the dist-extension/ folder`);
-    }
+    const count = await zip_dir(EXT_DIST, zipPath);
+    console.log(`[pkg] ✅ ZIP (Chrome Web Store ready): ${zipPath} (${count} files)`);
   }
 }
 

@@ -16,6 +16,7 @@ import { execSync } from 'child_process';
 import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { dirname, join, resolve } from 'path';
 import { fileURLToPath } from 'url';
+import { zip_dir } from './zip-dir.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
@@ -89,10 +90,6 @@ console.log(`[ext] → Web app 仍在: ${WEB_DIST}`);
 if (process.argv.includes('--zip')) {
   const ZIP_PATH = join(ROOT, `release/lfw-extension-v${pkg.version}.zip`);
   mkdirSync(dirname(ZIP_PATH), { recursive: true });
-  try {
-    execSync(`npx bestzip "${ZIP_PATH}" .`, { cwd: EXT_DIST, stdio: 'inherit' });
-    console.log(`[ext] ✅ Zip: ${ZIP_PATH}`);
-  } catch {
-    console.log('[ext] Hint: npm i -D bestzip');
-  }
+  const count = await zip_dir(EXT_DIST, ZIP_PATH);
+  console.log(`[ext] ✅ Zip: ${ZIP_PATH} (${count} files)`);
 }
