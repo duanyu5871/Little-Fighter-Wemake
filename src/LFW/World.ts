@@ -17,7 +17,8 @@ import {
   type IFrameInfo, type IItrInfo,
   type IVector3Like,
   O_ID,
-  SE
+  SE,
+  WT
 } from "./defines";
 import { SyncRenderEnum } from "./defines/SyncRenderEnum";
 import { Ditto } from './ditto/Instance';
@@ -243,7 +244,7 @@ export class World {
   }
 
   stop_render() {
-    this._render_worker_id && Ditto.Render.del(this._render_worker_id);
+    if (this._render_worker_id) Ditto.Render.del(this._render_worker_id);
     this._render_worker_id = 0;
   }
   get FPS() {
@@ -263,8 +264,7 @@ export class World {
     if (sync_render == SyncRenderEnum.Half) return;
     let prev_time = 0;
     let fix_radio = 1;
-    let ideally_dt = 1000 / FPS;
-    let fps = FPS;
+    const ideally_dt = 1000 / FPS;
     const on_render = (time: number) => {
       if (prev_time == 0) {
         prev_time = time;
@@ -275,10 +275,10 @@ export class World {
       this.render_once(real_dt);
       this._FPS.update(real_dt);
       if (this._need_FPS) this.callbacks.call("on_fps_update", this._FPS.value);
-      fix_radio = 1 - clamp(6 * (fps - this._FPS.value) / fps, 0, 1);
+      fix_radio = 1 - clamp(6 * (FPS - this._FPS.value) / FPS, 0, 1);
       prev_time = time;
     };
-    this._render_worker_id && Ditto.Render.del(this._render_worker_id);
+    if (this._render_worker_id) Ditto.Render.del(this._render_worker_id);
     this._render_worker_id = Ditto.Render.add(on_render);
   }
 
@@ -387,15 +387,26 @@ export class World {
   private _restrict_result: IVector3Like = { x: 0, y: 0, z: 0 }
   private _bound: [number, number, number, number] = [0, 0, 0, 0]
   get_bound(e: Entity): [number, number, number, number] {
-    const { player_l, player_r, enemy_l, enemy_r, team, left, right, near, far } = this.stage;
+    const {
+      player_l, player_r, enemy_l, enemy_r, team, near, far,
+      drink_l, drink_r
+    } = this.stage;
+    let l = Number.MIN_SAFE_INTEGER;
+    let r = Number.MAX_SAFE_INTEGER;
     if (is_fighter(e)) {
-      const is_player = e.team !== team;
-      this._bound[0] = is_player ? player_l : enemy_l;
-      this._bound[1] = is_player ? player_r : enemy_r;
-    } else {
-      this._bound[0] = left;
-      this._bound[1] = right;
+      if (e.team === team) {
+        l = player_l;
+        r = player_r;
+      } else {
+        l = enemy_l;
+        r = enemy_r;
+      }
+    } else if (is_weapon(e) && e.base_type == WT.Drink) {
+      l = drink_l;
+      r = drink_r;
     }
+    this._bound[0] = l;
+    this._bound[1] = r;
     this._bound[2] = near;
     this._bound[3] = far;
     return this._bound;
