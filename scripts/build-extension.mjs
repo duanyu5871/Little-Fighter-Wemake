@@ -66,7 +66,7 @@ if (existsSync(bgSrc)) {
 }
 
 // Copy PNG icons if present
-for (const icon of ['icon16.png', 'icon48.png', 'icon128.png']) {
+for (const icon of ['icon16.png', 'icon48.png', 'icon128.png', 'icon256.png']) {
   const src = join(EXT_SRC, icon);
   if (existsSync(src)) copyFileSync(src, join(EXT_DIST, icon));
 }
@@ -79,6 +79,17 @@ const requiredFiles = ['index.html'];
 for (const f of requiredFiles) {
   if (!existsSync(join(EXT_DIST, f))) {
     console.warn(`[ext] WARNING: "${f}" not found in dist-extension!`);
+  }
+}
+
+const manifestRefs = [
+  ...Object.values(manifestOut.icons ?? {}),
+  ...Object.values(manifestOut.action?.default_icon ?? {}),
+  manifestOut.background?.service_worker,
+];
+for (const f of new Set(manifestRefs.filter(v => typeof v === 'string'))) {
+  if (!existsSync(join(EXT_DIST, f))) {
+    console.warn(`[ext] WARNING: manifest 引用的文件缺失: ${f}`);
   }
 }
 
