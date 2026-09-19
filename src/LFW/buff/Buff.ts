@@ -1,9 +1,12 @@
+import type { IEntityData } from "../defines";
 import type { IBuffRenderer } from "../ditto/render/IBuffRenderer";
 import type { Entity } from "../entity";
 import type { LFW } from "../LFW";
 import { Times } from "../utils/Times";
 import { World } from "../World";
 import type { IBuffSnapshot } from "./IBuffSnapshot";
+
+const EFFECT_FRAME_ID = "0";
 
 export abstract class Buff {
   static readonly KIND: string | number = '';
@@ -19,6 +22,8 @@ export abstract class Buff {
   protected readonly _victims: string[] = [];
   protected readonly _ticker = new Times();
   protected readonly _lifetime = new Times(0, 1).set_lifes(1);
+  protected readonly _effects = new Map<string, Entity>();
+  protected _effect_data?: IEntityData;
 
   get id(): string { return this._id }
   get victims(): ReadonlyArray<string> { return this._victims; }
@@ -44,6 +49,7 @@ export abstract class Buff {
   }
   init(): void { };
   reset(id: string): this {
+    this.clear_effects();
     const prev = this._id;
     if (prev !== id)
       for (const vid of this._victims)
@@ -95,6 +101,8 @@ export abstract class Buff {
   }
 
   del_victims(...victims: (string | Entity)[]): this {
+    for (const victim of victims)
+      this.del_effect(typeof victim === 'string' ? victim : victim.id);
     for (const victim of victims) {
       let entity: Entity | undefined = void 0;
       if (typeof victim == 'string') {
@@ -108,6 +116,65 @@ export abstract class Buff {
     }
     return this;
   }
+
+  /** 特效实体使用的数据 oid，空字符串 = 不使用特效实体 */
+  protected get effect_oid(): string { return ''; }
+  protected effect_data(): IEntityData | undefined {
+    const oid = this.effect_oid;
+    if (!oid) return void 0;
+    return this._effect_data ??= this.lfw.datas.find(oid);
+  }
+  /** 特效实体的位置（缺省 = 受击者位置） */
+  protected effect_anchor(victim: Entity): [number, number, number] {
+    return [victim.position.x, victim.position.y, victim.position.z];
+  }
+  protected del_effect(vid: string): void {
+    const effect = this._effects.get(vid);
+    if (!effect) return;
+    if (this.world.find_entity(effect.id)) this.world.del_entity(effect);
+    this._effects.delete(vid);
+  }
+  protected clear_effects(): void {
+    for (const [, effect] of this._effects)
+      if (this.world.find_entity(effect.id)) this.world.del_entity(effect);
+    this._effects.clear();
+  }
+  /** 为受击者生成/跟随后特效实体（每个受击者一个，跟随受击者） */
+  protected show_effect(victim: Entity): void {
+    let effect = this._effects.get(victim.id);
+    if (effect && !this.world.find_entity(effect.id)) effect = void 0;
+    if (!effect) {
+      const data = this.effect_data();
+      if (!data) return;
+      effect = this.lfw.factory.create_entity(this.world, data);
+      if (!effect) return;
+      effect.outline_alpha = 0;
+      effect.outline_width = 0;
+      effect.outline_color = '';
+      effect.set_position(...this.effect_anchor(victim));
+      effect.enter_frame_by_id(EFFECT_FRAME_ID);
+      effect.attach(true);
+      this._effects.set(victim.id, effect);
+    }
+    effect.set_position(...this.effect_anchor(victim));
+  }
+  protected update_effects(): void {
+    if (!this._effects.size && !this.effect_oid) return;
+    for (const [vid, effect] of this._effects) {
+      if (
+        this._victims.includes(vid) &&
+        this.world.find_entity(vid) &&
+        this.world.find_entity(effect.id)
+      ) continue;
+      if (this.world.find_entity(effect.id)) this.world.del_entity(effect);
+      this._effects.delete(vid);
+    }
+    for (const vid of this._victims) {
+      const victim = this.world.find_entity(vid);
+      if (victim) this.show_effect(victim);
+    }
+  }
+
   apply?(): void
   private _del(id: string): boolean {
     let fast = 0, slow = 0
@@ -137,6 +204,7 @@ export abstract class Buff {
       if (attacker === 0) attacker = this.attacter;
       this.loop(on_end, attacker);
     }
+    this.update_effects();
   }
 
   private loop(fn: (attacker?: Entity, victim?: Entity) => "keep" | "del", attacker: Entity | undefined) {
