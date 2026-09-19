@@ -13,6 +13,7 @@ node_modules
 /dist
 /dist-toy
 /dist-extension
+/latest.json
 
 # misc
 .DS_Store
