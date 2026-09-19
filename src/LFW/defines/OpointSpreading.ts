@@ -15,7 +15,9 @@ export enum OpointSpreading {
    * spreading_x, spreading_z, spreading_y
    */
   Spreading = 1,
-
+  /**
+   * 范围内随机扩散
+   */
   FloatRange = 2,
 
   AngelBlessing = 4,
