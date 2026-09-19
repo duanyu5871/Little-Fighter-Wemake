@@ -1,7 +1,13 @@
 import { ALL_CHASE_LOST, CHASE_LOST_DESC_MAP, CHASE_LOST_LABEL_MAP, ChaseLost } from "./ChaseLost";
 import { ALL_CHASE_STRATEGY, CHASE_STRATEGY_DESC_MAP, CHASE_STRATEGY_LABEL_MAP, ChaseStrategy } from "./ChaseStrategy";
 import { ALL_HIT_FLAG, HIT_FLAG_DESC_MAP, HIT_FLAG_NAME_MAP, HitFlag } from "./HitFlag";
-import { fields, int } from "../fields";
+import { fields, flt, int, obj } from "../fields";
+
+export interface IChaseOvershoot {
+  x?: number;
+  y?: number;
+  z?: number;
+}
 
 export interface IChaseInfo {
   /**
@@ -20,6 +26,8 @@ export interface IChaseInfo {
   lost: number | ChaseLost;
 
   oy?: number;
+
+  overshoot?: IChaseOvershoot;
 }
 
 export function chase_info_new(): IChaseInfo {
@@ -28,6 +36,12 @@ export function chase_info_new(): IChaseInfo {
     lost: 0
   };
 }
+
+const overshoot_fields = fields<IChaseOvershoot>({
+  x: flt("X 轴"),
+  y: flt("Y 轴"),
+  z: flt("Z 轴"),
+});
 
 export const chase_info_fields = fields<IChaseInfo>({
   stratedy: int("切换跟踪对象的策略", {
@@ -54,4 +68,9 @@ export const chase_info_fields = fields<IChaseInfo>({
     })),
   }),
   oy: int("Y 轴偏移"),
+  overshoot: obj("超过目标才反向的距离", {
+    nullable: true,
+    desc: "各轴超过该距离才反向；单个数字表示三轴同值，缺省轴视为 0",
+    fields: overshoot_fields,
+  }),
 });
