@@ -395,11 +395,11 @@ export class World {
     let r = Number.MAX_SAFE_INTEGER;
     if (is_fighter(e)) {
       if (e.team === team) {
-        l = player_l;
-        r = player_r;
-      } else {
         l = enemy_l;
         r = enemy_r;
+      } else {
+        l = player_l;
+        r = player_r;
       }
     } else if (is_weapon(e) && e.base_type == WT.Drink) {
       l = drink_l;
