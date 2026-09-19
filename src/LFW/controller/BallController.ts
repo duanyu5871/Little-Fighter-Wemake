@@ -1,5 +1,5 @@
 
-import { ChaseStrategy, EMPTY_FRAME_INFO, FID, FrameBehavior, GK, type IChaseInfo, type IVector3 } from "../defines";
+import { ChaseStrategy, EMPTY_FRAME_INFO, FID, FrameBehavior, GK, type IChaseInfo, type IFrameInfo, type IVector3 } from "../defines";
 import { ChaseLost } from "../defines/ChaseLost";
 import type { Entity } from "../entity/Entity";
 import { closer_one, manhattan_xz } from "../helper";
@@ -9,104 +9,80 @@ import type { ControllerResult } from "./ControllerResult";
 const { L, R, U, D, j, d } = GK
 export class BallController extends BaseController {
   readonly __is_ball_ctrl__ = true;
-  private _chasing: Entity | null = null;
-  private _chase_target: IVector3 | null = null;
-  private _frame = EMPTY_FRAME_INFO;
-  private _stop_chase = false;
-  get chasing(): Entity | null { return this._chasing; }
-  set chasing(e: Entity | null) { this._chasing = e || null; }
-  get chase_target(): Readonly<IVector3> {
-    if (!this._chase_target)
-      this._chase_target = this.entity.position.clone()
-    return this._chase_target
-  }
-  set_chase_target(x: number, y: number, z: number) {
+  chasing: Entity | null = null;
+  chase_point: IVector3 = this.entity.position.clone();
+  frame: IFrameInfo = EMPTY_FRAME_INFO;
+  gave_up = false;
+  dir_x: 0 | 1 | -1 = 0;
+  dir_y: 0 | 1 | -1 = 0;
+  dir_z: 0 | 1 | -1 = 0;
+  leave_dir: 0 | 1 | -1 = 0;
+  
+  set_chase_point(x: number, y: number, z: number) {
     if (is_f_num(x) || is_f_num(y) || is_f_num(z)) debugger;
-    this.chase_target.set(
+    this.chase_point.set(
       round_float(x),
       round_float(y),
       round_float(z)
     )
   }
 
-  lookup(lookup: Entity) {
-    const { chase } = this.entity.frame;
-    if (!chase) return;
-
-    const { stratedy } = chase;
-    if (stratedy === ChaseStrategy.StopOnLost && this._stop_chase)
-      return;
-    const a = this.chasing;
-    const b = this.should_chase(a) ? a : this.chasing = null;
-    if (a && stratedy === ChaseStrategy.UntilLost) {
-      this.set_chase_target(
-        a.position.x,
-        a.position.y,
-        a.position.z
-      )
-      return true
-    }
-    if (a && stratedy === ChaseStrategy.StopOnLost) {
-      if (b) {
-        // 目标仍在：持续锁定跟踪
-        this.set_chase_target(
-          a.position.x,
-          a.position.y,
-          a.position.z
-        )
-        return true
-      }
-      // 目标已丢失：停止跟踪，不再寻找新目标
-      this._stop_chase = true;
-      this.stop_chasing();
-      return;
-    }
-    const c = this.should_chase(lookup) ? lookup : null;
-    const d = this.chasing = closer_one(this.entity, b, c);
-    // lost
-    if (!d && a) {
-      this.set_chase_target(
-        this.entity.position.x,
-        this.entity.position.y,
-        this.entity.position.z
-      )
-      return
-    }
-
-    // follow
-    if (d) {
-      this.set_chase_target(
-        d.position.x,
-        d.position.y,
-        d.position.z
-      )
-    }
+  aim_at(e: Entity, oy: number = 0) {
+    const { x, y, z } = e.position;
+    this.set_chase_point(x, y + e.frame.height * oy, z);
   }
 
   update_lookup(me: number, entities: Entity[]): void {
     const { chase } = this.entity.frame;
     if (!chase) return;
     const { stratedy } = chase;
-    if (stratedy !== ChaseStrategy.UntilLost && stratedy !== ChaseStrategy.StopOnLost)
+    if (stratedy === ChaseStrategy.StopOnLost && this.gave_up) return;
+
+    const current = this.chasing;
+    const still_valid = this.should_chase(current) ? current : this.chasing = null;
+    if (current && (stratedy === ChaseStrategy.UntilLost || (still_valid && stratedy === ChaseStrategy.StopOnLost))) {
+      this.aim_at(current);
+      return;
+    }
+    if (current && stratedy === ChaseStrategy.StopOnLost) {
+      this.gave_up = true;
+      this.stop_chasing();
+      return;
+    }
+    if (stratedy === ChaseStrategy.Default)
       this.chasing = null;
+
     const self = this.entity;
     const x0 = self.position.x;
     let i1 = me - 1;
     let i2 = me + 1;
-    while (1) {
+    let found: Entity | null = null;
+    let found_d = Infinity;
+
+    let e: Entity | null = null;
+    do {
       let l: Entity | undefined = entities[i1];
       let r: Entity | undefined = entities[i2];
-      if (this.chasing) {
-        const d = manhattan_xz(self, this.chasing);
-        if (l && x0 - l.position.x >= d) l = void 0;
-        if (r && r.position.x - x0 >= d) r = void 0;
+      if (found) {
+        if (l && x0 - l.position.x >= found_d) l = void 0;
+        if (r && r.position.x - x0 >= found_d) r = void 0;
       }
-      const e = closer_one(self, l, r);
+      e = closer_one(self, l, r);
       if (!e) break;
-      if (!e.ghosted) this.lookup(e);
+      if (!e.ghosted && this.should_chase(e)) {
+        const d = manhattan_xz(self, e);
+        if (d < found_d) {
+          found = e;
+          found_d = d;
+        }
+      }
       if (l === e) --i1;
       if (r === e) ++i2;
-    }
+    } while (e)
+
+    if (!found) return;
+    this.chasing = found;
+    this.aim_at(found);
   }
 
   should_chase(other: Entity | null): boolean {
@@ -126,10 +102,11 @@ export class BallController extends BaseController {
     const { frame, facing, hp } = this.entity;
     const { chase, behavior } = frame;
 
-    if (hp > 0 && this._frame != frame) {
-      this._stop_chase = false;
-      if (this._frame.chase && !chase) {
+    if (hp > 0 && this.frame != frame) {
+      this.gave_up = false;
+      if (this.frame.chase && !chase) {
         this.stop_chasing()
+        this.chase_point.copy(this.entity.position);
       }
     } else if (hp <= 0 && chase) {
       this.stop_chasing()
@@ -143,53 +120,68 @@ export class BallController extends BaseController {
       else this.key_up(j, d);
     }
     if (chase) this.update_chasing(chase)
-    this._frame = frame;
+    this.frame = frame;
     return super.update();
   }
-  private update_chasing(chase: IChaseInfo) {
+  update_chasing(chase: IChaseInfo) {
     const { chasing } = this;
     const { facing, hp } = this.entity;
-    if (!this._chasing && chasing) this.start_chasing(chase)
+
     const me = this.entity.position;
 
-    let { x, y, z } = chasing?.position || this.chase_target;
-    if (chasing)
-      y = round_float(y + chasing.frame.centery * (chase.oy ?? 0.5))
+    if (chasing) {
+      const { oy = 0.5 } = chase;
+      this.aim_at(chasing, oy);
+    }
 
-    if (hp > 0 && (this._chasing || (chase.lost & ChaseLost.Hover))) {
-      if (x < me.x) this.key_down(L).key_up(R)
-      else if (x > me.x) this.key_down(R).key_up(L)
+    const { x, y, z } = this.chase_point;
+
+    if (hp > 0 && (this.chasing || (chase.lost & ChaseLost.Hover))) {
+      const over_x = chase.overshoot?.x ?? 0;
+      const over_y = chase.overshoot?.y ?? 0;
+      const over_z = chase.overshoot?.z ?? 0;
+
+      const dx = x - me.x;
+      this.dir_x = this.calc_dir(dx, over_x, this.dir_x);
+      if (this.dir_x > 0) this.key_down(R).key_up(L)
+      else if (this.dir_x < 0) this.key_down(L).key_up(R)
       else this.key_up(L, R)
-      if (z < me.z) this.key_down(U).key_up(D)
-      else if (z > me.z) this.key_down(D).key_up(U)
+
+      const dz = z - me.z;
+      this.dir_z = this.calc_dir(dz, over_z, this.dir_z);
+      if (this.dir_z > 0) this.key_down(D).key_up(U)
+      else if (this.dir_z < 0) this.key_down(U).key_up(D)
       else this.key_up(U, D)
 
-      if (me.y > y) this.key_down(d).key_up(j)
-      else if (me.y < y) this.key_down(j).key_up(d)
+      const dy = y - me.y;
+      this.dir_y = this.calc_dir(dy, over_y, this.dir_y);
+      if (this.dir_y > 0) this.key_down(j).key_up(d)
+      else if (this.dir_y < 0) this.key_down(d).key_up(j)
       else this.key_up(j, d)
     } else {
-      const p1 = this.entity.position;
-      this.key_down(facing < 0 ? L : R).key_up(facing < 0 ? R : L, U, D);
-      if (p1.y > y) this.key_down(d).key_up(j)
-      else if (p1.y < y) this.key_down(j).key_up(d)
+      if (!this.leave_dir)
+        this.leave_dir = facing < 0 ? -1 : 1;
+      if (this.leave_dir < 0) this.key_down(L).key_up(R, U, D)
+      else this.key_down(R).key_up(L, U, D)
+
+      const dy = y - me.y;
+      if (dy < 0) this.key_down(d).key_up(j)
+      else if (dy > 0) this.key_down(j).key_up(d)
       else this.key_up(j, d)
     }
-    if (this._chasing && !chasing)
-      this.end_chasing(chase)
-    this._chasing = chasing;
+    this.chasing = chasing;
   }
-  private start_chasing(chase: IChaseInfo) {
+  calc_dir(delta: number, over: number, prev: 0 | 1 | -1): 0 | 1 | -1 {
+    let dir = prev;
+    if (!dir && delta) dir = delta > 0 ? 1 : -1;
+    if (dir > 0 && delta < -over) dir = -1;
+    else if (dir < 0 && delta > over) dir = 1;
+    return dir;
   }
-  private end_chasing(chase: IChaseInfo) {
-    this.set_chase_target(
-      this.entity.position.x,
-      this.entity.position.y,
-      this.entity.position.z,
-    )
-  }
-  /** 停止追击：复位目标点与追击实体 */
-  private stop_chasing() {
-    this.chase_target.copy(this.entity.position);
+
+  /** 停止追击：清空追击实体，目标点保留 */
+  stop_chasing() {
+    this.dir_x = this.dir_y = this.dir_z = 0;
     this.chasing = null;
   }
 }

@@ -247,8 +247,8 @@ export function make_fighter_data(ctx: IDatContext): IEntityData {
                 .done(),
             };
           if (Array.isArray(s_hit_a)) {
-            t_hit_a && s_hit_a.unshift(...t_hit_a);
-            a_hit_a && s_hit_a.unshift(a_hit_a);
+            if (t_hit_a) s_hit_a.unshift(...t_hit_a);
+            if (a_hit_a) s_hit_a.unshift(a_hit_a);
           } else {
             let c = 0;
             if (s_hit_a) ++c;
@@ -256,9 +256,9 @@ export function make_fighter_data(ctx: IDatContext): IEntityData {
             if (a_hit_a) ++c;
             if (c >= 2) {
               const hit_a: INextFrame[] = [];
-              s_hit_a && hit_a.push(s_hit_a);
-              t_hit_a && hit_a.push(...t_hit_a);
-              a_hit_a && hit_a.push(a_hit_a);
+              if (s_hit_a) hit_a.push(s_hit_a);
+              if (t_hit_a) hit_a.push(...t_hit_a);
+              if (a_hit_a) hit_a.push(a_hit_a);
               editing.hit('a', ...hit_a);
             } else if (c === 1) {
               frame.hit = frame.hit || {};
@@ -335,7 +335,7 @@ export function make_fighter_data(ctx: IDatContext): IEntityData {
       case 225: {
         frame.state = StateEnum.Injured;
         const state_name = StateEnum[frame.state!]
-        if (state_name) (frame as any).state_name = `StateEnum.${state_name}`
+        if (state_name) frame.state_name = `StateEnum.${state_name}`
         make_frame_state(frame)
         break;
       }
@@ -343,7 +343,7 @@ export function make_fighter_data(ctx: IDatContext): IEntityData {
       case 226: case 227: case 228: case 229: {
         frame.state = StateEnum.Tired;
         const state_name = StateEnum[frame.state!]
-        if (state_name) (frame as any).state_name = `StateEnum.${state_name}`
+        if (state_name) frame.state_name = `StateEnum.${state_name}`
         make_frame_state(frame)
         break;
       }

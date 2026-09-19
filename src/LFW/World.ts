@@ -42,7 +42,7 @@ import { between, floor, max, min, round } from './utils/math/base';
 import { clamp } from './utils/math/clamp';
 import { Times } from './utils/Times';
 import { WorldDataset } from "./WorldDataset";
-const CHASING_UPDATE_INTERVAL = 8;
+const LOOKUP_UPDATE_INTERVAL = 2;
 const MAX_DEBUG_ENTITIES = 355
 const MAX_STEP_ERRORS = 120
 const WEAPON_X_SECTION = 750;
@@ -604,7 +604,6 @@ export class World {
     this.collisions.clear();
     this._pair_collisions.clear();
     this.pairs_compared = 0;
-    const update_chasing = this._game_time.value % CHASING_UPDATE_INTERVAL === 0;
     this._dead_buffs.length = 0;
     this.buffs.forEach(this.collect_dead_buff, this);
     for (let i = 0; i < this._dead_buffs.length; i++) {
@@ -685,11 +684,9 @@ export class World {
         const count = this.ground_weapon_counts.get(section) ?? 0;
         this.ground_weapon_counts.set(section, count + 1)
       }
-      const { ctrl } = a
-      if (update_chasing && is_ball_ctrl(ctrl))
-        ctrl.update_lookup(i, this.entities)
-
-      if (update_chasing && is_bot_ctrl(ctrl))
+      const { ctrl, lifetime } = a
+      const lookingup = 0 == (lifetime % LOOKUP_UPDATE_INTERVAL);
+      if (lookingup && (is_ball_ctrl(ctrl) || is_bot_ctrl(ctrl)))
         ctrl.update_lookup(i, this.entities)
 
       for (let j = i + 1; j < len; j++) {
