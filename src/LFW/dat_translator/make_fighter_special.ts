@@ -23,6 +23,7 @@ import { make_fighter_data_sorcerer } from "./fighters/make_fighter_data_sorcere
 import { make_fighter_data_woody } from "./fighters/make_fighter_data_woody";
 import { make_fighter_data_louis } from "./fighters/make_fighter_data_louis";
 import { make_fighter_data_louisex } from "./fighters/make_fighter_data_louisex";
+import { make_fighter_data_template } from "./fighters/make_fighter_data_template";
 
 export function make_fighter_special(data: IEntityData): IEntityData {
   const num_id = Number(data.id);
@@ -56,7 +57,7 @@ export function make_fighter_special(data: IEntityData): IEntityData {
     case OID.Jan: return make_fighter_data_jan(data);
     case OID.Sorcerer: return make_fighter_data_sorcerer(data);
     case OID.John: return make_fighter_data_john(data);
-    case OID.Template: break;
+    case OID.Template: return make_fighter_data_template(data);
     case OID.Bandit: data.base.group = ensure(data.base.group, EntityGroup._3000); break;
       break;
   }
