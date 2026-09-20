@@ -12,3 +12,8 @@ by [**Gim**](https://gim.ink)
 
 - The "Template" fighter's head portrait is now a 4x-resolution texture (sharper on high-resolution screens)
 - Added a "How to Report a Problem" guide (Chinese / English), plus an English version of "Thoughts on the Differences from LF2"
+
+### Thanks
+
+- Thanks to "Sauce" (酱油), "布利.白" and the QQ group members I can't name, for their feedback, support and encouragement
+- Thanks to the many more who have tried LFW
