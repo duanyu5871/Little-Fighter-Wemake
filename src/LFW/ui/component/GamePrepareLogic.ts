@@ -34,8 +34,8 @@ const RANK_ROW_H = 36
 const RANK_ROW_GAP = 8
 /** 偶数行（排名 2、4、6…）的极淡白色底（斑马纹） */
 const RANK_ROW_EVEN_BG = 'rgba(255,255,255,0.04)'
-/** 未选角色时的背景大头像：Julian（对应 make_fighter_data_julian 的默认） */
-const DEFAULT_BG_FACE = 'sprite/MENU_BACK10.png'
+/** 未选角色时的背景大头像 */
+const DEFAULT_BG_FACE = 'sprite/MENU_BACK0.png'
 /** 把词条模板里的 %N 依次替换为参数（%1=第 1 个…）；用于带插值的本地化文案 */
 const i18n_fmt = (template: string, ...args: (string | number)[]): string =>
   template.replace(/%\d+/g, (m) => {
