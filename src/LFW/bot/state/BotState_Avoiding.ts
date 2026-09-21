@@ -1,7 +1,7 @@
 
-import { AGK, Defines, GK, StateEnum } from "../../defines";
+import { AGK, Defines, GK, StateEnum, WeaponEnum } from "../../defines";
 import { BSE } from "../../defines/BotStateEnum";
-import { abs, clamp, round_float } from "../../utils/math";
+import { abs, clamp, round, round_float } from "../../utils/math";
 import { BotState_Base } from "./BotState";
 
 export class BotState_Avoiding extends BotState_Base {
@@ -83,8 +83,11 @@ export class BotState_Avoiding extends BotState_Base {
     }
 
     const z_backward_key = z_forwrd_key == GK.D ? GK.U : GK.D
-    const x_backward_key = x_forwrd_key == GK.L ? GK.R : GK.L;
-
+    const x_backward_key = x_forwrd_key == GK.L ? GK.R : GK.L
+    const dead_zone_only =
+      !av.invulnerable &&
+      !(av.state === StateEnum.Lying && av.wakeup_invuln) &&
+      me.holding?.base_type !== WeaponEnum.Drink
     /* 威胁越近，跑的欲望越高 */
     const { avoid_out_x } = c.dataset;
     const { difficulty } = this // 1, 2, 3, 4
@@ -102,7 +105,11 @@ export class BotState_Avoiding extends BotState_Base {
       c.key_down(x_forwrd_key)
     }
     c.key_up(x_backward_key)
-    c.key_down(z_forwrd_key)
-    c.key_up(z_backward_key)
+    if (dead_zone_only) {
+      this.hold_UD(round(av_z - me_z), c.dataset.w_atk_min_z, c.dataset.w_atk_max_z)
+    } else {
+      c.key_down(z_forwrd_key)
+      c.key_up(z_backward_key)
+    }
   }
 }
