@@ -1,6 +1,7 @@
 import { get_team_outline_color } from "@/LFW/base/get_team_shadow_color";
 import { get_team_text_color } from "@/LFW/base/get_team_text_color";
 import { Buff_Healing } from "@/LFW/buff/Buff_Healing";
+import { Buff_MpHealing } from "@/LFW/buff/Buff_MpHealing";
 import { is_fighter, type Entity } from "@/LFW/entity";
 import { StatBarType } from "@/LFW/entity/StatBarType";
 import { round } from "@/LFW/utils";
@@ -31,6 +32,7 @@ export class EntityStatRender {
   protected toughness_value_bar: Bar;
 
   protected _heading: boolean = false;
+  protected _heading_mp: boolean = false;
   protected _last_sync_lifetime = -1;
 
   entity: Entity;
@@ -189,6 +191,16 @@ export class EntityStatRender {
       } else if (this._heading) {
         this.hp_bar.color = "rgb(255,0,0)";
         this._heading = false;
+      }
+      if (this.entity.marks.has(Buff_MpHealing.KIND)) {
+        const heading = (this.entity.lifetime % 8) < 4;
+        if (this._heading_mp != heading) {
+          this.mp_bar.color = heading ? "rgb(130, 130, 255)" : "rgb(0,0,255)"
+          this._heading_mp = heading
+        }
+      } else if (this._heading_mp) {
+        this.mp_bar.color = "rgb(0,0,255)";
+        this._heading_mp = false;
       }
     }
     this.update_reverse_text_position(this.entity)

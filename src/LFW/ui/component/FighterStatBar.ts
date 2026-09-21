@@ -1,5 +1,6 @@
 import { Defines, T_E, type IPropsMeta } from "../../defines";
 import { Buff_Healing } from "../../buff/Buff_Healing";
+import { Buff_MpHealing } from "../../buff/Buff_MpHealing";
 import { Entity, type IEntityCallbacks } from "../../entity";
 import { StatBarType } from "../../entity/StatBarType";
 import { UINode } from "../UINode";
@@ -51,6 +52,7 @@ export class FighterStatBar extends UIComponent<IFighterStatBarProps> {
   protected defend_value_bar_w: number = 200;
   protected toughness_bar_w: number = 200;
   protected healing: boolean = false;
+  protected mp_healing: boolean = false;
   protected cbs: IEntityCallbacks = {
     on_hp_changed: (_, v) => {
       this.hp.target = v;
@@ -200,10 +202,14 @@ export class FighterStatBar extends UIComponent<IFighterStatBarProps> {
   override update(): void {
     this.update_team();
     this.update_name();
-    const { entity, props: { hp_bar } } = this
+    const { entity, props: { hp_bar, mp_bar } } = this
     if (hp_bar) {
       this.healing = !!entity?.marks.has(Buff_Healing.KIND) && (entity.lifetime % 8) < 4;
       hp_bar.children[0].color = this.healing ? 'rgb(255,130,130)' : 'rgb(255,0,0)'
+    }
+    if (mp_bar) {
+      this.mp_healing = !!entity?.marks.has(Buff_MpHealing.KIND) && (entity.lifetime % 8) < 4;
+      mp_bar.children[0].color = this.mp_healing ? 'rgb(130,130,255)' : 'rgb(0,0,255)'
     }
     this.defend_value_max.update()
     this.defend_value.update()
