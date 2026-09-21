@@ -22,10 +22,10 @@ export class Buff_MpHealing extends Buff {
   }
   override on_tick(_?: Entity, victim?: Entity): void {
     if (!victim) return;
-    if (victim.mp >= victim.mp_max) {
-      this.lifetime = this.duration;
-      return;
-    }
+    // if (victim.mp >= victim.mp_max) {
+    //   this.lifetime = this.duration;
+    //   return;
+    // }
     victim.mp = min(victim.mp_max, victim.mp + victim.dataset("mp_healing_value"));
   }
   override unmount(): void {
