@@ -275,12 +275,12 @@ function render_discharge_frame(pal, f) {
         add(pal.hot, 1.0 * Math.exp(-t * t) * gain);
       }
       {
-        const t = r / 1.8;
-        add([1, 1, 1], 0.75 * Math.exp(-t * t) * gain);
+        const t = r / 2.6;
+        add([1, 1, 1], 1.6 * Math.exp(-t * t) * gain);
       }
       {
         const t = r / 9;
-        add(pal.core, 0.45 * Math.exp(-t * t) * gain);
+        add(pal.core, 0.45 * Math.exp(-t * t) * gain * (1 - 0.6 * Math.exp(-((r / 2.8) ** 2))));
       }
       for (const bolt of bolts) {
         const nseg = bolt.pts.length - 1;
@@ -289,15 +289,89 @@ function render_discharge_frame(pal, f) {
           const [bx, by] = bolt.pts[k + 1];
           const d = seg_dist(dx, dy, ax, ay, bx, by);
           const th = bolt.th * gain * (1 - 0.6 * (k / nseg));
+          const wg = Math.exp(-((d / 0.5) ** 2));
           add(pal.glow, 0.35 * Math.exp(-((d / 2.4) ** 2)) * th);
-          add(pal.core, 0.5 * Math.exp(-((d / 1.1) ** 2)) * th);
-          add(pal.hot, 0.7 * Math.exp(-((d / 0.6) ** 2)) * th);
-          add([1, 1, 1], 0.65 * Math.exp(-((d / 0.45) ** 2)) * th);
+          add(pal.core, 0.5 * Math.exp(-((d / 1.1) ** 2)) * th * (1 - 0.85 * wg));
+          add(pal.hot, 0.7 * Math.exp(-((d / 0.6) ** 2)) * th * (1 - 0.6 * wg));
+          add([1, 1, 1], 1.5 * wg * th);
         }
         const [tx, ty] = bolt.pts[bolt.pts.length - 1];
         const td = Math.hypot(dx - tx, dy - ty);
         add(pal.spark, 0.6 * Math.exp(-((td / 1.6) ** 2)) * bolt.th * gain);
         add([1, 1, 1], 0.35 * Math.exp(-((td / 0.8) ** 2)) * bolt.th * gain);
+      }
+      const i = (y * CELL + x) * 4;
+      acc[i] = pr;
+      acc[i + 1] = pg;
+      acc[i + 2] = pb;
+      acc[i + 3] = pa;
+    }
+  }
+  return resolve_frame(acc);
+}
+
+const ARROWS = (() => {
+  const rnd = mulberry32(77003);
+  const list = [];
+  for (let j = 0; j < 7; j++) {
+    list.push({
+      x: (rnd() * 2 - 1) * 42,
+      off: rnd(),
+      size: 9 + rnd() * 9,
+      phase: rnd() * TAU,
+      sway: 1 + rnd() * 3,
+      y0: (rnd() * 2 - 1) * 4,
+    });
+  }
+  return list;
+})();
+
+function render_arrows_frame(pal, f) {
+  const acc = new Float32Array(CELL * CELL * 4);
+  const phase = (f / FRAMES) * TAU;
+  const gain = 0.92 + 0.08 * Math.sin(phase * 2 + 0.4);
+  const parts = ARROWS.map((a) => {
+    const t = (f / FRAMES + a.off) % 1;
+    const env = Math.sin(Math.PI * t);
+    const h = a.size * (0.55 + 0.45 * env) * gain;
+    return {
+      px: a.x + a.sway * Math.sin(phase + a.phase),
+      py: 46 - 92 * t + a.y0,
+      h,
+      w: h * 0.32,
+      alpha: env ** 0.8,
+      twinkle: 0.8 + 0.2 * Math.sin(phase * 3 + a.phase * 2),
+    };
+  });
+  for (let y = 0; y < CELL; y++) {
+    for (let x = 0; x < CELL; x++) {
+      let pr = 0, pg = 0, pb = 0, pa = 0;
+      const add = (col, a) => {
+        if (a <= 0.0004) return;
+        pr += col[0] * a;
+        pg += col[1] * a;
+        pb += col[2] * a;
+        pa += a;
+      };
+      for (const p of parts) {
+        const dx = x + 0.5 - CX - p.px;
+        const dy = y + 0.5 - CY - p.py;
+        const h2 = p.h / 2;
+        const w2 = p.w / 2;
+        if (dy < -h2 - 9 || dy > h2 + 9 || Math.abs(dx) > w2 + 9) continue;
+        const a = p.alpha * p.twinkle;
+        const tc = Math.max(0, Math.min(1, (dy + h2) / p.h));
+        const d = Math.min(w2 * tc - Math.abs(dx), dy + h2, h2 - dy);
+        const inside = 1 / (1 + Math.exp(-d * 2.6));
+        const gx = dx / (w2 + 3.5);
+        const gy = dy / (h2 + 3.5);
+        add(pal.glow, 0.6 * a * (1 - inside) * Math.exp(-(gx * gx + gy * gy) * 2.2));
+        if (d < -4) continue;
+        add(pal.core, 1.0 * a * inside * (1 - inside * inside * 0.7));
+        add(pal.hot, 0.8 * a * inside * inside * (1 - inside * inside * 0.5));
+        const wx = dx / (w2 * 1.0);
+        const wy = dy / (h2 * 0.7);
+        add([1, 1, 1], 2.6 * a * inside * Math.exp(-(wx * wx + wy * wy) * 0.85));
       }
       const i = (y * CELL + x) * 4;
       acc[i] = pr;
@@ -364,7 +438,7 @@ mkdirSync(dirname(PREVIEW_PATH), { recursive: true });
 
 const sheets = {};
 for (const name of ["red", "green"]) {
-  const render = name === "green" ? render_discharge_frame : render_ring_frame;
+  const render = name === "green" ? render_discharge_frame : render_arrows_frame;
   sheets[name] = build_sheet(PALETTES[name], render);
   const buf = encode_png(CELL * COLS, CELL * (FRAMES / COLS), sheets[name]);
   const path = join(OUT_DIR, `aura_${name}.png`);
@@ -373,3 +447,30 @@ for (const name of ["red", "green"]) {
 }
 writeFileSync(PREVIEW_PATH, encode_png(CELL * COLS, CELL * (FRAMES / COLS) * 2, compose_preview([sheets.red, sheets.green])));
 console.log(`[aura] ${PREVIEW_PATH}`);
+
+function zoom_crop(sheet, w, x0, y0, cw, ch, scale) {
+  const out_w = cw * scale;
+  const out_h = ch * scale;
+  const dst = new Uint8Array(out_w * out_h * 4);
+  for (let i = 0; i < out_w * out_h; i++) {
+    dst[i * 4] = 26;
+    dst[i * 4 + 1] = 26;
+    dst[i * 4 + 2] = 36;
+    dst[i * 4 + 3] = 255;
+  }
+  for (let y = 0; y < out_h; y++) {
+    for (let x = 0; x < out_w; x++) {
+      const sx = x0 + ((x / scale) | 0);
+      const sy = y0 + ((y / scale) | 0);
+      const si = (sy * w + sx) * 4;
+      const a = sheet[si + 3];
+      if (!a) continue;
+      over_pixel(dst, (y * out_w + x) * 4, sheet[si], sheet[si + 1], sheet[si + 2], a);
+    }
+  }
+  return { w: out_w, h: out_h, pixels: dst };
+}
+
+const zc = zoom_crop(sheets.green, CELL * COLS, 0, 0, 256, 256, 3);
+writeFileSync(join(ROOT, "temp/aura_zoom.png"), encode_png(zc.w, zc.h, zc.pixels));
+console.log(`[aura] ${join(ROOT, "temp/aura_zoom.png")}`);
