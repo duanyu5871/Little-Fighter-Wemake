@@ -308,7 +308,20 @@
   <frame id="64" name="on_ground" state="1004" wait="1201" center="24,35" size="48,48" landable="1" state_label="Weapon_OnGround">
     <model id="1" rotation="0.5,0.50" offset="0,-7,0" />
     <next id="65" blink_time="56"/>
-    <bdy ref="on_ground"/>
+    <bdy ref="on_ground">
+      <action type="A_BUFF" test="itr_kind==2|itr_kind==7">
+        <data buff="MpHealing" duration="1800" hitflag="63"/>
+      </action>
+      <action type="A_SET_PROP" test="itr_kind==2|itr_kind==7">
+        <data name="holding"/>
+      </action>
+      <action type="V_SET_PROP" test="itr_kind==2|itr_kind==7">
+        <data name="bearer"/>
+      </action>
+      <action type="V_NEXT_FRAME" test="itr_kind==2|itr_kind==7">
+        <data id="65" blink_time="56"/>
+      </action>
+    </bdy>
   </frame>
   <frame id="65" name="on_ground" state="1004" wait="56" center="24,35" size="48,48" landable="1" state_label="Weapon_OnGround">
     <model id="1" rotation="0.5,0.50" offset="0,-7,0" />

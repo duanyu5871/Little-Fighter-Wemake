@@ -51,6 +51,8 @@ export class WorldDataset implements IWorldDataset {
   hp_r_value: number = 1;
   hp_healing_ticks: number = 16;
   hp_healing_value: number = 8;
+  mp_healing_ticks: number = 16;
+  mp_healing_value: number = 8;
 
   mp_r_ticks: number = 12;
   mp_r_ratio: number = 1;

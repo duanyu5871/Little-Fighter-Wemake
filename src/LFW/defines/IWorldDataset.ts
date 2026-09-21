@@ -109,6 +109,9 @@ export interface IWorldDataset {
   hp_healing_ticks: number;
   hp_healing_value: number;
 
+  mp_healing_ticks: number;
+  mp_healing_value: number;
+
   mp_r_ticks: number;
   mp_r_ratio: number;
 
@@ -296,6 +299,8 @@ export const world_dataset_fields = fields<IWorldDataset>({
   ball_itr_motionless: int("波命中停顿时长"),
   hp_healing_ticks: int("治疗回血周期", "治疗效果下，每几帧回血一次"),
   hp_healing_value: int("治疗回血量", "治疗效果下，每次回血多少"),
+  mp_healing_ticks: int("回蓝效果周期", "回蓝效果下，每几帧回蓝一次"),
+  mp_healing_value: int("回蓝效果量", "回蓝效果下，每次回蓝多少"),
   fvx_f: flt("frame.dvx缩放系数"),
   fvy_f: flt("frame.dvy缩放系数"),
   fvz_f: flt("frame.dvz缩放系数"),
@@ -416,6 +421,8 @@ const params: ISchemaMeta<IWorldDataset> = {
     hp_r_value: { type: 'number' },
     hp_healing_ticks: { type: 'number' },
     hp_healing_value: { type: 'number' },
+    mp_healing_ticks: { type: 'number' },
+    mp_healing_value: { type: 'number' },
     mp_r_ticks: { type: 'number' },
     mp_r_ratio: { type: 'number' },
     double_click_interval: { type: 'number' },
