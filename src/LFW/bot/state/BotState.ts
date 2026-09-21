@@ -76,7 +76,6 @@ export abstract class BotState_Base implements IState<BotStateEnum> {
       me.state !== StateEnum.Defend
     ) return false;
     if (!me.frame.bdy?.length) return c._false(mark, 1);
-    if (me.blinking) return c._false(mark, 2);
     if (me.invisible) return c._false(mark, 3);
     if (me.invulnerable) return c._false(mark, 4);
 

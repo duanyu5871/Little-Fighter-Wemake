@@ -19,6 +19,7 @@ export interface ICtrlCreator {
 }
 export interface IBuffCreator {
   readonly KIND: string | number;
+  readonly GROUPS: string[];
   new(...args: ConstructorParameters<typeof Buff>): Buff;
 }
 export type Key = string | number | symbol
@@ -32,6 +33,7 @@ export class Factory {
   static readonly buff_creators = new Map<Key, IBuffCreator>();
   static readonly components = new Map<string, typeof UIComponent>();
   protected static readonly _usedALIAS = new Set<string[]>()
+  static readonly buff_groups = new Map<string, Set<string | number>>()
   static register_component(Cls: typeof UIComponent<any, any>): void {
     const names = Cls.TAGS
     for (let i = 0; i < names.length; i++) {
@@ -54,9 +56,14 @@ export class Factory {
     Factory.ctrl_creators.set(oid, creator);
   }
   static register_buff(creator: IBuffCreator): void {
-    const { KIND } = creator;
+    const { KIND, GROUPS } = creator;
     if (Factory.buff_creators.has(KIND))
       Ditto.warn(`[${Factory.TAG}::register_buff] kind already exists, ${KIND.toString()}`)
+    for (const g of GROUPS) {
+      let s = this.buff_groups.get(g);
+      if (!s) this.buff_groups.set(g, s = new Set())
+      s.add(KIND)
+    }
     Factory.buff_creators.set(KIND, creator);
   }
   create_buff(kind: Key, lfw: LFW, id: string): Buff | undefined {

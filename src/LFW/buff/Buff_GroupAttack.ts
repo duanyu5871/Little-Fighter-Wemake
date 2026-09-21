@@ -1,5 +1,5 @@
+import type { Entity } from "../entity";
 import { Buff } from "./Buff";
-import { reg_group_attack_kind } from "./group_attack_flags";
 
 /**
  * “群攻”buff：让携带者 kind 0（ItrKind.Normal，拳击/普通攻击）的 itr
@@ -13,6 +13,16 @@ import { reg_group_attack_kind } from "./group_attack_flags";
  */
 export class Buff_GroupAttack extends Buff {
   static override readonly KIND = "GroupAttack";
+  static override readonly GROUPS: string[] = ["GroupAttack"];
+  override apply(): void {
+    for (const vid of this.victims) {
+      const victim = this.world.find_entity(vid)
+      if (!victim) continue;
+      victim.set_mark(Buff_GroupAttack.KIND, this.id)
+    }
+  }
+  override on_end(_?: Entity, victim?: Entity): "keep" | "del" {
+    victim?.del_mark(Buff_GroupAttack.KIND, this.id)
+    return "del"
+  }
 }
-
-reg_group_attack_kind(Buff_GroupAttack.KIND);

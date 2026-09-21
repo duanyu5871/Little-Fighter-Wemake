@@ -57,10 +57,8 @@ export class CharacterState_Lying extends CharacterState_Base {
       e.wakeup_invuln = true;// 是否全部加入的都要这个？
     }
     if (e.wakeup_invuln) { // 关键角色起身的闪烁无敌时间
-      // 提前或延迟起身都会降低无敌闪烁时间?
-      // const count_c = e.lying_c_count;
-      const count_c = 0;
-      e.blinking = (e.world.dataset.lying_blink_time - count_c);
+      e.blinking = e.world.dataset.lying_blink_time;
+      e.invulnerable = e.world.dataset.lying_blink_time;
     }
   }
   override on_dead(e: Entity): void {

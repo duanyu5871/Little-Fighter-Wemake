@@ -406,7 +406,6 @@ export class BotController extends BaseController {
     if (e_state == StateEnum.Lying)
       return false;
     if (e.invisible) return false
-    if (e.blinking) return false
     if (e.invulnerable) return false
     if (!me.is_on_ground) return true
 
@@ -444,7 +443,6 @@ export class BotController extends BaseController {
 
     if (av.state === StateEnum.Lying && av.wakeup_invuln)
       return ret;
-    if (av.blinking) return ret;
     if (av.invulnerable) return ret;
     if (me.holding?.base_type === WT.Drink) return ret;
 
@@ -502,7 +500,6 @@ export class BotController extends BaseController {
       e.invisible ||
       this.entity.toughness ||
       this.entity.invisible ||
-      this.entity.blinking ||
       this.entity.invulnerable
     ) return 0
 

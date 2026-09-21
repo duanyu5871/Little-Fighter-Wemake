@@ -59,6 +59,7 @@ export class DanmuGameLogic extends SummaryLogic {
       v.dead_gone = true;
       v.name_visible = true;
       v.blinking = 120;
+      v.invulnerable = 120;
     }
     this.lfw.mt.mark = 'dmglogic'
     const way: number = this.lfw.mt.range(0, 6);

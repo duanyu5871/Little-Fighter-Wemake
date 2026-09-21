@@ -305,10 +305,14 @@
     <model id="1" rotation="0.5,0.5,-0.2" offset="0,-5,0"/>
     <next id="64"/>
   </frame>
-  <frame id="64" name="on_ground" state="1004" wait="1" center="24,35" size="48,48" landable="1" state_label="Weapon_OnGround">
+  <frame id="64" name="on_ground" state="1004" wait="1201" center="24,35" size="48,48" landable="1" state_label="Weapon_OnGround">
     <model id="1" rotation="0.5,0.50" offset="0,-7,0" />
-    <next/>
+    <next id="65" blink_time="56"/>
     <bdy ref="on_ground"/>
+  </frame>
+  <frame id="65" name="on_ground" state="1004" wait="56" center="24,35" size="48,48" landable="1" state_label="Weapon_OnGround">
+    <model id="1" rotation="0.5,0.50" offset="0,-7,0" />
+    <next id="gone"/>
   </frame>
   <frame id="70" name="just_on_ground" state="1003" wait="3" center="24,35" size="48,48" landable="1" state_label="Weapon_Rebounding">
     <model id="1" rotation="0.5,0.5,0.2" offset="0,-5,0"/>

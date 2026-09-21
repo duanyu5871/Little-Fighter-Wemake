@@ -391,6 +391,7 @@ export class GamePrepareLogic extends UIComponent<IGamePrepareLogicProps> {
       const y = this.world.ground.y(seg, x, z);
       fighter.set_position(x, y, z);
       fighter.blinking = this.world.dataset.begin_blink_time;
+      fighter.invulnerable = this.world.dataset.begin_blink_time;
       if (is_vs_mode) fighter.mp = (fighter.mp_max * 2 / 5)
       fighter.attach();
     }

@@ -140,6 +140,7 @@ export class LittleFunnyAutoGame extends UIComponent {
     fighter.stat_bar_type = StatBarType.None;
     fighter.wakeup_invuln = true;
     fighter.blinking = 64
+    fighter.invulnerable = 64;
     fighter.dead_gone = true;
     fighter.name_visible = false;
     fighter.enter_frame_by_id("running_0")

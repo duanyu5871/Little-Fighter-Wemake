@@ -7,7 +7,7 @@ import { TestCase } from "../TestCase";
 export class Bat_DUJ_0 extends TestCase {
   override name: string = 'Bat D^J'
   bat: Entity | null = null
-override readonly director = new ActionDirector()
+  override readonly director = new ActionDirector()
     .offset(500, () => {
       this.bat?.ctrl.click(GK.d, GK.U, GK.j);
     })
@@ -73,7 +73,7 @@ export class Bat_DUJ_2 extends TestCase {
 export class Bat_DUJ_3 extends TestCase {
   override name: string = 'Bat D^J (Many Enemies)'
   bat: Entity | null = null
-override readonly director = new ActionDirector()
+  override readonly director = new ActionDirector()
     .offset(0, () => {
       this.bat?.ctrl.click(GK.d, GK.U, GK.j);
     })
@@ -92,6 +92,7 @@ override readonly director = new ActionDirector()
       fighter.team = TeamEnum.Team_1;
       fighter.attach();
       fighter.blinking = 99999
+      fighter.invulnerable = 99999;
       fighter.hp = 1;
       fighter.hp_r = 1;
       fighter.stat_bar_type = StatBarType.Float

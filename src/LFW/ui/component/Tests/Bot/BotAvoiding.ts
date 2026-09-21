@@ -8,6 +8,7 @@ export class BotAvoiding extends TestCase {
     this.entities.forEach((e, i) => {
       e.team = '' + (i + 1);
       e.blinking = i ? Number.MAX_SAFE_INTEGER : 0;
+      e.invulnerable = i ? Number.MAX_SAFE_INTEGER : 0;
       e.key_role = true;
       e.name = i ? 'Chasing' : 'Avoiding'
       e.ctrl = this.lfw.factory.create_ctrl(e.data.id, this.lfw.new_id, e)

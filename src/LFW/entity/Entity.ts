@@ -259,7 +259,7 @@ export class Entity {
   is_on_ground: boolean = false;
 
   readonly buffs = new Map<string, Buff>()
-
+  readonly marks = new Map<string, string>();
   renderer: IEntityRenderer | undefined;
   puppet: boolean = false;
   jumping = { x: 0, y: 0, z: 0, t: 0 }
@@ -707,7 +707,8 @@ export class Entity {
     this.reset(data, states)
   }
   reset(data: IEntityData, states: States = ENTITY_STATES) {
-    let buffs = Array.from(this.buffs.values())
+    this.marks.clear();
+    const buffs = Array.from(this.buffs.values())
     for (const buf of buffs) buf.del_victims(this.id)
     this.buffs.clear();
     const { world, lfw } = this;
@@ -1062,7 +1063,7 @@ export class Entity {
             if (skip_zero && !allies.length) break;
             count = clamp(allies.length, min, max);
             break;
-          case OpointMultiEnum.Emitter:
+          case OpointMultiEnum.Emitter: {
             const { emitter } = this;
             if (!emitter) break;
             const e = this.world.find_entity(emitter);
@@ -1070,6 +1071,7 @@ export class Entity {
             allies = [e];
             count = 1;
             break;
+          }
         }
       }
       let facing = this.facing;
@@ -2699,6 +2701,19 @@ export class Entity {
       : null;
   }
 
+  set_mark(key: string, value: string, prev?: string): boolean {
+    if (prev == void 0 || this.marks.get(key) == prev) {
+      this.marks.set(key, value);
+      return true;
+    }
+    return false;
+  }
+  del_mark(key: string, value?: string): boolean {
+    if (value == void 0 || this.marks.get(key) == value) {
+      return this.marks.delete(key);
+    }
+    return false;
+  }
 }
 
 const common_creator = (world: World, data: IEntityData, states?: States) => {

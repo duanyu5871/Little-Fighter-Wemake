@@ -10,6 +10,7 @@ const EFFECT_FRAME_ID = "0";
 
 export abstract class Buff {
   static readonly KIND: string | number = '';
+  static readonly GROUPS: string[] = [];
   readonly lfw: LFW;
   readonly world: World;
   protected _id: string;
