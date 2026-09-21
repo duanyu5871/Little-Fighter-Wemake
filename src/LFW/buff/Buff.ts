@@ -6,8 +6,6 @@ import { Times } from "../utils/Times";
 import { World } from "../World";
 import type { IBuffSnapshot } from "./IBuffSnapshot";
 
-const EFFECT_FRAME_ID = "0";
-
 export abstract class Buff {
   static readonly KIND: string | number = '';
   static readonly GROUPS: string[] = [];
@@ -102,6 +100,8 @@ export abstract class Buff {
 
   /** 特效实体使用的数据 oid，空字符串 = 不使用特效实体 */
   protected get effect_oid(): string { return ''; }
+  /** 特效实体进入的帧ID，由子类选择同一数据里的"哪个"特效 */
+  protected get effect_frame_id(): string { return "0"; }
   protected effect_data(): IEntityData | undefined {
     const oid = this.effect_oid;
     if (!oid) return void 0;
@@ -135,7 +135,7 @@ export abstract class Buff {
       effect.outline_width = 0;
       effect.outline_color = '';
       effect.set_position(...this.effect_anchor(victim));
-      effect.enter_frame_by_id(EFFECT_FRAME_ID);
+      effect.enter_frame_by_id(this.effect_frame_id);
       effect.attach(true);
       this._effects.set(victim.id, effect);
     }

@@ -1,9 +1,9 @@
 {
   objects: [
     {
-      id: "electroshock",
+      id: "fx",
       type: "",
-      file: "data/electroshock.obj.json5",
+      file: "data/fx.obj.json5",
     },
   ],
 }
