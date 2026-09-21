@@ -13,6 +13,8 @@ import { Buff } from "./Buff";
 export class Buff_GroupAttack extends Buff {
   static override readonly KIND = "GroupAttack";
   static override readonly GROUPS: string[] = ["GroupAttack"];
+  protected override get effect_oid(): string { return "fx"; }
+  protected override get effect_frame_id(): string { return "16"; }
   override mount(): void {
     super.mount();
     for (const vid of this.victims) {

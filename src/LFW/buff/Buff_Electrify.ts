@@ -3,6 +3,8 @@ import type { Entity } from "../entity/Entity";
 
 export class Buff_Electrify extends Buff {
   static override readonly KIND = "Electrify";
+  protected override get effect_oid(): string { return "fx"; }
+  protected override get effect_frame_id(): string { return "32"; }
 
   override mount(): void {
     super.mount();
