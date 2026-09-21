@@ -190,11 +190,7 @@ export class BotState_Chasing extends BotState_Base {
 
     if (x_ok && z_ok) {
       if (is_weapon(en)) {
-        if (en.base_type == WT.Heavy) {
-          c.click(GK_B);
-        } else {
-          c.click(GK.d, GK.a)
-        }
+        c.click(GK_B);
       } else if (is_fighter(en)) {
         if (c.desire("chasing_1") < c.dataset.r_atk_desire)
           c.click(GK.a);
