@@ -730,6 +730,8 @@ export class World {
 
     for (const entity of this._gones) {
       this.entity_map.delete(entity.id)
+      const idx = this.entities.indexOf(entity)
+      if (idx >= 0) this.entities.splice(idx, 1)
       this.mark_players_alive(entity, false)
       if (is_fighter(entity))
         this.callbacks.call("on_fighter_del", entity);
