@@ -1,4 +1,5 @@
 import type { IEntityData } from "../defines";
+import { GONE_FRAME_INFO } from "../defines/GONE_FRAME_INFO";
 import type { IBuffRenderer } from "../ditto/render/IBuffRenderer";
 import type { Entity } from "../entity";
 import type { LFW } from "../LFW";
@@ -122,12 +123,12 @@ export abstract class Buff {
   protected del_effect(vid: string): void {
     const effect = this._effects.get(vid);
     if (!effect) return;
-    if (this.world.find_entity(effect.id)) this.world.del_entity(effect);
+    effect.set_frame(GONE_FRAME_INFO);
     this._effects.delete(vid);
   }
   protected clear_effects(): void {
     for (const [, effect] of this._effects)
-      if (this.world.find_entity(effect.id)) this.world.del_entity(effect);
+      effect.set_frame(GONE_FRAME_INFO);
     this._effects.clear();
   }
   /** 为受击者生成/跟随后特效实体（每个受击者一个，跟随受击者） */
@@ -157,7 +158,7 @@ export abstract class Buff {
         this.world.find_entity(vid) &&
         this.world.find_entity(effect.id)
       ) continue;
-      if (this.world.find_entity(effect.id)) this.world.del_entity(effect);
+      effect.set_frame(GONE_FRAME_INFO);
       this._effects.delete(vid);
     }
     for (const vid of this._victims) {

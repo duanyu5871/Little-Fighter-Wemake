@@ -232,8 +232,7 @@ export class World {
 
 
   del_entity(entity: Entity): this {
-    this._gones.add(entity)
-    // this._freshs.delete(entity)
+    entity.set_frame(GONE_FRAME_INFO)
     return this
   }
 
@@ -685,7 +684,7 @@ export class World {
 
     for (let i = 0; i < len; i++) {
       const a = this.entities[i];
-      if (a.ghosted) continue;
+      if (a.ghosted || a.frame.id === FID.Gone) continue;
       if (is_weapon(a) && a.is_on_ground) {
         const section = round(a.position.x / WEAPON_X_SECTION);
         const count = this.ground_weapon_counts.get(section) ?? 0;
@@ -698,7 +697,7 @@ export class World {
 
       for (let j = i + 1; j < len; j++) {
         const b = this.entities[j];
-        if (b.ghosted) continue;
+        if (b.ghosted || b.frame.id === FID.Gone) continue;
         if (a.aabb_max_x < b.aabb_min_x) break;
         if (a.aabb_max_z < b.aabb_min_z || b.aabb_max_z < a.aabb_min_z) continue;
         // 细致的碰撞判定
