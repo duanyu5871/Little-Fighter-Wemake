@@ -174,6 +174,8 @@ export interface IEntityInfo extends Partial<IWorldDataset> {
    */
   bot?: IBotData;
 
+  bot_ignore?: number;
+
   /**
    * 似乎有点想法，但不多
    *
@@ -238,6 +240,7 @@ export const entity_info_fields = fields<IEntityInfo>({
   weight: flt('重量', '目前为武器重量', { nullable: true }),
   bot_id: any,
   bot: any,
+  bot_ignore: int('BOT忽略', '为1时，BOT不会尝试也无法拾取该武器', { nullable: true }),
   portraits: any,
   ...fields_map_2_fields_obj(world_dataset_fields),
 });

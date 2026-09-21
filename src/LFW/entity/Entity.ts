@@ -596,6 +596,10 @@ export class Entity {
     this._invulnerable_duration = round_float(max(0, v));
   }
 
+  get bot_ignore(): number | undefined {
+    return this.frame.bot_ignore ?? this.data.base.bot_ignore;
+  }
+
   get ctrl(): BaseController {
     return this._ctrl;
   }

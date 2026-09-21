@@ -1,6 +1,7 @@
 import type { LFW } from "../LFW";
 import type { World } from "../World";
 import { Buff_GroupAttack } from "../buff";
+import { is_bot_ctrl } from "../entity/type_check";
 import { ENTITY_PRIORITY_MAP, HitFlag, ItrKind, type IBdyInfo, type IBounding, type IFrameInfo, type IItrInfo, } from "../defines";
 import { Ditto } from "../ditto";
 import type { Entity } from "../entity";
@@ -291,6 +292,12 @@ export function collision_test(c: Collision): boolean {
     if (victim.invulnerable) return false;
     if (b_catcher && b_catcher.frame.cpoint?.hurtable !== 1) return false
   }
+
+  if (
+    (itr.kind === ItrKind.Pick || itr.kind === ItrKind.PickSecretly) &&
+    victim.bot_ignore == 1 &&
+    is_bot_ctrl(attacker.ctrl)
+  ) return false;
 
   if (
     a_cube.left > b_cube.right ||

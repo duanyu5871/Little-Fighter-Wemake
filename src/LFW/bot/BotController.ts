@@ -353,6 +353,7 @@ export class BotController extends BaseController {
     if (!e.mounted) return false
     if (me.hp <= 0) return false;
     if (e.hp <= 0) return false;
+    if (e.bot_ignore == 1) return false;
     if (e == me.holding) return false;
     if (e == me.catching) return true;
     if (me.catching && me.catching.hp > 0) return false;
