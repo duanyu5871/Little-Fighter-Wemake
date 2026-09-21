@@ -34,8 +34,11 @@ import { BotFollow } from './Others/Follow';
 import { MoveStayCome } from './Others/MoveStayCome';
 import { Rudolf_DFJ } from './Rudolf/Rudolf_DFJ';
 import { TestCase } from "./TestCase";
+import { BlueBook_MpHealing } from "./Weapons/BlueBook";
 import { Boomerang_1_1, Boomerang_1_2, Boomerang_1_3, Boomerang_1_4, Boomerang_1_5, Boomerang_1_6, Boomerang_2_1, Boomerang_2_2, Boomerang_2_3, Boomerang_2_4, Boomerang_2_5, Boomerang_2_6, Boomerang_3_1, Boomerang_3_2, Boomerang_3_3, Boomerang_3_4, Boomerang_3_5, Boomerang_3_6 } from './Weapons/Boomerang';
 import { Dropping_1, Dropping_2 } from './Weapons/Dropping';
+import { GreenBook_Electrify } from './Weapons/GreenBook';
+import { RedBook_GroupAttack } from './Weapons/RedBook';
 import { Baseball_1_1, Hoe_1_1, Knife_1_1, Stick_1_1, Stone_1_1 } from "./Weapons/Throw";
 
 const CASE_GROUPS: IClazz<TestCase, [Tests]>[][] = [
@@ -81,6 +84,8 @@ const CASE_GROUPS: IClazz<TestCase, [Tests]>[][] = [
   ], [
     Baseball_1_1, Knife_1_1, Hoe_1_1, Stick_1_1, Stone_1_1,
     Dropping_1, Dropping_2
+  ], [
+    RedBook_GroupAttack, GreenBook_Electrify, BlueBook_MpHealing
   ]
 ]
 export class Tests extends UIComponent {
