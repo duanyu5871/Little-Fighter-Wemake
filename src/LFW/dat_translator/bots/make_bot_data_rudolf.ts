@@ -7,7 +7,7 @@ import { frames } from "./frames";
 
 export function make_bot_data_rudolf(): BotMaker {
   return new BotMaker(OID.Rudolf).set_dataset({
-    w_atk_m_x: 40,
+    w_atk_m_x: 20,
     w_atk_r_x: 150,
     w_atk_x: 300,
     r_desire_min: 500,
