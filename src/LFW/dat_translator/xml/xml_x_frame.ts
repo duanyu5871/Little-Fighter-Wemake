@@ -47,6 +47,7 @@ export function xml_x_frame(xml: IXML, f: IFrameInfo, tag: string): IXMLElement 
 
   ret.set_attr("invisible", f.invisible)
   ret.set_attr("invulnerable", f.invulnerable)
+  ret.set_attr("blinking", f.blinking)
   ret.set_attr("bot_ignore", f.bot_ignore)
   ret.set_attr("no_shadow", f.no_shadow)
   ret.set_attr("jump_flag", f.jump_flag)
@@ -105,6 +106,7 @@ export function xml_2_frame(el: IXMLElement): IFrameInfo {
   ret.mp              /**/ = el.get_num("mp", ret.mp);
   ret.invisible       /**/ = el.get_num("invisible");
   ret.invulnerable    /**/ = el.get_num("invulnerable");
+  ret.blinking        /**/ = el.get_num("blinking");
   ret.bot_ignore      /**/ = el.get_num("bot_ignore");
   ret.no_shadow       /**/ = el.get_num("no_shadow");
   ret.jump_flag       /**/ = el.get_num("jump_flag");

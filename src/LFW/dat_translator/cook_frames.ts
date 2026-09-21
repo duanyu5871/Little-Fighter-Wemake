@@ -135,8 +135,10 @@ export function cook_frames(ctx: IDatContext): Record<string, IFrameInfo> {
       (raw_next >= 1100 && raw_next <= 1299) ||
       (raw_next <= -1100 && raw_next >= -1299)
     ) {
-      frame.invisible = 2 * (abs(raw_next) - 1100);
-      frame.invulnerable = 2 * (abs(raw_next) - 1100);
+      const vv = 2 * (abs(raw_next) - 1100)
+      frame.invisible = vv;
+      frame.invulnerable = vv;
+      frame.blinking = vv + 120;
     }
 
     if (!frame.itr?.length) delete frame.itr;

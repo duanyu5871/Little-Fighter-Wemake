@@ -185,7 +185,7 @@ export class Entity {
    * @protected
    * @type {number}
    */
-  protected _invisible_duration: number = 0;
+  protected _invisible: number = 0;
 
   /**
    * 无敌时间计数，每帧-1
@@ -193,7 +193,7 @@ export class Entity {
    * @protected
    * @type {number}
    */
-  protected _invulnerable_duration: number = 0;
+  protected _invulnerable: number = 0;
 
   /**
    * 闪烁计数，每帧-1
@@ -201,7 +201,7 @@ export class Entity {
    * @protected
    * @type {number}
    */
-  protected _blinking_duration: number = 0;
+  protected _blinking: number = 0;
 
   /**
    * 闪烁完毕后下一动作
@@ -564,10 +564,10 @@ export class Entity {
    * @type {number}
    */
   get blinking() {
-    return this._blinking_duration;
+    return this._blinking;
   }
   set blinking(v: number) {
-    this._blinking_duration = round_float(max(0, v));
+    this._blinking = round_float(max(0, v));
   }
 
   /**
@@ -577,10 +577,10 @@ export class Entity {
    * @type {number}
    */
   get invisible() {
-    return this._invisible_duration;
+    return this._invisible;
   }
   set invisible(v: number) {
-    this._invisible_duration = round_float(max(0, v));
+    this._invisible = round_float(max(0, v));
   }
 
   /**
@@ -590,10 +590,10 @@ export class Entity {
    * @type {number}
    */
   get invulnerable() {
-    return this._invulnerable_duration;
+    return this._invulnerable;
   }
   set invulnerable(v: number) {
-    this._invulnerable_duration = round_float(max(0, v));
+    this._invulnerable = round_float(max(0, v));
   }
 
   get bot_ignore(): number | undefined {
@@ -803,9 +803,9 @@ export class Entity {
     this._hp = this._hp_r = this.hp_max;
     this._mp = this.mp_max;
     this.set_catch_time(this.catch_time_max)
-    this._invisible_duration = 0;
-    this._invulnerable_duration = 0;
-    this._blinking_duration = 0;
+    this._invisible = 0;
+    this._invulnerable = 0;
+    this._blinking = 0;
     this._after_blink = null;
     this._state = null;
     this._key_role = null;
@@ -1004,8 +1004,9 @@ export class Entity {
     if (prev_state_code !== next_state_code) {
       this.set_state(next_state_code)
     }
-    if (v.invisible) this.invisibility(v.invisible);
-    if (v.invulnerable) this._invulnerable_duration = v.invulnerable
+    if (v.invisible) this.invisible = v.invisible;
+    if (v.blinking) this.blinking = v.blinking;
+    if (v.invulnerable) this._invulnerable = v.invulnerable
     if (v.opoint) this.apply_opoints(v.opoint);
     if (!v.cpoint) {
       this.set_catching(null);
@@ -1485,8 +1486,8 @@ export class Entity {
     if (
       this._hp <= 0 ||
       this._mp >= this.mp_max ||
-      this._blinking_duration ||
-      this._invisible_duration
+      this._blinking ||
+      this._invisible
     )
       return;
     this._mp_r_tick.max = this.dataset("mp_r_ticks");
@@ -1558,22 +1559,19 @@ export class Entity {
       }
     }
 
-    if (this._invisible_duration > 0) {
-      this._invisible_duration = rf(this._invisible_duration - this._atom_time);
-      if (this._invisible_duration <= 0) {
-        this._invisible_duration = 0;
-        this._blinking_duration = this.dataset('invisible_blinking');
-      }
+    if (this._invisible > 0) {
+      this._invisible = rf(this._invisible - this._atom_time);
+      if (this._invisible <= 0) this._invisible = 0;
     }
-    if (this._invulnerable_duration > 0) {
-      this._invulnerable_duration = rf(this._invulnerable_duration - this._atom_time);
-      if (this._invulnerable_duration < 0) this._invulnerable_duration = 0;
+    if (this._invulnerable > 0) {
+      this._invulnerable = rf(this._invulnerable - this._atom_time);
+      if (this._invulnerable < 0) this._invulnerable = 0;
     }
 
-    if (this._blinking_duration > 0) {
-      this._blinking_duration = rf(this._blinking_duration - this._atom_time);
-      if (this._blinking_duration <= 0) {
-        this._blinking_duration = 0;
+    if (this._blinking > 0) {
+      this._blinking = rf(this._blinking - this._atom_time);
+      if (this._blinking <= 0) {
+        this._blinking = 0;
         if (this._after_blink === FrameId.Gone) {
           this.frame = GONE_FRAME_INFO;
           this.arest = 0;
@@ -2024,23 +2022,13 @@ export class Entity {
    * @param {number} duration 闪烁持续帧数
    */
   blink_and_gone(duration: number) {
-    this._blinking_duration = duration;
+    this._blinking = duration;
     this._after_blink = FrameId.Gone;
   }
   blink_and_respawn(duration: number) {
-    this._blinking_duration = duration;
+    this._blinking = duration;
     this._after_blink = FrameId.Respawn;
   }
-
-  /**
-   * 开始隐身
-   *
-   * @param {number} duration 隐身持续帧数
-   */
-  invisibility(duration: number) {
-    this._invisible_duration = duration;
-  }
-
 
   get_flag(other: Entity): number {
     let ret = this.team === other.team ? HitFlag.Ally : HitFlag.Enemy;
@@ -2488,9 +2476,9 @@ export class Entity {
     nums[NSlot.CATCH_TIME_MAX] = this._catch_time_max ?? NaN;
     nums[NSlot.DISMISS_TIME] = this.dismiss_time ?? NaN;
 
-    nums[NSlot.INVISIBLE_DURATION] = this._invisible_duration;
-    nums[NSlot.INVULNERABLE_DURATION] = this._invulnerable_duration;
-    nums[NSlot.BLINKING_DURATION] = this._blinking_duration;
+    nums[NSlot.INVISIBLE_DURATION] = this._invisible;
+    nums[NSlot.INVULNERABLE_DURATION] = this._invulnerable;
+    nums[NSlot.BLINKING_DURATION] = this._blinking;
 
     nums[NSlot.JUMP_X] = this.jumping.x;
     nums[NSlot.JUMP_Y] = this.jumping.y;
@@ -2604,9 +2592,9 @@ export class Entity {
     this._catch_time_max = num_or_null(nums[NSlot.CATCH_TIME_MAX]);
     this.dismiss_time = num_or_null(nums[NSlot.DISMISS_TIME]);
 
-    this._invisible_duration = nums[NSlot.INVISIBLE_DURATION];
-    this._invulnerable_duration = nums[NSlot.INVULNERABLE_DURATION];
-    this._blinking_duration = nums[NSlot.BLINKING_DURATION];
+    this._invisible = nums[NSlot.INVISIBLE_DURATION];
+    this._invulnerable = nums[NSlot.INVULNERABLE_DURATION];
+    this._blinking = nums[NSlot.BLINKING_DURATION];
 
     this.jumping.x = nums[NSlot.JUMP_X];
     this.jumping.y = nums[NSlot.JUMP_Y];

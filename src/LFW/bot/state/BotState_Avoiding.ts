@@ -1,7 +1,7 @@
 
 import { AGK, Defines, GK, StateEnum, WeaponEnum } from "../../defines";
 import { BSE } from "../../defines/BotStateEnum";
-import { abs, clamp, round, round_float } from "../../utils/math";
+import { abs, between, clamp, round, round_float } from "../../utils/math";
 import { BotState_Base } from "./BotState";
 
 export class BotState_Avoiding extends BotState_Base {
@@ -105,8 +105,12 @@ export class BotState_Avoiding extends BotState_Base {
       c.key_down(x_forwrd_key)
     }
     c.key_up(x_backward_key)
-    if (dead_zone_only) {
-      this.hold_UD(round(av_z - me_z), c.dataset.w_atk_min_z, c.dataset.w_atk_max_z)
+    const rz = round(av_z - me_z)
+    if (
+      dead_zone_only &&
+      !between(rz, c.dataset.w_atk_min_z, c.dataset.w_atk_max_z)
+    ) {
+      this.hold_UD(rz, c.dataset.w_atk_min_z, c.dataset.w_atk_max_z)
     } else {
       c.key_down(z_forwrd_key)
       c.key_up(z_backward_key)

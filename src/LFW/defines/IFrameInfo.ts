@@ -179,6 +179,7 @@ export interface IFrameInfo extends IVelocityInfo {
    * @type {?number}
    */
   invulnerable?: number;
+  blinking?: number;
   bot_ignore?: number;
   /**
    * 是否有影子
@@ -336,6 +337,7 @@ export const frame_info_fields = fields<IFrameInfo>({
   cpoint: obj("cpoint", { nullable: true, fields: cpoint_info_fields }),
   invisible: int("隐身帧数", { nullable: true }),
   invulnerable: int("无敌帧数", { nullable: true }),
+  blinking: int("闪烁帧数", { nullable: true }),
   bot_ignore: int("BOT忽略", "为1时，BOT不会追击处于该帧的对象", { nullable: true }),
   no_shadow: int("有否影子", "1=有影子 0=没影子", {
     nullable: true,
@@ -431,6 +433,7 @@ export const Schema_IFrameInfo = make_schema<IFrameInfo>({
     sound: { type: 'string', nullable: true },
     invisible: { type: 'number', number: { int: true, nagetive: false }, nullable: true },
     invulnerable: { type: 'number', number: { int: true, nagetive: false }, nullable: true },
+    blinking: { type: 'number', number: { int: true, nagetive: false }, nullable: true },
     bot_ignore: { type: 'number', oneof: [0, 1], nullable: true },
     no_shadow: { type: 'number', oneof: [0, 1], nullable: true },
     jump_flag: { type: 'number', oneof: [0, 1], nullable: true },
