@@ -17,7 +17,6 @@ export class Buff_Electroshock extends Buff {
     if (!victim || !is_fighter(victim)) return;
     if (
       victim.state === SE.Falling ||
-      victim.state === SE.Injured ||
       victim.state === SE.Lying
     ) return
     victim.wait += 1;
