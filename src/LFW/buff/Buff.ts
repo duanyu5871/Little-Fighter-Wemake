@@ -3,7 +3,7 @@ import type { IBuffRenderer } from "../ditto/render/IBuffRenderer";
 import type { Entity } from "../entity";
 import type { LFW } from "../LFW";
 import { Times } from "../utils/Times";
-import { World } from "../World";
+import type { World } from "../World";
 import type { IBuffSnapshot } from "./IBuffSnapshot";
 
 export abstract class Buff {
