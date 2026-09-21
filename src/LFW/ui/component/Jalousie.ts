@@ -20,10 +20,26 @@ export class Jalousie extends Flex<IJalousieCallbacks> {
 
   override on_start() {
     super.on_start?.();
+    this.sync_screen_rect();
     const open = this.props_holder.bool('open') ?? this.bool(1);
     const end = this.props_holder.bool('end') ?? this.bool(2);
     if (end) this._anim.end(open)
     else this._anim.start(open)
+  }
+  override on_resume(): void {
+    super.on_resume?.();
+    this.sync_screen_rect();
+  }
+  protected sync_screen_rect(): void {
+    const root = this.node.root;
+    if (!root.w || !root.h) return;
+    const { x: cx, y: cy } = this.node.center;
+    this.node.move_to_global(
+      root.global_pos.x + cx * root.w,
+      root.global_pos.y + cy * root.h,
+      this.node.global_pos.z,
+    );
+    this.node.resize(root.w, root.h);
   }
   get open(): boolean { return this._anim.reverse; }
   set open(v: boolean) { this._anim.start(v); }
