@@ -1,6 +1,7 @@
-import { O_ID, TeamEnum } from "../../../../defines";
+import { GK, O_ID, TeamEnum } from "../../../../defines";
 import type { Entity } from "../../../../entity";
 import { round_float } from "../../../../utils/math/round_float";
+import { ActionDirector } from "../ActionDirector";
 import { TestCase } from "../TestCase";
 
 export class GreenBook_Electrify extends TestCase {
@@ -10,13 +11,18 @@ export class GreenBook_Electrify extends TestCase {
   bandit_top: Entity | null = null;
   bandit_bottom: Entity | null = null;
   book: Entity | null = null;
-
+  override director: ActionDirector = new ActionDirector().offset(1000, () => {
+    this.john_top?.ctrl.click(GK.a)
+  }).wait(1000).repeat(2000, 1000, () => {
+    this.john_top?.ctrl.click(GK.a)
+    this.john_bottom?.ctrl.click(GK.a)
+  })
   override enter(): void {
     super.enter();
     const z_top = round_float(this.midZ + (this.far - this.midZ) * 0.6);
     const z_bottom = round_float(this.midZ + (this.near - this.midZ) * 0.6);
-    const john_x = this.midX - 210;
-    const bandit_x = this.midX - 30;
+    const john_x = this.midX - 30;
+    const bandit_x = this.midX + 30;
 
     this.john_top = this.place_john(john_x, z_top);
     this.john_bottom = this.place_john(john_x, z_bottom);
@@ -31,7 +37,7 @@ export class GreenBook_Electrify extends TestCase {
     if (!john) return null;
     john.team = TeamEnum.Team_1;
     john.facing = 1;
-    john.key_role = true;
+    john.key_role = false;
     john.set_position(x, 0, z);
     john.attach();
     return john;

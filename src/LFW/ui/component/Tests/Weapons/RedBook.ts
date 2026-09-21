@@ -1,10 +1,25 @@
-import { O_ID, TeamEnum } from "../../../../defines";
+import { GK, O_ID, TeamEnum } from "../../../../defines";
 import type { Entity } from "../../../../entity";
 import { round_float } from "../../../../utils/math/round_float";
+import { ActionDirector } from "../ActionDirector";
 import { TestCase } from "../TestCase";
 
 export class RedBook_GroupAttack extends TestCase {
   override name: string = "Red Book: GroupAttack";
+  override director: ActionDirector = new ActionDirector().offset(1000, () => {
+    this.davis_top?.ctrl.click(GK.a)
+  }).offset(500, () => {
+    this.davis_top?.ctrl.db_hit(GK.R)
+    this.davis_bottom?.ctrl.db_hit(GK.R)
+  }).offset(30, () => {
+    this.davis_top?.ctrl.click(GK.Jump)
+    this.davis_bottom?.ctrl.click(GK.Jump)
+  }).offset(30, () => {
+    this.davis_top?.ctrl.click(GK.Jump)
+    this.davis_bottom?.ctrl.click(GK.Jump)
+    this.davis_top?.ctrl.click(GK.Attack)
+    this.davis_bottom?.ctrl.click(GK.Attack)
+  })
   davis_top: Entity | null = null;
   davis_bottom: Entity | null = null;
   bandits_top: Entity[] = [];
@@ -15,8 +30,8 @@ export class RedBook_GroupAttack extends TestCase {
     super.enter();
     const z_top = round_float(this.midZ + (this.far - this.midZ) * 0.6);
     const z_bottom = round_float(this.midZ + (this.near - this.midZ) * 0.6);
-    const davis_x = this.midX - 210;
-    const bandit_x = this.midX - 30;
+    const davis_x = this.midX - 75;
+    const bandit_x = this.midX + 75;
 
     this.davis_top = this.place_davis(davis_x, z_top);
     this.davis_bottom = this.place_davis(davis_x, z_bottom);
@@ -35,7 +50,7 @@ export class RedBook_GroupAttack extends TestCase {
   }
 
   protected place_davis(x: number, z: number): Entity | null {
-    const davis = this.spawn(O_ID.Davis);
+    const davis = this.spawn(O_ID.Justin);
     if (!davis) return null;
     davis.team = TeamEnum.Team_1;
     davis.facing = 1;

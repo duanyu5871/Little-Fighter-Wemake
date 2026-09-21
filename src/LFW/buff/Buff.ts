@@ -110,14 +110,14 @@ export abstract class Buff {
   /** 摆放特效实体到受击者身上的位置（缺省 = 受击者位置） */
   protected place_effect(effect: Entity, victim: Entity): void {
     const { position } = victim;
-    effect.set_position(position.x, position.y, position.z);
+    effect.set_position(position.x, position.y, position.z + 0.5);
   }
   /** 摆放特效实体到受击者当前帧的视觉中心 */
   protected place_effect_center(effect: Entity, victim: Entity): void {
     const { centery = 0, height = 0, pic } = victim.frame;
     const h = height || pic?.h || 0;
     const { position } = victim;
-    effect.set_position(position.x, position.y + centery - h / 2, position.z);
+    effect.set_position(position.x, position.y + centery - h / 2, position.z + 0.5);
   }
   protected del_effect(vid: string): void {
     const effect = this._effects.get(vid);
