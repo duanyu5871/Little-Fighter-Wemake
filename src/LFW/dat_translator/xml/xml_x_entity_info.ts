@@ -34,6 +34,8 @@ export function xml_x_entity_info(xml: IXML, info: IEntityInfo, tag: string): IX
   ret.set_attr("dead_sounds", info.dead_sounds);
   ret.set_attr("bot_id", info.bot_id);
   ret.set_attr("bot_ignore", info.bot_ignore);
+  ret.set_attr("w_atk_m_x", info.w_atk_m_x);
+  ret.set_attr("w_atk_r_x", info.w_atk_r_x);
   xml_x_map(xml, info.portraits, "portrait", xml_x_frame_pic, ret)
   ret.insert(xml_from_world_dataset(xml, info, "dataset"));
   return ret;
@@ -74,6 +76,8 @@ export function xml_2_entity_info(el: IXMLElement): IEntityInfo {
 
   ret.bot_id = el.get_str("bot_id") ?? el.child_by_tag("bot")?.get_str("id");
   ret.bot_ignore = el.get_num("bot_ignore", ret.bot_ignore);
+  ret.w_atk_m_x = el.get_num("w_atk_m_x", ret.w_atk_m_x);
+  ret.w_atk_r_x = el.get_num("w_atk_r_x", ret.w_atk_r_x);
 
 
   // portraits

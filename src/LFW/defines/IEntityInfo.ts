@@ -176,6 +176,10 @@ export interface IEntityInfo extends Partial<IWorldDataset> {
 
   bot_ignore?: number;
 
+  w_atk_m_x?: number;
+
+  w_atk_r_x?: number;
+
   /**
    * 似乎有点想法，但不多
    *
@@ -241,6 +245,8 @@ export const entity_info_fields = fields<IEntityInfo>({
   bot_id: any,
   bot: any,
   bot_ignore: int('BOT忽略', '为1时，BOT不会尝试也无法拾取该武器', { nullable: true }),
+  w_atk_m_x: int('站立攻击距离死区', '手持该武器时，敌人的X与我的X之差小于此值时，BOT会先拉开距离再站定攻击', { nullable: true }),
+  w_atk_r_x: int('站立攻击最大距离', '手持该武器时，BOT站定攻击的最大触发距离，超出则不站定攻击', { nullable: true }),
   portraits: any,
   ...fields_map_2_fields_obj(world_dataset_fields),
 });

@@ -114,6 +114,7 @@ export class BotDataSet implements Required<IBotDataSet> {
   w_atk_b_x = 40;
   /** 走攻盲区 */
   w_atk_m_x = -1;
+  /** 走攻最远边界 */
   w_atk_r_x = -1;
   /** 走攻触发范围Z */
   w_atk_min_z = -15;

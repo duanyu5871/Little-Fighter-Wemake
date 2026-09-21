@@ -193,23 +193,23 @@ export class BotController extends BaseController {
     ) return 110;
     return this.dataset.j_atk_x;
   }
-  /** 最近站立攻击距离 */
+
+  /** 
+   * 站立攻击距离死区
+   * 
+   * 意味着当 敌人X - 我X < w_atk_m_x 时，Bot应拉开距离
+   */
   get w_atk_m_x() {
-    const wt = this.entity.holding?.base_type
-    if (
-      wt === WT.Baseball ||
-      wt === WT.Drink
-    ) return 100;
-    return this.dataset.w_atk_m_x
+    return this.entity.holding?.data.base.w_atk_m_x ?? this.dataset.w_atk_m_x
   }
+
+  /**
+   * 站立攻击最大距离
+   */
   get w_atk_r_x() {
-    const wt = this.entity.holding?.base_type
-    if (
-      wt === WT.Baseball ||
-      wt === WT.Drink
-    ) return 200;
-    return this.dataset.w_atk_r_x
+    return this.entity.holding?.data.base.w_atk_r_x ?? this.dataset.w_atk_r_x
   }
+  
   get stage() { return this.world.stage }
 
   get defend_desire() {

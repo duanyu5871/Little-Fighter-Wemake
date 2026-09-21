@@ -1,4 +1,4 @@
-import { BdyKind, FrameId, OID, Defines, EntityEnum, EntityGroup, type IOpointInfo, StateEnum } from "../defines";
+import { BdyKind, Defines, EntityEnum, EntityGroup, type IOpointInfo, OID, StateEnum, WT } from "../defines";
 import { ActionType } from "../defines/actions/ActionType";
 import { CollisionVal as C_Val } from "../defines/CollisionVal";
 import type { IEntityData } from "../defines/IEntityData";
@@ -7,7 +7,7 @@ import { ensure, make_arr } from "../utils";
 import { foreach } from "../utils/container_help/foreach";
 import { armour, baseball, beer1, beer2, boomerang, box0, box1, box2, box3, hoe, icesword1, icesword2, k_hoe, milk1, milk2, milk3, s_hoe, sstick, sstone, stick, stone } from "./broken_piece_frames";
 import { CondMaker } from "./CondMaker";
-Defines.WEAPON_WEIGHT_HEAVY
+
 const broken_pieces_opoints = (...frame_ids: (string | string[])[]): IOpointInfo[] => {
   const aa = [
     { dvy: 5, dvx: -1 },
@@ -45,6 +45,25 @@ export function make_weapon_special(data: IEntityData) {
       EntityGroup.VsWeapon,
       EntityGroup.StageWeapon,
     );
+  }
+  switch (data.base.type) {
+    case WT.Heavy:
+      data.base.w_atk_m_x ??= -1;
+      data.base.w_atk_r_x ??= 200;
+      break;
+    case WT.Knife:
+      data.base.w_atk_m_x ??= -1;
+      data.base.w_atk_r_x ??= 40;
+      break;
+    case WT.Stick:
+      data.base.w_atk_m_x ??= -1;
+      data.base.w_atk_r_x ??= 100;
+      break;
+    case WT.Baseball:
+    case WT.Drink:
+      data.base.w_atk_m_x ??= 100;
+      data.base.w_atk_r_x ??= 200;
+      break;
   }
   switch (data.id) {
     case OID.HenryArrow1:
