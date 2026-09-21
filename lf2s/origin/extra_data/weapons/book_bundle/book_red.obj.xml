@@ -310,7 +310,7 @@
     <next id="65" blink_time="56"/>
     <bdy ref="on_ground">
       <action type="A_BUFF" test="itr_kind==2|itr_kind==7">
-        <data buff="GroupAttack" duration="1800" hitflag="63"/>
+        <data buff="GroupAttack" duration="1080" hitflag="63"/>
       </action>
       <action type="A_SET_PROP" test="itr_kind==2|itr_kind==7">
         <data name="holding"/>
