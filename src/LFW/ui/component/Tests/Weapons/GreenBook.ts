@@ -42,7 +42,7 @@ export class GreenBook_Electrify extends TestCase {
     if (!bandit) return null;
     bandit.team = TeamEnum.Team_2;
     bandit.facing = -1;
-    bandit.key_role = true;
+    bandit.key_role = false;
     bandit.set_position(x, 0, z);
     bandit.attach();
     return bandit;
