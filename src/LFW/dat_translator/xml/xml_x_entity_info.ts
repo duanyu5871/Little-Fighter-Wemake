@@ -58,7 +58,6 @@ export function xml_2_entity_info(el: IXMLElement): IEntityInfo {
   ret.bounce_x = el.get_num("bounce_x", bounce?.[0] ?? ret.bounce_x);
   ret.bounce_y = el.get_num("bounce_y", bounce?.[1] ?? ret.bounce_y);
   ret.bounce_z = el.get_num("bounce_z", bounce?.[2] ?? ret.bounce_z);
-
   const bounce_min = el.nums_attr_soft("bounce_min");
   ret.bounce_min_y = el.get_num("bounce_min_y", bounce_min?.[0] ?? ret.bounce_min_y);
   ret.bounce_min_x = el.get_num("bounce_min_x", bounce_min?.[1] ?? ret.bounce_min_x);

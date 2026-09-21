@@ -53,7 +53,7 @@ export function make_weapon_special(data: IEntityData) {
       break;
     case WT.Knife:
       data.base.w_atk_m_x ??= -1;
-      data.base.w_atk_r_x ??= 40;
+      data.base.w_atk_r_x ??= 70;
       break;
     case WT.Stick:
       data.base.w_atk_m_x ??= -1;
