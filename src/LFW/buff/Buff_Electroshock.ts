@@ -19,17 +19,18 @@ export class Buff_Electroshock extends Buff {
   override init() {
     this._ticker.max = 3;
   }
-  override on_tick(_?: Entity, victim?: Entity): 'keep' | 'del' {
-    if (!victim || !is_fighter(victim)) return 'del';
+  override on_tick(_?: Entity, victim?: Entity): void {
+    if (!victim || !is_fighter(victim)) return;
     if (
       victim.state === SE.Falling ||
       victim.state === SE.Injured ||
       victim.state === SE.Lying
-    ) return 'keep'
+    ) return
     victim.wait += 1;
-    return 'keep'
+    return
   }
-  override apply(): void {
+  override mount(): void {
+    super.mount()
     for (const vid of this.victims) {
       const victim = this.world.find_entity(vid)
       if (!victim) continue;

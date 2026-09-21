@@ -57,7 +57,6 @@ export interface IEntitySnapshot {
   defend_value_max: number | null;
   defend_r_tick: ITimesSnapshot;
   defend_r_value: number;
-  healing: number;
   defend_ratio: number | null;
   fallinjury: number;
   throwinjury: number;

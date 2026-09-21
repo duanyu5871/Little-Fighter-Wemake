@@ -12,19 +12,19 @@ export class Buff_MagicFlute2 extends Buff {
     this.ticks = 3;
     this.duration = 3;
   }
-  override on_tick(attacker?: Entity, victim?: Entity): "keep" | "del" {
-    if (!victim) return 'del';
+  override on_tick(attacker?: Entity, victim?: Entity): void {
+    if (!victim) return;
     const prev_hp = victim.hp;
     victim.hp_r -= this.injury_r;
     victim.hp -= this.injury;
     victim.fallinjury = 20;
     victim.toughness = 0;
     if (attacker) summary_mgr.apply_damage(attacker, this.injury, victim, prev_hp);
-    return 'keep';
+    return;
   }
 
-  override on_update(attacker?: Entity, victim?: Entity): "keep" | "del" {
-    if (!victim) return 'del';
+  override on_update(attacker?: Entity, victim?: Entity): void {
+    if (!victim) return;
     const vy = calc_v(victim.velocity.y, 1.5, SpeedMode.AccTo, 1.5, 1);
     victim.set_velocity(null, vy);
     victim.handle_velocity_decay(0.25);
@@ -45,6 +45,6 @@ export class Buff_MagicFlute2 extends Buff {
             break;
         }
     }
-    return 'keep';
+    return;
   }
 }

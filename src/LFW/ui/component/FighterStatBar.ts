@@ -1,4 +1,5 @@
 import { Defines, T_E, type IPropsMeta } from "../../defines";
+import { Buff_Healing } from "../../buff/Buff_Healing";
 import { Entity, type IEntityCallbacks } from "../../entity";
 import { StatBarType } from "../../entity/StatBarType";
 import { UINode } from "../UINode";
@@ -201,7 +202,7 @@ export class FighterStatBar extends UIComponent<IFighterStatBarProps> {
     this.update_name();
     const { entity, props: { hp_bar } } = this
     if (hp_bar) {
-      this.healing = !!entity?.healing && (entity.lifetime % 8) < 4;
+      this.healing = !!entity?.marks.has(Buff_Healing.KIND) && (entity.lifetime % 8) < 4;
       hp_bar.children[0].color = this.healing ? 'rgb(255,130,130)' : 'rgb(255,0,0)'
     }
     this.defend_value_max.update()

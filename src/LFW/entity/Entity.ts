@@ -117,7 +117,6 @@ export class Entity {
   protected _defend_value_max: number | null = null
   protected readonly _defend_r_tick: Times = new Times();
   protected _defend_r_value: number = 0;
-  protected _healing: number = 0;
   protected _defend_ratio: number | null = null
   public fallinjury: number = 0;
   public throwinjury: number = 0;
@@ -409,16 +408,6 @@ export class Entity {
     this._defend_value_max = v;
     this.callbacks.call("on_defend_value_max_changed", this, v, o);
   }
-  get healing(): number { return this._healing; }
-  set healing(v: number) {
-    v = round_float(v);
-    if (this._hp_r === this._hp) v = 0
-    const o = this._healing;
-    if (o === v) return;
-    this._healing = v;
-    this.callbacks.call("on_healing_changed", this, v, o);
-  }
-
   get defend_ratio(): number { return this._defend_ratio ?? this.world.dataset.defend_ratio; }
   set defend_ratio(v: number) {
     v = round_float(v);
@@ -709,7 +698,7 @@ export class Entity {
   reset(data: IEntityData, states: States = ENTITY_STATES) {
     this.marks.clear();
     const buffs = Array.from(this.buffs.values())
-    for (const buf of buffs) buf.del_victims(this.id)
+    for (const buf of buffs) buf.del_victim(this)
     this.buffs.clear();
     const { world, lfw } = this;
     this.is_on_ground = false;
@@ -747,7 +736,6 @@ export class Entity {
     this._fall_value_max = data.base.fall_value_max ?? null;
     this._defend_value_max = data.base.defend_value_max ?? null;
     this._defend_ratio = data.base.defend_ratio ?? null;
-    this._healing = 0;
     this._catch_time_max = data.base.catch_time_max ?? null;
     this.throwinjury = 0;
     this.facing = 1;
@@ -1484,18 +1472,9 @@ export class Entity {
 
   hp_recovering(): void {
     if (this._hp <= 0 || this._hp >= this._hp_r) return;
-    this._hp_r_tick.max =
-      this.healing > 0
-        ? this.dataset("hp_healing_ticks")
-        : this.dataset("hp_r_ticks");
+    this._hp_r_tick.max = this.dataset("hp_r_ticks");
     if (!this._hp_r_tick.add(this._atom_time)) return;
-    const value =
-      this.healing > 0
-        ? this.dataset("hp_healing_value")
-        : this.dataset("hp_r_value");
-    this.hp = min(this._hp_r, this._hp + value);
-    if (this._hp === this._hp_r) this.healing = 0;
-    else if (this._healing) this.healing = max(0, this._healing - value);
+    this.hp = min(this._hp_r, this._hp + this.dataset("hp_r_value"));
   }
 
   mp_recovering(): void {
@@ -2472,7 +2451,6 @@ export class Entity {
     nums[NSlot.DEFEND_VALUE] = this._defend_value;
     nums[NSlot.DEFEND_VALUE_MAX] = this._defend_value_max ?? NaN;
     nums[NSlot.DEFEND_R_VALUE] = this._defend_r_value;
-    nums[NSlot.HEALING] = this._healing;
     nums[NSlot.DEFEND_RATIO] = this._defend_ratio ?? NaN;
 
     nums[NSlot.FALLINJURY] = this.fallinjury;
@@ -2597,7 +2575,6 @@ export class Entity {
     this._defend_value = nums[NSlot.DEFEND_VALUE];
     this._defend_value_max = num_or_null(nums[NSlot.DEFEND_VALUE_MAX]);
     this._defend_r_value = nums[NSlot.DEFEND_R_VALUE];
-    this._healing = nums[NSlot.HEALING];
     this._defend_ratio = num_or_null(nums[NSlot.DEFEND_RATIO]);
 
     this.fallinjury = nums[NSlot.FALLINJURY];

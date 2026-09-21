@@ -1,5 +1,6 @@
 import { get_team_outline_color } from "@/LFW/base/get_team_shadow_color";
 import { get_team_text_color } from "@/LFW/base/get_team_text_color";
+import { Buff_Healing } from "@/LFW/buff/Buff_Healing";
 import { is_fighter, type Entity } from "@/LFW/entity";
 import { StatBarType } from "@/LFW/entity/StatBarType";
 import { round } from "@/LFW/utils";
@@ -179,7 +180,7 @@ export class EntityStatRender {
       this._last_sync_lifetime = lifetime;
       this.sync_bars(this.entity);
       this.update_reverse_text(this.entity);
-      if (this.entity.healing) {
+      if (this.entity.marks.has(Buff_Healing.KIND)) {
         const heading = (this.entity.lifetime % 8) < 4;
         if (this._heading != heading) {
           this.hp_bar.color = heading ? "rgb(255, 130, 130)" : "rgb(255,0,0)"

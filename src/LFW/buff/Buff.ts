@@ -20,6 +20,9 @@ export abstract class Buff {
   level: number = 0;
   protected _mounted = false;
   renderer?: IBuffRenderer;
+  /** 
+   * 此BUFF需处理的victims
+   */
   protected readonly _victims: string[] = [];
   protected readonly _ticker = new Times();
   protected readonly _lifetime = new Times(0, 1).set_lifes(1);
@@ -66,9 +69,9 @@ export abstract class Buff {
     this._lifetime.set_range(0, 1).set_lifes(1);
     return this;
   }
-  on_tick?(attacker?: Entity, victim?: Entity): 'keep' | 'del';
-  on_update?(attacker?: Entity, victim?: Entity): 'keep' | 'del';
-  on_end?(attacker?: Entity, victim?: Entity): 'keep' | 'del';
+  on_tick?(attacker?: Entity, victim?: Entity): void;
+  on_update?(attacker?: Entity, victim?: Entity): void;
+  on_end?(attacker?: Entity, victim?: Entity): void;
   set_attacker(attacker: string | Entity) {
     if (typeof attacker === 'string') {
       this._attacker = this.world.find_entity(attacker);
@@ -78,43 +81,22 @@ export abstract class Buff {
       this._attacker_id = attacker.id;
     }
   }
-  set_victims(...victims: (string | Entity)[]): this {
-    for (const victim of this._victims)
-      this.world.find_entity(victim)?.buffs.set(this.id, this);
+  set_victim(victim: Entity): this {
+    for (const vid of this._victims)
+      this.world.find_entity(vid)?.buffs.set(this.id, this);
     this._victims.length = 0;
-    return this.add_victims(...victims);
+    return this.add_victim(victim);
   }
-  add_victims(...victims: (string | Entity)[]): this {
-    for (const victim of victims) {
-      let entity: Entity | undefined = void 0;
-      if (typeof victim == 'string') {
-        if (this._victims.includes(victim)) continue;
-        this._victims.push(victim);
-        entity = this.world.find_entity(victim)
-      } else {
-        if (this._victims.includes(victim.id)) continue;
-        this._victims.push(victim.id);
-        entity = victim;
-      }
-      entity?.buffs.set(this.id, this);
-    }
+  add_victim(victim: Entity): this {
+    if (this._victims.includes(victim.id)) return this;
+    this._victims.push(victim.id);
+    victim.buffs.set(this.id, this);
     return this;
   }
-
-  del_victims(...victims: (string | Entity)[]): this {
-    for (const victim of victims)
-      this.del_effect(typeof victim === 'string' ? victim : victim.id);
-    for (const victim of victims) {
-      let entity: Entity | undefined = void 0;
-      if (typeof victim == 'string') {
-        if (this._del(victim)) continue;
-        entity = this.world.entity_map.get(victim)
-      } else {
-        if (this._del(victim.id)) continue;
-        entity = victim;
-      }
-      entity?.buffs.delete(this.id);
-    }
+  del_victim(victim: Entity): this {
+    this.del_effect(victim.id);
+    this._del(victim.id);
+    victim.buffs.delete(this.id);
     return this;
   }
 
@@ -176,7 +158,6 @@ export abstract class Buff {
     }
   }
 
-  apply?(): void
   private _del(id: string): boolean {
     let fast = 0, slow = 0
     let len = this._victims.length
@@ -208,17 +189,9 @@ export abstract class Buff {
     this.update_effects();
   }
 
-  private loop(fn: (attacker?: Entity, victim?: Entity) => "keep" | "del", attacker: Entity | undefined) {
-    let slow = 0, fast = 0;
-    for (; fast < this._victims.length; ++fast) {
-      const vid = this._victims[fast];
-      const victim = this.world.find_entity(vid);
-      if (slow !== fast) this._victims[slow] = this._victims[fast];
-      const ret = fn.call(this, attacker, victim);
-      if (ret == 'del') continue;
-      ++slow;
-    }
-    this._victims.length = slow;
+  private loop(fn: (attacker?: Entity, victim?: Entity) => void, attacker: Entity | undefined) {
+    for (const vid of this._victims)
+      fn.call(this, attacker, this.world.find_entity(vid));
   }
 
   to_snapshot(): IBuffSnapshot {
@@ -242,7 +215,7 @@ export abstract class Buff {
     this._lifetime.read_snapshot(s.lifetime);
     return this;
   }
-
+  /** pls super.mount() */
   mount(): void {
     if (this._mounted) return;
     this._mounted = true;
@@ -251,6 +224,11 @@ export abstract class Buff {
   unmount() {
     if (!this._mounted) return;
     this._mounted = false;
-    this.del_victims(...this._victims);
+    while (this._victims.length) {
+      const vid = this._victims[0];
+      this.del_effect(vid);
+      this._del(vid);
+      this.world.find_entity(vid)?.buffs.delete(this.id);
+    }
   }
 }

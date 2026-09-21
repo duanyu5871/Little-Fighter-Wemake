@@ -137,16 +137,6 @@ export interface IEntityCallbacks<E extends Entity = Entity> {
    */
   on_hp_r_changed?(e: E, value: number, prev: number): void;
 
-
-  /**
-   * 
-   * @param {E} e
-   * @param {number} value 当前值
-   * @param {number} prev 上一次值
-   */
-  on_healing_changed?(e: E, value: number, prev: number): void;
-
-
   on_toughness_changed?(e: E, value: number, prev: number): void;
   on_toughness_max_changed?(e: E, value: number, prev: number): void;
   on_reserve_changed?(e: E, value: number, prev: number): void;

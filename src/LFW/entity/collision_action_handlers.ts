@@ -1,6 +1,6 @@
 import { Ditto } from "..";
 import type { IActionHandler } from "../base/IActionHandler";
-import type { Collision } from "../collision/Collision";
+import { grant_buff } from "../buff/grant_buff";
 import { ActionType as AT } from "../defines/actions/ActionType";
 import type { IAction_ABuff } from "../defines/actions/IAction_ABuff";
 import type { IAction_VBuff } from "../defines/actions/IAction_VBuff";
@@ -129,42 +129,24 @@ export const collision_action_handlers: IActionHandler = {
     }
     t.hp_r = max(t.hp_r, t.hp);
   },
-  [AT.V_BUFF]: (a, c) => {
-    apply_buff(a, c.attacker, c.victim, c);
-  },
-  [AT.A_BUFF]: (a, c) => {
-    apply_buff(a, c.victim, c.attacker, c);
-  },
-  [AT.ERROR]: function (a, c) {
-    Ditto.alert(a.data.msg)
-  },
+  [AT.V_BUFF]: (a, c) => apply_buff(a, c.attacker, c.victim),
+  [AT.A_BUFF]: (a, c) => apply_buff(a, c.victim, c.attacker),
+  [AT.ERROR]: (a) => Ditto.alert(a.data.msg),
   [AT.NONE]: () => void 0
 };
 
 function apply_buff(
   action: IAction_VBuff | IAction_ABuff,
   attacker: Entity,
-  victim: Entity,
-  collision: Collision
+  victim: Entity
 ) {
   const { data } = action;
   if (!data) return;
-  const { hitflag = HitFlag.AllEnemy, duration = 0, buff = '' } = data;
-  const { lfw, world } = collision;
-  const ally_flag = attacker.is_ally(victim) ? HitFlag.Ally : HitFlag.Enemy;
-  if (
-    !(hitflag & victim.data.type) ||
-    !(hitflag & ally_flag)
-  ) return;
-  const id = data.buff + '_' + victim.id;
-  const buf = world.buffs.get(id) ?? lfw.factory.create_buff(buff, lfw, id);
-  if (!buf) return;
-  buf.lifetime = 0;
-  buf.duration = duration;
-  buf.level += 1;
-  buf.set_attacker(attacker);
-  buf.set_victims(victim);
-  victim.buffs.set(buf.id, buf);
-  world.buffs.set(id, buf);
-  buf.apply?.();
+  const { hitflag, duration = 0, buff = '' } = data;
+  if (typeof hitflag == 'number') {
+    if (!(hitflag & victim.data.type)) return;
+    const ally_flag = attacker.is_ally(victim) ? HitFlag.Ally : HitFlag.Enemy;
+    if (!(hitflag & ally_flag)) return;
+  }
+  grant_buff(buff, attacker, victim, duration);
 }

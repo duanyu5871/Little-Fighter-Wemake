@@ -20,6 +20,6 @@ export function handle_itr_kind_magic_flute(collision: Collision): void {
   buf = lfw.factory.create_buff(itr.kind, lfw, bid)
   if (!buf) return;
   buf.set_attacker(attacker);
-  buf.set_victims(victim);
+  buf.set_victim(victim);
   buf.mount();
 }

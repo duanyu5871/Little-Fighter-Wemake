@@ -1,4 +1,6 @@
 import { Defines, StateEnum, type IFrameInfo, type INextFrame, type IVector3 } from "../defines";
+import { Buff_Healing } from "../buff/Buff_Healing";
+import { grant_buff } from "../buff/grant_buff";
 import type { Entity } from "../entity/Entity";
 import { clamp, float_equal, round } from "../utils";
 import { spawn_buring_smoke } from "./spawn_buring_smoke";
@@ -24,7 +26,12 @@ export class State_Base {
   leave(e: Entity, next_frame: IFrameInfo): void {
     switch (this.state) {
       case StateEnum.HealSelf:
-        e.healing = Defines.STATE_HEAL_SELF_HP;
+        grant_buff(
+          Buff_Healing.KIND,
+          void 0,
+          e,
+          Buff_Healing.duration_of(e, Defines.STATE_HEAL_SELF_HP),
+        );
         break;
     }
   }
