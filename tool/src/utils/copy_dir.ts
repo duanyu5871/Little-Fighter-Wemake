@@ -1,6 +1,7 @@
 import fs from "fs/promises";
 import path from "path";
 import { optimize_png } from "./optimize_png";
+import { track_output } from "./output_tracker";
 
 export async function copy_dir(src_dir_path: string, dst_dir_path: string) {
   const file_names = await fs.readdir(src_dir_path);
@@ -10,6 +11,7 @@ export async function copy_dir(src_dir_path: string, dst_dir_path: string) {
     const dst_path = path.join(dst_dir_path, file_name);
     const stat = await fs.stat(src_path);
     if (stat.isFile()) {
+      track_output(dst_path);
       if (/\.png$/i.test(file_name)) await optimize_png(src_path, dst_path);
       else await fs.copyFile(src_path, dst_path).catch((e) => console.error(e));
     } else if (stat.isDirectory()) {

@@ -16,6 +16,7 @@ import { convert_grid_image, convert_whole_image } from "./utils/convert_image";
 import { copy_dir } from "./utils/copy_dir";
 import { debug, error, log } from "./utils/log";
 import { make_zip_and_json } from "./utils/make_zip_and_json";
+import { remove_untracked_outputs, reset_output_tracker, track_output } from "./utils/output_tracker";
 import { optimize_png } from "./utils/optimize_png";
 import { write_file } from "./utils/write_file";
 import { make_tool_salt } from "./utils/tool_identity";
@@ -52,6 +53,7 @@ export async function make_data() {
   if (!INDEX_FILE)
     return log(`'data' will not be created, because 'IMAGE_SUFFIX' is not set in '${INDEX_FILE}'.`)
 
+  reset_output_tracker();
   const cache_infos = await CacheInfos.create(
     path.join(TMP_DIR, "cache_infos.json5"),
     await make_tool_salt(),
@@ -147,6 +149,7 @@ export async function make_data() {
         log("Mirror image ignored:", src_path);
         continue;
       }
+      track_output(dst_path);
       const cache_info = await cache_infos.get_info(src_path, [dst_path]);
       const is_changed = await cache_info.changed();
       if (!is_changed) {
@@ -163,6 +166,7 @@ export async function make_data() {
           log("Mirror image ignored:", src_path);
           continue;
         }
+        track_output(dst_path);
         const cache_info = await cache_infos.get_info(src_path, [dst_path]);
         const is_changed = await cache_info.changed();
         if (!is_changed) {
@@ -182,6 +186,7 @@ export async function make_data() {
       IN_LF2_DIR,
       src_path
     );
+    track_output(dst_path);
     const cache_info = await cache_infos.get_info(src_path, [dst_path]);
     const is_changed = await cache_info.changed();
     if (!is_changed) {
@@ -194,6 +199,7 @@ export async function make_data() {
 
   for (const src_path of ress.get_files(...COPYS_SUFFIX.split(','))) {
     const dst_path = src_path.replace(IN_LF2_DIR, TMP_DAT_DIR);
+    track_output(dst_path);
     const cache_info = await cache_infos.get_info(src_path, [dst_path]);
     const is_changed = await cache_info.changed();
     if (!is_changed) {
@@ -232,6 +238,9 @@ export async function make_data() {
     console.error(e)
   }
   await write_file(join(TMP_DAT_DIR, "index.json5"), JSON.stringify(info))
+  track_output(join(TMP_DAT_DIR, "index.json5"));
+  track_output(join(TMP_DAT_DIR, "ui/_index.json5"));
+  await remove_untracked_outputs(TMP_DAT_DIR);
 }
 export async function make_data_zip() {
   debug(`make_data_zip()`)

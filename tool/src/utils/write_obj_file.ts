@@ -1,5 +1,6 @@
 import json5 from "json5";
 import { write_file } from "./write_file";
+import { track_output } from "./output_tracker";
 import path from "path";
 import { mkdir } from "fs/promises";
 import type { IBgData, IDataLists, IEntityData, IStageInfo } from "../../../src/LFW/defines";
@@ -10,6 +11,7 @@ import { xml_from_stage_info } from "../../../src/LFW/dat_translator/xml/xml_fro
 import { XML } from "../xml/ToolXML";
 
 export async function write_obj_file(dst_path: string, content: any) {
+  track_output(dst_path);
   let file_content: string;
   if (dst_path.endsWith('.xml')) {
     file_content = obj_to_xml(dst_path, content);
