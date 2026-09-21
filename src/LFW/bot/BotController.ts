@@ -209,7 +209,7 @@ export class BotController extends BaseController {
   get w_atk_r_x() {
     return this.entity.holding?.data.base.w_atk_r_x ?? this.dataset.w_atk_r_x
   }
-  
+
   get stage() { return this.world.stage }
 
   get defend_desire() {
@@ -233,6 +233,16 @@ export class BotController extends BaseController {
     const { w_atk_m_x: atk_m_x } = this;
     const abs_dx = abs(this.me.position.x - o.position.x)
     return atk_m_x > 0 && atk_m_x > abs_dx
+  }
+  can_back_off(o: Entity) {
+    const { x } = this.me.position;
+    const { x: en_x } = o.position;
+    const abs_dx = abs(x - en_x);
+    const [l, r] = this.world.get_bound(this.me);
+    const reach = en_x > x ? en_x - l : r - en_x;
+    if (reach > this.w_atk_r_x) return true;
+    const atk_m_x = this.w_atk_m_x;
+    return atk_m_x > 0 && abs_dx < atk_m_x && reach > atk_m_x;
   }
 
   should_run(where: string, target: IVector2Like): -1 | 1 | 0 {
@@ -416,10 +426,10 @@ export class BotController extends BaseController {
     }
     if (this.bot_state === BSE.Avoiding) {
       // 已拉开一定距离，攻击
-      return this.w_atk_too_far(e)
+      return this.w_atk_too_far(e) || !this.can_back_off(e)
     }
 
-    return !this.w_atk_too_close(e)
+    return !this.w_atk_too_close(e) || !this.can_back_off(e)
   }
 
   /**
@@ -451,8 +461,8 @@ export class BotController extends BaseController {
     if (me.ground_y != me.position.y) return false;
 
     if (bot_state === BSE.Avoiding)
-      return this.w_atk_r_x > 0 && !this.w_atk_too_far(av)
-    return this.w_atk_too_close(av)
+      return this.w_atk_r_x > 0 && !this.w_atk_too_far(av) && this.can_back_off(av)
+    return this.w_atk_too_close(av) && this.can_back_off(av)
   }
 
   /**
