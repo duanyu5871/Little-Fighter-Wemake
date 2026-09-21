@@ -67,6 +67,15 @@ export class BotState_Avoiding extends BotState_Base {
     else
       x_forwrd_key = av_x > me_x ? GK.L : GK.R;
 
+    const dead_zone_only =
+      !av.invulnerable &&
+      !(av.state === StateEnum.Lying && av.wakeup_invuln) &&
+      me.holding?.base_type !== WeaponEnum.Drink
+    const cornered = dead_zone_only && c.cornered(av)
+    if (cornered) {
+      x_forwrd_key = av_x > me_x ? GK.R : GK.L
+    }
+
     const in_danger_x = (av_x > av_danger_r && me_x > av_edge_r && av_x < me_x) !== (av_x < av_danger_l && me_x < av_edge_l && av_x > me_x)
     const in_danger_z = (av_z > av_danger_b && me_z > av_edge_b && av_z < me_z) !== (av_z < av_danger_t && me_x < av_edge_t && av_z > me_z)
     const me_in_danger = in_danger_x && in_danger_z;
@@ -84,10 +93,6 @@ export class BotState_Avoiding extends BotState_Base {
 
     const z_backward_key = z_forwrd_key == GK.D ? GK.U : GK.D
     const x_backward_key = x_forwrd_key == GK.L ? GK.R : GK.L
-    const dead_zone_only =
-      !av.invulnerable &&
-      !(av.state === StateEnum.Lying && av.wakeup_invuln) &&
-      me.holding?.base_type !== WeaponEnum.Drink
     /* 威胁越近，跑的欲望越高 */
     const { avoid_out_x } = c.dataset;
     const { difficulty } = this // 1, 2, 3, 4
@@ -106,11 +111,17 @@ export class BotState_Avoiding extends BotState_Base {
     }
     c.key_up(x_backward_key)
     const rz = round(av_z - me_z)
-    if (
-      dead_zone_only &&
-      !between(rz, c.dataset.w_atk_min_z, c.dataset.w_atk_max_z)
-    ) {
-      this.hold_UD(rz, c.dataset.w_atk_min_z, c.dataset.w_atk_max_z)
+    if (dead_zone_only && !cornered) {
+      const { w_atk_min_z: z_min, w_atk_max_z: z_max } = c.dataset;
+      const z_pad = abs(z_max - z_min);
+      if (between(rz, z_min, z_max)) {
+        c.key_down(z_forwrd_key)
+        c.key_up(z_backward_key)
+      } else if (between(rz, z_min - z_pad, z_max + z_pad)) {
+        c.key_up(GK.U, GK.D)
+      } else {
+        this.hold_UD(rz, z_min, z_max)
+      }
     } else {
       c.key_down(z_forwrd_key)
       c.key_up(z_backward_key)

@@ -241,8 +241,20 @@ export class BotController extends BaseController {
     const [l, r] = this.world.get_bound(this.me);
     const reach = en_x > x ? en_x - l : r - en_x;
     if (reach > this.w_atk_r_x) return true;
+    if (this.cornered(o)) return true;
     const atk_m_x = this.w_atk_m_x;
     return atk_m_x > 0 && abs_dx < atk_m_x && reach > atk_m_x;
+  }
+  cornered(o: Entity) {
+    const { x } = this.me.position;
+    const { x: en_x } = o.position;
+    const abs_dx = abs(x - en_x);
+    const atk_m_x = this.w_atk_m_x;
+    if (!(atk_m_x > 0) || atk_m_x <= abs_dx) return false;
+    const [l, r] = this.world.get_bound(this.me);
+    const reach = en_x > x ? en_x - l : r - en_x;
+    if (reach > atk_m_x) return false;
+    return en_x > x ? x < r : x > l;
   }
 
   should_run(where: string, target: IVector2Like): -1 | 1 | 0 {
