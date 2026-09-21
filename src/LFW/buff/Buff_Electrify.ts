@@ -5,6 +5,9 @@ export class Buff_Electrify extends Buff {
   static override readonly KIND = "Electrify";
   protected override get effect_oid(): string { return "fx"; }
   protected override get effect_frame_id(): string { return "32"; }
+  protected override place_effect(effect: Entity, victim: Entity): void {
+    this.place_effect_center(effect, victim);
+  }
 
   override mount(): void {
     super.mount();

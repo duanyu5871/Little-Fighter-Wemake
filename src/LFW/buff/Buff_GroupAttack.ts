@@ -1,4 +1,5 @@
 import { Buff } from "./Buff";
+import type { Entity } from "../entity/Entity";
 
 /**
  * “群攻”buff：让携带者 kind 0（ItrKind.Normal，拳击/普通攻击）的 itr
@@ -15,6 +16,9 @@ export class Buff_GroupAttack extends Buff {
   static override readonly GROUPS: string[] = ["GroupAttack"];
   protected override get effect_oid(): string { return "fx"; }
   protected override get effect_frame_id(): string { return "16"; }
+  protected override place_effect(effect: Entity, victim: Entity): void {
+    this.place_effect_center(effect, victim);
+  }
   override mount(): void {
     super.mount();
     for (const vid of this.victims) {

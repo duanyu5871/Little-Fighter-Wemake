@@ -107,9 +107,17 @@ export abstract class Buff {
     if (!oid) return void 0;
     return this._effect_data ??= this.lfw.datas.find(oid);
   }
-  /** 特效实体的位置（缺省 = 受击者位置） */
-  protected effect_anchor(victim: Entity): [number, number, number] {
-    return [victim.position.x, victim.position.y, victim.position.z];
+  /** 摆放特效实体到受击者身上的位置（缺省 = 受击者位置） */
+  protected place_effect(effect: Entity, victim: Entity): void {
+    const { position } = victim;
+    effect.set_position(position.x, position.y, position.z);
+  }
+  /** 摆放特效实体到受击者当前帧的视觉中心 */
+  protected place_effect_center(effect: Entity, victim: Entity): void {
+    const { centery = 0, height = 0, pic } = victim.frame;
+    const h = height || pic?.h || 0;
+    const { position } = victim;
+    effect.set_position(position.x, position.y + centery - h / 2, position.z);
   }
   protected del_effect(vid: string): void {
     const effect = this._effects.get(vid);
@@ -134,12 +142,12 @@ export abstract class Buff {
       effect.outline_alpha = 0;
       effect.outline_width = 0;
       effect.outline_color = '';
-      effect.set_position(...this.effect_anchor(victim));
+      this.place_effect(effect, victim);
       effect.enter_frame_by_id(this.effect_frame_id);
       effect.attach(true);
       this._effects.set(victim.id, effect);
     }
-    effect.set_position(...this.effect_anchor(victim));
+    this.place_effect(effect, victim);
   }
   protected update_effects(): void {
     if (!this._effects.size && !this.effect_oid) return;

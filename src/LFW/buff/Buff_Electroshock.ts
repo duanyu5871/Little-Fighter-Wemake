@@ -7,14 +7,8 @@ import { Buff } from "./Buff";
 export class Buff_Electroshock extends Buff {
   static override readonly KIND = "Electroshock";
   protected override get effect_oid(): string { return "fx"; }
-  protected override effect_anchor(victim: Entity): [number, number, number] {
-    const { centery = 0, height = 0, pic } = victim.frame;
-    const h = height || pic?.h || 0;
-    return [
-      victim.position.x,
-      victim.position.y + centery - h / 2,
-      victim.position.z,
-    ];
+  protected override place_effect(effect: Entity, victim: Entity): void {
+    this.place_effect_center(effect, victim);
   }
   override init() {
     this._ticker.max = 3;
