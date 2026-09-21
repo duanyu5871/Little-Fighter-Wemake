@@ -1,4 +1,5 @@
 import { Factory } from "../Factory";
+import { Buff_Electrify } from "./Buff_Electrify";
 import { Buff_Electroshock } from "./Buff_Electroshock";
 import { Buff_GroupAttack } from "./Buff_GroupAttack";
 import { Buff_Healing } from "./Buff_Healing";
@@ -16,4 +17,5 @@ export function regist_buffs() {
   Factory.register_buff(Buff_GroupAttack)
   Factory.register_buff(Buff_Healing)
   Factory.register_buff(Buff_MpHealing)
+  Factory.register_buff(Buff_Electrify)
 }

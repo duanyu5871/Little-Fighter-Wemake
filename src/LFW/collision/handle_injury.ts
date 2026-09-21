@@ -1,5 +1,9 @@
+import { Buff_Electrify } from "../buff/Buff_Electrify";
+import { Buff_Electroshock } from "../buff/Buff_Electroshock";
+import { grant_buff } from "../buff/grant_buff";
 import type { Collision } from "../collision/Collision";
 import { summary_mgr } from "../entity/SummaryMgr";
+import { is_fighter } from "../entity/type_check";
 import { round } from "../utils";
 
 export function handle_injury(c: Collision, scale = 1, keep_toughness = false) {
@@ -26,4 +30,12 @@ export function handle_injury(c: Collision, scale = 1, keep_toughness = false) {
   c.real_injury_r = real_injury_r;
   if (!_attacker) return;
   summary_mgr.apply_damage(_attacker, injury, victim, prev_hp);
+  if (_attacker.marks.has(Buff_Electrify.KIND) && is_fighter(victim)) {
+    grant_buff(
+      Buff_Electroshock.KIND,
+      _attacker,
+      victim,
+      _attacker.dataset("electrify_duration"),
+    );
+  }
 }
