@@ -499,7 +499,6 @@ export class BotController extends BaseController {
     if (
       e.invisible ||
       this.entity.toughness ||
-      this.entity.invisible ||
       this.entity.invulnerable
     ) return 0
 

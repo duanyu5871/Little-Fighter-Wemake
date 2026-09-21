@@ -139,6 +139,7 @@ export function collision_new(o: Readonly<ICollisionInits>): Collision {
     const itr_prefab = a.data.itr_prefabs?.[prefab_id];
     if (!itr_prefab) { itr_index = -1; break; }
     itr = { ...o.itr, ...itr_prefab };
+    // eslint-disable-next-line no-constant-condition
   } while (0);
 
   let rest = 0;
@@ -287,7 +288,7 @@ export function collision_test(c: Collision): boolean {
 
   if (itr.kind !== ItrKind.Heal) {
     const b_catcher = victim.catcher;
-    if (victim.invisible || victim.invulnerable) return false;
+    if (victim.invulnerable) return false;
     if (b_catcher && b_catcher.frame.cpoint?.hurtable !== 1) return false
   }
 

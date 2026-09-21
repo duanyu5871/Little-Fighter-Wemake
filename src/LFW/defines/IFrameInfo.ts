@@ -175,6 +175,11 @@ export interface IFrameInfo extends IVelocityInfo {
    */
   invisible?: number;
   /**
+   * 无敌多少帧
+   * @type {?number}
+   */
+  invulnerable?: number;
+  /**
    * 是否有影子
    * 
    * @type {?number} 1=有影子 0=没影子
@@ -329,6 +334,7 @@ export const frame_info_fields = fields<IFrameInfo>({
   opoint: obj("opoint", { nullable: true, array: true, fields: opoint_info_fields }),
   cpoint: obj("cpoint", { nullable: true, fields: cpoint_info_fields }),
   invisible: int("隐身帧数", { nullable: true }),
+  invulnerable: int("无敌帧数", { nullable: true }),
   no_shadow: int("有否影子", "1=有影子 0=没影子", {
     nullable: true,
     options: [
@@ -422,6 +428,7 @@ export const Schema_IFrameInfo = make_schema<IFrameInfo>({
     centery: { type: 'number' },
     sound: { type: 'string', nullable: true },
     invisible: { type: 'number', number: { int: true, nagetive: false }, nullable: true },
+    invulnerable: { type: 'number', number: { int: true, nagetive: false }, nullable: true },
     no_shadow: { type: 'number', oneof: [0, 1], nullable: true },
     jump_flag: { type: 'number', oneof: [0, 1], nullable: true },
     pic: { type: Schema_IFramePic.type, nullable: true },// TODO!

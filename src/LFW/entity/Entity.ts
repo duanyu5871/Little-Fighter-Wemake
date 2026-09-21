@@ -1013,6 +1013,7 @@ export class Entity {
       this.set_state(next_state_code)
     }
     if (v.invisible) this.invisibility(v.invisible);
+    if (v.invulnerable) this._invulnerable_duration = v.invulnerable
     if (v.opoint) this.apply_opoints(v.opoint);
     if (!v.cpoint) {
       this.set_catching(null);
@@ -1943,6 +1944,7 @@ export class Entity {
 
   follow_catcher() {
     const a = this.catcher;
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
     const b = this;
     if (!a) return;
     const { centerx: afx, centery: afy, cpoint: ac, } = a.frame;

@@ -61,9 +61,9 @@ export function make_ball_special(data: IEntityData) {
       })
       break;
     case OID.JanChaseh:
-      data.frames['50'].invisible = data.frames['50'].wait;
-      data.frames['51'].invisible = data.frames['51'].wait;
-      data.frames['52'].invisible = data.frames['52'].wait;
+      data.frames['50'].invulnerable ??= data.frames['50'].invisible ??= data.frames['50'].wait;
+      data.frames['51'].invulnerable ??= data.frames['51'].invisible ??= data.frames['51'].wait;
+      data.frames['52'].invulnerable ??= data.frames['52'].invisible ??= data.frames['52'].wait;
       traversal(data.frames, (_, f) => {
         const tail = find(f.opoint, o => o.oid === OID.JanChaseh && (o.action as any).id === '40')
         if (tail) {
@@ -75,9 +75,9 @@ export function make_ball_special(data: IEntityData) {
       break;
     case OID.FirzenChasef:
       data.base.drop_sounds = data.base.hit_sounds;
-      data.frames['59'].invisible = data.frames['59'].wait;
-      data.frames['80'].invisible = data.frames['80'].wait;
-      data.frames['81'].invisible = data.frames['81'].wait;
+      data.frames['59'].invulnerable ??= data.frames['59'].invisible ??= data.frames['59'].wait;
+      data.frames['80'].invulnerable ??= data.frames['80'].invisible ??= data.frames['80'].wait;
+      data.frames['81'].invulnerable ??= data.frames['81'].invisible ??= data.frames['81'].wait;
       traversal(data.frames, (_, f) => {
         if (f.behavior === FB.ChasingSameEnemy) {
           f.opoint = ensure(f.opoint, {
