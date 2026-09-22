@@ -158,10 +158,6 @@ export interface IOpointInfo {
   interval_mode?: number;
   motionless?: number;
 
-  spreading_x?: number[];
-  spreading_y?: number[];
-  spreading_z?: number[];
-
   unimportant?: number;
   delay?: number;
 
@@ -216,14 +212,29 @@ export interface IOpointInfo {
    */
   gen_dvz?: string;
 
+  /**
+   * 扩散值X表达式（`spreading` 模式下使用），语法见 {@link gen_x}
+   */
+  gen_spread_x?: string;
+
+  /**
+   * 扩散值Y表达式（`spreading` 模式下使用），语法见 {@link gen_x}
+   */
+  gen_spread_y?: string;
+
+  /**
+   * 扩散值Z表达式（`spreading` 模式下使用），语法见 {@link gen_x}
+   */
+  gen_spread_z?: string;
+
 
   __indicator_info?: IQubePair;
   /** 运行时生成 */
-  __spreading_random_x?: { get(): number };
+  __gen_spread_x?: { get(emitter: unknown): number };
   /** 运行时生成 */
-  __spreading_random_y?: { get(): number };
+  __gen_spread_y?: { get(emitter: unknown): number };
   /** 运行时生成 */
-  __spreading_random_z?: { get(): number };
+  __gen_spread_z?: { get(emitter: unknown): number };
 
   __gen_dvx?: { get(emitter: unknown): number };
   __gen_dvy?: { get(emitter: unknown): number };
@@ -288,9 +299,6 @@ export const opoint_info_fields = fields<IOpointInfo>({
     ],
   }),
   motionless: int("停顿值"),
-  spreading_x: any,
-  spreading_y: any,
-  spreading_z: any,
   unimportant: int("不重要标记"),
   delay: int("延迟帧数"),
   inherit_speed_x: flt("继承速度X"),
@@ -302,11 +310,14 @@ export const opoint_info_fields = fields<IOpointInfo>({
   gen_dvx: str("生成初速X表达式"),
   gen_dvy: str("生成初速Y表达式"),
   gen_dvz: str("生成初速Z表达式"),
+  gen_spread_x: str("扩散X表达式"),
+  gen_spread_y: str("扩散Y表达式"),
+  gen_spread_z: str("扩散Z表达式"),
 
 
-  __spreading_random_x: any,
-  __spreading_random_y: any,
-  __spreading_random_z: any,
+  __gen_spread_x: any,
+  __gen_spread_y: any,
+  __gen_spread_z: any,
   __indicator_info: any,
   __gen_x: any,
   __gen_y: any,

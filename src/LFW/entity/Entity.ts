@@ -1075,12 +1075,9 @@ export class Entity {
             v.z = (i - (count - 1) / 2) * 2.5;
             break;
           case OpointSpreading.Spreading:
-            if (opoint.__spreading_random_x)
-              v.x = opoint.__spreading_random_x.get();
-            if (opoint.__spreading_random_y)
-              v.y = opoint.__spreading_random_y.get();
-            if (opoint.__spreading_random_z)
-              v.z = opoint.__spreading_random_z.get();
+            v.x = opoint.__gen_spread_x?.get(this) ?? v.x;
+            v.y = opoint.__gen_spread_y?.get(this) ?? v.y;
+            v.z = opoint.__gen_spread_z?.get(this) ?? v.z;
             facing = v.x < 0 ? -1 : v.x > 0 ? 1 : facing;
             break;
         }
@@ -1088,14 +1085,11 @@ export class Entity {
         if (!e) return;
         switch (opoint.spreading) {
           case OpointSpreading.FloatRange: {
-            const { x, y, z } = e.velocity;
-            this.lfw.mt.mark = "ao_x";
-            const xx = opoint.__spreading_random_x?.get() ?? x;
-            this.lfw.mt.mark = "ao_y";
-            const yy = opoint.__spreading_random_y?.get() ?? y;
-            this.lfw.mt.mark = "ao_z";
-            const zz = opoint.__spreading_random_z?.get() ?? z;
-            e.set_velocity(xx, yy, zz);
+            let { x, y, z } = e.velocity;
+            x = opoint.__gen_spread_x?.get(this) ?? x;
+            y = opoint.__gen_spread_y?.get(this) ?? y;
+            z = opoint.__gen_spread_z?.get(this) ?? z;
+            e.set_velocity(x, y, z);
             break;
           }
         }

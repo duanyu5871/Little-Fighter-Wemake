@@ -51,9 +51,6 @@ export function xml_x_opoint(xml: IXML, o: IOpointInfo, tag: string): IXMLElemen
   el.set_attr("interval_id", o.interval_id);
   el.set_attr("interval_mode", o.interval_mode);
   el.set_attr("motionless", o.motionless);
-  el.set_attr("spreading_x", o.spreading_x?.join());
-  el.set_attr("spreading_y", o.spreading_y?.join());
-  el.set_attr("spreading_z", o.spreading_z?.join());
   el.set_attr("unimportant", o.unimportant);
   el.set_attr("delay", o.delay);
   el.set_arr_attr_soft("inherit_speed", [o.inherit_speed_x, o.inherit_speed_y, o.inherit_speed_z]);
@@ -63,6 +60,9 @@ export function xml_x_opoint(xml: IXML, o: IOpointInfo, tag: string): IXMLElemen
   el.set_attr("gen_dvx", o.gen_dvx);
   el.set_attr("gen_dvy", o.gen_dvy);
   el.set_attr("gen_dvz", o.gen_dvz);
+  el.set_attr("gen_spread_x", o.gen_spread_x);
+  el.set_attr("gen_spread_y", o.gen_spread_y);
+  el.set_attr("gen_spread_z", o.gen_spread_z);
   return el;
 }
 
@@ -97,9 +97,6 @@ export function xml_2_opoint(el: IXMLElement): IOpointInfo {
   ret.interval_id     /**/ = el.get_str("interval_id", ret.interval_id);
   ret.interval_mode   /**/ = el.get_num("interval_mode", ret.interval_mode);
   ret.motionless      /**/ = el.get_num("motionless", ret.motionless);
-  ret.spreading_x     /**/ = el.get_num_arr("spreading_x", ret.spreading_x);
-  ret.spreading_y     /**/ = el.get_num_arr("spreading_y", ret.spreading_y);
-  ret.spreading_z     /**/ = el.get_num_arr("spreading_z", ret.spreading_z);
   ret.unimportant     /**/ = el.get_num("unimportant", ret.unimportant);
   ret.delay           /**/ = el.get_num("delay", ret.delay);
   ret.inherit_speed_x /**/ = el.get_num("inherit_speed_x", ret.inherit_speed_x);
@@ -111,6 +108,9 @@ export function xml_2_opoint(el: IXMLElement): IOpointInfo {
   ret.gen_dvx         /**/ = el.get_str("gen_dvx", ret.gen_dvx);
   ret.gen_dvy         /**/ = el.get_str("gen_dvy", ret.gen_dvy);
   ret.gen_dvz         /**/ = el.get_str("gen_dvz", ret.gen_dvz);
+  ret.gen_spread_x    /**/ = el.get_str("gen_spread_x", ret.gen_spread_x);
+  ret.gen_spread_y    /**/ = el.get_str("gen_spread_y", ret.gen_spread_y);
+  ret.gen_spread_z    /**/ = el.get_str("gen_spread_z", ret.gen_spread_z);
   return delete_undefined(ret);
 }
 

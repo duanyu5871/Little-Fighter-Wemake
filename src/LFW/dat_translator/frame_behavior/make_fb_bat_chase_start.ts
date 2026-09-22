@@ -1,5 +1,4 @@
 import { OID as OID } from "../../defines/OID";
-import { Defines as D } from "../../defines/defines";
 import type { IFrameInfo } from "../../defines/IFrameInfo";
 import { OpointKind } from "../../defines/OpointKind";
 import { OpointMultiEnum } from "../../defines/OpointMultiEnum";
@@ -19,7 +18,7 @@ export function make_fb_bat_chase_start(frame: IFrameInfo) {
       skip_zero: false,
     },
     spreading: OpointSpreading.Spreading,
-    spreading_x: [...D.BAT_CHASE_SPREADING_VX],
-    spreading_z: [...D.BAT_CHASE_SPREADING_VZ],
+    gen_spread_x: "bag(-6,-5,-4,-3,-2,-1,0,1,2,3,4,5,6)",
+    gen_spread_z: "bag(-2,-1,0,1,2)",
   });
 }

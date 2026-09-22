@@ -183,7 +183,7 @@ export function preprocess_frame(ctx: IFrameInfoContext): IFrameInfo {
       frame.opoint = ensure(frame.opoint, make_buring_smoke(2));
       break;
   }
-  frame.opoint?.forEach((n, i, l) => l[i] = preprocess_opoint(n, lfw))
+  frame.opoint?.forEach((n, i, l) => l[i] = preprocess_opoint(n))
 
   const unchecked_frame = frame as any;
   if (unchecked_frame) {

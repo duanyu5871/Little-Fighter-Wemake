@@ -12,7 +12,7 @@ export enum OpointSpreading {
    * 随机扩散
    * 
    * 扩散速度向量的xyz将从随机取。
-   * spreading_x, spreading_z, spreading_y
+   * gen_spread_x, gen_spread_y, gen_spread_z
    */
   Spreading = 1,
   /**

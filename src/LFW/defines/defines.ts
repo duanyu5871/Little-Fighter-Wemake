@@ -1,5 +1,4 @@
 import { round } from "../utils";
-import { range } from "../utils/math/range";
 import { FrameId } from "./FrameId";
 import { CheatEnum } from "./CheatType";
 import { Difficulty } from "./Difficulty";
@@ -344,12 +343,6 @@ export namespace Defines {
   }
 
   export const DEFAULT_BREAK_DEFEND_VALUE = 32;
-  export const BAT_CHASE_SPREADING_VX = range(-6, 6, 1)
-  export const BAT_CHASE_SPREADING_VZ = range(-2, 2, 1)
-  export const DISATER_SPREADING_VX = range(-5, 5, 1)
-  export const DISATER_SPREADING_VY = range(2, 8, 0.5)
-  export const DEVIL_JUDGEMENT_SPREADING_VX = range(-5, 5, 1)
-  export const DEVIL_JUDGEMENT_SPREADING_VY = range(2, 8, 0.5)
 
   export const MAX_AI_DESIRE = 10000 as const;
 

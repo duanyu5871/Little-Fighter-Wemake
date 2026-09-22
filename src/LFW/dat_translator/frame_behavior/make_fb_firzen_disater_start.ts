@@ -1,5 +1,4 @@
 import { OID as OID } from "../../defines/OID";
-import { Defines as D } from "../../defines/defines";
 import { FacingFlag as FF } from "../../defines/FacingFlag";
 import type { IFrameInfo } from "../../defines/IFrameInfo";
 import { OpointKind } from "../../defines/OpointKind";
@@ -24,7 +23,7 @@ export function make_fb_firzen_disater_start(frame: IFrameInfo, x: number = fram
       skip_zero: true,
     },
     spreading: OpointSpreading.Spreading,
-    spreading_x: [...D.DISATER_SPREADING_VX],
-    spreading_y: [...D.DISATER_SPREADING_VY],
+    gen_spread_x: "bag(-5,-4,-3,-2,-1,0,1,2,3,4,5)",
+    gen_spread_y: "bag(2,2.5,3,3.5,4,4.5,5,5.5,6,6.5,7,7.5,8)",
   });
 }
