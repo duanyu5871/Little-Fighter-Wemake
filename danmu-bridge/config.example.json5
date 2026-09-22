@@ -79,6 +79,10 @@
     woody: "Woody",
   },
 
+  // ── 积分榜（战绩持久化）────────────────────
+  scores_file: "", // 战绩存档路径，留空 = 本目录 scores.json（已 gitignore）
+  score_weights: { kills: 10, spawns: 1, cheers: 1, deads: 0, damages: 0 },
+
   // ── 其他 ──────────────────────────────────
   port: 8066,
   host: "127.0.0.1",

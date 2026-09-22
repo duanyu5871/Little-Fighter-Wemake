@@ -1,6 +1,6 @@
 import type { LFW } from "./LFW";
 import type { ILFWCallback } from "./LFW/ILFWCallback";
-import { DanmuGameLogic } from "./LFW/ui/component/DanmuGameLogic";
+import { DanmuGameLogic, type IDanmuViewerStat } from "./LFW/ui/component/DanmuGameLogic";
 import type { UIComponent } from "./LFW/ui/component/UIComponent";
 
 const LOG_TAG = "[danmu-bridge]";
@@ -42,6 +42,7 @@ class DanmuBridge implements ILFWCallback {
   private reconnect_timer: ReturnType<typeof setTimeout> | null = null;
   private state_timer: ReturnType<typeof setInterval> | null = null;
   private warned = false;
+  private stats_tick = 0;
 
   constructor(readonly lfw: LFW, readonly url: string) {
     lfw.callbacks.add(this);
@@ -119,6 +120,22 @@ class DanmuBridge implements ILFWCallback {
       queue: logic.join_queue.size,
       on_stage: stats.filter((v) => v.alive).length,
       stage: logic.stage_name,
+    }));
+    if (++this.stats_tick % 2 === 0) this.report_stats(ws, logic, stats);
+  }
+  private report_stats(ws: WebSocket, logic: DanmuGameLogic, stats: IDanmuViewerStat[]): void {
+    ws.send(JSON.stringify({
+      type: "stats",
+      mode: logic.mode,
+      stats: stats.map((v) => ({
+        uid: v.uid,
+        name: v.name,
+        spawns: v.spawns,
+        kills: v.kills,
+        deads: v.deads,
+        damages: v.damages,
+        cheers: v.cheers,
+      })),
     }));
   }
 }

@@ -1,3 +1,4 @@
+import { createServer } from "node:http";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -5,6 +6,7 @@ import JSON5 from "json5";
 import { WebSocketServer } from "ws";
 import { BilibiliDanmuClient } from "./bilibili.mjs";
 import { OpenDanmuClient } from "./open.mjs";
+import { make_scoreboard } from "./scores.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -160,6 +162,8 @@ const config = {
   debug: args.debug === true || file.debug === true,
   dry: args.dry === true,
   config_path: config_file?.path ?? "",
+  scores_file: String(file.scores_file ?? ""),
+  score_weights: { kills: 10, spawns: 1, cheers: 1, deads: 0, damages: 0, ...(file.score_weights ?? {}) },
   open: {
     host: String(pick(args["open-host"], process.env.BILI_OPEN_HOST, file.open_host, "https://live-open.biliapi.com")),
     app_id,
@@ -193,6 +197,12 @@ if (config.dry) {
   }, null, 2));
   process.exit(0);
 }
+
+const board = make_scoreboard({
+  file: config.scores_file || join(HERE, "scores.json"),
+  weights: config.score_weights,
+});
+const SCORES_SAVE_MS = Number(process.env.DANMU_SCORES_SAVE_MS ?? 30_000);
 
 const stamp = () => new Date().toLocaleTimeString("zh-CN", { hour12: false });
 function log(msg) {
@@ -332,8 +342,78 @@ function on_event(ev) {
   }
 }
 
-const wss = new WebSocketServer({ host: config.host, port: config.port });
-wss.on("listening", () => log(`游戏页面连接服务已启动: ws://${config.host}:${config.port}`));
+const LEADERBOARD_HTML = `<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>弹幕互动积分榜</title>
+<style>
+  body { margin: 0; padding: 18px 22px; background: #0b1020; color: #e8ecff;
+    font: 15px/1.6 Arial, "Microsoft YaHei", sans-serif; }
+  h1 { margin: 0 0 4px; font-size: 20px; color: #ffd75e; }
+  .sub { margin-bottom: 12px; color: #a8b6d8; font-size: 13px; }
+  table { border-collapse: collapse; width: 100%; max-width: 640px; }
+  th, td { padding: 5px 10px; text-align: left; border-bottom: 1px solid #ffffff1f; }
+  th { color: #9fc2ff; font-size: 13px; font-weight: normal; }
+  .rank { width: 44px; color: #ffd75e; }
+  .score { color: #ffe08a; }
+  .nums { color: #a8b6d8; font-size: 13px; }
+</style>
+</head>
+<body>
+<h1>弹幕互动积分榜</h1>
+<div class="sub" id="sub">加载中...</div>
+<table>
+  <thead><tr><th>名次</th><th>观众</th><th>积分</th><th>击败</th><th>出场</th><th>应援</th><th>场次</th></tr></thead>
+  <tbody id="rows"></tbody>
+</table>
+<script>
+async function tick() {
+  try {
+    const resp = await fetch('/scores.json', { cache: 'no-store' });
+    const data = await resp.json();
+    const players = data.players || [];
+    document.getElementById('rows').innerHTML = players.map(function (p, i) {
+      return '<tr><td class="rank">' + (i + 1) + '</td><td>' + esc(p.name) + '</td>' +
+        '<td class="score">' + p.score + '</td><td class="nums">' + p.kills + '</td>' +
+        '<td class="nums">' + p.spawns + '</td><td class="nums">' + p.cheers + '</td>' +
+        '<td class="nums">' + p.games + '</td></tr>';
+    }).join('');
+    document.getElementById('sub').textContent = '共 ' + players.length + ' 人 · 更新于 ' +
+      (data.updated_at ? new Date(data.updated_at).toLocaleTimeString('zh-CN', { hour12: false }) : '--');
+  } catch (e) {
+    document.getElementById('sub').textContent = '数据读取失败，稍后重试';
+  }
+}
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+setInterval(tick, 10000);
+tick();
+</script>
+</body>
+</html>`;
+
+const server = createServer((req, res) => {
+  const path = (req.url ?? "/").split("?")[0];
+  if (path === "/scores.json") {
+    res.writeHead(200, { "content-type": "application/json; charset=utf-8", "access-control-allow-origin": "*" });
+    res.end(JSON.stringify({ updated_at: board.updated_at, players: board.top(100) }));
+    return;
+  }
+  if (path === "/" || path === "/index.html") {
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    res.end(LEADERBOARD_HTML);
+    return;
+  }
+  res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+  res.end("not found");
+});
+
+const wss = new WebSocketServer({ server });
 wss.on("connection", (ws, req) => {
   log(`游戏页面已连接 (${req.socket.remoteAddress})`);
   ws.send(JSON.stringify({ type: "hint", texts: build_hints() }));
@@ -342,11 +422,20 @@ wss.on("connection", (ws, req) => {
       const msg = JSON.parse(raw.toString());
       if (msg.type === "state")
         log(`[游戏] ${msg.mode ?? ""} 排队 ${msg.queue ?? 0} / 场上 ${msg.on_stage ?? 0}${msg.stage ? ` / 关卡 ${msg.stage}` : ""}`);
+      else if (msg.type === "stats") {
+        const changed = board.merge(msg.stats);
+        if (config.debug) log(`[战绩] 同步 ${changed} 人，累计 ${board.size()} 人`);
+      }
     } catch {
       return;
     }
   });
   ws.on("close", () => log("游戏页面已断开"));
+});
+
+server.listen(config.port, config.host, () => {
+  log(`服务已启动: http://${config.host}:${config.port}（榜单页 / 与游戏 ws 同端口）`);
+  log(`战绩存档: ${config.scores_file || join(HERE, "scores.json")}（已加载 ${board.size()} 人）`);
 });
 
 const on_status = (level, msg) => {
@@ -373,8 +462,11 @@ process.on("SIGINT", async () => {
   } catch {
     void 0;
   }
+  board.save();
   process.exit(0);
 });
+
+setInterval(() => board.save(), SCORES_SAVE_MS);
 
 setInterval(() => {
   const now = Date.now();
