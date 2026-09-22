@@ -19,12 +19,9 @@ export enum OpointSpreading {
    * 范围内随机扩散
    */
   FloatRange = 2,
-
-  AngelBlessing = 4,
 }
 export const OpointSpreadingDescriptions: Record<OpointSpreading, string> = {
   [OpointSpreading.Normal]: "",
   [OpointSpreading.Spreading]: "",
   [OpointSpreading.FloatRange]: "",
-  [OpointSpreading.AngelBlessing]: "",
 }

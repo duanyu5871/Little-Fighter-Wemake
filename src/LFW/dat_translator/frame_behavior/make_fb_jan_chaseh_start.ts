@@ -13,7 +13,7 @@ export function make_fb_jan_chaseh_start(frame: IFrameInfo, x: number = frame.ce
     y,
     action: { id: "0" },
     multi: { type: OpointMultiEnum.AccordingAllies },
-    spreading: OpointSpreading.AngelBlessing
+    spreading: OpointSpreading.Spreading,
   }, {
     kind: OpointKind.Normal,
     oid: OID.JanChaseh,
