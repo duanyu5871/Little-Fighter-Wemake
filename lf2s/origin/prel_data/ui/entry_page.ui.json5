@@ -5,7 +5,6 @@
   component: [ "ReachableGroup(main,ud)" ],
   items: [
     "builtin_data/launch/bg.ui.json",
-    "ui/jalousie_ns.ui.json5",
     "ui/bg_l_face.ui.json5",
     "ui/bg_r_face.ui.json5",
     "builtin_data/launch/version_name.ui.json",

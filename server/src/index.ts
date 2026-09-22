@@ -15,6 +15,7 @@ import info from "../package.json"
 
 const args = arg({
   '--help': Boolean, '-h': '--help',
+  '--host': String,
   '--port': Number, '-p': '--port',
   '--ssl-key-path': String,
   '--ssl-cer-parh': String,
@@ -26,6 +27,7 @@ function handle_help() {
 Little Fighter Wemake Multiplayer Server v${info.version}
 Options:
   -h, --help
+  --host <host>   监听地址（缺省 0.0.0.0，桌面端“仅本机”传 127.0.0.1）
   -p, --port
   --ssl-key-path 
   --ssl-cer-parh
@@ -33,6 +35,7 @@ Options:
   -c, --config    配置文件路径（缺省 ./server.config.json5 或 ./server.config.json）
 
 Environment variables (.env is supported):
+  HTTP_HOST
   HTTP_PORT
   HTTPS_PORT
   SSL_KEY_FILE_PATH
@@ -68,6 +71,7 @@ async function main() {
   const ssl_cer = await read_file(to_str(args['--ssl-cer-parh']) ?? to_str(process.env.SSL_CER_FILE_PATH) ?? config.ssl_cert_file_path);
   const https_port = to_num(args['--port']) ?? to_num(process.env.HTTPS_PORT) ?? to_num(config.https_port) ?? 443
   const http_port = to_num(args['--port']) ?? to_num(process.env.HTTP_PORT) ?? to_num(config.http_port) ?? 80
+  const http_host = to_str(args['--host']) ?? to_str(process.env.HTTP_HOST) ?? to_str(config.http_host) ?? ""
   const is_https = !!(ssl_key && ssl_cer);
   const port = is_https ? https_port : http_port;
   const server = !is_https ? http.createServer() : https.createServer({
@@ -99,8 +103,9 @@ async function main() {
     auth.bind_from_req(client, req);
   });
   wss.on('error', e => console.error('WebSocket error:', e));
-  server.listen(port)
-  console.log(`${is_https ? 'wss' : 'ws'} server start, port: ${port}`);
-  console.log(`${is_https ? 'https' : 'http'} rest api start, port: ${port}`);
+  server.listen(port, http_host || undefined)
+  const host_text = http_host || '0.0.0.0';
+  console.log(`${is_https ? 'wss' : 'ws'} server start, host: ${host_text}, port: ${port}`);
+  console.log(`${is_https ? 'https' : 'http'} rest api start, host: ${host_text}, port: ${port}`);
 }
 main();

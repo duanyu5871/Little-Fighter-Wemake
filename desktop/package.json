@@ -1,9 +1,9 @@
 {
-  "name": "lfw-danmu-bridge",
+  "name": "lfw-desktop",
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "B站直播弹幕 -> LFW 弹幕互动游戏 桥接服务（独立运行，不属于游戏本体构建）",
+  "description": "Little Fighter Wemake 桌面客户端（Electron 壳）与 B站直播弹幕桥",
   "engines": {
     "node": ">=18"
   },

@@ -1,7 +1,6 @@
 <node id="entry" name="页面：入口(XML)" color="rgb(16, 32, 108)">
   <ReachableGroup args="main,ud"/>
   <node ref="builtin_data/launch/bg.ui.json"/>
-  <node ref="ui/jalousie_ns.ui.json5"/>
   <node ref="ui/bg_l_face.ui.json5"/>
   <node ref="ui/bg_r_face.ui.json5"/>
   <node ref="builtin_data/launch/version_name.ui.json"/>

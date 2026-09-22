@@ -1,7 +1,9 @@
-import { app, BrowserWindow, Menu, ipcMain, shell } from "electron";
+import { app, BrowserWindow, Menu, Tray, clipboard, ipcMain, nativeImage, shell } from "electron";
+import { spawn } from "node:child_process";
 import { appendFileSync, createReadStream, existsSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer as create_http_server } from "node:http";
 import { createServer as create_net_server } from "node:net";
+import { networkInterfaces } from "node:os";
 import { dirname, extname, join, normalize, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import JSON5 from "json5";
@@ -10,6 +12,7 @@ const LOG_TAG = "[lfwm]";
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_BRIDGE_PORT = 8066;
 const DEFAULT_GAME_PORT = 8067;
+const DEFAULT_SERVER_PORT = 8080;
 const PORT_TRIES = 20;
 const LOG_MAX_BYTES = 512 * 1024;
 
@@ -51,7 +54,14 @@ let app_dir = "";
 let data_dir = "";
 let win = null;
 let bridge = null;
+let tray = null;
+let server_proc = null;
 let closing = false;
+
+const ARGS = parse_args(process.argv.slice(app.isPackaged ? 1 : 2));
+const SERVER_STATE = { on: false, lan: false, port: DEFAULT_SERVER_PORT };
+
+if (typeof ARGS["user-data"] === "string") app.setPath("userData", resolve(ARGS["user-data"]));
 
 function log(msg) {
   console.log(`${LOG_TAG} ${msg}`);
@@ -204,10 +214,137 @@ async function load_bridge() {
   throw new Error("找不到弹幕桥代码（bridge.bundle.mjs）");
 }
 
+function lan_ip() {
+  for (const list of Object.values(networkInterfaces())) {
+    for (const info of list ?? []) {
+      if (info.family === "IPv4" && !info.internal) return info.address;
+    }
+  }
+  return "";
+}
+
+function server_addr() {
+  const host = SERVER_STATE.lan ? lan_ip() || "0.0.0.0" : "127.0.0.1";
+  return `${host}:${SERVER_STATE.port}`;
+}
+
+function start_server(lan) {
+  if (server_proc) return;
+  const entry = join(app_dir, "server.bundle.cjs");
+  if (!existsSync(entry)) {
+    log("内置联机服务器不可用：安装包缺少 server.bundle.cjs");
+    return;
+  }
+  SERVER_STATE.lan = !!lan;
+  const host = SERVER_STATE.lan ? "0.0.0.0" : "127.0.0.1";
+  const child = spawn(process.execPath, [entry, "--port", String(SERVER_STATE.port), "--host", host], {
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", RANKS_DIR: join(data_dir, "ranks") },
+    stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true,
+  });
+  server_proc = child;
+  SERVER_STATE.on = true;
+  child.stdout?.on("data", (d) => log(`[server] ${String(d).trimEnd()}`));
+  child.stderr?.on("data", (d) => log(`[server] ${String(d).trimEnd()}`));
+  child.on("exit", (code) => {
+    if (server_proc !== child) return;
+    server_proc = null;
+    SERVER_STATE.on = false;
+    log(`联机服务器已停止（退出码 ${code ?? 0}）`);
+    refresh_tray();
+  });
+  log(`联机服务器已启动: ${server_addr()}${SERVER_STATE.lan ? "（局域网可连）" : "（仅本机）"}`);
+  refresh_tray();
+}
+
+function stop_server() {
+  const child = server_proc;
+  if (!child) return;
+  server_proc = null;
+  SERVER_STATE.on = false;
+  child.kill();
+  refresh_tray();
+}
+
+function set_server_lan(lan) {
+  if (!SERVER_STATE.on) {
+    start_server(lan);
+    return;
+  }
+  stop_server();
+  setTimeout(() => start_server(lan), 300);
+}
+
+function open_tool_console() {
+  const exe = process.execPath;
+  try {
+    spawn("cmd.exe", ["/c", "start", "Little Fighter Wemake 数据工具", "cmd", "/k", `"${exe}" --tool help`], { detached: true, stdio: "ignore" }).unref();
+  } catch (e) {
+    console.warn(LOG_TAG, "打开数据工具失败", e);
+  }
+}
+
+function refresh_tray() {
+  if (!tray) return;
+  tray.setContextMenu(Menu.buildFromTemplate([
+    {
+      label: SERVER_STATE.on ? `联机服务器：已开启（${server_addr()}）` : "开启联机服务器",
+      click: () => (SERVER_STATE.on ? stop_server() : start_server(SERVER_STATE.lan)),
+    },
+    {
+      label: "允许局域网连接",
+      type: "checkbox",
+      checked: SERVER_STATE.lan,
+      click: (item) => set_server_lan(!!item.checked),
+    },
+    {
+      label: "复制联机地址",
+      enabled: SERVER_STATE.on,
+      click: () => clipboard.writeText(server_addr()),
+    },
+    { type: "separator" },
+    { label: "打开数据工具（命令行）", click: open_tool_console },
+    { label: "复制数据工具命令", click: () => clipboard.writeText(`"${process.execPath}" --tool `) },
+    { label: "打开数据目录", click: () => void shell.openPath(data_dir) },
+    { type: "separator" },
+    { label: "显示游戏窗口", click: () => { win?.show(); win?.focus(); } },
+    { label: "退出", click: () => void shutdown("托盘退出") },
+  ]));
+}
+
+function make_tray() {
+  const icon_file = join(app_dir, "icon.ico");
+  try {
+    tray = new Tray(existsSync(icon_file) ? nativeImage.createFromPath(icon_file) : nativeImage.createEmpty());
+  } catch (e) {
+    console.warn(LOG_TAG, "托盘图标创建失败", e);
+    tray = null;
+    return;
+  }
+  tray.setToolTip("Little Fighter Wemake");
+  tray.on("double-click", () => { win?.show(); win?.focus(); });
+  refresh_tray();
+}
+
+function run_tool(tool_args) {
+  const entry = join(app.getAppPath(), "tool.bundle.cjs");
+  if (!existsSync(entry)) {
+    console.error(`${LOG_TAG} 安装包里没有数据工具（tool.bundle.cjs）`);
+    app.exit(1);
+    return;
+  }
+  const child = spawn(process.execPath, [entry, ...tool_args], {
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+    stdio: "inherit",
+  });
+  child.on("exit", (code) => app.exit(code ?? 0));
+}
+
 async function shutdown(reason) {
   if (closing) return;
   closing = true;
   log(`正在关闭（${reason}）`);
+  stop_server();
   try {
     await bridge?.stop_bridge?.();
   } catch (e) {
@@ -217,12 +354,13 @@ async function shutdown(reason) {
 }
 
 async function main() {
-  const args = parse_args(process.argv.slice(app.isPackaged ? 1 : 2));
+  const args = ARGS;
   await app.whenReady();
   Menu.setApplicationMenu(null);
   app_dir = app.getAppPath();
   data_dir = app.isPackaged ? dirname(process.execPath) : app_dir;
   setup_log(data_dir);
+  SERVER_STATE.port = Number(args["server-port"] ?? DEFAULT_SERVER_PORT);
 
   const game_dir = app.isPackaged ? join(process.resourcesPath, "game") : resolve(app_dir, "..", "..", "dist");
   if (!existsSync(join(game_dir, "index.html"))) {
@@ -279,8 +417,8 @@ async function main() {
   log(`弹幕桥: ws://${page_host}:${bridge_port}（榜单页 http://${page_host}:${bridge_port}/）`);
 
   win = new BrowserWindow({
-    width: 1280,
-    height: 760,
+    width: 1275,
+    height: 720,
     minWidth: 640,
     minHeight: 420,
     show: false,
@@ -305,6 +443,9 @@ async function main() {
   win.on("unmaximize", () => win?.webContents.send("lfj:maximized", false));
   await win.loadURL(page_url);
 
+  make_tray();
+  if (args.server) start_server(args["server-lan"] === true);
+
   if (args.devtools) win.webContents.openDevTools({ mode: "detach" });
 
   if (args["shell-test"]) {
@@ -320,6 +461,7 @@ async function main() {
         });
       })()`);
       log(`shell-test renderer: ${info}`);
+      log(`shell-test window: ${JSON.stringify(win?.getBounds())}`);
       win?.maximize();
       log(`shell-test maximize -> ${win?.isMaximized()}`);
       win?.unmaximize();
@@ -377,7 +519,9 @@ app.on("second-instance", () => {
 });
 process.on("SIGTERM", () => void shutdown("SIGTERM"));
 
-if (!app.requestSingleInstanceLock()) app.quit();
+const TOOL_FLAG_INDEX = process.argv.indexOf("--tool");
+if (TOOL_FLAG_INDEX >= 0) run_tool(process.argv.slice(TOOL_FLAG_INDEX + 1));
+else if (!app.requestSingleInstanceLock()) app.quit();
 else void main().catch((e) => {
   console.error(LOG_TAG, "启动失败", e);
   app.exit(1);

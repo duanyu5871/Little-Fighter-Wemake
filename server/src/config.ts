@@ -16,6 +16,7 @@ export interface IRanksConfig {
 }
 
 export interface IServerConfig {
+  http_host?: string;
   http_port?: number;
   https_port?: number;
   ssl_key_file_path?: string;

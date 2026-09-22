@@ -1,5 +1,5 @@
 import { Client } from './Client';
-import { ErrCode } from './ErrCode';
+import { ErrCode } from './Net';
 import { TReq } from './Net';
 
 /**

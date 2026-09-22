@@ -161,7 +161,7 @@
       ],
       items: [
         {
-          count: 30,
+          count: 50,
           template: "shutter_item",
         },
       ],

@@ -1,6 +1,6 @@
 import type { Client } from './Client';
 import { ensure_player_info } from './ensure_player_info';
-import { ErrCode } from './ErrCode';
+import { ErrCode } from './Net';
 import type { TReq } from './Net';
 
 

@@ -1,12 +1,14 @@
-# LFW 弹幕桥（B站直播 -> 弹幕互动游戏）
+# LFW 桌面客户端 & 弹幕桥（B站直播 -> 弹幕互动游戏）
 
-独立的 Node 服务：连接 B站直播弹幕流，把观众互动转成游戏指令发给弹幕互动游戏页面。
-不依赖、也不修改仓库里的 `server/`，可单独部署（和 OBS/浏览器同机运行即可）。
+本目录装着两件事：
+
+- **弹幕桥服务**（`index.mjs` / `bilibili.mjs` / `open.mjs` / `scores.mjs`）：连接 B站直播弹幕流，把观众互动转成游戏指令发给弹幕互动游戏页面。不依赖、也不修改仓库里的 `server/`，可单独部署（和 OBS/浏览器同机运行即可）。
+- **桌面客户端壳**（`app/`）：`start.exe` 的 Electron 主进程/预加载，负责无边框游戏窗口 + 本地静态服务 + 在进程内跑弹幕桥 + 托盘里的联机服务器开关 + 数据工具（`--tool`）；`npm run build:desktop`（根目录）把它打成 `release/Little Fighter Wemake_<version>.zip`，同时也能当 B站互动玩法的安装包上传。
 
 ## 安装与运行
 
 ```powershell
-cd danmu-bridge
+cd desktop
 npm install
 node index.mjs --room 12345
 ```
@@ -133,7 +135,7 @@ B站常规弹幕流没有离场事件（只有进入/互动），所以采用活
 
 ```powershell
 # 1) 先准备好开平应用密钥（会被打进包里的 config.json5）
-copy danmu-bridge\config.example.json5 danmu-bridge\config.json5
+copy desktop\config.example.json5 desktop\config.json5
 #    编辑 config.json5：app_id / access_key / access_key_secret
 # 2) 构建（build:desktop 是同一脚本的别名）
 npm run build:playable
@@ -141,21 +143,44 @@ npm run build:playable
 ```
 
 - 包名格式 = 项目名_版本号（脚本自动取 `package.json` 的版本号，如 `Little Fighter Wemake_0.1.54.zip`）；根目录直接铺文件、入口 `start.exe`、文件全 ASCII 名、<500MB（B站“程序文件”上传要求；因为 B站要求入口必须叫 `start.exe`，桌面客户端的可执行文件也是这个名字）
-- `start.exe` 是一个 **Electron 应用**（源码 `danmu-bridge/app/`：`main.mjs` 主进程 + `preload.cjs` 向页面暴露 Wails 兼容的 `window.runtime`），负责：
+- `start.exe` 是一个 **Electron 应用**（源码 `desktop/app/`：`main.mjs` 主进程 + `preload.cjs` 向页面暴露 Wails 兼容的 `window.runtime`），负责：
   - 起本地静态服务放游戏画面（默认 8067）
   - 在主进程里以开平模式跑弹幕桥（默认 8066，源即 `index.mjs`，构建时用 bun 打成 `bridge.bundle.mjs`）
   - 开一个**无系统标题栏**的游戏窗口；画面顶部那条半透明区域就是拖拽区（按住拖动、双击最大化/还原），右上角依次是最小化 / 最大化还原 / 全屏 / 关闭；关闭窗口整个玩法退出
+  - 把**联机服务器**（仓库 `server/`，构建时打成 `server.bundle.cjs`）与**数据工具**（仓库 `tool/`，打成 `tool.bundle.cjs`）一起带上，都由主进程直接拉起，运行机不需要另装 Node
+  - `tools\` 里附带 ffmpeg 与 Imagemagick 全套转换器（构建机上有就自动拷进来），数据工具会优先用它们，运行机也不需要另装
 - 顶栏窗口按钮复用游戏里已有的 Wails 运行时调用（`window.runtime.*`），所以网页端、Wails 端、Electron 端三套壳共用同一段 UI 代码
 - 身份码不用手填：直播姬/平台拉起时按 `start.exe code=xxxxxxxxxx` 传入（自动从启动参数解析）；本地调试也可直接 `start.exe code=你的身份码`
 - 本地调试技巧：`start.exe --room 12345` 用 web 模式收弹幕免密钥；`--debug` 打印事件；`--devtools` 开开发者工具；`--screenshot <path>` 把窗口内容截成 PNG；`--port` / `--game-port` / `--host` 可改端口
 - 没配上任何弹幕来源（无密钥无身份码也没房间号）时，`start.exe` 以**单机桌面模式**启动：只开游戏画面并提示原因，不会直接报错退出
+
+### 系统托盘（右下角图标）
+
+- **开启/关闭联机服务器**：默认只监听 `127.0.0.1:8080`，菜单标题会实时显示当前地址
+- **允许局域网连接**：勾选后服务器改听 `0.0.0.0`，同一网络下的人用「复制联机地址」得到的地址就能连进来（切换时会自动重启服务器）
+- **打开数据工具（命令行）**：弹出一个 cmd 窗口，直接跑 `--tool help` 看全部命令
+- **复制数据工具命令** / **打开数据目录** / **显示游戏窗口** / **退出**
+
+### 桌面端专属命令行参数
+
+| 参数 | 说明 |
+| --- | --- |
+| `--server` | 启动时自动开启联机服务器（默认 8080，仅本机） |
+| `--server-port <port>` | 联机服务器端口，默认 8080 |
+| `--server-lan` | 直接以局域网模式开启（等价于托盘里勾选「允许局域网连接」） |
+| `--tool <命令...>` | 后面的参数原样交给**数据工具**，例如 `start.exe --tool help`、`start.exe --tool make-data-zip -c conf.json5`；转换用的 ffmpeg/magick 已随包附在 `tools\`，无需装到 PATH |
+| `--user-data <目录>` | 指定用户数据目录（想同时开多个实例调试时用） |
+
+服务器存档（`ranks/`）与工具的工作目录默认都在 `start.exe` 所在目录；服务器日志会一并写进 `logs.txt`（以 `[server]` 开头）。
+
+`tools\` 里放的是 ffmpeg（gyan.dev full build，GPL）与 ImageMagick（Apache-2.0）及其 License/NOTICE 文件；想让工具改用系统里的版本，在工具的配置里改 `FFMPEG_CMD` / `MAGICK_CMD` 即可（自带的优先级最高）。
 - 构建脚本还会删掉 `lfw.full.zip`、把 Electron 的语言包精简到 `en-US / zh-CN / zh-TW`，并检查非 ASCII 文件名与 500MB 上限
-- 构建机需要 Bun（打主进程/弹幕桥 bundle；运行机不需要）和 Node；首次打包会下载 Electron win32-x64（约 110MB），产物解包约 370MB、zip 约 180MB
+- 构建机需要 Bun（打主进程/弹幕桥 bundle）与 esbuild（打联机服务器/数据工具 bundle，随 vite 一起装），还需要能在 PATH 里找到的 `ffmpeg` 与 `magick`（会被拷进包的 `tools\`；也可用 `FFMPEG_PATH` / `MAGICK_PATH` 指定，或 `--no-converters` 跳过）；首次打包会下载 Electron win32-x64（约 110MB），产物解包约 550MB（其中转换器 178MB）、zip 约 258MB
 
 ## 常见问题
 
 - **认证失败（code 非 0）**：通常是 token 过期或风控，服务会自动重连并重新取 token；频繁失败建议加 `--sessdata`。
-- **改了配置没生效**：优先级是 命令行 > 环境变量 > 配置文件；先用 `--dry` 看实际生效的配置；默认读取的是 `danmu-bridge/config.json5`（或 `config.json`）。
+- **改了配置没生效**：优先级是 命令行 > 环境变量 > 配置文件；先用 `--dry` 看实际生效的配置；默认读取的是 `desktop/config.json5`（或 `config.json`）。
 - **官方模式返回 `4001 应用无效`**：检查 `--app-id` / `--access-key` / `--access-key-secret` 是否配对（用假密钥探测也会得到这个返回，说明网络与签名没问题）。
 - **官方模式收不到弹幕**：确认已向 B站运营申请开通消息类型，以及 `--code` 是当前主播本次启动产生的、未过期。
 - **断流**：服务内置心跳（30 秒）与 90 秒无消息看门狗，断开后按 3s → 30s 退避重连。
