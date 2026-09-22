@@ -85,7 +85,7 @@ export class FighterStatBar extends UIComponent<IFighterStatBarProps> {
     if (this.entity === entity) return;
     if (this.entity) {
       this.entity.callbacks.del(this.cbs)
-      this.entity.stat_bar_type = this.entity.stat_bar_type ^ StatBarType.UI;
+      this.entity.stat_bar_type = this.entity.stat_bar_type ^ StatBarType.None;
     }
     this.entity = entity
     if (entity) {
@@ -112,7 +112,7 @@ export class FighterStatBar extends UIComponent<IFighterStatBarProps> {
       this.toughness.target        /**/ = entity.toughness;
       this.toughness.handle()
       entity.callbacks.add(this.cbs)
-      entity.stat_bar_type = entity.stat_bar_type | StatBarType.UI;
+      entity.stat_bar_type = entity.stat_bar_type | StatBarType.None;
     }
     this.update_head();
   }

@@ -264,7 +264,7 @@ export class DemoModeLogic extends UIComponent<IDemoModeLogicProps> {
 
       fighter.key_role = true;
       fighter.name_visible = true;
-      fighter.stat_bar_type = StatBarType.UI;
+      fighter.stat_bar_type = StatBarType.None;
 
       const player = this.lfw.player('' + i)
       fighter.ctrl = this.lfw.factory.create_ctrl(fighter_data.id, player.id, fighter);

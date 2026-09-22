@@ -371,7 +371,7 @@ export class GamePrepareLogic extends UIComponent<IGamePrepareLogicProps> {
         continue;
       }
       fighter.team = slot_info.team || this.lfw.new_team;
-      fighter.stat_bar_type = StatBarType.UI;
+      fighter.stat_bar_type = StatBarType.None;
       fighter.facing = is_stage_mode ?
         FacingFlag.Right :
         this.lfw.mt.pick([FacingFlag.Left, FacingFlag.Right])!;
