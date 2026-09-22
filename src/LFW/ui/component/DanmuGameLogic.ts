@@ -1,6 +1,6 @@
 import { CMD } from "../../defines/CMD";
 import { StatBarType } from "../../entity/StatBarType";
-import { Defines } from "../../defines";
+import { Defines, EntityGroup, OID, type IEntityData } from "../../defines";
 import { TeamEnum as TE } from "../../defines/TeamEnum";
 import { is_fighter, type IEntityCallbacks } from "../../entity";
 import { Entity } from "../../entity/Entity";
@@ -69,6 +69,7 @@ export class DanmuGameLogic extends SummaryLogic {
   private readonly _next_stage_delay = new Times(0, DanmuGameLogic.STAGE_SWITCH_DELAY);
   private readonly _queue_seen = new Map<string, number>();
   private readonly _queue_sweep_timer = new Times(0, 60);
+  private _regular_datas?: IEntityData[];
   private _cam_ctrl?: CameraCtrl
   private readonly _viewers = new Map<string, IDanmuViewerStat>();
   private readonly _viewer_tracks = new Map<string, { stat: IDanmuViewerStat; sum: ISummaryCallbacks; ent: IEntityCallbacks }>();
@@ -192,6 +193,34 @@ export class DanmuGameLogic extends SummaryLogic {
   touch(uid: string): void {
     this._queue_seen.set(uid, this.time);
   }
+  enter(entrant: IEntrant): boolean {
+    if (this.join_queue.has(entrant.uid)) return false;
+    if (this._find_viewer_fighter(entrant.uid)) return false;
+    if (this.mode !== "coop" && this._teams.size <= 1) return false;
+    const team = this._find_join_team();
+    if (team === void 0) return false;
+    return !!this._spawn_entrant(entrant, team, this._template_data());
+  }
+  switch(uid: string, oid?: string): boolean {
+    const fighter = this._find_viewer_fighter(uid);
+    if (!fighter) return false;
+    const template = this._template_data();
+    if (template && fighter.data.id !== template.id) return false;
+    const data = this._regular_data(oid);
+    if (!data) return false;
+    const { x, y, z } = fighter.position;
+    const facing = fighter.facing;
+    const team = fighter.team;
+    const name = fighter.name;
+    const hp_ratio = fighter.hp_max > 0 ? fighter.hp / fighter.hp_max : 1;
+    fighter.release();
+    const next = this._spawn_entrant({ uid, name, oid: data.id }, team, data);
+    if (!next) return false;
+    next.set_position(x, y, z);
+    next.facing = facing;
+    next.hp = Math.max(1, Math.round(next.hp_max * hp_ratio));
+    return true;
+  }
   protected _sweep_queue() {
     const now = this.time;
     const queued = new Set<string>();
@@ -241,37 +270,51 @@ export class DanmuGameLogic extends SummaryLogic {
     v.blinking = 120;
     v.invulnerable = 120;
   }
+  protected _find_join_team(): string | undefined {
+    const fighters = this.lfw.fighters.all;
+    const mode = this.mode;
+    if (mode === "ffa")
+      return fighters.length < DanmuGameLogic.MAX_FIGHTERS ? '' : void 0;
+    if (mode === "teams8") {
+      const counts = new Map<string, number>();
+      for (const f of fighters)
+        counts.set(f.team, (counts.get(f.team) ?? 0) + 1);
+      return pick_join_team(counts, this._team_caps, this._join_fallen, TEAMS8);
+    }
+    const viewers = fighters.filter((f) => f.team === TE.Team_1).length;
+    return viewers < DanmuGameLogic.MAX_FIGHTERS ? TE.Team_1 : void 0;
+  }
   protected _try_join() {
     while (this.join_queue.size) {
-      const fighters = this.lfw.fighters.all;
-      const mode = this.mode;
-      if (mode === "ffa") {
-        if (fighters.length >= DanmuGameLogic.MAX_FIGHTERS) return;
-        const entrant = this.join_queue.dequeue();
-        if (!entrant) return;
-        this._spawn_entrant(entrant, '');
-      } else if (mode === "teams8") {
-        const counts = new Map<string, number>();
-        for (const f of fighters)
-          counts.set(f.team, (counts.get(f.team) ?? 0) + 1);
-        const team = pick_join_team(counts, this._team_caps, this._join_fallen, TEAMS8);
-        if (team === void 0) return;
-        const entrant = this.join_queue.dequeue();
-        if (!entrant) return;
-        this._spawn_entrant(entrant, team);
-      } else {
-        const viewers = fighters.filter((f) => f.team === TE.Team_1).length;
-        if (viewers >= DanmuGameLogic.MAX_FIGHTERS) return;
-        const entrant = this.join_queue.dequeue();
-        if (!entrant) return;
-        this._spawn_entrant(entrant, TE.Team_1);
-      }
+      const team = this._find_join_team();
+      if (team === void 0) return;
+      const entrant = this.join_queue.dequeue();
+      if (!entrant) return;
+      if (!this._find_viewer_fighter(entrant.uid)) this._spawn_entrant(entrant, team);
       this._join_fallen = null;
     }
   }
-  protected _spawn_entrant(entrant: IEntrant, team: string): Entity | undefined {
-    const fighters = entrant.oid
-      ? this.lfw.fighters.add(entrant.oid, 1, team)
+  protected _regular_fighter_datas(): IEntityData[] {
+    return this._regular_datas ??= this.lfw.datas.get_fighters_of_group(EntityGroup.Regular);
+  }
+  protected _template_data(): IEntityData | undefined {
+    return this.lfw.datas.find_fighter(OID.Template);
+  }
+  protected _regular_data(oid?: string): IEntityData | undefined {
+    const datas = this._regular_fighter_datas();
+    if (!datas.length) return void 0;
+    if (!oid) {
+      this.lfw.mt.mark = "danmu_viewer";
+      return this.lfw.mt.pick(datas);
+    }
+    const key = oid.trim();
+    const lower = key.toLowerCase();
+    return datas.find((v) => v.id === key || v.base.name?.toLowerCase() === lower);
+  }
+  protected _spawn_entrant(entrant: IEntrant, team: string, data?: IEntityData): Entity | undefined {
+    const fighter_data = data ?? this._regular_data(entrant.oid) ?? this._regular_data();
+    const fighters = fighter_data
+      ? this.lfw.fighters.add(fighter_data, 1, team)
       : this.lfw.fighters.add_random(1, team);
     const fighter = fighters[0];
     if (!fighter) return void 0;

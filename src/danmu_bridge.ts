@@ -12,6 +12,7 @@ interface IBridgeAction {
   type?: string;
   uid?: string;
   name?: string;
+  oid?: string;
 }
 
 function get_bridge_url(): string | null {
@@ -75,7 +76,13 @@ class DanmuBridge implements ILFWCallback {
     if (!logic) return;
     switch (action.type) {
       case "join":
-        if (action.uid && action.name) logic.join({ uid: action.uid, name: action.name });
+        if (action.uid && action.name) {
+          const joined = logic.join({ uid: action.uid, name: action.name, oid: action.oid });
+          if (!joined) logic.switch(action.uid, action.oid);
+        }
+        break;
+      case "enter":
+        if (action.uid && action.name) logic.enter({ uid: action.uid, name: action.name });
         break;
       case "cheer":
         if (action.uid) logic.cheer(action.uid);

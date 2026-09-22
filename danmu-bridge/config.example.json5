@@ -1,0 +1,87 @@
+{
+  // 来源模式: "web"（直播间弹幕流，免审核）| "open"（官方开放平台）
+  // 不填时：open 凭据配齐则用 open，否则 web
+  mode: "web",
+
+  // ── web 模式 ──────────────────────────────
+  room: 12345, // 直播间号（短号/真实房间号都行）
+  sessdata: "", // 可选，登录态更稳；勿提交到仓库
+  uid: 0, // 配 sessdata 用的 DedeUserID
+
+  // ── open 模式（官方直播开放平台）──────────
+  app_id: "", // 项目ID
+  access_key: "", // 勿提交到仓库
+  access_key_secret: "", // 勿提交到仓库
+  code: "", // 主播身份码（主播启动玩法时产生）
+  open_host: "https://live-open.biliapi.com",
+
+  // ── 弹幕指令 ───────────────────────────────
+  // 关键词均为「包含」匹配、忽略大小写；角色仅限常规角色
+  join_keywords: ["1", "报名", "加入", "参战"], // 空数组 = 任意弹幕都入队
+  leave_keywords: ["退出", "退场", "不玩了"],
+  cheer_keywords: ["加油", "666", "应援", "冲鸭", "漂亮"],
+  character_keywords: {
+    // 戴维斯：百烈拳 / 升龙拳
+    "戴维斯": "Davis",
+    "拳王": "Davis",
+    "升龙": "Davis",
+    davis: "Davis",
+    // 深渊：大剑 / 剑客
+    "深渊": "Deep",
+    "迪普": "Deep",
+    "剑客": "Deep",
+    "大刀": "Deep",
+    deep: "Deep",
+    // 约翰：气功 / 治疗
+    "约翰": "John",
+    "气功佬": "John",
+    "气功师": "John",
+    "奶妈": "John",
+    john: "John",
+    // 亨利：弓箭手
+    "亨利": "Henry",
+    "弓手": "Henry",
+    "弓箭手": "Henry",
+    "神箭手": "Henry",
+    henry: "Henry",
+    // 鲁道夫：忍者 / 豆腐
+    "鲁道夫": "Rudolf",
+    "忍者": "Rudolf",
+    "豆腐": "Rudolf",
+    "分身": "Rudolf",
+    rudolf: "Rudolf",
+    // 路易斯：铁甲
+    "路易斯": "Louis",
+    "铁甲": "Louis",
+    "铠甲": "Louis",
+    louis: "Louis",
+    // 烈焰：火人
+    "烈焰": "Firen",
+    "火人": "Firen",
+    "火佬": "Firen",
+    "火男": "Firen",
+    firen: "Firen",
+    // 冰封：冰人
+    "冰封": "Freeze",
+    "冰人": "Freeze",
+    "冰佬": "Freeze",
+    freeze: "Freeze",
+    // 丹尼斯：腿王
+    "丹尼斯": "Dennis",
+    "腿王": "Dennis",
+    "踢腿": "Dennis",
+    "旋风腿": "Dennis",
+    dennis: "Dennis",
+    // 伍迪：木头
+    "伍迪": "Woody",
+    "木头": "Woody",
+    "木头人": "Woody",
+    woody: "Woody",
+  },
+
+  // ── 其他 ──────────────────────────────────
+  port: 8066,
+  host: "127.0.0.1",
+  join_cooldown: 5000,
+  debug: false,
+}

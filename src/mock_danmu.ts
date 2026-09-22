@@ -49,6 +49,7 @@ class MockDanmuFeeder implements ILFWCallback {
     logic.join(entrant);
     console.log(LOG_TAG, `观众排队入场: ${entrant.name}（队列 ${logic.join_queue.size}）`);
     this.maybe_leave();
+    this.maybe_enter();
   }
   private maybe_leave(): void {
     const { logic } = this;
@@ -57,6 +58,22 @@ class MockDanmuFeeder implements ILFWCallback {
     const target = queued[Math.floor(Math.random() * queued.length)];
     if (!target || !logic.leave(target.uid)) return;
     console.log(LOG_TAG, `观众离开直播间，退出队列: ${target.name}（队列 ${logic.join_queue.size}）`);
+  }
+  private maybe_enter(): void {
+    const { logic } = this;
+    if (!logic || Math.random() > 0.2) return;
+    const seq = ++this.seq;
+    const entrant = { uid: `mock_enter_${seq}`, name: make_nick(seq) };
+    if (!logic.enter(entrant)) return;
+    console.log(LOG_TAG, `观众进入直播间，以 Template 入场: ${entrant.name}`);
+  }
+  private maybe_switch(): void {
+    const { logic } = this;
+    if (!logic) return;
+    const alive = logic.viewer_stats().filter((v) => v.alive);
+    if (!alive.length) return;
+    const target = alive[Math.floor(Math.random() * alive.length)];
+    if (logic.switch(target.uid)) console.log(LOG_TAG, `Template 切换角色: ${target.name}`);
   }
   private schedule_cheer(): void {
     this.stop_cheer();
@@ -72,6 +89,7 @@ class MockDanmuFeeder implements ILFWCallback {
     if (!alive.length) return;
     const target = alive[Math.floor(Math.random() * alive.length)];
     if (logic.cheer(target.uid)) console.log(LOG_TAG, `观众应援: ${target.name}`);
+    this.maybe_switch();
   }
   private stop_cheer(): void {
     if (this.cheer_timer === null) return;

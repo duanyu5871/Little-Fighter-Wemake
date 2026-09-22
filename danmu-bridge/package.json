@@ -11,6 +11,7 @@
     "start": "node index.mjs"
   },
   "dependencies": {
+    "json5": "^2.2.3",
     "ws": "^8.18.3"
   }
 }
