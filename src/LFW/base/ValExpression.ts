@@ -149,6 +149,23 @@ class ValExpressionParser {
           return e.lfw.mt.pick(scratch)!;
         };
       }
+      case "bag": {
+        if (!args.length) this.fail(`'bag' expects at least 1 argument`);
+        const scratch: number[] = new Array(args.length);
+        let cur: number[] = [];
+        let taken: number | undefined = void 0;
+        return (e) => {
+          for (let i = 0; i < args.length; ++i) scratch[i] = args[i]!(e);
+          if (!cur.length) {
+            cur = args.length > 1 ? scratch.filter((v) => v !== taken) : scratch.slice();
+            if (!cur.length) cur = scratch.slice();
+          }
+          e.lfw.mt.mark = tag;
+          const idx = e.lfw.mt.range(0, cur.length);
+          taken = cur.splice(idx, 1)[0];
+          return taken!;
+        };
+      }
       case "flip": {
         if (args.length) this.fail(`'flip' expects no arguments`);
         return (e) => {

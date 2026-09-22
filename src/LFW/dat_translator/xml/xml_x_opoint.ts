@@ -60,6 +60,9 @@ export function xml_x_opoint(xml: IXML, o: IOpointInfo, tag: string): IXMLElemen
   el.set_attr("gen_x", o.gen_x);
   el.set_attr("gen_y", o.gen_y);
   el.set_attr("gen_z", o.gen_z);
+  el.set_attr("gen_dvx", o.gen_dvx);
+  el.set_attr("gen_dvy", o.gen_dvy);
+  el.set_attr("gen_dvz", o.gen_dvz);
   return el;
 }
 
@@ -105,6 +108,9 @@ export function xml_2_opoint(el: IXMLElement): IOpointInfo {
   ret.gen_x           /**/ = el.get_str("gen_x", ret.gen_x);
   ret.gen_y           /**/ = el.get_str("gen_y", ret.gen_y);
   ret.gen_z           /**/ = el.get_str("gen_z", ret.gen_z);
+  ret.gen_dvx         /**/ = el.get_str("gen_dvx", ret.gen_dvx);
+  ret.gen_dvy         /**/ = el.get_str("gen_dvy", ret.gen_dvy);
+  ret.gen_dvz         /**/ = el.get_str("gen_dvz", ret.gen_dvz);
   return delete_undefined(ret);
 }
 

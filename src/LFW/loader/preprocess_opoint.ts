@@ -54,6 +54,9 @@ export function preprocess_opoint(opoint: IOpointInfo, lfw: LFW): IOpointInfo {
   if (opoint.gen_x) opoint.__gen_x = compile_gen(opoint.gen_x, "gen_x") ?? opoint.__gen_x;
   if (opoint.gen_y) opoint.__gen_y = compile_gen(opoint.gen_y, "gen_y") ?? opoint.__gen_y;
   if (opoint.gen_z) opoint.__gen_z = compile_gen(opoint.gen_z, "gen_z") ?? opoint.__gen_z;
+  if (opoint.gen_dvx) opoint.__gen_dvx = compile_gen(opoint.gen_dvx, "gen_dvx") ?? opoint.__gen_dvx;
+  if (opoint.gen_dvy) opoint.__gen_dvy = compile_gen(opoint.gen_dvy, "gen_dvy") ?? opoint.__gen_dvy;
+  if (opoint.gen_dvz) opoint.__gen_dvz = compile_gen(opoint.gen_dvz, "gen_dvz") ?? opoint.__gen_dvz;
   return opoint
 }
 preprocess_opoint.TAG = "preprocess_opoint";

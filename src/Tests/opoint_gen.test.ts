@@ -59,6 +59,26 @@ test("gen_x/gen_y/gen_z 编译为运行时 getter", () => {
   ]);
 });
 
+test("gen_dvx/gen_dvy/gen_dvz 编译为运行时 getter", () => {
+  const mt = new FakeMt();
+  const ret = preprocess_opoint(
+    opoint({
+      gen_dvx: "pick(-1, 1)",
+      gen_dvy: "rand(1, 3)",
+      gen_dvz: "round(h/8)",
+    }),
+    make_lfw(),
+  );
+  const e = make_emitter(mt);
+  expect(ret.__gen_dvx?.get(e)).toBe(-1);
+  expect(ret.__gen_dvy?.get(e)).toBe(1);
+  expect(ret.__gen_dvz?.get(e)).toBe(6);
+  expect(mt.calls).toEqual([
+    ["pick", "gen_dvx", -1, 1],
+    ["range", "gen_dvy", 1, 3],
+  ]);
+});
+
 test("未声明 gen_* 时不生成 getter", () => {
   const hook = { get: () => 7 };
   const ret = preprocess_opoint(opoint({ __gen_x: hook }), make_lfw());

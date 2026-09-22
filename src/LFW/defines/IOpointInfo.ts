@@ -183,6 +183,7 @@ export interface IOpointInfo {
    * 函数：
    * * `rand(min, max)`
    * * `pick(a, b, ...)`
+   * * `bag(a, b, ...)`（摸牌：抽完前不重复，补牌时排除刚抽中的值）
    * * `flip()`（等价于 `pick(-1, 1)`）
    * * `round(x)`
    *
@@ -199,6 +200,21 @@ export interface IOpointInfo {
    * 生成位置的Z表达式（覆盖z），语法见 {@link gen_x}
    */
   gen_z?: string;
+
+  /**
+   * 发射初速度X表达式（覆盖dvx），语法见 {@link gen_x}
+   */
+  gen_dvx?: string;
+
+  /**
+   * 发射初速度Y表达式（覆盖dvy），语法见 {@link gen_x}
+   */
+  gen_dvy?: string;
+
+  /**
+   * 发射初速度Z表达式（覆盖dvz），语法见 {@link gen_x}
+   */
+  gen_dvz?: string;
 
 
   __indicator_info?: IQubePair;
@@ -283,6 +299,9 @@ export const opoint_info_fields = fields<IOpointInfo>({
   gen_x: str("生成X表达式"),
   gen_y: str("生成Y表达式"),
   gen_z: str("生成Z表达式"),
+  gen_dvx: str("生成初速X表达式"),
+  gen_dvy: str("生成初速Y表达式"),
+  gen_dvz: str("生成初速Z表达式"),
 
 
   __spreading_random_x: any,

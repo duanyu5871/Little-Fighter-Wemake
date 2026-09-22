@@ -1,4 +1,6 @@
 import { ValExpression, type IValExpressionOptions } from "../LFW/base/ValExpression";
+import { Randoming } from "../LFW/helper/Randoming";
+import { MersenneTwister } from "../LFW/utils/math/MersenneTwister";
 
 class FakeMt {
   mark = "";
@@ -64,6 +66,33 @@ test("pick: 列表原样传递", () => {
   expect(mt.calls).toEqual([["pick", "gen_dvx", 1, 2, 2, 3]]);
 });
 
+test("bag: 摸牌语义（抽完前不重复，补牌排除刚抽中）", () => {
+  const mt = new FakeMt();
+  const expr = new ValExpression("bag(1, 2, 3)", { tag: "bag" });
+  const e = make_entity(mt);
+  expect([expr.get(e), expr.get(e), expr.get(e), expr.get(e)]).toEqual([1, 2, 3, 1]);
+  expect(mt.calls).toEqual([
+    ["range", "bag", 0, 3],
+    ["range", "bag", 0, 2],
+    ["range", "bag", 0, 1],
+    ["range", "bag", 0, 2],
+  ]);
+});
+
+test("bag: 单参数恒等", () => {
+  const mt = new FakeMt();
+  const expr = new ValExpression("bag(7)", { tag: "bag" });
+  const e = make_entity(mt);
+  expect([expr.get(e), expr.get(e)]).toEqual([7, 7]);
+});
+
+test("bag: 与 Randoming 摸牌模式逐次一致", () => {
+  const ref = new Randoming("bag", [-4, -3, -2, -1, 0, 1, 2, 3, 4], new MersenneTwister(1234));
+  const expr = new ValExpression("bag(-4, -3, -2, -1, 0, 1, 2, 3, 4)", { tag: "bag" });
+  const e = { frame, lfw: { mt: new MersenneTwister(1234) } } as unknown as GetArg;
+  for (let i = 0; i < 100; ++i) expect(expr.get(e)).toBe(ref.get());
+});
+
 test("flip: 走 pick([-1,1])", () => {
   const mt = new FakeMt();
   expect(eval_src("flip()", mt, { tag: "gen_facing" })).toBe(-1);
@@ -83,6 +112,7 @@ test("解析错误：err 有值、get 返回 0", () => {
     "foo(1)",
     "rand(1)",
     "pick()",
+    "bag()",
     "flip(1)",
     "round()",
     "(w",
