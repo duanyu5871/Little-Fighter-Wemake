@@ -8,11 +8,22 @@ const DEFAULT_URL = "ws://127.0.0.1:8066";
 const RECONNECT_MS = 3000;
 const STATE_INTERVAL_MS = 5000;
 
+const DEFAULT_HINTS: string[] = [
+  "发「1」或「报名」加入战斗",
+  "发角色名换人：豆腐、冰佬、拳王",
+  "发「加油」或「666」应援回血",
+  "进入直播间自动上场",
+  "战死要重新发弹幕才能再上",
+];
+
+export const danmu_hints: { texts: readonly string[] } = { texts: DEFAULT_HINTS };
+
 interface IBridgeAction {
   type?: string;
   uid?: string;
   name?: string;
   oid?: string;
+  texts?: string[];
 }
 
 function get_bridge_url(): string | null {
@@ -92,6 +103,9 @@ class DanmuBridge implements ILFWCallback {
         break;
       case "leave":
         if (action.uid) logic.leave(action.uid);
+        break;
+      case "hint":
+        if (action.texts?.length) danmu_hints.texts = action.texts.map(String);
         break;
     }
   }

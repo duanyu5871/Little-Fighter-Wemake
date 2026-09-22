@@ -74,3 +74,14 @@
   color: #a8b6d8;
   font-size: 12px;
 }
+
+.hint {
+  margin-top: 6px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(122, 152, 255, 0.25);
+  color: #ffe08a;
+  font-size: 12px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}

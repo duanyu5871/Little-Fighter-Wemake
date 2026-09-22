@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { LFW } from "./LFW";
 import type { ILFWCallback } from "./LFW/ILFWCallback";
 import { DanmuGameLogic, type DanmuGameMode, type IDanmuViewerStat } from "./LFW/ui/component/DanmuGameLogic";
+import { danmu_hints } from "./danmu_bridge";
 import type { UIComponent } from "./LFW/ui/component/UIComponent";
 import csses from "./DanmuPanel.module.scss";
 
@@ -15,6 +16,7 @@ interface IDanmuPanelVM {
   queue_names: string[];
   cheers: string[];
   stats: IDanmuViewerStat[];
+  hint: string;
 }
 
 const MODE_TEXT: Record<DanmuGameMode, string> = {
@@ -28,6 +30,7 @@ const CHEER_VISIBLE_FRAMES = 60 * 8;
 function make_vm(logic: DanmuGameLogic): IDanmuPanelVM {
   const stats = logic.viewer_stats();
   const now = logic.time;
+  const tips = danmu_hints.texts;
   return {
     mode: logic.mode,
     mode_label: MODE_TEXT[logic.mode] ?? logic.mode,
@@ -41,6 +44,7 @@ function make_vm(logic: DanmuGameLogic): IDanmuPanelVM {
       .slice(-4)
       .map((v) => v.name),
     stats: stats.slice(0, 10),
+    hint: tips.length ? tips[Math.floor(now / (60 * 6)) % tips.length] : "",
   };
 }
 
@@ -116,6 +120,7 @@ export function DanmuPanel(props: { lfw: LFW | undefined }) {
           ))}
         </div>
       )}
+      {vm.hint ? <div className={csses.hint}>{vm.hint}</div> : null}
     </div>
   );
 }

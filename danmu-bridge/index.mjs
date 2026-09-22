@@ -266,6 +266,26 @@ function match_pick(text) {
   return config.character_keywords.find((v) => lower.includes(v[0].toLowerCase()));
 }
 
+function build_hints() {
+  const hints = [];
+  if (config.join_keywords.length) hints.push(`发「${config.join_keywords.slice(0, 2).join("」「")}」加入战斗`);
+  else hints.push("发任意弹幕加入战斗");
+  const picks = [];
+  const seen = new Set();
+  for (const [kw, oid] of config.character_keywords) {
+    if (seen.has(oid)) continue;
+    seen.add(oid);
+    picks.push(kw);
+    if (picks.length >= 3) break;
+  }
+  if (picks.length) hints.push(`发角色名换人：${picks.join("、")}`);
+  if (config.cheer_keywords.length) hints.push(`发「${config.cheer_keywords.slice(0, 2).join("」「")}」应援回血`);
+  if (config.leave_keywords.length) hints.push(`发「${config.leave_keywords[0]}」退场`);
+  hints.push("进入直播间自动上场");
+  hints.push("战死要重新发弹幕才能再上");
+  return hints;
+}
+
 function on_event(ev) {
   if (config.debug) log(`event ${ev.kind} ${ev.name ?? ""} ${ev.text ?? ""}`.trimEnd());
   switch (ev.kind) {
@@ -316,6 +336,7 @@ const wss = new WebSocketServer({ host: config.host, port: config.port });
 wss.on("listening", () => log(`游戏页面连接服务已启动: ws://${config.host}:${config.port}`));
 wss.on("connection", (ws, req) => {
   log(`游戏页面已连接 (${req.socket.remoteAddress})`);
+  ws.send(JSON.stringify({ type: "hint", texts: build_hints() }));
   ws.on("message", (raw) => {
     try {
       const msg = JSON.parse(raw.toString());
