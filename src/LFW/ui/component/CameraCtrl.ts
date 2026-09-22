@@ -12,6 +12,7 @@ import { UIComponent } from "./UIComponent";
 export class CameraCtrl extends UIComponent {
   static override readonly TAGS: string[] = ["CameraCtrl"];
   auto: boolean = true;
+  candidates?: () => Entity[];
   private _staring?: Entity;
   get staring() {
     return this._staring;
@@ -67,7 +68,7 @@ export class CameraCtrl extends UIComponent {
   }
 
   focus_lr(direction: number) {
-    const fighters = this.lfw.fighters.all.filter(v => v.hp > 0)
+    const fighters = (this.candidates?.() ?? this.lfw.fighters.all).filter(v => v.hp > 0)
     fighters.sort((a, b) => a.position.x - b.position.x);
     if (!this.staring) {
       this.staring = fighters.at(direction < 0 ? fighters.length - 1 : 0)

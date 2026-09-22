@@ -321,6 +321,12 @@ export class Stage {
     let count = 0;
     for (const [, c] of this.world.puppets)
       count += c.data.base.ce ?? 1;
+    if (!count)
+      for (const e of this.world.entities) {
+        if (!is_fighter(e) || !e.mounted || e.hp <= 0) continue;
+        if (e.team !== Defines.TeamEnum.Team_1) continue;
+        count += e.data.base.ce ?? 1;
+      }
     if (!count) count = 1;
     switch (this.world.dataset.difficulty) {
       case Difficulty.Crazy:

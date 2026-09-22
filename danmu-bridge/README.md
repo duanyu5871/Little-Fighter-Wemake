@@ -25,6 +25,7 @@ node index.mjs --room 12345
 | `--join-cooldown <ms>` | `DANMU_JOIN_COOLDOWN` | 同一观众两次入队尝试的最小间隔，默认 5000 |
 | `--port <port>` | `DANMU_BRIDGE_PORT` | 游戏页面连接端口，默认 8066 |
 | `--host <host>` | `DANMU_BRIDGE_HOST` | 监听地址，默认 127.0.0.1（页面在别的设备上打开时才需要 `0.0.0.0`） |
+| `--scores <path>` | `DANMU_SCORES_FILE` | 战绩存档文件，默认本目录 `scores.json` |
 | `--config <path>` | `DANMU_BRIDGE_CONFIG` | 指定配置文件；默认自动读取本目录 `config.json5` / `config.json` |
 | `--debug` | - | 打印所有弹幕事件，排障用 |
 | `--dry` | - | 只打印解析后的配置（密钥脱敏）后退出，用于校验配置 |
@@ -43,9 +44,10 @@ copy config.example.json5 config.json5
 
 | 观众行为 | 效果 | 需要配置 |
 | --- | --- | --- |
-| 进入直播间 | **场上未满时自动以 Template 入场**；满员时不动（发弹幕才能排队） | 不需要 |
-| 发含入队关键词的弹幕（默认：任意弹幕） | 排队入场，随机一名常规角色 | `--join`（默认任意） |
-| 发含角色关键词的弹幕，如「戴维斯」 | 未入场 → 以该角色入队；**已以 Template 入场 → 立即切换**为该角色 | `--pick 戴维斯=Davis` |
+| 进入直播间（合作闯关） | **认领一个未认领的 Template**；没有占位且未满员时直接以 Template 入场；满员时不动（发弹幕才能排队） | 不需要 |
+| 进入直播间（其他模式） | **场上未满时自动以 Template 入场**；满员时不动（发弹幕才能排队） | 不需要 |
+| 发含入队关键词的弹幕（默认：任意弹幕） | 合作闯关 → 认领 Template；其他模式 → 排队入场，随机一名常规角色 | `--join`（默认任意） |
+| 发含角色关键词的弹幕，如「戴维斯」 | 未入场 → 认领 Template（合作闯关）或以该角色入队；**已以 Template 入场 → 立即切换**为该角色 | `--pick 戴维斯=Davis` |
 | 已入场（Template）后发入队关键词 | 切换为随机常规角色 | `--join` |
 | 发含应援关键词的弹幕（默认 加油/666/应援） | 为自己角色应援：回血 15%（3 秒 CD） | `--cheer` |
 | 发含退出关键词的弹幕（默认不启用） | 离开队列 / 场上角色立即退场 | `--leave` |
@@ -54,14 +56,16 @@ copy config.example.json5 config.json5
 
 规则细节：
 
+- **合作闯关**：开局与每关开始时默认生成 **4 个未认领的 Template 占位**（无名字、从关卡左侧入场）；观众进入直播间 / 发弹幕即认领一个（认领后头顶显示观众名），占位不够时直接以 Template 入场，再发角色关键词即切换为该角色；场上最多 32 名观众，满员后新观众排队，等有人阵亡或退场腾出位置
+- **合作闯关的敌人数量按场上人数缩放**：每个关卡阶段（波次）开始时按场上人数——已入场的观众 + 未认领的 Template 占位（按角色强度算，Template 算 1 人）——计算倍率，敌人数 = 人数 × 关卡配置倍率（与普通闯关按 1/2 名玩家缩放同一套规则）；阶段中途的人数变化从下一波开始生效
 - 角色仅限**常规角色**（Regular 组：`Davis / Deep / Dennis / Woody / Firen / Freeze / Louis / Rudolf / Henry / John`）；`--pick` 的值可用角色名（`Davis`）或角色 ID（如 `11`）
 - 关键词匹配**忽略大小写**；`config.example.json5` 已为十名常规角色预置中文/英文昵称（拳王=Davis、深渊=Deep、奶妈=John、弓手=Henry、豆腐/忍者=Rudolf、铁甲=Louis、火人=Firen、冰人/冰佬=Freeze、腿王=Dennis、木头=Woody），可自行增改
 - 只有 **Template** 状态允许中途切换；切换后即固定为该角色，想换就等下一局
 - 入队时角色写错会退化为随机常规角色；切换时写错则忽略
 - 同一人已在场上时不会重复入队；入队尝试有冷却（`--join-cooldown`，默认 5 秒）
 - 队列上限 50、场上上限 32；排队中超过 5 分钟无任何互动会被自动移出
-- 战死即出局：要重新发弹幕入队，或退出直播间后再进（未满时自动以 Template 入场）
-- 游戏内左上角面板底部会**轮播提示**（每 6 秒换一条，文案由本桥根据配置自动生成；没接桥时显示内置默认提示）
+- 战死即出局：要重新发弹幕认领/入队，或退出直播间后再进（合作闯关认领 Template / 其他模式未满时以 Template 入场）
+- 游戏内左上角面板底部会**轮播提示**（每 6 秒换一条，文案由本桥根据配置自动生成；没接桥时显示内置默认提示；其中「发角色名换人」每次轮播会**随机抽 3 个角色昵称**展示，昵称池 = `character_keywords` 里每个角色的首个关键词）
 
 ## 官方开放平台模式（推荐，有应用时）
 
@@ -92,9 +96,9 @@ node index.mjs --mode open --app-id 12345 --access-key <xxx> --access-key-secret
 
 | B站事件 | 游戏指令 |
 | --- | --- |
-| 进入直播间 | `enter`：场上未满时以 Template 直接入场（同人 10 秒内只发一次）+ `touch` |
+| 进入直播间 | `enter`：合作闯关认领一个未认领的 Template（没有占位且未满员时直接以 Template 入场）；其他模式场上未满时以 Template 直接入场（同人 10 秒内只发一次）+ `touch` |
 | 弹幕（命中角色关键词，且在场为 Template） | `switch` 切换为该角色 |
-| 弹幕（命中入队规则） | `join` 排队入场（uid 去重；同一人已在场上时不会重复入队） |
+| 弹幕（命中入队规则） | `join` 合作闯关先认领 Template，否则排队入场（uid 去重；同一人已在场上时不会重复入队） |
 | 弹幕（命中应援关键词） | `cheer` 应援（引擎内 3 秒 CD） |
 | 弹幕（命中退出关键词） | `leave` 离队 / 场上退场 |
 | 关注 / 分享 / 点赞 | `touch` 刷新活跃时间 |
@@ -123,6 +127,31 @@ B站常规弹幕流没有离场事件（只有进入/互动），所以采用活
 - 已经在场上打的人不受超时影响，只在战死或换关时出局
 - 若将来数据源能提供离场事件，收到后发 `{ type: "leave", uid }` 即可立即出队（引擎已支持）
 
+## 桌面客户端 / B站互动玩法安装包（幻星互动）
+
+`start.exe` 就是 **Little Fighter Wemake 的桌面客户端**：双击即玩（不接直播就是单机），接上直播后就变成弹幕互动玩法。同一个包也能直接当 B站互动玩法的「程序文件」上传（包内 = 游戏画面 + 弹幕桥 + Electron 壳，全部离线自包含）。
+
+```powershell
+# 1) 先准备好开平应用密钥（会被打进包里的 config.json5）
+copy danmu-bridge\config.example.json5 danmu-bridge\config.json5
+#    编辑 config.json5：app_id / access_key / access_key_secret
+# 2) 构建（build:desktop 是同一脚本的别名）
+npm run build:playable
+#    输出 release/Little Fighter Wemake_<version>.zip
+```
+
+- 包名格式 = 项目名_版本号（脚本自动取 `package.json` 的版本号，如 `Little Fighter Wemake_0.1.54.zip`）；根目录直接铺文件、入口 `start.exe`、文件全 ASCII 名、<500MB（B站“程序文件”上传要求；因为 B站要求入口必须叫 `start.exe`，桌面客户端的可执行文件也是这个名字）
+- `start.exe` 是一个 **Electron 应用**（源码 `danmu-bridge/app/`：`main.mjs` 主进程 + `preload.cjs` 向页面暴露 Wails 兼容的 `window.runtime`），负责：
+  - 起本地静态服务放游戏画面（默认 8067）
+  - 在主进程里以开平模式跑弹幕桥（默认 8066，源即 `index.mjs`，构建时用 bun 打成 `bridge.bundle.mjs`）
+  - 开一个**无系统标题栏**的游戏窗口；画面顶部那条半透明区域就是拖拽区（按住拖动、双击最大化/还原），右上角依次是最小化 / 最大化还原 / 全屏 / 关闭；关闭窗口整个玩法退出
+- 顶栏窗口按钮复用游戏里已有的 Wails 运行时调用（`window.runtime.*`），所以网页端、Wails 端、Electron 端三套壳共用同一段 UI 代码
+- 身份码不用手填：直播姬/平台拉起时按 `start.exe code=xxxxxxxxxx` 传入（自动从启动参数解析）；本地调试也可直接 `start.exe code=你的身份码`
+- 本地调试技巧：`start.exe --room 12345` 用 web 模式收弹幕免密钥；`--debug` 打印事件；`--devtools` 开开发者工具；`--screenshot <path>` 把窗口内容截成 PNG；`--port` / `--game-port` / `--host` 可改端口
+- 没配上任何弹幕来源（无密钥无身份码也没房间号）时，`start.exe` 以**单机桌面模式**启动：只开游戏画面并提示原因，不会直接报错退出
+- 构建脚本还会删掉 `lfw.full.zip`、把 Electron 的语言包精简到 `en-US / zh-CN / zh-TW`，并检查非 ASCII 文件名与 500MB 上限
+- 构建机需要 Bun（打主进程/弹幕桥 bundle；运行机不需要）和 Node；首次打包会下载 Electron win32-x64（约 110MB），产物解包约 370MB、zip 约 180MB
+
 ## 常见问题
 
 - **认证失败（code 非 0）**：通常是 token 过期或风控，服务会自动重连并重新取 token；频繁失败建议加 `--sessdata`。
@@ -132,3 +161,7 @@ B站常规弹幕流没有离场事件（只有进入/互动），所以采用活
 - **断流**：服务内置心跳（30 秒）与 90 秒无消息看门狗，断开后按 3s → 30s 退避重连。
 - **收不到弹幕但要先确认房间**：先看控制台打印的 `房间 xxx -> yyy` 是否正确；用 `--debug` 看原始事件。
 - **页面没反应**：确认游戏页 URL 带了 `DANMU_WS` 参数；桥和页面必须网络互通（同机就查防火墙/端口）。
+
+---
+
+主笔：Gim / 润色：DeepSeek V4 Flash

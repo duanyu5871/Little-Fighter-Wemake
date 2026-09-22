@@ -48,16 +48,18 @@ function print_usage() {
   --pick <kw=角色,...>      指定角色入队/切换（如 戴维斯=Davis；仅常规角色；关键词忽略大小写）
   --cheer <kw1,kw2>         触发应援的关键词（默认 加油,666,应援）
   --leave <kw1,kw2>         触发退出的关键词（离队/场上退场），默认不启用
-  进入直播间:               场上未满时自动以 Template 入场（之后发角色关键词即可切换）
+  进入直播间:               合作闯关开局/每关生成 4 个 Template，进入即认领一个（最多 32 人）；其他模式场上未满时以 Template 入场
+                            （认领/入场后发角色关键词即可切换）
 
 其他:
   --port <port>             游戏页面连接端口（默认 8066）
   --host <host>             监听地址（默认 127.0.0.1）
   --join-cooldown <ms>      同一观众两次入队尝试的最小间隔（默认 5000）
+  --scores <path>           战绩存档文件（默认本目录 scores.json）
   --debug                   打印所有收到的弹幕事件
   --dry                     仅打印解析后的配置（密钥脱敏）后退出，用于校验配置
 
-对应环境变量: BILI_APP_ID / BILI_ACCESS_KEY / BILI_ACCESS_SECRET / BILI_CODE / BILI_ROOM_ID / BILI_SESSDATA / BILI_UID / DANMU_BRIDGE_MODE / DANMU_BRIDGE_CONFIG / DANMU_JOIN_KEYWORDS / DANMU_PICK_KEYWORDS / DANMU_CHEER_KEYWORDS / DANMU_LEAVE_KEYWORDS
+对应环境变量: BILI_APP_ID / BILI_ACCESS_KEY / BILI_ACCESS_SECRET / BILI_CODE / BILI_ROOM_ID / BILI_SESSDATA / BILI_UID / DANMU_BRIDGE_MODE / DANMU_BRIDGE_CONFIG / DANMU_JOIN_KEYWORDS / DANMU_PICK_KEYWORDS / DANMU_CHEER_KEYWORDS / DANMU_LEAVE_KEYWORDS / DANMU_SCORES_FILE
 `);
 }
 
@@ -162,7 +164,7 @@ const config = {
   debug: args.debug === true || file.debug === true,
   dry: args.dry === true,
   config_path: config_file?.path ?? "",
-  scores_file: String(file.scores_file ?? ""),
+  scores_file: String(pick(args.scores, process.env.DANMU_SCORES_FILE, file.scores_file, "")),
   score_weights: { kills: 10, spawns: 1, cheers: 1, deads: 0, damages: 0, ...(file.score_weights ?? {}) },
   open: {
     host: String(pick(args["open-host"], process.env.BILI_OPEN_HOST, file.open_host, "https://live-open.biliapi.com")),
@@ -286,14 +288,13 @@ function build_hints() {
     if (seen.has(oid)) continue;
     seen.add(oid);
     picks.push(kw);
-    if (picks.length >= 3) break;
   }
-  if (picks.length) hints.push(`发角色名换人：${picks.join("、")}`);
+  if (picks.length) hints.push("发角色名换人：{picks}");
   if (config.cheer_keywords.length) hints.push(`发「${config.cheer_keywords.slice(0, 2).join("」「")}」应援回血`);
   if (config.leave_keywords.length) hints.push(`发「${config.leave_keywords[0]}」退场`);
   hints.push("进入直播间自动上场");
   hints.push("战死要重新发弹幕才能再上");
-  return hints;
+  return { hints, picks };
 }
 
 function on_event(ev) {
@@ -416,7 +417,8 @@ const server = createServer((req, res) => {
 const wss = new WebSocketServer({ server });
 wss.on("connection", (ws, req) => {
   log(`游戏页面已连接 (${req.socket.remoteAddress})`);
-  ws.send(JSON.stringify({ type: "hint", texts: build_hints() }));
+  const { hints, picks } = build_hints();
+  ws.send(JSON.stringify({ type: "hint", texts: hints, picks }));
   ws.on("message", (raw) => {
     try {
       const msg = JSON.parse(raw.toString());
@@ -455,14 +457,18 @@ log(`退出规则: ${config.leave_keywords.length ? `包含关键词 ${config.le
 log(`无离场事件：排队时超过 5 分钟无任何互动会被引擎自动移出队列（DanmuGameLogic.QUEUE_IDLE_TIMEOUT）`);
 client.start();
 
-process.on("SIGINT", async () => {
-  log("正在退出...");
+export async function stop_bridge() {
   try {
     await client.stop();
   } catch {
     void 0;
   }
   board.save();
+}
+
+process.on("SIGINT", async () => {
+  log("正在退出...");
+  await stop_bridge();
   process.exit(0);
 });
 

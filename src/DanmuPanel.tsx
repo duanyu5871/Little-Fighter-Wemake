@@ -30,7 +30,7 @@ const CHEER_VISIBLE_FRAMES = 60 * 8;
 function make_vm(logic: DanmuGameLogic): IDanmuPanelVM {
   const stats = logic.viewer_stats();
   const now = logic.time;
-  const tips = danmu_hints.texts;
+  const hint_tick = Math.floor(now / (60 * 6));
   return {
     mode: logic.mode,
     mode_label: MODE_TEXT[logic.mode] ?? logic.mode,
@@ -44,7 +44,7 @@ function make_vm(logic: DanmuGameLogic): IDanmuPanelVM {
       .slice(-4)
       .map((v) => v.name),
     stats: stats.slice(0, 10),
-    hint: tips.length ? tips[Math.floor(now / (60 * 6)) % tips.length] : "",
+    hint: danmu_hints.texts.length ? danmu_hints.at(hint_tick) : "",
   };
 }
 

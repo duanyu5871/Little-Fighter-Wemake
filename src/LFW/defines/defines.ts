@@ -197,6 +197,8 @@ export namespace Defines {
     BattleEnd: "data/m_end.wav.mp3",
   } as const;
 
+  export const DANMU_UID_MARK = 'danmu_uid';
+
   export const STATE_HEAL_SELF_HP = 104;
 
   export const DifficultyLabels: Record<Difficulty, string> = {

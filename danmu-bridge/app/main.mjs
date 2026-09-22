@@ -1,0 +1,384 @@
+import { app, BrowserWindow, Menu, ipcMain, shell } from "electron";
+import { appendFileSync, createReadStream, existsSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { createServer as create_http_server } from "node:http";
+import { createServer as create_net_server } from "node:net";
+import { dirname, extname, join, normalize, resolve, sep } from "node:path";
+import { pathToFileURL } from "node:url";
+import JSON5 from "json5";
+
+const LOG_TAG = "[lfwm]";
+const DEFAULT_HOST = "127.0.0.1";
+const DEFAULT_BRIDGE_PORT = 8066;
+const DEFAULT_GAME_PORT = 8067;
+const PORT_TRIES = 20;
+const LOG_MAX_BYTES = 512 * 1024;
+
+const MIME = {
+  ".html": "text/html; charset=utf-8",
+  ".htm": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".mjs": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".map": "application/json; charset=utf-8",
+  ".txt": "text/plain; charset=utf-8",
+  ".xml": "application/xml; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".ico": "image/x-icon",
+  ".mp3": "audio/mpeg",
+  ".ogg": "audio/ogg",
+  ".wav": "audio/wav",
+  ".ttf": "font/ttf",
+  ".otf": "font/otf",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+  ".zip": "application/zip",
+  ".wasm": "application/wasm",
+  ".glsl": "text/plain; charset=utf-8",
+};
+
+const BRIDGE_ARGS = [
+  "code", "room", "mode", "app-id", "access-key", "access-key-secret", "open-host",
+  "sessdata", "uid", "join", "pick", "cheer", "leave", "join-cooldown",
+];
+
+let app_dir = "";
+let data_dir = "";
+let win = null;
+let bridge = null;
+let closing = false;
+
+function log(msg) {
+  console.log(`${LOG_TAG} ${msg}`);
+}
+
+function setup_log(dir) {
+  try {
+    const file = join(dir, "logs.txt");
+    if (existsSync(file) && statSync(file).size > LOG_MAX_BYTES) rmSync(file);
+    const fmt = (v) => (typeof v === "string" ? v : v instanceof Error ? v.stack ?? v.message : (() => {
+      try {
+        return JSON.stringify(v);
+      } catch {
+        return String(v);
+      }
+    })());
+    for (const level of ["log", "warn", "error"]) {
+      const origin = console[level].bind(console);
+      console[level] = (...parts) => {
+        try {
+          appendFileSync(file, `${new Date().toLocaleTimeString("zh-CN", { hour12: false })} ${parts.map(fmt).join(" ")}\n`);
+        } catch {
+          void 0;
+        }
+        origin(...parts);
+      };
+    }
+  } catch {
+    void 0;
+  }
+}
+
+function parse_args(argv) {
+  const ret = {};
+  for (let i = 0; i < argv.length; ++i) {
+    const a = argv[i];
+    const eq = /^(?:--)?([A-Za-z][\w-]*)=(.*)$/.exec(a);
+    if (eq) {
+      ret[eq[1].toLowerCase()] = eq[2];
+      continue;
+    }
+    if (!a.startsWith("--")) continue;
+    const key = a.slice(2).toLowerCase();
+    const next = argv[i + 1];
+    ret[key] = next && !next.startsWith("--") ? argv[++i] : true;
+  }
+  return ret;
+}
+
+function load_config(...paths) {
+  for (const p of paths) {
+    if (!existsSync(p)) continue;
+    try {
+      return JSON5.parse(readFileSync(p, "utf8")) ?? {};
+    } catch (e) {
+      console.warn(LOG_TAG, `配置文件解析失败: ${p}`, e.message);
+      return {};
+    }
+  }
+  return {};
+}
+
+function not_found(res) {
+  res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+  res.end("not found");
+}
+
+function serve_file(req, res, dir, pathname) {
+  let rel;
+  try {
+    rel = decodeURIComponent(pathname).replace(/^\/+/, "");
+  } catch {
+    return not_found(res);
+  }
+  const target = rel === "" ? "index.html" : rel;
+  const full = normalize(join(dir, target));
+  if (full !== dir && !full.startsWith(dir + sep)) return not_found(res);
+  let st;
+  try {
+    st = statSync(full);
+  } catch {
+    return not_found(res);
+  }
+  if (st.isDirectory()) return serve_file(req, res, dir, `${target.replace(/\/+$/, "")}/index.html`);
+  const headers = {
+    "content-type": MIME[extname(full).toLowerCase()] ?? "application/octet-stream",
+    "cache-control": "no-cache",
+    "accept-ranges": "bytes",
+  };
+  const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? "");
+  if (range) {
+    const start = range[1] === "" ? st.size - Number(range[2]) : Number(range[1]);
+    const end = range[2] === "" || range[1] === "" ? st.size - 1 : Number(range[2]);
+    if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || start > end || end >= st.size) {
+      res.writeHead(416, { "content-range": `bytes */${st.size}` });
+      return res.end();
+    }
+    res.writeHead(206, { ...headers, "content-range": `bytes ${start}-${end}/${st.size}`, "content-length": end - start + 1 });
+    createReadStream(full, { start, end }).pipe(res);
+    return;
+  }
+  res.writeHead(200, { ...headers, "content-length": st.size });
+  createReadStream(full).pipe(res);
+}
+
+function make_game_server(dir) {
+  return create_http_server((req, res) => {
+    let pathname = "/";
+    try {
+      pathname = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
+    } catch {
+      return not_found(res);
+    }
+    serve_file(req, res, dir, pathname);
+  });
+}
+
+function listen_server(server, host, port) {
+  return new Promise((ok) => {
+    server.once("error", (e) => ok(e.code === "EADDRINUSE" ? null : e));
+    server.once("listening", () => ok(true));
+    server.listen(port, host);
+  });
+}
+
+async function listen_first_free(server, host, port) {
+  for (let i = 0; i < PORT_TRIES; ++i) {
+    const ret = await listen_server(server, host, port + i);
+    if (ret === true) return server.address().port;
+    if (ret instanceof Error) throw ret;
+  }
+  throw new Error(`端口 ${port}~${port + PORT_TRIES - 1} 全部被占用`);
+}
+
+function check_port_free(host, port) {
+  return new Promise((ok) => {
+    const server = create_net_server();
+    server.once("error", (e) => ok(e.code === "EADDRINUSE" ? false : true));
+    server.once("listening", () => server.close(() => ok(true)));
+    server.listen(port, host);
+  });
+}
+
+async function load_bridge() {
+  for (const rel of ["bridge.bundle.mjs", "../index.mjs"]) {
+    const file = join(app_dir, rel);
+    if (!existsSync(file)) continue;
+    return await import(pathToFileURL(file).href);
+  }
+  throw new Error("找不到弹幕桥代码（bridge.bundle.mjs）");
+}
+
+async function shutdown(reason) {
+  if (closing) return;
+  closing = true;
+  log(`正在关闭（${reason}）`);
+  try {
+    await bridge?.stop_bridge?.();
+  } catch (e) {
+    console.warn(LOG_TAG, "关闭弹幕桥时出错", e);
+  }
+  app.exit(0);
+}
+
+async function main() {
+  const args = parse_args(process.argv.slice(app.isPackaged ? 1 : 2));
+  await app.whenReady();
+  Menu.setApplicationMenu(null);
+  app_dir = app.getAppPath();
+  data_dir = app.isPackaged ? dirname(process.execPath) : app_dir;
+  setup_log(data_dir);
+
+  const game_dir = app.isPackaged ? join(process.resourcesPath, "game") : resolve(app_dir, "..", "..", "dist");
+  if (!existsSync(join(game_dir, "index.html"))) {
+    log(`找不到游戏文件（${join(game_dir, "index.html")}），安装包可能不完整`);
+    app.exit(1);
+    return;
+  }
+
+  const host = String(args.host ?? DEFAULT_HOST);
+  const bridge_port = Number(args.port ?? DEFAULT_BRIDGE_PORT);
+  const game_port_want = Number(args["game-port"] ?? DEFAULT_GAME_PORT);
+
+  if (!(await check_port_free(host, bridge_port))) {
+    log(`端口 ${bridge_port} 已被占用：可能已经开着一个玩法（一个直播间同时只能开一个）`);
+    app.exit(1);
+    return;
+  }
+
+  const config_json5 = join(data_dir, "config.json5");
+  const config_json = join(data_dir, "config.json");
+  const conf = load_config(config_json5, config_json);
+  const code = typeof args.code === "string" ? args.code : String(conf.code ?? "");
+  const room = typeof args.room === "string" ? args.room : String(conf.room ?? "");
+  const creds_ready = !!conf.app_id && !!conf.access_key && !!conf.access_key_secret;
+
+  log(`程序目录: ${data_dir}`);
+  if (existsSync(config_json5) || existsSync(config_json))
+    log(`配置: ${existsSync(config_json5) ? config_json5 : config_json}（应用密钥${creds_ready ? "已设置" : "未设置"}，身份码${code ? "已传入" : "未传入"}）`);
+
+  if (creds_ready && code || room || args.dry) {
+    const bridge_args = [];
+    if (existsSync(config_json5)) bridge_args.push("--config", config_json5);
+    else if (existsSync(config_json)) bridge_args.push("--config", config_json);
+    for (const key of BRIDGE_ARGS) {
+      const v = args[key];
+      if (v === void 0 || v === true) continue;
+      bridge_args.push(`--${key}`, String(v));
+    }
+    bridge_args.push("--host", host, "--port", String(bridge_port), "--scores", join(data_dir, "scores.json"));
+    if (args.debug) bridge_args.push("--debug");
+    process.argv = [process.argv[0], join(data_dir, "start.exe"), ...bridge_args];
+    bridge = await load_bridge();
+  } else {
+    log("未配置直播弹幕：以单机桌面模式启动（想接弹幕就填 config.json5 的应用密钥，或由直播姬带 code= 启动）");
+  }
+
+  const game_server = make_game_server(game_dir);
+  const game_port = await listen_first_free(game_server, host, game_port_want);
+  const page_host = host === "0.0.0.0" || host === "::" ? "127.0.0.1" : host;
+  const ws = bridge_port === DEFAULT_BRIDGE_PORT && page_host === "127.0.0.1" ? "1" : `ws://${page_host}:${bridge_port}`;
+  const page_url = `http://${page_host}:${game_port}/#/?DANMU_WS=${ws}`;
+
+  log(`游戏页面: http://${page_host}:${game_port}/`);
+  log(`弹幕桥: ws://${page_host}:${bridge_port}（榜单页 http://${page_host}:${bridge_port}/）`);
+
+  win = new BrowserWindow({
+    width: 1280,
+    height: 760,
+    minWidth: 640,
+    minHeight: 420,
+    show: false,
+    frame: false,
+    backgroundColor: "#000000",
+    title: "Little Fighter Wemake",
+    webPreferences: {
+      preload: join(app_dir, "preload.cjs"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      backgroundThrottling: false,
+      spellcheck: false,
+    },
+  });
+  win.setMenuBarVisibility(false);
+  win.once("ready-to-show", () => win?.show());
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:/i.test(url)) shell.openExternal(url).catch(() => void 0);
+    return { action: "deny" };
+  });
+  win.on("maximize", () => win?.webContents.send("lfj:maximized", true));
+  win.on("unmaximize", () => win?.webContents.send("lfj:maximized", false));
+  await win.loadURL(page_url);
+
+  if (args.devtools) win.webContents.openDevTools({ mode: "detach" });
+
+  if (args["shell-test"]) {
+    setTimeout(async () => {
+      const info = await win?.webContents.executeJavaScript(`(() => {
+        const bar = document.querySelector('[class*=top_bar]');
+        const drag = bar ? bar.querySelector('[class*=wails_drag]') : null;
+        return JSON.stringify({
+          runtime: typeof window.runtime,
+          api: [typeof runtime?.WindowMinimise, typeof runtime?.WindowToggleMaximise, typeof runtime?.WindowIsMaximised, typeof runtime?.Quit],
+          buttons: bar ? bar.querySelectorAll('button').length : -1,
+          app_region: drag ? getComputedStyle(drag).webkitAppRegion : null,
+        });
+      })()`);
+      log(`shell-test renderer: ${info}`);
+      win?.maximize();
+      log(`shell-test maximize -> ${win?.isMaximized()}`);
+      win?.unmaximize();
+      log(`shell-test unmaximize -> ${win?.isMaximized()}`);
+      win?.minimize();
+      log(`shell-test minimize -> ${win?.isMinimized()}`);
+      win?.restore();
+      log("shell-test 点击右上角关闭按钮");
+      await win?.webContents.executeJavaScript(`(() => {
+        const bar = document.querySelector('[class*=top_bar]');
+        const btns = bar ? Array.from(bar.querySelectorAll('button')) : [];
+        const last = btns[btns.length - 1];
+        if (last) last.click();
+        return btns.length;
+      })()`);
+    }, Number(args["shell-test-delay"] ?? 5000));
+  }
+
+  if (typeof args.screenshot === "string") {
+    const out = resolve(args.screenshot);
+    setTimeout(async () => {
+      try {
+        const image = await win?.webContents.capturePage();
+        if (image) {
+          writeFileSync(out, image.toPNG());
+          log(`截图已保存: ${out}`);
+        }
+      } catch (e) {
+        console.warn(LOG_TAG, "截图失败", e);
+      }
+    }, Number(args["screenshot-delay"] ?? 6000));
+  }
+}
+
+const win_of = (event) => BrowserWindow.fromWebContents(event.sender);
+
+ipcMain.on("lfj:minimize", (e) => win_of(e)?.minimize());
+ipcMain.on("lfj:toggle-maximize", (e) => {
+  const w = win_of(e);
+  if (!w) return;
+  if (w.isMaximized()) w.unmaximize();
+  else w.maximize();
+});
+ipcMain.handle("lfj:is-maximized", (e) => win_of(e)?.isMaximized() ?? false);
+ipcMain.handle("lfj:is-fullscreen", (e) => win_of(e)?.isFullScreen() ?? false);
+ipcMain.on("lfj:fullscreen", (e, on) => win_of(e)?.setFullScreen(!!on));
+ipcMain.on("lfj:quit", () => void shutdown("点击关闭按钮"));
+
+app.commandLine.appendSwitch("autoplay-policy", "no-user-gesture-required");
+app.setAppUserModelId("ink.gim.lfwm");
+app.on("window-all-closed", () => void shutdown("游戏窗口已关闭"));
+app.on("second-instance", () => {
+  win?.restore();
+  win?.focus();
+});
+process.on("SIGTERM", () => void shutdown("SIGTERM"));
+
+if (!app.requestSingleInstanceLock()) app.quit();
+else void main().catch((e) => {
+  console.error(LOG_TAG, "启动失败", e);
+  app.exit(1);
+});

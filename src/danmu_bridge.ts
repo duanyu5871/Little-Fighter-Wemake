@@ -10,13 +10,54 @@ const STATE_INTERVAL_MS = 5000;
 
 const DEFAULT_HINTS: string[] = [
   "发「1」或「报名」加入战斗",
-  "发角色名换人：豆腐、冰佬、拳王",
+  "发角色名换人：{picks}",
   "发「加油」或「666」应援回血",
   "进入直播间自动上场",
   "战死要重新发弹幕才能再上",
 ];
 
-export const danmu_hints: { texts: readonly string[] } = { texts: DEFAULT_HINTS };
+const DEFAULT_PICKS: string[] = [
+  "拳王", "豆腐", "忍者", "冰佬", "奶妈",
+  "弓手", "铁甲", "火人", "腿王", "木头",
+];
+
+const PICKS_TOKEN = "{picks}";
+const PICKS_COUNT = 3;
+
+function pick_random(pool: readonly string[], count: number): string[] {
+  const copy = [...pool];
+  for (let i = 0; i < count && i < copy.length; ++i) {
+    const j = i + Math.floor(Math.random() * (copy.length - i));
+    const tmp = copy[i];
+    copy[i] = copy[j];
+    copy[j] = tmp;
+  }
+  return copy.slice(0, count);
+}
+
+class DanmuHints {
+  texts: readonly string[] = DEFAULT_HINTS;
+  picks: readonly string[] = DEFAULT_PICKS;
+  private _tick = -1;
+  private _text = "";
+  set(texts?: readonly string[], picks?: readonly string[]): void {
+    if (texts?.length) this.texts = texts;
+    if (picks?.length) this.picks = picks;
+    this._tick = -1;
+  }
+  at(tick: number): string {
+    if (tick === this._tick) return this._text;
+    this._tick = tick;
+    const len = this.texts.length;
+    const raw = len ? this.texts[((tick % len) + len) % len] : "";
+    this._text = raw.includes(PICKS_TOKEN)
+      ? raw.replace(PICKS_TOKEN, pick_random(this.picks, PICKS_COUNT).join("、"))
+      : raw;
+    return this._text;
+  }
+}
+
+export const danmu_hints = new DanmuHints();
 
 interface IBridgeAction {
   type?: string;
@@ -24,6 +65,7 @@ interface IBridgeAction {
   name?: string;
   oid?: string;
   texts?: string[];
+  picks?: string[];
 }
 
 function get_bridge_url(): string | null {
@@ -84,6 +126,10 @@ class DanmuBridge implements ILFWCallback {
     } catch {
       return;
     }
+    if (action.type === "hint") {
+      danmu_hints.set(action.texts, action.picks);
+      return;
+    }
     const logic = this.logic;
     if (!logic) return;
     switch (action.type) {
@@ -104,9 +150,6 @@ class DanmuBridge implements ILFWCallback {
         break;
       case "leave":
         if (action.uid) logic.leave(action.uid);
-        break;
-      case "hint":
-        if (action.texts?.length) danmu_hints.texts = action.texts.map(String);
         break;
     }
   }

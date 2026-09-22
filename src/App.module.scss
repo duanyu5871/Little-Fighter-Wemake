@@ -48,6 +48,7 @@
 
     .wails_drag {
       --wails-draggable: drag;
+      -webkit-app-region: drag;
       position         : absolute;
       height           : 90%;
       left             : 0px;
@@ -65,6 +66,7 @@
 
     button {
       --wails-draggable: no-drag;
+      -webkit-app-region: no-drag;
       pointer-events   : all;
       padding          : 0px;
       transform        : scale(0.6, 0.6);

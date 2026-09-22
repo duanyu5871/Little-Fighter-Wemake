@@ -1,0 +1,11 @@
+{
+  "name": "little-fighter-wemake",
+  "productName": "Little Fighter Wemake",
+  "version": "0.0.0",
+  "description": "Little Fighter Wemake desktop client",
+  "author": "Gim",
+  "license": "UNLICENSED",
+  "private": true,
+  "type": "module",
+  "main": "main.mjs"
+}

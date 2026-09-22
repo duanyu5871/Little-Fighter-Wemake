@@ -2002,10 +2002,10 @@ export class Entity {
     this.bearer?.drop_holding();
     this.catcher?.drop_catching();
     this._mounted = 0;
-    this.world.del_entity(this);
     this.callbacks.call("on_disposed", this);
     this.callbacks.clear()
     this.reset(this.data, this._states);
+    this.world.del_entity(this);
   }
 
   /**
