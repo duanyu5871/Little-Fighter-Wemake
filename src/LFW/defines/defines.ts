@@ -1,8 +1,10 @@
+/* eslint-disable @typescript-eslint/no-namespace */
+/* eslint-disable @typescript-eslint/no-empty-object-type */
 import { round } from "../utils";
-import { FrameId } from "./FrameId";
 import { CheatEnum } from "./CheatType";
 import { Difficulty } from "./Difficulty";
 import { FacingFlag } from "./FacingFlag";
+import { FrameId } from "./FrameId";
 import { GK, type GameKey } from "./GameKey";
 import type { IBgData } from "./IBgData";
 import type { INextFrame } from "./INextFrame";
@@ -16,7 +18,6 @@ import { WT } from "./WeaponType";
 export interface TFrameIdPair extends IPairByFace<string> { }
 /** TFrameIdListPair 是否有点蠢？ */
 export interface TFrameIdListPair extends IPairByFace<string[]> { }
-export type TTODO = any;
 export type TFace = -1 | 1;
 export type TTrend = -1 | 0 | 1;
 export namespace Defines {
