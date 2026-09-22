@@ -19,7 +19,8 @@ import { InputNumber } from "./Component/Input";
 import Select from "./Component/Select";
 import Show from "./Component/Show";
 import Titled from "./Component/Titled";
-import { DanmuOverlay } from "./DanmuOverlay";
+import { DanmuPanel } from "./DanmuPanel";
+import { install_danmu_bridge_if_requested } from "./danmu_bridge";
 import { DevStatsView } from "./DevStatsView";
 import { __Pointings, md5 } from "./DittoImpl";
 import { BG_INDICATINGS, ENTITY_INDICATINGS } from "./DittoImpl/renderer/INDICATINGS";
@@ -36,6 +37,7 @@ import type { IUIInfo } from "./LFW/ui/IUIInfo.dat";
 import { range } from "./LFW/utils/math/range";
 import { Loading } from "./LoadingImg";
 import { Log } from "./Log";
+import { install_mock_danmu_if_requested } from "./mock_danmu";
 import { Paths } from "./Paths";
 import { PlayerRow } from "./PlayerRow";
 import SettingsRows from "./SettingsRows";
@@ -330,6 +332,13 @@ function App() {
   useEffect(() => {
     lfw?.broadcast('stats_visible:' + (app_state.show_stats ? 1 : 0))
   }, [lfw, app_state.show_stats])
+
+  useEffect(() => {
+    if (lfw) {
+      install_mock_danmu_if_requested(lfw)
+      install_danmu_bridge_if_requested(lfw)
+    }
+  }, [lfw])
 
   useEffect(() => {
     if (typeof params.lang === 'string' && params.lang) {
@@ -663,7 +672,7 @@ function App() {
         {app_state.show_stats && <DevStatsView lf2={lfw} />}
         {app_state.show_bg_scroll && <BgScrollerView lfw={lfw} />}
       </div>
-      <DanmuOverlay lfw={lfw} />
+      <DanmuPanel lfw={lfw} />
       <GamePad
         id='game_pad'
         player_id={app_state.touchpad}

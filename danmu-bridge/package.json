@@ -1,0 +1,16 @@
+{
+  "name": "lfw-danmu-bridge",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "B站直播弹幕 -> LFW 弹幕互动游戏 桥接服务（独立运行，不属于游戏本体构建）",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node index.mjs"
+  },
+  "dependencies": {
+    "ws": "^8.18.3"
+  }
+}

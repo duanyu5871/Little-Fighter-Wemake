@@ -1,0 +1,33 @@
+{
+  "name": "页面：直播弹幕游戏-各自为战",
+  "id": "danmu_game_ffa_page",
+  "component": [
+    {
+      "cls": "DanmuGameLogic",
+      "properties": {
+        "mode": "ffa"
+      }
+    },
+    "CameraCtrl()"
+  ],
+  "items": [
+    "ui/center_pause_label.ui.json5",
+    {
+      "pos": "397,0",
+      "center": "0.5,0",
+      "component": [
+        "StageTitleText()"
+      ]
+    },
+    {
+      "template": "ui/score_board.ui.json5",
+      "visible": false
+    }
+  ],
+  "actions": {
+    "stop": [
+      "remove_all_entities()",
+      "destory_stage()"
+    ]
+  }
+}

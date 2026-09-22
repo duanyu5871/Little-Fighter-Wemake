@@ -1,0 +1,76 @@
+.panel {
+  position: fixed;
+  left: 24px;
+  top: 60px;
+  width: 300px;
+  padding: 8px 10px;
+  border: 1px solid rgba(122, 152, 255, 0.35);
+  border-radius: 6px;
+  background: rgba(8, 12, 32, 0.72);
+  color: #e8ecff;
+  font: 13px/1.6 Arial, "Microsoft YaHei", sans-serif;
+  pointer-events: none;
+  text-shadow: 0 1px 2px #000;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  padding-bottom: 4px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid rgba(122, 152, 255, 0.25);
+  color: #ffd75e;
+  font-weight: bold;
+}
+
+.stage {
+  color: #ffb46b;
+}
+
+.section {
+  margin-bottom: 6px;
+}
+
+.title {
+  color: #9fc2ff;
+  font-size: 12px;
+}
+
+.names {
+  color: #dfe6ff;
+  word-break: break-all;
+}
+
+.cheer {
+  color: #ff9fb2;
+}
+
+.row {
+  display: flex;
+  gap: 6px;
+}
+
+.rank {
+  width: 18px;
+  color: #ffd75e;
+}
+
+.name {
+  flex: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.name_alive {
+  flex: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: #9dffb0;
+}
+
+.nums {
+  color: #a8b6d8;
+  font-size: 12px;
+}
