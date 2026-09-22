@@ -2,8 +2,7 @@ import { Defines, StateEnum, type IFrameInfo, type INextFrame, type IVector3 } f
 import { Buff_Healing } from "../buff/Buff_Healing";
 import { grant_buff } from "../buff/grant_buff";
 import type { Entity } from "../entity/Entity";
-import { clamp, float_equal, round } from "../utils";
-import { spawn_buring_smoke } from "./spawn_buring_smoke";
+import { clamp, float_equal } from "../utils";
 
 const MIN_V = 0.5
 export class State_Base {
@@ -12,16 +11,7 @@ export class State_Base {
     this.state = state
   }
   pre_update?(e: Entity): void;
-  update(e: Entity): void {
-    switch (e.state) {
-      case StateEnum.Burning:
-        if (round(e.lifetime % 2)) e.apply_opoints([spawn_buring_smoke(e, 1)]);
-        break;
-      case StateEnum.BurnRun:
-        if (round(e.lifetime % 2)) e.apply_opoints([spawn_buring_smoke(e, 2)]);
-        break;
-    }
-  }
+  update(_e: Entity): void { }
   enter?(e: Entity, prev_frame: IFrameInfo): void;
   leave(e: Entity, next_frame: IFrameInfo): void {
     switch (this.state) {

@@ -895,9 +895,9 @@ export class Entity {
     this.set_position(pos_x, pos_y, pos_z + opoint_z);
 
     const result = this.get_next_frame(opoint.action);
-    facing = result?.which.facing
-      ? this.handle_facing_flag(result.which.facing)
-      : emitter.facing;
+    const which = result?.which;
+    const nf_facing = which?.__gen_facing ? which.__gen_facing.get(emitter) : which?.facing;
+    facing = nf_facing ? this.handle_facing_flag(nf_facing) : emitter.facing;
 
     if (result) this.enter_frame(result.which);
     else this.enter_frame(Defines.NEXT_FRAME_AUTO);
@@ -980,20 +980,18 @@ export class Entity {
   set_frame(v: IFrameInfo) {
     if (v.id === GONE_FRAME_INFO.id) {
       this._opoints.length = 0
-    } else {
-      for (let i = 0; i < this._opoints.length; ++i) {
-        const { interval_mode, interval_id } = this._opoints[i]![0];
-        if (interval_mode === 1) {
-          const exists = !!find(v.opoint, o => o.interval_id === interval_id)
-          if (!exists) {
-            this._opoints.splice(i, 1)
-            --i
-          }
-        } else {
-          this._opoints.splice(i, 1)
-          --i
-        }
+    } else if (this._opoints.length) {
+      const opoints = this._opoints;
+      const len = opoints.length;
+      let slow = 0;
+      for (let fast = 0; fast < len; ++fast) {
+        const { interval_mode, interval_id } = opoints[fast]![0];
+        if (interval_mode !== 1) continue;
+        const exists = !!find(v.opoint, o => o.interval_id === interval_id);
+        if (!exists) continue;
+        opoints[slow++] = opoints[fast]!;
       }
+      opoints.length = slow;
     }
     this._prev_frame = this.frame;
     this._landing_frame = null;
@@ -1531,7 +1529,7 @@ export class Entity {
       this.lfw.mt.case(`e_${this.id}_${this.name}_start`)
     this._atom_time = this.world.dataset.atom_time;
     const rf = round_float;
-    this._lifetime += 1;
+    this._lifetime += this._atom_time;
     if (this.frame.facing) this.facing = this.handle_facing_flag(this.frame.facing)
     if (this.check_fusion_dismissing()) return;
     this.hp_recovering()

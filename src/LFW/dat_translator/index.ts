@@ -38,6 +38,7 @@ export * from "./hit_next_frame";
 export * from "./make_ball_data";
 export * from "./make_ball_special";
 export * from "./make_bg_data";
+export * from "./make_buring_smoke";
 export * from "./make_entity_data";
 export * from "./make_entity_special";
 export * from "./make_fighter_data";

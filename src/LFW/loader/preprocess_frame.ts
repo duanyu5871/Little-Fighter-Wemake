@@ -1,11 +1,12 @@
 import { CondMaker } from "../dat_translator";
 import { cook_frame_indicator_info } from "../dat_translator/cook_frame_indicator_info";
+import { make_buring_smoke } from "../dat_translator/make_buring_smoke";
 import { make_frame_behavior } from "../dat_translator/make_frame_behavior";
 import { set_hit_flag } from "../dat_translator/set_hit_flag";
 import { Defines, EntityEnum, EntityVal as EV, FacingFlag as FF, FrameBehavior, HitFlag, type IBdyInfo, type IFrameInfo, type IItrInfo, SE, StateEnum } from "../defines";
 import { is_ball_data, is_fighter_data, is_weapon_data } from "../entity";
 import { read_nums } from "../ui/utils/read_nums";
-import { max, min } from "../utils";
+import { ensure, max, min } from "../utils";
 import { traversal } from "../utils/container_help/traversal";
 import type { IFrameInfoContext } from "./IEntityDataContext";
 import { preprocess_ball_frame } from "./preprocess_ball_frame";
@@ -174,6 +175,14 @@ export function preprocess_frame(ctx: IFrameInfoContext): IFrameInfo {
       frame.__hit_ground_itrs?.push(itr)
     }
   })
+  switch (frame.state) {
+    case StateEnum.Burning:
+      frame.opoint = ensure(frame.opoint, make_buring_smoke(1));
+      break;
+    case StateEnum.BurnRun:
+      frame.opoint = ensure(frame.opoint, make_buring_smoke(2));
+      break;
+  }
   frame.opoint?.forEach((n, i, l) => l[i] = preprocess_opoint(n, lfw))
 
   const unchecked_frame = frame as any;

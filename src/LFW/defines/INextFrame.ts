@@ -98,6 +98,8 @@ export interface INextFrame extends IVelocityInfo {
    * @type {IExpression<any>}
    */
   __judger?: IExpression<any>;
+
+  __gen_facing?: { get(emitter: unknown): number };
 }
 export function next_frame_new(): INextFrame {
   return {}
@@ -119,5 +121,6 @@ export const next_frame_fields = fields<INextFrame>({
   reset_keys: int('重置按键', { nullable: true }),
   transfrom_to_another: int('变身目标', { nullable: true }),
   __judger: any,
+  __gen_facing: any,
   ...fields_map_2_fields_obj(velocity_info_fields),
 });
