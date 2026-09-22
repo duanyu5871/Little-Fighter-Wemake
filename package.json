@@ -65,6 +65,7 @@
     "compressing": "^2.0.0",
     "current-device": "0.10.2",
     "dexie": "^4.3.0",
+    "fflate": "0.8.3",
     "i18next": "^25.7.4",
     "json5": "^2.2.3",
     "jszip": "3.10.1",
