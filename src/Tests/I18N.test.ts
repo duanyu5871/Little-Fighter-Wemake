@@ -1,4 +1,4 @@
-import { I18N } from "@/LFW"
+import { I18N } from "@/LFW/I18N"
 
 test(`I18N loop-pointing 1`, () => {
   const i18n = new I18N()

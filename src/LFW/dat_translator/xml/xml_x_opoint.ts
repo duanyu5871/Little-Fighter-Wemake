@@ -57,6 +57,9 @@ export function xml_x_opoint(xml: IXML, o: IOpointInfo, tag: string): IXMLElemen
   el.set_attr("unimportant", o.unimportant);
   el.set_attr("delay", o.delay);
   el.set_arr_attr_soft("inherit_speed", [o.inherit_speed_x, o.inherit_speed_y, o.inherit_speed_z]);
+  el.set_attr("gen_x", o.gen_x);
+  el.set_attr("gen_y", o.gen_y);
+  el.set_attr("gen_z", o.gen_z);
   return el;
 }
 
@@ -99,6 +102,9 @@ export function xml_2_opoint(el: IXMLElement): IOpointInfo {
   ret.inherit_speed_x /**/ = el.get_num("inherit_speed_x", ret.inherit_speed_x);
   ret.inherit_speed_y /**/ = el.get_num("inherit_speed_y", ret.inherit_speed_y);
   ret.inherit_speed_z /**/ = el.get_num("inherit_speed_z", ret.inherit_speed_z);
+  ret.gen_x           /**/ = el.get_str("gen_x", ret.gen_x);
+  ret.gen_y           /**/ = el.get_str("gen_y", ret.gen_y);
+  ret.gen_z           /**/ = el.get_str("gen_z", ret.gen_z);
   return delete_undefined(ret);
 }
 

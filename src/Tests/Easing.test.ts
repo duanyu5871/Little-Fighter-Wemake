@@ -1,4 +1,5 @@
-import { ease_linearity, Easing } from "@/LFW";
+import { Easing } from "@/LFW/animation/Easing";
+import { ease_linearity } from "@/LFW/utils/easing/ease_linearity";
 
 test("[Easing] linearity, case 0", () => {
   const anim = new Easing(0, 1)

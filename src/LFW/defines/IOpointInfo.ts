@@ -171,6 +171,35 @@ export interface IOpointInfo {
   inherit_speed_y?: number;
   inherit_speed_z?: number;
 
+  /**
+   * 生成位置的X表达式（覆盖x）
+   *
+   * 运行时编译为 `__gen_x`
+   *
+   * 变量：
+   * * `w`/`h`：发射者当前帧宽/高
+   * * `cx`/`cy`：发射者当前帧中心
+   *
+   * 函数：
+   * * `rand(min, max)`
+   * * `pick(a, b, ...)`
+   * * `flip()`（等价于 `pick(-1, 1)`）
+   * * `round(x)`
+   *
+   * 例：`rand(-w/6, w/6)`、`round(cx / 2)`
+   */
+  gen_x?: string;
+
+  /**
+   * 生成位置的Y表达式（覆盖y），语法见 {@link gen_x}
+   */
+  gen_y?: string;
+
+  /**
+   * 生成位置的Z表达式（覆盖z），语法见 {@link gen_x}
+   */
+  gen_z?: string;
+
 
   __indicator_info?: IQubePair;
   /** 运行时生成 */
@@ -251,6 +280,9 @@ export const opoint_info_fields = fields<IOpointInfo>({
   inherit_speed_x: flt("继承速度X"),
   inherit_speed_y: flt("继承速度Y"),
   inherit_speed_z: flt("继承速度Z"),
+  gen_x: str("生成X表达式"),
+  gen_y: str("生成Y表达式"),
+  gen_z: str("生成Z表达式"),
 
 
   __spreading_random_x: any,

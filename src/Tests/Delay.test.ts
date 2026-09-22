@@ -1,4 +1,4 @@
-import { Delay } from "@/LFW"
+import { Delay } from "@/LFW/animation/Delay"
 
 test('animation Delay case 0', () => {
   const anim = new Delay(10086).set_duration(1000)

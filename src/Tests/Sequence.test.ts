@@ -1,4 +1,7 @@
-import { Sequence, Easing, Sine, Delay } from "@/LFW";
+import { Delay } from "@/LFW/animation/Delay";
+import { Easing } from "@/LFW/animation/Easing";
+import { Sequence } from "@/LFW/animation/Sequence";
+import { Sine } from "@/LFW/animation/Sine";
 
 
 test('Animation: Sequence case 0', () => {

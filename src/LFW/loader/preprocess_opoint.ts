@@ -1,8 +1,20 @@
-import { LFW } from '../LFW';
+import type { LFW } from '../LFW';
+import { ValExpression } from "../base/ValExpression";
 import { type IOpointInfo, OpointSpreading } from "../defines";
+import { Ditto } from "../ditto";
 import { Randoming } from "../helper";
 
 const osr_name = (a: number) => (b: string) => `osr_${a}_${b}`
+
+const compile_gen = (src: string, tag: string) => {
+  const expr = new ValExpression(src, { tag });
+  if (expr.err) {
+    Ditto.warn(expr.err);
+    return void 0;
+  }
+  return expr;
+};
+
 export function preprocess_opoint(opoint: IOpointInfo, lfw: LFW): IOpointInfo {
   const sp = opoint.spreading;
   if (sp == OpointSpreading.Spreading) {
@@ -38,6 +50,10 @@ export function preprocess_opoint(opoint: IOpointInfo, lfw: LFW): IOpointInfo {
         }
       };
   }
+
+  if (opoint.gen_x) opoint.__gen_x = compile_gen(opoint.gen_x, "gen_x") ?? opoint.__gen_x;
+  if (opoint.gen_y) opoint.__gen_y = compile_gen(opoint.gen_y, "gen_y") ?? opoint.__gen_y;
+  if (opoint.gen_z) opoint.__gen_z = compile_gen(opoint.gen_z, "gen_z") ?? opoint.__gen_z;
   return opoint
 }
 preprocess_opoint.TAG = "preprocess_opoint";

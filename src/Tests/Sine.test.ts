@@ -1,4 +1,4 @@
-import { Sine } from "@/LFW";
+import { Sine } from "@/LFW/animation/Sine";
 
 test('sine', () => {
   const sine = new Sine(-1, 2, 0.5).set_duration(500);
