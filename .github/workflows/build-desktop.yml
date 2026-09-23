@@ -1,0 +1,149 @@
+name: Build Desktop & Release
+
+on:
+  # 打 v* tag（如 v0.1.55-preview-1）时自动构建桌面端并发布 Release
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 发布用的 tag（留空 = v<package.json 版本>；不存在时基于当前分支创建）
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      BUILD_TAG: "${{ github.ref_type == 'tag' && github.ref_name || '' }}"
+      ELECTRON_MIRROR: https://github.com/electron/electron/releases/download/
+      ELECTRON_BUILDER_BINARIES_MIRROR: https://github.com/electron-userland/electron-builder-binaries/releases/download/
+
+    steps:
+      - name: Checkout (with LFS)
+        uses: actions/checkout@v7
+        with:
+          lfs: true
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Cache electron downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/AppData/Local/electron/Cache
+            ~/AppData/Local/electron-builder/Cache
+          key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Ensure electron binary
+        run: |
+          if (-not (Test-Path "node_modules/electron/dist/electron.exe")) {
+            node node_modules/electron/install.js
+          }
+
+      # Windows runner 没预装 ffmpeg / imagemagick（数据转换与包内转换器都要用）
+      - name: Install ffmpeg & imagemagick
+        run: |
+          choco install ffmpeg imagemagick -y --no-progress
+          $has_ff = [bool](Get-Command ffmpeg -ErrorAction SilentlyContinue)
+          $has_magick = [bool](Get-Command magick -ErrorAction SilentlyContinue)
+          if (-not $has_ff) {
+            $f = Get-ChildItem "C:\ProgramData\chocolatey\lib\ffmpeg" -Recurse -Filter ffmpeg.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($f) { "FFMPEG_PATH=$($f.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append; $has_ff = $true }
+          }
+          if (-not $has_magick) {
+            $m = Get-ChildItem "C:\Program Files\ImageMagick-*\magick.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($m) { "MAGICK_PATH=$($m.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append; $has_magick = $true }
+          }
+          if (-not ($has_ff -and $has_magick)) { throw "ffmpeg / magick 未就绪" }
+          Write-Host "ffmpeg / magick OK"
+
+      - name: Build tool
+        run: npm run build:tool
+
+      # 数据包在仓库里是 gitignore 的，CI 检出后必须现场重建
+      - name: Build game data
+        run: |
+          npm run build:data
+          npm run build:prel
+
+      - name: Build app
+        run: npm run build
+
+      - name: Build desktop installer & portable zip (NSIS)
+        run: node scripts/build-installer.mjs --no-build
+
+      - name: Build Bilibili playable zip
+        run: node scripts/build-bili-playable.mjs --no-build
+
+      # 从 dist 目录内打包，压缩包不带顶层目录
+      - name: Archive web dist (7z)
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $7z = (Get-Command 7z -ErrorAction SilentlyContinue).Source
+          if (-not $7z) { $7z = "C:\Program Files\7-Zip\7z.exe" }
+          Push-Location dist
+          try {
+            & $7z a "../release/Little Fighter Wemake Web v$version.7z" "*"
+            if ($LASTEXITCODE -ne 0) { throw "7z 打包失败" }
+          } finally {
+            Pop-Location
+          }
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-win
+          path: |
+            release/installer/*
+            release/Little Fighter Wemake_*.zip
+            release/Little Fighter Wemake Web v*.7z
+          retention-days: 14
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $tag = "${{ inputs.tag }}"
+          if (-not $tag) { $tag = "${{ github.ref_type == 'tag' && github.ref_name || '' }}" }
+          if (-not $tag) { $tag = "v$version" }
+          if ($tag -notlike "v$version*") { Write-Host "::warning::tag $tag 与 package.json 版本 $version 不一致" }
+
+          $release_args = @("--title", $tag)
+          $notes = "docs/changelog/v$version/zh.md"
+          if (Test-Path $notes) {
+            $body = (Get-Content $notes | Select-Object -Skip 6) -join "`n"
+            Set-Content -Path "release/notes.md" -Value $body -Encoding utf8
+            $release_args += @("--notes-file", "release/notes.md")
+          } else {
+            $release_args += "--generate-notes"
+          }
+
+          $files = @(Get-ChildItem "release/installer" -File | ForEach-Object FullName)
+          $files += (Get-Item "release/Little Fighter Wemake_$version.zip").FullName
+          $files += (Get-Item "release/Little Fighter Wemake Web v$version.7z").FullName
+
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -ne 0) {
+            if ($tag -match "preview") { $release_args += "--prerelease" }
+            gh release create $tag $release_args $files
+          } else {
+            gh release upload $tag $files --clobber
+          }
