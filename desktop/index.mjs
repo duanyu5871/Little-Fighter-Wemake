@@ -28,7 +28,7 @@ function print_usage() {
 选项可用 命令行 / 环境变量 / 配置文件 三种方式提供，优先级：命令行 > 环境变量 > 配置文件 > 默认值。
 
 配置文件:
-  --config <path>           指定配置文件；默认自动读取本目录下的 config.json5 或 config.json（字段见 config.example.json5）
+  --config <path>           指定配置文件；默认自动读取本目录下的 danmu.json5 或 danmu.json（字段见 danmu.example.json5）
   DANMU_BRIDGE_CONFIG       等价环境变量
 
 模式 web（默认，直接连直播间弹幕流，无需审核）:
@@ -72,7 +72,7 @@ function load_config_file() {
   const explicit = typeof arg === "string" ? arg : process.env.DANMU_BRIDGE_CONFIG ?? "";
   const candidates = explicit
     ? [explicit]
-    : [join(HERE, "config.json5"), join(HERE, "config.json")];
+    : [join(HERE, "danmu.json5"), join(HERE, "danmu.json")];
   for (const candidate of candidates) {
     const path = isAbsolute(candidate) ? candidate : resolve(process.cwd(), candidate);
     if (!existsSync(path)) {
@@ -449,7 +449,7 @@ const client = config.mode === "open"
   ? new OpenDanmuClient({ ...config.open, debug: config.debug, on_event, on_status })
   : new BilibiliDanmuClient({ room: config.room, cookie: config.cookie, uid: config.uid, debug: config.debug, on_event, on_status });
 
-log(`配置: ${config.config_path || "未使用配置文件（可复制 config.example.json5 为 config.json5）"}`);
+log(`配置: ${config.config_path || "未使用配置文件（可复制 danmu.example.json5 为 danmu.json5）"}`);
 log(`来源: ${config.mode === "open" ? `官方开放平台 app_id=${config.open.app_id}` : `直播间弹幕协议（房间 ${config.room}${config.cookie ? "，带登录态" : "，游客"}）`}`);
 log(`入队规则: ${config.join_keywords.length ? `包含关键词 ${config.join_keywords.join("/")}` : "任意弹幕"}${config.character_keywords.length ? `；指定角色 ${config.character_keywords.map((v) => v[0]).join("/")}（仅常规角色）` : ""}`);
 log(`应援规则: 包含关键词 ${config.cheer_keywords.join("/")}，礼物/上舰/SC 也会应援`);

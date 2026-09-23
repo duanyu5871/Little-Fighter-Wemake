@@ -68,10 +68,11 @@ const README_TEXT = `Little Fighter Wemake 桌面客户端
 - 关闭窗口即整个程序退出（一个直播间同时只能开启一个玩法）
 
 配置
-- config.json5 里的 app_id / access_key / access_key_secret 是该玩法的开平应用密钥
+- danmu.json5 里的 app_id / access_key / access_key_secret 是该玩法的开平应用密钥
 - 游戏画面、弹幕桥、联机服务器存档（ranks/）、战绩存档（scores.json）、运行日志（logs.txt）都在本目录
-- 命令行参数（均可用环境变量或 config.json5 代替）
-  code / --room / --port / --game-port / --host / --server / --server-port / --server-lan / --tool / --user-data / --debug / --devtools
+- 完整命令行、danmu.json5 字段说明与常见问题见 help.md
+- 命令行参数（均可用环境变量或 danmu.json5 代替）
+  code / --room / --port / --game-port / --host / --server / --server-port / --server-lan / --tool / --user-data / --debug / --devtools / --help
 
 托盘（任务栏右下角图标）
 - 开启/关闭联机服务器：默认只监听本机 127.0.0.1:8080
@@ -240,17 +241,18 @@ if (!NO_CONVERTERS) {
 
 const conf_src = process.env.PLAYABLE_CONFIG
   ? resolve(ROOT, process.env.PLAYABLE_CONFIG)
-  : [join(BRIDGE, "config.json5"), join(BRIDGE, "config.json")].find((p) => existsSync(p));
+  : [join(BRIDGE, "danmu.json5"), join(BRIDGE, "danmu.json")].find((p) => existsSync(p));
 if (conf_src && existsSync(conf_src)) {
-  copyFileSync(conf_src, join(STAGE, "config.json5"));
+  copyFileSync(conf_src, join(STAGE, "danmu.json5"));
   const raw = readFileSync(conf_src, "utf8");
   const ready = /app_id\s*:\s*["']\S/.test(raw) && /access_key?\s*:\s*["']\S/.test(raw);
   step(`内置配置文件: ${relative(ROOT, conf_src)}${ready ? "" : "（app_id/access_key 看起来还是空的，上传前记得补）"}`);
 } else {
-  writeFileSync(join(STAGE, "config.json5"), CONFIG_TEMPLATE);
-  step("未找到 desktop/config.json5，已放入模板（上传前请填写应用密钥）");
+  writeFileSync(join(STAGE, "danmu.json5"), CONFIG_TEMPLATE);
+  step("未找到 desktop/danmu.json5，已放入模板（上传前请填写应用密钥）");
 }
 writeFileSync(join(STAGE, "readme.txt"), README_TEXT);
+copyFileSync(join(BRIDGE, "help.md"), join(STAGE, "help.md"));
 
 const files = walk(STAGE);
 const bad_names = files.filter((f) => /[^\x00-\x7F]/.test(relative(STAGE, f)));
@@ -262,11 +264,23 @@ const total = dir_size(STAGE);
 const total_mb = total / 1024 / 1024;
 step(`包内容: ${files.length} 个路径，解包 ${total_mb.toFixed(1)} MB`);
 
+const RELEASE = join(ROOT, "release");
+const OUT_STAGE = join(RELEASE, NAME);
+mkdirSync(RELEASE, { recursive: true });
+mkdirSync(OUT_STAGE, { recursive: true });
+try {
+  for (const name of readdirSync(OUT_STAGE))
+    rmSync(join(OUT_STAGE, name), { recursive: true, force: true, maxRetries: 3, retryDelay: 300 });
+} catch {
+  fail(`release/${NAME} 目录被占用（可能正在运行里面的 start.exe，或用资源管理器打开了它），请关闭后重试`);
+}
+for (const name of readdirSync(STAGE)) cpSync(join(STAGE, name), join(OUT_STAGE, name), { recursive: true });
+step(`解包目录 -> release/${NAME}`);
+
 if (!NO_ZIP) {
-  mkdirSync(join(ROOT, "release"), { recursive: true });
-  const out_zip = join(ROOT, "release", `${NAME}.zip`);
+  const out_zip = join(RELEASE, `${NAME}.zip`);
   step(`压缩 -> release/${NAME}.zip`);
-  await zip.compressDir(STAGE, out_zip, { ignoreBase: true });
+  await zip.compressDir(OUT_STAGE, out_zip, { ignoreBase: true });
   const zip_mb = statSync(out_zip).size / 1024 / 1024;
   step(`完成: release/${NAME}.zip（${zip_mb.toFixed(1)} MB）`);
   if (zip_mb > 500) fail(`超过 B站 500MB 上限（${zip_mb.toFixed(1)} MB），需要用 --no-converters 或删减资源`);

@@ -28,7 +28,7 @@ node index.mjs --room 12345
 | `--port <port>` | `DANMU_BRIDGE_PORT` | 游戏页面连接端口，默认 8066 |
 | `--host <host>` | `DANMU_BRIDGE_HOST` | 监听地址，默认 127.0.0.1（页面在别的设备上打开时才需要 `0.0.0.0`） |
 | `--scores <path>` | `DANMU_SCORES_FILE` | 战绩存档文件，默认本目录 `scores.json` |
-| `--config <path>` | `DANMU_BRIDGE_CONFIG` | 指定配置文件；默认自动读取本目录 `config.json5` / `config.json` |
+| `--config <path>` | `DANMU_BRIDGE_CONFIG` | 指定配置文件；默认自动读取本目录 `danmu.json5` / `danmu.json` |
 | `--debug` | - | 打印所有弹幕事件，排障用 |
 | `--dry` | - | 只打印解析后的配置（密钥脱敏）后退出，用于校验配置 |
 
@@ -37,10 +37,10 @@ node index.mjs --room 12345
 不想每次敲一长串参数（尤其是官方模式的密钥），复制模板即可：
 
 ```powershell
-copy config.example.json5 config.json5
+copy danmu.example.json5 danmu.json5
 ```
 
-`config.json5` / `config.json` 已被 `.gitignore` 忽略，不会进仓库；字段名见模板里的注释，命令行参数可临时覆盖单项。
+`danmu.json5` / `danmu.json` 已被 `.gitignore` 忽略，不会进仓库；字段名见模板里的注释，命令行参数可临时覆盖单项。
 
 ## 弹幕指令（观众做什么）
 
@@ -61,7 +61,7 @@ copy config.example.json5 config.json5
 - **合作闯关**：开局与每关开始时默认生成 **4 个未认领的 Template 占位**（无名字、从关卡左侧入场）；观众进入直播间 / 发弹幕即认领一个（认领后头顶显示观众名），占位不够时直接以 Template 入场，再发角色关键词即切换为该角色；场上最多 32 名观众，满员后新观众排队，等有人阵亡或退场腾出位置
 - **合作闯关的敌人数量按场上人数缩放**：每个关卡阶段（波次）开始时按场上人数——已入场的观众 + 未认领的 Template 占位（按角色强度算，Template 算 1 人）——计算倍率，敌人数 = 人数 × 关卡配置倍率（与普通闯关按 1/2 名玩家缩放同一套规则）；阶段中途的人数变化从下一波开始生效
 - 角色仅限**常规角色**（Regular 组：`Davis / Deep / Dennis / Woody / Firen / Freeze / Louis / Rudolf / Henry / John`）；`--pick` 的值可用角色名（`Davis`）或角色 ID（如 `11`）
-- 关键词匹配**忽略大小写**；`config.example.json5` 已为十名常规角色预置中文/英文昵称（拳王=Davis、深渊=Deep、奶妈=John、弓手=Henry、豆腐/忍者=Rudolf、铁甲=Louis、火人=Firen、冰人/冰佬=Freeze、腿王=Dennis、木头=Woody），可自行增改
+- 关键词匹配**忽略大小写**；`danmu.example.json5` 已为十名常规角色预置中文/英文昵称（拳王=Davis、深渊=Deep、奶妈=John、弓手=Henry、豆腐/忍者=Rudolf、铁甲=Louis、火人=Firen、冰人/冰佬=Freeze、腿王=Dennis、木头=Woody），可自行增改
 - 只有 **Template** 状态允许中途切换；切换后即固定为该角色，想换就等下一局
 - 入队时角色写错会退化为随机常规角色；切换时写错则忽略
 - 同一人已在场上时不会重复入队；入队尝试有冷却（`--join-cooldown`，默认 5 秒）
@@ -131,15 +131,16 @@ B站常规弹幕流没有离场事件（只有进入/互动），所以采用活
 
 ## 桌面客户端 / B站互动玩法安装包（幻星互动）
 
-`start.exe` 就是 **Little Fighter Wemake 的桌面客户端**：双击即玩（不接直播就是单机），接上直播后就变成弹幕互动玩法。同一个包也能直接当 B站互动玩法的「程序文件」上传（包内 = 游戏画面 + 弹幕桥 + Electron 壳，全部离线自包含）。
+`start.exe` 就是 **Little Fighter Wemake 的桌面客户端**：双击即玩（不接直播就是单机），接上直播后就变成弹幕互动玩法。同一个包也能直接当 B站互动玩法的「程序文件」上传（包内 = 游戏画面 + 弹幕桥 + Electron 壳，全部离线自包含）。包内另附 `readme.txt`（快速上手）与 `help.md`（完整命令行与配置说明），命令行下 `start.exe --help` 打印简要用法。
 
 ```powershell
-# 1) 先准备好开平应用密钥（会被打进包里的 config.json5）
-copy desktop\config.example.json5 desktop\config.json5
-#    编辑 config.json5：app_id / access_key / access_key_secret
+# 1) 先准备好开平应用密钥（会被打进包里的 danmu.json5）
+copy desktop\danmu.example.json5 desktop\danmu.json5
+#    编辑 danmu.json5：app_id / access_key / access_key_secret
 # 2) 构建（build:desktop 是同一脚本的别名）
 npm run build:playable
-#    输出 release/Little Fighter Wemake_<version>.zip
+#    输出 release/Little Fighter Wemake_<version>.zip（上传用）
+#    以及同名解包目录 release/Little Fighter Wemake_<version>\（里面的 start.exe 可直接运行）
 ```
 
 - 包名格式 = 项目名_版本号（脚本自动取 `package.json` 的版本号，如 `Little Fighter Wemake_0.1.54.zip`）；根目录直接铺文件、入口 `start.exe`、文件全 ASCII 名、<500MB（B站“程序文件”上传要求；因为 B站要求入口必须叫 `start.exe`，桌面客户端的可执行文件也是这个名字）
@@ -170,19 +171,20 @@ npm run build:playable
 | `--server-lan` | 直接以局域网模式开启（等价于托盘里勾选「允许局域网连接」） |
 | `--tool <命令...>` | 后面的参数原样交给**数据工具**，例如 `start.exe --tool help`、`start.exe --tool make-data-zip -c conf.json5`；转换用的 ffmpeg/magick 已随包附在 `tools\`，无需装到 PATH |
 | `--user-data <目录>` | 指定用户数据目录（想同时开多个实例调试时用） |
+| `--help` / `-h` | 打印客户端全部命令行用法（含弹幕桥参数）后退出 |
 
 - 把 LF2 目录（或数据工具的 conf 文件）**直接拖到 `start.exe` 上**（等价于 `start.exe --tool <路径>`），会自动开一个数据工具控制台并按拖入路径开始转换；游戏已经开着时拖拽也照样生效
 
 服务器存档（`ranks/`）与工具的工作目录默认都在 `start.exe` 所在目录；服务器日志会一并写进 `logs.txt`（以 `[server]` 开头）。
 
 `tools\` 里放的是 ffmpeg（gyan.dev full build，GPL）与 ImageMagick（Apache-2.0）及其 License/NOTICE 文件；想让工具改用系统里的版本，在工具的配置里改 `FFMPEG_CMD` / `MAGICK_CMD` 即可（自带的优先级最高）。
-- 构建脚本还会删掉 `lfw.full.zip`、把 Electron 的语言包精简到 `en-US / zh-CN / zh-TW`，并检查非 ASCII 文件名与 500MB 上限
+- 构建脚本还会删掉 `lfw.full.zip`、把 Electron 的语言包精简到 `en-US / zh-CN / zh-TW`，并检查非 ASCII 文件名与 500MB 上限，最后把解包目录固定输出到 `release\Little Fighter Wemake_<version>\`（同名旧目录会先清掉；`--keep` 可额外保留临时构建目录）
 - 构建机只需要 Node.js：根目录 `npm i` 会装好 esbuild 与 ws，主进程 / 弹幕桥 / 联机服务器 / 数据工具四个 bundle 都由 esbuild 打包，不再需要 Bun；还需要能在 PATH 里找到的 `ffmpeg` 与 `magick`（会被拷进包的 `tools\`；也可用 `FFMPEG_PATH` / `MAGICK_PATH` 指定，或 `--no-converters` 跳过）；首次打包会下载 Electron win32-x64（约 110MB），产物解包约 550MB（其中转换器 178MB）、zip 约 258MB
 
 ## 常见问题
 
 - **认证失败（code 非 0）**：通常是 token 过期或风控，服务会自动重连并重新取 token；频繁失败建议加 `--sessdata`。
-- **改了配置没生效**：优先级是 命令行 > 环境变量 > 配置文件；先用 `--dry` 看实际生效的配置；默认读取的是 `desktop/config.json5`（或 `config.json`）。
+- **改了配置没生效**：优先级是 命令行 > 环境变量 > 配置文件；先用 `--dry` 看实际生效的配置；默认读取的是 `desktop/danmu.json5`（或 `danmu.json`）。
 - **官方模式返回 `4001 应用无效`**：检查 `--app-id` / `--access-key` / `--access-key-secret` 是否配对（用假密钥探测也会得到这个返回，说明网络与签名没问题）。
 - **官方模式收不到弹幕**：确认已向 B站运营申请开通消息类型，以及 `--code` 是当前主播本次启动产生的、未过期。
 - **断流**：服务内置心跳（30 秒）与 90 秒无消息看门狗，断开后按 3s → 30s 退避重连。

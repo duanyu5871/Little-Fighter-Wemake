@@ -50,6 +50,39 @@ const BRIDGE_ARGS = [
   "sessdata", "uid", "join", "pick", "cheer", "leave", "join-cooldown",
 ];
 
+const HELP_TEXT = `用法: start.exe [选项]
+
+双击 start.exe 即单机运行；接直播时由直播姬 / 幻星互动以 start.exe code=<主播身份码> 拉起；
+把 LF2 目录（或数据工具 conf 文件）拖到 start.exe 上则会打开数据工具开始转换。
+
+窗口与托盘:
+  顶部半透明条可拖动窗口（双击最大化/还原）；关闭窗口即退出
+  托盘菜单可开关联机服务器、允许局域网连接、打开数据工具与数据目录
+
+选项:
+  code=<code> / --code <code>  主播身份码（通常由平台带入）
+  --room <id>                  以 web 模式收指定直播间弹幕（本地调试免密钥）
+  --host <host>                监听地址（默认 127.0.0.1）
+  --port <port>                弹幕桥端口（默认 8066）
+  --game-port <port>           游戏画面端口（默认 8067）
+  --server                     启动时开启联机服务器（默认仅本机 127.0.0.1:8080）
+  --server-port <port>         联机服务器端口（默认 8080）
+  --server-lan                 联机服务器监听局域网
+  --tool <命令...>             参数原样交给数据工具，如 --tool help、--tool make-data-zip -c conf.json5
+  --user-data <目录>           指定用户数据目录（多实例调试用）
+  --debug                      打印弹幕事件日志
+  --devtools                   打开开发者工具
+  --screenshot <path>          启动后截取游戏画面为 PNG
+  --help, -h                   显示本帮助
+
+弹幕桥参数（也可写进同目录 danmu.json5；优先级 命令行 > 环境变量 > danmu.json5）:
+  --mode <web|open>  --app-id <id>  --access-key <key>  --access-key-secret <sk>
+  --sessdata <value>  --uid <id>
+  --join <kw1,kw2>  --pick <kw=角色,...>  --cheer <kw1,kw2>  --leave <kw1,kw2>  --join-cooldown <ms>
+
+更完整的说明见程序目录 help.md
+`;
+
 let app_dir = "";
 let data_dir = "";
 let win = null;
@@ -405,8 +438,8 @@ async function main() {
     return;
   }
 
-  const config_json5 = join(data_dir, "config.json5");
-  const config_json = join(data_dir, "config.json");
+  const config_json5 = join(data_dir, "danmu.json5");
+  const config_json = join(data_dir, "danmu.json");
   const conf = load_config(config_json5, config_json);
   const code = typeof args.code === "string" ? args.code : String(conf.code ?? "");
   const room = typeof args.room === "string" ? args.room : String(conf.room ?? "");
@@ -430,7 +463,7 @@ async function main() {
     process.argv = [process.argv[0], join(data_dir, "start.exe"), ...bridge_args];
     bridge = await load_bridge();
   } else {
-    log("未配置直播弹幕：以单机桌面模式启动（想接弹幕就填 config.json5 的应用密钥，或由直播姬带 code= 启动）");
+    log("未配置直播弹幕：以单机桌面模式启动（想接弹幕就填 danmu.json5 的应用密钥，或由直播姬带 code= 启动）");
   }
 
   const game_server = make_game_server(game_dir);
@@ -546,9 +579,15 @@ app.on("second-instance", () => {
 process.on("SIGTERM", () => void shutdown("SIGTERM"));
 
 const TOOL_FLAG_INDEX = process.argv.indexOf("--tool");
+const HELP_FLAG = process.argv.slice(app.isPackaged ? 1 : 2).some((a) => a === "--help" || a === "-h");
 const DROPPED_PATHS = find_dropped_paths(process.argv.slice(app.isPackaged ? 1 : 2));
 if (TOOL_FLAG_INDEX >= 0) run_tool(process.argv.slice(TOOL_FLAG_INDEX + 1));
-else if (DROPPED_PATHS.length) {
+else if (HELP_FLAG) {
+  app.whenReady().then(() => {
+    console.log(HELP_TEXT);
+    app.exit(0);
+  });
+} else if (DROPPED_PATHS.length) {
   const child = open_tool_console(DROPPED_PATHS);
   if (child) {
     child.once("spawn", () => app.exit(0));
