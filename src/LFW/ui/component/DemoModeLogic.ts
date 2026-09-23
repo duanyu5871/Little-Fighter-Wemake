@@ -106,9 +106,15 @@ export class DemoModeLogic extends UIComponent<IDemoModeLogicProps> {
       {
         title: "Julian VS 10 Fighters",
         stage_mode: false,
-        teams: ['2', '2', '2', '2', '1', '1', '1', '1', '1', '1', '1', '1', '1', '1'],
+        teams: [
+          '2', '2', '2', '2', '2',
+          '2', '2', '2', '2', '2',
+          '1', '1', '1', '1', '1',
+          '1', '1', '1', '1', '1'
+        ],
         oids: [
-          OID.Julian, OID.Justin, OID.Justin, OID.Justin,
+          OID.Julian, OID.Justin, OID.Justin, OID.Justin, OID.Justin,
+          OID.Justin, OID.Justin, OID.Justin, OID.Justin, OID.Justin,
           OID.Deep, OID.John, OID.Henry, OID.Rudolf, OID.Louis,
           OID.Firen, OID.Freeze, OID.Dennis, OID.Woody, OID.Davis,
         ]
@@ -116,11 +122,18 @@ export class DemoModeLogic extends UIComponent<IDemoModeLogicProps> {
 
       /* Firzen VS 8 Fighters */
       {
-        title: " VS 10 Fighters",
+        title: " VS 8 Fighters",
         stage_mode: false,
-        teams: ['2', '2', '2', '2', '1', '1', '1', '1', '1', '1', '1', '1'],
+        teams: [
+          '2', '2', '2', '2',
+          '2', '2', '2', '2',
+          '1', '1', '1', '1',
+          '1', '1', '1', '1'
+        ],
         oids: [
           OID.Firzen, OID.Jan, OID.Sorcerer, OID.Sorcerer,
+          OID.Sorcerer, OID.Sorcerer, OID.Sorcerer, OID.Sorcerer,
+
           OID.Deep, OID.John, OID.Henry, OID.Rudolf,
           OID.Louis, OID.Dennis, OID.Woody, OID.Davis,
         ]
@@ -128,13 +141,19 @@ export class DemoModeLogic extends UIComponent<IDemoModeLogicProps> {
 
       /* LouisEX VS 9 Fighters */
       {
-        title: "LouisEX VS 10 Fighters",
+        title: "LouisEX VS 9 Fighters",
         stage_mode: false,
-        teams: ['2', '2', '2', '2', '1', '1', '1', '1', '1', '1', '1'],
+        teams: [
+          '2', '2', '2', '2', 
+          '2', '2', '2',
+          '1', '1', '1', '1', '1',
+          '1', '1', '1', '1',
+        ],
         oids: [
-          OID.LouisEX, OID.Monk, OID.Monk, OID.Monk,
-          OID.Deep, OID.John, OID.Henry, OID.Rudolf,
-          OID.Firen, OID.Freeze, OID.Dennis, OID.Woody, OID.Davis,
+          OID.LouisEX, OID.Monk, OID.Monk, OID.Monk, 
+          OID.Monk, OID.Monk, OID.Monk,
+          OID.Deep, OID.John, OID.Henry, OID.Rudolf, OID.Davis,
+          OID.Firen, OID.Freeze, OID.Dennis, OID.Woody,
         ]
       },
 
