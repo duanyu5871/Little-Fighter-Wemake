@@ -38,6 +38,7 @@ import type { IUIInfo } from "./LFW/ui/IUIInfo.dat";
 import { range } from "./LFW/utils/math/range";
 import { Loading } from "./LoadingImg";
 import { Log } from "./Log";
+import { NetSettings } from "./NetSettings";
 import { install_mock_danmu_if_requested } from "./mock_danmu";
 import { Paths } from "./Paths";
 import { PlayerRow } from "./PlayerRow";
@@ -219,6 +220,7 @@ function App() {
   const [is_maximised, set_is_maximised] = useState(false);
   const [is_fullscreen, _set_is_fullscreen] = useState(false);
   const [toy_mobile] = useState(is_toy_mobile_now);
+  const [net_settings_open, set_net_settings_open] = useState(false);
   const show_volume_popup = can_hover_volume_popup && !is_mobile_container && !toy_mobile;
   const { entity_flags, bg_flags } = world_dataset;
 
@@ -331,6 +333,10 @@ function App() {
       btn?.set_disabled(networking)
     }
   }, [networking, lfw])
+
+  useEffect(() => {
+    if (!networking) set_net_settings_open(false);
+  }, [networking])
 
   useEffect(() => {
     lfw?.broadcast('stats_visible:' + (app_state.show_stats ? 1 : 0))
@@ -745,19 +751,21 @@ function App() {
             onClick={() => lfw?.push_cmd(CMD.F5)}
             src={[img_btn_4_3, img_btn_4_3]} />
         </Show>
-        <Show show={!networking}>
-          <ToggleImgButton
-            onClick={() => {
-              if (!lfw) return;
-              lfw.push_cmd(CMD.F2)
-              if (lfw.ui?.id == 'settings')
-                lfw.pop_ui_safe()
-              else
-                lfw.set_ui({ id: "settings" }, 1);
-            }}
-            src={[img_btn_1_1, img_btn_1_1]}
-          />
-        </Show>
+        <ToggleImgButton
+          onClick={() => {
+            if (!lfw) return;
+            if (networking) {
+              set_net_settings_open(v => !v);
+              return;
+            }
+            lfw.push_cmd(CMD.F2)
+            if (lfw.ui?.id == 'settings')
+              lfw.pop_ui_safe()
+            else
+              lfw.set_ui({ id: "settings" }, 1);
+          }}
+          src={[img_btn_1_1, img_btn_1_1]}
+        />
         <Show show={!is_mobile_container && !toy_mobile && (window as any).first_ui != 'init_demo'}>
           <ToggleImgButton
             checked={is_fullscreen}
@@ -1161,6 +1169,9 @@ function App() {
         input_delay={Number(params.net_delay) || void 0}
         show_all_rooms={params.rooms === 'all'}
         on_close={() => set_networking(false)} />}
+      {networking && net_settings_open && lfw && (
+        <NetSettings lfw={lfw} on_close={() => set_net_settings_open(false)} />
+      )}
     </>
   );
 }
