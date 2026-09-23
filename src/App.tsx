@@ -607,10 +607,6 @@ function App() {
     (lfw.world.renderer as WorldRenderer).set_canvas(ele_game_canvas);
   }, [lfw, ele_game_canvas])
 
-  useEffect(() => {
-    if (lfw) window.runtime?.SetLang?.(lfw.lang);
-  }, [lfw])
-
   useWorkspaces({ container: ele_root })
 
   useEffect(() => {

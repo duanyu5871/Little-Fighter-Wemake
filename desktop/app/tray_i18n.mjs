@@ -56,7 +56,7 @@ export function normalize_lang(lang) {
 }
 
 /**
- * 解析界面语言：命令行 > auto（跟随游戏，兜底系统语言）
+ * 解析界面语言：命令行 > 系统语言（游戏内切换语言时托盘会跟随）
  * 返回 { lang, fixed }：fixed 为 true 时忽略游戏上报的语言
  */
 export function resolve_lang(cli, locale) {
