@@ -37,7 +37,7 @@
     "deploy:demo": "fdeploy -s oss --REMOTE_DIR demo --LOCAL_PATH ./dist",
     "___flow___": "___flow___",
     "flow": "npm run build && npm run deploy && npm run deploy:latest",
-    "flow:installer": "npm run build && npm run build:installer -- --no-build && npm run deploy:installer",
+    "flow:installer": "npm run build && node ./scripts/build-installer.mjs --no-build && npm run deploy:installer",
     "flow:rn": "npm run build && npm run deploy:rn",
     "changelog": "node scripts/merge-changelog.mjs",
     "build:ext": "node scripts/build-extension.mjs",

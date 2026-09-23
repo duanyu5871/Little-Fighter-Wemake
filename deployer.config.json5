@@ -3,5 +3,9 @@
     SSH_ENABLED: false,
     GIT_IGNORED: true,
     OSS_ENABLED: true,
-  }
+  },
+  installer: {
+    ELECTRON_BUILDER_BINARIES_MIRROR: "https://npmmirror.com/mirrors/electron-builder-binaries/",
+    ELECTRON_MIRROR: "https://npmmirror.com/mirrors/electron/",
+  },
 }

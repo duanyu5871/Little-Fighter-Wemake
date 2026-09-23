@@ -2,6 +2,7 @@ import { execSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import json5 from "json5";
 import { APP_NAME, DIST, ICON, ROOT, check_build_tools, electron_version, fail, read_pkg, set_prefix, stage_app, stage_extra, stage_game, step } from "./desktop-stage.mjs";
 
 set_prefix("[build-installer]");
@@ -10,6 +11,23 @@ const FLAGS = new Set(process.argv.slice(2));
 const NO_BUILD = FLAGS.has("--no-build");
 const NO_CONVERTERS = FLAGS.has("--no-converters");
 const KEEP = FLAGS.has("--keep");
+
+function read_json5(path) {
+  if (!existsSync(path)) return {};
+  try {
+    return json5.parse(readFileSync(path, "utf8"));
+  } catch {
+    fail(`json5 配置解析失败: ${path}`);
+  }
+}
+
+const MIRRORS = {
+  ...(read_json5(join(ROOT, "deployer.config.json5")).installer ?? {}),
+  ...(read_json5(join(ROOT, "deployer.private.json5")).installer ?? {}),
+};
+for (const name of ["ELECTRON_BUILDER_BINARIES_MIRROR", "ELECTRON_MIRROR"]) {
+  if (!process.env[name] && MIRRORS[name]) process.env[name] = MIRRORS[name];
+}
 
 const pkg = read_pkg();
 const ELECTRON_VERSION = electron_version(pkg);
@@ -99,7 +117,7 @@ try {
     env: { ...process.env, CSC_LINK: "", WIN_CSC_LINK: "", CSC_KEY_PASSWORD: "", WIN_CSC_KEY_PASSWORD: "" },
   });
 } catch {
-  fail("electron-builder 构建失败（若卡在下载 NSIS 工具，可设置 ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/ 后重试）");
+  fail("electron-builder 构建失败（若卡在下载工具，可在 deployer.config.json5 的 installer 段配置镜像，或设置 ELECTRON_BUILDER_BINARIES_MIRROR / ELECTRON_MIRROR 环境变量）");
 }
 
 const artifacts = readdirSync(OUT).filter((name) => statSync(join(OUT, name)).isFile() && (/\.(exe|blockmap)$/i.test(name) || name === "latest.yml"));
