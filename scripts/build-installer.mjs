@@ -78,6 +78,9 @@ stage_game(GAME);
 stage_app(APP, pkg, { updater: true });
 stage_extra(EXTRA, { converters: !NO_CONVERTERS });
 
+const NSIS_INCLUDE = join(ROOT, "scripts", "nsis-installer.nsh");
+if (!existsSync(NSIS_INCLUDE)) fail("缺少 scripts/nsis-installer.nsh");
+
 const win = { target: ["nsis"], executableName: "start", signExecutable: false };
 if (icon_256(ICON)) win.icon = ICON;
 else step("favicon.ico 不含 256x256 图像，安装包将使用默认图标（可另备一个 ≥256 的 ico）");
@@ -104,6 +107,7 @@ const config = {
     runAfterFinish: true,
     deleteAppDataOnUninstall: false,
     shortcutName: APP_NAME,
+    include: NSIS_INCLUDE,
   },
   publish: [{ provider: "generic", url: "https://lf.gim.ink/desktop/" }],
 };
