@@ -15,6 +15,10 @@ const DEFAULT_GAME_PORT = 8067;
 const DEFAULT_SERVER_PORT = 8080;
 const PORT_TRIES = 20;
 const LOG_MAX_BYTES = 512 * 1024;
+const WIDTH = 1191;
+const HEIGHT = 675;
+const MIN_WIDTH = 794;
+const MIN_HEIGHT = 450;
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -577,10 +581,10 @@ async function main() {
   }
 
   win = new BrowserWindow({
-    width: 1275,
-    height: 720,
-    minWidth: 640,
-    minHeight: 420,
+    width: WIDTH,
+    height: HEIGHT,
+    minWidth: MIN_WIDTH,
+    minHeight: MIN_HEIGHT,
     show: false,
     frame: false,
     backgroundColor: "#000000",
