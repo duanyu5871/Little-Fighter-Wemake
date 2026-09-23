@@ -7,7 +7,7 @@ import { networkInterfaces } from "node:os";
 import { dirname, basename, extname, isAbsolute, join, normalize, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import JSON5 from "json5";
-import { normalize_lang, tray_text } from "./tray_i18n.mjs";
+import { load_tray_texts, normalize_lang, resolve_lang, tray_text } from "./tray_i18n.mjs";
 
 const LOG_TAG = "[lfwm]";
 const DEFAULT_HOST = "127.0.0.1";
@@ -73,6 +73,7 @@ const HELP_TEXT = `用法: start.exe [选项]
   --server                     启动时开启联机服务器（默认仅本机 127.0.0.1:8080）
   --server-port <port>         联机服务器起始端口（默认 8080，被占用时自动向后找）
   --server-lan                 联机服务器监听局域网
+  --lang <code>                界面语言：auto（跟随游戏，默认）/ zh-hans / zh-hant / en（语言文件放 langs/）
   --tool <命令...>             参数原样交给数据工具，如 --tool help、--tool make-data-zip -c conf.json5
   --user-data <目录>           指定用户数据目录（多实例调试用）
   --debug                      打印弹幕事件日志
@@ -102,6 +103,7 @@ const ARGS = parse_args(process.argv.slice(app.isPackaged ? 1 : 2));
 const SERVER_STATE = { on: false, lan: false, base_port: DEFAULT_SERVER_PORT, port: DEFAULT_SERVER_PORT };
 const GAME_STATE = { lan: false, host: DEFAULT_HOST, port: DEFAULT_GAME_PORT };
 let APP_LANG = "";
+let APP_LANG_FIXED = false;
 
 if (typeof ARGS["user-data"] === "string") app.setPath("userData", resolve(ARGS["user-data"]));
 
@@ -520,7 +522,6 @@ async function main() {
   app_dir = app.getAppPath();
   data_dir = app.isPackaged ? dirname(process.execPath) : app_dir;
   setup_log(data_dir);
-  APP_LANG = normalize_lang(app.getLocale());
   SERVER_STATE.base_port = Number(args["server-port"] ?? DEFAULT_SERVER_PORT);
   SERVER_STATE.port = SERVER_STATE.base_port;
 
@@ -544,6 +545,10 @@ async function main() {
   const config_json5 = join(data_dir, "danmu.json5");
   const config_json = join(data_dir, "danmu.json");
   const conf = load_config(config_json5, config_json);
+  const texts = load_tray_texts(join(data_dir, "langs"));
+  const lang = resolve_lang(args.lang, app.getLocale());
+  APP_LANG = lang.lang;
+  APP_LANG_FIXED = lang.fixed;
   const code = typeof args.code === "string" ? args.code : String(conf.code ?? "");
   const room = typeof args.room === "string" ? args.room : String(conf.room ?? "");
   const creds_ready = !!conf.app_id && !!conf.access_key && !!conf.access_key_secret;
@@ -551,6 +556,9 @@ async function main() {
   log(`程序目录: ${data_dir}`);
   if (existsSync(config_json5) || existsSync(config_json))
     log(`配置: ${existsSync(config_json5) ? config_json5 : config_json}（应用密钥${creds_ready ? "已设置" : "未设置"}，身份码${code ? "已传入" : "未传入"}）`);
+  log(`界面语言: ${APP_LANG_FIXED ? `固定为 ${APP_LANG || "en"}` : `跟随游戏（兜底 ${APP_LANG || "en"}）`}`);
+  for (const e of texts.errors) log(`自定义文案读取失败：${e}`);
+  if (texts.files) log(`自定义文案: langs/ 已加载 ${texts.files} 个文件（${texts.keys} 条）`);
 
   if (creds_ready && code || room || args.dry) {
     const bridge_args = [];
@@ -678,6 +686,7 @@ ipcMain.handle("lfj:is-fullscreen", (e) => win_of(e)?.isFullScreen() ?? false);
 ipcMain.on("lfj:fullscreen", (e, on) => win_of(e)?.setFullScreen(!!on));
 ipcMain.on("lfj:quit", () => void shutdown("点击关闭按钮"));
 ipcMain.on("lfj:lang", (_e, lang) => {
+  if (APP_LANG_FIXED) return;
   const next = normalize_lang(lang);
   if (next === APP_LANG) return;
   APP_LANG = next;
