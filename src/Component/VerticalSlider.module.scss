@@ -1,0 +1,44 @@
+.vertical_slider {
+  --knob_size     : 14px;
+  position        : relative;
+  width           : 6px;
+  height          : 84px;
+  border-radius   : 3px;
+  background-color: #00000088;
+  cursor          : pointer;
+  touch-action    : none;
+  user-select     : none;
+
+  .fill,
+  .knob {
+    position      : absolute;
+    pointer-events: none;
+  }
+
+  .fill {
+    left            : 0px;
+    right           : 0px;
+    bottom          : 0px;
+    border-radius   : 3px;
+    background-color: #5A88E0;
+  }
+
+  .knob {
+    left            : 50%;
+    width           : var(--knob_size);
+    height          : var(--knob_size);
+    border-radius   : 50%;
+    background-color: #FFFFFF;
+    box-shadow      : 0px 0px 4px #00000088;
+    transform       : translateX(-50%);
+    transition      : bottom 80ms linear;
+  }
+
+  &.dragging {
+    cursor: grabbing;
+
+    .knob {
+      transition: none;
+    }
+  }
+}

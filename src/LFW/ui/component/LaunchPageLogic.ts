@@ -157,6 +157,7 @@ export class LaunchPage extends UIComponent<ILaunchPageProps> {
     this.props.tap_to_launch = this.node.find_child("tap_to_launch")!;
     this.props.sound_warning = this.node.find_child("sound_warning")!;
     this.props.long_text = this.node.find_child("long_text")!;
+    if (window.runtime) this.node.find_child("desktop_hint")?.set_visible(false);
     this.fsm.use(Status.TapHints)
   }
   override on_key_down(e: IUIKeyEvent): void {

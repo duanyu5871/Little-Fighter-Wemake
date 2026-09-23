@@ -19,6 +19,7 @@ import { InputNumber } from "./Component/Input";
 import Select from "./Component/Select";
 import Show from "./Component/Show";
 import Titled from "./Component/Titled";
+import { VerticalSlider } from "./Component/VerticalSlider";
 import { DanmuPanel } from "./DanmuPanel";
 import { install_danmu_bridge_if_requested } from "./danmu_bridge";
 import { DevStatsView } from "./DevStatsView";
@@ -144,6 +145,7 @@ const app_state_version = '2'
 
 
 const is_mobile_container = navigator.userAgent.includes('lfw-mobile-container')
+const can_hover_volume_popup = !!window.matchMedia?.('(hover: hover) and (pointer: fine)')?.matches
 
 /** 是否运行在 B站 App 内（Toy SDK 生效）的手机/平板容器：
  * 用 current-device 按 UA 判定设备（手机/平板算移动平台），桌面/网页端不算。 */
@@ -217,6 +219,7 @@ function App() {
   const [is_maximised, set_is_maximised] = useState(false);
   const [is_fullscreen, _set_is_fullscreen] = useState(false);
   const [toy_mobile] = useState(is_toy_mobile_now);
+  const show_volume_popup = can_hover_volume_popup && !is_mobile_container && !toy_mobile;
   const { entity_flags, bg_flags } = world_dataset;
 
   useEffect(() => {
@@ -693,14 +696,42 @@ function App() {
             onClick={() => lfw?.push_cmd(CMD.F4)}
             src={[img_btn_2_3]} />
         </Show>
-        <ToggleImgButton
-          checked={app_state.bgm_muted}
-          onClick={() => lfw?.sounds?.set_bgm_muted(!app_state.bgm_muted)}
-          src={[img_btn_2_0, img_btn_3_0]} />
-        <ToggleImgButton
-          checked={app_state.sound_muted}
-          onClick={() => lfw?.sounds?.set_sound_muted(!app_state.sound_muted)}
-          src={[img_btn_0_3, img_btn_1_0]} />
+        <div className={csses.volume_hover}>
+          <ToggleImgButton
+            checked={app_state.bgm_muted}
+            onClick={() => lfw?.sounds?.set_bgm_muted(!app_state.bgm_muted)}
+            src={[img_btn_2_0, img_btn_3_0]} />
+          {show_volume_popup && (
+            <div className={csses.volume_popup}>
+              <div className={csses.volume_popup_inner}>
+                <VerticalSlider
+                  value={app_state.bgm_volume}
+                  onChange={(v) => {
+                    lfw?.sounds?.set_bgm_volume(v)
+                    if (v > 0 && app_state.bgm_muted) lfw?.sounds?.set_bgm_muted(false)
+                  }} />
+              </div>
+            </div>
+          )}
+        </div>
+        <div className={csses.volume_hover}>
+          <ToggleImgButton
+            checked={app_state.sound_muted}
+            onClick={() => lfw?.sounds?.set_sound_muted(!app_state.sound_muted)}
+            src={[img_btn_0_3, img_btn_1_0]} />
+          {show_volume_popup && (
+            <div className={csses.volume_popup}>
+              <div className={csses.volume_popup_inner}>
+                <VerticalSlider
+                  value={app_state.sound_volume}
+                  onChange={(v) => {
+                    lfw?.sounds?.set_sound_volume(v)
+                    if (v > 0 && app_state.sound_muted) lfw?.sounds?.set_sound_muted(false)
+                  }} />
+              </div>
+            </div>
+          )}
+        </div>
 
         <Show show={bg_id !== Defines.VOID_BG.id && ui_id !== "settings"}>
           <ToggleImgButton
