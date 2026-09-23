@@ -69,7 +69,7 @@ const README_TEXT = `Little Fighter Wemake 桌面客户端
 
 配置
 - danmu.json5 里的 app_id / access_key / access_key_secret 是该玩法的开平应用密钥
-- 游戏画面、弹幕桥、联机服务器存档（ranks/）、战绩存档（scores.json）、运行日志（logs.txt）都在本目录
+- 游戏文件、弹幕桥、联机服务器存档（ranks/）、战绩存档（scores.json）、运行日志（logs.txt）都在本目录
 - 完整命令行、danmu.json5 字段说明与常见问题见 help.md
 - 命令行参数（均可用环境变量或 danmu.json5 代替）
   code / --room / --port / --game-port / --host / --server / --server-port / --server-lan / --tool / --user-data / --debug / --devtools / --help

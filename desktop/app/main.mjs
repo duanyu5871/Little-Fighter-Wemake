@@ -57,14 +57,14 @@ const HELP_TEXT = `用法: start.exe [选项]
 
 窗口与托盘:
   顶部半透明条可拖动窗口（双击最大化/还原）；关闭窗口即退出
-  托盘菜单可开关联机服务器、允许局域网连接、打开数据工具与数据目录
+  托盘菜单可开关联机服务器、允许局域网连接、允许局域网访问游戏页面、复制地址、打开数据工具与数据目录
 
 选项:
   code=<code> / --code <code>  主播身份码（通常由平台带入）
   --room <id>                  以 web 模式收指定直播间弹幕（本地调试免密钥）
   --host <host>                监听地址（默认 127.0.0.1）
   --port <port>                弹幕桥端口（默认 8066）
-  --game-port <port>           游戏画面端口（默认 8067）
+  --game-port <port>           游戏页面端口（默认 8067）
   --server                     启动时开启联机服务器（默认仅本机 127.0.0.1:8080）
   --server-port <port>         联机服务器起始端口（默认 8080，被占用时自动向后找）
   --server-lan                 联机服务器监听局域网
@@ -72,7 +72,7 @@ const HELP_TEXT = `用法: start.exe [选项]
   --user-data <目录>           指定用户数据目录（多实例调试用）
   --debug                      打印弹幕事件日志
   --devtools                   打开开发者工具
-  --screenshot <path>          启动后截取游戏画面为 PNG
+  --screenshot <path>          启动后截取窗口画面为 PNG
   --help, -h                   显示本帮助
 
 弹幕桥参数（也可写进同目录 danmu.json5；优先级 命令行 > 环境变量 > danmu.json5）:
@@ -87,12 +87,15 @@ let app_dir = "";
 let data_dir = "";
 let win = null;
 let bridge = null;
+let bridge_port = DEFAULT_BRIDGE_PORT;
 let tray = null;
 let server_proc = null;
+let game_server = null;
 let closing = false;
 
 const ARGS = parse_args(process.argv.slice(app.isPackaged ? 1 : 2));
 const SERVER_STATE = { on: false, lan: false, base_port: DEFAULT_SERVER_PORT, port: DEFAULT_SERVER_PORT };
+const GAME_STATE = { lan: false, host: DEFAULT_HOST, port: DEFAULT_GAME_PORT };
 
 if (typeof ARGS["user-data"] === "string") app.setPath("userData", resolve(ARGS["user-data"]));
 
@@ -263,12 +266,26 @@ async function load_bridge() {
 }
 
 function lan_ip() {
-  for (const list of Object.values(networkInterfaces())) {
+  const skip_name = /wsl|vEthernet|hyper-v|vmware|virtualbox|virtual|tun|tap|docker|loopback|tailscale|zerotier|singbox/i;
+  const all = [];
+  const good = [];
+  for (const [name, list] of Object.entries(networkInterfaces())) {
+    const skip = skip_name.test(name);
     for (const info of list ?? []) {
-      if (info.family === "IPv4" && !info.internal) return info.address;
+      if (info.family !== "IPv4" || info.internal) continue;
+      if (/^169\.254\./.test(info.address)) continue;
+      all.push(info.address);
+      if (!skip && !/^192\.168\.56\./.test(info.address)) good.push(info.address);
     }
   }
-  return "";
+  return (
+    good.find((ip) => /^192\.168\./.test(ip)) ??
+    good.find((ip) => /^10\./.test(ip)) ??
+    good.find((ip) => /^172\.(1[6-9]|2\d|3[01])\./.test(ip)) ??
+    good[0] ??
+    all[0] ??
+    ""
+  );
 }
 
 function server_addr() {
@@ -342,6 +359,53 @@ function set_server_lan(lan) {
   setTimeout(() => start_server(lan), 300);
 }
 
+function game_page_host() {
+  return GAME_STATE.lan ? "127.0.0.1" : GAME_STATE.host;
+}
+
+function game_page_addr(host) {
+  return `http://${host}:${GAME_STATE.port}/`;
+}
+
+function game_page_url() {
+  const page_host = game_page_host();
+  const lan_host = GAME_STATE.lan ? lan_ip() : "";
+  const ws = !bridge
+    ? ""
+    : bridge_port === DEFAULT_BRIDGE_PORT && page_host === "127.0.0.1" && !lan_host
+      ? "1"
+      : `ws://${lan_host || page_host}:${bridge_port}`;
+  return `http://${page_host}:${GAME_STATE.port}/#/${ws ? `?DANMU_WS=${ws}` : ""}`;
+}
+
+async function set_game_lan(lan) {
+  if (!game_server || lan === GAME_STATE.lan) return;
+  const old_host = GAME_STATE.host;
+  const old_port = GAME_STATE.port;
+  try {
+    await new Promise((ok) => {
+      if (!game_server.listening) return ok();
+      game_server.close(() => ok());
+      game_server.closeAllConnections?.();
+    });
+    const port = await listen_first_free(game_server, lan ? "0.0.0.0" : "127.0.0.1", old_port);
+    GAME_STATE.host = lan ? "0.0.0.0" : "127.0.0.1";
+    GAME_STATE.lan = !!lan;
+    GAME_STATE.port = port;
+    if (lan) log(`游戏页面已允许局域网访问: ${game_page_addr(lan_ip() || "0.0.0.0")}`);
+    else log(`游戏页面已恢复仅本机: ${game_page_addr("127.0.0.1")}`);
+    if (win) await win.loadURL(game_page_url());
+  } catch (e) {
+    log(`切换游戏页面局域网访问失败：${e?.message ?? e}，尝试恢复原监听`);
+    try {
+      GAME_STATE.port = await listen_first_free(game_server, old_host, old_port);
+    } catch (e2) {
+      log(`恢复原监听失败：${e2?.message ?? e2}`);
+    }
+  }
+  refresh_tray();
+}
+
 function open_tool_console(tool_args = []) {
   const dir = dirname(process.execPath);
   const exe = basename(process.execPath);
@@ -379,6 +443,17 @@ function refresh_tray() {
       label: "复制联机地址",
       enabled: SERVER_STATE.on,
       click: () => clipboard.writeText(server_addr()),
+    },
+    { type: "separator" },
+    {
+      label: "允许局域网访问游戏页面",
+      type: "checkbox",
+      checked: GAME_STATE.lan,
+      click: (item) => void set_game_lan(!!item.checked),
+    },
+    {
+      label: "复制游戏页面地址",
+      click: () => clipboard.writeText(game_page_addr(GAME_STATE.lan ? lan_ip() || "0.0.0.0" : "127.0.0.1")),
     },
     { type: "separator" },
     { label: "打开数据工具（命令行）", click: () => open_tool_console() },
@@ -449,7 +524,7 @@ async function main() {
   }
 
   const host = String(args.host ?? DEFAULT_HOST);
-  const bridge_port = Number(args.port ?? DEFAULT_BRIDGE_PORT);
+  bridge_port = Number(args.port ?? DEFAULT_BRIDGE_PORT);
   const game_port_want = Number(args["game-port"] ?? DEFAULT_GAME_PORT);
 
   if (!(await check_port_free(host, bridge_port))) {
@@ -486,14 +561,20 @@ async function main() {
     log("未配置直播弹幕：以单机桌面模式启动（想接弹幕就填 danmu.json5 的应用密钥，或由直播姬带 code= 启动）");
   }
 
-  const game_server = make_game_server(game_dir);
-  const game_port = await listen_first_free(game_server, host, game_port_want);
-  const page_host = host === "0.0.0.0" || host === "::" ? "127.0.0.1" : host;
-  const ws = bridge_port === DEFAULT_BRIDGE_PORT && page_host === "127.0.0.1" ? "1" : `ws://${page_host}:${bridge_port}`;
-  const page_url = `http://${page_host}:${game_port}/#/?DANMU_WS=${ws}`;
+  game_server = make_game_server(game_dir);
+  GAME_STATE.host = host;
+  GAME_STATE.lan = host === "0.0.0.0" || host === "::";
+  GAME_STATE.port = await listen_first_free(game_server, host, game_port_want);
+  const page_url = game_page_url();
 
-  log(`游戏页面: http://${page_host}:${game_port}/`);
-  log(`弹幕桥: ws://${page_host}:${bridge_port}（榜单页 http://${page_host}:${bridge_port}/）`);
+  log(`游戏页面: ${game_page_addr(game_page_host())}`);
+  if (GAME_STATE.lan) log(`游戏页面（局域网）: ${game_page_addr(lan_ip() || "0.0.0.0")}`);
+  if (bridge) {
+    log(`弹幕桥: ws://${game_page_host()}:${bridge_port}（榜单页 http://${game_page_host()}:${bridge_port}/）`);
+    if (GAME_STATE.lan) log(`弹幕桥（局域网）: ws://${lan_ip()}:${bridge_port}（榜单页 http://${lan_ip()}:${bridge_port}/）`);
+  } else {
+    log("弹幕桥: 未启动（单机模式不收弹幕；配好 danmu.json5 或带 code= / --room 启动后才会监听 8066）");
+  }
 
   win = new BrowserWindow({
     width: 1275,
