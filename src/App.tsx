@@ -318,6 +318,7 @@ function App() {
       const { page } = params
       if (typeof page === 'string') lf2.set_ui({ id: page })
     },
+    on_lang_changed: (lang) => window.runtime?.SetLang?.(lang),
   })
 
   useEffect(() => {
@@ -605,6 +606,10 @@ function App() {
     (lfw.pointings as __Pointings).set_element(ele_game_canvas);
     (lfw.world.renderer as WorldRenderer).set_canvas(ele_game_canvas);
   }, [lfw, ele_game_canvas])
+
+  useEffect(() => {
+    if (lfw) window.runtime?.SetLang?.(lfw.lang);
+  }, [lfw])
 
   useWorkspaces({ container: ele_root })
 

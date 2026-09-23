@@ -8,4 +8,5 @@ contextBridge.exposeInMainWorld("runtime", {
   WindowFullscreen: () => ipcRenderer.send("lfj:fullscreen", true),
   WindowUnfullscreen: () => ipcRenderer.send("lfj:fullscreen", false),
   Quit: () => ipcRenderer.send("lfj:quit"),
+  SetLang: (lang) => ipcRenderer.send("lfj:lang", String(lang ?? "")),
 });

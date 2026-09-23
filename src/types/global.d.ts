@@ -7,6 +7,7 @@ interface Window {
     WindowFullscreen?(): void;
     WindowUnfullscreen?(): void;
     WindowIsFullscreen?(): Promise<boolean>;
+    SetLang?(lang: string): void;
   }
   /** B站 Toy JS SDK（入口页引入 toy-sdk.js 后由平台注入，见 docs/dev/Toy JS SDK.md） */
   toy?: ToySDK

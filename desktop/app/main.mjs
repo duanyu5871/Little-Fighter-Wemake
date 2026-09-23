@@ -7,6 +7,7 @@ import { networkInterfaces } from "node:os";
 import { dirname, basename, extname, isAbsolute, join, normalize, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import JSON5 from "json5";
+import { normalize_lang, tray_text } from "./tray_i18n.mjs";
 
 const LOG_TAG = "[lfwm]";
 const DEFAULT_HOST = "127.0.0.1";
@@ -100,6 +101,7 @@ let closing = false;
 const ARGS = parse_args(process.argv.slice(app.isPackaged ? 1 : 2));
 const SERVER_STATE = { on: false, lan: false, base_port: DEFAULT_SERVER_PORT, port: DEFAULT_SERVER_PORT };
 const GAME_STATE = { lan: false, host: DEFAULT_HOST, port: DEFAULT_GAME_PORT };
+let APP_LANG = "";
 
 if (typeof ARGS["user-data"] === "string") app.setPath("userData", resolve(ARGS["user-data"]));
 
@@ -432,40 +434,41 @@ function open_tool_console(tool_args = []) {
 
 function refresh_tray() {
   if (!tray) return;
+  const t = (key, ...args) => tray_text(APP_LANG, key, ...args);
   tray.setContextMenu(Menu.buildFromTemplate([
     {
-      label: SERVER_STATE.on ? `联机服务器：已开启（${server_addr()}）` : "开启联机服务器",
+      label: SERVER_STATE.on ? t("server_on", server_addr()) : t("server_off"),
       click: () => (SERVER_STATE.on ? stop_server() : start_server(SERVER_STATE.lan)),
     },
     {
-      label: "允许局域网连接",
+      label: t("allow_lan"),
       type: "checkbox",
       checked: SERVER_STATE.lan,
       click: (item) => set_server_lan(!!item.checked),
     },
     {
-      label: "复制联机地址",
+      label: t("copy_server_addr"),
       enabled: SERVER_STATE.on,
       click: () => clipboard.writeText(server_addr()),
     },
     { type: "separator" },
     {
-      label: "允许局域网访问游戏页面",
+      label: t("allow_game_lan"),
       type: "checkbox",
       checked: GAME_STATE.lan,
       click: (item) => void set_game_lan(!!item.checked),
     },
     {
-      label: "复制游戏页面地址",
+      label: t("copy_game_addr"),
       click: () => clipboard.writeText(game_page_addr(GAME_STATE.lan ? lan_ip() || "0.0.0.0" : "127.0.0.1")),
     },
     { type: "separator" },
-    { label: "打开数据工具（命令行）", click: () => open_tool_console() },
-    { label: "复制数据工具命令", click: () => clipboard.writeText(`"${process.execPath}" --tool `) },
-    { label: "打开数据目录", click: () => void shell.openPath(data_dir) },
+    { label: t("open_tool"), click: () => open_tool_console() },
+    { label: t("copy_tool_cmd"), click: () => clipboard.writeText(`"${process.execPath}" --tool `) },
+    { label: t("open_data_dir"), click: () => void shell.openPath(data_dir) },
     { type: "separator" },
-    { label: "显示游戏窗口", click: () => { win?.show(); win?.focus(); } },
-    { label: "退出", click: () => void shutdown("托盘退出") },
+    { label: t("show_window"), click: () => { win?.show(); win?.focus(); } },
+    { label: t("quit"), click: () => void shutdown("托盘退出") },
   ]));
 }
 
@@ -517,6 +520,7 @@ async function main() {
   app_dir = app.getAppPath();
   data_dir = app.isPackaged ? dirname(process.execPath) : app_dir;
   setup_log(data_dir);
+  APP_LANG = normalize_lang(app.getLocale());
   SERVER_STATE.base_port = Number(args["server-port"] ?? DEFAULT_SERVER_PORT);
   SERVER_STATE.port = SERVER_STATE.base_port;
 
@@ -673,6 +677,12 @@ ipcMain.handle("lfj:is-maximized", (e) => win_of(e)?.isMaximized() ?? false);
 ipcMain.handle("lfj:is-fullscreen", (e) => win_of(e)?.isFullScreen() ?? false);
 ipcMain.on("lfj:fullscreen", (e, on) => win_of(e)?.setFullScreen(!!on));
 ipcMain.on("lfj:quit", () => void shutdown("点击关闭按钮"));
+ipcMain.on("lfj:lang", (_e, lang) => {
+  const next = normalize_lang(lang);
+  if (next === APP_LANG) return;
+  APP_LANG = next;
+  refresh_tray();
+});
 
 app.commandLine.appendSwitch("autoplay-policy", "no-user-gesture-required");
 app.setAppUserModelId("ink.gim.lfwm");
