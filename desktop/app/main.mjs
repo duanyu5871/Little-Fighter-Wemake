@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, Tray, clipboard, ipcMain, nativeImage, shell } from "electron";
+import { app, BrowserWindow, Menu, Tray, clipboard, dialog, ipcMain, nativeImage, shell } from "electron";
 import { spawn } from "node:child_process";
 import { appendFileSync, createReadStream, existsSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer as create_http_server } from "node:http";
@@ -104,6 +104,9 @@ const SERVER_STATE = { on: false, lan: false, base_port: DEFAULT_SERVER_PORT, po
 const GAME_STATE = { lan: false, host: DEFAULT_HOST, port: DEFAULT_GAME_PORT };
 let APP_LANG = "";
 let APP_LANG_FIXED = false;
+const UPDATER_ENABLED = typeof __UPDATER__ === "boolean" && __UPDATER__;
+const UPDATE_STATE = { phase: "idle", version: "", percent: 0, manual: false };
+let updater = null;
 
 if (typeof ARGS["user-data"] === "string") app.setPath("userData", resolve(ARGS["user-data"]));
 
@@ -434,6 +437,90 @@ function open_tool_console(tool_args = []) {
   }
 }
 
+function updater_menu_items(t) {
+  if (UPDATE_STATE.phase === "downloading") return [{ label: t("downloading_update", UPDATE_STATE.version, UPDATE_STATE.percent), enabled: false }];
+  if (UPDATE_STATE.phase === "ready") return [{ label: t("restart_update", UPDATE_STATE.version), click: () => quit_and_install() }];
+  if (UPDATE_STATE.phase === "checking") return [{ label: t("checking_update"), enabled: false }];
+  return [{ label: t("check_update"), click: () => check_updates(true) }];
+}
+
+function check_updates(manual) {
+  if (!updater || UPDATE_STATE.phase !== "idle") return;
+  UPDATE_STATE.manual = !!manual;
+  updater.checkForUpdates().catch((e) => console.warn(LOG_TAG, "检查更新失败", e));
+}
+
+function quit_and_install() {
+  if (!updater) return;
+  log("正在重启并安装更新");
+  updater.quitAndInstall(true, true);
+}
+
+async function setup_updater() {
+  const { autoUpdater } = await import("electron-updater");
+  updater = autoUpdater;
+  autoUpdater.autoDownload = true;
+  autoUpdater.logger = {
+    info: (...a) => log(a.map(String).join(" ")),
+    warn: (...a) => log(a.map(String).join(" ")),
+    error: (...a) => log(a.map(String).join(" ")),
+    debug: () => void 0,
+  };
+  autoUpdater.on("checking-for-update", () => {
+    UPDATE_STATE.phase = "checking";
+    refresh_tray();
+  });
+  autoUpdater.on("update-available", (info) => {
+    UPDATE_STATE.phase = "downloading";
+    UPDATE_STATE.version = info.version;
+    UPDATE_STATE.percent = 0;
+    log(`发现新版本 ${info.version}，开始后台下载`);
+    refresh_tray();
+    if (UPDATE_STATE.manual) void dialog.showMessageBox({ type: "info", message: tray_text(APP_LANG, "update_found", info.version) });
+  });
+  autoUpdater.on("update-not-available", () => {
+    UPDATE_STATE.phase = "idle";
+    refresh_tray();
+    if (UPDATE_STATE.manual) void dialog.showMessageBox({ type: "info", message: tray_text(APP_LANG, "up_to_date") });
+    UPDATE_STATE.manual = false;
+  });
+  autoUpdater.on("download-progress", (progress) => {
+    const percent = Math.round(progress.percent);
+    if (percent >= UPDATE_STATE.percent + 10 || percent === 100) {
+      UPDATE_STATE.percent = percent;
+      refresh_tray();
+    }
+  });
+  autoUpdater.on("update-downloaded", (info) => {
+    UPDATE_STATE.phase = "ready";
+    UPDATE_STATE.version = info.version;
+    UPDATE_STATE.percent = 100;
+    log(`新版本 ${info.version} 已下载，等待重启安装`);
+    refresh_tray();
+    void dialog.showMessageBox({
+      type: "info",
+      message: tray_text(APP_LANG, "update_ready", info.version),
+      buttons: [tray_text(APP_LANG, "restart_now"), tray_text(APP_LANG, "later")],
+      defaultId: 0,
+      cancelId: 1,
+    }).then((result) => {
+      if (result.response === 0) quit_and_install();
+    });
+  });
+  autoUpdater.on("error", (e) => {
+    log(`检查更新失败: ${e?.message ?? e}`);
+    UPDATE_STATE.phase = "idle";
+    refresh_tray();
+    if (UPDATE_STATE.manual) {
+      UPDATE_STATE.manual = false;
+      void dialog.showMessageBox({ type: "warning", message: tray_text(APP_LANG, "update_check_failed") });
+    }
+  });
+  log(`更新检测: 已启用（当前 v${app.getVersion()}）`);
+  setTimeout(() => check_updates(false), 6000);
+  setInterval(() => check_updates(false), 3 * 60 * 60 * 1000);
+}
+
 function refresh_tray() {
   if (!tray) return;
   const t = (key, ...args) => tray_text(APP_LANG, key, ...args);
@@ -465,6 +552,7 @@ function refresh_tray() {
       click: () => clipboard.writeText(game_page_addr(GAME_STATE.lan ? lan_ip() || "0.0.0.0" : "127.0.0.1")),
     },
     { type: "separator" },
+    ...(UPDATER_ENABLED ? [...updater_menu_items(t), { type: "separator" }] : []),
     { label: t("open_tool"), click: () => open_tool_console() },
     { label: t("copy_tool_cmd"), click: () => clipboard.writeText(`"${process.execPath}" --tool `) },
     { label: t("open_data_dir"), click: () => void shell.openPath(data_dir) },
@@ -620,6 +708,7 @@ async function main() {
   await win.loadURL(page_url);
 
   make_tray();
+  if (UPDATER_ENABLED) void setup_updater().catch((e) => console.warn(LOG_TAG, "更新模块初始化失败", e));
   if (args.server) start_server(args["server-lan"] === true);
 
   if (args.devtools) win.webContents.openDevTools({ mode: "detach" });

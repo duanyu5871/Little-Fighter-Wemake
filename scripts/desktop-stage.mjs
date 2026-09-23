@@ -63,6 +63,7 @@ const README_TEXT = `Little Fighter Wemake 桌面客户端
 - 菜单语言：启动用系统语言，游戏内切换时跟随；想固定用 --lang 指定；自定义文案放 langs\\ 目录（见 langs\\README.txt）
 - 打开数据工具（命令行）：在本目录开一个控制台窗口（tools\\lfwm-console.cmd），里面会直接列出全部命令，
   光标已经停在本目录，直接敲  start.exe --tool make-data-zip -c conf.json5  就可以跑（无需另装 Node）
+- 自动更新（仅安装版）：启动后自动检查，新版本会在后台下载，完成后按提示重启即可
 
 转换器
 - 数据转换用的 ffmpeg 与 magick 已随包附带（tools\\ 目录），数据工具会优先用它们，命令行里不用再装
@@ -113,7 +114,7 @@ function run_esbuild(entry, outfile, format, extra = []) {
     "--target=node22",
     ...extra,
     `--outfile=${outfile}`,
-  ], { stdio: "inherit" });
+  ], { stdio: "inherit", cwd: ROOT });
 }
 
 export function walk(dir, out = []) {
@@ -144,7 +145,7 @@ export function find_converter(cmd, env_key) {
   }
 }
 
-export function stage_app(app_dir, pkg) {
+export function stage_app(app_dir, pkg, { updater = false } = {}) {
   writeFileSync(join(app_dir, "package.json"), `${JSON.stringify({
     name: "little-fighter-wemake",
     productName: APP_NAME,
@@ -161,7 +162,10 @@ export function stage_app(app_dir, pkg) {
   step("打包弹幕桥（esbuild bridge）");
   run_esbuild(join(BRIDGE, "index.mjs"), join(app_dir, "bridge.bundle.mjs"), "esm", [`--banner:js=${CREATE_REQUIRE_BANNER}`]);
   step("打包主进程（esbuild main）");
-  run_esbuild(join(APP_SRC, "main.mjs"), join(app_dir, "main.mjs"), "esm", ["--external:electron"]);
+  const main_flags = ["--external:electron", `--define:__UPDATER__=${updater}`];
+  if (updater) main_flags.push(`--banner:js=${CREATE_REQUIRE_BANNER}`);
+  else main_flags.push("--alias:electron-updater=./scripts/updater-stub.mjs");
+  run_esbuild(join(APP_SRC, "main.mjs"), join(app_dir, "main.mjs"), "esm", main_flags);
   step("打包内置联机服务器（esbuild server）");
   run_esbuild(join(ROOT, "server", "src", "index.ts"), join(app_dir, "server.bundle.cjs"), "cjs");
   step("打包数据工具（esbuild tool）");

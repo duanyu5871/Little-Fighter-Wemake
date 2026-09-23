@@ -28,3 +28,16 @@ copy_tool_cmd    复制数据工具命令
 open_data_dir    打开数据目录
 show_window      显示游戏窗口
 quit             退出
+
+更新相关（仅安装版会显示）
+
+check_update         检查更新（托盘菜单项）
+checking_update      正在检查更新
+downloading_update   正在下载新版本：%1 = 版本号，%2 = 百分比
+update_found         手动检查发现新版本时的提示，%1 = 版本号
+update_ready         更新下载完成后的弹窗，%1 = 版本号
+restart_update       托盘「重启并更新」，%1 = 版本号
+up_to_date           已是最新版本
+update_check_failed  检查更新失败
+restart_now          弹窗按钮：立即重启
+later                弹窗按钮：稍后

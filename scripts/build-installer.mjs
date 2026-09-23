@@ -56,7 +56,7 @@ writeFileSync(join(BUILD, "package.json"), `${JSON.stringify({
 }, null, 2)}\n`);
 
 stage_game(GAME);
-stage_app(APP, pkg);
+stage_app(APP, pkg, { updater: true });
 stage_extra(EXTRA, { converters: !NO_CONVERTERS });
 
 const win = { target: ["nsis"], executableName: "start", signExecutable: false };
