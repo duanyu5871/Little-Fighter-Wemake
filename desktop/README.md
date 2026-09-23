@@ -145,7 +145,7 @@ npm run build:playable
 - 包名格式 = 项目名_版本号（脚本自动取 `package.json` 的版本号，如 `Little Fighter Wemake_0.1.54.zip`）；根目录直接铺文件、入口 `start.exe`、文件全 ASCII 名、<500MB（B站“程序文件”上传要求；因为 B站要求入口必须叫 `start.exe`，桌面客户端的可执行文件也是这个名字）
 - `start.exe` 是一个 **Electron 应用**（源码 `desktop/app/`：`main.mjs` 主进程 + `preload.cjs` 向页面暴露 Wails 兼容的 `window.runtime`），负责：
   - 起本地静态服务放游戏画面（默认 8067）
-  - 在主进程里以开平模式跑弹幕桥（默认 8066，源即 `index.mjs`，构建时用 bun 打成 `bridge.bundle.mjs`）
+  - 在主进程里以开平模式跑弹幕桥（默认 8066，源即 `index.mjs`，构建时用 esbuild 打成 `bridge.bundle.mjs`）
   - 开一个**无系统标题栏**的游戏窗口；画面顶部那条半透明区域就是拖拽区（按住拖动、双击最大化/还原），右上角依次是最小化 / 最大化还原 / 全屏 / 关闭；关闭窗口整个玩法退出
   - 把**联机服务器**（仓库 `server/`，构建时打成 `server.bundle.cjs`）与**数据工具**（仓库 `tool/`，打成 `tool.bundle.cjs`）一起带上，都由主进程直接拉起，运行机不需要另装 Node
   - `tools\` 里附带 ffmpeg 与 Imagemagick 全套转换器（构建机上有就自动拷进来），数据工具会优先用它们，运行机也不需要另装
@@ -177,7 +177,7 @@ npm run build:playable
 
 `tools\` 里放的是 ffmpeg（gyan.dev full build，GPL）与 ImageMagick（Apache-2.0）及其 License/NOTICE 文件；想让工具改用系统里的版本，在工具的配置里改 `FFMPEG_CMD` / `MAGICK_CMD` 即可（自带的优先级最高）。
 - 构建脚本还会删掉 `lfw.full.zip`、把 Electron 的语言包精简到 `en-US / zh-CN / zh-TW`，并检查非 ASCII 文件名与 500MB 上限
-- 构建机需要 Bun（打主进程/弹幕桥 bundle）与 esbuild（打联机服务器/数据工具 bundle，随 vite 一起装），还需要能在 PATH 里找到的 `ffmpeg` 与 `magick`（会被拷进包的 `tools\`；也可用 `FFMPEG_PATH` / `MAGICK_PATH` 指定，或 `--no-converters` 跳过）；首次打包会下载 Electron win32-x64（约 110MB），产物解包约 550MB（其中转换器 178MB）、zip 约 258MB
+- 构建机只需要 Node.js：根目录 `npm i` 会装好 esbuild 与 ws，主进程 / 弹幕桥 / 联机服务器 / 数据工具四个 bundle 都由 esbuild 打包，不再需要 Bun；还需要能在 PATH 里找到的 `ffmpeg` 与 `magick`（会被拷进包的 `tools\`；也可用 `FFMPEG_PATH` / `MAGICK_PATH` 指定，或 `--no-converters` 跳过）；首次打包会下载 Electron win32-x64（约 110MB），产物解包约 550MB（其中转换器 178MB）、zip 约 258MB
 
 ## 常见问题
 

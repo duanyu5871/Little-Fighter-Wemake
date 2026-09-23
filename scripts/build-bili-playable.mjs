@@ -16,12 +16,17 @@ const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
 const AUTHOR = pkg.author?.name ?? "Gim";
 const ELECTRON_VERSION = String(pkg.devDependencies?.electron ?? pkg.dependencies?.electron ?? "").replace(/^[^\d]*/, "");
 if (!ELECTRON_VERSION) fail("package.json 里没有 electron 版本（先 npm i -D electron）");
+if (!existsSync(join(ROOT, "node_modules", "esbuild", "bin", "esbuild")))
+  fail("根目录缺少 esbuild（先执行 npm i）");
+if (![join(ROOT, "node_modules", "ws"), join(ROOT, "desktop", "node_modules", "ws")].some((p) => existsSync(p)))
+  fail("找不到 ws（根目录执行 npm i，或在 desktop 目录执行 npm i）");
 const APP_NAME = "Little Fighter Wemake";
 const NAME = `${APP_NAME}_${pkg.version}`;
 const DIST = join(ROOT, "dist");
 const BRIDGE = join(ROOT, "desktop");
 const APP_SRC = join(BRIDGE, "app");
 const ICON = join(ROOT, "public", "favicon.ico");
+const CREATE_REQUIRE_BANNER = 'import { createRequire } from "node:module"; const require = createRequire(import.meta.url);';
 
 const CONFIG_TEMPLATE = `{
   // B站互动玩法（开放平台）应用密钥：创作者服务中心 ▶ 我的项目 ▶ 项目详情
@@ -92,25 +97,15 @@ function quote(v) {
   return /[\s"]/.test(v) ? `"${v.replace(/"/g, '\\"')}"` : v;
 }
 
-function run_bun(args) {
-  for (const cmd of ["bun.exe", "bun"]) {
-    try {
-      return execFileSync(cmd, args, { stdio: "inherit" });
-    } catch (e) {
-      if (e.code !== "ENOENT") throw e;
-    }
-  }
-  return execSync(["bun", ...args.map(quote)].join(" "), { stdio: "inherit" });
-}
-
-function run_esbuild(entry, outfile) {
+function run_esbuild(entry, outfile, format, extra = []) {
   execFileSync(process.execPath, [
     join(ROOT, "node_modules", "esbuild", "bin", "esbuild"),
     entry,
     "--bundle",
     "--platform=node",
-    "--format=cjs",
+    `--format=${format}`,
     "--target=node22",
+    ...extra,
     `--outfile=${outfile}`,
   ], { stdio: "inherit" });
 }
@@ -172,14 +167,14 @@ writeFileSync(join(APP, "package.json"), `${JSON.stringify({
 }, null, 2)}\n`);
 copyFileSync(join(APP_SRC, "preload.cjs"), join(APP, "preload.cjs"));
 
-step("打包弹幕桥（bun build bridge）");
-run_bun(["build", join(BRIDGE, "index.mjs"), "--target=node", "--format=esm", "--outfile", join(APP, "bridge.bundle.mjs")]);
-step("打包主进程（bun build main）");
-run_bun(["build", join(APP_SRC, "main.mjs"), "--target=node", "--format=esm", "--external", "electron", "--outfile", join(APP, "main.mjs")]);
+step("打包弹幕桥（esbuild bridge）");
+run_esbuild(join(BRIDGE, "index.mjs"), join(APP, "bridge.bundle.mjs"), "esm", [`--banner:js=${CREATE_REQUIRE_BANNER}`]);
+step("打包主进程（esbuild main）");
+run_esbuild(join(APP_SRC, "main.mjs"), join(APP, "main.mjs"), "esm", ["--external:electron"]);
 step("打包内置联机服务器（esbuild server）");
-run_esbuild(join(ROOT, "server", "src", "index.ts"), join(APP, "server.bundle.cjs"));
+run_esbuild(join(ROOT, "server", "src", "index.ts"), join(APP, "server.bundle.cjs"), "cjs");
 step("打包数据工具（esbuild tool）");
-run_esbuild(join(ROOT, "tool", "src", "index.ts"), join(APP, "tool.bundle.cjs"));
+run_esbuild(join(ROOT, "tool", "src", "index.ts"), join(APP, "tool.bundle.cjs"), "cjs");
 copyFileSync(ICON, join(APP, "icon.ico"));
 if (!existsSync(join(APP, "main.mjs")) || !existsSync(join(APP, "bridge.bundle.mjs")))
   fail("主进程/弹幕桥打包失败");
