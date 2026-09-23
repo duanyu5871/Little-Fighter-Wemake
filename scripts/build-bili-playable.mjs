@@ -75,7 +75,7 @@ const README_TEXT = `Little Fighter Wemake 桌面客户端
   code / --room / --port / --game-port / --host / --server / --server-port / --server-lan / --tool / --user-data / --debug / --devtools / --help
 
 托盘（任务栏右下角图标）
-- 开启/关闭联机服务器：默认只监听本机 127.0.0.1:8080
+- 开启/关闭联机服务器：默认只监听本机 127.0.0.1:8080（被占用时自动向后找空闲端口）
 - 勾选「允许局域网连接」后，同一网络下的其他人可以用「复制联机地址」得到的地址连你
 - 打开数据工具（命令行）：在本目录开一个控制台窗口（tools\lfwm-console.cmd），里面会直接列出全部命令，
   光标已经停在本目录，直接敲  start.exe --tool make-data-zip -c conf.json5  就可以跑（无需另装 Node）

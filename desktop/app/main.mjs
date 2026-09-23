@@ -66,7 +66,7 @@ const HELP_TEXT = `用法: start.exe [选项]
   --port <port>                弹幕桥端口（默认 8066）
   --game-port <port>           游戏画面端口（默认 8067）
   --server                     启动时开启联机服务器（默认仅本机 127.0.0.1:8080）
-  --server-port <port>         联机服务器端口（默认 8080）
+  --server-port <port>         联机服务器起始端口（默认 8080，被占用时自动向后找）
   --server-lan                 联机服务器监听局域网
   --tool <命令...>             参数原样交给数据工具，如 --tool help、--tool make-data-zip -c conf.json5
   --user-data <目录>           指定用户数据目录（多实例调试用）
@@ -92,7 +92,7 @@ let server_proc = null;
 let closing = false;
 
 const ARGS = parse_args(process.argv.slice(app.isPackaged ? 1 : 2));
-const SERVER_STATE = { on: false, lan: false, port: DEFAULT_SERVER_PORT };
+const SERVER_STATE = { on: false, lan: false, base_port: DEFAULT_SERVER_PORT, port: DEFAULT_SERVER_PORT };
 
 if (typeof ARGS["user-data"] === "string") app.setPath("userData", resolve(ARGS["user-data"]));
 
@@ -276,8 +276,9 @@ function server_addr() {
   return `${host}:${SERVER_STATE.port}`;
 }
 
-function start_server(lan) {
-  if (server_proc) return;
+let starting_server = false;
+async function start_server(lan) {
+  if (server_proc || starting_server) return;
   const entry = join(app_dir, "server.bundle.cjs");
   if (!existsSync(entry)) {
     log("内置联机服务器不可用：安装包缺少 server.bundle.cjs");
@@ -285,7 +286,25 @@ function start_server(lan) {
   }
   SERVER_STATE.lan = !!lan;
   const host = SERVER_STATE.lan ? "0.0.0.0" : "127.0.0.1";
-  const child = spawn(process.execPath, [entry, "--port", String(SERVER_STATE.port), "--host", host], {
+  starting_server = true;
+  let port = 0;
+  try {
+    for (let i = 0; i < PORT_TRIES && !port; ++i) {
+      if (await check_port_free(host, SERVER_STATE.base_port + i)) port = SERVER_STATE.base_port + i;
+    }
+  } catch (e) {
+    log(`联机服务器启动失败：${e?.message ?? e}`);
+    return;
+  } finally {
+    starting_server = false;
+  }
+  if (!port) {
+    log(`联机服务器启动失败：端口 ${SERVER_STATE.base_port}~${SERVER_STATE.base_port + PORT_TRIES - 1} 全部被占用`);
+    return;
+  }
+  if (port !== SERVER_STATE.base_port) log(`端口 ${SERVER_STATE.base_port} 被占用，联机服务器改用 ${port}`);
+  SERVER_STATE.port = port;
+  const child = spawn(process.execPath, [entry, "--port", String(port), "--host", host], {
     env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", RANKS_DIR: join(data_dir, "ranks") },
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
@@ -419,7 +438,8 @@ async function main() {
   app_dir = app.getAppPath();
   data_dir = app.isPackaged ? dirname(process.execPath) : app_dir;
   setup_log(data_dir);
-  SERVER_STATE.port = Number(args["server-port"] ?? DEFAULT_SERVER_PORT);
+  SERVER_STATE.base_port = Number(args["server-port"] ?? DEFAULT_SERVER_PORT);
+  SERVER_STATE.port = SERVER_STATE.base_port;
 
   const game_dir = app.isPackaged ? join(process.resourcesPath, "game") : resolve(app_dir, "..", "..", "dist");
   if (!existsSync(join(game_dir, "index.html"))) {
