@@ -36,6 +36,19 @@ const CONFIG_TEMPLATE = `{
 }
 `;
 
+const TOOL_CONSOLE_CMD = `@echo off
+cd /d "%~dp0.."
+echo Little Fighter Wemake - data tool
+echo.
+"%~dp0..\\start.exe" --tool help
+echo.
+echo Examples:
+echo   start.exe --tool make-data-zip -c conf.json5
+echo   start.exe --tool make-data
+echo.
+echo Working directory: %CD%
+`;
+
 const README_TEXT = `Little Fighter Wemake 桌面客户端
 
 怎么用
@@ -57,8 +70,8 @@ const README_TEXT = `Little Fighter Wemake 桌面客户端
 托盘（任务栏右下角图标）
 - 开启/关闭联机服务器：默认只监听本机 127.0.0.1:8080
 - 勾选「允许局域网连接」后，同一网络下的其他人可以用「复制联机地址」得到的地址连你
-- 打开数据工具（命令行）：数据工具由本程序直接运行，无需另装 Node
-  例：start.exe --tool make-data-zip -c <配置> -d
+- 打开数据工具（命令行）：在本目录开一个控制台窗口（tools\lfwm-console.cmd），里面会直接列出全部命令，
+  光标已经停在本目录，直接敲  start.exe --tool make-data-zip -c conf.json5  就可以跑（无需另装 Node）
 
 转换器
 - 数据转换用的 ffmpeg 与 magick 已随包附带（tools\ 目录），数据工具会优先用它们，命令行里不用再装
@@ -209,12 +222,15 @@ if (existsSync(locales_dir)) {
 }
 if (removed_locales) step(`精简语言包: 保留 ${[...KEEP_LOCALES].join(" / ")}，移除 ${removed_locales} 个`);
 
+const TOOLS = join(STAGE, "tools");
+mkdirSync(TOOLS, { recursive: true });
+writeFileSync(join(TOOLS, "lfwm-console.cmd"), TOOL_CONSOLE_CMD.replace(/\n/g, "\r\n"));
+
 if (!NO_CONVERTERS) {
   const ffmpeg = find_converter("ffmpeg", "FFMPEG_PATH");
   if (!ffmpeg) fail("找不到 ffmpeg（可用 FFMPEG_PATH=<路径> 指定，或加 --no-converters 不打进包里）");
   const magick = find_converter("magick", "MAGICK_PATH");
   if (!magick) fail("找不到 magick（可用 MAGICK_PATH=<路径> 指定，或加 --no-converters 不打进包里）");
-  const TOOLS = join(STAGE, "tools");
   mkdirSync(TOOLS, { recursive: true });
   cpSync(ffmpeg, join(TOOLS, "ffmpeg.exe"));
   const im_dir = dirname(magick);

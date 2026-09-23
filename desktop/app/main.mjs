@@ -4,7 +4,7 @@ import { appendFileSync, createReadStream, existsSync, readFileSync, rmSync, sta
 import { createServer as create_http_server } from "node:http";
 import { createServer as create_net_server } from "node:net";
 import { networkInterfaces } from "node:os";
-import { dirname, extname, join, normalize, resolve, sep } from "node:path";
+import { dirname, basename, extname, join, normalize, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import JSON5 from "json5";
 
@@ -276,9 +276,14 @@ function set_server_lan(lan) {
 }
 
 function open_tool_console() {
-  const exe = process.execPath;
+  const dir = dirname(process.execPath);
+  const batch = join(dir, "tools", "lfwm-console.cmd");
+  const command = existsSync(batch)
+    ? `cmd /k "${batch}"`
+    : `cmd /k ${/[\s"]/.test(basename(process.execPath)) ? `"${basename(process.execPath)}"` : basename(process.execPath)} --tool help`;
+  const line = `start "Little Fighter Wemake 数据工具" /D "${dir}" ${command}`;
   try {
-    spawn("cmd.exe", ["/c", "start", "Little Fighter Wemake 数据工具", "cmd", "/k", `"${exe}" --tool help`], { detached: true, stdio: "ignore" }).unref();
+    spawn("cmd.exe", ["/c", line], { detached: true, stdio: "ignore", windowsVerbatimArguments: true }).unref();
   } catch (e) {
     console.warn(LOG_TAG, "打开数据工具失败", e);
   }
