@@ -171,6 +171,8 @@ npm run build:playable
 | `--tool <命令...>` | 后面的参数原样交给**数据工具**，例如 `start.exe --tool help`、`start.exe --tool make-data-zip -c conf.json5`；转换用的 ffmpeg/magick 已随包附在 `tools\`，无需装到 PATH |
 | `--user-data <目录>` | 指定用户数据目录（想同时开多个实例调试时用） |
 
+- 把 LF2 目录（或数据工具的 conf 文件）**直接拖到 `start.exe` 上**（等价于 `start.exe --tool <路径>`），会自动开一个数据工具控制台并按拖入路径开始转换；游戏已经开着时拖拽也照样生效
+
 服务器存档（`ranks/`）与工具的工作目录默认都在 `start.exe` 所在目录；服务器日志会一并写进 `logs.txt`（以 `[server]` 开头）。
 
 `tools\` 里放的是 ffmpeg（gyan.dev full build，GPL）与 ImageMagick（Apache-2.0）及其 License/NOTICE 文件；想让工具改用系统里的版本，在工具的配置里改 `FFMPEG_CMD` / `MAGICK_CMD` 即可（自带的优先级最高）。

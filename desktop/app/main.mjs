@@ -4,7 +4,7 @@ import { appendFileSync, createReadStream, existsSync, readFileSync, rmSync, sta
 import { createServer as create_http_server } from "node:http";
 import { createServer as create_net_server } from "node:net";
 import { networkInterfaces } from "node:os";
-import { dirname, basename, extname, join, normalize, resolve, sep } from "node:path";
+import { dirname, basename, extname, isAbsolute, join, normalize, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import JSON5 from "json5";
 
@@ -107,6 +107,21 @@ function parse_args(argv) {
     const key = a.slice(2).toLowerCase();
     const next = argv[i + 1];
     ret[key] = next && !next.startsWith("--") ? argv[++i] : true;
+  }
+  return ret;
+}
+
+function find_dropped_paths(argv) {
+  const ret = [];
+  for (let i = 0; i < argv.length; ++i) {
+    const a = argv[i];
+    if (/^(?:--?)?[A-Za-z][\w-]*=/.test(a)) continue;
+    if (a.startsWith("-")) {
+      const next = argv[i + 1];
+      if (next && !next.startsWith("-")) ++i;
+      continue;
+    }
+    if (isAbsolute(a) && existsSync(a)) ret.push(a);
   }
   return ret;
 }
@@ -275,15 +290,21 @@ function set_server_lan(lan) {
   setTimeout(() => start_server(lan), 300);
 }
 
-function open_tool_console() {
+function open_tool_console(tool_args = []) {
   const dir = dirname(process.execPath);
+  const exe = basename(process.execPath);
+  const quoted_exe = /[\s"]/.test(exe) ? `"${exe}"` : exe;
   const batch = join(dir, "tools", "lfwm-console.cmd");
-  const command = existsSync(batch)
-    ? `cmd /k "${batch}"`
-    : `cmd /k ${/[\s"]/.test(basename(process.execPath)) ? `"${basename(process.execPath)}"` : basename(process.execPath)} --tool help`;
+  const command = tool_args.length
+    ? `cmd /k "${quoted_exe} --tool ${tool_args.map((p) => `"${p}"`).join(" ")}"`
+    : existsSync(batch)
+      ? `cmd /k "${batch}"`
+      : `cmd /k ${quoted_exe} --tool help`;
   const line = `start "Little Fighter Wemake 数据工具" /D "${dir}" ${command}`;
   try {
-    spawn("cmd.exe", ["/c", line], { detached: true, stdio: "ignore", windowsVerbatimArguments: true }).unref();
+    const child = spawn("cmd.exe", ["/c", line], { detached: true, stdio: "ignore", windowsVerbatimArguments: true });
+    child.unref();
+    return child;
   } catch (e) {
     console.warn(LOG_TAG, "打开数据工具失败", e);
   }
@@ -308,7 +329,7 @@ function refresh_tray() {
       click: () => clipboard.writeText(server_addr()),
     },
     { type: "separator" },
-    { label: "打开数据工具（命令行）", click: open_tool_console },
+    { label: "打开数据工具（命令行）", click: () => open_tool_console() },
     { label: "复制数据工具命令", click: () => clipboard.writeText(`"${process.execPath}" --tool `) },
     { label: "打开数据目录", click: () => void shell.openPath(data_dir) },
     { type: "separator" },
@@ -525,8 +546,17 @@ app.on("second-instance", () => {
 process.on("SIGTERM", () => void shutdown("SIGTERM"));
 
 const TOOL_FLAG_INDEX = process.argv.indexOf("--tool");
+const DROPPED_PATHS = find_dropped_paths(process.argv.slice(app.isPackaged ? 1 : 2));
 if (TOOL_FLAG_INDEX >= 0) run_tool(process.argv.slice(TOOL_FLAG_INDEX + 1));
-else if (!app.requestSingleInstanceLock()) app.quit();
+else if (DROPPED_PATHS.length) {
+  const child = open_tool_console(DROPPED_PATHS);
+  if (child) {
+    child.once("spawn", () => app.exit(0));
+    child.once("error", () => app.exit(0));
+  } else {
+    app.exit(0);
+  }
+} else if (!app.requestSingleInstanceLock()) app.quit();
 else void main().catch((e) => {
   console.error(LOG_TAG, "启动失败", e);
   app.exit(1);

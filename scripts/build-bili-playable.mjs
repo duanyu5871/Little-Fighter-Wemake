@@ -55,6 +55,7 @@ const README_TEXT = `Little Fighter Wemake 桌面客户端
 - 直接双击 start.exe 就是游戏本体；不接直播时以单机模式运行
 - 接直播弹幕：在直播姬 / 幻星互动里启动本玩法即可，身份码由平台通过 start.exe code=xxxx 传入
 - 本地调试：在本目录打开 cmd，执行  start.exe code=你的主播身份码，或 start.exe --room 12345（web 模式，免密钥）
+- 拖拽转换：把 LF2 目录（或 conf 文件）拖到 start.exe 上，会自动开数据工具控制台并按拖入路径开始转换
 
 窗口
 - 没有系统标题栏：按住画面上方那条半透明区域可以拖动窗口，双击该区域可最大化/还原
