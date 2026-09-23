@@ -98,6 +98,8 @@ export function check_build_tools() {
     fail("根目录缺少 esbuild（先执行 npm i）");
   if (![join(ROOT, "node_modules", "ws"), join(ROOT, "desktop", "node_modules", "ws")].some((p) => existsSync(p)))
     fail("找不到 ws（根目录执行 npm i，或在 desktop 目录执行 npm i）");
+  if (![join(ROOT, "server", "node_modules", "arg"), join(ROOT, "server", "node_modules", "dotenv")].every((p) => existsSync(p)))
+    fail("缺少 server 依赖（先执行：cd server && npm i）");
 }
 
 export function quote(v) {

@@ -51,6 +51,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install server dependencies
+        run: npm ci --prefix server
+
       - name: Ensure electron binary
         run: |
           if (-not (Test-Path "node_modules/electron/dist/electron.exe")) {
