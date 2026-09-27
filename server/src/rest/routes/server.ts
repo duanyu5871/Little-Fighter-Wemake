@@ -17,6 +17,7 @@ export function register_server_routes(rest: Rest) {
     version: info.version,
     ...build,
     api: '/api',
+    admin: '/admin',
   }));
 
   router.get('/api', () => ({

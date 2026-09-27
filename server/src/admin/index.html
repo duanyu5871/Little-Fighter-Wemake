@@ -1,0 +1,602 @@
+<!doctype html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LFWM 服务器管理</title>
+  <style>
+    :root {
+      --bg: #14161c;
+      --panel: #1c1f27;
+      --panel-2: #232733;
+      --line: #2f3542;
+      --text: #e6e9f0;
+      --dim: #98a0b3;
+      --accent: #4f8cff;
+      --ok: #3fbf7f;
+      --warn: #e0a83c;
+      --err: #e2604f;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.5 -apple-system, "Segoe UI", "Microsoft YaHei", Roboto, sans-serif;
+    }
+
+    header {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px 16px;
+      align-items: center;
+      padding: 14px 18px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--line);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    h1 { margin: 0; font-size: 16px; font-weight: 600; white-space: nowrap; }
+    h1 span { color: var(--dim); font-weight: 400; }
+    .grow { flex: 1 1 auto; }
+
+    input, select, button {
+      background: var(--panel-2);
+      color: var(--text);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 6px 9px;
+      font: inherit;
+      font-size: 13px;
+    }
+
+    input:focus, select:focus { outline: 1px solid var(--accent); }
+    button { cursor: pointer; }
+    button:hover { border-color: var(--accent); }
+    button:disabled { opacity: .45; cursor: default; }
+    button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    button.danger:hover { border-color: var(--err); color: var(--err); }
+    button.mini { padding: 2px 8px; font-size: 12px; }
+
+    main { padding: 16px 18px 40px; max-width: 1500px; margin: 0 auto; }
+
+    .status { font-size: 13px; color: var(--dim); margin-bottom: 10px; min-height: 20px; }
+    .status.err { color: var(--err); }
+    .status.ok { color: var(--ok); }
+    .hint { color: var(--warn); font-size: 13px; margin-bottom: 10px; }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px 12px;
+    }
+
+    .card b { display: block; font-size: 20px; font-family: var(--mono); font-weight: 600; }
+    .card small { color: var(--dim); font-size: 12px; }
+
+    .tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+
+    .tabs button.on { background: var(--panel-2); border-color: var(--accent); color: #fff; }
+
+    section.panel { display: none; }
+    section.panel.on { display: block; }
+
+    table { width: 100%; border-collapse: collapse; background: var(--panel); border-radius: 8px; overflow: hidden; }
+    th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { color: var(--dim); font-weight: 500; font-size: 12px; white-space: nowrap; }
+    tbody tr:last-child td { border-bottom: 0; }
+    tbody tr:hover { background: var(--panel-2); }
+    td.num, th.num { font-family: var(--mono); }
+    td.actions { white-space: nowrap; }
+    td.actions button { margin-right: 6px; }
+    tr.detail > td { background: #191c23; }
+
+    .tag { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 12px; background: var(--panel-2); color: var(--dim); }
+    .tag.ok { color: var(--ok); }
+    .tag.warn { color: var(--warn); }
+    .tag.err { color: var(--err); }
+    .mono { font-family: var(--mono); }
+    .dim { color: var(--dim); }
+    pre { margin: 0; max-height: 260px; overflow: auto; font-family: var(--mono); font-size: 12px; color: var(--dim); }
+    .row-form { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
+    .empty { color: var(--dim); padding: 10px 2px; font-size: 13px; }
+  </style>
+</head>
+
+<body>
+  <header>
+    <h1>Little Fighter Wemake <span>· 服务器管理</span></h1>
+    <span id="ver" class="dim mono"></span>
+    <span class="grow"></span>
+    <input id="base" size="26" placeholder="http://127.0.0.1:8080" title="服务器地址" />
+    <input id="token" size="16" type="password" placeholder="管理员 token" title="管理员 token（可选，填了才能用管理接口）" />
+    <button id="connect" class="primary">连接</button>
+    <select id="interval" title="自动刷新间隔">
+      <option value="0">不自动刷新</option>
+      <option value="2000">每 2 秒</option>
+      <option value="5000">每 5 秒</option>
+      <option value="10000">每 10 秒</option>
+      <option value="30000">每 30 秒</option>
+    </select>
+    <button id="refresh">刷新</button>
+  </header>
+
+  <main>
+    <div id="status" class="status"></div>
+    <div id="hint" class="hint"></div>
+    <section id="cards" class="cards"></section>
+
+    <nav class="tabs">
+      <button data-tab="rooms" class="on">房间</button>
+      <button data-tab="clients">客户端</button>
+      <button data-tab="tokens">玩家 token</button>
+      <button data-tab="ranks">排行榜</button>
+      <button data-tab="routes">接口</button>
+    </nav>
+
+    <section id="tab-rooms" class="panel on">
+      <table>
+        <thead>
+          <tr>
+            <th class="num">#</th>
+            <th>代码</th>
+            <th>标题</th>
+            <th>模式</th>
+            <th class="num">人数</th>
+            <th>状态</th>
+            <th>房主</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody id="rooms"></tbody>
+      </table>
+      <div id="rooms-empty" class="empty"></div>
+    </section>
+
+    <section id="tab-clients" class="panel">
+      <table>
+        <thead>
+          <tr>
+            <th class="num">id</th>
+            <th>名字</th>
+            <th>players</th>
+            <th>房间</th>
+            <th>身份</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody id="clients"></tbody>
+      </table>
+      <div id="clients-empty" class="empty"></div>
+    </section>
+
+    <section id="tab-tokens" class="panel">
+      <table>
+        <thead>
+          <tr>
+            <th>名字</th>
+            <th>token</th>
+            <th>players</th>
+            <th>状态</th>
+            <th class="num">创建</th>
+            <th class="num">最后活跃</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody id="tokens"></tbody>
+      </table>
+      <div id="tokens-empty" class="empty"></div>
+    </section>
+
+    <section id="tab-ranks" class="panel">
+      <div class="row-form">
+        <input id="rank-type" size="20" placeholder="排行类型（如 survival）" />
+        <input id="rank-limit" size="6" type="number" min="1" max="500" value="50" />
+        <button id="rank-query">查询</button>
+        <span id="rank-info" class="dim"></span>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th class="num">名次</th>
+            <th>名字</th>
+            <th class="num">分数</th>
+            <th>分组</th>
+            <th class="num">时间</th>
+          </tr>
+        </thead>
+        <tbody id="ranks"></tbody>
+      </table>
+      <div id="ranks-empty" class="empty"></div>
+    </section>
+
+    <section id="tab-routes" class="panel">
+      <table>
+        <thead>
+          <tr>
+            <th>方法</th>
+            <th>路径</th>
+            <th>权限</th>
+          </tr>
+        </thead>
+        <tbody id="routes"></tbody>
+      </table>
+    </section>
+  </main>
+
+  <script>
+    (function () {
+      "use strict";
+
+      var TOKEN_KEY = "lfwm_admin_token";
+      var BASE_KEY = "lfwm_admin_base";
+      var INTERVAL_KEY = "lfwm_admin_interval";
+
+      var state = { base: "", token: "", timer: 0, rooms: [], clients: [], stats: null, ready: false };
+
+      var $ = function (id) { return document.getElementById(id); };
+
+      function esc(v) {
+        return String(v === undefined || v === null ? "" : v)
+          .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+      }
+
+      function api_url(path) {
+        return state.base.replace(/\/+$/, "") + path;
+      }
+
+      function api(path, options) {
+        var opt = options || {};
+        var headers = { "content-type": "application/json" };
+        if (state.token) headers["authorization"] = "Bearer " + state.token;
+        return fetch(api_url(path), {
+          method: opt.method || "GET",
+          headers: headers,
+          body: opt.body === undefined ? undefined : JSON.stringify(opt.body),
+        }).then(function (res) {
+          return res.text().then(function (text) {
+            var data = null;
+            try { data = text ? JSON.parse(text) : null; } catch (e) { data = text; }
+            if (!res.ok) {
+              var msg = data && (data.error || data.message) ? (data.error || data.message) : ("HTTP " + res.status);
+              throw new Error(msg);
+            }
+            return data;
+          });
+        });
+      }
+
+      function set_status(kind, text) {
+        var el = $("status");
+        el.className = "status" + (kind ? " " + kind : "");
+        el.textContent = text || "";
+      }
+
+      function set_hint(text) { $("hint").textContent = text || ""; }
+
+      function fmt_duration(ms) {
+        if (!isFinite(ms) || ms < 0) return "-";
+        var s = Math.floor(ms / 1000);
+        var d = Math.floor(s / 86400); s -= d * 86400;
+        var h = Math.floor(s / 3600); s -= h * 3600;
+        var m = Math.floor(s / 60); s -= m * 60;
+        if (d) return d + "d " + h + "h " + m + "m";
+        if (h) return h + "h " + m + "m " + s + "s";
+        if (m) return m + "m " + s + "s";
+        return s + "s";
+      }
+
+      function fmt_time(ms) {
+        if (!ms) return "-";
+        var t = new Date(Number(ms));
+        if (isNaN(t.getTime())) return "-";
+        return t.toLocaleString("zh-CN", { hour12: false });
+      }
+
+      function fmt_bytes(bytes) {
+        var n = Number(bytes) || 0;
+        var units = ["B", "KB", "MB", "GB"];
+        var i = 0;
+        while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+        return (i === 0 ? n : n.toFixed(1)) + " " + units[i];
+      }
+
+      function card(label, value, title) {
+        return '<div class="card" title="' + esc(title || "") + '"><b>' + esc(value) + "</b><small>" + esc(label) + "</small></div>";
+      }
+
+      function table_rows(tbody_id, empty_id, rows, empty_text) {
+        $(tbody_id).innerHTML = rows.join("");
+        $(empty_id).textContent = rows.length ? "" : (empty_text || "暂无数据");
+      }
+
+      /* ---------- 渲染 ---------- */
+
+      function render_info(info) {
+        $("ver").textContent = "v" + (info.version || "?") +
+          (info.commit ? " · " + String(info.commit).slice(0, 7) + (info.dirty ? "-dirty" : "") : "");
+      }
+
+      function render_stats(stats) {
+        var memory = stats.memory || {};
+        var cards = [
+          card("在线客户端", stats.clients === undefined ? "-" : stats.clients),
+          card("对局中玩家", stats.players === undefined ? "-" : stats.players),
+          card("管理员连接", stats.admins === undefined ? "-" : stats.admins),
+          card("房间数", stats.rooms === undefined ? "-" : stats.rooms),
+          card("进行中的房间", stats.playing_rooms === undefined ? "-" : stats.playing_rooms),
+          card("运行时长", fmt_duration(Number(stats.uptime_ms))),
+          card("内存 rss", stats.memory === undefined ? "-" : fmt_bytes(memory.rss), "heapUsed " + fmt_bytes(memory.heapUsed)),
+          card("构建时间", stats.built_at ? String(stats.built_at).replace("T", " ").replace(/\..+$/, "") : "-"),
+        ];
+        if (stats.pid !== undefined) {
+          cards.push(card("PID", stats.pid, "cwd " + (stats.cwd || "")));
+          cards.push(card("Node", stats.node, (stats.platform || "") + " / " + (stats.arch || "")));
+        }
+        $("cards").innerHTML = cards.join("");
+      }
+
+      function render_rooms(rooms) {
+        state.rooms = rooms || [];
+        var rows = state.rooms.map(function (room) {
+          var clients = room.clients || [];
+          var started = room.started ? '<span class="tag ok">进行中</span>' : '<span class="tag">等待中</span>';
+          var lock = room.need_pwd ? ' <span class="tag warn" title="需要密码">🔒</span>' : "";
+          return "<tr>" +
+            '<td class="num">' + esc(room.id) + "</td>" +
+            '<td class="mono">' + esc(room.code) + "</td>" +
+            "<td>" + esc(room.title) + "</td>" +
+            '<td class="dim">' + esc(room.sync_mode) + "</td>" +
+            '<td class="num">' + clients.length + " / " + esc(room.max_players) + "</td>" +
+            "<td>" + started + lock + "</td>" +
+            "<td>" + esc(room.owner && room.owner.name ? room.owner.name : "-") + "</td>" +
+            '<td class="actions">' +
+            '<button class="mini" data-act="room-detail" data-key="' + esc(room.id) + '">详情</button>' +
+            (state.token ? '<button class="mini danger" data-act="room-close" data-key="' + esc(room.id) + '">关闭</button>' : "") +
+            "</td></tr>" +
+            '<tr class="detail" data-detail="' + esc(room.id) + '" hidden><td colspan="8"><pre>' +
+            esc(JSON.stringify(clients.map(function (c) {
+              return { id: c.id, name: c.name, players: c.players, ready: c.ready };
+            }), null, 2)) + "</pre></td></tr>";
+        });
+        table_rows("rooms", "rooms-empty", rows, "暂无房间");
+      }
+
+      function render_clients(data) {
+        state.clients = (data && data.clients) || [];
+        var rows = state.clients.map(function (client) {
+          var room = client.room || null;
+          return "<tr>" +
+            '<td class="num">' + esc(client.id) + "</td>" +
+            "<td>" + esc(client.name) + "</td>" +
+            '<td class="dim">' + esc((client.players || []).join(", ")) + "</td>" +
+            '<td class="mono">' + esc(room ? (room.code || room.id) : "-") + "</td>" +
+            "<td>" + (client.is_admin ? '<span class="tag warn">管理员</span>' : '<span class="tag">玩家</span>') + "</td>" +
+            '<td class="actions">' +
+            (state.token && room ? '<button class="mini danger" data-act="client-kick" data-key="' + esc(room.id || room.code) + '" data-client="' + esc(client.id) + '">踢出</button>' : "") +
+            "</td></tr>";
+        });
+        table_rows("clients", "clients-empty", rows, state.token ? "暂无客户端" : "需要管理员 token 才能查看客户端");
+      }
+
+      function render_tokens(data) {
+        var tokens = (data && data.tokens) || [];
+        var rows = tokens.map(function (t) {
+          var token_text = String(t.token || "");
+          var short = token_text.length > 14 ? token_text.slice(0, 14) + "…" : token_text;
+          return "<tr>" +
+            "<td>" + esc(t.name) + "</td>" +
+            '<td class="mono" title="' + esc(token_text) + '">' + esc(short) +
+            ' <button class="mini" data-act="token-copy" data-token="' + esc(token_text) + '">复制</button></td>' +
+            '<td class="dim">' + esc((t.players || []).join(", ")) + "</td>" +
+            "<td>" + (t.online ? '<span class="tag ok">在线</span>' : '<span class="tag">离线</span>') + "</td>" +
+            '<td class="num dim">' + esc(fmt_time(t.created_at)) + "</td>" +
+            '<td class="num dim">' + esc(fmt_time(t.last_seen)) + "</td>" +
+            '<td class="actions"><button class="mini danger" data-act="token-del" data-token="' + esc(token_text) + '">吊销</button></td>' +
+            "</tr>";
+        });
+        table_rows("tokens", "tokens-empty", rows, state.token ? "暂无玩家 token" : "需要管理员 token 才能查看");
+      }
+
+      function render_routes(routes) {
+        var rows = (routes || []).map(function (r) {
+          return "<tr><td>" + esc(r.method) + '</td><td class="mono">' + esc(r.path) + '</td><td class="dim">' + esc(r.access) + "</td></tr>";
+        });
+        $("routes").innerHTML = rows.join("");
+      }
+
+      function render_ranks(type, data) {
+        var scores = (data && data.scores) || [];
+        var rows = scores.map(function (s, i) {
+          return "<tr>" +
+            '<td class="num">' + (s.rank === undefined ? i + 1 : esc(s.rank)) + "</td>" +
+            "<td>" + esc(s.name) + "</td>" +
+            '<td class="num">' + esc(s.score) + "</td>" +
+            '<td class="dim">' + esc(s.group) + "</td>" +
+            '<td class="num dim">' + esc(fmt_time(s.date)) + "</td>" +
+            "</tr>";
+        });
+        table_rows("ranks", "ranks-empty", rows, scores.length ? "" : "没有记录");
+        $("rank-info").textContent = type + " · 共 " + ((data && data.total) || 0) + " 条";
+      }
+
+      /* ---------- 拉取 ---------- */
+
+      function refresh_public() {
+        return Promise.all([
+          api("/"),
+          api("/api/stats"),
+          api("/api/rooms?show_all=1"),
+          api("/api"),
+        ]).then(function (res) {
+          state.stats = res[1];
+          render_info(res[0]);
+          render_stats(res[1]);
+          render_rooms(res[2] && res[2].rooms);
+          render_routes(res[3] && res[3].routes);
+        });
+      }
+
+      function refresh_admin() {
+        if (!state.token) {
+          render_clients(null);
+          render_tokens(null);
+          set_hint("未填写管理员 token：只显示公开信息（房间 / 排行 / 统计）。token 由服务器的 --admin-token / ADMIN_TOKEN 指定。");
+          return Promise.resolve();
+        }
+        return Promise.all([
+          api("/api/system"),
+          api("/api/clients"),
+          api("/api/auth/tokens"),
+        ]).then(function (res) {
+          render_stats(Object.assign({}, state.stats || {}, res[0]));
+          render_clients(res[1]);
+          render_tokens(res[2]);
+          set_hint("");
+        }).catch(function (e) {
+          render_clients(null);
+          render_tokens(null);
+          set_hint("管理员接口不可用：" + e.message);
+        });
+      }
+
+      function refresh() {
+        set_status("", "加载中…");
+        return refresh_public().then(function () {
+          return refresh_admin();
+        }).catch(function (e) {
+          set_status("err", "连接失败：" + e.message);
+        }).then(function () {
+          if ($("status").className.indexOf("err") < 0)
+            set_status("ok", new Date().toLocaleTimeString("zh-CN", { hour12: false }) + " 已更新");
+        });
+      }
+
+      /* ---------- 动作 ---------- */
+
+      function toast_err(e) { set_status("err", e && e.message ? e.message : String(e)); }
+
+      function query_ranks() {
+        var type = $("rank-type").value.trim();
+        if (!type) { set_status("err", "请先填写排行类型"); return; }
+        var limit = Math.max(1, Math.min(500, Number($("rank-limit").value) || 50));
+        api("/api/ranks/" + encodeURIComponent(type) + "?limit=" + limit)
+          .then(function (data) { render_ranks(type, data); set_status("ok", "已查询 " + type); })
+          .catch(toast_err);
+      }
+
+      function find_room(key) {
+        return state.rooms.filter(function (r) { return String(r.id) === String(key) || String(r.code) === String(key); })[0];
+      }
+
+      document.addEventListener("click", function (e) {
+        var el = e.target.closest("[data-act]");
+        if (!el) return;
+        var act = el.getAttribute("data-act");
+        if (act === "room-detail") {
+          var row = document.querySelector('tr.detail[data-detail="' + el.getAttribute("data-key") + '"]');
+          if (row) row.hidden = !row.hidden;
+          return;
+        }
+        if (act === "token-copy") {
+          var text = el.getAttribute("data-token") || "";
+          if (navigator.clipboard) navigator.clipboard.writeText(text).then(function () { set_status("ok", "已复制 token"); });
+          return;
+        }
+        if (act === "room-close") {
+          var key = el.getAttribute("data-key");
+          var room = find_room(key);
+          if (!confirm("确定关闭房间 " + key + (room && room.title ? "（" + room.title + "）" : "") + " ？")) return;
+          api("/api/rooms/" + encodeURIComponent(key) + "/close", { method: "POST" })
+            .then(function () { set_status("ok", "房间 " + key + " 已关闭"); return refresh(); })
+            .catch(toast_err);
+          return;
+        }
+        if (act === "client-kick") {
+          var room_key = el.getAttribute("data-key");
+          var client_id = el.getAttribute("data-client");
+          if (!confirm("确定把客户端 " + client_id + " 踢出房间 " + room_key + " ？")) return;
+          api("/api/rooms/" + encodeURIComponent(room_key) + "/kick", { method: "POST", body: { client_id: client_id } })
+            .then(function () { set_status("ok", "已踢出 " + client_id); return refresh(); })
+            .catch(toast_err);
+          return;
+        }
+        if (act === "token-del") {
+          var token = el.getAttribute("data-token");
+          if (!confirm("确定吊销该玩家 token？（该玩家需要重新申请）")) return;
+          api("/api/auth/tokens/" + encodeURIComponent(token), { method: "DELETE" })
+            .then(function () { set_status("ok", "已吊销"); return refresh(); })
+            .catch(toast_err);
+          return;
+        }
+      });
+
+      /* ---------- 初始化 ---------- */
+
+      document.querySelectorAll(".tabs button").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          document.querySelectorAll(".tabs button").forEach(function (b) { b.classList.toggle("on", b === btn); });
+          var tab = btn.getAttribute("data-tab");
+          document.querySelectorAll("section.panel").forEach(function (p) {
+            p.classList.toggle("on", p.id === "tab-" + tab);
+          });
+        });
+      });
+
+      function set_timer() {
+        if (state.timer) { clearInterval(state.timer); state.timer = 0; }
+        var ms = Number($("interval").value) || 0;
+        localStorage.setItem(INTERVAL_KEY, String(ms));
+        if (ms > 0) state.timer = setInterval(refresh, ms);
+      }
+
+      function connect() {
+        state.base = $("base").value.trim() || location.origin;
+        state.token = $("token").value.trim();
+        localStorage.setItem(BASE_KEY, state.base);
+        localStorage.setItem(TOKEN_KEY, state.token);
+        set_timer();
+        return refresh();
+      }
+
+      $("connect").addEventListener("click", connect);
+      $("refresh").addEventListener("click", refresh);
+      $("interval").addEventListener("change", set_timer);
+      $("rank-query").addEventListener("click", query_ranks);
+      $("rank-type").addEventListener("keydown", function (e) { if (e.key === "Enter") query_ranks(); });
+
+      // ?token=xxx 便于从托盘一键打开
+      var params = new URLSearchParams(location.search);
+      var url_token = params.get("token");
+      var url_base = params.get("base");
+      state.base = url_base || localStorage.getItem(BASE_KEY) || location.origin;
+      state.token = url_token || localStorage.getItem(TOKEN_KEY) || "";
+      $("base").value = state.base;
+      $("token").value = state.token;
+      $("interval").value = localStorage.getItem(INTERVAL_KEY) || "5000";
+      if (url_token) {
+        localStorage.setItem(TOKEN_KEY, url_token);
+        history.replaceState(null, "", location.pathname);   // 别把 token 留在地址栏里
+      }
+      refresh();
+      set_timer();
+    })();
+  </script>
+</body>
+
+</html>

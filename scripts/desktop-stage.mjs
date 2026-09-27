@@ -119,6 +119,28 @@ export function quote(v) {
   return /[\s"]/.test(v) ? `"${v.replace(/"/g, '\\"')}"` : v;
 }
 
+function git_out(args) {
+  try {
+    return String(execFileSync("git", args, { encoding: "utf8", cwd: ROOT })).trim();
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * server 源码里用了 __GIT_COMMIT__ / __GIT_DIRTY__ / __BUILD_TIME__（声明见
+ * `server/src/globals.d.ts`）。standalone 构建（`server/rollup.config.mjs`）和这里都得注入，
+ * 否则 bundle 里会残留未定义的标识符，联机服务器一启动就 ReferenceError 退出
+ * （表现就是托盘的「开启联机服务器」点了没反应）。
+ */
+function server_defines() {
+  return [
+    `--define:__GIT_COMMIT__=${JSON.stringify(git_out(["rev-parse", "HEAD"]))}`,
+    `--define:__GIT_DIRTY__=${git_out(["status", "--porcelain"]).length > 0}`,
+    `--define:__BUILD_TIME__=${JSON.stringify(new Date().toISOString())}`,
+  ];
+}
+
 function run_esbuild(entry, outfile, format, extra = []) {
   execFileSync(process.execPath, [
     join(ROOT, "node_modules", "esbuild", "bin", "esbuild"),
@@ -182,7 +204,10 @@ export function stage_app(app_dir, pkg, { updater = false } = {}) {
   else main_flags.push("--alias:electron-updater=./scripts/updater-stub.mjs");
   run_esbuild(join(APP_SRC, "main.mjs"), join(app_dir, "main.mjs"), "esm", main_flags);
   step("打包内置联机服务器（esbuild server）");
-  run_esbuild(join(ROOT, "server", "src", "index.ts"), join(app_dir, "server.bundle.cjs"), "cjs");
+  run_esbuild(join(ROOT, "server", "src", "index.ts"), join(app_dir, "server.bundle.cjs"), "cjs", [
+    ...server_defines(),
+    "--loader:.html=text",
+  ]);
   step("打包数据工具（esbuild tool）");
   run_esbuild(join(ROOT, "tool", "src", "index.ts"), join(app_dir, "tool.bundle.cjs"), "cjs");
   copyFileSync(ICON, join(app_dir, "icon.ico"));

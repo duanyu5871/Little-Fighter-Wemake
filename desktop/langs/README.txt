@@ -21,6 +21,7 @@ server_on        服务器开启状态的文案，%1 = 服务器地址
 server_off       服务器未开启时的文案
 allow_lan        允许局域网连接
 copy_server_addr 复制联机地址
+open_admin       打开管理页面（需先开启联机服务器）
 allow_game_lan   允许局域网访问游戏页面
 copy_game_addr   复制游戏页面地址
 open_tool        打开数据工具（命令行）

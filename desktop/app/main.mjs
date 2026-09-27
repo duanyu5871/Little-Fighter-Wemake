@@ -1,5 +1,6 @@
 import { app, BrowserWindow, Menu, Tray, clipboard, dialog, ipcMain, nativeImage, shell } from "electron";
 import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { appendFileSync, createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer as create_http_server } from "node:http";
 import { createServer as create_net_server } from "node:net";
@@ -110,6 +111,8 @@ let closing = false;
 
 const ARGS = parse_args(process.argv.slice(app.isPackaged ? 1 : 2));
 const SERVER_STATE = { on: false, lan: false, base_port: DEFAULT_SERVER_PORT, port: DEFAULT_SERVER_PORT };
+/** 管理页面用的 token（存在数据目录 admin.json，首次启动自动生成） */
+let ADMIN_TOKEN = "";
 const GAME_STATE = { lan: false, host: DEFAULT_HOST, port: DEFAULT_GAME_PORT };
 let APP_LANG = "";
 let APP_LANG_FIXED = false;
@@ -408,7 +411,7 @@ async function start_server(lan) {
   }
   if (port !== SERVER_STATE.base_port) log(`端口 ${SERVER_STATE.base_port} 被占用，联机服务器改用 ${port}`);
   SERVER_STATE.port = port;
-  const child = spawn(process.execPath, [entry, "--port", String(port), "--host", host], {
+  const child = spawn(process.execPath, [entry, "--port", String(port), "--host", host, "--admin-token", ADMIN_TOKEN], {
     env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", RANKS_DIR: join(data_dir, "ranks") },
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
@@ -444,6 +447,39 @@ function set_server_lan(lan) {
   }
   stop_server();
   setTimeout(() => start_server(lan), 300);
+}
+
+/**
+ * 管理页面的 token：存数据目录下的 admin.json，首次启动生成；启动内置服务器时用 --admin-token 传给它。
+ * 托盘「打开管理页面」会带上 ?token= 直接登入。
+ */
+function load_admin_token() {
+  const file = join(data_dir, "admin.json");
+  try {
+    if (existsSync(file)) {
+      const data = JSON5.parse(readFileSync(file, "utf8")) ?? {};
+      if (typeof data.token === "string" && data.token.trim()) return data.token.trim();
+    }
+  } catch (e) {
+    console.warn(LOG_TAG, "读取 admin.json 失败，将重新生成", e);
+  }
+  const token = randomBytes(24).toString("hex");
+  try {
+    writeFileSync(file, `${JSON.stringify({ token }, null, 2)}\n`);
+    log(`已生成管理页 token: ${file}`);
+  } catch (e) {
+    console.warn(LOG_TAG, "写入 admin.json 失败（本次仍会使用临时 token）", e);
+  }
+  return token;
+}
+
+function admin_url() {
+  return `http://127.0.0.1:${SERVER_STATE.port}/admin?token=${ADMIN_TOKEN}`;
+}
+
+function open_admin_page() {
+  if (!SERVER_STATE.on) return;
+  void shell.openExternal(admin_url());
 }
 
 function game_page_host() {
@@ -616,6 +652,11 @@ function refresh_tray() {
       enabled: SERVER_STATE.on,
       click: () => clipboard.writeText(server_addr()),
     },
+    {
+      label: t("open_admin"),
+      enabled: SERVER_STATE.on,
+      click: () => open_admin_page(),
+    },
     { type: "separator" },
     {
       label: t("allow_game_lan"),
@@ -687,6 +728,7 @@ async function main() {
   app_dir = app.getAppPath();
   data_dir = app.isPackaged ? dirname(process.execPath) : app_dir;
   setup_log(data_dir);
+  ADMIN_TOKEN = load_admin_token();
   SERVER_STATE.base_port = Number(args["server-port"] ?? DEFAULT_SERVER_PORT);
   SERVER_STATE.port = SERVER_STATE.base_port;
   setup_mods();

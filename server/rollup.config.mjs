@@ -40,6 +40,20 @@ function define_plugin(values) {
   }
 }
 
+/**
+ * 把 `.html` 内联成字符串模块（内置管理页面 `src/admin/index.html` 用）。
+ * 桌面端打包走的是 esbuild，那边用 `--loader:.html=text` 达到同样效果（见 scripts/desktop-stage.mjs）
+ */
+function html_plugin() {
+  return {
+    name: 'lfj-html',
+    transform(code, id) {
+      if (!id.endsWith('.html')) return null
+      return { code: `export default ${JSON.stringify(code)}`, map: null }
+    },
+  }
+}
+
 let targets = [
   { dir: './dist', tsconfig: "./tsconfig.json" },
 ]
@@ -68,6 +82,7 @@ for (const { format, suffix = 'js' } of whats) {
         name: "lfj-node-server"
       },
       plugins: [
+        html_plugin(),
         json(),
         typescript({ tsconfig }),
         define_plugin(DEFINES),
