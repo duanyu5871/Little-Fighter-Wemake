@@ -147,10 +147,12 @@ export function useWorldView(lfw: LFW | undefined, options: IWorldViewOptions = 
   const lock_camera = useCallback((x: number, y: number) => {
     if (!lfw) return;
     const lim = limits();
-    lfw.world.camera.lock(
-      lim ? Math.max(lim.x[0], Math.min(lim.x[1], x)) : x,
-      lim ? Math.max(lim.y[0], Math.min(lim.y[1], y)) : y,
-    );
+    const cam = lfw.world.camera;
+    const cx = lim ? Math.max(lim.x[0], Math.min(lim.x[1], x)) : x;
+    const cy = lim ? Math.max(lim.y[0], Math.min(lim.y[1], y)) : y;
+    cam.lock(cx, cy);
+    cam.jump_x(cx);
+    cam.jump_y(cy);
   }, [lfw, limits]);
 
   const center_on = useCallback((x: number, y: number) => {
