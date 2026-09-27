@@ -10,8 +10,9 @@ export function PreviewCanvas({ view, children, on_pointer_down }: {
   /** 在 hook 的按下处理之前追加一点自己的逻辑（如手动拖拽时解除锁定） */
   on_pointer_down?: (e: ReactPointerEvent<HTMLCanvasElement>) => void;
 }) {
-  const { set_canvas, dragging, zoom, canvas_props } = view;
+  const { set_canvas, dragging, zoom, reset_zoom, canvas_props } = view;
   const { fit } = usePreviewer();
+  const zoom_text = `${zoom.toFixed(2)}x`;
   return (
     <div className={csses.canvas_box}>
       <canvas
@@ -29,7 +30,17 @@ export function PreviewCanvas({ view, children, on_pointer_down }: {
         onPointerCancel={canvas_props.onPointerUp}
         onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}
       />
-      <div className={csses.hint}>拖动平移 · 滚轮缩放 {zoom.toFixed(2)}x</div>
+      <div className={csses.hint}>
+        拖动平移 · 滚轮缩放 {zoom_text}
+        <button
+          className={csses.hint_btn}
+          disabled={zoom_text === "1.00x"}
+          title="把滚轮缩放的倍数还原成 1.00x（相机位置不变）"
+          onClick={reset_zoom}
+        >
+          还原缩放
+        </button>
+      </div>
       {children}
     </div>
   );

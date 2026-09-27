@@ -141,8 +141,16 @@ export function BackgroundPreviewer() {
     });
   };
 
-  const toggle_layer = (index: number, visible: boolean) => {
-    set_override(index, visible ? last_opacity.current.get(index) : 0);
+  /**
+   * 勾选 / 取消勾选图层。
+   *
+   * 显示用的透明度必须取自 React state（overrides）：`info.opacity` 是下面那个 effect 直接改的，
+   * 改它不会触发重渲染 —— 于是 checkbox 会被 React 弹回旧值（看起来点了不变），而图层已经真的隐藏了。
+   */
+  const toggle_layer = (index: number, info: IBgLayerInfo, visible: boolean) => {
+    // 记得住上次的透明度就用它，否则回到数据里的原始值（没有 original 说明本来就是 1）
+    const remembered = last_opacity.current.get(index) ?? originals.current.get(info) ?? 1;
+    set_override(index, visible ? remembered : 0);
   };
 
   const spawn = (mode: "row" | "depth") => {
@@ -314,13 +322,14 @@ export function BackgroundPreviewer() {
           <div className={csses.section_title}>图层（{rows.length}）</div>
           <div className={csses.layer_list}>
             {rows.map((row) => {
-              const opacity = row.info.opacity ?? 1;
+              // 覆盖值（React state）优先；没被覆盖过时才用图层自身的透明度
+              const opacity = overrides[row.index] ?? row.info.opacity ?? 1;
               return (
                 <div className={csses.layer_row} key={row.index}>
                   <input
                     type="checkbox"
                     checked={opacity > 0}
-                    onChange={(e) => toggle_layer(row.index, e.target.checked)}
+                    onChange={(e) => toggle_layer(row.index, row.info, e.target.checked)}
                   />
                   <div className={csses.layer_main}>
                     <div className={csses.layer_head}>

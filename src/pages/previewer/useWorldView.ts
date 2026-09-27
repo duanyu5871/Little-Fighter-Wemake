@@ -29,6 +29,8 @@ export interface IWorldView {
   set_canvas: Dispatch<SetStateAction<HTMLCanvasElement | null>>;
   zoom: number;
   dragging: boolean;
+  /** 把滚轮缩放还原成 1x（相机位置不动） */
+  reset_zoom(): void;
   /** 视口里可见的世界尺寸（含世界 scale 与相机 zoom） */
   view_size(): { w: number; h: number };
   /** 当前相机允许范围（给滑杆等 UI 用） */
@@ -203,11 +205,14 @@ export function useWorldView(lfw: LFW | undefined, options: IWorldViewOptions = 
     if (next !== zoom) set_zoom(next);
   };
 
+  const reset_zoom = useCallback(() => set_zoom(1), []);
+
   return {
     canvas,
     set_canvas,
     zoom,
     dragging,
+    reset_zoom,
     view_size,
     limits,
     center_on,

@@ -122,6 +122,29 @@
   pointer-events: none;
 }
 
+/* 提示行里的「还原缩放」（提示层本身不接收指针事件，这里要单独打开） */
+.hint_btn {
+  pointer-events: auto;
+  margin-left   : 6px;
+  background    : #0e1420cc;
+  border        : 1px solid #2a3c5c;
+  color         : #8fa1bd;
+  border-radius : 4px;
+  padding       : 1px 6px;
+  cursor        : pointer;
+  font-size     : 11px;
+
+  &:hover:not(:disabled) {
+    border-color: #5a88e0;
+    color       : #ffffff;
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor : default;
+  }
+}
+
 .cam_row {
   display    : flex;
   align-items: center;
