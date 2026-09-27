@@ -1,0 +1,9 @@
+{
+  "objects": [
+    {
+      "id": "robot",
+      "type": "0",
+      "file": "characters/robot/robot.obj.json5"
+    }
+  ]
+}

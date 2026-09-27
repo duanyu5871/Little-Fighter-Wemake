@@ -41,6 +41,8 @@ export interface IFrameModel {
    * 缺省（undefined）时走旧的连续播放（mixer 累计）。
    */
   seek?: number;
+  seek_end?: number;
+  hold_last?: boolean;
   /** 动画是否循环 */
   loop?: boolean;
   /** 动画速度倍率（配合 wait 控制节奏） */
@@ -90,6 +92,8 @@ export const frame_model_fields = fields<IFrameModel>({
   pose: obj('姿态', { nullable: true, fields: frame_model_pose_fields }),
   anim: str('动画片段', { nullable: true }),
   seek: flt('片段定位(秒)', { nullable: true }),
+  seek_end: flt('片段定位终点(秒)', { nullable: true }),
+  hold_last: bool('播完保持最后一帧', { nullable: true }),
   loop: bool('循环', { nullable: true }),
   time_scale: flt('速度倍率', { nullable: true }),
   rad: flt('Z轴旋转(弧度)', { nullable: true }),
@@ -106,6 +110,8 @@ export const Schema_IFrameModel = make_schema<IFrameModel>({
     pose: { type: "object", nullable: true, description: "骨骼姿态" },
     anim: { type: "string", nullable: true, description: "动画片段名" },
     seek: { type: "number", nullable: true, description: "片段内定位起始时间(秒)" },
+    seek_end: { type: "number", nullable: true, description: "片段内定位终点时间(秒)" },
+    hold_last: { type: "boolean", nullable: true, description: "播完是否保持最后一帧" },
     loop: { type: "boolean", nullable: true, description: "是否循环" },
     time_scale: { type: "number", nullable: true, description: "速度倍率" },
     rad: { type: "number", nullable: true, description: "Z轴旋转(弧度)" },

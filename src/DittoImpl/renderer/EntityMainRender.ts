@@ -1,5 +1,5 @@
 import type { Entity, IEntityData, IFrameInfo, IFramePic, IPictureInfo, TFace } from "@/LFW";
-import { Buff_Electroshock, clamp, cos, floor, LFW, max, sin, World } from "@/LFW";
+import { Buff_Electroshock, clamp, cos, floor, LFW, max, abs, sin, World } from "@/LFW";
 import type { IFrameModel, IFrameModelPose } from "@/LFW/defines/IFrameModel";
 import type { IModelInfo } from "@/LFW/defines/IModelInfo";
 import { Ditto } from "@/LFW/ditto";
@@ -13,8 +13,11 @@ import { OutlineMaterial } from "./materials/OutlineMaterial";
 import { OutlineMesh } from "./meshs/OutlineMesh";
 import { Shaders } from "./shader";
 import { clone as clone_skeleton } from "three/addons/utils/SkeletonUtils.js";
+import { SkinnedMesh } from "three";
 import { ModelCache, type IModelCacheEntry } from "./ModelCache";
 import type { WorldRenderer } from "./WorldRenderer";
+
+const ATOM_PER_SECOND = 60;
 
 const get_img_map = (lfw: LFW, data: IEntityData, out: Map<string, RImageInfo>): void => {
   out.clear();
@@ -61,7 +64,16 @@ function build_model_hulls(root: Object3D): Mesh[] {
     geo.computeBoundingBox()
     const center = new Vector3()
     geo.boundingBox?.getCenter(center)
-    const hull = new Mesh(geo, make_model_hull_material(center))
+    const material = make_model_hull_material(center)
+    const skinned_src = mesh as SkinnedMesh
+    const hull: Mesh = skinned_src.isSkinnedMesh
+      ? new SkinnedMesh(geo, material)
+      : new Mesh(geo, material)
+    if (skinned_src.isSkinnedMesh) {
+      const skinned = hull as SkinnedMesh
+      skinned.bindMode = skinned_src.bindMode
+      skinned.bind(skinned_src.skeleton, skinned_src.bindMatrix)
+    }
     hull.name = 'model_outline_hull'
     hull.visible = false
     // 挂到 mesh 节点自身之下而非其兄弟节点：mesh 节点通常自带 rotation/
@@ -116,6 +128,7 @@ export class EntityMainRender {
   protected _rot_ea = new Euler();
   protected _rot_eb = new Euler();
   protected _rot_e = new Euler();
+  protected _hull_scale = new Vector3();
   protected playing_anim = "";
   protected anim_loop = false;
   protected anim_mapped = false;
@@ -294,7 +307,6 @@ export class EntityMainRender {
       const sy = (b?.y ?? 1) * (s?.y ?? 1)
       const sz = (b?.z ?? 1) * (s?.z ?? 1)
       this.model_sx = Math.max(Math.abs(sx), 1e-4)
-      this.update_model_outline()
       // 平移 = base 模型 offset + 帧 model offset（缺省 0，逐轴相加，y 向上为正）
       const bo = base?.offset
       const fo = model.offset
@@ -319,6 +331,7 @@ export class EntityMainRender {
         facing < 0 ? -this._rot_e.y : this._rot_e.y,
         facing < 0 ? -this._rot_e.z : this._rot_e.z,
       )
+      this.update_model_outline()
     } else {
       this.model_node.visible = false
     }
@@ -441,7 +454,7 @@ export class EntityMainRender {
 
   /** 每帧驱动模型视觉：姿态插值（模式A）与动画片段（模式B） */
   private update_model_visual(model: IFrameModel): void {
-    const sim_dt = (this.entity.lifetime - this.prev_lifetime) * this.atom_time()
+    const sim_dt = (this.entity.lifetime - this.prev_lifetime) / ATOM_PER_SECOND
     this.prev_lifetime = this.entity.lifetime
 
     const total = this.frame.wait
@@ -551,6 +564,7 @@ export class EntityMainRender {
     const name = model.anim ?? ''
     const loop = !!model.loop
     const speed = model.time_scale ?? 1
+    const hold_last = !loop && !!model.hold_last
     if (this.playing_anim !== name || this.anim_loop !== loop || this.anim_mapped) {
       this.playing_anim = name
       this.anim_loop = loop
@@ -567,6 +581,8 @@ export class EntityMainRender {
       this.anim_speed = speed
       this.mixer_actions.get(name)?.setEffectiveTimeScale(speed)
     }
+    const action = this.mixer_actions.get(name)
+    if (action) action.clampWhenFinished = hold_last
     this.mixer.update(sim_dt)
   }
 
@@ -577,7 +593,7 @@ export class EntityMainRender {
     const seek = Math.max(model.seek ?? 0, 0)
     const next = this.get_next_frame()?.model
     const same_clip = !!next && next.anim === model.anim && next.id === model.id
-    let end = same_clip && next!.seek !== void 0 ? Math.max(next!.seek ?? 0, 0) : duration
+    let end = model.seek_end ?? (same_clip && next!.seek !== void 0 ? Math.max(next!.seek ?? 0, 0) : duration)
     let seg_len = end - seek
     if (!(seg_len > 0)) seg_len = duration - seek
     if (!(seg_len > 0)) seg_len = 0
@@ -616,10 +632,6 @@ export class EntityMainRender {
     for (const [, a] of this.mixer_actions) a.stop()
   }
 
-  private atom_time(): number {
-    return this.world.dataset.atom_time
-  }
-
   /** 卸载模型节点、释放引用（全局缓存决定是否回收 GPU 资源） */
   private dispose_model(): void {
     this.model_key = ""
@@ -655,12 +667,18 @@ export class EntityMainRender {
     const key = `${show}:${outline_color || ''}:${outline_alpha}:${outline_width}:${outline_enabled}:${this.model_sx}`
     if (key === this.model_outline_key) return
     this.model_outline_key = key
-    // 世界宽度（像素/LF2 单位）→ 本地外扩：除以模型缩放
-    // 3D hull 默认比 2D 精灵描边再宽 1px，视觉上更清晰
-    const width_local = show ? (outline_width + 1) / this.model_sx : 0
+    const width_world = show ? outline_width + 1 : 0
+    const scale = this._hull_scale
     for (const hull of hulls) {
       const m = hull.material as ShaderMaterial
-      m.uniforms.uOutline.value = width_local
+      if (hull.parent) {
+        hull.parent.updateWorldMatrix(true, false)
+        hull.parent.getWorldScale(scale)
+      } else {
+        scale.set(1, 1, 1)
+      }
+      const k = max(abs(scale.x), abs(scale.y), abs(scale.z), 1e-6)
+      m.uniforms.uOutline.value = width_world / k
       m.uniforms.uColor.value.set(outline_color || '#000')
       m.uniforms.uAlpha.value = show ? outline_alpha : 0
       // 恒定 BackSide：three 会按 matrixWorld 行列式为负自动翻转 frontFace，
