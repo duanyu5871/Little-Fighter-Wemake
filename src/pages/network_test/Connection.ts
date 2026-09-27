@@ -1,5 +1,6 @@
 import { Callbacks } from "@/LFW/base";
 import {
+  clamp_nickname,
   type IClientInfo,
   type IConnError, type IJob, type IMsgReqMap, type IMsgRespMap,
   type IReq, type IResp,
@@ -40,10 +41,10 @@ export class Connection {
   get url() { return this._ws?.url }
 
   constructor(nickname: string = '') {
-    this._nickname = nickname;
+    this._nickname = clamp_nickname(nickname);
   }
   set_nickname(nickname: string) {
-    this._nickname = nickname;
+    this._nickname = clamp_nickname(nickname);
     if (this._ws?.readyState === this._ws?.OPEN)
       this._submit_client();
   }
@@ -274,6 +275,7 @@ export class Connection {
     }
   }
   ping() {
+    if (this._ws?.readyState !== WebSocket.OPEN) return;
     // 携带上次测得的真实 RTT，供房间内其他成员显示
     this.send(MsgEnum.Ping, { time: Date.now(), rtt: this._rtt || void 0 })
   }

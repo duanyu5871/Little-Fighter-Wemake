@@ -13,6 +13,7 @@ import Combine from "../../Component/Combine";
 import { Flex, type IFlexProps } from "../../Component/Flex";
 import { Input, type InputRef } from "../../Component/Input";
 import { type IRespChat, MsgEnum } from "../../Net";
+import { is_editing_element } from "../../Utils/is_editing_element";
 import { Connection } from "./Connection";
 import styles from "./styles.module.scss";
 import { useRoom } from "./useRoom";
@@ -45,8 +46,8 @@ function ChatBoxView(props: IChatBoxProps, fref: ForwardedRef<HTMLDivElement>) {
   }, [!room])
   const ref_input = useRef<InputRef>(null);
   const [chat_target, set_chat_target, ref_chat_target] = useStateRef(ChatTarget.Global);
-  const [chat_msg_text, set_chat_msg_text] = useStateRef<string>('');
-  const [chat_msg_sending, set_chat_msg_sending] = useStateRef<boolean>(false);
+  const [chat_msg_text, set_chat_msg_text, ref_chat_msg_text] = useStateRef<string>('');
+  const [chat_msg_sending, set_chat_msg_sending, ref_chat_msg_sending] = useStateRef<boolean>(false);
   const [msgs, set_msgs, ref_msgs] = useStateRef<IRespChat[]>([]);
   const [is_bottom, set_is_bottom] = useStateRef(true)
   const ref_list = useRef<ListRef>(null)
@@ -83,16 +84,23 @@ function ChatBoxView(props: IChatBoxProps, fref: ForwardedRef<HTMLDivElement>) {
 
   const send = () => {
     if (!conn) return;
+    if (ref_chat_msg_sending.current) return;
+    const text = (ref_chat_msg_text.current ?? '').trim();
+    if (!text) return;
+    const input = ref_input.current?.input;
+    const keep_focus = !!input && document.activeElement === input;
     set_chat_msg_sending(true)
     conn.send(MsgEnum.Chat, {
-      target: chat_target,
-      text: chat_msg_text.trim()
+      target: ref_chat_target.current,
+      text
     }).then(r => {
       set_chat_msg_text('');
     }).catch(e => {
 
     }).finally(() => {
       set_chat_msg_sending(false)
+      if (keep_focus && input && document.activeElement === document.body)
+        input.focus();
     })
   }
 
@@ -115,8 +123,7 @@ function ChatBoxView(props: IChatBoxProps, fref: ForwardedRef<HTMLDivElement>) {
         return
       }
       if (e.key !== 'Enter' || e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return
-      const el = e.target as HTMLElement | null
-      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return
+      if (is_editing_element(e.target)) return
       e.preventDefault(); e.stopImmediatePropagation()
       open_input_box()
     }
@@ -198,7 +205,6 @@ function ChatBoxView(props: IChatBoxProps, fref: ForwardedRef<HTMLDivElement>) {
       <Combine className={`${styles.input_row}${open_input ? '' : ' ' + styles.input_row_hidden}`}>
         <Input
           ref={ref_input}
-          disabled={chat_msg_sending}
           maxLength={100}
           data-flex={1}
           onFocus={e => set_ipt_focus(true)}

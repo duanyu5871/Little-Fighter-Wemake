@@ -39,6 +39,11 @@
     margin-left: 4px;
   }
 
+  &>.lfui_input_prefix>[class*="lfui_txt"] {
+    position: relative;
+    top     : 0.2em;
+  }
+
   &>.lfui_input_suffix {
     font-family : inherit;
     font-size   : inherit;

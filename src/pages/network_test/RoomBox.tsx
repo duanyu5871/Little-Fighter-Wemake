@@ -17,7 +17,7 @@ import { useCallbacks } from "./useCallbacks";
 import { useRoom } from "./useRoom";
 
 const SYNC_MODES: RoomSyncMode[] = ['auto', 'lockstep', 'delay'];
-const SYNC_MODE_LABEL: Record<RoomSyncMode, string> = {
+export const SYNC_MODE_LABEL: Record<RoomSyncMode, string> = {
   auto: 'sync_auto',
   lockstep: 'sync_lockstep',
   delay: 'sync_delay',

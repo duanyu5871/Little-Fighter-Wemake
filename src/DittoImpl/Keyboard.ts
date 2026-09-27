@@ -1,4 +1,5 @@
 import { CMD } from "@/LFW/defines/CMD";
+import { is_editing_element } from "../Utils/is_editing_element";
 import { LFW } from "../LFW";
 import { Callbacks } from "../LFW/base/Callbacks";
 import { NoEmitCallbacks } from "../LFW/base/NoEmitCallbacks";
@@ -50,6 +51,7 @@ export class __Keyboard implements IKeyboard {
   }
   protected _on_key_down = (e: KeyboardEvent) => {
     if (!this.enabled) return;
+    if (is_editing_element(e.target)) return;
     const key_code = e.key?.toLowerCase() || "";
     if (key_code === "tab") e.preventDefault();
     this.key_down(key_code, 'keyboard', e)
@@ -58,8 +60,19 @@ export class __Keyboard implements IKeyboard {
   protected _on_key_up = (e: KeyboardEvent) => {
     if (!this.enabled) return;
     const key_code = e.key?.toLowerCase() || "";
+    if (is_editing_element(e.target) && !this._times_map.has(key_code)) return;
     this.key_up(key_code, 'keyboard', e)
   };
+
+  protected _on_focus_in = (e: FocusEvent) => {
+    if (!is_editing_element(e.target)) return;
+    this.release_all_keys();
+  };
+  release_all_keys() {
+    if (!this._times_map.size) return;
+    for (const key_code of [...this._times_map.keys()])
+      this.key_up(key_code, 'keyboard');
+  }
   key_down(key_code: string, gamepad: 'controller' | 'keyboard' | 'touch', e?: KeyboardEvent) {
     const times = this._times_map.get(key_code) ?? -1;
     this._times_map.set(key_code, times + 1);
@@ -78,6 +91,7 @@ export class __Keyboard implements IKeyboard {
     this.lfw = lfw;
     window.addEventListener("keydown", this._on_key_down);
     window.addEventListener("keyup", this._on_key_up);
+    window.addEventListener("focusin", this._on_focus_in);
     this.gamepad_timer = setInterval(this.scan_gamepad_buttons.bind(this), 1000 / 60)
   }
   protected scan_gamepad_buttons() {
@@ -139,6 +153,7 @@ export class __Keyboard implements IKeyboard {
   dispose() {
     window.removeEventListener("keydown", this._on_key_down);
     window.removeEventListener("keyup", this._on_key_up);
+    window.removeEventListener("focusin", this._on_focus_in);
     this._callback.clear()
     clearInterval(this.gamepad_timer)
   }

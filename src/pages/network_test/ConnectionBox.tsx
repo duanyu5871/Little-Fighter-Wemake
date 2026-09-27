@@ -11,6 +11,7 @@ import { useForwardedRef } from "@/hooks/useForwardedRef";
 import { useStateRef } from "@/hooks/useStateRef";
 import { type ForwardedRef, forwardRef, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from 'react-i18next';
+import { clamp_nickname, NICKNAME_MAX_LENGTH } from "../../Net";
 import { Connection } from "./Connection";
 import { TriState } from "./TriState";
 import { useCallbacks } from "./useCallbacks";
@@ -60,12 +61,12 @@ function _ConnectionBox(props: IConnectionBoxProps, f_ref: ForwardedRef<HTMLDivE
       if (!p) return false;
       return p.name.trim() && p.name !== `${i + 1}`
     })
-    if (player) set_nickname(prev => prev || player.name)
+    if (player) set_nickname(prev => clamp_nickname(prev) || clamp_nickname(player.name))
   }, [lf2, nickname_ready])
 
   function connect() {
     if (ref_conn.current) return;
-    const conn = new Connection(nickname);
+    const conn = new Connection(clamp_nickname(nickname));
     set_conn(conn);
   }
   useCallbacks(conn?.callbacks, {
@@ -114,7 +115,8 @@ function _ConnectionBox(props: IConnectionBoxProps, f_ref: ForwardedRef<HTMLDivE
           variants={['no_border']}
           style={{ flex: 1 }}
           value={nickname}
-          onChange={set_nickname}
+          maxLength={NICKNAME_MAX_LENGTH}
+          onChange={v => set_nickname(clamp_nickname(v))}
           disabled={!!conn_state}
           data-flex={1}
           prefix={<Text size='s'>{t("nickname")}:</Text>}

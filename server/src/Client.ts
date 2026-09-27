@@ -1,6 +1,7 @@
 import type { RawData, WebSocket } from 'ws';
 import type { Context } from './Context';
 import {
+  clamp_nickname,
   ErrCode,
   IClientInfo,
   IJob,
@@ -142,9 +143,10 @@ export class Client {
     const { ctx } = this
     switch (req.type) {
       case MsgEnum.ClientInfo: {
+        const name = clamp_nickname(req.name?.trim() ?? '')
         const client_info = this.client_info = {
           id: this.id,
-          name: req.name?.trim() || `${this.id}`,
+          name: name || `${this.id}`,
           players: req.players ?? [],
         }
         this.resp(req.type, req.pid, { client: client_info }).catch(() => void 0);

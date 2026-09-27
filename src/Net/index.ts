@@ -26,6 +26,7 @@ export * from "./IRoomInfo";
 export * from "./ISendOpts";
 export * from "./MsgEnum";
 export * from "./net_sync";
+export * from "./nickname";
 export * from "./req_timeout_error";
 export * from "./req_unknown_error";
 export * from "./resp_error";
