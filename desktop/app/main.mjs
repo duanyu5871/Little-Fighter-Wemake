@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, Tray, clipboard, dialog, ipcMain, nativeImage, shell } from "electron";
+import { app, BrowserWindow, Menu, Tray, clipboard, ipcMain, nativeImage, shell } from "electron";
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { appendFileSync, createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -65,7 +65,8 @@ const HELP_TEXT = `用法: start.exe [选项]
 
 窗口与托盘:
   顶部半透明条可拖动窗口（双击最大化/还原）；关闭窗口即退出
-  托盘菜单可开关联机服务器、允许局域网连接、允许局域网访问游戏页面、复制地址、打开数据工具与数据目录
+  Ctrl+Shift+I 开关开发者工具（游戏窗口、预览器等工具窗口都可以）
+  托盘菜单可开关联机服务器、允许局域网连接、允许局域网访问游戏页面、复制地址、打开预览器/数据工具与数据目录
 
 选项:
   code=<code> / --code <code>  主播身份码（通常由平台带入）
@@ -82,7 +83,7 @@ const HELP_TEXT = `用法: start.exe [选项]
   --tool <命令...>             参数原样交给数据工具，如 --tool help、--tool make-data-zip -c conf.json5
   --user-data <目录>           指定用户数据目录（多实例调试用）
   --debug                      打印弹幕事件日志
-  --devtools                   打开开发者工具
+  --devtools                   启动后打开开发者工具（运行中可用 Ctrl+Shift+I 开关）
   --screenshot <path>          启动后截取窗口画面为 PNG
   --help, -h                   显示本帮助
 
@@ -117,8 +118,11 @@ const GAME_STATE = { lan: false, host: DEFAULT_HOST, port: DEFAULT_GAME_PORT };
 let APP_LANG = "";
 let APP_LANG_FIXED = false;
 const UPDATER_ENABLED = typeof __UPDATER__ === "boolean" && __UPDATER__;
-const UPDATE_STATE = { phase: "idle", version: "", percent: 0, manual: false };
+/** notice 为一次性消息代码（界面自行本地化），error 为检查失败的原始原因；两者到点自动清空 */
+const UPDATE_STATE = { phase: "idle", version: "", percent: 0, manual: false, notice: "", error: "" };
 let updater = null;
+let update_clear_timer = null;
+let update_progress_at = 0;
 
 if (typeof ARGS["user-data"] === "string") app.setPath("userData", resolve(ARGS["user-data"]));
 
@@ -501,6 +505,100 @@ function game_page_url() {
   return `http://${page_host}:${GAME_STATE.port}/#/${ws ? `?DANMU_WS=${ws}` : ""}`;
 }
 
+/** 已打开的工具页面窗口（同一 hash 只开一个） */
+const tool_windows = new Map();
+
+function toggle_devtools(webContents) {
+  if (!webContents || webContents.isDestroyed()) return;
+  if (webContents.isDevToolsOpened()) webContents.closeDevTools();
+  else webContents.openDevTools({ mode: "detach" });
+}
+
+/** 托盘「开发者工具」：作用于当前聚焦的窗口，没有则回退到游戏窗口 / 第一个工具窗口 */
+function toggle_focused_devtools() {
+  const focused = BrowserWindow.getFocusedWindow();
+  if (focused && !focused.isDestroyed()) return toggle_devtools(focused.webContents);
+  if (win && !win.isDestroyed()) return toggle_devtools(win.webContents);
+  for (const w of tool_windows.values()) if (!w.isDestroyed()) return toggle_devtools(w.webContents);
+}
+
+/**
+ * 给窗口绑上开发者工具快捷键：Ctrl+Shift+I 开关。
+ *
+ * 应用菜单被 `Menu.setApplicationMenu(null)` 拿掉了，所以默认一个快捷键都没有，只能靠 `before-input-event` 自己抓。
+ * 不用 F12：游戏内 F12 容易被误触，也容易和显卡类工具抢。
+ */
+function bind_devtools(webContents) {
+  webContents.on("before-input-event", (event, input) => {
+    if (input.type !== "keyDown" || input.isAutoRepeat) return;
+    if (!input.control || !input.shift) return;
+    // 同时认物理键位：俄语 / 希腊语等非拉丁布局下 input.key 不是 "i"
+    const code = String(input.code ?? "").toLowerCase();
+    const key = String(input.key ?? "").toLowerCase();
+    if (code !== "keyi" && key !== "i") return;
+    event.preventDefault();
+    toggle_devtools(webContents);
+  });
+}
+
+function tool_page_url(hash) {
+  return `http://${game_page_host()}:${GAME_STATE.port}/#${hash}`;
+}
+
+/**
+ * 打开（或聚焦）一个工具页面窗口。
+ *
+ * 用系统标题栏（`frame` 默认开启）：工具页没有游戏页那套自绘的最小化 / 关闭按钮。
+ */
+function open_tool_window(hash, title) {
+  const url = tool_page_url(hash);
+  const opened = tool_windows.get(hash);
+  if (opened && !opened.isDestroyed()) {
+    opened.show();
+    opened.focus();
+    return opened;
+  }
+  const tool_win = new BrowserWindow({
+    width: WIDTH,
+    height: HEIGHT,
+    minWidth: MIN_WIDTH,
+    minHeight: MIN_HEIGHT,
+    backgroundColor: "#0F1830",
+    title,
+    // 无边框：工具窗口不用原生标题栏（会多出一条独立顶栏），改用页面自绘的三件套（见 src/pages/previewer）
+    frame: false,
+    webPreferences: {
+      preload: join(app_dir, "preload.cjs"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      spellcheck: false,
+    },
+  });
+  // 不让页面 title 覆盖窗口标题（无边框后标题栏不可见，但任务栏 / Alt+Tab 用它）
+  tool_win.on("page-title-updated", (event) => event.preventDefault());
+  tool_win.setMenuBarVisibility(false);
+  bind_devtools(tool_win.webContents);
+  tool_win.webContents.setWindowOpenHandler(({ url: target }) => {
+    if (/^https?:/i.test(target)) shell.openExternal(target).catch(() => void 0);
+    return { action: "deny" };
+  });
+  tool_win.on("closed", () => tool_windows.delete(hash));
+  tool_windows.set(hash, tool_win);
+  if (ARGS.devtools) tool_win.webContents.openDevTools({ mode: "detach" });
+  log(`打开工具窗口: ${title} → ${url}`);
+  void tool_win.loadURL(url);
+  return tool_win;
+}
+
+/**
+ * 托盘「打开预览器」：数据预览页（背景 / 物体 / 图片），见 src/pages/previewer
+ *
+ * `?tool=1` 是给页面的标记：它开在独立工具窗口里，没有游戏窗口可返回，页面据此藏掉「返回游戏」。
+ */
+function open_previewer() {
+  return open_tool_window("/previewer?tool=1", "Little Fighter Wemake 预览器");
+}
+
 async function set_game_lan(lan) {
   if (!game_server || lan === GAME_STATE.lan) return;
   const old_host = GAME_STATE.host;
@@ -556,6 +654,59 @@ function updater_menu_items(t) {
   return [{ label: t("check_update"), click: () => check_updates(true) }];
 }
 
+/** 发给渲染进程的更新状态快照（文案由 src/desktop_update.ts 侧本地化） */
+function update_snapshot() {
+  const { phase, version, percent, notice, error } = UPDATE_STATE;
+  return { enabled: UPDATER_ENABLED, phase, version, percent, notice, error, current: app.getVersion() };
+}
+
+function send_update_state() {
+  if (!win || win.isDestroyed()) return;
+  win.webContents.send("lfwm:update", update_snapshot());
+}
+
+/** 显示一条一次性消息（notice 为文案代码 / error 为原始原因），ms 后自动清空（ms 为 0 则常驻） */
+function set_update_notice(notice = "", error = "", ms = 20000) {
+  clearTimeout(update_clear_timer);
+  UPDATE_STATE.notice = notice;
+  UPDATE_STATE.error = error;
+  if (ms) update_clear_timer = setTimeout(clear_update_notice, ms);
+  apply_update_state();
+}
+
+function clear_update_notice() {
+  clearTimeout(update_clear_timer);
+  UPDATE_STATE.notice = "";
+  UPDATE_STATE.error = "";
+  apply_update_state();
+}
+
+/**
+ * 更新状态变化时同步四处可见反馈：托盘菜单、托盘悬浮提示、任务栏进度条、游戏页面的 DOM 角标。
+ * 前三处都不主动看就看不见（托盘要展开、任务栏被窗口遮住），所以真正给人看的是 DOM 那份。
+ */
+function apply_update_state() {
+  refresh_tray();
+  const t = (key, ...args) => tray_text(APP_LANG, key, ...args);
+  const { phase, version, percent, notice, error } = UPDATE_STATE;
+  const base = `Little Fighter Wemake v${app.getVersion()}`;
+  const status = phase === "checking" ? t("checking_update")
+    : phase === "downloading" ? t("downloading_update", version, percent)
+      : phase === "ready" ? t("update_ready", version)
+        : notice === "up_to_date" ? t("up_to_date")
+          : error ? `${t("update_check_failed")}: ${error.slice(0, 120)}`
+            : "";
+  tray?.setToolTip(status ? `${base}\n${status}` : base);
+  if (win && !win.isDestroyed()) {
+    // 任务栏：>1 为不确定态，<0 清除，1 为满格（已下载待重启）
+    if (phase === "checking") win.setProgressBar(UPDATE_STATE.manual ? 2 : -1);
+    else if (phase === "downloading") win.setProgressBar(percent / 100);
+    else if (phase === "ready") win.setProgressBar(1);
+    else win.setProgressBar(-1);
+  }
+  send_update_state();
+}
+
 function check_updates(manual) {
   if (!updater || UPDATE_STATE.phase !== "idle") return;
   UPDATE_STATE.manual = !!manual;
@@ -580,55 +731,48 @@ async function setup_updater() {
   };
   autoUpdater.on("checking-for-update", () => {
     UPDATE_STATE.phase = "checking";
-    refresh_tray();
+    apply_update_state();
   });
   autoUpdater.on("update-available", (info) => {
     UPDATE_STATE.phase = "downloading";
     UPDATE_STATE.version = info.version;
     UPDATE_STATE.percent = 0;
+    update_progress_at = 0;
     log(`发现新版本 ${info.version}，开始后台下载`);
-    refresh_tray();
-    if (UPDATE_STATE.manual) void dialog.showMessageBox({ type: "info", message: tray_text(APP_LANG, "update_found", info.version) });
+    clear_update_notice();
   });
   autoUpdater.on("update-not-available", () => {
+    const was_manual = UPDATE_STATE.manual;
     UPDATE_STATE.phase = "idle";
-    refresh_tray();
-    if (UPDATE_STATE.manual) void dialog.showMessageBox({ type: "info", message: tray_text(APP_LANG, "up_to_date") });
     UPDATE_STATE.manual = false;
+    // 自动检查不打扰，只有手动了才提示「已是最新」
+    if (was_manual) set_update_notice("up_to_date", "", 8000);
+    else apply_update_state();
   });
   autoUpdater.on("download-progress", (progress) => {
-    const percent = Math.round(progress.percent);
-    if (percent >= UPDATE_STATE.percent + 10 || percent === 100) {
-      UPDATE_STATE.percent = percent;
-      refresh_tray();
-    }
+    const percent = Math.max(0, Math.min(100, Math.round(progress.percent)));
+    const now = Date.now();
+    // 进度事件很密集：节流到 400ms 一次，避免任务栏与托盘菜单被反复重绘
+    if (percent < 100 && now - update_progress_at < 400) return;
+    update_progress_at = now;
+    UPDATE_STATE.percent = percent;
+    apply_update_state();
   });
   autoUpdater.on("update-downloaded", (info) => {
     UPDATE_STATE.phase = "ready";
     UPDATE_STATE.version = info.version;
     UPDATE_STATE.percent = 100;
     log(`新版本 ${info.version} 已下载，等待重启安装`);
-    refresh_tray();
-    void dialog.showMessageBox({
-      type: "info",
-      message: tray_text(APP_LANG, "update_ready", info.version),
-      buttons: [tray_text(APP_LANG, "restart_now"), tray_text(APP_LANG, "later")],
-      defaultId: 0,
-      cancelId: 1,
-    }).then((result) => {
-      if (result.response === 0) quit_and_install();
-    });
+    clear_update_notice();
   });
   autoUpdater.on("error", (e) => {
-    log(`检查更新失败: ${e?.message ?? e}`);
+    const msg = String(e?.message ?? e);
+    log(`检查更新失败: ${msg}`);
     UPDATE_STATE.phase = "idle";
-    refresh_tray();
-    if (UPDATE_STATE.manual) {
-      UPDATE_STATE.manual = false;
-      void dialog.showMessageBox({ type: "warning", message: tray_text(APP_LANG, "update_check_failed") });
-    }
+    UPDATE_STATE.manual = false;
+    set_update_notice("", msg, 30000);
   });
-  log(`更新检测: 已启用（当前 v${app.getVersion()}）`);
+  log(`更新检测: 已启用（当前 v${app.getVersion()}，进度见游戏页面右下角）`);
   setTimeout(() => check_updates(false), 6000);
   setInterval(() => check_updates(false), 3 * 60 * 60 * 1000);
 }
@@ -670,12 +814,14 @@ function refresh_tray() {
     },
     { type: "separator" },
     ...(UPDATER_ENABLED ? [...updater_menu_items(t), { type: "separator" }] : []),
+    { label: t("open_previewer"), click: () => open_previewer() },
     { label: t("open_tool"), click: () => open_tool_console() },
     { label: t("copy_tool_cmd"), click: () => clipboard.writeText(`"${process.execPath}" --tool `) },
     { label: t("open_data_dir"), click: () => void shell.openPath(data_dir) },
     { label: t("open_mods_dir", MODS.items.length), enabled: MODS.dirs.length > 0, click: () => void shell.openPath(MODS.dirs[0]) },
     { type: "separator" },
     { label: t("show_window"), click: () => { win?.show(); win?.focus(); } },
+    { label: t("open_devtools"), click: () => toggle_focused_devtools() },
     { label: t("quit"), click: () => void shutdown("托盘退出") },
   ]));
 }
@@ -689,9 +835,8 @@ function make_tray() {
     tray = null;
     return;
   }
-  tray.setToolTip("Little Fighter Wemake");
   tray.on("double-click", () => { win?.show(); win?.focus(); });
-  refresh_tray();
+  apply_update_state();
 }
 
 function run_tool(tool_args) {
@@ -819,12 +964,15 @@ async function main() {
   });
   win.setMenuBarVisibility(false);
   win.once("ready-to-show", () => win?.show());
+  bind_devtools(win.webContents);
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:/i.test(url)) shell.openExternal(url).catch(() => void 0);
     return { action: "deny" };
   });
   win.on("maximize", () => win?.webContents.send("lfj:maximized", true));
   win.on("unmaximize", () => win?.webContents.send("lfj:maximized", false));
+  // 开着工具窗口（预览器）时 window-all-closed 不会触发，所以游戏窗口一关就整体退出
+  win.on("closed", () => void shutdown("游戏窗口已关闭"));
   await win.loadURL(page_url);
 
   make_tray();
@@ -916,8 +1064,13 @@ ipcMain.on("lfj:lang", (_e, lang) => {
   const next = normalize_lang(lang);
   if (next === APP_LANG) return;
   APP_LANG = next;
-  refresh_tray();
+  apply_update_state();
 });
+
+/** 更新状态的读写入口（见 preload.cjs 与 src/desktop_update.ts） */
+ipcMain.handle("lfwm:update-state", () => update_snapshot());
+ipcMain.on("lfwm:update-check", () => check_updates(true));
+ipcMain.on("lfwm:update-install", () => quit_and_install());
 
 app.commandLine.appendSwitch("autoplay-policy", "no-user-gesture-required");
 app.setAppUserModelId("ink.gim.lfwm");

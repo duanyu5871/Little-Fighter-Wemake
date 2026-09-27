@@ -1,11 +1,11 @@
 import { Outlet, useNavigate } from "react-router";
 import { Space } from "../../Component/Space";
 import { type ITreeNode, Tree } from "../../Component/Tree";
-import { Paths } from "../../Paths";
+import { Paths, Relations } from "../../Paths";
 import styles from './styles.module.scss';
 
-export const tree_root: ITreeNode[] = Paths.Relations[Paths.All.component_demos]?.map<ITreeNode>(key => {
-  return { key, label: key.split('/').findLast(_ => 1) }
+const tree_root: ITreeNode[] = Relations[Paths.component_demos]?.map<ITreeNode>(key => {
+  return { key, label: key.split('/').findLast(() => 1) }
 }).filter(i => i.label !== '*') ?? []
 
 export default function ComponentDemo() {

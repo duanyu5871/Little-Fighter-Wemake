@@ -5,6 +5,7 @@ import type { LFW } from "@/LFW";
 import { Defines } from "@/LFW/defines";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Dispatch, PointerEvent as ReactPointerEvent, SetStateAction, WheelEvent as ReactWheelEvent } from "react";
+import type { TCanvasFit } from "./ctx";
 
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 8;
@@ -19,6 +20,8 @@ export interface IWorldViewLimits {
 export interface IWorldViewOptions {
   /** 由当前可见世界尺寸推出相机允许范围；返回 undefined 表示不限制 */
   limits?(view_w: number, view_h: number): IWorldViewLimits | undefined;
+  /** 画布当前的 object-fit 模式：拖拽时要把屏幕位移换算成世界位移，得先知道内容实际占多大 */
+  fit?: TCanvasFit;
 }
 
 export interface IWorldView {
@@ -50,7 +53,7 @@ interface IDrag {
   cam_y: number;
 }
 
-/** 画布像素 → 世界单位（含 letterbox 换算、世界 scale 与相机 zoom） */
+/** 画布像素 → 世界单位（含 object-fit 换算、世界 scale 与相机 zoom） */
 function canvas_scale(
   cv: HTMLCanvasElement,
   sw: number,
@@ -58,11 +61,32 @@ function canvas_scale(
   sx: number,
   sy: number,
   zoom: number,
+  fit: TCanvasFit,
 ): [number, number] {
   const rect = cv.getBoundingClientRect();
-  const content_w = Math.max(1, Math.min(rect.width, rect.height * (sw / sh)));
-  const k = sw / content_w;
-  return [k / (sx * zoom || 1), k / (sy * zoom || 1)];
+  // 内容在元素框里实际显示的尺寸（CSS px）：object-fit 决定怎么摆
+  let cw: number;
+  let ch: number;
+  if (fit === "fill") {
+    // 拉伸：宽高各自铺满，比例不保持
+    cw = rect.width;
+    ch = rect.height;
+  } else if (fit === "none") {
+    // 原始：位图按自身像素 1:1 显示。用 canvas 自己的尺寸而不是逻辑分辨率，
+    // 因为渲染器内部会超采样（canvas.width = 逻辑宽 * 4），object-fit: none 看的是位图尺寸
+    cw = cv.width;
+    ch = cv.height;
+  } else {
+    // 适应取小、填充取大，两者都保持比例
+    const k = fit === "cover"
+      ? Math.max(rect.width / sw, rect.height / sh)
+      : Math.min(rect.width / sw, rect.height / sh);
+    cw = sw * k;
+    ch = sh * k;
+  }
+  const kx = sw / Math.max(1, cw);
+  const ky = sh / Math.max(1, ch);
+  return [kx / (sx * zoom || 1), ky / (sy * zoom || 1)];
 }
 
 /**
@@ -159,6 +183,7 @@ export function useWorldView(lfw: LFW | undefined, options: IWorldViewOptions = 
       world.transform.scale_x || 1,
       world.transform.scale_y || 1,
       (r.camera as OrthographicCamera).zoom || 1,
+      opts.current.fit ?? "contain",
     );
     lock_camera(
       drag.cam_x - (e.clientX - drag.px) * kx,

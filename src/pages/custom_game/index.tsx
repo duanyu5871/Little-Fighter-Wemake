@@ -1,6 +1,6 @@
 import { Button } from "@/Component/Buttons/Button";
 import { LFW } from "@/LFW";
-import { Paths } from "@/Paths";
+import * as Paths from "@/Paths";
 import { download } from "@/Utils/download";
 import { open_file } from "@/Utils/open_file";
 import { useRef } from "react";
@@ -17,7 +17,7 @@ export default function CustomGamePage() {
       const [info, zips] = await read_file_as_full_game_zip(file)
       LFW.INFO = info
       LFW.ZIPS = zips;
-      nav(Paths.All.game, { replace: true })
+      nav(Paths.Paths.game, { replace: true })
     } catch (e) {
       alert('' + e)
     }
@@ -56,7 +56,7 @@ export default function CustomGamePage() {
     }
   }
   const return_to_game = () => {
-    nav(Paths.All.game, { replace: true })
+    nav(Paths.Paths.game, { replace: true })
   }
   return (
     <div

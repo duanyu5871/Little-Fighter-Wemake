@@ -24,10 +24,12 @@ copy_server_addr 复制联机地址
 open_admin       打开管理页面（需先开启联机服务器）
 allow_game_lan   允许局域网访问游戏页面
 copy_game_addr   复制游戏页面地址
+open_previewer   打开预览器（背景 / 角色 / 图片预览）
 open_tool        打开数据工具（命令行）
 copy_tool_cmd    复制数据工具命令
 open_data_dir    打开数据目录
 show_window      显示游戏窗口
+open_devtools    开关开发者工具（Ctrl+Shift+I）
 quit             退出
 
 更新相关（仅安装版会显示）

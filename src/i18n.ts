@@ -51,6 +51,12 @@ const zh_hans = {
   "enabled": "已启用",
   "disabled": "已禁用",
   "return_to_game": "回到游戏页",
+  "update_checking": "正在检查更新…",
+  "update_downloading": "正在下载新版本 %1（%2%）",
+  "update_ready": "新版本 %1 已下载，重启后生效",
+  "update_restart": "重启并更新",
+  "update_up_to_date": "已是最新版本",
+  "update_failed": "检查更新失败",
 }
 const zh_hant = {
   "game_running": "已開始",
@@ -98,6 +104,12 @@ const zh_hant = {
   "enabled": "已啟用",
   "disabled": "已禁用",
   "return_to_game": "回到游戏页",
+  "update_checking": "正在檢查更新…",
+  "update_downloading": "正在下載新版本 %1（%2%）",
+  "update_ready": "新版本 %1 已下載，重新啟動後生效",
+  "update_restart": "重新啟動並更新",
+  "update_up_to_date": "已是最新版本",
+  "update_failed": "檢查更新失敗",
 }
 const fr = {
   "game_running": "Démarré",
@@ -157,8 +169,12 @@ const fr = {
   "team_outline": "Contour d’équipe",
   "enabled": "Activé",
   "disabled": "Désactivé",
-  "return_to_game": "Retourner au jeu",
-}
+  "return_to_game": "Retourner au jeu",  "update_checking": "Vérification des mises à jour…",
+  "update_downloading": "Téléchargement de la version %1 (%2%)",
+  "update_ready": "Version %1 téléchargée, effective après redémarrage",
+  "update_restart": "Redémarrer et mettre à jour",
+  "update_up_to_date": "Déjà à jour",
+  "update_failed": "Échec de la vérification des mises à jour",}
 const ru = {
   "game_running": "Начата",
   "connect_box": "Панель подключения",
@@ -218,6 +234,12 @@ const ru = {
   "enabled": "Включено",
   "disabled": "Отключено",
   "return_to_game": "Вернуться в игру",
+  "update_checking": "Проверка обновлений…",
+  "update_downloading": "Загрузка версии %1 (%2%)",
+  "update_ready": "Версия %1 загружена, применится после перезапуска",
+  "update_restart": "Перезапустить и обновить",
+  "update_up_to_date": "Установлена последняя версия",
+  "update_failed": "Не удалось проверить обновления",
 }
 const es = {
   "game_running": "Iniciado",
@@ -278,6 +300,12 @@ const es = {
   "enabled": "Habilitado",
   "disabled": "Deshabilitado",
   "return_to_game": "Volver al juego",
+  "update_checking": "Buscando actualizaciones…",
+  "update_downloading": "Descargando la versión %1 (%2%)",
+  "update_ready": "Versión %1 descargada, se aplicará al reiniciar",
+  "update_restart": "Reiniciar y actualizar",
+  "update_up_to_date": "Ya está actualizado",
+  "update_failed": "Error al buscar actualizaciones",
 }
 const pt = {
   "game_running": "Iniciado",
@@ -338,6 +366,12 @@ const pt = {
   "enabled": "Ativado",
   "disabled": "Desativado",
   "return_to_game": "Voltar ao jogo",
+  "update_checking": "Verificando atualizações…",
+  "update_downloading": "Baixando a versão %1 (%2%)",
+  "update_ready": "Versão %1 baixada, aplicada ao reiniciar",
+  "update_restart": "Reiniciar e atualizar",
+  "update_up_to_date": "Já está atualizado",
+  "update_failed": "Falha ao verificar atualizações",
 }
 const ja = {
   "game_running": "開始済み",
@@ -398,6 +432,12 @@ const ja = {
   "enabled": "有効",
   "disabled": "無効",
   "return_to_game": "ゲームに戻る",
+  "update_checking": "更新を確認しています…",
+  "update_downloading": "新バージョン %1 をダウンロード中（%2%）",
+  "update_ready": "新バージョン %1 をダウンロードしました。再起動後に適用されます",
+  "update_restart": "再起動して更新",
+  "update_up_to_date": "最新バージョンです",
+  "update_failed": "更新の確認に失敗しました",
 }
 const ko = {
   "game_running": "시작됨",
@@ -458,6 +498,12 @@ const ko = {
   "enabled": "활성화됨",
   "disabled": "비활성화됨",
   "return_to_game": "게임으로 돌아가기",
+  "update_checking": "업데이트 확인 중…",
+  "update_downloading": "새 버전 %1 다운로드 중 (%2%)",
+  "update_ready": "새 버전 %1 다운로드 완료, 재시작 후 적용됩니다",
+  "update_restart": "재시작 후 업데이트",
+  "update_up_to_date": "최신 버전입니다",
+  "update_failed": "업데이트 확인 실패",
 }
 const en = {
   "game_running": "Started",
@@ -518,6 +564,12 @@ const en = {
   "enabled": "Enabled",
   "disabled": "Disabled",
   "return_to_game": "Return to Game",
+  "update_checking": "Checking for updates…",
+  "update_downloading": "Downloading version %1 (%2%)",
+  "update_ready": "Version %1 downloaded, applied after restart",
+  "update_restart": "Restart and update",
+  "update_up_to_date": "Already up to date",
+  "update_failed": "Update check failed",
 }
 const resources = {
   "zh": { translation: zh_hans },

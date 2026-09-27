@@ -3,6 +3,7 @@ import type { Entity, IEntityData, IFrameInfo } from "@/LFW";
 import { Defines, FrameId, TeamEnum } from "@/LFW/defines";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePreviewer } from "./ctx";
+import { FitButtons } from "./FitButtons";
 import { PreviewCanvas } from "./PreviewCanvas";
 import csses from "./styles.module.scss";
 import { useWorldView } from "./useWorldView";
@@ -106,9 +107,9 @@ function motion_ids(m: IMotion): string {
 }
 
 export function EntityPreviewer() {
-  const { lfw } = usePreviewer();
+  const { lfw, fit } = usePreviewer();
   // 画布视角：拖拽平移 + 滚轮缩放（与背景预览同一套）
-  const view = useWorldView(lfw);
+  const view = useWorldView(lfw, { fit });
   const { center_on } = view;
   const [type, set_type] = useState("all");
   const [keyword, set_keyword] = useState("");
@@ -332,6 +333,7 @@ export function EntityPreviewer() {
             />
             重力
           </label>
+          <FitButtons />
           <div className={csses.spacer} />
           {INDICATORS.map((v) => (
             <label className={csses.check} key={v.key}>

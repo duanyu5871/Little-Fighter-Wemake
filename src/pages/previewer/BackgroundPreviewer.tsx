@@ -3,6 +3,7 @@ import { InvalidController } from "@/LFW/controller/InvalidController";
 import { Defines, type IBgData, type IBgLayerInfo } from "@/LFW/defines";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePreviewer } from "./ctx";
+import { FitButtons } from "./FitButtons";
 import { PreviewCanvas } from "./PreviewCanvas";
 import csses from "./styles.module.scss";
 import { useWorldView } from "./useWorldView";
@@ -10,7 +11,7 @@ import { useWorldView } from "./useWorldView";
 const clamp = (v: number, l: number, h: number) => Math.max(l, Math.min(h, v));
 
 export function BackgroundPreviewer() {
-  const { lfw } = usePreviewer();
+  const { lfw, fit } = usePreviewer();
   const [bgs, set_bgs] = useState<readonly IBgData[]>([]);
   const [keyword, set_keyword] = useState("");
   const [bg_id, set_bg_id] = useState("");
@@ -36,7 +37,7 @@ export function BackgroundPreviewer() {
     return { x: [x_min, x_max], y: [0, y_max] } as const;
   }, [lfw]);
 
-  const view = useWorldView(lfw, { limits: limits_of });
+  const view = useWorldView(lfw, { limits: limits_of, fit });
   const { center_on, lock_camera, limits, zoom } = view;
   const bg = lfw?.world.bg;
 
@@ -261,6 +262,7 @@ export function BackgroundPreviewer() {
             />
             地形框
           </label>
+          <FitButtons />
           <div className={csses.spacer} />
           <div className={csses.muted}>实体 {ents}</div>
         </div>

@@ -16,3 +16,14 @@ contextBridge.exposeInMainWorld("lfwm_mods", {
   list: () => ipcRenderer.invoke("lfwm:mods"),
   read: (id) => ipcRenderer.invoke("lfwm:mod", String(id ?? "")),
 });
+
+// 更新状态：主进程广播给游戏页面，由页面画成 DOM 角标（语义见 src/desktop_update.ts）
+contextBridge.exposeInMainWorld("lfwm_update", {
+  state: () => ipcRenderer.invoke("lfwm:update-state"),
+  check: () => ipcRenderer.send("lfwm:update-check"),
+  install: () => ipcRenderer.send("lfwm:update-install"),
+  on_state: (cb) => {
+    if (typeof cb !== "function") return;
+    ipcRenderer.on("lfwm:update", (_event, state) => cb(state));
+  },
+});

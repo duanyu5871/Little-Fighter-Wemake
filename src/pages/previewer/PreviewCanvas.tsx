@@ -1,4 +1,5 @@
 import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
+import { usePreviewer } from "./ctx";
 import csses from "./styles.module.scss";
 import type { IWorldView } from "./useWorldView";
 
@@ -10,6 +11,7 @@ export function PreviewCanvas({ view, children, on_pointer_down }: {
   on_pointer_down?: (e: ReactPointerEvent<HTMLCanvasElement>) => void;
 }) {
   const { set_canvas, dragging, zoom, canvas_props } = view;
+  const { fit } = usePreviewer();
   return (
     <div className={csses.canvas_box}>
       <canvas
@@ -17,6 +19,7 @@ export function PreviewCanvas({ view, children, on_pointer_down }: {
         width={794}
         height={450}
         draggable={false}
+        style={{ objectFit: fit }}
         className={`${csses.canvas}${dragging ? " " + csses.canvas_dragging : ""}`}
         {...canvas_props}
         onPointerDown={(e) => {

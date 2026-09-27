@@ -39,7 +39,7 @@ import { range } from "./LFW/utils/math/range";
 import { Loading } from "./LoadingImg";
 import { Log } from "./Log";
 import { NetSettings } from "./NetSettings";
-import { Paths } from "./Paths";
+import * as Paths from "./Paths";
 import { PlayerRow } from "./PlayerRow";
 import SettingsRows from "./SettingsRows";
 import { download } from "./Utils/download";
@@ -279,7 +279,7 @@ function App() {
           });
           break;
         case 'custom_game':
-          nav(Paths.All.custom_game)
+          nav(Paths.Paths.custom_game)
           break;
         case 'rank_request':
           // 生存排行准备页请求数据：宿主拉取后“下发”，UI 值变化时自动更新
@@ -822,7 +822,7 @@ function App() {
         </Button>
         <Button onClick={() => set_dat_viewer_open(true)}>查看dat文件</Button>
         <Button onClick={() => set_editor_open(true)}>查看数据包</Button>
-        <Button onClick={() => nav(Paths.All.previewer)}>预览器</Button>
+        <Button onClick={() => nav(Paths.Paths.previewer)}>预览器</Button>
         <Select
           options={["top", "bottom", "left", "right"] as const}
           parse={(v) => [v, "位置：" + v]}

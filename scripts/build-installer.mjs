@@ -1,17 +1,15 @@
 import { execSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { zip } from "compressing";
 import json5 from "json5";
-import { APP_NAME, DIST, ICON, ROOT, check_build_tools, electron_version, fail, read_pkg, set_prefix, stage_app, stage_extra, stage_game, step } from "./desktop-stage.mjs";
+import { APP_NAME, DIST, ICON, ROOT, check_build_tools, electron_version, fail, prepare_build_dir, read_pkg, set_prefix, stage_app, stage_extra, stage_game, step } from "./desktop-stage.mjs";
 
 set_prefix("[build-installer]");
 
 const FLAGS = new Set(process.argv.slice(2));
 const NO_BUILD = FLAGS.has("--no-build");
 const NO_CONVERTERS = FLAGS.has("--no-converters");
-const KEEP = FLAGS.has("--keep");
 
 function read_json5(path) {
   if (!existsSync(path)) return {};
@@ -57,7 +55,7 @@ if (!NO_BUILD) {
 
 if (!existsSync(DIST)) fail(`找不到 ${DIST}，请先执行 npx vite build`);
 
-const BUILD = mkdtempSync(join(tmpdir(), "lfwm-installer-"));
+const BUILD = prepare_build_dir("desktop-installer");
 const APP = join(BUILD, "app");
 const GAME = join(BUILD, "game");
 const EXTRA = join(BUILD, "extra");
@@ -66,7 +64,6 @@ const BUILD_RES = join(BUILD, "build");
 mkdirSync(APP, { recursive: true });
 mkdirSync(EXTRA, { recursive: true });
 mkdirSync(BUILD_RES, { recursive: true });
-step(`准备临时目录: ${BUILD}`);
 
 writeFileSync(join(BUILD, "package.json"), `${JSON.stringify({
   name: "little-fighter-wemake-installer",
@@ -151,6 +148,4 @@ total += statSync(join(INSTALLER_DIR, portable_name)).size;
 step(`产物 -> release/installer/${portable_name}`);
 step(`完成: release/installer/（${artifacts.length + 1} 个文件，${(total / 1024 / 1024).toFixed(1)} MB）`);
 step("安装包 3 件上传到 https://lf.gim.ink/desktop/（deploy:installer 按 latest.yml 只传这 3 个）；Windows.zip 为免安装版，供 GitHub Release 或手动分发");
-
-if (KEEP) step(`保留构建目录: ${BUILD}`);
-else rmSync(BUILD, { recursive: true, force: true });
+step(`中间产物保留在 temp/desktop-installer（下次构建才会清空），免安装版可直接跑: ${join("temp", "desktop-installer", "out", "win-unpacked", "start.exe")}`);

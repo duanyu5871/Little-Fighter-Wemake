@@ -18,8 +18,36 @@ interface Window {
     }>;
     read(id: string): Promise<ArrayBuffer | null>;
   }
+  /** 桌面客户端的更新状态，见 desktop/app/main.mjs 与 src/desktop_update.ts */
+  lfwm_update?: {
+    /** 拉取当前状态（页面加载晚于主进程广播时用） */
+    state(): Promise<IDesktopUpdateState>;
+    /** 触发一次手动检查（等价于托盘菜单「检查更新」） */
+    check(): void;
+    /** 退出并安装已下载的新版本 */
+    install(): void;
+    on_state(cb: (state: IDesktopUpdateState) => void): void;
+  }
   /** B站 Toy JS SDK（入口页引入 toy-sdk.js 后由平台注入，见 docs/dev/Toy JS SDK.md） */
   toy?: ToySDK
+}
+
+/** 桌面客户端的更新状态（`window.lfwm_update`，见 src/desktop_update.ts） */
+interface IDesktopUpdateState {
+  /** 该构建是否带自动更新（便携版 / 扩展版为 false） */
+  enabled: boolean
+  /** idle 时界面自行隐藏 */
+  phase: 'idle' | 'checking' | 'downloading' | 'ready'
+  /** 正在下载 / 已下载的新版本号 */
+  version: string
+  /** 下载进度 0-100 */
+  percent: number
+  /** 一次性消息代码（目前只有 up_to_date），到点由主进程清空 */
+  notice: '' | 'up_to_date'
+  /** 检查失败的原始原因，到点由主进程清空 */
+  error: string
+  /** 当前版本号 */
+  current: string
 }
 
 /** Toy 容器设备类型 */

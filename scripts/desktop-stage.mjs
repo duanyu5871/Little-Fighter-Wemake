@@ -98,6 +98,27 @@ export function fail(msg) {
   process.exit(1);
 }
 
+/** 打包中间产物统一放在这里（不用系统临时目录），构建完不删，方便直接跑里面的产物 */
+export const TEMP = join(ROOT, "temp");
+
+/**
+ * 准备一个固定的构建目录（每次构建前先清空）。
+ *
+ * 必须清空：目录固定后，上一次的 `out/win-unpacked` 之类会残留下来，混进新产物里反而不好测。
+ * 目录本身在构建完成后保留，所以清理放在开头。
+ */
+export function prepare_build_dir(name) {
+  const dir = join(TEMP, name);
+  try {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 300 });
+  } catch {
+    fail(`temp/${name} 被占用（可能正在运行里面打包出来的 start.exe，或用资源管理器打开了它），请先关掉再重试`);
+  }
+  mkdirSync(dir, { recursive: true });
+  step(`构建目录: temp/${name}（构建后保留，可直接运行里面的产物）`);
+  return dir;
+}
+
 export function read_pkg() {
   return JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
 }

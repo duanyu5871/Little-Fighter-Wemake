@@ -1,16 +1,14 @@
 import { execSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { zip } from "compressing";
-import { APP_NAME, DIST, ICON, ROOT, check_build_tools, dir_size, electron_version, fail, quote, read_pkg, set_prefix, stage_app, stage_extra, stage_game, step, walk } from "./desktop-stage.mjs";
+import { APP_NAME, DIST, ICON, ROOT, check_build_tools, dir_size, electron_version, fail, prepare_build_dir, quote, read_pkg, set_prefix, stage_app, stage_extra, stage_game, step, walk } from "./desktop-stage.mjs";
 
 set_prefix("[build-playable]");
 const FLAGS = new Set(process.argv.slice(2));
 const NO_BUILD = FLAGS.has("--no-build");
 const NO_ZIP = FLAGS.has("--no-zip");
 const NO_CONVERTERS = FLAGS.has("--no-converters");
-const KEEP = FLAGS.has("--keep");
 
 const pkg = read_pkg();
 const AUTHOR = pkg.author?.name ?? "Gim";
@@ -26,11 +24,10 @@ if (!NO_BUILD) {
 
 if (!existsSync(DIST)) fail(`找不到 ${DIST}，请先执行 npx vite build`);
 
-const BUILD = mkdtempSync(join(tmpdir(), "lfwm-playable-"));
+const BUILD = prepare_build_dir("desktop-playable");
 const APP = join(BUILD, "app");
 const GAME = join(BUILD, "game");
 mkdirSync(APP, { recursive: true });
-step(`准备临时目录: ${BUILD}`);
 
 stage_game(GAME);
 stage_app(APP, pkg);
@@ -106,5 +103,4 @@ if (!NO_ZIP) {
   if (zip_mb > 500) fail(`超过 B站 500MB 上限（${zip_mb.toFixed(1)} MB），需要用 --no-converters 或删减资源`);
 }
 
-if (KEEP) step(`保留构建目录: ${BUILD}`);
-else rmSync(BUILD, { recursive: true, force: true });
+step(`中间产物保留在 temp/desktop-playable（下次构建才会清空），可直接跑: ${relative(ROOT, join(STAGE, "start.exe"))}`);
