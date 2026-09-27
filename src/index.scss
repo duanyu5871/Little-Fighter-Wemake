@@ -1,4 +1,5 @@
 @use "./styles/lfui_hoverable_border.scss"as *;
+@use "./styles/base_text.scss"as *;
 
 html {
   /* -webkit-filter: grayscale(1); */
@@ -12,18 +13,11 @@ html {
 
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto",
-    "Oxygen", "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans",
-    "Helvetica Neue", sans-serif;
-  -webkit-font-smoothing    : antialiased;
-  -moz-osx-font-smoothing   : grayscale;
+  @include base_text;
   -webkit-touch-callout     : none !important;
   -webkit-overflow-scrolling: touch;
-  -webkit-user-select       : none;
-  user-select               : none;
   background-color          : black;
   border                    : white;
-  color                     : #5A88E0;
   width                     : 100%;
   height                    : 100%;
   overflow                  : hidden;

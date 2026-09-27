@@ -4,6 +4,7 @@ import { LFW } from "@/LFW";
 import { MsgEnum, type IRespRoomStart, type NetSyncMode } from "@/Net";
 import { useStateRef } from "@/hooks/useStateRef";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
 import { ChatBox } from "./ChatBox";
 import { Connection } from "./Connection";
 import { ConnectionBox } from "./ConnectionBox";
@@ -112,7 +113,7 @@ export function Networking(props: INetworkingProps) {
   }, [lf2, conn])
 
 
-  return <>
+  return createPortal(<>
     <ConnectionBox
       lf2={lf2}
       on_conn_change={set_conn}
@@ -133,7 +134,7 @@ export function Networking(props: INetworkingProps) {
       conn={conn}
       className={styles.chat_box}
       style={chat_style} />
-  </>
+  </>, document.body)
 }
 
 const display_or_not = (v: any) => ({ display: v ? void 0 : 'none' })
