@@ -461,7 +461,7 @@ export class LFW implements I.IKeyboardCallback, IDebugging {
 
   private on_loading_file(url: string, progress: number, full_size: number) {
     const txt = `${url}(${get_short_file_size_txt(full_size)})`;
-    this.emit_progress(txt, progress);
+    this.emit_progress(txt, progress, full_size);
   }
 
   protected async _load_zip_from_url(info_url: string): Promise<ILoadedZip> {
@@ -815,8 +815,8 @@ export class LFW implements I.IKeyboardCallback, IDebugging {
    * @param {string} content 加载内容
    * @param {number} progress 加载进度 [0~100]
    */
-  emit_progress(content: string, progress: number): void {
-    this.callbacks.call("on_progress", content, progress);
+  emit_progress(content: string, progress: number, size?: number): void {
+    this.callbacks.call("on_progress", content, progress, size);
   }
 
   broadcast(message: string): void {

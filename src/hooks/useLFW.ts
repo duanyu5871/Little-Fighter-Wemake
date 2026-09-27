@@ -19,7 +19,7 @@ export interface IUseLFWOptions {
   /** 构造后、load 前调用（同步接线）；返回值作为卸载清理 */
   setup?(lfw: LFW): void | (() => void);
   /** 加载进度 */
-  on_progress?(content: string, value: number): void;
+  on_progress?(content: string, value: number, size?: number): void;
 }
 
 export interface IUseLFWResult {
@@ -60,7 +60,7 @@ export function useLFW(options: IUseLFWOptions = {}): IUseLFWResult {
 
   // 进度 / UI
   useCallbacks(lfw?.callbacks, () => ({
-    on_progress: (content, value) => opts.current.on_progress?.(content, value),
+    on_progress: (content, value, size) => opts.current.on_progress?.(content, value, size),
     on_ui_changed: (curr) => { if (hide_ui && !ready_ref.current && curr) lfw?.layers.set_page({}, 0) },
   }), [hide_ui]);
 
