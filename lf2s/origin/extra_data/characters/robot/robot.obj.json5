@@ -11,9 +11,9 @@
         "id": "robot",
         "path": "characters/robot/robot.glb",
         "scale": {
-          "x": 21.2,
-          "y": 21.2,
-          "z": 21.2
+          "x": 16.96,
+          "y": 16.96,
+          "z": 16.96
         },
         "rotation": {
           "x": 0,
@@ -270,7 +270,7 @@
         "id": "robot",
         "anim": "Punch",
         "seek": 0,
-        "seek_end": 0.0139,
+        "seek_end": 0.0278,
         "hold_last": true,
         "rotation": {
           "x": 0,
@@ -316,8 +316,8 @@
       "model": {
         "id": "robot",
         "anim": "Punch",
-        "seek": 0.0139,
-        "seek_end": 0.0278,
+        "seek": 0.0278,
+        "seek_end": 0.0556,
         "hold_last": true,
         "rotation": {
           "x": 0,
@@ -385,8 +385,8 @@
       "model": {
         "id": "robot",
         "anim": "Punch",
-        "seek": 0.0278,
-        "seek_end": 0.0417,
+        "seek": 0.0556,
+        "seek_end": 0.0833,
         "hold_last": true,
         "rotation": {
           "x": 0,
@@ -400,7 +400,7 @@
       "name": "normal_weapon_atck",
       "wait": 3,
       "next": {
-        "id": "auto"
+        "id": "23_r"
       },
       "state": 3,
       "centerx": 40,
@@ -442,8 +442,8 @@
       "model": {
         "id": "robot",
         "anim": "Punch",
-        "seek": 0.0417,
-        "seek_end": 0.25,
+        "seek": 0.0833,
+        "seek_end": 0.2775,
         "hold_last": true,
         "rotation": {
           "x": 0,
@@ -489,7 +489,7 @@
         "id": "robot",
         "anim": "Punch",
         "seek": 0,
-        "seek_end": 0.0139,
+        "seek_end": 0.0278,
         "hold_last": true,
         "rotation": {
           "x": 0,
@@ -535,8 +535,8 @@
       "model": {
         "id": "robot",
         "anim": "Punch",
-        "seek": 0.0139,
-        "seek_end": 0.0278,
+        "seek": 0.0278,
+        "seek_end": 0.0556,
         "hold_last": true,
         "rotation": {
           "x": 0,
@@ -593,8 +593,8 @@
       "model": {
         "id": "robot",
         "anim": "Punch",
-        "seek": 0.0278,
-        "seek_end": 0.0417,
+        "seek": 0.0556,
+        "seek_end": 0.0833,
         "hold_last": true,
         "rotation": {
           "x": 0,
@@ -608,7 +608,7 @@
       "name": "normal_weapon_atck",
       "wait": 3,
       "next": {
-        "id": "auto"
+        "id": "28_r"
       },
       "state": 3,
       "centerx": 17,
@@ -639,8 +639,8 @@
       "model": {
         "id": "robot",
         "anim": "Punch",
-        "seek": 0.0417,
-        "seek_end": 0.25,
+        "seek": 0.0833,
+        "seek_end": 0.2775,
         "hold_last": true,
         "rotation": {
           "x": 0,
@@ -686,7 +686,7 @@
         "id": "robot",
         "anim": "Punch",
         "seek": 0,
-        "seek_end": 0.0417,
+        "seek_end": 0.0833,
         "hold_last": true,
         "rotation": {
           "x": 0,
@@ -700,7 +700,7 @@
       "name": "jump_weapon_atck",
       "wait": 15,
       "next": {
-        "id": "auto"
+        "id": "31_r"
       },
       "state": 3,
       "centerx": 19,
@@ -733,8 +733,8 @@
       "model": {
         "id": "robot",
         "anim": "Punch",
-        "seek": 0.0417,
-        "seek_end": 0.25,
+        "seek": 0.0833,
+        "seek_end": 0.2775,
         "hold_last": true,
         "rotation": {
           "x": 0,
@@ -781,7 +781,7 @@
         "id": "robot",
         "anim": "Punch",
         "seek": 0,
-        "seek_end": 0.0208,
+        "seek_end": 0.0417,
         "hold_last": true,
         "rotation": {
           "x": 0,
@@ -840,8 +840,8 @@
       "model": {
         "id": "robot",
         "anim": "Punch",
-        "seek": 0.0208,
-        "seek_end": 0.0417,
+        "seek": 0.0417,
+        "seek_end": 0.0833,
         "hold_last": true,
         "rotation": {
           "x": 0,
@@ -855,7 +855,7 @@
       "name": "run_weapon_atck",
       "wait": 7,
       "next": {
-        "id": "auto"
+        "id": "37_r"
       },
       "state": 3,
       "centerx": 44,
@@ -886,8 +886,8 @@
       "model": {
         "id": "robot",
         "anim": "Punch",
-        "seek": 0.0417,
-        "seek_end": 0.25,
+        "seek": 0.0833,
+        "seek_end": 0.2775,
         "hold_last": true,
         "rotation": {
           "x": 0,
@@ -933,7 +933,7 @@
         "id": "robot",
         "anim": "Punch",
         "seek": 0,
-        "seek_end": 0.0417,
+        "seek_end": 0.0833,
         "hold_last": true,
         "rotation": {
           "x": 0,
@@ -947,7 +947,7 @@
       "name": "dash_weapon_atck",
       "wait": 15,
       "next": {
-        "id": "auto"
+        "id": "41_r"
       },
       "state": 3,
       "centerx": 21,
@@ -980,8 +980,8 @@
       "model": {
         "id": "robot",
         "anim": "Punch",
-        "seek": 0.0417,
-        "seek_end": 0.25,
+        "seek": 0.0833,
+        "seek_end": 0.2775,
         "hold_last": true,
         "rotation": {
           "x": 0,
@@ -1621,7 +1621,7 @@
         "id": "robot",
         "anim": "Punch",
         "seek": 0,
-        "seek_end": 0.0417,
+        "seek_end": 0.0833,
         "hold_last": true,
         "rotation": {
           "x": 0,
@@ -1635,7 +1635,7 @@
       "name": "punch",
       "wait": 7,
       "next": {
-        "id": "auto"
+        "id": "61_r"
       },
       "state": 3,
       "centerx": 39,
@@ -1687,8 +1687,8 @@
       "model": {
         "id": "robot",
         "anim": "Punch",
-        "seek": 0.0417,
-        "seek_end": 0.25,
+        "seek": 0.0833,
+        "seek_end": 0.2775,
         "hold_last": true,
         "rotation": {
           "x": 0,
@@ -1745,7 +1745,7 @@
         "id": "robot",
         "anim": "Punch",
         "seek": 0,
-        "seek_end": 0.0417,
+        "seek_end": 0.0833,
         "hold_last": true,
         "rotation": {
           "x": 0,
@@ -1759,7 +1759,7 @@
       "name": "punch",
       "wait": 7,
       "next": {
-        "id": "auto"
+        "id": "66_r"
       },
       "state": 3,
       "centerx": 39,
@@ -1814,8 +1814,8 @@
       "model": {
         "id": "robot",
         "anim": "Punch",
-        "seek": 0.0417,
-        "seek_end": 0.25,
+        "seek": 0.0833,
+        "seek_end": 0.2775,
         "hold_last": true,
         "rotation": {
           "x": 0,
@@ -1854,7 +1854,7 @@
         "id": "robot",
         "anim": "Punch",
         "seek": 0,
-        "seek_end": 0.0243,
+        "seek_end": 0.0486,
         "hold_last": true,
         "rotation": {
           "x": 0,
@@ -1904,8 +1904,8 @@
       "model": {
         "id": "robot",
         "anim": "Punch",
-        "seek": 0.0243,
-        "seek_end": 0.0417,
+        "seek": 0.0486,
+        "seek_end": 0.0833,
         "hold_last": true,
         "rotation": {
           "x": 0,
@@ -1919,7 +1919,7 @@
       "name": "super_punch",
       "wait": 9,
       "next": {
-        "id": "auto"
+        "id": "72_r"
       },
       "state": 3,
       "centerx": 46,
@@ -1963,8 +1963,8 @@
       "model": {
         "id": "robot",
         "anim": "Punch",
-        "seek": 0.0417,
-        "seek_end": 0.25,
+        "seek": 0.0833,
+        "seek_end": 0.2775,
         "hold_last": true,
         "rotation": {
           "x": 0,
@@ -2007,7 +2007,7 @@
         "id": "robot",
         "anim": "Punch",
         "seek": 0,
-        "seek_end": 0.0417,
+        "seek_end": 0.0833,
         "hold_last": true,
         "rotation": {
           "x": 0,
@@ -2021,7 +2021,7 @@
       "name": "jump_attack",
       "wait": 13,
       "next": {
-        "id": "auto"
+        "id": "81_r"
       },
       "state": 3,
       "centerx": 39,
@@ -2073,8 +2073,8 @@
       "model": {
         "id": "robot",
         "anim": "Punch",
-        "seek": 0.0417,
-        "seek_end": 0.25,
+        "seek": 0.0833,
+        "seek_end": 0.2775,
         "hold_last": true,
         "rotation": {
           "x": 0,
@@ -2125,7 +2125,7 @@
         "id": "robot",
         "anim": "Punch",
         "seek": 0,
-        "seek_end": 0.0417,
+        "seek_end": 0.0833,
         "hold_last": true,
         "rotation": {
           "x": 0,
@@ -2194,8 +2194,8 @@
       "model": {
         "id": "robot",
         "anim": "Punch",
-        "seek": 0.0417,
-        "seek_end": 0.25,
+        "seek": 0.0833,
+        "seek_end": 0.2775,
         "hold_last": true,
         "rotation": {
           "x": 0,
@@ -2209,7 +2209,7 @@
       "name": "run_attack",
       "wait": 7,
       "next": {
-        "id": "auto"
+        "id": "87_r"
       },
       "state": 3,
       "centerx": 14,
@@ -2247,8 +2247,8 @@
       "model": {
         "id": "robot",
         "anim": "Punch",
-        "seek": 0.25,
-        "seek_end": 0.375,
+        "seek": 0.2775,
+        "seek_end": 0.3801,
         "hold_last": true,
         "rotation": {
           "x": 0,
@@ -2457,7 +2457,7 @@
         "id": "robot",
         "anim": "Punch",
         "seek": 0,
-        "seek_end": 0.0417,
+        "seek_end": 0.0833,
         "hold_last": true,
         "rotation": {
           "x": 0,
@@ -2470,7 +2470,9 @@
       "id": "101",
       "name": "rowing",
       "wait": 13,
-      "next": {},
+      "next": {
+        "id": "101_r"
+      },
       "state": 6,
       "centerx": 39,
       "centery": 79,
@@ -2487,8 +2489,8 @@
       "model": {
         "id": "robot",
         "anim": "Punch",
-        "seek": 0.0417,
-        "seek_end": 0.25,
+        "seek": 0.0833,
+        "seek_end": 0.2775,
         "hold_last": true,
         "rotation": {
           "x": 0,
@@ -2538,8 +2540,8 @@
       "model": {
         "id": "robot",
         "anim": "Punch",
-        "seek": 0.0417,
-        "seek_end": 0.25,
+        "seek": 0.0833,
+        "seek_end": 0.2775,
         "hold_last": true,
         "rotation": {
           "x": 0,
@@ -2589,8 +2591,8 @@
       "model": {
         "id": "robot",
         "anim": "Punch",
-        "seek": 0.25,
-        "seek_end": 0.2917,
+        "seek": 0.2775,
+        "seek_end": 0.3312,
         "hold_last": true,
         "rotation": {
           "x": 0,
@@ -2640,8 +2642,8 @@
       "model": {
         "id": "robot",
         "anim": "Punch",
-        "seek": 0.2917,
-        "seek_end": 0.3333,
+        "seek": 0.3312,
+        "seek_end": 0.385,
         "hold_last": true,
         "rotation": {
           "x": 0,
@@ -2655,7 +2657,7 @@
       "name": "rowing",
       "wait": 5,
       "next": {
-        "id": "219"
+        "id": "105_r"
       },
       "state": 6,
       "centerx": 39,
@@ -2694,8 +2696,8 @@
       "model": {
         "id": "robot",
         "anim": "Punch",
-        "seek": 0.3333,
-        "seek_end": 0.375,
+        "seek": 0.385,
+        "seek_end": 0.4387,
         "hold_last": true,
         "rotation": {
           "x": 0,
@@ -2709,7 +2711,7 @@
       "name": "rowing",
       "wait": 5,
       "next": {
-        "id": "219"
+        "id": "106_r"
       },
       "state": 6,
       "centerx": 39,
@@ -2745,8 +2747,8 @@
       "model": {
         "id": "robot",
         "anim": "Punch",
-        "seek": 0.0417,
-        "seek_end": 0.25,
+        "seek": 0.0833,
+        "seek_end": 0.2775,
         "hold_last": true,
         "rotation": {
           "x": 0,
@@ -2760,7 +2762,7 @@
       "name": "rowing",
       "wait": 5,
       "next": {
-        "id": "219"
+        "id": "107_r"
       },
       "state": 6,
       "centerx": 39,
@@ -2796,8 +2798,8 @@
       "model": {
         "id": "robot",
         "anim": "Punch",
-        "seek": 0.0417,
-        "seek_end": 0.25,
+        "seek": 0.0833,
+        "seek_end": 0.2775,
         "hold_last": true,
         "rotation": {
           "x": 0,
@@ -2831,7 +2833,7 @@
         "id": "robot",
         "anim": "Punch",
         "seek": 0,
-        "seek_end": 0.0417,
+        "seek_end": 0.0833,
         "hold_last": true,
         "rotation": {
           "x": 0,
@@ -2844,7 +2846,9 @@
       "id": "109",
       "name": "rowing",
       "wait": 13,
-      "next": {},
+      "next": {
+        "id": "109_r"
+      },
       "state": 6,
       "centerx": 39,
       "centery": 79,
@@ -2861,8 +2865,8 @@
       "model": {
         "id": "robot",
         "anim": "Punch",
-        "seek": 0.0417,
-        "seek_end": 0.25,
+        "seek": 0.0833,
+        "seek_end": 0.2775,
         "hold_last": true,
         "rotation": {
           "x": 0,
@@ -7072,6 +7076,665 @@
         "anim": "Running",
         "loop": true,
         "time_scale": 2.2
+      }
+    },
+    "23_r": {
+      "id": "23_r",
+      "name": "normal_weapon_atck",
+      "wait": 18,
+      "next": {
+        "id": "auto"
+      },
+      "state": 3,
+      "centerx": 40,
+      "centery": 79,
+      "bdy": [
+        {
+          "kind": 0,
+          "kind_name": "BdyKind.Normal",
+          "x": 41,
+          "y": 19,
+          "w": 29,
+          "h": 61,
+          "z": -12,
+          "l": 24,
+          "hit_flag": 61
+        },
+        {
+          "kind": 0,
+          "kind_name": "BdyKind.Normal",
+          "x": 25,
+          "y": 61,
+          "w": 17,
+          "h": 18,
+          "z": -12,
+          "l": 24,
+          "hit_flag": 61
+        }
+      ],
+      "wpoint": {
+        "kind": 1,
+        "x": 75,
+        "y": 55,
+        "weaponact": 24,
+        "z": 2
+      },
+      "state_name": "StateEnum.Attacking",
+      "width": 79,
+      "height": 79,
+      "model": {
+        "id": "robot",
+        "anim": "Punch",
+        "seek": 0.2775,
+        "seek_end": 0.6,
+        "hold_last": true,
+        "rotation": {
+          "x": 0,
+          "y": 0.7853981633974483,
+          "z": 0
+        }
+      }
+    },
+    "28_r": {
+      "id": "28_r",
+      "name": "normal_weapon_atck",
+      "wait": 18,
+      "next": {
+        "id": "auto"
+      },
+      "state": 3,
+      "centerx": 17,
+      "centery": 79,
+      "bdy": [
+        {
+          "kind": 0,
+          "kind_name": "BdyKind.Normal",
+          "x": 10,
+          "y": 23,
+          "w": 31,
+          "h": 55,
+          "z": -12,
+          "l": 24,
+          "hit_flag": 61
+        }
+      ],
+      "wpoint": {
+        "kind": 1,
+        "x": 5,
+        "y": 52,
+        "weaponact": 25,
+        "z": 2
+      },
+      "state_name": "StateEnum.Attacking",
+      "width": 79,
+      "height": 79,
+      "model": {
+        "id": "robot",
+        "anim": "Punch",
+        "seek": 0.2775,
+        "seek_end": 0.6,
+        "hold_last": true,
+        "rotation": {
+          "x": 0,
+          "y": 0.7853981633974483,
+          "z": 0
+        }
+      }
+    },
+    "31_r": {
+      "id": "31_r",
+      "name": "jump_weapon_atck",
+      "wait": 15,
+      "next": {
+        "id": "auto"
+      },
+      "state": 3,
+      "centerx": 19,
+      "centery": 91,
+      "bdy": [
+        {
+          "kind": 0,
+          "kind_name": "BdyKind.Normal",
+          "x": 11,
+          "y": 32,
+          "w": 33,
+          "h": 43,
+          "z": -12,
+          "l": 24,
+          "hit_flag": 61
+        }
+      ],
+      "wpoint": {
+        "kind": 1,
+        "x": 37,
+        "y": 68,
+        "weaponact": 25,
+        "attacking": "2",
+        "z": 2
+      },
+      "state_name": "StateEnum.Attacking",
+      "width": 79,
+      "height": 79,
+      "model": {
+        "id": "robot",
+        "anim": "Punch",
+        "seek": 0.2775,
+        "seek_end": 0.6,
+        "hold_last": true,
+        "rotation": {
+          "x": 0,
+          "y": 0.7853981633974483,
+          "z": 0
+        }
+      }
+    },
+    "37_r": {
+      "id": "37_r",
+      "name": "run_weapon_atck",
+      "wait": 15,
+      "next": {
+        "id": "auto"
+      },
+      "state": 3,
+      "centerx": 44,
+      "centery": 79,
+      "bdy": [
+        {
+          "kind": 0,
+          "kind_name": "BdyKind.Normal",
+          "x": 28,
+          "y": 16,
+          "w": 34,
+          "h": 64,
+          "z": -12,
+          "l": 24,
+          "hit_flag": 61
+        }
+      ],
+      "wpoint": {
+        "kind": 1,
+        "x": 29,
+        "y": 42,
+        "weaponact": 23,
+        "z": 2
+      },
+      "state_name": "StateEnum.Attacking",
+      "width": 79,
+      "height": 79,
+      "model": {
+        "id": "robot",
+        "anim": "Punch",
+        "seek": 0.2775,
+        "seek_end": 0.6,
+        "hold_last": true,
+        "rotation": {
+          "x": 0,
+          "y": 0.7853981633974483,
+          "z": 0
+        }
+      }
+    },
+    "41_r": {
+      "id": "41_r",
+      "name": "dash_weapon_atck",
+      "wait": 15,
+      "next": {
+        "id": "auto"
+      },
+      "state": 3,
+      "centerx": 21,
+      "centery": 89,
+      "bdy": [
+        {
+          "kind": 0,
+          "kind_name": "BdyKind.Normal",
+          "x": 8,
+          "y": 32,
+          "w": 33,
+          "h": 45,
+          "z": -12,
+          "l": 24,
+          "hit_flag": 61
+        }
+      ],
+      "wpoint": {
+        "kind": 1,
+        "x": 37,
+        "y": 69,
+        "weaponact": 25,
+        "attacking": "4",
+        "z": 2
+      },
+      "state_name": "StateEnum.Attacking",
+      "width": 79,
+      "height": 79,
+      "model": {
+        "id": "robot",
+        "anim": "Punch",
+        "seek": 0.2775,
+        "seek_end": 0.6,
+        "hold_last": true,
+        "rotation": {
+          "x": 0,
+          "y": 0.7853981633974483,
+          "z": 0
+        }
+      }
+    },
+    "61_r": {
+      "id": "61_r",
+      "name": "punch",
+      "wait": 18,
+      "next": {
+        "id": "auto"
+      },
+      "state": 3,
+      "centerx": 39,
+      "centery": 79,
+      "bdy": [
+        {
+          "kind": 0,
+          "kind_name": "BdyKind.Normal",
+          "x": 39,
+          "y": 19,
+          "w": 21,
+          "h": 61,
+          "z": -12,
+          "l": 24,
+          "hit_flag": 61
+        },
+        {
+          "kind": 0,
+          "kind_name": "BdyKind.Normal",
+          "x": 51,
+          "y": 34,
+          "w": 26,
+          "h": 16,
+          "z": -12,
+          "l": 24,
+          "hit_flag": 61
+        }
+      ],
+      "state_name": "StateEnum.Attacking",
+      "width": 79,
+      "height": 79,
+      "model": {
+        "id": "robot",
+        "anim": "Punch",
+        "seek": 0.2775,
+        "seek_end": 0.6,
+        "hold_last": true,
+        "rotation": {
+          "x": 0,
+          "y": 0.7853981633974483,
+          "z": 0
+        }
+      }
+    },
+    "66_r": {
+      "id": "66_r",
+      "name": "punch",
+      "wait": 18,
+      "next": {
+        "id": "auto"
+      },
+      "state": 3,
+      "centerx": 39,
+      "centery": 79,
+      "bdy": [
+        {
+          "kind": 0,
+          "kind_name": "BdyKind.Normal",
+          "x": 28,
+          "y": 17,
+          "w": 29,
+          "h": 63,
+          "z": -12,
+          "l": 24,
+          "hit_flag": 61
+        },
+        {
+          "kind": 0,
+          "kind_name": "BdyKind.Normal",
+          "x": 45,
+          "y": 37,
+          "w": 32,
+          "h": 11,
+          "z": -12,
+          "l": 24,
+          "hit_flag": 61
+        }
+      ],
+      "state_name": "StateEnum.Attacking",
+      "broadcasts": [
+        "gim_punch"
+      ],
+      "width": 79,
+      "height": 79,
+      "model": {
+        "id": "robot",
+        "anim": "Punch",
+        "seek": 0.2775,
+        "seek_end": 0.6,
+        "hold_last": true,
+        "rotation": {
+          "x": 0,
+          "y": 0.7853981633974483,
+          "z": 0
+        }
+      }
+    },
+    "72_r": {
+      "id": "72_r",
+      "name": "super_punch",
+      "wait": 15,
+      "next": {
+        "id": "auto"
+      },
+      "state": 3,
+      "centerx": 46,
+      "centery": 79,
+      "bdy": [
+        {
+          "kind": 0,
+          "kind_name": "BdyKind.Normal",
+          "x": 31,
+          "y": 2,
+          "w": 27,
+          "h": 78,
+          "z": -12,
+          "l": 24,
+          "hit_flag": 61
+        }
+      ],
+      "state_name": "StateEnum.Attacking",
+      "width": 79,
+      "height": 79,
+      "model": {
+        "id": "robot",
+        "anim": "Punch",
+        "seek": 0.2775,
+        "seek_end": 0.6,
+        "hold_last": true,
+        "rotation": {
+          "x": 0,
+          "y": 0.7853981633974483,
+          "z": 0
+        }
+      }
+    },
+    "81_r": {
+      "id": "81_r",
+      "name": "jump_attack",
+      "wait": 15,
+      "next": {
+        "id": "auto"
+      },
+      "state": 3,
+      "centerx": 39,
+      "centery": 70,
+      "bdy": [
+        {
+          "kind": 0,
+          "kind_name": "BdyKind.Normal",
+          "x": 22,
+          "y": 19,
+          "w": 32,
+          "h": 60,
+          "z": -12,
+          "l": 24,
+          "hit_flag": 61
+        },
+        {
+          "kind": 0,
+          "kind_name": "BdyKind.Normal",
+          "x": 45,
+          "y": 20,
+          "w": 28,
+          "h": 27,
+          "z": -12,
+          "l": 24,
+          "hit_flag": 61
+        }
+      ],
+      "state_name": "StateEnum.Attacking",
+      "width": 79,
+      "height": 79,
+      "model": {
+        "id": "robot",
+        "anim": "Punch",
+        "seek": 0.2775,
+        "seek_end": 0.6,
+        "hold_last": true,
+        "rotation": {
+          "x": 0,
+          "y": 0.7853981633974483,
+          "z": 0
+        }
+      }
+    },
+    "87_r": {
+      "id": "87_r",
+      "name": "run_attack",
+      "wait": 15,
+      "next": {
+        "id": "auto"
+      },
+      "state": 3,
+      "centerx": 14,
+      "centery": 79,
+      "bdy": [
+        {
+          "kind": 0,
+          "kind_name": "BdyKind.Normal",
+          "x": 18,
+          "y": 36,
+          "w": 39,
+          "h": 24,
+          "z": -12,
+          "l": 24,
+          "hit_flag": 61
+        },
+        {
+          "kind": 0,
+          "kind_name": "BdyKind.Normal",
+          "x": 2,
+          "y": 57,
+          "w": 41,
+          "h": 22,
+          "z": -12,
+          "l": 24,
+          "hit_flag": 61
+        }
+      ],
+      "state_name": "StateEnum.Attacking",
+      "broadcasts": [
+        "gim_run_attack"
+      ],
+      "width": 79,
+      "height": 79,
+      "model": {
+        "id": "robot",
+        "anim": "Punch",
+        "seek": 0.3801,
+        "seek_end": 0.6,
+        "hold_last": true,
+        "rotation": {
+          "x": 0,
+          "y": 0.7853981633974483,
+          "z": 0
+        }
+      }
+    },
+    "101_r": {
+      "id": "101_r",
+      "name": "rowing",
+      "wait": 15,
+      "next": {
+        "id": "auto"
+      },
+      "state": 6,
+      "centerx": 39,
+      "centery": 79,
+      "wpoint": {
+        "kind": 1,
+        "x": 53,
+        "y": 54,
+        "weaponact": 21,
+        "z": 2
+      },
+      "state_name": "StateEnum.Rowing",
+      "width": 79,
+      "height": 79,
+      "model": {
+        "id": "robot",
+        "anim": "Punch",
+        "seek": 0.2775,
+        "seek_end": 0.6,
+        "hold_last": true,
+        "rotation": {
+          "x": 0,
+          "y": 0.7853981633974483,
+          "z": 0
+        }
+      }
+    },
+    "105_r": {
+      "id": "105_r",
+      "name": "rowing",
+      "wait": 15,
+      "next": {
+        "id": "auto"
+      },
+      "state": 6,
+      "centerx": 39,
+      "centery": 79,
+      "wpoint": {
+        "kind": 1,
+        "x": 44,
+        "y": 74,
+        "weaponact": 22,
+        "z": 2
+      },
+      "state_name": "StateEnum.Rowing",
+      "dvx": 3.5,
+      "broadcasts": [
+        "gim_dodge"
+      ],
+      "width": 79,
+      "height": 79,
+      "model": {
+        "id": "robot",
+        "anim": "Punch",
+        "seek": 0.4387,
+        "seek_end": 0.6,
+        "hold_last": true,
+        "rotation": {
+          "x": 0,
+          "y": 0.7853981633974483,
+          "z": 0
+        }
+      }
+    },
+    "106_r": {
+      "id": "106_r",
+      "name": "rowing",
+      "wait": 18,
+      "next": {
+        "id": "auto"
+      },
+      "state": 6,
+      "centerx": 39,
+      "centery": 79,
+      "wpoint": {
+        "kind": 1,
+        "x": 42,
+        "y": 48,
+        "weaponact": 30,
+        "z": 2
+      },
+      "state_name": "StateEnum.Rowing",
+      "dvx": 3.5,
+      "width": 79,
+      "height": 79,
+      "model": {
+        "id": "robot",
+        "anim": "Punch",
+        "seek": 0.2775,
+        "seek_end": 0.6,
+        "hold_last": true,
+        "rotation": {
+          "x": 0,
+          "y": 0.7853981633974483,
+          "z": 0
+        }
+      }
+    },
+    "107_r": {
+      "id": "107_r",
+      "name": "rowing",
+      "wait": 18,
+      "next": {
+        "id": "auto"
+      },
+      "state": 6,
+      "centerx": 39,
+      "centery": 79,
+      "wpoint": {
+        "kind": 1,
+        "x": 32,
+        "y": 59,
+        "weaponact": 25,
+        "z": 2
+      },
+      "state_name": "StateEnum.Rowing",
+      "dvx": 3.5,
+      "width": 79,
+      "height": 79,
+      "model": {
+        "id": "robot",
+        "anim": "Punch",
+        "seek": 0.2775,
+        "seek_end": 0.6,
+        "hold_last": true,
+        "rotation": {
+          "x": 0,
+          "y": 0.7853981633974483,
+          "z": 0
+        }
+      }
+    },
+    "109_r": {
+      "id": "109_r",
+      "name": "rowing",
+      "wait": 15,
+      "next": {
+        "id": "auto"
+      },
+      "state": 6,
+      "centerx": 39,
+      "centery": 79,
+      "wpoint": {
+        "kind": 1,
+        "x": 53,
+        "y": 54,
+        "weaponact": 21,
+        "z": 2
+      },
+      "state_name": "StateEnum.Rowing",
+      "width": 79,
+      "height": 79,
+      "model": {
+        "id": "robot",
+        "anim": "Punch",
+        "seek": 0.2775,
+        "seek_end": 0.6,
+        "hold_last": true,
+        "rotation": {
+          "x": 0,
+          "y": 0.7853981633974483,
+          "z": 0
+        }
       }
     }
   }
