@@ -1,13 +1,24 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import json5 from "json5";
 import format_xml from "xml-formatter";
 import type { LFW } from "@/LFW";
 import { usePreviewer } from "./ctx";
 import { load_image } from "./load_image";
-import { ModelPreview } from "./ModelPreview";
+import { ModelPreview, type IModelViewRequest, type TModelView } from "./ModelPreview";
 import csses from "./styles.module.scss";
 
 type TKind = "image" | "model" | "audio" | "text" | "binary";
+
+/** 3D 预览的标准视图按钮（blender 风格，快捷键写在 title 里） */
+const MODEL_VIEW_BUTTONS: readonly { id: TModelView; label: string; hint: string }[] = [
+  { id: "front", label: "前", hint: "前视图：从 +Z 方向看（快捷键 1）" },
+  { id: "back", label: "后", hint: "后视图：从 -Z 方向看（Ctrl+1）" },
+  { id: "left", label: "左", hint: "左视图：从 -X 方向看（Ctrl+3）" },
+  { id: "right", label: "右", hint: "右视图：从 +X 方向看（3）" },
+  { id: "top", label: "上", hint: "俯视图：从 +Y 往下看（7）" },
+  { id: "bottom", label: "下", hint: "仰视图：从 -Y 往上看（Ctrl+7）" },
+  { id: "user", label: "复位", hint: "回到默认的三维视角（0）" },
+];
 
 const IMG_RE = /\.(png|jpe?g|gif|bmp|webp|svg)$/i;
 const MODEL_RE = /\.(glb|gltf)$/i;
@@ -229,6 +240,14 @@ export function ResourcePreviewer() {
   const [pretty, set_pretty] = useState(true);
   const [error, set_error] = useState<string>();
   const [zoom, set_zoom] = useState(1);
+  /** 3D 预览：默认正交投影，坐标轴默认开着 */
+  const [model_ortho, set_model_ortho] = useState(true);
+  const [model_axes, set_model_axes] = useState(true);
+  /** 3D 预览的视图切换请求（序号自增，同一个视图连点也能重新摆位） */
+  const [view_req, set_view_req] = useState<IModelViewRequest>();
+  const request_view = useCallback((name: TModelView) => {
+    set_view_req((prev) => ({ name, n: (prev?.n ?? 0) + 1 }));
+  }, []);
   /** 用户手动改过展开状态的目录（没记过的按默认规则算） */
   const [toggled, set_toggled] = useState<Record<string, boolean>>({});
 
@@ -345,7 +364,15 @@ export function ResourcePreviewer() {
             </div>
           )}
           {content?.kind === "model" && lfw && (
-            <ModelPreview key={content.path} lfw={lfw} path={content.path} />
+            <ModelPreview
+              key={content.path}
+              lfw={lfw}
+              path={content.path}
+              ortho={model_ortho}
+              axes={model_axes}
+              view={view_req}
+              on_view={request_view}
+            />
           )}
           {content?.kind === "text" && (
             <pre className={csses.text_view}>
@@ -391,6 +418,35 @@ export function ResourcePreviewer() {
           <div className={csses.cam_row}>
             <span className={csses.label}>类型</span>
             <span className={csses.muted}>{content ? KIND_LABEL[content.kind] : "-"}</span>
+            {content?.kind === "model" && (
+              <>
+                <span className={csses.label}>相机</span>
+                <div className={csses.fit_group}>
+                  <button
+                    className={`${csses.fit_btn}${model_ortho ? " " + csses.fit_btn_active : ""}`}
+                    title="正交投影：没有近大远小，看尺寸/位置更准"
+                    onClick={() => set_model_ortho(true)}
+                  >
+                    正交
+                  </button>
+                  <button
+                    className={`${csses.fit_btn}${model_ortho ? "" : " " + csses.fit_btn_active}`}
+                    title="透视投影：有近大远小的纵深感"
+                    onClick={() => set_model_ortho(false)}
+                  >
+                    透视
+                  </button>
+                </div>
+                <label className={csses.check}>
+                  <input
+                    type="checkbox"
+                    checked={model_axes}
+                    onChange={(e) => set_model_axes(e.target.checked)}
+                  />
+                  坐标轴
+                </label>
+              </>
+            )}
             {content?.kind === "text" && content.pretty !== void 0 && (
               <label className={csses.check}>
                 <input
@@ -403,6 +459,25 @@ export function ResourcePreviewer() {
             )}
             <div className={csses.spacer} />
             <div className={csses.muted}>{content ? fmt_size(content.size) : "-"}</div>
+          </div>
+        )}
+        {content?.kind === "model" && (
+          <div className={csses.cam_row}>
+            <span className={csses.label}>视图</span>
+            <div className={csses.fit_group}>
+              {MODEL_VIEW_BUTTONS.map((v) => (
+                <button
+                  key={v.id}
+                  className={csses.fit_btn}
+                  title={v.hint}
+                  onClick={() => request_view(v.id)}
+                >
+                  {v.label}
+                </button>
+              ))}
+            </div>
+            <div className={csses.spacer} />
+            <span className={csses.muted}>点一下画面后：1 前 / 3 右 / 7 上（Ctrl 取反），0 复位</span>
           </div>
         )}
         <div className={csses.toolbar}>
