@@ -1,8 +1,14 @@
-import { execSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
 import { zip } from "compressing";
-import { APP_NAME, DIST, ICON, ROOT, check_build_tools, dir_size, electron_version, fail, prepare_build_dir, quote, read_pkg, set_prefix, stage_app, stage_extra, stage_game, step, walk } from "./desktop-stage.mjs";
+import { execSync } from "node:child_process";
+import {
+  cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync
+} from "node:fs";
+import { join, relative } from "node:path";
+import {
+  APP_NAME, DIST, ICON, ROOT, check_build_tools, dir_size, electron_version,
+  fail, prepare_build_dir, quote, read_pkg, set_prefix, stage_app, stage_extra,
+  stage_game, step, walk
+} from "./desktop-stage.mjs";
 
 set_prefix("[build-desktop]");
 const FLAGS = new Set(process.argv.slice(2));

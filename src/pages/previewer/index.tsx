@@ -29,8 +29,6 @@ const TABS: readonly ITab[] = [
 export default function PreviewerPage() {
   const nav = useNavigate();
   const l = useLocation();
-  /** 托盘「打开预览器」开的是独立工具窗口（`?tool=1`，见 desktop/app/main.mjs），里面没有游戏窗口可返回 */
-  const in_tool_window = new URLSearchParams(l.search).get("tool") === "1";
   const [progress, set_progress] = useState("");
   const { lfw, ready, error } = useLFW({
     muted: true,
@@ -74,9 +72,13 @@ export default function PreviewerPage() {
           </div>
           <div className={csses.divider} />
           <button className={csses.btn} onClick={() => window.location.reload()}>刷新</button>
-          {!in_tool_window && (
-            <button className={csses.btn} onClick={() => nav(Paths.Paths.game, { replace: true })}>返回游戏</button>
-          )}
+          {/* 查询串原样带回去：游戏页靠 URL 里的 DANMU_WS 建弹幕桥连接（见 src/danmu_bridge.ts） */}
+          <button
+            className={csses.btn}
+            onClick={() => nav({ pathname: Paths.Paths.game, search: l.search }, { replace: true })}
+          >
+            返回游戏
+          </button>
           <div className={csses.muted}>{progress}</div>
           <div className={csses.spacer} />
           {is_desktop && (

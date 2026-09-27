@@ -822,7 +822,7 @@ function App() {
         </Button>
         <Button onClick={() => set_dat_viewer_open(true)}>查看dat文件</Button>
         <Button onClick={() => set_editor_open(true)}>查看数据包</Button>
-        <Button onClick={() => nav(Paths.Paths.previewer)}>预览器</Button>
+        <Button onClick={() => nav({ pathname: Paths.Paths.previewer, search: l.search })}>预览器</Button>
         <Select
           options={["top", "bottom", "left", "right"] as const}
           parse={(v) => [v, "位置：" + v]}

@@ -494,19 +494,23 @@ function game_page_addr(host) {
   return `http://${host}:${GAME_STATE.port}/`;
 }
 
-function game_page_url() {
+/**
+ * 游戏页 / 预览页都要带的弹幕桥参数值：同机默认 `1`，否则给完整 ws 地址（没起桥则为空）。
+ *
+ * 页面靠 URL 里的 `DANMU_WS` 建连（见 src/danmu_bridge.ts），所以只要在页面之间跳转就得一路带着它。
+ */
+function danmu_ws_arg() {
+  if (!bridge) return "";
   const page_host = game_page_host();
   const lan_host = GAME_STATE.lan ? lan_ip() : "";
-  const ws = !bridge
-    ? ""
-    : bridge_port === DEFAULT_BRIDGE_PORT && page_host === "127.0.0.1" && !lan_host
-      ? "1"
-      : `ws://${lan_host || page_host}:${bridge_port}`;
-  return `http://${page_host}:${GAME_STATE.port}/#/${ws ? `?DANMU_WS=${ws}` : ""}`;
+  if (bridge_port === DEFAULT_BRIDGE_PORT && page_host === "127.0.0.1" && !lan_host) return "1";
+  return `ws://${lan_host || page_host}:${bridge_port}`;
 }
 
-/** 已打开的工具页面窗口（同一 hash 只开一个） */
-const tool_windows = new Map();
+function game_page_url() {
+  const ws = danmu_ws_arg();
+  return `http://${game_page_host()}:${GAME_STATE.port}/#/${ws ? `?DANMU_WS=${ws}` : ""}`;
+}
 
 function toggle_devtools(webContents) {
   if (!webContents || webContents.isDestroyed()) return;
@@ -514,12 +518,11 @@ function toggle_devtools(webContents) {
   else webContents.openDevTools({ mode: "detach" });
 }
 
-/** 托盘「开发者工具」：作用于当前聚焦的窗口，没有则回退到游戏窗口 / 第一个工具窗口 */
+/** 托盘「开发者工具」：作用于当前聚焦的窗口，没有则回退到游戏窗口 */
 function toggle_focused_devtools() {
   const focused = BrowserWindow.getFocusedWindow();
   if (focused && !focused.isDestroyed()) return toggle_devtools(focused.webContents);
   if (win && !win.isDestroyed()) return toggle_devtools(win.webContents);
-  for (const w of tool_windows.values()) if (!w.isDestroyed()) return toggle_devtools(w.webContents);
 }
 
 /**
@@ -541,62 +544,20 @@ function bind_devtools(webContents) {
   });
 }
 
-function tool_page_url(hash) {
-  return `http://${game_page_host()}:${GAME_STATE.port}/#${hash}`;
-}
-
 /**
- * 打开（或聚焦）一个工具页面窗口。
+ * 托盘「打开预览器」：直接让主窗口切到预览页（背景 / 物体 / 图片预览），见 src/pages/previewer
  *
- * 用系统标题栏（`frame` 默认开启）：工具页没有游戏页那套自绘的最小化 / 关闭按钮。
- */
-function open_tool_window(hash, title) {
-  const url = tool_page_url(hash);
-  const opened = tool_windows.get(hash);
-  if (opened && !opened.isDestroyed()) {
-    opened.show();
-    opened.focus();
-    return opened;
-  }
-  const tool_win = new BrowserWindow({
-    width: WIDTH,
-    height: HEIGHT,
-    minWidth: MIN_WIDTH,
-    minHeight: MIN_HEIGHT,
-    backgroundColor: "#0F1830",
-    title,
-    // 无边框：工具窗口不用原生标题栏（会多出一条独立顶栏），改用页面自绘的三件套（见 src/pages/previewer）
-    frame: false,
-    webPreferences: {
-      preload: join(app_dir, "preload.cjs"),
-      contextIsolation: true,
-      nodeIntegration: false,
-      spellcheck: false,
-    },
-  });
-  // 不让页面 title 覆盖窗口标题（无边框后标题栏不可见，但任务栏 / Alt+Tab 用它）
-  tool_win.on("page-title-updated", (event) => event.preventDefault());
-  tool_win.setMenuBarVisibility(false);
-  bind_devtools(tool_win.webContents);
-  tool_win.webContents.setWindowOpenHandler(({ url: target }) => {
-    if (/^https?:/i.test(target)) shell.openExternal(target).catch(() => void 0);
-    return { action: "deny" };
-  });
-  tool_win.on("closed", () => tool_windows.delete(hash));
-  tool_windows.set(hash, tool_win);
-  if (ARGS.devtools) tool_win.webContents.openDevTools({ mode: "detach" });
-  log(`打开工具窗口: ${title} → ${url}`);
-  void tool_win.loadURL(url);
-  return tool_win;
-}
-
-/**
- * 托盘「打开预览器」：数据预览页（背景 / 物体 / 图片），见 src/pages/previewer
- *
- * `?tool=1` 是给页面的标记：它开在独立工具窗口里，没有游戏窗口可返回，页面据此藏掉「返回游戏」。
+ * 不另开窗口：预览页自己带「返回游戏」能切回来。切过去会重载页面、丢掉当前对局，这是有意接受的代价。
  */
 function open_previewer() {
-  return open_tool_window("/previewer?tool=1", "Little Fighter Wemake 预览器");
+  if (!win || win.isDestroyed()) return;
+  win.show();
+  win.focus();
+  // 带上 DANMU_WS：预览页里「返回游戏」会把查询串原样带回去，弹幕桥连接不会因为绕一圈就断
+  const ws = danmu_ws_arg();
+  const url = `http://${game_page_host()}:${GAME_STATE.port}/#/previewer${ws ? `?DANMU_WS=${ws}` : ""}`;
+  log(`主窗口切换到预览器: ${url}`);
+  void win.loadURL(url);
 }
 
 async function set_game_lan(lan) {
