@@ -51,6 +51,7 @@ export interface IEntityRenderer {
 }
 export class Entity {
   static readonly TAG: string = 'Entity';
+  static readonly MotionlessWaitTicks: number = 16;
   lfw: LFW;
   world: World;
   id: string = '';
@@ -160,6 +161,7 @@ export class Entity {
   protected _arest: number = 0;
   public motionless: number = 0;
   public shaking: number = 0;
+  protected _motionless_ticks: number = 0;
 
   /**
    * 燃烧/坠落状态中，本次是否已弹跳过（防止重复弹跳）
@@ -711,6 +713,7 @@ export class Entity {
     this._origin_data_id = data.id;
     this.id = lfw.new_id;
     this.wait = 0;
+    this._motionless_ticks = 0;
     this._lifetime = 0;
     this.fallinjury = 0;
     this._ground_y = 0;
@@ -978,6 +981,7 @@ export class Entity {
   }
 
   set_frame(v: IFrameInfo) {
+    this._motionless_ticks = 0;
     if (v.id === GONE_FRAME_INFO.id) {
       this._opoints.length = 0
     } else if (this._opoints.length) {
@@ -1621,8 +1625,16 @@ export class Entity {
         !this.catcher &&
         !this.bearer
       ) {
+        this._motionless_ticks = 0;
         this.wait = rf(this.wait - this._atom_time)
         if (this.wait < 0) this.wait = 0;
+      } else if (this.motionless > 0 && !this.catcher && !this.bearer) {
+        this._motionless_ticks = rf(this._motionless_ticks + this._atom_time)
+        if (this._motionless_ticks >= Entity.MotionlessWaitTicks) {
+          this._motionless_ticks = 0;
+          this.wait = rf(this.wait - this._atom_time)
+          if (this.wait < 0) this.wait = 0;
+        }
       }
     } else if (this.frame.next) {
       this.enter_frame(this.frame.next)
