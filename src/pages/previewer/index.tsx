@@ -31,18 +31,18 @@ export default function PreviewerPage() {
   const nav = useNavigate();
   const l = useLocation();
   const [progress, set_progress] = useState("");
-  const [loading, set_loading] = useState<{ value: number; size?: number }>({ value: 0 });
+  const [loading, set_loading] = useState<{ value: number; size?: number }>();
   const { lfw, ready, error } = useLFW({
     muted: true,
     hide_ui: true,
     on_progress: (content, value, size) => {
-      set_progress(`${content} ${Math.round(value)}%`);
-      set_loading({ value, size });
+      set_progress(content);
+      if (size !== undefined || (value > 0 && value < 100)) set_loading({ value, size });
     },
   });
   const [tab_id, set_tab_id] = useState(TABS[0].id);
   /** 画布显示模式（object-fit），背景 / 物体两个 tab 共用 */
-  const [fit, set_fit] = useState<TCanvasFit>("contain");
+  const [fit, set_fit] = useState<TCanvasFit>("cover");
   const tab = TABS.find((v) => v.id === tab_id) ?? TABS[0];
 
   // 桌面客户端（无边框窗口）：窗口控制按钮自己画，样式与游戏页右上角那套一致
@@ -109,10 +109,12 @@ export default function PreviewerPage() {
           ) : (
             <div className={csses.body_msg}>
               <div>数据包加载中…</div>
-              <div className={csses.body_progress}>
-                {Math.round(loading.value)}%
-                {loading.size ? ` · ${get_short_file_size_txt(loading.size)}` : ""}
-              </div>
+              {loading ? (
+                <div className={csses.body_progress}>
+                  {Math.round(loading.value)}%
+                  {loading.size ? ` · ${get_short_file_size_txt(loading.size)}` : ""}
+                </div>
+              ) : null}
             </div>
           )}
         </div>

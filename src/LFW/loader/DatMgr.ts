@@ -210,9 +210,13 @@ class Inner {
     }
     const data = await this.solve_index_files(index_files);
     if (this.cancelled) throw new Error("cancelled");
+    const total = data.bots.length + (data.moves?.length ?? 0) + data.objects.length + data.backgrounds.length + data.stages.length;
+    let loaded = 0;
+    const report = (file: string) => this.lfw.emit_progress(`${file}`, total ? Math.floor((loaded * 100) / total) : 0);
     for (const { id, file, skipped } of data.bots) {
+      loaded++;
       if (skipped) continue;
-      this.lfw.emit_progress(`${file}`, 0);
+      report(file);
       const raw = await this.lfw.resources.import_json<IBotData>(file, true)
         .then(r => {
           return r.data
@@ -231,8 +235,9 @@ class Inner {
     }
 
     for (const { id, file, skipped } of data.moves ?? []) {
+      loaded++;
       if (skipped) continue;
-      this.lfw.emit_progress(`${file}`, 0);
+      report(file);
       const raw = await this.lfw.resources.import_json<IMoveListData>(file, true)
         .then(r => r.data)
         .catch(() => {
@@ -248,10 +253,11 @@ class Inner {
     }
 
     for (const { id, file, alias, skipped } of data.objects) {
+      loaded++;
       if (skipped) continue;
       if (this.cancelled) throw new Error("cancelled");
       try {
-        this.lfw.emit_progress(`${file}`, 0);
+        report(file);
         const raw = file.endsWith(".obj.xml") || file.endsWith(".xml")
           ? xml_2_entity_data((await this.lfw.resources.import_xml(file, true)).data)
           : await this.lfw.resources.import_json<IEntityData>(file, true).then(r => r.data);
@@ -265,10 +271,11 @@ class Inner {
       }
     }
     for (const { id, file, skipped } of data.backgrounds) {
+      loaded++;
       if (skipped) continue;
       if (this.cancelled) throw new Error("cancelled");
       try {
-        this.lfw.emit_progress(`${file}`, 0);
+        report(file);
         const raw = file.endsWith(".bg.xml")
           ? xml_2_bg_data((await this.lfw.resources.import_xml(file, true)).data)
           : await this.lfw.resources.import_json(file, true).then(r => r.data);
@@ -280,15 +287,15 @@ class Inner {
     }
     const stages: IStageInfo[] = []
     for (const stage_file of data.stages) {
+      loaded++;
       if (stage_file.skipped) continue;
-      this.lfw.emit_progress(`${stage_file.file}`, 0);
+      report(stage_file.file);
       const stage_datas = stage_file.file.endsWith(".xml") || stage_file.file.endsWith(".stage.xml")
         ? xml_to_stage_info_list((await this.lfw.resources.import_xml(stage_file.file, true)).data)
         : await this.lfw.resources.import_json<IStageInfo[]>(stage_file.file, true)
           .then(r => r.data)
           .catch(e => { Ditto.warn(`FAILED TO LOAD STATE: ${stage_file.file}`); return [] as IStageInfo[] });
       if (this.cancelled) throw new Error("cancelled");
-      this.lfw.emit_progress(`${stage_file.file}`, 100);
       for (const stage of stage_datas) {
         stages.push(preprocess_stage(stage))
       }

@@ -121,7 +121,7 @@ export function EntityPreviewer() {
   const [locked, set_locked] = useState(false);
   const [hover, set_hover] = useState(false);
   const [gravity, set_gravity] = useState(true);
-  const [flags, set_flags] = useState(ENTITY_INDICATINGS.ft | ENTITY_INDICATINGS.frame);
+  const [flags, set_flags] = useState(ENTITY_INDICATINGS.ft);
   const [cur_frame_id, set_cur_frame_id] = useState("");
   const [, set_ver] = useState(0);
   // 滞空开关：recenter 里按这个 ref 决定贴地还是抬到 HOVER_Y（用 ref 免于让 recenter 换身份）

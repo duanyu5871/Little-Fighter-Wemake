@@ -2,8 +2,8 @@ import { usePreviewer, type TCanvasFit } from "./ctx";
 import csses from "./styles.module.scss";
 
 const MODES: readonly { id: TCanvasFit; label: string; hint: string }[] = [
-  { id: "contain", label: "适应", hint: "保持比例完整显示，可能留黑边" },
   { id: "cover", label: "填充", hint: "保持比例铺满，超出部分裁掉" },
+  { id: "contain", label: "适应", hint: "保持比例完整显示，可能留黑边" },
   { id: "fill", label: "拉伸", hint: "铺满，不保持比例（会变形）" },
   { id: "none", label: "原始", hint: "按画布自身像素显示，不缩放" },
 ];
