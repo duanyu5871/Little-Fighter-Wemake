@@ -24,8 +24,8 @@ const TYPES: ReadonlyArray<{ id: string; label: string; pick: (d: TDatas) => rea
   { id: "all", label: "全部", pick: (d) => d.objects },
   { id: "fighter", label: "角色", pick: (d) => d.fighters },
   { id: "weapon", label: "武器", pick: (d) => d.weapons },
-  { id: "ball", label: "弹道", pick: (d) => d.balls },
-  { id: "entity", label: "实体", pick: (d) => d.entities },
+  { id: "ball", label: "波", pick: (d) => d.balls },
+  { id: "entity", label: "其他", pick: (d) => d.entities },
 ];
 
 const INDICATORS: ReadonlyArray<{ key: keyof typeof ENTITY_INDICATINGS; label: string }> = [
@@ -115,8 +115,8 @@ export function EntityPreviewer() {
   const [keyword, set_keyword] = useState("");
   const [data_id, set_data_id] = useState("");
   const [entity, set_entity] = useState<Entity>();
-  /** -1 = 全部帧，否则是动作下标 */
-  const [motion_i, set_motion_i] = useState(-1);
+  /** 当前动作下标（没有动作的数据看 all_frames） */
+  const [motion_i, set_motion_i] = useState(0);
   const [running, set_running] = useState(true);
   const [locked, set_locked] = useState(false);
   const [hover, set_hover] = useState(false);
@@ -139,7 +139,8 @@ export function EntityPreviewer() {
   const data = useMemo(() => lfw?.datas.find(data_id), [lfw, data_id]);
   const motions = useMemo(() => (data ? build_motions(data) : []), [data]);
   const all_frames = useMemo(() => (data ? Object.values(data.frames) : []), [data]);
-  const motion = motion_i >= 0 ? motions[motion_i] : undefined;
+  const motion = motions[motion_i];
+  /** 没有动作的数据（纯贴图/物件）就把全部帧当列表列出来 */
   const shown_frames = motion?.frames ?? all_frames;
 
   const frame = entity?.frame;
@@ -239,7 +240,7 @@ export function EntityPreviewer() {
   /** 换数据：只换自己的预览实体，背景/别人的实体都不碰 */
   const select_data = useCallback((id: string) => {
     set_data_id(id);
-    set_motion_i(-1);
+    set_motion_i(0);
     const d = lfw?.datas.find(id);
     if (d) set_cur_frame_id(spawn_entity(d)?.frame.id ?? "");
   }, [lfw, spawn_entity]);
@@ -250,7 +251,7 @@ export function EntityPreviewer() {
     const kept = last_preview_id ? lfw.world.entity_map.get(last_preview_id) : void 0;
     if (kept && kept.mounted && kept.frame.id !== FrameId.Gone) {
       set_entity(kept);
-      set_motion_i(-1);
+      set_motion_i(0);
       set_data_id(kept.data.id);
       set_cur_frame_id(kept.frame.id);
       focus(kept);
@@ -346,9 +347,9 @@ export function EntityPreviewer() {
             </label>
           ))}
         </div>
-        <div className={`${csses.section} ${csses.section_fill}`}>
+        <div className={csses.section}>
           <div className={csses.section_title}>
-            帧列表（{shown_frames.length}）{motion ? ` · ${motion.name}` : " · 全部帧"}
+            帧列表（{shown_frames.length}）{motion ? ` · ${motion.name}` : ""}
           </div>
           <div className={csses.frame_list}>
             {shown_frames.map((f, i) => (
@@ -402,13 +403,6 @@ export function EntityPreviewer() {
         <div className={`${csses.section} ${csses.section_fill}`}>
           <div className={csses.section_title}>动作列表（{motions.length}）</div>
           <div className={csses.motion_list}>
-            <button
-              className={`${csses.bg_item}${motion_i < 0 ? " " + csses.bg_item_active : ""}`}
-              onClick={() => set_motion_i(-1)}
-            >
-              <span className={csses.bg_name}>全部帧</span>
-              <span className={csses.muted}>{all_frames.length}</span>
-            </button>
             {motions.map((m, i) => (
               <button
                 key={m.name + "#" + i}

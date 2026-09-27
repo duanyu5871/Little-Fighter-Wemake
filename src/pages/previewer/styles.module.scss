@@ -316,6 +316,63 @@
   background  : #182742;
 }
 
+/* 资源树：撑满整列（默认的 bg_list 只给 220px） */
+.bg_list_fill {
+  flex      : 1;
+  max-height: none;
+}
+
+/* 目录行：不抢按钮的底色，看着像树节点 */
+.bg_item_dir {
+  align-items: center;
+  background : transparent;
+  font-weight: 600;
+  color      : #9db4d8;
+
+  &:hover {
+    background  : #141d2e;
+    border-color: transparent;
+  }
+}
+
+.tree_arrow {
+  flex      : none;
+  width     : 10px;
+  font-size : 10px;
+  font-weight: 400;
+  line-height: 1;
+  color     : #7f93b3;
+}
+
+.tree_count {
+  flex     : none;
+  font-size: 10px;
+  font-weight: 400;
+  color    : #6d7f9c;
+}
+
+.tree_tools {
+  display    : flex;
+  align-items: center;
+  gap        : 6px;
+  padding    : 0 8px 6px;
+}
+
+.mini_btn {
+  flex         : none;
+  background   : #101827;
+  border       : 1px solid #24324a;
+  color        : #9db4d8;
+  border-radius: 4px;
+  padding      : 2px 8px;
+  font-size    : 11px;
+  cursor       : pointer;
+
+  &:hover {
+    border-color: #3a5a94;
+  }
+}
+
 .bg_name {
   flex     : 1;
   min-width: 0;
@@ -466,14 +523,15 @@
   flex-wrap  : wrap;
 }
 
+/* 帧列表：底下一条，横向排开、超出就滚动 */
 .frame_list {
-  overflow             : auto;
-  flex                 : 1;
-  min-height           : 0;
-  padding              : 0 8px 8px;
-  display              : grid;
-  grid-template-columns: repeat(auto-fill, minmax(56px, 1fr));
-  gap                  : 3px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  flex      : none;
+  padding   : 0 8px 8px;
+  display   : flex;
+  flex-wrap : nowrap;
+  gap       : 3px;
 }
 
 .motion_list {
@@ -487,11 +545,14 @@
 }
 
 .frame_btn {
+  flex         : none;
+  min-width    : 40px;
+  text-align   : center;
   background   : #101827;
   border       : 1px solid transparent;
   color        : #8fa1bd;
   border-radius: 3px;
-  padding      : 2px 4px;
+  padding      : 2px 6px;
   cursor       : pointer;
   font-size    : 11px;
   overflow     : hidden;
@@ -550,6 +611,18 @@
 
 .audio {
   width: 340px;
+}
+
+/* 模型预览的 canvas：铺满显示区（OrbitControls 直接在它上面转） */
+.model_canvas {
+  flex      : 1;
+  min-width : 0;
+  display   : block;
+  cursor    : grab;
+
+  &:active {
+    cursor: grabbing;
+  }
 }
 
 /* 文本 / hex：保持等宽不折行，白空格与长行靠外层 .img_box 滚动 */

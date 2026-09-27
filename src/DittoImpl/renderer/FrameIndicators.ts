@@ -172,21 +172,26 @@ export class FrameIndicators {
     const info = DOT.__indicator_info?.[this.face];
     if (!info) return;
 
-    const foot_x = this._x + info.x;
-    const foot_y = this._y + info.y;
+    // DOT 是个以原点为中心的 2x2 方框，脚点本身是它的中心
+    const foot_x = this._x + info.x + info.w / 2;
+    const foot_y = this._y + info.y + info.h / 2;
     const foot_z = this._z;
     const ground_ty = this._entity.ground_y - this._z / 2;
 
     const mp = INDICATORS_INFO.ft!;
+    const ft_mat = new T.LineMaterial({ ...mp, linewidth: 4 });
 
-    // 脚点：小十字
-    const dot_geo = new T.LineGeometry();
-    dot_geo.setPositions([
-      -3, 0, 0, 3, 0, 0,
-      0, -3, 0, 0, 3, 0,
-    ]);
-    const dot = new T.Line2(dot_geo, new T.LineMaterial({ ...mp, linewidth: 4 }));
-    dot.position.set(foot_x, foot_y, foot_z);
+    // 脚点：小十字。`LineGeometry.setPositions` 把点当成折线依次相连，
+    // 横竖四个端点写在一起会被连成箭头，所以拆成两根独立的线。
+    const CROSS_R = 3;
+    const h_geo = new T.LineGeometry();
+    h_geo.setPositions([-CROSS_R, 0, 0, CROSS_R, 0, 0]);
+    const v_geo = new T.LineGeometry();
+    v_geo.setPositions([0, -CROSS_R, 0, 0, CROSS_R, 0]);
+    const cross_h = new T.Line2(h_geo, ft_mat);
+    const cross_v = new T.Line2(v_geo, ft_mat);
+    cross_h.position.set(foot_x, foot_y, foot_z);
+    cross_v.position.set(foot_x, foot_y, foot_z);
 
     // 竖线：脚点 → 地面
     const vline_geo = new T.LineGeometry();
@@ -195,7 +200,7 @@ export class FrameIndicators {
     vline.position.set(foot_x, foot_y, foot_z);
     vline.scale.set(1, foot_y - ground_ty, 1);
 
-    // 地面圆
+    // 地面范围：正圆按地面透视压成椭圆（高度 = 宽度的一半）
     const CIRCLE_R = 10;
     const CIRCLE_SEG = 16;
     const cp: number[] = [];
@@ -211,28 +216,30 @@ export class FrameIndicators {
     circle_geo.setPositions(cp);
     const circle = new T.Line2(circle_geo, new T.LineMaterial({ ...mp, linewidth: 2 }));
     circle.position.set(foot_x, ground_ty, foot_z);
+    circle.scale.set(1, 0.5, 1);
 
     const group = new T.Object3D();
     group.name = 'ft_indicator';
-    group.add(dot, vline, circle);
+    group.add(cross_h, cross_v, vline, circle);
     this.body.add(group);
     this._indicators_map.ft[0] = group;
   }
 
   private _update_ft(): void {
     const group = this._indicators_map.ft[0];
-    if (!group || group.children.length < 3) return;
+    if (!group || group.children.length < 4) return;
 
     const info = DOT.__indicator_info?.[this.face];
     if (!info) return;
 
-    const foot_x = this._x + info.x;
-    const foot_y = this._y + info.y;
+    const foot_x = this._x + info.x + info.w / 2;
+    const foot_y = this._y + info.y + info.h / 2;
     const foot_z = this._z;
     const ground_ty = this._entity.ground_y - this._z / 2;
 
-    const [dot, vline, circle] = group.children;
-    dot.position.set(foot_x, foot_y, foot_z);
+    const [cross_h, cross_v, vline, circle] = group.children;
+    cross_h.position.set(foot_x, foot_y, foot_z);
+    cross_v.position.set(foot_x, foot_y, foot_z);
     vline.position.set(foot_x, foot_y, foot_z);
     vline.scale.set(1, foot_y - ground_ty, 1);
     circle.position.set(foot_x, ground_ty, foot_z);
