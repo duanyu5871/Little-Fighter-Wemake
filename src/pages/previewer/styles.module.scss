@@ -538,3 +538,28 @@
   transform-origin: center center;
   user-select    : none;
 }
+
+/* 资源 tab：音频 / 文本 / 二进制的显示区（与 .img_box 共用外框） */
+.center_col {
+  margin    : auto;
+  display   : flex;
+  flex-direction: column;
+  align-items: center;
+  gap       : 8px;
+}
+
+.audio {
+  width: 340px;
+}
+
+/* 文本 / hex：保持等宽不折行，白空格与长行靠外层 .img_box 滚动 */
+.text_view {
+  flex      : 1;
+  min-width : max-content;
+  margin    : 0;
+  padding   : 8px 10px;
+  color     : #c7d3ea;
+  font      : 12px/1.55 ui-monospace, SFMono-Regular, Consolas, "Courier New", monospace;
+  white-space: pre;
+  tab-size  : 2;
+}

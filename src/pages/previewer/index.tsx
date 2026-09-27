@@ -10,7 +10,7 @@ import { useLocation, useNavigate } from "react-router";
 import { BackgroundPreviewer } from "./BackgroundPreviewer";
 import { PreviewerContext, type TCanvasFit } from "./ctx";
 import { EntityPreviewer } from "./EntityPreviewer";
-import { ImagePreviewer } from "./ImagePreviewer";
+import { ResourcePreviewer } from "./ResourcePreviewer";
 import csses from "./styles.module.scss";
 
 interface ITab {
@@ -23,7 +23,7 @@ interface ITab {
 const TABS: readonly ITab[] = [
   { id: "bg", label: "背景", Component: BackgroundPreviewer },
   { id: "entity", label: "物体", Component: EntityPreviewer },
-  { id: "image", label: "图片", Component: ImagePreviewer },
+  { id: "resource", label: "资源", Component: ResourcePreviewer },
 ];
 
 export default function PreviewerPage() {
