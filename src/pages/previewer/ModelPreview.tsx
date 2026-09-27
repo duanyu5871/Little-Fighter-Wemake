@@ -97,6 +97,15 @@ interface IView {
   applied_req: number;
 }
 
+interface IPlay {
+  mixer?: T.AnimationMixer;
+  actions?: Map<string, T.AnimationAction>;
+  action?: T.AnimationAction;
+  playing: boolean;
+  loop: boolean;
+  speed: number;
+}
+
 /**
  * glTF / GLB 的三维预览：自动摆好相机与光照，拖动旋转、滚轮缩放。
  *
@@ -120,8 +129,16 @@ export function ModelPreview({ lfw, path, ortho, axes, view, on_view }: {
 }) {
   const ref_canvas = useRef<HTMLCanvasElement>(null);
   const ref_view = useRef<IView | undefined>(undefined);
+  const ref_play = useRef<IPlay>({ playing: true, loop: true, speed: 1 });
   const [ready, set_ready] = useState(false);
   const [error, set_error] = useState<string>();
+  const [clips, set_clips] = useState<readonly string[]>([]);
+  const [clip_name, set_clip_name] = useState("");
+  const [playing, set_playing] = useState(true);
+  const [loop, set_loop] = useState(true);
+  const [speed, set_speed] = useState(1);
+  const [time, set_time] = useState(0);
+  const [duration, set_duration] = useState(0);
 
   // 渲染器 / 场景 / 光照 / 坐标轴 / 模型：只在换文件时重建
   useEffect(() => {
@@ -192,8 +209,24 @@ export function ModelPreview({ lfw, path, ortho, axes, view, on_view }: {
       axes_group.scale.setScalar(Math.max(view.radius * 3, half_v * 4));
     };
 
+    let last_ms = performance.now();
+    let last_shown = -1;
     const loop = () => {
       if (disposed) return;
+      const now = performance.now();
+      const dt = Math.min(0.1, (now - last_ms) / 1000);
+      last_ms = now;
+      const play = ref_play.current;
+      const action = play.action;
+      if (play.mixer && action && play.playing) {
+        play.mixer.update(dt * play.speed);
+        const dur = action.getClip().duration;
+        const shown = play.loop ? action.time % dur : Math.min(action.time, dur);
+        if (Math.abs(shown - last_shown) > 0.04) {
+          last_shown = shown;
+          set_time(shown);
+        }
+      }
       view.controls?.update();
       fit_axes();
       view.renderer.render(scene, view.camera);
@@ -213,6 +246,16 @@ export function ModelPreview({ lfw, path, ortho, axes, view, on_view }: {
         view.radius = Math.max(size.x, size.y, size.z) / 2 || 1;
         view.init_dist = view.radius / Math.tan((FOV * Math.PI) / 360) * 1.7;
         view.half_h = view.init_dist * Math.tan((FOV * Math.PI) / 360);
+        const mixer = new T.AnimationMixer(gltf.scene);
+        const actions = new Map<string, T.AnimationAction>();
+        for (const clip of gltf.animations) actions.set(clip.name, mixer.clipAction(clip));
+        ref_play.current.mixer = mixer;
+        ref_play.current.actions = actions;
+        ref_play.current.action = void 0;
+        set_clips(gltf.animations.map((v) => v.name));
+        set_clip_name(gltf.animations[0]?.name ?? "");
+        set_duration(gltf.animations[0]?.duration ?? 0);
+        set_time(0);
         set_ready(true);
       })
       .catch((e: unknown) => {
@@ -225,6 +268,10 @@ export function ModelPreview({ lfw, path, ortho, axes, view, on_view }: {
       observer.disconnect();
       view.controls?.dispose();
       ref_view.current = void 0;
+      ref_play.current.mixer?.stopAllAction();
+      ref_play.current.mixer = void 0;
+      ref_play.current.actions = void 0;
+      ref_play.current.action = void 0;
       // 释放这次解析出来的 GPU 资源（场景是新建的，不碰共享缓存）
       scene.traverse((obj) => {
         const mesh = obj as T.Mesh;
@@ -315,6 +362,47 @@ export function ModelPreview({ lfw, path, ortho, axes, view, on_view }: {
     if (v) v.axes.visible = axes;
   }, [axes, ready]);
 
+  useEffect(() => {
+    const play = ref_play.current;
+    play.playing = playing;
+    play.loop = loop;
+    play.speed = speed;
+    const action = play.action;
+    if (!action) return;
+    action.setLoop(loop ? T.LoopRepeat : T.LoopOnce, loop ? Infinity : 1);
+    action.clampWhenFinished = !loop;
+    action.timeScale = speed;
+  }, [playing, loop, speed, clips]);
+
+  useEffect(() => {
+    const play = ref_play.current;
+    const action = play.actions?.get(clip_name);
+    if (!action) return;
+    if (play.actions) for (const other of play.actions.values()) other.stop();
+    play.action = action;
+    action.reset();
+    action.setLoop(loop ? T.LoopRepeat : T.LoopOnce, loop ? Infinity : 1);
+    action.clampWhenFinished = !loop;
+    action.timeScale = speed;
+    action.play();
+    set_duration(action.getClip().duration);
+    set_time(0);
+  }, [clip_name, clips]);
+
+  const seek = (v: number) => {
+    const play = ref_play.current;
+    const action = play.action;
+    if (!action) return;
+    action.time = v;
+    play.mixer?.update(0);
+    set_time(v);
+  };
+
+  const restart = () => {
+    ref_play.current.action?.reset().play();
+    set_time(0);
+  };
+
   // 快捷键：点一下画面（canvas 拿到焦点）后，数字键切视图
   const on_key_down = (e: ReactKeyboardEvent<HTMLCanvasElement>) => {
     const it = KEY_VIEWS[e.code];
@@ -334,6 +422,39 @@ export function ModelPreview({ lfw, path, ortho, axes, view, on_view }: {
       />
       {error && <div className={csses.center_text}>{error}</div>}
       {!ready && !error && <div className={csses.center_text}>模型解析中…</div>}
+      {ready && clips.length > 0 && (
+        <div className={csses.model_anim}>
+          <button onClick={() => set_playing(!playing)}>{playing ? "暂停" : "播放"}</button>
+          <button onClick={restart}>重播</button>
+          <button onClick={() => set_loop(!loop)} title="循环播放 / 播完停在最后一帧">
+            {loop ? "循环" : "单次"}
+          </button>
+          <select value={clip_name} onChange={(e) => set_clip_name(e.target.value)}>
+            {clips.map((name) => <option key={name} value={name}>{name}</option>)}
+          </select>
+          <input
+            type="range"
+            min={0}
+            max={Math.max(duration, 0.001)}
+            step={0.001}
+            value={Math.min(time, duration)}
+            onChange={(e) => seek(Number(e.target.value))}
+          />
+          <span className={csses.model_time}>{time.toFixed(2)} / {duration.toFixed(2)}s</span>
+          <span className={csses.model_time}>
+            倍速
+            <input
+              type="number"
+              step={0.1}
+              min={0.1}
+              max={4}
+              value={speed}
+              onChange={(e) => set_speed(Math.max(0.1, Number(e.target.value) || 1))}
+            />
+          </span>
+          <span className={csses.muted}>{clips.length} 个片段</span>
+        </div>
+      )}
     </>
   );
 }
