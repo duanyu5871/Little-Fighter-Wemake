@@ -136,8 +136,8 @@ jobs:
       - name: Build desktop installer & portable zip (NSIS)
         run: node scripts/build-installer.mjs --no-build
 
-      - name: Build Bilibili playable zip
-        run: node scripts/build-bili-playable.mjs --no-build
+      - name: Build desktop portable zip (Bilibili playable)
+        run: node scripts/build-desktop.mjs --no-build
 
       # 从 dist 目录内打包，压缩包不带顶层目录
       - name: Archive web dist (7z)

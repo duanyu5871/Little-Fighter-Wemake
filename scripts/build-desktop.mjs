@@ -4,7 +4,7 @@ import { join, relative } from "node:path";
 import { zip } from "compressing";
 import { APP_NAME, DIST, ICON, ROOT, check_build_tools, dir_size, electron_version, fail, prepare_build_dir, quote, read_pkg, set_prefix, stage_app, stage_extra, stage_game, step, walk } from "./desktop-stage.mjs";
 
-set_prefix("[build-playable]");
+set_prefix("[build-desktop]");
 const FLAGS = new Set(process.argv.slice(2));
 const NO_BUILD = FLAGS.has("--no-build");
 const NO_ZIP = FLAGS.has("--no-zip");
@@ -24,7 +24,7 @@ if (!NO_BUILD) {
 
 if (!existsSync(DIST)) fail(`找不到 ${DIST}，请先执行 npx vite build`);
 
-const BUILD = prepare_build_dir("desktop-playable");
+const BUILD = prepare_build_dir("desktop-portable");
 const APP = join(BUILD, "app");
 const GAME = join(BUILD, "game");
 mkdirSync(APP, { recursive: true });
@@ -103,4 +103,4 @@ if (!NO_ZIP) {
   if (zip_mb > 500) fail(`超过 B站 500MB 上限（${zip_mb.toFixed(1)} MB），需要用 --no-converters 或删减资源`);
 }
 
-step(`中间产物保留在 temp/desktop-playable（下次构建才会清空），可直接跑: ${relative(ROOT, join(STAGE, "start.exe"))}`);
+step(`中间产物保留在 temp/desktop-portable（下次构建才会清空），可直接跑: ${relative(ROOT, join(STAGE, "start.exe"))}`);
