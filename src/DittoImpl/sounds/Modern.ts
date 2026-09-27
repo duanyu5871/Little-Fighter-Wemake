@@ -2,6 +2,7 @@ import { AsyncCache } from "@/DittoImpl/AsyncCache";
 import { Graves } from "@/LFW/base/Graves";
 import { CMD } from "@/LFW/defines/CMD";
 import { Defines } from "@/LFW/defines/defines";
+import { Ditto } from "@/LFW/ditto";
 import { BaseSounds } from "@/LFW/ditto/sounds/BaseSounds";
 import { Randoming } from "@/LFW/helper/Randoming";
 import { LFW } from "@/LFW/LFW";
@@ -14,10 +15,8 @@ export class __Modern extends BaseSounds {
   readonly ctx = new AudioContext();
   protected _req_id: number = 0;
   protected _prev_bgm_url: string | null = null;
-  protected _bgm_node: {
-    src_node: AudioBufferSourceNode;
-    gain_node: GainNode;
-  } | null = null;
+  protected _bgm_ele: HTMLAudioElement | null = null;
+  protected _bgm_url: string | null = null;
 
   protected _r = new AsyncCache<AudioBuffer>();
   protected _bgm_name: string | null = null;
@@ -47,14 +46,8 @@ export class __Modern extends BaseSounds {
   override set is_random(v: boolean) {
     if (v === this._is_random) return;
     this._is_random = v;
-    const src_node = this._bgm_node?.src_node;
-    if (!src_node) return;
-    if (this._is_random) {
-      src_node.addEventListener('ended', this._random_next, { once: true })
-    } else {
-      src_node.loop = true;
-      src_node.removeEventListener('ended', this._random_next)
-    }
+    const ele = this._bgm_ele;
+    if (ele) this._apply_bgm_loop(ele);
   }
   override bgm_volume(): number {
     return this._bgm_volume;
@@ -138,11 +131,12 @@ export class __Modern extends BaseSounds {
   }
 
   protected apply_bgm_volume(): void {
-    if (!this._bgm_node) return;
+    const ele = this._bgm_ele;
+    if (!ele) return;
     const muted = this._muted || this._bgm_muted;
-    this._bgm_node.gain_node.gain.value = muted
-      ? 0
-      : this._volume * this._bgm_volume;
+    ele.muted = muted;
+    ele.volume = clamp(this._volume * this._bgm_volume, 0, 1);
+    if (!muted && ele.paused) ele.play().catch((e) => Ditto.warn('[__Modern::apply_bgm_volume]', e));
   }
 
   override bgm(): string | null {
@@ -168,20 +162,58 @@ export class __Modern extends BaseSounds {
     this._bgms = new Randoming('bgm_randoming', this.lfw.bgms, this.lfw.mt)
   }
   private _stop_bgm(): void {
-    if (!this._bgm_node) return;
+    const ele = this._bgm_ele;
+    this._bgm_ele = null;
     this._bgm_name = null;
-    this._bgm_node.src_node.removeEventListener('ended', this._random_next)
-    this._bgm_node.src_node.stop();
     this._prev_bgm_url = null;
-
+    const url = this._bgm_url;
+    this._bgm_url = null;
+    if (ele) {
+      ele.removeEventListener('ended', this._random_next)
+      ele.pause();
+      ele.removeAttribute('src');
+    }
+    if (url) URL.revokeObjectURL(url);
   }
   override stop_bgm(): void {
-    if (!this._bgm_node) return;
+    if (!this._bgm_ele) return;
     const prev = this.bgm();
     this._stop_bgm();
     this._callbacks.call("on_bgm_changed", null, prev, this);
   }
   _random_next = () => this.lfw.push_cmd(CMD.BGM, '?')
+
+  private _apply_bgm_loop(ele: HTMLAudioElement): void {
+    ele.removeEventListener('ended', this._random_next)
+    if (this._is_random) {
+      ele.loop = false;
+      ele.addEventListener('ended', this._random_next, { once: true })
+    } else {
+      ele.loop = true;
+    }
+  }
+
+  protected async load_bgm(name: string, req_id: number): Promise<void> {
+    let url: string | null = null;
+    try {
+      const { data } = await this.lfw.resources.import_resource(name, false);
+      url = data ?? null;
+    } catch (e) {
+      Ditto.warn('[__Modern::load_bgm]', e);
+    }
+    if (req_id !== this._req_id || !url) {
+      if (url) URL.revokeObjectURL(url);
+      return;
+    }
+    const ele = this._bgm_ele = document.createElement('audio');
+    ele.setAttribute('bgm_name', name);
+    ele.controls = false;
+    ele.src = url;
+    this._bgm_url = url;
+    this._apply_bgm_loop(ele);
+    this.apply_bgm_volume();
+  }
+
   override play_bgm(name: string, restart?: boolean | undefined): () => void {
     if (!restart && this._prev_bgm_url === name) return () => { };
     const prev = this.bgm();
@@ -196,43 +228,7 @@ export class __Modern extends BaseSounds {
     ++this._req_id;
 
     const req_id = this._req_id;
-    const ctx = this.ctx;
-    const buf = this._r.get(real_name);
-    const start = (buf: AudioBuffer) => {
-      if (this._bgm_name !== real_name) return;
-      const src_node = ctx.createBufferSource();
-      src_node.buffer = buf;
-      src_node.start();
-      const gain_node = this.ctx.createGain();
-      gain_node.connect(ctx.destination);
-      src_node.connect(gain_node);
-      if (this._is_random) {
-        src_node.addEventListener('ended', this._random_next, { once: true })
-      } else {
-        src_node.loop = true;
-        src_node.removeEventListener('ended', this._random_next)
-      }
-      this._bgm_node = {
-        src_node,
-        gain_node,
-      };
-      this.apply_bgm_volume();
-    };
-    do {
-      const { file, origin } = this.lfw.zips.find([real_name], false).at(0) || {}
-      // 非本地存在资源，说明来自网络，不必重载
-      if (!file || !origin) break;
-
-      // 判断是否来源是否产生了变化
-      if (this.get_origin(real_name) === origin)
-        break;
-      this.unload(real_name)
-    } while (0)
-    if (buf) {
-      start(buf);
-    } else {
-      this.load(real_name, real_name).then(start);
-    }
+    this.load_bgm(real_name, req_id);
 
     this._callbacks.call("on_bgm_changed", real_name, prev, this);
     return () => req_id === this._req_id && this.stop_bgm();

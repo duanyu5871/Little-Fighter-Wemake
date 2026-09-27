@@ -135,11 +135,7 @@ export class LaunchPage extends UIComponent<ILaunchPageProps> {
   }
   readonly lf2_cb: ILFWCallback = {
     on_prel_loaded: () => {
-      this.lfw.sounds.load("bgm/main.wma.mp3", "bgm/main.wma.mp3").catch(e => {
-        Ditto.warn(e)
-      }).then(() => {
-        this.on_prel_loaded()
-      });
+      this.on_prel_loaded()
     },
   }
   override on_start(): void {
