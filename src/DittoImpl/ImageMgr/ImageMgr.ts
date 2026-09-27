@@ -30,9 +30,16 @@ export class ImageMgr implements IImageMgr {
     typeof OffscreenCanvas !== 'undefined' &&
     typeof (OffscreenCanvas.prototype as any).transferToImageBitmap === 'function';
 
+  static readonly RETAIN_GRACE_MS = 3000;
+
   protected pictures = new Map<string, IPicture>();
   protected infos = new AsyncCache<RImageInfo>();
   protected disposables = new Map<string, RImageInfo>();
+  protected load_args = new Map<string, { src: string; operations?: ImageOperation[] }>();
+  protected pinned = new Map<string, number>();
+  protected bytes_map = new Map<string, number>();
+  protected _bytes = 0;
+  max_bytes: number = 128 * 1024 * 1024;
   readonly lfw: LFW;
   constructor(lfw: LFW) { this.lfw = lfw; }
 
@@ -163,13 +170,15 @@ export class ImageMgr implements IImageMgr {
       const { value } = this.disposables.keys().next();
       if (value) {
         this.disposables.delete(value);
-        this.infos.del(value);
+        this.del(value);
       }
     }
   }
 
   find(key: string): RImageInfo | undefined {
-    return this.infos.get(key);
+    const ret = this.infos.get(key);
+    if (ret) this.infos.touch(key);
+    return ret;
   }
 
   measure_text(text: string, style?: IStyle | null): TextInfo {
@@ -183,21 +192,99 @@ export class ImageMgr implements IImageMgr {
   }
 
   load_img(key: string, src: string, operations?: ImageOperation[]): Promise<RImageInfo> {
+    this.load_args.set(key, { src, operations });
     const fn = async () => {
       this.lfw.emit_progress(`${key}`, 0);
       const info = await this.create_img_info(key, src, operations);
       info.pic = await this.p_create_picture(info);
       return info;
     };
-    return this.infos.fetch(key, fn);
+    return this.infos.fetch(key, fn).then((info) => {
+      if (this.infos.get(key) === info) {
+        this.account(key, info);
+        this.evict(key);
+      }
+      return info;
+    });
   }
 
   del(key: string) {
     const img = this.infos.del(key);
     if (!img) return;
+    this.unaccount(key);
     if (img.url.startsWith("blob:")) URL.revokeObjectURL(img.url);
     if (img.bitmap) { img.bitmap.close(); img.bitmap = null; }
+    const texture = img.pic?.texture;
+    img.pic = void 0;
+    if (texture) {
+      texture.image = null;
+      texture.dispose();
+    }
     return;
+  }
+
+  pin(key: string): void {
+    this.pinned.set(key, (this.pinned.get(key) ?? 0) + 1);
+  }
+
+  unpin(key: string): void {
+    const count = this.pinned.get(key);
+    if (count === void 0) return;
+    if (count <= 1) this.pinned.delete(key);
+    else this.pinned.set(key, count - 1);
+  }
+
+  protected grace_pin(key: string): void {
+    this.pin(key);
+    setTimeout(() => {
+      this.unpin(key);
+      this.evict();
+    }, ImageMgr.RETAIN_GRACE_MS);
+  }
+
+  retain(key: string, src?: string): Promise<RImageInfo | undefined> {
+    const cached = this.find(key);
+    if (cached) {
+      this.grace_pin(key);
+      return Promise.resolve(cached);
+    }
+    const args = this.load_args.get(key);
+    this.grace_pin(key);
+    return this.load_img(key, args?.src ?? src ?? key, args?.operations).then((info) => {
+      if (!info) this.unpin(key);
+      return info;
+    }).catch((e) => {
+      this.unpin(key);
+      throw e;
+    });
+  }
+
+  retain_by_pic_info(f: IPictureInfo | ILegacyPictureInfo): Promise<RImageInfo | undefined> {
+    return this.retain(this._gen_key(f), f.path);
+  }
+
+  get bytes(): number { return this._bytes; }
+
+  protected account(key: string, img: RImageInfo): void {
+    const size = img.w * img.h * 4;
+    this._bytes += size - (this.bytes_map.get(key) ?? 0);
+    this.bytes_map.set(key, size);
+  }
+
+  protected unaccount(key: string): void {
+    const size = this.bytes_map.get(key);
+    if (size === void 0) return;
+    this.bytes_map.delete(key);
+    this._bytes = max(0, this._bytes - size);
+  }
+
+  protected evict(keep?: string): void {
+    if (this.max_bytes <= 0 || this._bytes <= this.max_bytes) return;
+    for (const key of this.infos.values.keys()) {
+      if (this._bytes <= this.max_bytes) return;
+      if (key === keep || this.pinned.has(key)) continue;
+      this.del(key);
+    }
   }
 
   protected _gen_key = (f: ILegacyPictureInfo | IPictureInfo) => {
@@ -206,12 +293,16 @@ export class ImageMgr implements IImageMgr {
     return f.path;
   }
 
+  key_of(f: IPictureInfo | ILegacyPictureInfo): string {
+    return this._gen_key(f);
+  }
+
   async load_by_pic_info(f: ILegacyPictureInfo | IPictureInfo): Promise<RImageInfo> {
     const key = this._gen_key(f);
     return this.load_img(key, f.path);
   }
   find_by_pic_info(f: IPictureInfo | ILegacyPictureInfo): RImageInfo | undefined {
-    return this.infos.get(this._gen_key(f));
+    return this.find(this._gen_key(f));
   }
 
   private edit_image(src: HTMLCanvasElement | HTMLImageElement, op: ImageOperation): HTMLCanvasElement {

@@ -53,16 +53,15 @@ export class BgLayerRender {
     this.height = dst_h;
     this.src_texture = file ? (lf2.images.find(file)?.pic?.texture ?? null) : null;
     this._color = color;
+    if (file) lf2.images.pin(file);
 
     const k = `bg_l_${file ?? color}`
-    const m = MaterialFactory.get(Kind.Basic, MeshBasicMaterial, k, (m) => {
-      const texture = file ? lf2.images.find(file)?.pic?.texture : null
-      if (texture) m.map = texture
-      else if (color !== void 0) m.color.set(color)
-      m.transparent = true;
-      m.needsUpdate = true;
-      m.opacity = 1;
-    })
+    const m = MaterialFactory.get(Kind.Basic, MeshBasicMaterial, k)
+    if (!!m.map !== !!this.src_texture) m.needsUpdate = true;
+    m.map = this.src_texture;
+    if (!this.src_texture && color !== void 0) m.color.set(color)
+    m.transparent = true;
+    m.opacity = 1;
     this.shared_material = m;
 
     this.mesh = new T.Mesh(
@@ -176,5 +175,7 @@ export class BgLayerRender {
 
   release(): void {
     this.deactivate_uv();
+    const { file } = this.layer.info;
+    if (file) this.layer.bg.world.lfw.images.unpin(file);
   }
 }

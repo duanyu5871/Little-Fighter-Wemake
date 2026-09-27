@@ -16,4 +16,10 @@ export interface IImageMgr {
   load_img(key: string, src: string, operations?: ImageOperation[]): Promise<ImageInfo>;
   load_by_pic_info(f: IPictureInfo | ILegacyPictureInfo): Promise<ImageInfo>;
   find_by_pic_info(f: IPictureInfo | ILegacyPictureInfo): ImageInfo | undefined;
+  pin(key: string): void;
+  unpin(key: string): void;
+  retain(key: string, src?: string): Promise<ImageInfo | undefined>;
+  retain_by_pic_info(f: IPictureInfo | ILegacyPictureInfo): Promise<ImageInfo | undefined>;
+  readonly bytes: number;
+  max_bytes: number;
 }

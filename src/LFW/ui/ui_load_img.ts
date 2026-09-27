@@ -30,6 +30,7 @@ export async function ui_load_img(lfw: LFW, img: IUIImgInfo): Promise<ImageInfo>
     }
     ops.push(op)
   }
-  return lfw.images.load_img(img_key, path, ops);
-
+  const info = await lfw.images.load_img(img_key, path, ops);
+  lfw.images.pin(img_key);
+  return info;
 }

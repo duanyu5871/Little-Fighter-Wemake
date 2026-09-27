@@ -18,6 +18,7 @@ export class EntityShadowRender {
   protected _img: string | undefined;
   private _mat: MeshBasicMaterial | null = null;
   private _tex: Texture | null = null;
+  private _tex_key: string | null = null;
   private _load_attempted: string | null = null;
   private _p0 = new Vector3()
   private _p1 = new Vector3()
@@ -59,6 +60,21 @@ export class EntityShadowRender {
   }
   on_unmount() {
     this.mesh.removeFromParent();
+    this.set_tex(null, void 0);
+    this._load_attempted = null;
+  }
+
+  private set_tex(tex: Texture | null, key?: string): void {
+    const { images } = this.lfw;
+    const next = key ?? null;
+    if (this._tex_key === next) {
+      this._tex = tex;
+      return;
+    }
+    if (this._tex_key) images.unpin(this._tex_key);
+    this._tex_key = next;
+    this._tex = tex;
+    if (next) images.pin(next);
   }
   update_position(immidiate: boolean = false): void {
     const { bg, entity } = this
@@ -94,13 +110,13 @@ export class EntityShadowRender {
     const info = this.lfw.images.find(shadow);
     const tex = info?.pic?.texture ?? null;
     if (tex) {
-      this._tex = tex;
+      this.set_tex(tex, shadow);
       return;
     }
     if (this._tex || this._load_attempted === shadow) return;
     this._load_attempted = shadow;
-    this.lfw.images.load_img(shadow, shadow).then((loaded) => {
-      if (loaded?.pic?.texture) this._tex = loaded.pic.texture;
+    this.lfw.images.retain(shadow).then((loaded) => {
+      if (loaded?.pic?.texture) this.set_tex(loaded.pic.texture, shadow);
     }).catch((e) => {
       Ditto.warn('[EntityShadowRender::resolve_texture]', e);
     });
@@ -126,7 +142,7 @@ export class EntityShadowRender {
       }
       if (shadow !== this._img) {
         this._img = shadow;
-        this._tex = null;
+        this.set_tex(null, void 0);
         this._load_attempted = null;
       }
       this.update_position();

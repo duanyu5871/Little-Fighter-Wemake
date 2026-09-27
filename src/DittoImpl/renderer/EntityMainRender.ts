@@ -22,7 +22,7 @@ const get_img_map = (lfw: LFW, data: IEntityData, out: Map<string, RImageInfo>):
   const images = lfw.images as ImageMgr;
   for (const key in files) {
     const img = images.find_by_pic_info(files[key]);
-    img && out.set(key, img.clone());
+    img && out.set(key, img);
   }
 };
 
@@ -122,6 +122,8 @@ export class EntityMainRender {
   protected anim_speed = 1;
   protected prev_lifetime = 0;
   protected img: RImageInfo | undefined;
+  protected img_pending = new Set<string>();
+  protected pinned_keys: string[] = [];
   protected render_effect_time = -1;
   protected variant: number = -1;
 
@@ -163,6 +165,7 @@ export class EntityMainRender {
 
     this.data = data;
     get_img_map(this.lfw, data, this.images);
+    this.pin_files();
     // 贴图与全局 ImageMgr 共享（clip 走 uniforms，无需隔离 texture）。
     // 不要在这里设 needsUpdate：它会 bump 共享 source.version，
     // 导致所有引用同一贴图的实体都在下一帧重新上传 GPU。
@@ -210,6 +213,34 @@ export class EntityMainRender {
 
   on_unmount(): void {
     this.node.removeFromParent();
+    const images = this.lfw.images as ImageMgr;
+    for (const key of this.pinned_keys) images.unpin(key);
+    this.pinned_keys.length = 0;
+  }
+
+  private pin_files(): void {
+    const images = this.lfw.images as ImageMgr;
+    for (const key of this.pinned_keys) images.unpin(key);
+    this.pinned_keys.length = 0;
+    for (const k in this.files) {
+      const key = images.key_of(this.files[k]);
+      images.pin(key);
+      this.pinned_keys.push(key);
+    }
+  }
+
+  private request_img(tex: string, info: IPictureInfo): void {
+    if (this.img_pending.has(tex)) return;
+    this.img_pending.add(tex);
+    const images = this.lfw.images as ImageMgr;
+    images.retain_by_pic_info(info).then((loaded) => {
+      this.img_pending.delete(tex);
+      if (loaded) this.images.set(tex, loaded);
+      this.update_texture();
+    }).catch((e) => {
+      this.img_pending.delete(tex);
+      Ditto.warn('[EntityMainRender::request_img]', e);
+    });
   }
 
   update_shaking(): void {
@@ -676,6 +707,8 @@ export class EntityMainRender {
       m.set_tex_size(img.w, img.h, img.scale)
     } else {
       m.texture = void 0;
+      const info = this.files[tex];
+      if (info) this.request_img(tex, info);
     }
     m.set_clip(pic.x, pic.y, pic.w, pic.h)
     m.flip_x = entity.facing;

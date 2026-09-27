@@ -1,5 +1,6 @@
 import type { Background } from "@/LFW/bg/Background";
 import type { World } from "@/LFW/World";
+import { Ditto } from "@/LFW/ditto";
 import * as T from "../_t";
 import { Object3D } from "../_t";
 import { BgLayerRender } from "./BgLayerRender";
@@ -24,9 +25,27 @@ export class BgRender {
   set_bg(bg: Background | null): void {
     this.clear_nodes();
     this.bg = bg;
-    if (!this.bg) return
+    if (!bg) return
 
-    const { base } = this.bg.data
+    const files = new Set<string>();
+    for (const layer of bg.layers) {
+      const { file } = layer.info;
+      if (file) files.add(file);
+    }
+    if (!files.size) {
+      this.build_nodes(bg);
+      return;
+    }
+    Promise.all([...files].map((f) => this.world.lfw.images.retain(f))).then(() => {
+      if (this.bg === bg) this.build_nodes(bg);
+    }).catch((e) => {
+      Ditto.warn('[BgRender::set_bg]', e);
+      if (this.bg === bg) this.build_nodes(bg);
+    });
+  }
+
+  protected build_nodes(bg: Background): void {
+    const { base } = bg.data
     
     this.cam_node = new T.Object3D();
     this.cam_node.name = "Background(Cam Follower):" + base.name;
@@ -35,7 +54,7 @@ export class BgRender {
     this.root_node.name = "Background:" + base.name;
 
 
-    for (const layer of this.bg.layers) {
+    for (const layer of bg.layers) {
       const layer_render = new BgLayerRender(this, layer)
       this.layers.push(layer_render);
 

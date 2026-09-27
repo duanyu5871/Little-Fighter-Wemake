@@ -33,6 +33,13 @@ export class AsyncCache<V> {
     return ret;
   }
 
+  touch(key: string): void {
+    const value = this.values.get(key);
+    if (value === void 0) return;
+    this.values.delete(key);
+    this.values.set(key, value);
+  }
+
   private consume(key: string, promise: Promise<V>): boolean {
     if (this._pending.get(key) !== promise)
       return false;
