@@ -49,12 +49,20 @@ $msg_item_color_room  : rgba(255, 123, 0, 1);
   .input_row {
     display: flex;
   }
+
+  .input_row_hidden {
+    display: none;
+  }
 }
 
 :global(html.mobile) {
   .chat_box {
     width : 100vw;
     bottom: 15px;
+
+    .input_row_hidden {
+      display: flex;
+    }
   }
 }
 

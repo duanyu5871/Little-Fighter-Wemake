@@ -6,7 +6,7 @@ import { useStateRef } from "@/hooks/useStateRef";
 import List, { type ListRef } from "rc-virtual-list";
 import {
   type CSSProperties, type ForwardedRef, type ReactNode,
-  forwardRef, useEffect, useMemo, useRef, useState
+  forwardRef, useCallback, useEffect, useMemo, useRef, useState
 } from "react";
 import { Button } from "../../Component/Buttons/Button";
 import Combine from "../../Component/Combine";
@@ -36,7 +36,7 @@ export interface IChatBoxProps extends IFlexProps {
 const list_styles = { verticalScrollBarThumb: { backgroundColor: 'rgba(255,255,255,0.3)' } }
 const msg_item_height = parseInt(styles.msg_item_height);
 const msg_list_height = 240;
-function _ChatBox(props: IChatBoxProps, fref: ForwardedRef<HTMLDivElement>) {
+function ChatBoxView(props: IChatBoxProps, fref: ForwardedRef<HTMLDivElement>) {
   const { conn = null, ..._p } = props;
   const { room } = useRoom(conn)
   const chat_targets = useMemo(() => {
@@ -96,14 +96,42 @@ function _ChatBox(props: IChatBoxProps, fref: ForwardedRef<HTMLDivElement>) {
     })
   }
 
+  const [open_input, set_open_input] = useState(false)
+  const open_input_box = useCallback(() => {
+    set_open_input(true)
+    setTimeout(() => ref_input.current?.input?.focus(), 0)
+  }, [])
+  const close_input_box = useCallback(() => {
+    set_open_input(false)
+    ref_input.current?.input?.blur()
+  }, [])
+  useEffect(() => {
+    if (!conn) return
+    const on_keydown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (!open_input) return
+        e.preventDefault(); e.stopImmediatePropagation()
+        close_input_box()
+        return
+      }
+      if (e.key !== 'Enter' || e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return
+      const el = e.target as HTMLElement | null
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return
+      e.preventDefault(); e.stopImmediatePropagation()
+      open_input_box()
+    }
+    window.addEventListener('keydown', on_keydown, true)
+    return () => window.removeEventListener('keydown', on_keydown, true)
+  }, [conn, open_input, open_input_box, close_input_box])
+
   const switch_chat_target = () => {
     const idx = chat_targets.findIndex(i => i[0] === ref_chat_target.current)
     const [next] = chat_targets[(idx + 1) % chat_targets.length]
     set_chat_target(next);
-    ref_input.current?.input?.focus();
+    open_input_box()
   }
-  useShortcut('alt+y', conn != null, switch_chat_target, window)
-  useShortcut('alt+t', conn != null, () => ref_input.current?.input?.focus(), window)
+  useShortcut('alt+y', !conn, switch_chat_target, window)
+  useShortcut('alt+t', !conn, open_input_box, window)
   useEffect(() => {
     if (!is_bottom) return;
     const list = ref_list.current;
@@ -167,14 +195,19 @@ function _ChatBox(props: IChatBoxProps, fref: ForwardedRef<HTMLDivElement>) {
           )
         }}
       </List>
-      <Combine className={styles.input_row}>
+      <Combine className={`${styles.input_row}${open_input ? '' : ' ' + styles.input_row_hidden}`}>
         <Input
           ref={ref_input}
           disabled={chat_msg_sending}
           maxLength={100}
           data-flex={1}
           onFocus={e => set_ipt_focus(true)}
-          onBlur={e => set_ipt_focus(false)}
+          onBlur={e => {
+            set_ipt_focus(false)
+            const next = e.relatedTarget as Node | null
+            if (next && ref_floating_view.current?.contains(next)) return
+            if (!chat_msg_text.trim()) close_input_box()
+          }}
           prefix={
             <Button
               variants={['no_border', 'no_round', 'no_shadow']}
@@ -202,4 +235,4 @@ function _ChatBox(props: IChatBoxProps, fref: ForwardedRef<HTMLDivElement>) {
   )
 }
 
-export const ChatBox = forwardRef<HTMLDivElement, IChatBoxProps>(_ChatBox)
+export const ChatBox = forwardRef<HTMLDivElement, IChatBoxProps>(ChatBoxView)
