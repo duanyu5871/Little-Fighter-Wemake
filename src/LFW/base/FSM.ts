@@ -71,6 +71,13 @@ export class FSM<
     this.set_state(this._state_map.get(key));
     return this;
   }
+  reset(key: K): this {
+    this._state = void 0;
+    this._prev_state = void 0;
+    this._time = 0;
+    this._state_time = 0;
+    return this.use(key);
+  }
   set_state(next_state: S | undefined) {
     this._prev_state = this._state;
     this._state?.leave?.();
