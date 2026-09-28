@@ -603,7 +603,7 @@ export class Entity {
     this.world.mark_players_alive(this, is_human_ctrl(v) && this.hp > 0);
     if (prev) this.lfw.factory.release_ctrl(prev);
   }
-  as_key_role(v: boolean): void {
+  as_key_role(v: unknown): void {
     this.name_visible = v ? 1 : 0;
     this.wakeup_invuln = v ? 1 : 0;
     this.dead_gone = v ? 0 : 1;

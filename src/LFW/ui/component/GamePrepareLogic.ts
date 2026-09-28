@@ -376,6 +376,7 @@ export class GamePrepareLogic extends UIComponent<IGamePrepareLogicProps> {
         FacingFlag.Right :
         this.lfw.mt.pick([FacingFlag.Left, FacingFlag.Right])!;
       fighter.name_visible = 1
+      fighter.as_key_role(true)
       const xx1 = is_stage_mode ? 40 : 1 * Defines.MODERN_SCREEN_WIDTH / 3;
       const xx2 = is_stage_mode ? 80 : 2 * Defines.MODERN_SCREEN_WIDTH / 3;
 
