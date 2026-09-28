@@ -47,8 +47,8 @@ export class BaseController {
   readonly ku = this.key_up.bind(this);
   readonly kd = this.key_down.bind(this);
   readonly ck = this.click.bind(this);
-  readonly world: World;
-  readonly lfw: LFW;
+  world: World;
+  lfw: LFW;
 
   get time() {
     return this._time.value;
@@ -84,7 +84,21 @@ export class BaseController {
     this.lfw = entity.lfw;
     this.world = entity.world;
   }
-
+  reset(player_id: string, entity: Entity): void {
+    this.player_id = player_id;
+    const { lfw } = entity
+    this.player = lfw.players.get(player_id);
+    this.entity = entity;
+    this.lfw = entity.lfw;
+    this.world = entity.world;
+    this._time.reset();
+    this.keys.reset();
+    this.dbc.reset();
+    this.result.clear();
+    this.queue.length = 0;
+    this.reset_key_list();
+    for (const v of this.seqKeyMap.values()) v.reset();
+  }
   reset_key_list() {
     this._key_list = ''
     this._readable_key_list = ''
@@ -236,7 +250,7 @@ export class BaseController {
             if (this.is_end(gk)) break
             this.keys[gk].end();
             break;
-          case Status.DOWN:
+          case Status.DOWN: {
             if (!this.is_end(gk)) break;
             key_downs += gk;
             if (gk === GK.d) {
@@ -256,6 +270,7 @@ export class BaseController {
             }, me.world.dataset.double_click_interval);
 
             break;
+          }
           case Status.HOLD:
             this.keys[gk].hit(this.time - me.world.dataset.key_hit_duration);
             break;

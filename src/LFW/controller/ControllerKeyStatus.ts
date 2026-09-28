@@ -21,6 +21,15 @@ export class ControllerKeyStatus {
     this.j = new KeyStatus(this.owner, GK.j);
     this.a = new KeyStatus(this.owner, GK.a);
   }
+  reset(): void {
+    this.L.reset();
+    this.R.reset();
+    this.U.reset();
+    this.D.reset();
+    this.d.reset();
+    this.j.reset();
+    this.a.reset();
+  }
   to_snapshot(): number[][] {
     return [
       this.L.to_snapshot(),

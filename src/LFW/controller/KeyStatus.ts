@@ -91,4 +91,9 @@ export class KeyStatus {
   end(): void {
     this._u_time = this.ctrl.time
   }
+  reset(): void {
+    this._d_time = 0;
+    this._u_time = 0;
+    this._used = 0;
+  }
 }

@@ -33,6 +33,7 @@ export class DoubleClick<D> {
     this.data[0] = void 0;
     this.data[1] = void 0;
     this.fired = false;
+    this.used = false;
   }
 
   to_snapshot(): IDoubleClickSnapshot<D> {

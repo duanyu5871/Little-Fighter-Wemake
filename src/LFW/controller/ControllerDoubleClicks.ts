@@ -24,6 +24,16 @@ export class ControllerDoubleClicks {
     this.a = new DoubleClick("D");
   }
 
+  reset(): void {
+    this.L.reset();
+    this.R.reset();
+    this.U.reset();
+    this.D.reset();
+    this.d.reset();
+    this.j.reset();
+    this.a.reset();
+  }
+
   to_snapshot(): IControllerDoubleClicksSnapshot {
     return {
       L: this.L.to_snapshot(),
