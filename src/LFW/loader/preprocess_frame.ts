@@ -3,7 +3,7 @@ import { cook_frame_indicator_info } from "../dat_translator/cook_frame_indicato
 import { make_buring_smoke } from "../dat_translator/make_buring_smoke";
 import { make_frame_behavior } from "../dat_translator/make_frame_behavior";
 import { set_hit_flag } from "../dat_translator/set_hit_flag";
-import { Defines, EntityEnum, EntityVal as EV, FacingFlag as FF, FrameBehavior, HitFlag, type IBdyInfo, type IFrameInfo, type IItrInfo, SE, StateEnum } from "../defines";
+import { Defines, EntityEnum, EntityVal as EV, FacingFlag as FF, FrameBehavior, HitFlag, type IBdyInfo, type IFrameInfo, type IItrInfo, OID, SE, StateEnum } from "../defines";
 import { is_ball_data, is_fighter_data, is_weapon_data } from "../entity";
 import { read_nums } from "../ui/utils/read_nums";
 import { ensure, max, min } from "../utils";
@@ -177,7 +177,10 @@ export function preprocess_frame(ctx: IFrameInfoContext): IFrameInfo {
   })
   switch (frame.state) {
     case StateEnum.Burning:
-      frame.opoint = ensure(frame.opoint, make_buring_smoke(1));
+      if (data.id != OID.JulianBall2) {
+        // NOTE: 猪脸D>J爆炸不应该带烟... -Gim
+        frame.opoint = ensure(frame.opoint, make_buring_smoke(1));
+      }
       break;
     case StateEnum.BurnRun:
       frame.opoint = ensure(frame.opoint, make_buring_smoke(2));
