@@ -655,8 +655,7 @@ export class Entity {
   }
   reset(data: IEntityData, states: States = ENTITY_STATES) {
     this.marks.clear();
-    const buffs = Array.from(this.buffs.values())
-    for (const buf of buffs) buf.del_victim(this)
+    for (const buf of this.buffs.values()) buf.del_victim(this)
     this.buffs.clear();
     const { world, lfw } = this;
     this.is_on_ground = false;
@@ -768,7 +767,7 @@ export class Entity {
     this.dead_join = null;
     this.ctrl_visible = 0;
     this.drink = data.base.drink ? new DrinkInfo(data.base.drink) : null
-    this._opoints = [];
+    this._opoints.length = 0;
     this.prev_cpoint_a = null;
     this.collision_list.length = 0;
     this.collided_list.length = 0;
