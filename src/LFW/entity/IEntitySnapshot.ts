@@ -2,7 +2,6 @@
 import type { IArmorInfo, IDeadJoin, IVector3Like } from "../defines";
 import type { ITimesSnapshot } from "../utils/ITimesSnapshot";
 import type { IDrinkInfoSnapshot } from "./IDrinkInfoSnapshot";
-import { StatBarType } from "./StatBarType";
 
 export interface IEntitySnapshot {
   id: string;
@@ -39,7 +38,7 @@ export interface IEntitySnapshot {
   fuse_bys: string[] | undefined,
   dismiss_time: number | null,
   dismiss_data: string | undefined;
-  stat_bar_type: StatBarType | null;
+  stat_bar_type: number | null;
   resting: number;
   resting_max: number | null;
   resting_tick: ITimesSnapshot;

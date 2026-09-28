@@ -1,5 +1,4 @@
 import { CMD } from "../../defines/CMD";
-import { StatBarType } from "../../entity/StatBarType";
 import { Defines, EntityGroup, OID, type IEntityData } from "../../defines";
 import { TeamEnum as TE } from "../../defines/TeamEnum";
 import { is_fighter, type IEntityCallbacks } from "../../entity";
@@ -273,10 +272,10 @@ export class DanmuGameLogic extends SummaryLogic {
       .sort((a, b) => (b.kills - a.kills) || (b.spawns - a.spawns) || a.name.localeCompare(b.name));
   }
   protected _fighter_enter(v: Entity) {
-    v.stat_bar_type = StatBarType.None;
-    v.key_role = true;
-    v.dead_gone = true;
-    v.name_visible = true;
+    v.stat_bar = 0;
+    v.as_key_role(true);
+    v.dead_gone = 1;
+    v.name_visible = 1;
     v.blinking = 120;
     v.invulnerable = 120;
   }

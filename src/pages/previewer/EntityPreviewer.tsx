@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/immutability */
 import { ENTITY_INDICATINGS } from "@/DittoImpl/renderer/INDICATINGS";
 import type { Entity, IEntityData, IFrameInfo } from "@/LFW";
 import { Defines, FrameId, TeamEnum } from "@/LFW/defines";
@@ -172,9 +173,8 @@ export function EntityPreviewer() {
     if (!e) return;
     last_preview_id = e.id;
     e.team = TeamEnum.Team_1;
-    e.key_role = false;
-    e.name_visible = false;
-    e.ctrl_visible = false;
+    e.as_key_role(false);
+    e.ctrl_visible = 0;
     e.hp_max = e.hp = DEMO_HP;
     e.mp_max = e.mp = DEMO_MP;
     recenter(e);

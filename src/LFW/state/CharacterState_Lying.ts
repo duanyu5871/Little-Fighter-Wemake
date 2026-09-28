@@ -8,7 +8,7 @@ export class CharacterState_Lying extends CharacterState_Base {
   constructor(state: StateEnum = StateEnum.Lying) {
     super(state)
   }
-  override enter(e: Entity, prev_frame: IFrameInfo): void {
+  override enter(e: Entity): void {
     e.lying_a_count = 0;
     e.lying_d_count = 0;
     e.lying_c_count = 0;
@@ -24,27 +24,25 @@ export class CharacterState_Lying extends CharacterState_Base {
 
   override update(e: Entity): void {
     super.update(e);
-    do {
-      const count_c = e.lying_c_count;
-      const count_a = e.lying_a_count;
-      const pressing_a = !e.ctrl.is_end(GK.a)
-      e.lying_a_count = count_a + 1;
-      if (count_a && count_a % 2 && pressing_a && e.wait > 0) {
-        e.lying_c_count = count_c + 1;
-        e.wait = round_float(e.wait - e.world.dataset.atom_time);
-        break;
-      }
-      const count_d = e.lying_d_count;
-      const pressing_d = !e.ctrl.is_end(GK.d)
-      e.lying_d_count = count_d + 1;
-      if (count_d && count_d % 2 && pressing_d) {
-        e.lying_c_count = count_c + 1;
-        e.wait = round_float(e.wait + e.world.dataset.atom_time);
-      }
-    } while (0)
+    const count_c = e.lying_c_count;
+    const count_a = e.lying_a_count;
+    const pressing_a = !e.ctrl.is_end(GK.a)
+    e.lying_a_count = count_a + 1;
+    if (count_a && count_a % 2 && pressing_a && e.wait > 0) {
+      e.lying_c_count = count_c + 1;
+      e.wait = round_float(e.wait - e.world.dataset.atom_time);
+      return;
+    }
+    const count_d = e.lying_d_count;
+    const pressing_d = !e.ctrl.is_end(GK.d)
+    e.lying_d_count = count_d + 1;
+    if (count_d && count_d % 2 && pressing_d) {
+      e.lying_c_count = count_c + 1;
+      e.wait = round_float(e.wait + e.world.dataset.atom_time);
+    }
   }
 
-  override leave(e: Entity, next_frame: IFrameInfo): void {
+  override leave(e: Entity): void {
     if (e.dead_join && e.hp <= 0) {
       e.motionless = 30
       e.invulnerable = 30
@@ -54,7 +52,7 @@ export class CharacterState_Lying extends CharacterState_Base {
       e.lfw.world.etc(e.position.x, e.position.y, e.position.z, '6')
       e.outline_color = '';
       e.dead_join = null;
-      e.wakeup_invuln = true;// 是否全部加入的都要这个？
+      e.wakeup_invuln = 1;// 是否全部加入的都要这个？
     }
     if (e.wakeup_invuln) { // 关键角色起身的闪烁无敌时间
       e.blinking = e.world.dataset.lying_blink_time;
@@ -77,7 +75,7 @@ export class CharacterState_Lying extends CharacterState_Base {
       e.blink_and_gone(e.world.dataset.gone_blink_time);
     }
   }
-  override find_frame_by_id(e: Entity, id: string | undefined): IFrameInfo | undefined {
+  override find_frame_by_id(e: Entity): IFrameInfo | undefined {
     if (
       e.hp <= 0 &&
       e.position.y <= e.ground_y &&

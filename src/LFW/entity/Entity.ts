@@ -39,9 +39,8 @@ import { cross_bounding } from "../utils/cross_bounding";
 import { is_f_num, is_positive, is_str } from "../utils/type_check";
 import { DrinkInfo } from "./DrinkInfo";
 import { EnterFrameResult } from "./EnterFrameResult";
-import { from_tri, NSlot, num_or_null, SSlot, to_tri } from "./EntitySnapshot";
+import { NSlot, num_or_null, SSlot } from "./EntitySnapshot";
 import type { IEntityCallbacks } from "./IEntityCallbacks";
-import { StatBarType } from "./StatBarType";
 import { summary_mgr } from "./SummaryMgr";
 import { calc_v } from "./calc_v";
 import { turn_face } from "./face_helper";
@@ -100,7 +99,7 @@ export class Entity {
   public dismiss_time: number | null = null;
   public dismiss_data: IEntityData | null = null;
 
-  protected _stat_bar_type!: StatBarType | null;
+  public stat_bar: number = 0;
   protected _resting: number = 0;
   protected _resting_max: number | null = null
   protected readonly _resting_tick: Times = new Times();
@@ -214,12 +213,13 @@ export class Entity {
   protected _after_blink!: string | null;
 
   protected _state!: State_Base | null;
-  protected _key_role!: boolean | null;
-  protected _name_visible!: boolean | null;
-  protected _wakeup_invuln!: boolean | null;
-  protected _dead_gone!: boolean | null;
-  protected _dead_join!: IDeadJoin | null;
-  protected _ctrl_visible!: boolean | null;
+  public name_visible: number = 0;
+  /** 是否有起身无敌 */
+  public wakeup_invuln: number = 0;
+  /** 死亡后是否消失 */
+  public dead_gone: number = 0;
+  public dead_join: IDeadJoin | null = null;
+  public ctrl_visible: number = 0;
   protected _ctrl!: BaseController;
   armor!: Readonly<IArmorInfo> | null;
   protected _opoints!: [IOpointInfo, number][];
@@ -418,17 +418,6 @@ export class Entity {
     this._defend_ratio = v;
   }
 
-
-  get stat_bar_type(): number {
-    let r = this._stat_bar_type;
-    if (r !== null) return r;
-    return this.key_role ? StatBarType.Float : StatBarType.None
-  }
-
-  set stat_bar_type(v: number) {
-    this._stat_bar_type = v;
-  }
-
   get name(): string {
     if (this._name !== null)
       return this._name;
@@ -613,51 +602,18 @@ export class Entity {
     this.callbacks.call('on_ctrl_changed', v, prev, this)
     this.world.mark_players_alive(this, is_human_ctrl(v) && this.hp > 0);
   }
-  get key_role(): boolean {
-    if (this._key_role !== null) return this._key_role;
-    if (this.ctrl.player) return this._key_role = true;
-    const { group } = this._data.base
-    if (!group?.length) return false;
-    for (let i = 0; i < group.length; ++i) {
-      if (
-        group[i] == EntityGroup.Regular ||
-        group[i] == EntityGroup.Boss
-      ) return this._key_role = true
-    }
-    return this._key_role = false;
+  as_key_role(v: boolean): void {
+    this.name_visible = v ? 1 : 0;
+    this.wakeup_invuln = v ? 1 : 0;
+    this.dead_gone = v ? 0 : 1;
   }
-  set key_role(v: boolean | null) {
-    if (this._key_role === v) return;
-    this._key_role = v;
-  }
-  get name_visible(): boolean {
-    return this._name_visible ?? this.key_role;
-  }
-  set name_visible(v: boolean | null) {
-    this._name_visible = v;
-  }
-  /** 是否有起身无敌 */
-  get wakeup_invuln(): boolean {
-    return this._wakeup_invuln ?? this.key_role
-  }
-  set wakeup_invuln(v: boolean) {
-    this._wakeup_invuln = v;
+  auto_key_role(): void {
+    const v = this._data.base.group?.some(v => {
+      return v == EntityGroup.Regular || v == EntityGroup.Boss
+    });
+    return this.as_key_role(v == true);
   }
 
-  get dead_gone(): boolean {
-    if (this._dead_gone !== null) return this._dead_gone;
-    return !this.key_role;
-  }
-  set dead_gone(v: boolean | null) {
-    if (this._dead_gone === v) return;
-    this._dead_gone = v;
-  }
-  get dead_join() {
-    return this._dead_join
-  }
-  set dead_join(v) {
-    this._dead_join = v
-  }
 
   get spawn_time() { return this._spawn_time }
   get gravity(): number {
@@ -685,12 +641,7 @@ export class Entity {
   get base_type(): number {
     return this.data.base.type ?? 0
   }
-  get ctrl_visible(): boolean | null {
-    return this._ctrl_visible
-  }
-  set ctrl_visible(v: boolean | null) {
-    this._ctrl_visible = v;
-  }
+
   get state() { return this.frame.state }
   constructor(world: World, data: IEntityData, states: States = ENTITY_STATES) {
     this.world = world;
@@ -733,7 +684,7 @@ export class Entity {
     this.dismiss_time = null;
     this.dismiss_data = null;
     this.copies.clear()
-    this._stat_bar_type = null;
+    this.stat_bar = 0;
     this._toughness_resting_max = Defines.DEFAULT_TOUGHNESS_RESTING_MAX;
     this._resting_max = data.base.resting_max ?? null;
     this._resting = 0;
@@ -750,8 +701,8 @@ export class Entity {
     this._prev_frame = EMPTY_FRAME_INFO;
     this.set_catching(null)
     this.catcher = null
-    this._wakeup_invuln = null;
-    this._name_visible = null;
+    this.wakeup_invuln = 0;
+    this.name_visible = 0;
     this._outline_alpha = 0.8;
     this.velocity.set(0, 0, 0)
     this.prev_velocity.set(0, 0, 0);
@@ -811,10 +762,9 @@ export class Entity {
     this._blinking = 0;
     this._after_blink = null;
     this._state = null;
-    this._key_role = null;
-    this._dead_gone = null;
-    this._dead_join = null;
-    this._ctrl_visible = null;
+    this.dead_gone = 0;
+    this.dead_join = null;
+    this.ctrl_visible = 0;
     this.drink = data.base.drink ? new DrinkInfo(data.base.drink) : null
     this._opoints = [];
     this.prev_cpoint_a = null;
@@ -829,6 +779,7 @@ export class Entity {
     this._mix_strength = 0;
     this._greyscale = 0;
     this._render_effect_time = 0;
+    this.auto_key_role();
   }
   reset_armor() {
     const { armor } = this._data.base
@@ -881,7 +832,8 @@ export class Entity {
       this.facing = emitter.facing;
     }
     const { pos_type } = opoint;
-    let { x: pos_x, y: pos_y, z: pos_z } = emitter.position;
+    let { x: pos_x, y: pos_y } = emitter.position;
+    const { z: pos_z } = emitter.position;
     const opoint_y = (opoint.__gen_y ? opoint.__gen_y.get(emitter) : opoint.y) ?? 0;
     const opoint_x = (opoint.__gen_x ? opoint.__gen_x.get(emitter) : opoint.x) ?? 0;
     const opoint_z = (opoint.__gen_z ? opoint.__gen_z.get(emitter) : opoint.z) ?? 2;
@@ -905,10 +857,10 @@ export class Entity {
     if (result) this.enter_frame(result.which);
     else this.enter_frame(Defines.NEXT_FRAME_AUTO);
 
-    let { speedz: o_speedz = this.get_opoint_speed_z(emitter, opoint) } = opoint;
+    const { speedz: o_speedz = this.get_opoint_speed_z(emitter, opoint) } = opoint;
     let o_dvx = (opoint.__gen_dvx ? opoint.__gen_dvx.get(emitter) : opoint.dvx) ?? 0
     let o_dvy = (opoint.__gen_dvy ? opoint.__gen_dvy.get(emitter) : opoint.dvy) ?? 0
-    let o_dvz = (opoint.__gen_dvz ? opoint.__gen_dvz.get(emitter) : opoint.dvz) ?? 0
+    const o_dvz = (opoint.__gen_dvz ? opoint.__gen_dvz.get(emitter) : opoint.dvz) ?? 0
 
     const { weight } = this;
     o_dvy = o_dvy / weight;
@@ -1142,6 +1094,7 @@ export class Entity {
         ` opoint: `,
         opoint,
       );
+      // eslint-disable-next-line no-debugger
       debugger;
       return;
     }
@@ -1153,6 +1106,7 @@ export class Entity {
         ` opoint: `,
         opoint,
       );
+      // eslint-disable-next-line no-debugger
       debugger;
       return;
     }
@@ -1162,8 +1116,7 @@ export class Entity {
       .on_spawn(this, opoint, offset_velocity, facing)
       .attach(opoint.ghost);
     if (entity.data.id === this.data.id) this.copies.add(entity.id);
-    entity.key_role = false;
-    entity.dead_gone = true;
+    entity.as_key_role(false);
     for (const [, v] of this.vrests) entity.add_v_rest(collision_clone(v));
 
     return entity;
@@ -1284,16 +1237,19 @@ export class Entity {
     if (dvx) dvx = round_float(dvx * this.dataset("fvx_f"));
     if (dvy) dvy = round_float(dvy * this.dataset("fvy_f"));
     if (dvz) dvz = round_float(dvz * this.dataset("fvz_f"));
-    let {
+    const {
       vxm = SpeedMode.Default,
       vym = SpeedMode.AccTo,
       vzm = SpeedMode.Default,
-      acc_x,
-      acc_y,
-      acc_z,
       ctrl_x = 0,
       ctrl_y = 0,
       ctrl_z = 0,
+    } = vinfo;
+
+    let {
+      acc_x,
+      acc_y,
+      acc_z,
     } = vinfo;
 
     if (
@@ -1776,7 +1732,8 @@ export class Entity {
   }
   update_position(): void {
     if (this.bearer || this.catcher || this.shaking || this.motionless) return;
-    let { x: vx, y: vy, z: vz } = this.velocity;
+    let { x: vx, z: vz } = this.velocity;
+    const { y: vy } = this.velocity;
     const atom_time = this._atom_time;
     for (const [, v] of this.blockers) {
       if (
@@ -2324,6 +2281,7 @@ export class Entity {
     return this._prev_frame;
   }
   set_velocity(_x?: number | null, _y?: number | null, _z?: number | null) {
+    // eslint-disable-next-line no-debugger
     if (is_f_num(_x) || is_f_num(_y) || is_f_num(_z)) debugger;
     if (_x !== null && _x !== void 0) this.prev_velocity.x = this.velocity.x = round_float(_x)
     if (_y !== null && _y !== void 0) this.prev_velocity.y = this.velocity.y = round_float(_y)
@@ -2331,6 +2289,7 @@ export class Entity {
     if (this.velocity.y > 0) this.leave_ground();
   }
   set_position(_x?: number | null, _y?: number | null, _z?: number | null) {
+    // eslint-disable-next-line no-debugger
     if (is_f_num(_x) || is_f_num(_y) || is_f_num(_z)) debugger;
     if (_x !== null && _x !== void 0) this.position.x = round_float(_x)
     if (_y !== null && _y !== void 0) this.position.y = round_float(_y)
@@ -2374,10 +2333,11 @@ export class Entity {
 
   play_sound(sounds: string | string[] | undefined, pos: IVector3Like = this.position): void {
     if (!sounds?.length) return;
-    let { x, y, z } = pos;
+    let { x } = pos;
+    const { y, z } = pos;
     const { frame } = this;
     if (frame.state === StateEnum.Message) {
-      let { centerx, width } = frame;
+      const { centerx, width } = frame;
       let { camera: { position: { x: cam_x } } } = this.world;
       let cam_r = cam_x + this.world.dataset.screen_w / (this.world.bg.zoom_x ?? 1);
       const offset_x = this.facing === 1 ? centerx : width - centerx;
@@ -2499,7 +2459,7 @@ export class Entity {
     nums[NSlot.L_LEN] = this.l_len;
     nums[NSlot.R_LEN] = this.r_len;
 
-    nums[NSlot.STAT_BAR_TYPE] = this._stat_bar_type ?? NaN;
+    nums[NSlot.STAT_BAR_TYPE] = this.stat_bar ?? NaN;
 
     this._hp_r_tick.write_nums(nums, NSlot.HP_R_TICK_VALUE);
     this._mp_r_tick.write_nums(nums, NSlot.MP_R_TICK_VALUE);
@@ -2515,11 +2475,10 @@ export class Entity {
     nums[NSlot.DROP_HURTED] = this.drop_hurted ? 1 : 0;
     nums[NSlot.DROPPING] = this.dropping ? 1 : 0;
     nums[NSlot.IS_ON_GROUND] = this.is_on_ground ? 1 : 0;
-    nums[NSlot.KEY_ROLE] = to_tri(this._key_role);
-    nums[NSlot.NAME_VISIBLE] = to_tri(this._name_visible);
-    nums[NSlot.WAKEUP_INVULN] = to_tri(this._wakeup_invuln);
-    nums[NSlot.DEAD_GONE] = to_tri(this._dead_gone);
-    nums[NSlot.CTRL_VISIBLE] = to_tri(this._ctrl_visible);
+    nums[NSlot.NAME_VISIBLE] = this.name_visible;
+    nums[NSlot.WAKEUP_INVULN] = this.wakeup_invuln;
+    nums[NSlot.DEAD_GONE] = this.dead_gone;
+    nums[NSlot.CTRL_VISIBLE] = this.ctrl_visible;
 
     strs[SSlot.ID] = this.id;
     strs[SSlot.DATA_ID] = this._data.id;
@@ -2543,7 +2502,7 @@ export class Entity {
     } else {
       strs[SSlot.COPIES] = '';
     }
-    strs[SSlot.DEAD_JOIN] = this._dead_join ? JSON.stringify(this._dead_join) : '';
+    strs[SSlot.DEAD_JOIN] = this.dead_join ? JSON.stringify(this.dead_join) : '';
   }
 
   read_snapshot(nums: number[], strs: string[]): void {
@@ -2614,9 +2573,7 @@ export class Entity {
     this.aabb_max_z = nums[NSlot.AABB_MAX_Z];
     this.l_len = nums[NSlot.L_LEN];
     this.r_len = nums[NSlot.R_LEN];
-
-    const st = nums[NSlot.STAT_BAR_TYPE];
-    this._stat_bar_type = Number.isNaN(st) ? null : st as StatBarType;
+    this.stat_bar = nums[NSlot.STAT_BAR_TYPE];
 
     this._hp_r_tick.read_nums(nums, NSlot.HP_R_TICK_VALUE);
     this._mp_r_tick.read_nums(nums, NSlot.MP_R_TICK_VALUE);
@@ -2632,11 +2589,10 @@ export class Entity {
     this.drop_hurted = nums[NSlot.DROP_HURTED] !== 0;
     this.dropping = nums[NSlot.DROPPING] !== 0;
     this.is_on_ground = nums[NSlot.IS_ON_GROUND] !== 0;
-    this._key_role = from_tri(nums[NSlot.KEY_ROLE]);
-    this._name_visible = from_tri(nums[NSlot.NAME_VISIBLE]);
-    this._wakeup_invuln = from_tri(nums[NSlot.WAKEUP_INVULN]);
-    this._dead_gone = from_tri(nums[NSlot.DEAD_GONE]);
-    this._ctrl_visible = from_tri(nums[NSlot.CTRL_VISIBLE]);
+    this.name_visible = nums[NSlot.NAME_VISIBLE];
+    this.wakeup_invuln = nums[NSlot.WAKEUP_INVULN];
+    this.dead_gone = nums[NSlot.DEAD_GONE];
+    this.ctrl_visible = nums[NSlot.CTRL_VISIBLE];
 
     this.id = strs[SSlot.ID];
     const data = this.lfw.datas.find(strs[SSlot.DATA_ID]);
@@ -2671,7 +2627,7 @@ export class Entity {
     if (strs[SSlot.COPIES])
       for (const id of strs[SSlot.COPIES].split(','))
         this.copies.add(id);
-    this._dead_join = strs[SSlot.DEAD_JOIN]
+    this.dead_join = strs[SSlot.DEAD_JOIN]
       ? JSON.parse(strs[SSlot.DEAD_JOIN]) as IDeadJoin
       : null;
   }

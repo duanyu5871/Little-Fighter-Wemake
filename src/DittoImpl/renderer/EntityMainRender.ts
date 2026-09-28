@@ -1,5 +1,5 @@
-import type { Entity, IEntityData, IFrameInfo, IFramePic, IPictureInfo, TFace } from "@/LFW";
-import { Buff_Electroshock, clamp, cos, floor, LFW, max, abs, sin, World } from "@/LFW";
+import type { IEntityData, IFrameInfo, IFramePic, IPictureInfo, TFace } from "@/LFW";
+import { Buff_Electroshock, clamp, cos, Entity, floor, LFW, max, abs, sin, World } from "@/LFW";
 import type { IFrameModel, IFrameModelPose } from "@/LFW/defines/IFrameModel";
 import type { IModelInfo } from "@/LFW/defines/IModelInfo";
 import { Ditto } from "@/LFW/ditto";
@@ -455,7 +455,7 @@ export class EntityMainRender {
 
   /** 每帧驱动模型视觉：姿态插值（模式A）与动画片段（模式B） */
   private update_model_visual(model: IFrameModel): void {
-    const sim_dt = (this.entity.lifetime - this.prev_lifetime) / ATOM_PER_SECOND
+    const sim_dt = this.anim_time_scale() * (this.entity.lifetime - this.prev_lifetime) / ATOM_PER_SECOND
     this.prev_lifetime = this.entity.lifetime
 
     const total = this.frame.wait
@@ -470,6 +470,14 @@ export class EntityMainRender {
     } else {
       this.stop_anim()
     }
+  }
+
+  private anim_time_scale(): number {
+    const { catcher, bearer, motionless, shaking } = this.entity
+    if (catcher || bearer) return 0
+    if (motionless > 0) return 1 / Entity.MotionlessWaitTicks
+    if (shaking > 0) return 0
+    return 1
   }
 
   private get_next_frame(): IFrameInfo | undefined {

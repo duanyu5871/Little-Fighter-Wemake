@@ -1,5 +1,4 @@
 import { GK, O_ID, TeamEnum } from "../../../../defines";
-import { StatBarType } from "../../../../entity";
 import { TestCase } from "../TestCase";
 
 
@@ -11,7 +10,7 @@ export class Jan_DUJ_2 extends TestCase {
       if (!jan) return;
       jan.set_position(this.midX, 0, this.midZ);
       jan.team = TeamEnum.Team_1;
-      jan.key_role = true;
+      jan.as_key_role(true);
       jan.hp = 1;
       jan.attach();
       jan.ctrl.click(GK.d, GK.U, GK.j);
@@ -24,7 +23,7 @@ export class Jan_DUJ extends Jan_DUJ_2 {
     super.enter();
     this.bandits_8().forEach(v => {
       v.team = TeamEnum.Team_1;
-      v.key_role = true;
+      v.as_key_role(true);
       v.hp = 1;
     })
   }

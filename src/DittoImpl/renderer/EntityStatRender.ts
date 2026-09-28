@@ -3,7 +3,6 @@ import { get_team_text_color } from "@/LFW/base/get_team_text_color";
 import { Buff_Healing } from "@/LFW/buff/Buff_Healing";
 import { Buff_MpHealing } from "@/LFW/buff/Buff_MpHealing";
 import { is_fighter, type Entity } from "@/LFW/entity";
-import { StatBarType } from "@/LFW/entity/StatBarType";
 import { round } from "@/LFW/utils";
 import * as T from "../_t";
 import { Bar } from "./Bar";
@@ -116,7 +115,7 @@ export class EntityStatRender {
   on_mount() {
     const { entity: e } = this;
     this.owner.body.add(this.bars_node);
-    this.bars_node.visible = e.key_role
+    this.bars_node.visible = !!e.stat_bar
   }
 
   on_unmount() {
@@ -174,9 +173,9 @@ export class EntityStatRender {
   }
 
   render() {
-    const { invisible, hp, key_role, stat_bar_type } = this.entity;
+    const { invisible, hp, stat_bar } = this.entity;
     const _is_fighter = is_fighter(this.entity)
-    this.bars_node.visible = !!(stat_bar_type & StatBarType.Float) && _is_fighter && key_role && !invisible && hp > 0;
+    this.bars_node.visible = !!stat_bar && _is_fighter && !invisible && hp > 0;
     const { lifetime } = this.entity;
     if (lifetime !== this._last_sync_lifetime) {
       this._last_sync_lifetime = lifetime;

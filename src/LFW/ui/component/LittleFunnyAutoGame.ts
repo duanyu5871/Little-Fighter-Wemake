@@ -1,8 +1,7 @@
-import { ActionDirector } from './Tests/ActionDirector';
-import { EntityGroup } from '../../defines/EntityGroup';
 import { CMD, type IEntityData } from "../../defines";
+import { EntityGroup } from '../../defines/EntityGroup';
 import { Entity, type IEntityCallbacks } from "../../entity";
-import { StatBarType } from "../../entity/StatBarType";
+import { ActionDirector } from './Tests/ActionDirector';
 import { UIComponent } from "./UIComponent";
 
 interface ITeamInfo {
@@ -137,12 +136,12 @@ export class LittleFunnyAutoGame extends UIComponent {
     fighter.callbacks.add(this._fighter_cbs)
     fighter.set_position(lr * this.world.bg.width + x)
     fighter.hp = fighter.hp_r = fighter.hp_max = 150 * (data.base.ce ?? 1);
-    fighter.stat_bar_type = StatBarType.None;
-    fighter.wakeup_invuln = true;
+    fighter.stat_bar = 0;
+    fighter.wakeup_invuln = 1;
     fighter.blinking = 64
     fighter.invulnerable = 64;
-    fighter.dead_gone = true;
-    fighter.name_visible = false;
+    fighter.dead_gone = 1;
+    fighter.name_visible = 0;
     fighter.enter_frame_by_id("running_0")
     fighter.attach()
     fighter.greyscale = 0.3;

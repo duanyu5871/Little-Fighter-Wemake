@@ -2,7 +2,6 @@ import { Defines, Difficulty, type IEntityData, type IStageObjectInfo, type ISta
 import { TeamEnum } from "../defines/TeamEnum";
 import type { Entity } from "../entity/Entity";
 import type { IEntityCallbacks } from "../entity/IEntityCallbacks";
-import { StatBarType } from "../entity/StatBarType";
 import { is_fighter, is_fighter_data, is_weapon } from "../entity/type_check";
 import { Randoming } from "../helper/Randoming";
 import type { LFW } from "../LFW";
@@ -55,7 +54,7 @@ export class Item {
     else if (Array.isArray(id)) ids = id;
 
     do {
-      if (!ids.length) break;
+      if (ids.length) break;
       for (const oid of ids) {
         const data = this.lfw.datas.find(oid);
         this._is_fighter ||= is_fighter_data(data);
@@ -118,11 +117,11 @@ export class Item {
     e.outline_color = outline_color ?? ''
     if (is_fighter(e)) {
       e.outline_color = outline_color ?? '#FF0000'
-      e.stat_bar_type = StatBarType.None;
-      e.wakeup_invuln = false;
+      e.stat_bar = 0;
+      e.wakeup_invuln = 0;
     }
     e.ctrl = this.lfw.factory.create_ctrl(e.data.id, "", e);
-    e.dead_gone = true;
+    e.dead_gone = 1;
     e.reserve = reserve ?? 0;
     this.lfw.mt.mark = `stage_item_spawn`
 

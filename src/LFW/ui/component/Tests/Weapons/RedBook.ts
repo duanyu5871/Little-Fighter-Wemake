@@ -54,7 +54,7 @@ export class RedBook_GroupAttack extends TestCase {
     if (!davis) return null;
     davis.team = TeamEnum.Team_1;
     davis.facing = 1;
-    davis.key_role = false;
+    davis.as_key_role(false);
     davis.set_position(x, 0, z);
     davis.attach();
     return davis;
@@ -65,7 +65,7 @@ export class RedBook_GroupAttack extends TestCase {
     if (!bandit) return null;
     bandit.team = TeamEnum.Team_2;
     bandit.facing = -1;
-    bandit.key_role = false;
+    bandit.as_key_role(false);
     bandit.set_position(x, 0, z);
     bandit.attach();
     return bandit;

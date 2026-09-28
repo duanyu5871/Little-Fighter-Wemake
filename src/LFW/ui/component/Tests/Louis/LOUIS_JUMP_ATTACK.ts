@@ -28,12 +28,12 @@ export class LOUIS_JUMP_ATTACK extends TestCase {
       if (!louis || !bandit) return;
       louis.set_position(this.midX - 125, 0, this.midZ);
       louis.team = TeamEnum.Team_1;
-      louis.key_role = false
+      louis.as_key_role(false)
       louis.attach();
 
       bandit.set_position(this.midX - 125 + 30, 0, this.midZ);
       bandit.team = TeamEnum.Team_4;
-      bandit.key_role = false
+      bandit.as_key_role(false)
       bandit.facing = -1;
       bandit.attach();
     } while (0);
@@ -44,12 +44,12 @@ export class LOUIS_JUMP_ATTACK extends TestCase {
       if (!louis || !bandit) return;
       louis.set_position(this.midX + 75, 0, this.midZ);
       louis.team = TeamEnum.Team_1;
-      louis.key_role = false
+      louis.as_key_role(false)
       louis.attach();
 
       bandit.set_position(this.midX + 75 + 30, 0, this.midZ);
       bandit.team = TeamEnum.Team_4;
-      bandit.key_role = false
+      bandit.as_key_role(false)
       bandit.facing = -1;
       bandit.attach();
     } while (0);

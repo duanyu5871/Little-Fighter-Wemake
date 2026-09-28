@@ -1,8 +1,7 @@
-import { Defines, T_E, type IPropsMeta } from "../../defines";
 import { Buff_Healing } from "../../buff/Buff_Healing";
 import { Buff_MpHealing } from "../../buff/Buff_MpHealing";
+import { Defines, T_E, type IPropsMeta } from "../../defines";
 import { Entity, type IEntityCallbacks } from "../../entity";
-import { StatBarType } from "../../entity/StatBarType";
 import { UINode } from "../UINode";
 import { Picture } from "./Picture";
 import { SmoothNumber } from "./SmoothNumber";
@@ -85,7 +84,6 @@ export class FighterStatBar extends UIComponent<IFighterStatBarProps> {
     if (this.entity === entity) return;
     if (this.entity) {
       this.entity.callbacks.del(this.cbs)
-      this.entity.stat_bar_type = this.entity.stat_bar_type ^ StatBarType.None;
     }
     this.entity = entity
     if (entity) {
@@ -112,7 +110,6 @@ export class FighterStatBar extends UIComponent<IFighterStatBarProps> {
       this.toughness.target        /**/ = entity.toughness;
       this.toughness.handle()
       entity.callbacks.add(this.cbs)
-      entity.stat_bar_type = entity.stat_bar_type | StatBarType.None;
     }
     this.update_head();
   }

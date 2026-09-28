@@ -1,5 +1,4 @@
 import { GK, O_ID } from '../../../../defines';
-import { StatBarType } from '../../../../entity';
 import { ActionDirector } from '../ActionDirector';
 import { TestCase } from '../TestCase';
 
@@ -10,16 +9,13 @@ override readonly director = new ActionDirector().offset(300).repeat(999, 3, () 
       f.ctrl.click(GK.Attack)
   })
 
-
-
   override enter(): void {
     this.director.reset();
     [
       ...this.hori(O_ID.Julian, this.midX, this.far, 600, 2),
       ...this.hori(O_ID.Julian, this.midX, this.near, 600, 5)
     ].forEach(f => {
-      // f.stat_bar_type = StatBarType.None
-      f.name_visible = false;
+      f.name_visible = 0;
     })
 
     this.fighters = [
@@ -27,8 +23,8 @@ override readonly director = new ActionDirector().offset(300).repeat(999, 3, () 
       ...this.hori([O_ID.Deep, O_ID.Dennis, O_ID.Julian, O_ID.Bandit, O_ID.Davis], this.midX - 30, this.near, 600),
     ];
     this.fighters.forEach(f => {
-      f.stat_bar_type = StatBarType.None
-      f.key_role = true;
+      f.stat_bar = 0
+      f.as_key_role(true);
     })
     this.fighters[0].name = '3rd atk hit'
     this.fighters[1].name = '3rd atk hit'

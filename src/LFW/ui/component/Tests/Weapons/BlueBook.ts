@@ -35,7 +35,7 @@ export class BlueBook_MpHealing extends TestCase {
     if (!dennis) return null;
     dennis.team = TeamEnum.Team_1;
     dennis.facing = 1;
-    dennis.key_role = true;
+    dennis.as_key_role(true);
     dennis.set_position(x, 0, z);
     dennis.attach();
     return dennis;

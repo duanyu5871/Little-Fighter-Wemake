@@ -23,7 +23,7 @@ override readonly director = new ActionDirector()
     this.freezes = this.hori_3(O_ID.Freeze)
     this.freezes.forEach(o => {
       o.team = TeamEnum.Team_1;
-      o.key_role = false;
+      o.as_key_role(false);
       o.mp = 1000000;
     })
   }

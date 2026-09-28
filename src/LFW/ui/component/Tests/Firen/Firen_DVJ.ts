@@ -25,7 +25,7 @@ override readonly director = new ActionDirector()
     this.entities = this.hori_3(O_ID.Firen)
     this.entities.forEach(o => {
       o.team = TeamEnum.Team_1;
-      o.key_role = false;
+      o.as_key_role(false);
       o.mp = 1000000;
     })
   }

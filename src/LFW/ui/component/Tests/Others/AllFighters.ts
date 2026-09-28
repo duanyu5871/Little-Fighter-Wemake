@@ -1,5 +1,4 @@
 import { TE } from '../../../../defines/TeamEnum';
-import { StatBarType } from '../../../../entity/StatBarType';
 import { round } from '../../../../utils/math/base';
 import { ActionDirector } from '../ActionDirector';
 import { TestCase } from '../TestCase';
@@ -28,9 +27,9 @@ export class AllFighters extends TestCase {
       ...this.hori(ids_2, this.midX, this.near, this.bg.width - 120)
     ]
     this.fighters.map(v => {
-      v.key_role = false;
-      v.stat_bar_type = StatBarType.None;
-      v.name_visible = true;
+      v.as_key_role(false);
+      v.stat_bar = 0;
+      v.name_visible = 1;
       v.team = '';
       v.attach();
       return v

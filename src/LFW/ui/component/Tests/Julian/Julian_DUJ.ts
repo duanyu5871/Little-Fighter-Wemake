@@ -7,7 +7,7 @@ export class Julian_DUJ extends TestCase {
     if (!julian) return;
     julian.set_position(this.midX, 0, this.midZ);
     julian.team = TeamEnum.Team_1;
-    julian.key_role = false
+    julian.as_key_role(false)
     julian.attach();
     julian.ctrl.click(GK.Defend, GK.Up, GK.Jump)
     this.bandits_mid_8().forEach(v => {
@@ -25,7 +25,7 @@ export class Henry_DUJ extends TestCase {
     if (!henry) return;
     henry.set_position(this.midX, 0, this.midZ);
     henry.team = TeamEnum.Team_1;
-    henry.key_role = false
+    henry.as_key_role(false)
     henry.attach();
     henry.ctrl.click(GK.Defend, GK.Up, GK.Jump)
 

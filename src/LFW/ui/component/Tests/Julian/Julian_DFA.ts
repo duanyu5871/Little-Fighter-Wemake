@@ -24,7 +24,7 @@ override readonly director = new ActionDirector()
       if (!julian) return;
       julian.set_position(this.midX, 0, this.midZ);
       julian.team = TeamEnum.Team_1;
-      julian.key_role = false;
+      julian.as_key_role(false);
       julian.mp = 1000000;
       julian.attach();
     } while (0);

@@ -1,6 +1,6 @@
 import { GK, O_ID } from "../../../../defines";
 import { AGK } from '../../../../defines/GameKey';
-import { Entity, StatBarType } from "../../../../entity";
+import { Entity } from "../../../../entity";
 import { ActionDirector } from '../ActionDirector';
 import { TestCase } from '../TestCase';
 
@@ -26,10 +26,10 @@ export class FasterSlowerStandUp extends TestCase {
     this.director.reset();
     this.figters = this.hori_3(O_ID.Hunter, 80);
     this.figters.forEach(v => {
-      v.stat_bar_type = StatBarType.None
-      v.wakeup_invuln = true
-      v.ctrl_visible = true
-      v.name_visible = true
+      v.stat_bar = 0
+      v.wakeup_invuln = 1
+      v.ctrl_visible = 1
+      v.name_visible = 1
     })
     this.figters[0].name = `Press "A"`
     this.figters[1].name = `Default`

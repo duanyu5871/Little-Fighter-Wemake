@@ -37,7 +37,7 @@ export class GreenBook_Electrify extends TestCase {
     if (!john) return null;
     john.team = TeamEnum.Team_1;
     john.facing = 1;
-    john.key_role = false;
+    john.as_key_role(false);
     john.set_position(x, 0, z);
     john.attach();
     return john;
@@ -48,7 +48,7 @@ export class GreenBook_Electrify extends TestCase {
     if (!bandit) return null;
     bandit.team = TeamEnum.Team_2;
     bandit.facing = -1;
-    bandit.key_role = false;
+    bandit.as_key_role(false);
     bandit.set_position(x, 0, z);
     bandit.attach();
     return bandit;

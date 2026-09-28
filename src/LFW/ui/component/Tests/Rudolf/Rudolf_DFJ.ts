@@ -26,7 +26,7 @@ override readonly director = new ActionDirector()
     this.entities.forEach((o, i) => {
       o.team = TeamEnum.Team_1;
       o.facing = i == 0 ? -1 : 1
-      o.key_role = false;
+      o.as_key_role(false);
       o.mp = 1000000;
     })
   }

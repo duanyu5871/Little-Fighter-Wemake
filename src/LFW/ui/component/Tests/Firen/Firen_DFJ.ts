@@ -25,7 +25,7 @@ override readonly director = new ActionDirector()
       if (!firen) return;
       firen.set_position(0, 0, this.midZ);
       firen.team = TeamEnum.Team_1;
-      firen.key_role = false;
+      firen.as_key_role(false);
       firen.mp = 1000000;
       firen.attach();
     } while (0);

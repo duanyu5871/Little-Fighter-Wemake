@@ -1,5 +1,5 @@
 import { Defines, GK, O_ID, TE, type IWpointInfo } from "../../../../defines";
-import { type Entity, StatBarType } from "../../../../entity";
+import { type Entity } from "../../../../entity";
 import { ActionDirector } from "../ActionDirector";
 import { TestCase } from "../TestCase";
 
@@ -53,8 +53,8 @@ class Dropping_Base extends TestCase {
 
     this.fighters = [a, b, c];
     for (const f of this.fighters) {
-      f.stat_bar_type = StatBarType.None;
-      f.key_role = true;
+      f.stat_bar = 0;
+      f.as_key_role(true);
     }
   }
 

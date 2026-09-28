@@ -7,7 +7,6 @@ import type { IStagePhaseInfo } from "../../defines/IStagePhaseInfo";
 import { StageActions } from "../../defines/StageActions";
 import { StageGroup } from "../../defines/StageGroup";
 import { Entity } from "../../entity";
-import { StatBarType } from "../../entity/StatBarType";
 import { Randoming } from "../../helper/Randoming";
 import type { IWorldCallbacks } from "../../IWorldCallbacks";
 import { LFW } from "../../LFW";
@@ -283,9 +282,9 @@ export class DemoModeLogic extends UIComponent<IDemoModeLogicProps> {
         FacingFlag.Right :
         this.lfw.mt.pick([FacingFlag.Left, FacingFlag.Right])!;
 
-      fighter.key_role = true;
-      fighter.name_visible = true;
-      fighter.stat_bar_type = StatBarType.None;
+      fighter.as_key_role(true);
+      fighter.name_visible = 1;
+      fighter.stat_bar = 0;
 
       const player = this.lfw.player('' + i)
       fighter.ctrl = this.lfw.factory.create_ctrl(fighter_data.id, player.id, fighter);

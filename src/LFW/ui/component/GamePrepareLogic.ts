@@ -2,7 +2,6 @@ import { LocalController } from "../../controller/LocalController";
 import { Defines, FacingFlag, SurvivalRankOids, TeamEnum } from "../../defines";
 import type { IPropsMeta } from "../../defines/ISchema";
 import { Ditto } from "../../ditto";
-import { StatBarType } from "../../entity/StatBarType";
 import type { ILFWCallback } from "../../ILFWCallback";
 import type { SurvivalRankItem, SurvivalRankMy } from "../../LFW";
 import { WorldDataset } from "../../WorldDataset";
@@ -369,7 +368,7 @@ export class GamePrepareLogic extends UIComponent<IGamePrepareLogicProps> {
         continue;
       }
       fighter.team = slot_info.team || this.lfw.new_team;
-      fighter.stat_bar_type = StatBarType.None;
+      fighter.stat_bar = 0;
       fighter.facing = is_stage_mode ?
         FacingFlag.Right :
         this.lfw.mt.pick([FacingFlag.Left, FacingFlag.Right])!;
