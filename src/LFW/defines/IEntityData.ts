@@ -4,7 +4,6 @@ import type { IBdyInfo } from "./IBdyInfo";
 import { entity_info_new, type IEntityInfo } from "./IEntityInfo";
 import type { IFrameIndexes } from "./IFrameIndexes";
 import type { IFrameInfo } from "./IFrameInfo";
-import type { IHitKeyMap } from "./IHitKeyMap";
 import type { IItrInfo } from "./IItrInfo";
 import type { TNextFrame } from "./INextFrame";
 export type TItrPrefabs = {
