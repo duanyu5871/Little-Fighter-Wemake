@@ -1,4 +1,3 @@
-import { LocalController } from "../../controller/LocalController";
 import { Defines, FacingFlag, SurvivalRankOids, TeamEnum } from "../../defines";
 import type { IPropsMeta } from "../../defines/ISchema";
 import { Ditto } from "../../ditto";
@@ -355,13 +354,17 @@ export class GamePrepareLogic extends UIComponent<IGamePrepareLogicProps> {
     let cam_x = is_stage_mode ? 0 : this.lfw.mt.range(left, right - Defines.MODERN_SCREEN_WIDTH)
 
     for (const [player, slot_info] of char_menu_logic.players) {
+      const { is_com } = player;
       const { fighter: fighter_data } = slot_info;
       if (!fighter_data) {
         Ditto.warn(`[${GamePrepareLogic.TAG}::start_game] failed to create fighter. figher data: ${fighter_data}`);
         debugger;
         continue;
       }
-      const fighter = this.lfw.factory.create_entity(this.world, fighter_data)
+      const fighter = is_com ?
+        this.lfw.factory.create_entity_with_bot(player.id, this.world, fighter_data) :
+        this.lfw.factory.create_entity_with_player(player.id, this.world, fighter_data)
+
       if (!fighter) {
         Ditto.warn(`[${GamePrepareLogic.TAG}::start_game] failed to create fighter. figher data: ${fighter_data}`);
         debugger;
@@ -372,11 +375,7 @@ export class GamePrepareLogic extends UIComponent<IGamePrepareLogicProps> {
       fighter.facing = is_stage_mode ?
         FacingFlag.Right :
         this.lfw.mt.pick([FacingFlag.Left, FacingFlag.Right])!;
-      if (player.is_com) {
-        fighter.ctrl = this.lfw.factory.create_ctrl(fighter_data.id, player.id, fighter);
-      } else {
-        fighter.ctrl = new LocalController(player.id, fighter);
-      }
+      fighter.name_visible = 1
       const xx1 = is_stage_mode ? 40 : 1 * Defines.MODERN_SCREEN_WIDTH / 3;
       const xx2 = is_stage_mode ? 80 : 2 * Defines.MODERN_SCREEN_WIDTH / 3;
 

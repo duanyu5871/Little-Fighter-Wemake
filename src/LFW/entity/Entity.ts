@@ -44,7 +44,7 @@ import type { IEntityCallbacks } from "./IEntityCallbacks";
 import { summary_mgr } from "./SummaryMgr";
 import { calc_v } from "./calc_v";
 import { turn_face } from "./face_helper";
-import { is_ball_ctrl, is_boss, is_fighter, is_human_ctrl } from "./type_check";
+import { is_ball_ctrl, is_boss, is_bot_ctrl, is_fighter, is_human_ctrl } from "./type_check";
 export interface IEntityRenderer {
   render(dt: number, dfactor: number): void;
 }
@@ -1098,7 +1098,7 @@ export class Entity {
       debugger;
       return;
     }
-    const entity = this.lfw.factory.create_entity(this.world, data);
+    const entity = this.lfw.factory.create_entity_with_bot("", this.world, data);
     if (!entity) {
       Ditto.warn(
         `[Entity::spawn_object] failed, oid: ${oid}, data: `,
@@ -1110,8 +1110,6 @@ export class Entity {
       debugger;
       return;
     }
-    entity.ctrl =
-      this.lfw.factory.create_ctrl(entity._data.id, "", entity) ?? entity.ctrl;
     entity
       .on_spawn(this, opoint, offset_velocity, facing)
       .attach(opoint.ghost);
@@ -2323,8 +2321,9 @@ export class Entity {
   }
 
   transform(data: IEntityData) {
-    if (!is_human_ctrl(this.ctrl))
+    if (is_bot_ctrl(this.ctrl) || is_ball_ctrl(this.ctrl)) {
       this.ctrl = this.lfw.factory.create_ctrl(data.id, this.ctrl.player_id, this);
+    }
     const prev = this._data;
     this._data = data;
     this.reset_armor()

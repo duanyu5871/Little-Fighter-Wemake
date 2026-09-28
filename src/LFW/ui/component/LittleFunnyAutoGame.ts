@@ -127,9 +127,8 @@ export class LittleFunnyAutoGame extends UIComponent {
       data = this.lfw.mt.take(this._datas)
     }
     if (!data) return;
-    const fighter = this.lfw.factory.create_entity(this.world, data)
+    const fighter = this.lfw.factory.create_entity_with_bot('', this.world, data)
     if (!fighter) return;
-    fighter.ctrl = this.lfw.factory.create_ctrl(data.id, '', fighter);
     fighter.team = team;
     const facing = fighter.facing = lr ? -1 : 1;
     const x = (this._ox = (this._ox + 1) % 2) * -facing

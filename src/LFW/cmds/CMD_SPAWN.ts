@@ -1,4 +1,3 @@
-import { LocalController } from "../controller/LocalController";
 import { CMD } from "../defines/CMD";
 import { Ditto } from "../ditto/Instance";
 import { CMDS } from "./CMDS";
@@ -40,16 +39,14 @@ CMDS.register(CMD.SPAWN, help, (ctx) => {
 
   const ids: string[] = [];
   for (let i = 0; i < count; i++) {
-    const e = lfw.factory.create_entity(ctx.world, data);
+
+    const e = player_id ?
+      lfw.factory.create_entity_with_player(player_id, ctx.world, data) :
+      lfw.factory.create_entity_with_bot('', ctx.world, data);
     if (!e) continue;
     e.team = team || lfw.new_team;
     if (name) e.name = name;
     if (facing === 1 || facing === -1) e.facing = facing;
-    if (player_id)
-      e.ctrl = new LocalController(player_id, e);
-    else
-      e.ctrl = lfw.factory.create_ctrl(data.id, '', e) ?? e.ctrl;
-
     if (x != void 0)
       e.position.set(x, y ?? e.position.y, z ?? e.position.z);
     else

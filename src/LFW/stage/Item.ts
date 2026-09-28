@@ -105,11 +105,20 @@ export class Item {
 
   spawn(): boolean {
     const data = this.data || this.randoming?.get().get();
+    // eslint-disable-next-line no-debugger
     if (!data) { debugger; return false; }
-    const e = this.lfw.factory.create_entity(this.world, data);
+    const e = this.lfw.factory.create_entity_with_bot('', this.world, data);
+    // eslint-disable-next-line no-debugger
     if (!e) { debugger; return false; }
-    let {
-      hp, act, facing, x, y, z, reserve, hp_map, mp, mp_map,
+    const { enemy_l = 0, enemy_r = 0 } = this.phase;
+    const { difficulty } = this.world.dataset;
+    const {
+      act, facing,
+      x = this.lfw.mt.float() < 0.5 ? enemy_l : enemy_r, y, z, reserve,
+      hp_map,
+      hp,
+      mp_map,
+      mp = mp_map?.[difficulty],
       outline_color,
     } = this.info;
     if (this.times) this.times--;
@@ -119,15 +128,11 @@ export class Item {
       e.stat_bar = 0;
       e.wakeup_invuln = 0;
     }
-    e.ctrl = this.lfw.factory.create_ctrl(e.data.id, "", e);
     e.dead_gone = 1;
     e.reserve = reserve ?? 0;
     this.lfw.mt.mark = `stage_item_spawn`
 
-    const { enemy_l = 0, enemy_r = 0 } = this.phase;
     const { range_x = 200, range_y = 0, range_z = 0 } = this.info;
-    if (x == void 0) x = this.lfw.mt.float() < 0.5 ? enemy_l : enemy_r;
-
 
     const min_x = x
     const max_x = x + range_x
@@ -150,16 +155,13 @@ export class Item {
     let _hp = hp_map?.[this.world.dataset.difficulty];
 
     if (!is_num(_hp) && is_num(hp)) {
-      switch (this.world.dataset.difficulty) {
+      switch (difficulty) {
         case Difficulty.Easy: _hp = round(hp * 3 / 4); break;
         case Difficulty.Crazy: _hp = round(hp * 3 / 2); break;
         default: _hp = hp;
       }
     }
     if (is_num(_hp)) e.hp = e.hp_r = e.hp_max = _hp;
-
-
-    mp ??= mp_map?.[this.world.dataset.difficulty]
     if (is_num(mp)) e.mp = e.mp_max = mp;
 
     if (is_fighter(e))

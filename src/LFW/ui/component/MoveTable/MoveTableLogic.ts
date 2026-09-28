@@ -1,6 +1,6 @@
 import { CheatEnum, Defines, EntityGroup, FacingFlag, GK, StateEnum, TeamEnum, type IMoveDemoEntity, type IMoveInfo, type IMoveListData, type IMoveStep, type LGK } from "../../../defines";
-import { LFW } from "../../../LFW";
 import { type Entity } from "../../../entity";
+import { LFW } from "../../../LFW";
 import type { IUIKeyEvent } from "../../IUIKeyEvent";
 import type { UINode } from "../../UINode";
 import { Picture } from "../Picture";
@@ -352,16 +352,12 @@ export class MoveTableLogic extends UIComponent {
     entity.set_position(x, 0, z);
     entity.facing = list.facing ?? FacingFlag.R;
     entity.as_key_role(false);
-    entity.name_visible = 0;
     entity.attach();
     entity.team = list.team ?? TeamEnum.Team_1;
     entity.mp_max = DEMO_MP;
     entity.mp = DEMO_MP;
     entity.ctrl_visible = 1;
-    if (move?.stat_bar) {
-      entity.as_key_role(true);
-      entity.stat_bar = 1;
-    }
+    if (move?.stat_bar) entity.stat_bar = 1;
     if (move?.hp !== undefined) entity.hp = move.hp;
     return entity;
   }
@@ -414,15 +410,12 @@ export class MoveTableLogic extends UIComponent {
     entity.set_position(x, s.y ?? 0, z);
     entity.facing = s.facing ?? (x >= ax ? FacingFlag.L : FacingFlag.R);
     entity.as_key_role(false);
-    entity.name_visible = 0;
     entity.attach();
     entity.team = s.team ?? TeamEnum.Team_2;
     if (s.hp === undefined) entity.hp_max = entity.hp = DEFAULT_ENTITY_HP;
     else entity.hp = s.hp;
-    if (s.stat_bar) {
-      entity.as_key_role(true);
-      entity.stat_bar = 1;
-    }
+    if (s.stat_bar) entity.stat_bar = 1;
+    
     if (s.frame) {
       entity.mp = DEMO_MP;
       entity.enter_frame_by_id(s.frame, true);

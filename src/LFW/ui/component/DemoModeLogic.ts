@@ -143,13 +143,13 @@ export class DemoModeLogic extends UIComponent<IDemoModeLogicProps> {
         title: "LouisEX VS 9 Fighters",
         stage_mode: false,
         teams: [
-          '2', '2', '2', '2', 
+          '2', '2', '2', '2',
           '2', '2', '2',
           '1', '1', '1', '1', '1',
           '1', '1', '1', '1',
         ],
         oids: [
-          OID.LouisEX, OID.Monk, OID.Monk, OID.Monk, 
+          OID.LouisEX, OID.Monk, OID.Monk, OID.Monk,
           OID.Monk, OID.Monk, OID.Monk,
           OID.Deep, OID.John, OID.Henry, OID.Rudolf, OID.Davis,
           OID.Firen, OID.Freeze, OID.Dennis, OID.Woody,
@@ -274,20 +274,15 @@ export class DemoModeLogic extends UIComponent<IDemoModeLogicProps> {
       }
       if (!fighter_data) continue;
 
-      const fighter = this.lfw.factory.create_entity(this.world, fighter_data);
+      const player = this.lfw.player('' + i)
+      const fighter = this.lfw.factory.create_entity_with_bot(player.id, this.world, fighter_data);
       if (!fighter) continue;
       fighter.team = team ?? this.lfw.new_team;
       this.lfw.mt.mark = 'demo_startup_fighter_facing'
       fighter.facing = is_stage_mode ?
         FacingFlag.Right :
         this.lfw.mt.pick([FacingFlag.Left, FacingFlag.Right])!;
-
       fighter.as_key_role(true);
-      fighter.name_visible = 1;
-      fighter.stat_bar = 0;
-
-      const player = this.lfw.player('' + i)
-      fighter.ctrl = this.lfw.factory.create_ctrl(fighter_data.id, player.id, fighter);
 
       this.lfw.mt.mark = 'demo_startup_fighter_x'
       const x = this.lfw.mt.range(min_x, max_x)
@@ -355,23 +350,21 @@ export class DemoModeLogic extends UIComponent<IDemoModeLogicProps> {
   }
   override update(dt: number): void {
     const { cam_ctrl } = this.props;
-    do {
-      if (!cam_ctrl) break;
+    if (cam_ctrl) {
       const { staring, auto: free } = cam_ctrl
-      if (this._staring == staring && this._free == free)
-        break;
-      this._staring = staring
-      this._free = free
-      if (!free) {
-        this.props.focus_prefix?.set_text("cam_controlling");
-        this.props.focus_on?.set_visible(false)
+      if (this._staring != staring || this._free != free) {
+        this._staring = staring
+        this._free = free
+        if (!free) {
+          this.props.focus_prefix?.set_text("cam_controlling");
+          this.props.focus_on?.set_visible(false)
+        }
+        const txt = staring ? `[${staring.team}] ${staring.name}` : '-'
+        this.props.focus_prefix?.set_text("curr_focus")
+        this.props.focus_on?.set_visible(true)
+        this.props.focus_on?.set_text(txt)
       }
-      const txt = staring ? `[${staring.team}] ${staring.name}` : '-'
-      this.props.focus_prefix?.set_text("curr_focus")
-      this.props.focus_on?.set_visible(true)
-      this.props.focus_on?.set_text(txt)
-
-    } while (0)
+    }
     if (this.is_stage_mode) {
       if (this.props.jalousie && !this.props.jalousie.open && this.props.jalousie.anim.done) {
         this.lfw.goto_next_stage()

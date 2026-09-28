@@ -1,6 +1,7 @@
 import { Graves } from "./base/Graves";
 import type { Buff } from "./buff/Buff";
 import type { BaseController } from "./controller/BaseController";
+import { LocalController } from "./controller/LocalController";
 import type { IEntityData } from "./defines/IEntityData";
 import { Ditto } from "./ditto/Instance";
 import type { Entity } from "./entity/Entity";
@@ -94,6 +95,18 @@ export class Factory {
   }
   create_ctrl(oid: Key, ...args: Parameters<ICtrlCreator>): BaseController | undefined {
     return Factory.ctrl_creators.get(oid)?.(...args);
+  }
+  create_entity_with_bot(player_id: string, ...args: Parameters<IEntityCreators>): Entity | undefined {
+    const ret = Factory.entity_creators.get(args[1].type)?.(...args);
+    if (!ret) return ret;
+    ret.ctrl = this.create_ctrl(args[1].id, player_id, ret);
+    return ret;
+  }
+  create_entity_with_player(player_id: string, ...args: Parameters<IEntityCreators>): Entity | undefined {
+    const ret = Factory.entity_creators.get(args[1].type)?.(...args);
+    if (!ret) return ret;
+    ret.ctrl = new LocalController(player_id, ret)
+    return ret;
   }
   create_components(layout: UINode, components: IComponentInfo[]): UIComponent[] {
     if (!components.length) return [];

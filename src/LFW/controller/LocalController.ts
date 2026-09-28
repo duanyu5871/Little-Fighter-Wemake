@@ -1,5 +1,5 @@
-import { Entity } from "../entity/Entity";
-import { PlayerInfo } from "../PlayerInfo";
+import type { Entity } from "../entity/Entity";
+import type { PlayerInfo } from "../PlayerInfo";
 import { BaseController } from "./BaseController";
 
 export class LocalController
