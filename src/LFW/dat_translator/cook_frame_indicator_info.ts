@@ -3,12 +3,14 @@ import type { IQube } from "../defines/IQube";
 
 export function cook_frame_indicator_info(frame: IFrameInfo) {
   const { pic, bdy, itr, opoint, cpoint, bpoint, wpoint } = frame;
-  if (!pic || !("w" in pic)) return;
+  const w = pic && "w" in pic ? pic.w : frame.width;
+  const h = pic && "w" in pic ? pic.h : frame.height;
+  if (!w || !h) return;
   const f_qube_1: IQube = {
     x: -frame.centerx,
-    y: frame.centery - pic.h,
-    w: pic.w,
-    h: pic.h,
+    y: frame.centery - h,
+    w,
+    h,
     z: 0,
     l: 0,
   };

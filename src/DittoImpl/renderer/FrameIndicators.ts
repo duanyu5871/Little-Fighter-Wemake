@@ -13,6 +13,7 @@ const line_vertices = new Float32Array([
 ]);
 line_geometry.setPositions(line_vertices);
 
+const OVERLAY_RENDER_ORDER = 100;
 const EMPTY_ARR = [] as const;
 const DOT = {
   __indicator_info: {
@@ -64,6 +65,7 @@ export class FrameIndicators {
   private _prev_flags?: number;
   private _prev_frame?: IFrameInfo;
   private _prev_face?: number;
+  private _overlay_style?: boolean;
 
   get body() {
     return (this._entity.renderer as EntityRenderer).body;
@@ -102,7 +104,28 @@ export class FrameIndicators {
     )
     this._indicators_map[k][idx] = ret;
     this.body.add(ret);
+    this._apply_line_style(ret);
     return ret;
+  }
+
+  private _sync_line_style(): void {
+    const overlay = !!(this._entity.renderer as EntityRenderer | undefined)?.has_model;
+    if (this._overlay_style === overlay) return;
+    this._overlay_style = overlay;
+    foreach(this._indicators_map, (list) => {
+      foreach(list, (obj) => this._apply_line_style(obj));
+    });
+  }
+
+  private _apply_line_style(obj: T.Object3D): void {
+    const overlay = !!this._overlay_style;
+    obj.renderOrder = overlay ? OVERLAY_RENDER_ORDER : 0;
+    obj.traverse((o) => {
+      const material = (o as T.Mesh).material as T.Material | undefined;
+      if (!material) return;
+      material.depthTest = !overlay;
+      material.transparent = overlay;
+    });
   }
 
   protected _del_indicator(k: keyof typeof this._indicators_map, idx: number) {
@@ -223,6 +246,7 @@ export class FrameIndicators {
     group.add(cross_h, cross_v, vline, circle);
     this.body.add(group);
     this._indicators_map.ft[0] = group;
+    this._apply_line_style(group);
   }
 
   private _update_ft(): void {
@@ -273,6 +297,7 @@ export class FrameIndicators {
   }
 
   render() {
+    this._sync_line_style();
     if (this._flags) {
       const { x: game_x, y: game_y, z: game_z } = this._entity.position;
       this._x = game_x;
