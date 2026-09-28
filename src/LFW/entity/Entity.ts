@@ -2322,7 +2322,7 @@ export class Entity {
   }
 
   transform(data: IEntityData) {
-    if (is_bot_ctrl(this.ctrl) || is_ball_ctrl(this.ctrl)) {
+    if (!is_human_ctrl(this.ctrl)) {
       this.ctrl = this.lfw.factory.create_ctrl(data.id, this.ctrl.player_id, this);
     }
     const prev = this._data;
