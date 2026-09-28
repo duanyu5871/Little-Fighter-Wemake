@@ -222,7 +222,7 @@ export class Entity {
   public ctrl_visible: number = 0;
   protected _ctrl!: BaseController;
   armor!: Readonly<IArmorInfo> | null;
-  protected _opoints!: [IOpointInfo, number][];
+  protected _opoints: [IOpointInfo, number][] = [];
   private prev_cpoint_a!: ICpoint | null;
 
 
