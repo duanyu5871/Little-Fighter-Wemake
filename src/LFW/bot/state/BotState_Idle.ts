@@ -1,39 +1,35 @@
 import { AGK, Defines, GK, SE, WeaponEnum as WT } from "../../defines";
-import { max, min, round } from '../../utils/math/base';
 import { BSE } from "../../defines/BotStateEnum";
+import { round } from '../../utils/math/base';
 import { BotBehavior } from "../BotController";
 import { BotState_Base } from "./BotState";
 
 export class BotState_Idle extends BotState_Base {
   readonly key = BSE.Idle;
-  min_x: number = Number.MIN_SAFE_INTEGER;
-  max_x: number = Number.MAX_SAFE_INTEGER;
-  min_z: number = Number.MIN_SAFE_INTEGER;
-  max_z: number = Number.MAX_SAFE_INTEGER;
   override enter(): void {
     this.ctrl.key_up(...AGK);
     const { player_l, player_r, near, far } = this.stage;
     const midx = (player_l + player_r) * 0.5
     const midz = (near + far) * 0.5
     this.me.lfw.mt.mark = `bot_idle`
-    this.min_x = round(this.me.lfw.mt.range(player_l, midx))
-    this.max_x = round(this.me.lfw.mt.range(midx, player_r))
-    this.min_z = round(this.me.lfw.mt.range(far, midz))
-    this.max_z = round(this.me.lfw.mt.range(midz, near))
+    this.ctrl.idle_min_x = round(this.me.lfw.mt.range(player_l, midx))
+    this.ctrl.idle_max_x = round(this.me.lfw.mt.range(midx, player_r))
+    this.ctrl.idle_min_z = round(this.me.lfw.mt.range(far, midz))
+    this.ctrl.idle_max_z = round(this.me.lfw.mt.range(midz, near))
 
     const { goingto, behavior } = this.ctrl;
     if (behavior === BotBehavior.Stay && goingto) {
-      this.min_x = round(goingto.x - Defines.AI_COME_RANGE_IN_X);
-      this.max_x = round(goingto.x + Defines.AI_COME_RANGE_IN_X);
-      this.min_z = round(goingto.z - Defines.AI_COME_RANGE_IN_Z);
-      this.max_z = round(goingto.z + Defines.AI_COME_RANGE_IN_Z);
+      this.ctrl.idle_min_x = round(goingto.x - Defines.AI_COME_RANGE_IN_X);
+      this.ctrl.idle_max_x = round(goingto.x + Defines.AI_COME_RANGE_IN_X);
+      this.ctrl.idle_min_z = round(goingto.z - Defines.AI_COME_RANGE_IN_Z);
+      this.ctrl.idle_max_z = round(goingto.z + Defines.AI_COME_RANGE_IN_Z);
     }
   }
   override leave(): void {
     const { c, me } = this;
     if (me.state === SE.Drink) c.click(GK.d)
   }
-  override update(dt: number) {
+  override update() {
     if (this.me.hp <= 0) return BSE.Dead;
     if (this.stage.is_stage_finish)
       return BSE.StageEnd;
@@ -45,17 +41,17 @@ export class BotState_Idle extends BotState_Base {
 
     const { x: my_x, z: my_z } = me.position;
     // 空闲时远离边界
-    if (my_x < this.min_x) {
+    if (my_x < c.idle_min_x) {
       c.key_down(GK.R).key_up(GK.L)
-    } else if (my_x > this.max_x) {
+    } else if (my_x > c.idle_max_x) {
       c.key_down(GK.L).key_up(GK.R)
     } else {
       c.key_up(GK.L, GK.R)
     }
 
-    if (my_z < this.min_z) {
+    if (my_z < c.idle_min_z) {
       c.key_down(GK.D).key_up(GK.U)
-    } else if (my_z > this.max_z) {
+    } else if (my_z > c.idle_max_z) {
       c.key_down(GK.U).key_up(GK.D)
     } else {
       c.key_up(GK.U, GK.D)
@@ -65,8 +61,8 @@ export class BotState_Idle extends BotState_Base {
     if (
       watching?.mounted &&
       me.state === SE.Standing &&
-      my_x >= this.min_x && my_x <= this.max_x &&
-      my_z >= this.min_z && my_z <= this.max_z
+      my_x >= c.idle_min_x && my_x <= c.idle_max_x &&
+      my_z >= c.idle_min_z && my_z <= c.idle_max_z
     ) {
       const wx = watching.position.x;
       if (wx > my_x && me.facing < 0) c.click(GK.R);

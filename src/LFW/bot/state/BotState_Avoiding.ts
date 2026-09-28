@@ -9,7 +9,7 @@ export class BotState_Avoiding extends BotState_Base {
   override leave(): void {
     this.c.key_up(...AGK);
   }
-  override update(dt: number): BSE | undefined {
+  override update(): BSE | undefined {
     if (this.me.hp <= 0) return BSE.Dead;
     const { s } = this;
     if (s.is_chapter_finish)
@@ -19,7 +19,7 @@ export class BotState_Avoiding extends BotState_Base {
     const { c, me } = this;
     if (c.is_leave_goto_range(me))
       return BSE.Following;
-    const { en, av } = this
+    const { av } = this
     if (this.handle_bot_actions('hba_a')) return;
     if (this.handle_defends('hd_a')) return;
 

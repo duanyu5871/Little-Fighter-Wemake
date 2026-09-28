@@ -8,7 +8,7 @@ import { BotState_Base } from "./BotState";
 
 export class BotState_Chasing extends BotState_Base {
   readonly key = BSE.Chasing;
-  override update(dt: number): BSE | undefined {
+  override update(): BSE | undefined {
     if (this.me.hp <= 0) return BSE.Dead;
     const { s } = this;
     if (s.is_chapter_finish)
@@ -31,8 +31,8 @@ export class BotState_Chasing extends BotState_Base {
     if (!en) return BSE.Idle;
 
     const { facing: me_facing } = me
-    const { x: my_x, z: my_z, y: my_y } = me.position;
-    const { next_x: en_x, next_z: en_z, next_y: en_y } = c.guess_entity_pos(en);
+    const { x: my_x, z: my_z } = me.position;
+    const { next_x: en_x, next_z: en_z } = c.guess_entity_pos(en);
     const { state } = me.frame;
 
     /** 
@@ -54,7 +54,7 @@ export class BotState_Chasing extends BotState_Base {
      * 敌人在高时为正数
      * 敌人在低时为负数
      */
-    const ry = round(en_y - my_y)
+    // const ry = round(en_y - my_y)
 
     /** 敌人与自己的距离X */
     const absx = round(abs(my_x - en_x))
@@ -89,7 +89,7 @@ export class BotState_Chasing extends BotState_Base {
     )
 
     const GK_F = me_facing > 0 ? GK.R : GK.L;
-    const GK_B = me_facing > 0 ? GK.L : GK.R;
+    // const GK_B = me_facing > 0 ? GK.L : GK.R;
     switch (state) {
       case StateEnum.Running: return this.update_running();
       case StateEnum.Dash: return this.update_dash();
@@ -162,7 +162,7 @@ export class BotState_Chasing extends BotState_Base {
 
     const { facing: me_facing } = me
     const { x: my_x, z: my_z } = me.position;
-    const { x: en_x, z: en_z, y: en_y } = en.position;
+    const { x: en_x, z: en_z } = en.position;
 
     const GK_F = me_facing > 0 ? GK.R : GK.L;
     const GK_B = me_facing > 0 ? GK.L : GK.R;

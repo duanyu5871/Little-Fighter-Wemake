@@ -18,7 +18,20 @@ export class BallController extends BaseController {
   dir_z: 0 | 1 | -1 = 0;
   leave_dir: 0 | 1 | -1 = 0;
   
+  override reset(player_id: string, entity: Entity): void {
+    super.reset(player_id, entity);
+    this.chasing = null;
+    this.gave_up = false;
+    this.dir_x = 0;
+    this.dir_y = 0;
+    this.dir_z = 0;
+    this.leave_dir = 0;
+    this.frame = EMPTY_FRAME_INFO;
+    this.chase_point.copy(this.entity.position);
+  }
+
   set_chase_point(x: number, y: number, z: number) {
+    // eslint-disable-next-line no-debugger
     if (is_f_num(x) || is_f_num(y) || is_f_num(z)) debugger;
     this.chase_point.set(
       round_float(x),

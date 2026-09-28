@@ -47,7 +47,6 @@ export class BotController extends BaseController {
       new BotState_StageEnd(this),
       new BotState_Dead(this)
     )
-    .use(BSE.Idle)
 
   readonly __is_bot_ctrl__ = true;
 
@@ -67,6 +66,10 @@ export class BotController extends BaseController {
   following: Entity | null = null;
   watching: Entity | null = null;
   en_out_of_range: boolean = false;
+  idle_min_x: number = Number.MIN_SAFE_INTEGER;
+  idle_max_x: number = Number.MAX_SAFE_INTEGER;
+  idle_min_z: number = Number.MIN_SAFE_INTEGER;
+  idle_max_z: number = Number.MAX_SAFE_INTEGER;
   protected _bot_id: string | undefined;
   protected _bot: IBotData | undefined;
   protected _dataset = new BotDataSet();
@@ -222,6 +225,28 @@ export class BotController extends BaseController {
 
   constructor(player_id: string, entity: Entity) {
     super(player_id, entity);
+    this.fsm.reset(BSE.Idle);
+  }
+
+  override reset(player_id: string, entity: Entity): void {
+    super.reset(player_id, entity);
+    this.chasings.clear();
+    this.avoidings.clear();
+    this.defends.clear();
+    this.goingto = null;
+    this.following = null;
+    this.watching = null;
+    this.behavior = BotBehavior.Move;
+    this.en_out_of_range = false;
+    this.idle_min_x = Number.MIN_SAFE_INTEGER;
+    this.idle_max_x = Number.MAX_SAFE_INTEGER;
+    this.idle_min_z = Number.MIN_SAFE_INTEGER;
+    this.idle_max_z = Number.MAX_SAFE_INTEGER;
+    this.bot_frame = void 0;
+    this._dummy = DummyEnum.None;
+    this._bot_id = void 0;
+    this._bot = void 0;
+    this.fsm.reset(BSE.Idle);
   }
 
   w_atk_too_far(o: Entity) {
@@ -418,6 +443,7 @@ export class BotController extends BaseController {
           return false; // 仅在Stay喝
         if (abs_dx > 100)
           return false; // 不喝太远的
+        // eslint-disable-next-line no-constant-condition
       } while (0);
 
       if (e_state == StateEnum.Weapon_OnGround)
@@ -546,6 +572,7 @@ export class BotController extends BaseController {
           break;
       }
       return 0;
+      // eslint-disable-next-line no-constant-condition
     } while (0);
 
 

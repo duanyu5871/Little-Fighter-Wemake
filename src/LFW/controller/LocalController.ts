@@ -10,4 +10,8 @@ export class LocalController
     super(player_id, entity);
     this.player = this.lfw.player(player_id)
   }
+  override reset(player_id: string, entity: Entity): void {
+    super.reset(player_id, entity);
+    this.player = this.lfw.player(player_id)
+  }
 }
