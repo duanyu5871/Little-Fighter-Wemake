@@ -78,11 +78,11 @@ class Inner {
     }
     // data 收窄为 IEntityData
     if (is_ball_data(data))
-      Factory.register_ctrl(data.id, (a, b) => new BallController(a, b));
+      Factory.register_ctrl(data.id, BallController);
     else if (is_weapon_data(data))
-      Factory.register_ctrl(data.id, (a, b) => new BallController(a, b));
+      Factory.register_ctrl(data.id, BallController);
     else if (is_fighter_data(data))
-      Factory.register_ctrl(data.id, (a, b) => new BotController(a, b));
+      Factory.register_ctrl(data.id, BotController);
     data.base.bot = data.base.bot ?? this.bot_map.get(data.id ?? data.base.bot_id);
     const ctx: IEntityDataContext = { lfw: this.lfw, data, jobs, errors: [] };
     return preprocess_entity_data(ctx).then(r => r as IEntityData);

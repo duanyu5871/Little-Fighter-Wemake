@@ -16,7 +16,7 @@ export interface IEntityCreators {
   (world: World, data: IEntityData, states?: States): Entity | undefined
 }
 export interface ICtrlCreator {
-  (player_id: string, entity: Entity): BaseController | undefined
+  new(player_id: string, entity: Entity): BaseController;
 }
 export interface IBuffCreator {
   readonly KIND: string | number;
@@ -29,6 +29,7 @@ export class Factory {
   static readonly TAG = `Factory`;
   readonly graves_maps = new Map<Key, Graves<Entity>>();
   readonly buff_graves_maps = new Map<Key, Graves<Buff>>();
+  readonly ctrl_graves_maps = new Map<object, Graves<BaseController>>();
   static readonly entity_creators = new Map<Key, IEntityCreators>();
   static readonly ctrl_creators = new Map<Key, ICtrlCreator>();
   static readonly buff_creators = new Map<Key, IBuffCreator>();
@@ -93,8 +94,23 @@ export class Factory {
   create_entity(...args: Parameters<IEntityCreators>): Entity | undefined {
     return Factory.entity_creators.get(args[1].type)?.(...args);
   }
-  create_ctrl(oid: Key, ...args: Parameters<ICtrlCreator>): BaseController | undefined {
-    return Factory.ctrl_creators.get(oid)?.(...args);
+  create_ctrl(oid: Key, player_id: string, entity: Entity): BaseController | undefined {
+    const Cls = Factory.ctrl_creators.get(oid);
+    if (!Cls) return void 0;
+    return this.acquire_ctrl(Cls, player_id, entity);
+  }
+  acquire_ctrl<T extends BaseController>(Cls: new (player_id: string, entity: Entity) => T, player_id: string, entity: Entity): T {
+    const ret = this.ctrl_graves_maps.get(Cls)?.take() as T | undefined;
+    if (!ret) return new Cls(player_id, entity);
+    ret.reset(player_id, entity);
+    return ret;
+  }
+  release_ctrl(ctrl: BaseController | undefined): this {
+    if (!ctrl) return this;
+    let graves = this.ctrl_graves_maps.get(ctrl.constructor);
+    if (!graves) this.ctrl_graves_maps.set(ctrl.constructor, graves = new Graves());
+    graves.add(ctrl);
+    return this;
   }
   create_entity_with_bot(player_id: string, ...args: Parameters<IEntityCreators>): Entity | undefined {
     const ret = Factory.entity_creators.get(args[1].type)?.(...args);
@@ -105,7 +121,7 @@ export class Factory {
   create_entity_with_player(player_id: string, ...args: Parameters<IEntityCreators>): Entity | undefined {
     const ret = Factory.entity_creators.get(args[1].type)?.(...args);
     if (!ret) return ret;
-    ret.ctrl = new LocalController(player_id, ret)
+    ret.ctrl = this.acquire_ctrl(LocalController, player_id, ret)
     return ret;
   }
   create_components(layout: UINode, components: IComponentInfo[]): UIComponent[] {

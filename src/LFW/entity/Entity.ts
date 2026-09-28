@@ -601,6 +601,7 @@ export class Entity {
     this._ctrl = v;
     this.callbacks.call('on_ctrl_changed', v, prev, this)
     this.world.mark_players_alive(this, is_human_ctrl(v) && this.hp > 0);
+    if (prev) this.lfw.factory.release_ctrl(prev);
   }
   as_key_role(v: boolean): void {
     this.name_visible = v ? 1 : 0;
@@ -749,7 +750,8 @@ export class Entity {
     this.jumping.y = 0
     this.jumping.z = 0
     this.jumping.t = 0
-    this._ctrl = new InvalidController("", this);
+    if (this._ctrl) this.lfw.factory.release_ctrl(this._ctrl);
+    this._ctrl = this.lfw.factory.acquire_ctrl(InvalidController, "", this);
     this.reset_armor();
 
     this.fall_value = this.fall_value_max;

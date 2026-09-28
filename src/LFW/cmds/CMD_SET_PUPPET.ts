@@ -44,7 +44,7 @@ CMDS.register(CMD.SET_PUPPET, help, (ctx) => {
   if (team) f.team = team;
   if (f.data !== data) f.transform(data);
   if (!is_human_ctrl(f.ctrl) || f.ctrl.player_id != player_id)
-    f.ctrl = new LocalController(player_id, f);
+    f.ctrl = lfw.factory.acquire_ctrl(LocalController, player_id, f);
   f.attach();
   return f.id;
 })
