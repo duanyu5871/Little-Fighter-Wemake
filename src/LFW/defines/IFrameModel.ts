@@ -47,6 +47,8 @@ export interface IFrameModel {
   loop?: boolean;
   /** 动画速度倍率（配合 wait 控制节奏） */
   time_scale?: number;
+  /** 是否倒放（从片段末尾向开头播放） */
+  reverse?: boolean;
   /**
    * 整模型绕 Z 轴旋转角（弧度，缺省 0），rotation.z 的简写，类似 2D pic 的 rad
    * @deprecated 用 rotation.z
@@ -96,6 +98,7 @@ export const frame_model_fields = fields<IFrameModel>({
   hold_last: bool('播完保持最后一帧', { nullable: true }),
   loop: bool('循环', { nullable: true }),
   time_scale: flt('速度倍率', { nullable: true }),
+  reverse: bool('倒放', { nullable: true }),
   rad: flt('Z轴旋转(弧度)', { nullable: true }),
   rotation: obj('旋转(弧度 x,y,z)', { nullable: true, fields: vec3_rotation_fields }),
   scale: obj('缩放', { nullable: true, fields: vec3_scale_fields }),
@@ -114,6 +117,7 @@ export const Schema_IFrameModel = make_schema<IFrameModel>({
     hold_last: { type: "boolean", nullable: true, description: "播完是否保持最后一帧" },
     loop: { type: "boolean", nullable: true, description: "是否循环" },
     time_scale: { type: "number", nullable: true, description: "速度倍率" },
+    reverse: { type: "boolean", nullable: true, description: "是否倒放" },
     rad: { type: "number", nullable: true, description: "Z轴旋转(弧度)" },
     rotation: {
       type: "object", nullable: true, description: "旋转(弧度 x,y,z)",

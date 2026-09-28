@@ -103,6 +103,7 @@ interface IPlay {
   action?: T.AnimationAction;
   playing: boolean;
   loop: boolean;
+  reverse: boolean;
 }
 
 /**
@@ -128,13 +129,14 @@ export function ModelPreview({ lfw, path, ortho, axes, view, on_view }: {
 }) {
   const ref_canvas = useRef<HTMLCanvasElement>(null);
   const ref_view = useRef<IView | undefined>(undefined);
-  const ref_play = useRef<IPlay>({ playing: true, loop: true });
+  const ref_play = useRef<IPlay>({ playing: true, loop: true, reverse: false });
   const [ready, set_ready] = useState(false);
   const [error, set_error] = useState<string>();
   const [clips, set_clips] = useState<readonly string[]>([]);
   const [clip_name, set_clip_name] = useState("");
   const [playing, set_playing] = useState(true);
   const [loop, set_loop] = useState(true);
+  const [reverse, set_reverse] = useState(false);
   const [speed, set_speed] = useState(1);
   const [time, set_time] = useState(0);
   const [duration, set_duration] = useState(0);
@@ -365,12 +367,13 @@ export function ModelPreview({ lfw, path, ortho, axes, view, on_view }: {
     const play = ref_play.current;
     play.playing = playing;
     play.loop = loop;
+    play.reverse = reverse;
     const action = play.action;
     if (!action) return;
     action.setLoop(loop ? T.LoopRepeat : T.LoopOnce, loop ? Infinity : 1);
     action.clampWhenFinished = !loop;
-    action.timeScale = speed;
-  }, [playing, loop, speed, clips]);
+    action.timeScale = speed * (reverse ? -1 : 1);
+  }, [playing, loop, speed, reverse, clips]);
 
   useEffect(() => {
     const play = ref_play.current;
@@ -381,10 +384,11 @@ export function ModelPreview({ lfw, path, ortho, axes, view, on_view }: {
     action.reset();
     action.setLoop(loop ? T.LoopRepeat : T.LoopOnce, loop ? Infinity : 1);
     action.clampWhenFinished = !loop;
-    action.timeScale = speed;
+    action.timeScale = speed * (play.reverse ? -1 : 1);
+    if (play.reverse) action.time = action.getClip().duration;
     action.play();
     set_duration(action.getClip().duration);
-    set_time(0);
+    set_time(action.time);
   }, [clip_name, clips]);
 
   const seek = (v: number) => {
@@ -397,25 +401,42 @@ export function ModelPreview({ lfw, path, ortho, axes, view, on_view }: {
   };
 
   const restart = () => {
-    ref_play.current.action?.reset().play();
-    set_time(0);
+    const action = ref_play.current.action;
+    if (!action) return;
+    action.reset();
+    action.time = reverse ? action.getClip().duration : 0;
+    action.play();
+    set_time(action.time);
   };
 
-  const resume_if_finished = () => {
+  const resume_if_finished = (backward: boolean) => {
     const action = ref_play.current.action;
     if (!action?.paused) return;
-    if (action.time >= action.getClip().duration) action.reset().play();
-    else action.paused = false;
+    const dur = action.getClip().duration;
+    if (backward ? action.time > 0 : action.time < dur) {
+      action.paused = false;
+      return;
+    }
+    action.reset();
+    action.time = backward ? dur : 0;
+    action.play();
+    set_time(action.time);
   };
 
   const toggle_playing = () => {
-    if (!playing) resume_if_finished();
+    if (!playing) resume_if_finished(reverse);
     set_playing(!playing);
   };
 
   const toggle_loop = () => {
-    if (!loop) resume_if_finished();
+    if (!loop) resume_if_finished(reverse);
     set_loop(!loop);
+  };
+
+  const toggle_reverse = () => {
+    const next = !reverse;
+    if (playing) resume_if_finished(next);
+    set_reverse(next);
   };
 
   // 快捷键：点一下画面（canvas 拿到焦点）后，数字键切视图
@@ -441,8 +462,11 @@ export function ModelPreview({ lfw, path, ortho, axes, view, on_view }: {
         <div className={csses.model_anim}>
           <button onClick={toggle_playing}>{playing ? "暂停" : "播放"}</button>
           <button onClick={restart}>重播</button>
-          <button onClick={toggle_loop} title="循环播放 / 播完停在最后一帧">
-            {loop ? "循环播放" : "停留最后一帧"}
+          <button onClick={toggle_loop} title="循环播放 / 播完停住">
+            {loop ? "循环播放" : reverse ? "停留第一帧" : "停留最后一帧"}
+          </button>
+          <button onClick={toggle_reverse} title="正放 / 倒放">
+            {reverse ? "倒放" : "正放"}
           </button>
           <select value={clip_name} onChange={(e) => set_clip_name(e.target.value)}>
             {clips.map((name) => <option key={name} value={name}>{name}</option>)}

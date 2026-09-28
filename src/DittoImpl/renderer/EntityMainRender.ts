@@ -131,6 +131,7 @@ export class EntityMainRender {
   protected _hull_scale = new Vector3();
   protected playing_anim = "";
   protected anim_loop = false;
+  protected anim_reverse = false;
   protected anim_mapped = false;
   protected anim_speed = 1;
   protected prev_lifetime = 0;
@@ -563,23 +564,27 @@ export class EntityMainRender {
     if (!this.mixer) return
     const name = model.anim ?? ''
     const loop = !!model.loop
+    const reverse = !!model.reverse
     const speed = model.time_scale ?? 1
     const hold_last = !loop && !!model.hold_last
-    if (this.playing_anim !== name || this.anim_loop !== loop || this.anim_mapped) {
+    if (this.playing_anim !== name || this.anim_loop !== loop || this.anim_reverse !== reverse || this.anim_mapped) {
       this.playing_anim = name
       this.anim_loop = loop
+      this.anim_reverse = reverse
       this.anim_mapped = false
       this.anim_speed = speed
       for (const [, a] of this.mixer_actions) a.stop()
       const action = this.mixer_actions.get(name)
       if (action) {
         action.setLoop(loop ? LoopRepeat : LoopOnce, loop ? Infinity : 1)
-        action.timeScale = speed
-        action.reset().play()
+        action.timeScale = reverse ? -speed : speed
+        action.reset()
+        if (reverse) action.time = action.getClip().duration
+        action.play()
       }
     } else if (this.anim_speed !== speed) {
       this.anim_speed = speed
-      this.mixer_actions.get(name)?.setEffectiveTimeScale(speed)
+      this.mixer_actions.get(name)?.setEffectiveTimeScale(reverse ? -speed : speed)
     }
     const action = this.mixer_actions.get(name)
     if (action) action.clampWhenFinished = hold_last
@@ -600,6 +605,7 @@ export class EntityMainRender {
     let u = t * (model.time_scale ?? 1)
     if (model.loop) u = u - Math.floor(u)
     else u = clamp(u, 0, 1)
+    if (model.reverse) u = 1 - u
     action.time = seek + u * seg_len
     this.mixer?.update(0)
   }
