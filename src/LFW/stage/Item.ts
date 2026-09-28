@@ -53,8 +53,8 @@ export class Item {
     if (typeof id === 'string') ids = [id];
     else if (Array.isArray(id)) ids = id;
 
-    do {
-      if (ids.length) break;
+
+    if (ids.length) {
       for (const oid of ids) {
         const data = this.lfw.datas.find(oid);
         this._is_fighter ||= is_fighter_data(data);
@@ -67,12 +67,11 @@ export class Item {
       }
       if (data_list.length === 1 && !randoming_list.length) {
         this.data = data_list[0];
-        break;
+      } else if (data_list.length) {
+        const randoming = new Randoming(`stage_item_oid_randoming`, data_list, this.lfw.mt)
+        randoming_list.push(randoming);
       }
-      if (!data_list.length) break;
-      const randoming = new Randoming(`stage_item_oid_randoming`, data_list, this.lfw.mt)
-      randoming_list.push(randoming);
-    } while (0)
+    }
 
     if (randoming_list.length)
       this.randoming = new Randoming(`stage_item_oids_randoming`, randoming_list, this.lfw.mt);

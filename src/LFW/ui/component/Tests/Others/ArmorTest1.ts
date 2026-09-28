@@ -4,7 +4,7 @@ import { TestCase } from '../TestCase';
 
 export class ArmorTest1 extends TestCase {
   override name: string = 'Armor Test 1';
-override readonly director = new ActionDirector().offset(300).repeat(999, 3, () => {
+  override readonly director = new ActionDirector().offset(300).repeat(999, 3, () => {
     for (const f of this.fighters)
       f.ctrl.click(GK.Attack)
   })
