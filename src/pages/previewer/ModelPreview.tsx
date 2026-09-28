@@ -103,7 +103,6 @@ interface IPlay {
   action?: T.AnimationAction;
   playing: boolean;
   loop: boolean;
-  speed: number;
 }
 
 /**
@@ -129,7 +128,7 @@ export function ModelPreview({ lfw, path, ortho, axes, view, on_view }: {
 }) {
   const ref_canvas = useRef<HTMLCanvasElement>(null);
   const ref_view = useRef<IView | undefined>(undefined);
-  const ref_play = useRef<IPlay>({ playing: true, loop: true, speed: 1 });
+  const ref_play = useRef<IPlay>({ playing: true, loop: true });
   const [ready, set_ready] = useState(false);
   const [error, set_error] = useState<string>();
   const [clips, set_clips] = useState<readonly string[]>([]);
@@ -219,7 +218,7 @@ export function ModelPreview({ lfw, path, ortho, axes, view, on_view }: {
       const play = ref_play.current;
       const action = play.action;
       if (play.mixer && action && play.playing) {
-        play.mixer.update(dt * play.speed);
+        play.mixer.update(dt);
         const dur = action.getClip().duration;
         const shown = play.loop ? action.time % dur : Math.min(action.time, dur);
         if (Math.abs(shown - last_shown) > 0.04) {
@@ -366,7 +365,6 @@ export function ModelPreview({ lfw, path, ortho, axes, view, on_view }: {
     const play = ref_play.current;
     play.playing = playing;
     play.loop = loop;
-    play.speed = speed;
     const action = play.action;
     if (!action) return;
     action.setLoop(loop ? T.LoopRepeat : T.LoopOnce, loop ? Infinity : 1);
@@ -403,6 +401,23 @@ export function ModelPreview({ lfw, path, ortho, axes, view, on_view }: {
     set_time(0);
   };
 
+  const resume_if_finished = () => {
+    const action = ref_play.current.action;
+    if (!action?.paused) return;
+    if (action.time >= action.getClip().duration) action.reset().play();
+    else action.paused = false;
+  };
+
+  const toggle_playing = () => {
+    if (!playing) resume_if_finished();
+    set_playing(!playing);
+  };
+
+  const toggle_loop = () => {
+    if (!loop) resume_if_finished();
+    set_loop(!loop);
+  };
+
   // 快捷键：点一下画面（canvas 拿到焦点）后，数字键切视图
   const on_key_down = (e: ReactKeyboardEvent<HTMLCanvasElement>) => {
     const it = KEY_VIEWS[e.code];
@@ -424,10 +439,10 @@ export function ModelPreview({ lfw, path, ortho, axes, view, on_view }: {
       {!ready && !error && <div className={csses.center_text}>模型解析中…</div>}
       {ready && clips.length > 0 && (
         <div className={csses.model_anim}>
-          <button onClick={() => set_playing(!playing)}>{playing ? "暂停" : "播放"}</button>
+          <button onClick={toggle_playing}>{playing ? "暂停" : "播放"}</button>
           <button onClick={restart}>重播</button>
-          <button onClick={() => set_loop(!loop)} title="循环播放 / 播完停在最后一帧">
-            {loop ? "循环" : "单次"}
+          <button onClick={toggle_loop} title="循环播放 / 播完停在最后一帧">
+            {loop ? "循环播放" : "停留最后一帧"}
           </button>
           <select value={clip_name} onChange={(e) => set_clip_name(e.target.value)}>
             {clips.map((name) => <option key={name} value={name}>{name}</option>)}
