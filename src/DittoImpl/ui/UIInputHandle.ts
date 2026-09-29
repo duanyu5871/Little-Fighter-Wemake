@@ -49,8 +49,20 @@ export class UIInputHandle implements IUIInputHandle {
   on_pointer_cancel(e: IPointingEvent) {
     this.lfw.push_cmd(CMD.POINTER_CANCEL, `--b=${e.button}`);
   }
+  on_pointer_enter(e: IPointingEvent) {
+    this.push_pointer(CMD.POINTER_MOVE, e);
+  }
+  on_pointer_leave(e: IPointingEvent) {
+    if (!this.lfw.ui) return;
+    this.push_empty_move(e.button);
+  }
   on_click(): void { }
   on_wheel(): void { }
+  protected push_empty_move(button: number) {
+    if (this._empty_move) return;
+    this._empty_move = true;
+    this.lfw.push_cmd(CMD.POINTER_MOVE, `--b=${button}`);
+  }
   protected push_pointer(cmd: CMD, e: IPointingEvent) {
     const { ui } = this.lfw; if (!ui) return;
     const intersections = this.intersections(e.scene_x, e.scene_y, ui);
@@ -69,11 +81,10 @@ export class UIInputHandle implements IUIInputHandle {
     if (empty && cmd == CMD.POINTER_DOWN) return;
     if (cmd == CMD.POINTER_MOVE) {
       if (empty) {
-        if (this._empty_move) return;
-        this._empty_move = true;
-      } else {
-        this._empty_move = false;
+        this.push_empty_move(e.button);
+        return;
       }
+      this._empty_move = false;
     }
     const args = [`--b=${e.button}`];
     if (!empty) {

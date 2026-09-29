@@ -5,6 +5,8 @@ export interface IPointingsCallback {
   on_pointer_move?(e: IPointingEvent): void;
   on_pointer_up?(e: IPointingEvent): void;
   on_pointer_cancel?(e: IPointingEvent): void;
+  on_pointer_enter?(e: IPointingEvent): void;
+  on_pointer_leave?(e: IPointingEvent): void;
   on_click?(e: IPointingEvent): void;
   on_wheel?(e: IPointingEvent): void;
 }

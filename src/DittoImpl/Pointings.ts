@@ -51,6 +51,10 @@ export class __Pointings implements IPointings {
     this.enabled && this._callbacks.call("on_pointer_move", new __PointingEvent(this._ele, e));
   private _on_pointer_cancel = (e: PointerEvent) =>
     this.enabled && this._callbacks.call("on_pointer_cancel", new __PointingEvent(this._ele, e));
+  private _on_pointer_enter = (e: PointerEvent) =>
+    this.enabled && this._callbacks.call("on_pointer_enter", new __PointingEvent(this._ele, e));
+  private _on_pointer_leave = (e: PointerEvent) =>
+    this.enabled && this._callbacks.call("on_pointer_leave", new __PointingEvent(this._ele, e));
   private _on_click = (e: MouseEvent) =>
     this.enabled && this._callbacks.call("on_click", new __PointingEvent(this._ele, e));
   private _on_wheel = (e: WheelEvent) => {
@@ -63,6 +67,9 @@ export class __Pointings implements IPointings {
     this._ele?.removeEventListener("pointermove", this._on_pointer_move);
     this._ele?.removeEventListener("pointerdown", this._on_pointer_down);
     this._ele?.removeEventListener("pointerup", this._on_pointer_up);
+    this._ele?.removeEventListener("pointercancel", this._on_pointer_cancel);
+    this._ele?.removeEventListener("pointerenter", this._on_pointer_enter);
+    this._ele?.removeEventListener("pointerleave", this._on_pointer_leave);
     this._ele?.removeEventListener("wheel", this._on_wheel);
     this.reset_grab();
     this._callbacks.clear()
@@ -75,6 +82,8 @@ export class __Pointings implements IPointings {
     this._ele?.removeEventListener("pointerdown", this._on_pointer_down);
     this._ele?.removeEventListener("pointerup", this._on_pointer_up);
     this._ele?.removeEventListener("pointercancel", this._on_pointer_cancel);
+    this._ele?.removeEventListener("pointerenter", this._on_pointer_enter);
+    this._ele?.removeEventListener("pointerleave", this._on_pointer_leave);
     this._ele?.removeEventListener("wheel", this._on_wheel);
     this._ele = void 0;
     if (element) {
@@ -84,6 +93,8 @@ export class __Pointings implements IPointings {
       element.addEventListener("pointerdown", this._on_pointer_down);
       element.addEventListener("pointerup", this._on_pointer_up);
       element.addEventListener("pointercancel", this._on_pointer_cancel);
+      element.addEventListener("pointerenter", this._on_pointer_enter);
+      element.addEventListener("pointerleave", this._on_pointer_leave);
       element.addEventListener("wheel", this._on_wheel, { passive: false });
     }
 

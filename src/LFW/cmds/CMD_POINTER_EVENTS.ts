@@ -13,7 +13,8 @@ Options:
   --paths   <layer>,<页面栈下标>,<子节点索引>...，多项以 | 分隔 / node paths, '|' separated
   --pages   页面 id，各项须相同；用于校验下标处页面未变 / page id, same for every entry, checked against the page at that index
   --points  每项命中点 x,y,z，与 --paths 一一对应 / hit point of each entry
-  --b       0 left / 1 middle / 2 right`;
+  --b       0 left / 1 middle / 2 right
+  --from    发起方 client id，联机时由网络层附加，本地省略 / initiator client id, attached by the net layer for netplay, omitted locally`;
 
 const help_move = `Usage: POINTER_MOVE --paths=<layer>,<index>,<child>,... --pages=<page_id> --points=<x,y,z> --b=<button>
 
@@ -23,7 +24,8 @@ Options:
   --paths   <layer>,<页面栈下标>,<子节点索引>...，多项以 | 分隔 / node paths, '|' separated
   --pages   页面 id，各项须相同 / page id, same for every entry
   --points  每项命中点 x,y,z，与 --paths 一一对应 / hit point of each entry
-  --b       0 left / 1 middle / 2 right`;
+  --b       0 left / 1 middle / 2 right
+  --from    发起方 client id，联机时由网络层附加，本地省略 / initiator client id, attached by the net layer for netplay, omitted locally`;
 
 const help_up = `Usage: POINTER_UP --paths=<layer>,<index>,<child>,... --pages=<page_id> --points=<x,y,z> --b=<button>
 
@@ -33,7 +35,8 @@ Options:
   --paths   <layer>,<页面栈下标>,<子节点索引>...，多项以 | 分隔 / node paths, '|' separated
   --pages   页面 id，各项须相同 / page id, same for every entry
   --points  每项命中点 x,y,z，与 --paths 一一对应 / hit point of each entry
-  --b       0 left / 1 middle / 2 right`;
+  --b       0 left / 1 middle / 2 right
+  --from    发起方 client id，联机时由网络层附加，本地省略 / initiator client id, attached by the net layer for netplay, omitted locally`;
 
 const help_click = `Usage: POINTER_CLICK --paths=<layer>,<index>,<child>,... --pages=<page_id> --points=<x,y,z> --b=<button>
 
@@ -43,14 +46,16 @@ Options:
   --paths   <layer>,<页面栈下标>,<子节点索引>...，多项以 | 分隔 / node paths, '|' separated
   --pages   页面 id，各项须相同 / page id, same for every entry
   --points  每项命中点 x,y,z，与 --paths 一一对应 / hit point of each entry
-  --b       0 left / 1 middle / 2 right`;
+  --b       0 left / 1 middle / 2 right
+  --from    发起方 client id，联机时由网络层附加，本地省略 / initiator client id, attached by the net layer for netplay, omitted locally`;
 
 const help_cancel = `Usage: POINTER_CANCEL --b=<button>
 
 Cancel every node still pressed in the local UI / 取消本地 UI 中所有仍处于按下状态的节点
 
 Options:
-  --b       0 left / 1 middle / 2 right`;
+  --b       0 left / 1 middle / 2 right
+  --from    发起方 client id，联机时由网络层附加，本地省略 / initiator client id, attached by the net layer for netplay, omitted locally`;
 
 const help_enter = `Usage: POINTER_ENTER --paths=<layer>,<index>,<child>,... --pages=<page_id>
 
@@ -58,7 +63,8 @@ Dispatch pointer-enter on the local UI / 在本地 UI 上派发指针进入
 
 Options:
   --paths   <layer>,<页面栈下标>,<子节点索引>...，多项以 | 分隔 / node paths, '|' separated
-  --pages   页面 id，各项须相同 / page id, same for every entry`;
+  --pages   页面 id，各项须相同 / page id, same for every entry
+  --from    发起方 client id，联机时由网络层附加，本地省略 / initiator client id, attached by the net layer for netplay, omitted locally`;
 
 const help_leave = `Usage: POINTER_LEAVE --paths=<layer>,<index>,<child>,... --pages=<page_id>
 
@@ -66,7 +72,8 @@ Dispatch pointer-leave on the local UI / 在本地 UI 上派发指针离开
 
 Options:
   --paths   <layer>,<页面栈下标>,<子节点索引>...，多项以 | 分隔 / node paths, '|' separated
-  --pages   页面 id，各项须相同 / page id, same for every entry`;
+  --pages   页面 id，各项须相同 / page id, same for every entry
+  --from    发起方 client id，联机时由网络层附加，本地省略 / initiator client id, attached by the net layer for netplay, omitted locally`;
 
 interface IPointerTargets {
   paths: number[][];

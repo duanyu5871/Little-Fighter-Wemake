@@ -36,6 +36,11 @@ export function safe_check(fn: () => string): string {
   }
 }
 
+function with_pointer_from(cmd: string, client_id?: string): string {
+  if (!client_id || !cmd.startsWith('POINTER_')) return cmd;
+  return `${cmd} --from=${client_id}`;
+}
+
 export abstract class LFWNetworkDriver {
   static readonly TAG = 'Lf2NetworkDriver';
   debugging: boolean = true;
@@ -248,8 +253,8 @@ export abstract class LFWNetworkDriver {
 
     if (this.debugging) this._snapshot1?.capture(lf2.world.entities)
     for (const req of reqs) {
-      const { cmds, events } = req;
-      if (cmds?.length) cmds.forEach(cmd => lf2.push_cmd(cmd));
+      const { cmds, events, client_id } = req;
+      if (cmds?.length) cmds.forEach(cmd => lf2.push_cmd(with_pointer_from(cmd, client_id)));
       if (!events?.length) continue;
       for (const { player_id, pressed = false, game_key = '' } of events) {
         if (!player_id) continue;
