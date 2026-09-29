@@ -151,7 +151,7 @@ export interface IOpointInfo {
   /**
    * 
    */
-  ghost?: boolean;
+  ghost?: number;
 
   interval?: number;
   interval_id?: string;
@@ -245,9 +245,9 @@ export interface IOpointInfo {
   __gen_z?: { get(emitter: unknown): number };
 }
 
-const ALL_OPOINT_KIND = Object.values(OpointKind).filter(v => typeof v === 'number') as number[];
-const ALL_OPOINT_SPREADING = Object.values(OpointSpreading).filter(v => typeof v === 'number') as number[];
-const ALL_OPOINT_MULTI_ENUM = Object.values(OpointMultiEnum).filter(v => typeof v === 'number') as number[];
+export const ALL_OPOINT_KIND = Object.values(OpointKind).filter(v => typeof v === 'number') as number[];
+export const ALL_OPOINT_SPREADING = Object.values(OpointSpreading).filter(v => typeof v === 'number') as number[];
+export const ALL_OPOINT_MULTI_ENUM = Object.values(OpointMultiEnum).filter(v => typeof v === 'number') as number[];
 
 export function opoint_info_new(): IOpointInfo {
   return {
@@ -289,7 +289,7 @@ export const opoint_info_fields = fields<IOpointInfo>({
       label: OpointSpreading[v],
     })),
   }),
-  ghost: any,
+  ghost: int("ghost"),
   interval: int("间隔帧数"),
   interval_id: str("间隔ID"),
   interval_mode: int("间隔模式", {

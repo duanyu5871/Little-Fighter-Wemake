@@ -14,7 +14,7 @@ export function make_buring_smoke(foo: 1 | 2): IOpointInfo {
       },
     },
     speedz: 0,
-    ghost: true,
+    ghost: 1,
     unimportant: 1,
     interval: 3,
     interval_id: `buring_smoke_${foo}`,

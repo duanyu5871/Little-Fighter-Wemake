@@ -44,7 +44,7 @@ import type { IEntityCallbacks } from "./IEntityCallbacks";
 import { summary_mgr } from "./SummaryMgr";
 import { calc_v } from "./calc_v";
 import { turn_face } from "./face_helper";
-import { is_ball_ctrl, is_boss, is_bot_ctrl, is_fighter, is_human_ctrl } from "./type_check";
+import { is_ball_ctrl, is_boss, is_fighter, is_human_ctrl } from "./type_check";
 export interface IEntityRenderer {
   render(dt: number, dfactor: number): void;
 }
@@ -110,7 +110,7 @@ export class Entity {
   protected _toughness_resting: number = 0;
   protected _toughness_resting_max: number = 0;
   protected _fall_value: number = 0;
-  protected _fall_value_max: number | null = null
+  protected _fall_value_max: number | null = null;
   protected readonly _fall_r_tick: Times = new Times();
   protected _fall_r_value: number = 0;
   protected _defend_value: number = 0;
@@ -1121,7 +1121,7 @@ export class Entity {
     return entity;
   }
 
-  attach(ghost = false): this {
+  attach(ghost: unknown = false): this {
     if (this._mounted) return this;
     this._spawn_time = this.world.game_time;
     this._mounted = 1;
@@ -1518,7 +1518,6 @@ export class Entity {
       this._invulnerable = rf(this._invulnerable - this._atom_time);
       if (this._invulnerable < 0) this._invulnerable = 0;
     }
-
     if (this._blinking > 0) {
       this._blinking = rf(this._blinking - this._atom_time);
       if (this._blinking <= 0) {

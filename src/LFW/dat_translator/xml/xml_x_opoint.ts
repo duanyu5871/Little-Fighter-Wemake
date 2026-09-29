@@ -92,7 +92,7 @@ export function xml_2_opoint(el: IXMLElement): IOpointInfo {
   ret.mp              /**/ = el.get_num("mp", ret.mp);
   ret.speedz          /**/ = el.get_num("speedz", ret.speedz);
   ret.spreading       /**/ = el.get_num("spreading", ret.spreading);
-  ret.ghost           /**/ = el.get_bool("ghost", ret.ghost);
+  ret.ghost           /**/ = el.get_num("ghost", ret.ghost);
   ret.interval        /**/ = el.get_num("interval", ret.interval);
   ret.interval_id     /**/ = el.get_str("interval_id", ret.interval_id);
   ret.interval_mode   /**/ = el.get_num("interval_mode", ret.interval_mode);

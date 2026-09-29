@@ -17,7 +17,7 @@ export function spawn_ice_piece(id: string): IOpointInfo {
     action: { id },
     dvx: 0,
     dvy: 0,
-    ghost: true,
+    ghost: 1,
     speedz: 0,
     unimportant: 1,
     __gen_dvx: {
