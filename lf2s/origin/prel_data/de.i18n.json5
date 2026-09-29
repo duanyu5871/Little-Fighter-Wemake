@@ -1,6 +1,7 @@
 {
   "de": {
     main_volume: "Hauptlautstärke",
+    nickname: "Nickname",
     bgm: "BGM",
     sfx: "Soundeffekte",
     bgm_volume: "BGM-Lautstärke",

@@ -1,6 +1,7 @@
 {
   "es": {
     main_volume: "Volumen principal",
+    nickname: "Apodo",
     bgm: "Música",
     sfx: "Efectos de sonido",
     bgm_volume: "Volumen (música)",

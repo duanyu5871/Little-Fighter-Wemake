@@ -1,6 +1,7 @@
 {
   "ro": {
     main_volume: "Volum principal",
+    nickname: "Poreclă",
     bgm: "Muzică",
     sfx: "Efecte sonore",
     bgm_volume: "Volum (muzică)",

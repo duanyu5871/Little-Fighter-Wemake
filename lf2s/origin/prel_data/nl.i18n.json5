@@ -1,6 +1,7 @@
 {
   "nl": {
     main_volume: "Hoofdvolume",
+    nickname: "Bijnaam",
     bgm: "BGM",
     sfx: "Geluidseffecten",
     bgm_volume: "BGM-volume",

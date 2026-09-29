@@ -1,6 +1,7 @@
 {
   "ko": {
     main_volume: "전체 볼륨",
+    nickname: "닉네임",
     bgm: "음악",
     sfx: "효과음",
     bgm_volume: "음악 볼륨",

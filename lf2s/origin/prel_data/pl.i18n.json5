@@ -1,6 +1,7 @@
 {
   "pl": {
     main_volume: "Głośność główna",
+    nickname: "Pseudonim",
     bgm: "BGM",
     sfx: "Efekty dźwiękowe",
     bgm_volume: "Głośność BGM",

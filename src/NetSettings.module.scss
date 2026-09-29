@@ -139,6 +139,12 @@
   color        : #5A73D6;
 }
 
+.misc_input {
+  flex     : 1;
+  width    : auto;
+  min-width: 0;
+}
+
 .slider {
   position        : relative;
   flex            : 1;

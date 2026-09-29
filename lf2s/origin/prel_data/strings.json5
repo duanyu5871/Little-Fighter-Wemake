@@ -1,6 +1,7 @@
 {
   "": {
     main_volume: "Main Volume",
+    nickname: "Nick Name",
     bgm: "BGM",
     sfx: "SFX",
     bgm_volume: "BGM Volume",
@@ -163,6 +164,7 @@
   },
   "zh-hans": {
     main_volume: "总音量",
+    nickname: "昵称",
     bgm: "音 乐",
     sfx: "音 效",
     bgm_volume: "音量(音乐)",
@@ -306,6 +308,7 @@
   },
   "zh-hant": {
     main_volume: "总音量",
+    nickname: "暱稱",
     bgm: "音 乐",
     sfx: "音 效",
     bgm_volume: "音量(音乐)",

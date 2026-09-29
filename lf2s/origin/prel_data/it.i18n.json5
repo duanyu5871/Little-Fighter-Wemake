@@ -1,6 +1,7 @@
 {
   "it": {
     main_volume: "Volume principale",
+    nickname: "Soprannome",
     bgm: "BGM",
     sfx: "Effetti sonori",
     bgm_volume: "Volume BGM",

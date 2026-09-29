@@ -1,6 +1,7 @@
 {
   "hu": {
     main_volume: "Fő hangerő",
+    nickname: "Becenév",
     bgm: "Zene",
     sfx: "Hangeffektek",
     bgm_volume: "Hangerő (zene)",

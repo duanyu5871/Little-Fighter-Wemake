@@ -6,7 +6,9 @@ import { CtrlDevice } from "./LFW/defines/CtrlDevice";
 import { GameKey } from "./LFW/defines/GameKey";
 import { SyncRenderEnum } from "./LFW/defines/SyncRenderEnum";
 import { Defines } from "./LFW/defines/defines";
+import { NICKNAME_MAX_LENGTH } from "./Net";
 import { current_connection } from "./pages/network_test/current_connection";
+import { useNickname } from "./pages/network_test/nickname_store";
 import csses from "./NetSettings.module.scss";
 
 const PLAYER_IDS = ["1", "2", "3", "4"];
@@ -95,6 +97,7 @@ export function NetSettings(props: { lfw: LFW; on_close(): void }) {
   const [ctrl_icons, set_ctrl_icons] = useState<string[]>([]);
   const [stats_visible, set_stats_visible] = useState(false);
   const [, force_update] = useState(0);
+  const [nickname, set_nickname] = useNickname();
 
   useEffect(() => {
     const bump = () => force_update((v) => v + 1);
@@ -289,6 +292,24 @@ export function NetSettings(props: { lfw: LFW; on_close(): void }) {
         )}
         {tab === "misc" && (
         <>
+          <div className={csses.misc_row}>
+            <div className={csses.misc_label}>{lfw.string("nickname")}</div>
+            <input
+              className={classNames(csses.name_input, csses.misc_input)}
+              value={nickname}
+              maxLength={NICKNAME_MAX_LENGTH}
+              onChange={(e) => set_nickname(e.target.value)}
+              onBlur={() => {
+                const conn = current_connection.conn;
+                if (conn && conn.nickname !== nickname) conn.set_nickname(nickname);
+              }}
+              onKeyDown={(e) => {
+                e.stopPropagation();
+                if (e.key === "Enter") e.currentTarget.blur();
+              }}
+              onKeyUp={(e) => e.stopPropagation()}
+            />
+          </div>
           <div className={csses.misc_row}>
             <div className={csses.misc_label}>{lfw.string("language")}</div>
             <div className={csses.switcher}>

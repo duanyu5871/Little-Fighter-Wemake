@@ -1,6 +1,7 @@
 {
   "fr": {
     main_volume: "Volume principal",
+    nickname: "Pseudo",
     bgm: "Musique",
     sfx: "Effets sonores",
     bgm_volume: "Volume (musique)",

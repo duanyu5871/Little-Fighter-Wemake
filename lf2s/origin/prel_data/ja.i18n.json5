@@ -1,6 +1,7 @@
 {
   "ja": {
     main_volume: "メイン音量",
+    nickname: "ニックネーム",
     bgm: "BGM",
     sfx: "効果音",
     bgm_volume: "BGM音量",

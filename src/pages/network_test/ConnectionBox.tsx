@@ -4,15 +4,16 @@ import { Flex } from "@/Component/Flex";
 import Frame from "@/Component/Frame";
 import { Input } from "@/Component/Input";
 import { Text } from "@/Component/Text";
-import { useForage } from "@/hooks/useForage";
 import { LFW } from "@/LFW";
 import { useFloating } from "@/hooks/useFloating";
 import { useForwardedRef } from "@/hooks/useForwardedRef";
 import { useStateRef } from "@/hooks/useStateRef";
 import { type ForwardedRef, forwardRef, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from 'react-i18next';
-import { clamp_nickname, NICKNAME_MAX_LENGTH } from "../../Net";
+import { NICKNAME_MAX_LENGTH } from "../../Net";
 import { Connection } from "./Connection";
+import { pick_default_nickname } from "./default_nicknames";
+import { useNickname } from "./nickname_store";
 import { TriState } from "./TriState";
 import { useCallbacks } from "./useCallbacks";
 
@@ -40,7 +41,7 @@ function _ConnectionBox(props: IConnectionBoxProps, f_ref: ForwardedRef<HTMLDivE
   })
   const [conn, set_conn, ref_conn] = useStateRef<Connection | null>(null)
   const [address, set_address] = useStateRef('lfj.gim.ink')
-  const [nickname, set_nickname, nickname_ready] = useForage({ key: 'nickname', init: '' })
+  const [nickname, set_nickname, nickname_ready] = useNickname()
   const [conn_state, set_connected] = useState<TriState>(TriState.False);
   const ref_on_state_change = useRef(on_state_change);
   ref_on_state_change.current = on_state_change;
@@ -50,7 +51,7 @@ function _ConnectionBox(props: IConnectionBoxProps, f_ref: ForwardedRef<HTMLDivE
   useMemo(() => ref_on_state_change.current?.(conn_state), [conn_state])
 
   useEffect(() => {
-    if (!lf2 || !nickname_ready) return;
+    if (!lf2 || !nickname_ready || nickname) return;
     const players = [
       lf2.players.get('1'),
       lf2.players.get('2'),
@@ -61,12 +62,13 @@ function _ConnectionBox(props: IConnectionBoxProps, f_ref: ForwardedRef<HTMLDivE
       if (!p) return false;
       return p.name.trim() && p.name !== `${i + 1}`
     })
-    if (player) set_nickname(prev => clamp_nickname(prev) || clamp_nickname(player.name))
+    if (player) set_nickname(player.name)
+    else set_nickname(pick_default_nickname(lf2.canonical_lang(), navigator.language))
   }, [lf2, nickname_ready])
 
   function connect() {
     if (ref_conn.current) return;
-    const conn = new Connection(clamp_nickname(nickname));
+    const conn = new Connection(nickname);
     set_conn(conn);
   }
   useCallbacks(conn?.callbacks, {
@@ -116,7 +118,7 @@ function _ConnectionBox(props: IConnectionBoxProps, f_ref: ForwardedRef<HTMLDivE
           style={{ flex: 1 }}
           value={nickname}
           maxLength={NICKNAME_MAX_LENGTH}
-          onChange={v => set_nickname(clamp_nickname(v))}
+          onChange={v => set_nickname(v)}
           disabled={!!conn_state}
           data-flex={1}
           prefix={<Text size='s'>{t("nickname")}:</Text>}
