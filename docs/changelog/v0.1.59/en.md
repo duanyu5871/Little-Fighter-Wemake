@@ -2,7 +2,7 @@
 
 by [**Gim**](https://gim.ink)
 
-<!-- git-range: af9fdeb17..642008f14 -->
+<!-- git-range: af9fdeb17..a0b586569 -->
 
 ### What's New
 
@@ -10,6 +10,7 @@ by [**Gim**](https://gim.ink)
 - Mouse input is fully enabled: you can click / hover the UI during netplay matches (it used to be locked online)
   - Cursors show the operator's nickname, so you can see at a glance who is pointing
   - The local cursor is now rendered independently and without easing, so it tracks the mouse much more closely (remote cursors keep their smoothing)
+  - Remote cursors now linger for 5 seconds (up from 2) and fade out over 1 second instead of vanishing abruptly
 - Move table: ◀ ▶ buttons on both sides of the character name; click to switch characters (same as the L / R keys)
 - Netplay room list reworked: pagination, an icon toolbar (create / refresh / auto-refresh / disconnect) and re-laid-out room cards
 - Desktop client
@@ -22,5 +23,7 @@ by [**Gim**](https://gim.ink)
 - Memory & performance: BGM is streamed instead of fully decoded into memory; texture / background / shadow rendering use less memory; character controllers are pooled and reused
 - Data pack loading progress is reported as a single overall percentage
 - Dev previewer: the "image" tab is now a "resource" tab with 3D model preview and file sizes; desktop window controls match the game page
+- Release pipeline (GitHub Actions): manual runs can now pick deploy targets (GitHub Release / GitHub Pages / lf.gim.ink) independently and combine them with "reuse build artifacts" to deploy a tag without rebuilding
 - Fixed: a character could get stuck on the same frame for a long time when hit rapidly and repeatedly
 - Fixed: typing into an input field also triggered in-game actions
+- Fixed: netplay panels (connect / room list / room info) are now locked to a centered overlay, avoiding position shifts and stray padding
