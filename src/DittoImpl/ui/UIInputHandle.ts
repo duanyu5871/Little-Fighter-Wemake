@@ -1,6 +1,7 @@
 import type { IPointingEvent } from "@/LFW/ditto/pointings";
 import type { IUIInputHandle } from "@/LFW/ditto/ui/IEventHandle";
 import { CMD } from "@/LFW/defines/CMD";
+import { set_local_cursor } from "@/LFW/cmds/CMD_POINTER_EVENTS";
 import type { LFW } from "@/LFW/LFW";
 import { UINode } from "@/LFW/ui/UINode";
 import * as T from "../_t";
@@ -38,30 +39,50 @@ export class UIInputHandle implements IUIInputHandle {
   }
 
   on_pointer_down(e: IPointingEvent) {
+    this.update_local_cursor(e, false, true);
     this.push_pointer(CMD.POINTER_DOWN, e);
   }
   on_pointer_move(e: IPointingEvent) {
+    this.update_local_cursor(e, false);
     this.push_pointer(CMD.POINTER_MOVE, e);
   }
   on_pointer_up(e: IPointingEvent) {
+    this.update_local_cursor(e, false, false);
     this.push_pointer(CMD.POINTER_UP, e);
   }
   on_pointer_cancel(e: IPointingEvent) {
-    this.lfw.push_cmd(CMD.POINTER_CANCEL, `--b=${e.button}`);
+    this.update_local_cursor(e, void 0, false);
+    this.lfw.push_cmd(CMD.POINTER_CANCEL, `--b=${e.button}`, this.pos_arg(e));
   }
   on_pointer_enter(e: IPointingEvent) {
+    this._empty_move = false;
+    this.update_local_cursor(e, false);
     this.push_pointer(CMD.POINTER_MOVE, e);
   }
   on_pointer_leave(e: IPointingEvent) {
     if (!this.lfw.ui) return;
-    this.push_empty_move(e.button);
+    this._empty_move = true;
+    this.update_local_cursor(e, true);
+    this.lfw.push_cmd(CMD.POINTER_LEAVE, this.pos_arg(e));
   }
   on_click(): void { }
   on_wheel(): void { }
-  protected push_empty_move(button: number) {
+  protected push_empty_move(e: IPointingEvent) {
     if (this._empty_move) return;
     this._empty_move = true;
-    this.lfw.push_cmd(CMD.POINTER_MOVE, `--b=${button}`);
+    this.lfw.push_cmd(CMD.POINTER_MOVE, `--b=${e.button}`, this.pos_arg(e));
+  }
+  protected pos_arg(e: IPointingEvent): string {
+    const { screen_w, screen_h } = this.lfw.world.dataset;
+    const x = Math.round((e.scene_x + 1) / 2 * screen_w * 10) / 10;
+    const y = Math.round((1 - e.scene_y) / 2 * screen_h * 10) / 10;
+    return `--pos=${x},${y}`;
+  }
+  protected update_local_cursor(e: IPointingEvent, hidden: boolean | undefined, down?: boolean) {
+    const { screen_w, screen_h } = this.lfw.world.dataset;
+    const x = (e.scene_x + 1) / 2 * screen_w;
+    const y = (1 - e.scene_y) / 2 * screen_h;
+    set_local_cursor(this.lfw.world, x, y, hidden, down);
   }
   protected push_pointer(cmd: CMD, e: IPointingEvent) {
     const { ui } = this.lfw; if (!ui) return;
@@ -81,12 +102,12 @@ export class UIInputHandle implements IUIInputHandle {
     if (empty && cmd == CMD.POINTER_DOWN) return;
     if (cmd == CMD.POINTER_MOVE) {
       if (empty) {
-        this.push_empty_move(e.button);
+        this.push_empty_move(e);
         return;
       }
       this._empty_move = false;
     }
-    const args = [`--b=${e.button}`];
+    const args = [`--b=${e.button}`, this.pos_arg(e)];
     if (!empty) {
       args.push(`--paths=${paths.join('|')}`);
       args.push(`--pages=${pages.join('|')}`);

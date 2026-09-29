@@ -5,6 +5,7 @@ import type { LFW } from "@/LFW/LFW";
 import type { World } from "@/LFW/World";
 import { AmbientLight, CSS2DRenderer, Camera, DirectionalLight, Object3D, OrthographicCamera, Scene, Vector3, WebGLRenderer } from "../_t";
 import { BgRender } from "./BgRender";
+import { CursorRender } from "./CursorRender";
 import { EntityRenderer } from "./EntityRenderer";
 import { BG_INDICATINGS } from "./INDICATINGS";
 import csses from "./styles.module.scss";
@@ -23,6 +24,7 @@ export class WorldRenderer implements IWorldRenderer {
   readonly world: World;
   readonly bg_render: BgRender;
   readonly bg_flags: TerrainIndicator;
+  readonly cursor_render: CursorRender;
   readonly camera: Camera;
   readonly bg_camera: OrthographicCamera;
   readonly fg_camera: OrthographicCamera;
@@ -105,6 +107,7 @@ export class WorldRenderer implements IWorldRenderer {
     this.ui_bg_scene.add(this.ui_bg_container);
     this.ui_fg_container = new Object3D();
     this.ui_fg_scene.add(this.ui_fg_container);
+    this.cursor_render = new CursorRender(this);
 
     this.bg_container = new Object3D();
     this.bg_scene.add(this.bg_container);
@@ -230,6 +233,7 @@ export class WorldRenderer implements IWorldRenderer {
     for (let i = 0; i < layers.length; i++)
       layers.at(i)?.ui?.renderer.render(dt, this.dfactor)
 
+    this.cursor_render.update(dt);
     this.render_layers();
     this.dirty = false;
   }

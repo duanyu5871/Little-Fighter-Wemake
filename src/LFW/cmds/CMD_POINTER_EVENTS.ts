@@ -13,6 +13,7 @@ Options:
   --paths   <layer>,<页面栈下标>,<子节点索引>...，多项以 | 分隔 / node paths, '|' separated
   --pages   页面 id，各项须相同；用于校验下标处页面未变 / page id, same for every entry, checked against the page at that index
   --points  每项命中点 x,y,z，与 --paths 一一对应 / hit point of each entry
+  --pos     指针位置 x,y（UI 坐标，无命中时也存在） / pointer position x,y (UI coordinates, present even without hits)
   --b       0 left / 1 middle / 2 right
   --from    发起方 client id，联机时由网络层附加，本地省略 / initiator client id, attached by the net layer for netplay, omitted locally`;
 
@@ -24,6 +25,7 @@ Options:
   --paths   <layer>,<页面栈下标>,<子节点索引>...，多项以 | 分隔 / node paths, '|' separated
   --pages   页面 id，各项须相同 / page id, same for every entry
   --points  每项命中点 x,y,z，与 --paths 一一对应 / hit point of each entry
+  --pos     指针位置 x,y（UI 坐标，无命中时也存在） / pointer position x,y (UI coordinates, present even without hits)
   --b       0 left / 1 middle / 2 right
   --from    发起方 client id，联机时由网络层附加，本地省略 / initiator client id, attached by the net layer for netplay, omitted locally`;
 
@@ -35,6 +37,7 @@ Options:
   --paths   <layer>,<页面栈下标>,<子节点索引>...，多项以 | 分隔 / node paths, '|' separated
   --pages   页面 id，各项须相同 / page id, same for every entry
   --points  每项命中点 x,y,z，与 --paths 一一对应 / hit point of each entry
+  --pos     指针位置 x,y（UI 坐标，无命中时也存在） / pointer position x,y (UI coordinates, present even without hits)
   --b       0 left / 1 middle / 2 right
   --from    发起方 client id，联机时由网络层附加，本地省略 / initiator client id, attached by the net layer for netplay, omitted locally`;
 
@@ -46,6 +49,7 @@ Options:
   --paths   <layer>,<页面栈下标>,<子节点索引>...，多项以 | 分隔 / node paths, '|' separated
   --pages   页面 id，各项须相同 / page id, same for every entry
   --points  每项命中点 x,y,z，与 --paths 一一对应 / hit point of each entry
+  --pos     指针位置 x,y（UI 坐标，无命中时也存在） / pointer position x,y (UI coordinates, present even without hits)
   --b       0 left / 1 middle / 2 right
   --from    发起方 client id，联机时由网络层附加，本地省略 / initiator client id, attached by the net layer for netplay, omitted locally`;
 
@@ -55,6 +59,7 @@ Cancel every node still pressed in the local UI / 取消本地 UI 中所有仍�
 
 Options:
   --b       0 left / 1 middle / 2 right
+  --pos     指针位置 x,y（UI 坐标，无命中时也存在） / pointer position x,y (UI coordinates, present even without hits)
   --from    发起方 client id，联机时由网络层附加，本地省略 / initiator client id, attached by the net layer for netplay, omitted locally`;
 
 const help_enter = `Usage: POINTER_ENTER --paths=<layer>,<index>,<child>,... --pages=<page_id>
@@ -64,15 +69,17 @@ Dispatch pointer-enter on the local UI / 在本地 UI 上派发指针进入
 Options:
   --paths   <layer>,<页面栈下标>,<子节点索引>...，多项以 | 分隔 / node paths, '|' separated
   --pages   页面 id，各项须相同 / page id, same for every entry
+  --pos     指针位置 x,y（UI 坐标，无命中时也存在） / pointer position x,y (UI coordinates, present even without hits)
   --from    发起方 client id，联机时由网络层附加，本地省略 / initiator client id, attached by the net layer for netplay, omitted locally`;
 
 const help_leave = `Usage: POINTER_LEAVE --paths=<layer>,<index>,<child>,... --pages=<page_id>
 
-Dispatch pointer-leave on the local UI / 在本地 UI 上派发指针离开
+Dispatch pointer-leave on the local UI; omit '--paths' / '--pages' when the pointer leaves the surface, leaving every hovered node and marking the initiator's cursor hidden / 在本地 UI 上派发指针离开；省略 '--paths'/'--pages' 表示指针离开画面：所有悬停节点 leave，并标记该发起方光标隐藏
 
 Options:
   --paths   <layer>,<页面栈下标>,<子节点索引>...，多项以 | 分隔 / node paths, '|' separated
   --pages   页面 id，各项须相同 / page id, same for every entry
+  --pos     指针位置 x,y（UI 坐标，无命中时也存在） / pointer position x,y (UI coordinates, present even without hits)
   --from    发起方 client id，联机时由网络层附加，本地省略 / initiator client id, attached by the net layer for netplay, omitted locally`;
 
 interface IPointerTargets {
@@ -84,17 +91,71 @@ interface IPointerTargets {
 interface IPointerState {
   down_uis: Set<UINode>;
   on_uis: Set<UINode>;
+  cursors: Map<string, IPointerCursor>;
+}
+
+export interface IPointerCursor {
+  x: number;
+  y: number;
+  down: boolean;
+  hidden: boolean;
+  t: number;
 }
 
 const _pointer_states = new WeakMap<World, IPointerState>();
 
-function pointer_state(c: CMDS): IPointerState {
-  let state = _pointer_states.get(c.world);
+export function get_pointer_cursors(world: World): Map<string, IPointerCursor> | undefined {
+  return _pointer_states.get(world)?.cursors;
+}
+
+function state_of(world: World): IPointerState {
+  let state = _pointer_states.get(world);
   if (!state) {
-    state = { down_uis: new Set<UINode>(), on_uis: new Set<UINode>() };
-    _pointer_states.set(c.world, state);
+    state = {
+      down_uis: new Set<UINode>(),
+      on_uis: new Set<UINode>(),
+      cursors: new Map<string, IPointerCursor>(),
+    };
+    _pointer_states.set(world, state);
   }
   return state;
+}
+
+function pointer_state(c: CMDS): IPointerState {
+  return state_of(c.world);
+}
+
+function cursor_for(state: IPointerState, from: string): IPointerCursor {
+  let cursor = state.cursors.get(from);
+  if (!cursor) {
+    cursor = { x: 0, y: 0, down: false, hidden: true, t: 0 };
+    state.cursors.set(from, cursor);
+  }
+  return cursor;
+}
+
+export function set_local_cursor(world: World, x: number, y: number, hidden: boolean | undefined, down: boolean | undefined): void {
+  const cursor = cursor_for(state_of(world), '');
+  cursor.x = x;
+  cursor.y = y;
+  if (hidden != void 0) cursor.hidden = hidden;
+  if (down != void 0) cursor.down = down;
+  cursor.t = performance.now();
+}
+
+function move_cursor(c: CMDS, hidden: boolean | undefined, down?: boolean): IPointerCursor | undefined {
+  const from = c.str_arg('--from');
+  if (!from) return;
+  const cursor = cursor_for(pointer_state(c), from);
+  const pos = c.nums_arg('--pos');
+  if (pos && Number.isFinite(pos[0]) && Number.isFinite(pos[1])) {
+    cursor.x = pos[0];
+    cursor.y = pos[1];
+  }
+  if (hidden != void 0) cursor.hidden = hidden;
+  if (down != void 0) cursor.down = down;
+  cursor.t = performance.now();
+  return cursor;
 }
 
 function read_targets(tag: string, c: CMDS, need_points: boolean): IPointerTargets | undefined {
@@ -188,6 +249,7 @@ CMDS.register(CMD.POINTER_DOWN, help_down, (c) => {
   if (!targets) return;
   const b = read_button(CMD.POINTER_DOWN, c);
   if (b == void 0) return;
+  move_cursor(c, false, true);
   const { paths, pages, points } = targets;
   const page = paths.length ? read_page(CMD.POINTER_DOWN, c, paths[0][0], paths[0][1], pages[0]) : void 0;
   if (!page) return;
@@ -208,6 +270,7 @@ CMDS.register(CMD.POINTER_MOVE, help_move, (c) => {
   if (!targets) return;
   const b = read_button(CMD.POINTER_MOVE, c);
   if (b == void 0) return;
+  move_cursor(c, false);
   const { paths, pages, points } = targets;
   const { on_uis } = pointer_state(c);
   const enter_uis = new Set<UINode>();
@@ -241,6 +304,7 @@ CMDS.register(CMD.POINTER_UP, help_up, (c) => {
   if (!targets) return;
   const b = read_button(CMD.POINTER_UP, c);
   if (b == void 0) return;
+  move_cursor(c, false, false);
   const state = pointer_state(c);
   const { paths, pages, points } = targets;
   const page = paths.length ? read_page(CMD.POINTER_UP, c, paths[0][0], paths[0][1], pages[0]) : void 0;
@@ -299,6 +363,7 @@ CMDS.register(CMD.POINTER_CLICK, help_click, (c) => {
 CMDS.register(CMD.POINTER_CANCEL, help_cancel, (c) => {
   const b = read_button(CMD.POINTER_CANCEL, c);
   if (b == void 0) return;
+  move_cursor(c, void 0, false);
   const state = pointer_state(c);
   for (const ui of state.down_uis) {
     const event = new LFWPointerEvent(Ditto.vec3(NaN, NaN, NaN), b);
@@ -310,6 +375,7 @@ CMDS.register(CMD.POINTER_CANCEL, help_cancel, (c) => {
 CMDS.register(CMD.POINTER_ENTER, help_enter, (c) => {
   const targets = read_targets(CMD.POINTER_ENTER, c, false);
   if (!targets) return;
+  move_cursor(c, false);
   const { paths, pages } = targets;
   const page = paths.length ? read_page(CMD.POINTER_ENTER, c, paths[0][0], paths[0][1], pages[0]) : void 0;
   if (!page) return;
@@ -326,9 +392,15 @@ CMDS.register(CMD.POINTER_LEAVE, help_leave, (c) => {
   const targets = read_targets(CMD.POINTER_LEAVE, c, false);
   if (!targets) return;
   const { paths, pages } = targets;
-  const page = paths.length ? read_page(CMD.POINTER_LEAVE, c, paths[0][0], paths[0][1], pages[0]) : void 0;
-  if (!page) return;
   const state = pointer_state(c);
+  if (!paths.length) {
+    move_cursor(c, true);
+    for (const ui of state.on_uis) ui.on_pointer_leave();
+    state.on_uis.clear();
+    return;
+  }
+  const page = read_page(CMD.POINTER_LEAVE, c, paths[0][0], paths[0][1], pages[0]);
+  if (!page) return;
   for (let i = 0; i < paths.length; i++) {
     const ui = read_child(CMD.POINTER_LEAVE, page, paths[i]);
     if (!ui) continue;

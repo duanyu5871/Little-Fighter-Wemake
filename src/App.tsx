@@ -607,6 +607,7 @@ function App() {
     } else {
       ele.style.opacity = "0";
     }
+    ele.style.cursor = ui_id ? "none" : "";
   }, [ui_id, ele_game_canvas]);
 
   useEffect(() => {
