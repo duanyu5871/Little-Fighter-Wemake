@@ -17,6 +17,7 @@ import { ensure_player_info } from './ensure_player_info';
 import { ensure_room_owner } from './ensure_room_owner';
 import { handle_req_chat } from './handle_req_chat';
 import { handle_req_tick } from './handle_req_tick';
+import { random_str } from './random_str';
 import http from 'node:http';
 import net from 'node:net';
 
@@ -24,7 +25,8 @@ export class Client {
   static readonly TAG = 'Client'
   protected static last_client_id = 0;
 
-  readonly id = `client_${++Client.last_client_id}`;
+  id = `client_${++Client.last_client_id}`;
+  secret = random_str(16);
   readonly ws: WebSocket;
   readonly ctx: Context;
   protected _pid = 1;
@@ -130,10 +132,10 @@ export class Client {
     this.ctx.client_mgr.all.delete(this);
     this.ctx.auth.unbind_client(this);
     const { room } = this
-    if (room?.owner === this) {
+    if (room?.owner === this && !room.started) {
       room.close(this);
-      ctx.room_mgr.del(room)
-    } else {
+      ctx.room_mgr.del(room)    } else if (room?.started) {
+      room.disconnect(this)    } else {
       room?.exit(this);
     }
   }
@@ -149,7 +151,7 @@ export class Client {
           name: name || `${this.id}`,
           players: req.players ?? [],
         }
-        this.resp(req.type, req.pid, { client: client_info }).catch(() => void 0);
+        this.resp(req.type, req.pid, { client: client_info, secret: this.secret }).catch(() => void 0);
         if (this.room) this.room.broadcast(MsgEnum.ClientInfo, { client: client_info }, this)
         console.log(`[${Client.TAG}::${MsgEnum.ClientInfo}] ${JSON.stringify(client_info)}`)
         break;
@@ -178,6 +180,58 @@ export class Client {
             req.type,
             req.pid,
             { code: ErrCode.RoomNotFound, error: 'room not found' }
+          ).catch(() => void 0)
+        }
+        break;
+      }
+      case MsgEnum.Rejoin: {
+        if (
+          ensure_player_info(this, req) &&
+          ensure_not_in_room(this, req)
+        ) {
+          let room: Room | null = null
+          for (const r of ctx.room_mgr.all) {
+            if (r.id === req.roomid) {
+              room = r;
+              break;
+            }
+          }
+          if (room) room.rejoin(this, req);
+          else this.resp(
+            req.type,
+            req.pid,
+            { code: ErrCode.RejoinFailed, error: 'room not found' }
+          ).catch(() => void 0)
+        }
+        break;
+      }
+      case MsgEnum.RoomContinue: {
+        if (
+          ensure_player_info(this, req) &&
+          ensure_in_room(this, req)
+        ) {
+          this.room?.continue_without_leavers();
+          this.resp(req.type, req.pid, {}).catch(() => void 0);
+        }
+        break;
+      }
+      case MsgEnum.Abandon: {
+        if (
+          ensure_player_info(this, req) &&
+          ensure_not_in_room(this, req)
+        ) {
+          let room: Room | null = null
+          for (const r of ctx.room_mgr.all) {
+            if (r.id === req.roomid) {
+              room = r;
+              break;
+            }
+          }
+          if (room) room.abandon(this, req);
+          else this.resp(
+            req.type,
+            req.pid,
+            { code: ErrCode.AbandonFailed, error: 'room not found' }
           ).catch(() => void 0)
         }
         break;

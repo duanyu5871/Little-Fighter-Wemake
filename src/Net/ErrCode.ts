@@ -25,4 +25,6 @@ export const enum ErrCode {
   RoomPwdWrong = 1015,
   RoomAlreadyStart = 1016,
   RoomVersionMismatch = 1017,
+  RejoinFailed = 1018,
+  AbandonFailed = 1019,
 }

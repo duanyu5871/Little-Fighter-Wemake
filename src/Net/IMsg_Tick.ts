@@ -6,6 +6,10 @@ export interface IKeyEvent {
   game_key?: string;
   pressed?: boolean;
 }
+export interface IBotEvent {
+  client_id?: string;
+  to_bot?: boolean;
+}
 export interface IReqTick extends IReq<MsgEnum.Tick> {
   client_id?: string;
   client_name?: string;
@@ -21,4 +25,5 @@ export interface IReqTick extends IReq<MsgEnum.Tick> {
 export interface IRespTick extends IResp<MsgEnum.Tick> {
   seq?: number;
   reqs?: IReqTick[];
+  bot_events?: IBotEvent[];
 }

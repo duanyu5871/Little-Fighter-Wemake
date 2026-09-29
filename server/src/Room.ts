@@ -2,20 +2,26 @@ import type { Client } from './Client';
 import type { Context } from "./Context";
 import {
   ErrCode,
+  IBotEvent,
+  IClientInfo,
   IMsgRespMap,
+  IReqAbandon,
   IReqClientReady,
   IReqCloseRoom, IReqCreateRoom,
   IReqExitRoom,
   IReqJoinRoom, IReqKick,
+  IReqRejoin,
   IReqRoomPwd,
   IReqRoomSync,
   IReqRoomStart,
   IReqTick,
   IResp,
+  IRespAbandon,
   IRespClientReady,
   IRespCloseRoom,
   IRespExitRoom,
   IRespJoinRoom, IRespKick,
+  IRespRejoin,
   IRespRoomSync,
   IRespRoomStart,
   IRespTick,
@@ -23,10 +29,13 @@ import {
   resolve_sync
 } from "./Net";
 import { random_str } from './random_str';
+import { next_msg_seq } from './handle_req_chat';
 
 let room_id = 0;
 
 const MAX_PIPELINE = 16;
+const MAX_TICK_CACHE = 4096;
+const REJOIN_TTL = 5 * 60 * 1000;
 export class Room {
   static TAG = 'Room';
   readonly id = '' + (++room_id);
@@ -38,6 +47,11 @@ export class Room {
   title: string = `ROOM_${this.id}`;
   clients = new Set<Client>();
   tick_req_maps = new Map<number, Map<Client, IReqTick>>();
+  tick_resp_cache = new Map<number, TInfo<IRespTick>>();
+  rejoin_records = new Map<string, { secret: string; client_info: Required<IClientInfo>; disconnected_at: number }>();
+  pending_bot_events: IBotEvent[] = [];
+  bot_clients = new Set<string>();
+  protected _cleanup_timer?: ReturnType<typeof setTimeout>;
   private _tick_seq = -1;
   /** 房主选择的同步模式 */
   sync_mode: RoomSyncMode = 'auto';
@@ -48,6 +62,7 @@ export class Room {
   lfw_version: string = '';
   data_infos: IDataInfo[] = [];
   get code() { return this._code; }
+  get started() { return this._tick_seq >= 0; }
   get room_info(): Required<IRoomInfo> {
     return {
       title: this.title,
@@ -60,7 +75,7 @@ export class Room {
       })),
       min_players: this.min_players,
       max_players: this.max_players,
-      started: this._tick_seq >= 0,
+      started: this.started,
       sync_mode: this.sync_mode,
       need_pwd: !!this.pwd,
       lfw_version: this.lfw_version,
@@ -134,7 +149,9 @@ export class Room {
     }
     this.broadcast(req.type, resp, client)
     client.resp(req.type, req.pid, resp).catch(() => void 0)
-    if (!this.clients.size)
+    this.drop_pending_reqs(client)
+    this.flush_ticks()
+    if (!this.clients.size && !this.rejoin_records.size)
       this.ctx.room_mgr.del(room)
   }
   exit(client: Client, req: IReqExitRoom = { type: MsgEnum.ExitRoom, is_req: true, pid: '' }) {
@@ -158,11 +175,143 @@ export class Room {
     this.broadcast(req.type, resp, client)
     client.resp(req.type, req.pid, resp).catch(() => void 0)
 
-    if (!players.size)
-      this.ctx.room_mgr.del(room)
-
     for (const pl of players)
-      pl.resp(MsgEnum.Chat, '', { target: 'room', sender: SystemPlayerInfo, text: `玩家[${player_info.name}]退出了房间` }).catch(() => void 0)
+      pl.resp(MsgEnum.Chat, '', { target: 'room', sender: SystemPlayerInfo, text: `玩家[${player_info.name}]退出了房间`, seq: next_msg_seq() }).catch(() => void 0)
+    this.drop_pending_reqs(client)
+    this.flush_ticks()
+    if (!this.clients.size && !this.rejoin_records.size)
+      this.ctx.room_mgr.del(this)
+  }
+  disconnect(client: Client) {
+    console.log(`[${Room.TAG}::disconnect]`)
+    const { clients: players } = this;
+    const { client_info: player_info, room } = client;
+    if (!players.has(client)) return;
+    if (!player_info) return;
+    if (room !== this) return;
+
+    client.ready = false
+    delete client.room
+    players.delete(client)
+    if (this.owner === client && players.size)
+      room.owner = players.values().next().value!;
+    const { room_info } = this;
+    const resp: TInfo<IRespExitRoom> = {
+      client: player_info,
+      room: room_info
+    }
+    this.broadcast(MsgEnum.ExitRoom, resp, client)
+    for (const pl of players)
+      pl.resp(MsgEnum.Chat, '', { target: 'room', sender: SystemPlayerInfo, text: `玩家[${player_info.name}]掉线了，等待重连…`, seq: next_msg_seq() }).catch(() => void 0)
+    this.drop_pending_reqs(client)
+    this.flush_ticks()
+    this.rejoin_records.set(player_info.id!, {
+      secret: client.secret,
+      client_info: player_info,
+      disconnected_at: Date.now(),
+    })
+    if (!players.size)
+      this.schedule_cleanup()
+  }
+  rejoin(client: Client, req: IReqRejoin) {
+    console.log(`[${Room.TAG}::rejoin]`)
+    const fail = (error: string, del_record = false) => {
+      if (del_record && req.client_id) this.rejoin_records.delete(req.client_id)
+      client.resp(req.type, req.pid, { code: ErrCode.RejoinFailed, error }).catch(() => void 0)
+      return false
+    }
+    const { client_id, secret, from_seq } = req;
+    if (!client_id || !secret) return fail('invalid rejoin request')
+    const record = this.rejoin_records.get(client_id)
+    if (!record || record.secret !== secret) return fail('rejoin record not found')
+    if (Date.now() - record.disconnected_at > REJOIN_TTL) {
+      this.rejoin_records.delete(client_id)
+      return fail('rejoin timeout')
+    }
+    if (!this.started) {
+      this.rejoin_records.delete(client_id)
+      return fail('room not started')
+    }
+    const next = this._tick_seq;
+    const need = typeof from_seq === 'number' ? from_seq : -1
+    if (need < 0 || need > next) return fail('invalid from_seq')
+    const resps: TInfo<IRespTick>[] = []
+    for (let s = need; s < next; s++) {
+      const r = this.tick_resp_cache.get(s)
+      if (!r) {
+        this.rejoin_records.delete(client_id)
+        return fail('rejoin too late')
+      }
+      resps.push(r)
+    }
+    this.rejoin_records.delete(client_id)
+    this.cancel_cleanup()
+    if (this.bot_clients.delete(client_id))
+      this.pending_bot_events.push({ client_id, to_bot: false })
+
+    client.id = client_id
+    client.secret = record.secret
+    client.client_info = { ...record.client_info }
+    client.ready = true
+    client.room = this
+    this.clients.add(client)
+
+    const resp: TInfo<IRespRejoin> = {
+      client: client.client_info,
+      room: this.room_info,
+      next_seq: next,
+      resps,
+    }
+    client.resp(req.type, req.pid, resp).catch(() => void 0)
+    this.broadcast(req.type, { client: client.client_info, room: this.room_info }, client)
+    for (const pl of this.clients)
+      pl.resp(MsgEnum.Chat, '', { target: 'room', sender: SystemPlayerInfo, text: `玩家[${client.client_info.name}]重新连接`, seq: next_msg_seq() }).catch(() => void 0)
+    return true
+  }
+  protected schedule_cleanup() {
+    if (this._cleanup_timer) return;
+    this._cleanup_timer = setTimeout(() => {
+      this._cleanup_timer = void 0;
+      if (!this.clients.size) this.ctx.room_mgr.del(this)
+    }, REJOIN_TTL)
+  }
+  continue_without_leavers() {
+    for (const [client_id, record] of this.rejoin_records) {
+      if (this.bot_clients.has(client_id)) continue;
+      this.bot_clients.add(client_id)
+      this.pending_bot_events.push({ client_id, to_bot: true })
+      for (const pl of this.clients)
+        pl.resp(MsgEnum.Chat, '', { target: 'room', sender: SystemPlayerInfo, text: `玩家[${record.client_info.name}]掉线，由电脑接管`, seq: next_msg_seq() }).catch(() => void 0)
+    }
+  }
+  abandon(client: Client, req: IReqAbandon) {
+    console.log(`[${Room.TAG}::abandon]`)
+    const fail = (error: string) => {
+      client.resp(req.type, req.pid, { code: ErrCode.AbandonFailed, error }).catch(() => void 0)
+      return false
+    }
+    const { client_id, secret } = req
+    if (!client_id || !secret) return fail('invalid abandon request')
+    const record = this.rejoin_records.get(client_id)
+    if (!record || record.secret !== secret) return fail('abandon record not found')
+    this.rejoin_records.delete(client_id)
+    if (!this.bot_clients.has(client_id)) {
+      this.bot_clients.add(client_id)
+      this.pending_bot_events.push({ client_id, to_bot: true })
+    }
+    const resp: TInfo<IRespAbandon> = { client: record.client_info }
+    this.broadcast(req.type, resp)
+    for (const pl of this.clients)
+      pl.resp(MsgEnum.Chat, '', { target: 'room', sender: SystemPlayerInfo, text: `玩家[${record.client_info.name}]已离开对局`, seq: next_msg_seq() }).catch(() => void 0)
+    client.resp(req.type, req.pid, resp).catch(() => void 0)
+    if (!this.clients.size && !this.rejoin_records.size)
+      this.ctx.room_mgr.del(this)
+    return true
+  }
+  protected cancel_cleanup() {
+    if (!this._cleanup_timer) return;
+    clearTimeout(this._cleanup_timer)
+    this._cleanup_timer = void 0
   }
   join(client: Client, req: IReqJoinRoom = { type: MsgEnum.JoinRoom, is_req: true, pid: '' }) {
     console.log(`[${Room.TAG}::join]`)
@@ -220,7 +369,7 @@ export class Room {
     this.broadcast(req.type, resp, client)
     client.resp(req.type, req.pid, resp).catch(() => void 0)
     for (const pl of clients)
-      pl.resp(MsgEnum.Chat, '', { target: 'room', sender: SystemPlayerInfo, text: `玩家[${client_info.name}]加入了房间` }).catch(() => void 0)
+      pl.resp(MsgEnum.Chat, '', { target: 'room', sender: SystemPlayerInfo, text: `玩家[${client_info.name}]加入了房间`, seq: next_msg_seq() }).catch(() => void 0)
     return true;
   }
 
@@ -239,7 +388,7 @@ export class Room {
     }
     this.broadcast(req.type, resp, client)
     client.resp(req.type, req.pid, resp).catch(() => void 0)
-    for (const pl of players) pl.resp(MsgEnum.Chat, '', { target: 'room', sender: SystemPlayerInfo, text: '房间已关闭' }).catch(() => void 0)
+    for (const pl of players) pl.resp(MsgEnum.Chat, '', { target: 'room', sender: SystemPlayerInfo, text: '房间已关闭', seq: next_msg_seq() }).catch(() => void 0)
     for (const pl of players) delete pl.room
     players.clear()
     this.ctx.room_mgr.del(this)
@@ -294,14 +443,29 @@ export class Room {
     let map = this.tick_req_maps.get(seq);
     if (!map) this.tick_req_maps.set(seq, map = new Map());
     map.set(client, req);
+    this.flush_ticks();
+  }
 
+  protected drop_pending_reqs(client: Client) {
+    for (const [seq, map] of this.tick_req_maps) {
+      map.delete(client);
+      if (!map.size) this.tick_req_maps.delete(seq);
+    }
+  }
+
+  protected flush_ticks() {
     for (; ;) {
       const curr = this.tick_req_maps.get(this._tick_seq);
       if (!curr || curr.size !== this.clients.size) break;
       const resp: TInfo<IRespTick> = { seq: this._tick_seq, reqs: [] }
       for (const [, r] of curr)
         resp.reqs?.push(r)
+      if (this.pending_bot_events.length)
+        resp.bot_events = this.pending_bot_events.splice(0)
       this.broadcast(MsgEnum.Tick, resp)
+      this.tick_resp_cache.set(this._tick_seq, resp)
+      while (this.tick_resp_cache.size > MAX_TICK_CACHE)
+        this.tick_resp_cache.delete(this.tick_resp_cache.keys().next().value!)
       this.tick_req_maps.delete(this._tick_seq);
       this._tick_seq++;
     }

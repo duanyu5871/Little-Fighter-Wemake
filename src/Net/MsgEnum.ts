@@ -16,6 +16,9 @@ export enum MsgEnum {
   RoomSync = 'RoomSync',
   Ping = "Ping",
   Dataset = 'Dataset',
+  Rejoin = 'Rejoin',
+  RoomContinue = 'RoomContinue',
+  Abandon = 'Abandon',
 
   // for admin.
   ListClients = 'ListClients',

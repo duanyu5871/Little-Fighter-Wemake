@@ -178,6 +178,18 @@ $msg_item_color_room  : rgba(255, 123, 0, 1);
   @extend .color_room;
 }
 
+.match_notice {
+  position: fixed;
+  top     : 0;
+  right   : 0;
+  bottom  : 0;
+  left    : 0;
+  margin  : auto;
+  width   : 360px;
+  height  : fit-content;
+  z-index : 15;
+}
+
 :export {
   msg_item_height      : $msg_item_height;
   msg_item_color_global: $msg_item_color_global;

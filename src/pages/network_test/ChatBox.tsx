@@ -184,7 +184,7 @@ function ChatBoxView(props: IChatBoxProps, fref: ForwardedRef<HTMLDivElement>) {
         height={Math.min(msg_list_height, msg_item_height * msgs.length)}
         styles={list_styles}
         itemHeight={msg_item_height}
-        itemKey={i => '' + i.seq}>
+        itemKey={i => i.seq !== undefined ? '' + i.seq : `${i.date}:${i.sender?.id ?? ''}:${i.text}`}>
         {i => {
           let classname = styles.msg_item
           switch (i.target!) {

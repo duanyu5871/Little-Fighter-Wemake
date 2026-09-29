@@ -10,6 +10,7 @@ export interface IReqClientInfo extends IReq<MsgEnum.ClientInfo> {
 }
 export interface IRespClientInfo extends IResp<MsgEnum.ClientInfo> {
   client?: Required<IClientInfo>;
+  secret?: string;
 }
 
 export interface IReqDataset extends IReq<MsgEnum.Dataset> {

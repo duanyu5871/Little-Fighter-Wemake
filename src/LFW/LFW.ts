@@ -2,8 +2,10 @@ import { Callbacks } from './base/Callbacks';
 import { make_debugging, type IDebugging } from "./base/Debugging";
 import { get_short_file_size_txt } from './base/get_short_file_size_txt';
 import { Graves } from "./base/Graves";
+import { BotController } from './bot/BotController';
 import { regist_buffs } from './buff/_';
 import type { Collision } from './collision/Collision';
+import { LocalController } from './controller/LocalController';
 import type { IDataInfo } from './defines';
 import * as D from "./defines";
 import { CMD, CMD_NAMES } from "./defines/CMD";
@@ -11,7 +13,7 @@ import { AGK } from './defines/GameKey';
 import type { IGameZipInfo } from "./defines/IFullGameZipInfo";
 import * as I from "./ditto";
 import { Entity } from './entity/Entity';
-import { is_ball_data, is_entity_data, is_fighter, is_fighter_data, is_weapon_data } from './entity/type_check';
+import { is_ball_data, is_bot_ctrl, is_entity_data, is_fighter, is_fighter_data, is_human_ctrl, is_weapon_data } from './entity/type_check';
 import { Factory } from "./Factory";
 import * as Helper from "./helper";
 import { I18N } from "./I18N";
@@ -340,6 +342,19 @@ export class LFW implements I.IKeyboardCallback, IDebugging {
     let ret = this.players.get(player_id)
     if (!ret) this.players.set(player_id, ret = new PlayerInfo(player_id))
     return ret
+  }
+
+  set_player_bot(player_id: string, bot: boolean): boolean {
+    const fighter = this.players.get(player_id)?.fighter;
+    if (!fighter) return false;
+    if (bot) {
+      if (is_bot_ctrl(fighter.ctrl)) return true;
+      fighter.ctrl = this.factory.create_ctrl(fighter.data.id, player_id, fighter) ?? new BotController(player_id, fighter);
+    } else {
+      if (is_human_ctrl(fighter.ctrl)) return true;
+      fighter.ctrl = this.factory.acquire_ctrl(LocalController, player_id, fighter);
+    }
+    return true;
   }
 
   constructor(dev = false) {

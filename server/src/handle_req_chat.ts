@@ -5,6 +5,8 @@ import { ErrCode, IReqChat, IRespChat, TInfo } from './Net';
 
 export let msg_seq = Date.now();
 
+export function next_msg_seq(): number { return msg_seq++; }
+
 export function handle_req_chat(client: Client, req: IReqChat): void {
   if (!ensure_player_info(client, req)) return;
   const { target, text, type, pid } = req;
@@ -18,7 +20,7 @@ export function handle_req_chat(client: Client, req: IReqChat): void {
   const { ctx, room } = client;
   const { client_info: sender } = client;
   const date = Date.now();
-  const resp: TInfo<IRespChat> = { sender, date, text, target, seq: msg_seq++ };
+  const resp: TInfo<IRespChat> = { sender, date, text, target, seq: next_msg_seq() };
   switch (target) {
     case 'global': {
       ctx.broadcast(type, resp, client);

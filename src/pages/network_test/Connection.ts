@@ -4,7 +4,7 @@ import {
   type IClientInfo,
   type IConnError, type IJob, type IMsgReqMap, type IMsgRespMap,
   type IReq, type IResp,
-  type IRespClientInfo, type IRoomInfo, type ISendOpts, MsgEnum, req_timeout_error,
+  type IRespClientInfo, type IRespRejoin, type IRoomInfo, type ISendOpts, MsgEnum, req_timeout_error,
   req_unknown_error, resp_error, type TInfo, type TReq, type TResp
 } from "../../Net";
 
@@ -18,6 +18,9 @@ export interface IConnectionCallbacks {
   on_room_change?(room: IRoomInfo | undefined, conn: Connection): void;
   on_rooms_change?(rooms: IRoomInfo[], conn: Connection): void;
   on_ping?(resp: IMsgRespMap[MsgEnum.Ping], conn: Connection): void;
+  on_reconnecting?(attempt: number, conn: Connection): void;
+  on_rejoin?(resp: IRespRejoin, conn: Connection): void;
+  on_rejoin_failed?(reason: 'rejected' | 'timeout', conn: Connection): void;
 }
 
 export class Connection {
@@ -33,9 +36,18 @@ export class Connection {
   protected _urls: string[] = []
   protected _rtt: number = 0;
   protected _ping_job_timer: number = 0;
+  protected _secret?: string;
+  protected _rejoin_provider?: () => number;
+  protected _resume_client_id?: string;
+  protected _reconnecting = false;
+  protected _reconnect_attempt = 0;
+  protected _reconnect_timer = 0;
+  protected _last_url = '';
+  protected _dead = false;
   get rtt() { return this._rtt; }
   get client(): IClientInfo | undefined { return this._client }
   get nickname(): string { return this._nickname }
+  get reconnecting() { return this._reconnecting }
   room?: IRoomInfo;
   rooms: IRoomInfo[] = [];
   get url() { return this._ws?.url }
@@ -78,7 +90,9 @@ export class Connection {
     }).then((resp) => {
       this.start_ping_job();
       this._client = resp.client;
+      if (!this._reconnecting) this._secret = resp.secret ?? this._secret;
       this.callbacks.call('on_register', resp, this)
+      if (this._reconnecting) this._submit_rejoin();
     }).catch((e) => {
       this.close();
       throw e;
@@ -119,21 +133,115 @@ export class Connection {
   protected _on_close = (e: CloseEvent) => {
     console.log(`[${Connection.TAG}::_on_close]`);
     this.stop_ping_job();
+    this._ws = null;
     if (this._urls.length) {
       this.try_url(this._urls.shift())
       return;
     }
 
+    if (this._rejoin_provider && this.room && this._client) {
+      this._schedule_reconnect();
+      return;
+    }
+    this._teardown(e);
+  }
+
+  enable_rejoin(provider: () => number) {
+    this._rejoin_provider = provider;
+  }
+  disable_rejoin() {
+    this._rejoin_provider = void 0;
+  }
+  protected _teardown(e?: CloseEvent) {
+    if (this._dead) return;
+    this._dead = true;
+    this._cancel_reconnect();
+    this._rejoin_provider = void 0;
+    this._resume_client_id = void 0;
     if (this.room)
       this.callbacks.call('on_room_change', this.room = void 0, this)
     if (this.rooms.length)
       this.callbacks.call('on_rooms_change', this.rooms = [], this)
-    this.callbacks.call('on_close', e, this)
+    this.callbacks.call('on_close', e as CloseEvent, this)
+  }
+  abandon(): Promise<void> {
+    const roomid = this.room?.id;
+    const client_id = this._resume_client_id ?? this._client?.id;
+    if (this._ws?.readyState !== WebSocket.OPEN || !roomid || !client_id || !this._secret)
+      return Promise.resolve();
+    return this.send(MsgEnum.Abandon, { roomid, client_id, secret: this._secret }, { timeout: 1000 })
+      .then(() => void 0)
+      .catch(() => void 0);
+  }
+  give_up(): Promise<void> {
+    return this.abandon().finally(() => this.close());
+  }
+  protected _cancel_reconnect() {
+    if (this._reconnect_timer) {
+      clearTimeout(this._reconnect_timer);
+      this._reconnect_timer = 0;
+    }
+    this._reconnecting = false;
+    this._reconnect_attempt = 0;
+  }
+  protected _schedule_reconnect() {
+    if (this._reconnect_timer) return;
+    this._reconnecting = true;
+    if (!this._resume_client_id) this._resume_client_id = this._client?.id;
+    this._reconnect_attempt++;
+    if (this._reconnect_attempt > 30) {
+      this._reconnecting = false;
+      this._rejoin_provider = void 0;
+      this.callbacks.call('on_rejoin_failed', 'timeout', this);
+      return;
+    }
+    const ws = this._ws;
     this._ws = null;
+    if (ws) {
+      ws.removeEventListener('close', this._on_close);
+      try { ws.close(); } catch { }
+    }
+    this.callbacks.call('on_reconnecting', this._reconnect_attempt, this);
+    const delay = Math.min(300 * this._reconnect_attempt, 3000);
+    this._reconnect_timer = window.setTimeout(() => {
+      this._reconnect_timer = 0;
+      if (!this._rejoin_provider) return;
+      this.try_url(this._last_url || this._urls[0]);
+    }, delay);
+  }
+  protected _submit_rejoin() {
+    const provider = this._rejoin_provider;
+    if (!provider) return;
+    const from_seq = provider();
+    const roomid = this.room?.id;
+    const client_id = this._resume_client_id ?? this._client?.id;
+    if (typeof from_seq !== 'number' || from_seq < 0 || !roomid || !client_id || !this._secret) {
+      this._teardown();
+      return;
+    }
+    this.send(MsgEnum.Rejoin, { roomid, client_id, secret: this._secret, from_seq }, { timeout: 5000 })
+      .then((resp) => {
+        this._cancel_reconnect();
+        this._resume_client_id = void 0;
+        if (resp.client) this._client = resp.client;
+        if (resp.room) this.callbacks.call('on_room_change', this.room = resp.room, this);
+        this.callbacks.call('on_rejoin', resp, this);
+      })
+      .catch((e) => {
+        const code = (e as IConnError)?.lf2?.code;
+        if (typeof code === 'number') {
+          this._cancel_reconnect();
+          this._rejoin_provider = void 0;
+          this.abandon().finally(() => this.callbacks.call('on_rejoin_failed', 'rejected', this));
+          return;
+        }
+        this._schedule_reconnect();
+      })
   }
 
   open(url: string) {
     url = url.trim()
+    this._dead = false;
     switch (this._ws?.readyState) {
       case WebSocket.CONNECTING:
       case WebSocket.OPEN:
@@ -155,6 +263,7 @@ export class Connection {
   protected try_url(url: string | undefined) {
     console.info(`[${Connection.TAG}::try_url] url: `, url)
     if (!url) return;
+    this._last_url = url;
     try {
       this._ws = new WebSocket(url)
       this._ws.addEventListener('message', this._on_message);
@@ -166,8 +275,15 @@ export class Connection {
   }
 
   close() {
-    this._ws?.close()
-    this._ws = null
+    this._cancel_reconnect();
+    this._rejoin_provider = void 0;
+    const ws = this._ws;
+    this._ws = null;
+    if (ws) {
+      try { ws.close(); } catch { }
+    } else {
+      this._teardown();
+    }
   }
 
   /**
@@ -227,6 +343,10 @@ export class Connection {
         break;
       case MsgEnum.RoomSync:
         this.callbacks.call('on_room_change', this.room = resp.room, this)
+        break;
+      case MsgEnum.Rejoin:
+        if (resp.room)
+          this.callbacks.call('on_room_change', this.room = resp.room, this)
         break;
       case MsgEnum.CloseRoom:
         this.callbacks.call('on_room_change', this.room = void 0, this)

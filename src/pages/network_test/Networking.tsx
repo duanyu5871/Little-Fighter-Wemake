@@ -5,6 +5,7 @@ import { MsgEnum, type IRespRoomStart, type NetSyncMode } from "@/Net";
 import { useStateRef } from "@/hooks/useStateRef";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
+import { useTranslation } from "react-i18next";
 import { ChatBox } from "./ChatBox";
 import { Connection } from "./Connection";
 import { ConnectionBox } from "./ConnectionBox";
@@ -12,6 +13,7 @@ import { current_connection } from "./current_connection";
 import { DelayNetworkDriver } from "./DelayNetworkDriver";
 import { LFWNetworkDriver } from "./LFWNetworkDriver";
 import { LockstepNetworkDriver } from "./LockstepNetworkDriver";
+import { MatchPauseNotice } from "./MatchPauseNotice";
 import { RoomBox } from "./RoomBox";
 import { RoomsBox } from "./RoomsBox";
 import styles from "./styles.module.scss";
@@ -31,10 +33,13 @@ export interface INetworkingProps {
 
 export function Networking(props: INetworkingProps) {
   const { lf2, on_close, sync_mode, input_delay, show_all_rooms } = props;
+  const { t } = useTranslation();
   const ref_lf2 = useRef(lf2);
   ref_lf2.current = lf2;
   const [conn_state, set_conn_state] = useState<TriState>(TriState.False);
   const [conn, set_conn] = useStateRef<Connection | null>(null)
+  const [reconnecting, set_reconnecting] = useState(0)
+  const [rejoin_failed, set_rejoin_failed] = useState<'' | 'rejected' | 'timeout'>('')
   const { room } = useRoom(conn)
   const ref_updater = useRef<LFWNetworkDriver | null>(null);
   const create_driver = (resp: IRespRoomStart) => {
@@ -50,12 +55,18 @@ export function Networking(props: INetworkingProps) {
   };
   useEffect(() => {
     current_connection.conn = conn;
+    if (!conn) {
+      set_reconnecting(0);
+      set_rejoin_failed('');
+    }
     return () => {
       current_connection.conn = null;
       current_connection.driver = null;
+      conn?.disable_rejoin();
     };
   }, [conn]);
   const [started, set_started] = useState(false)
+  const [leavers, set_leavers] = useState<{ name: string; left?: boolean }[]>([])
   const chat_style = use_fade_style(!!conn_state)
   useCallbacks(conn?.callbacks, {
     on_message: (resp, conn) => {
@@ -67,6 +78,7 @@ export function Networking(props: INetworkingProps) {
           break;
         case MsgEnum.RoomStart:
           create_driver(resp).on_room_start(resp);
+          conn.enable_rejoin(() => ref_updater.current?.rejoin_seq ?? -1);
           set_started(true)
           break;
         case MsgEnum.Dataset:
@@ -77,7 +89,51 @@ export function Networking(props: INetworkingProps) {
           ref_updater.current?.on_tick(resp);
           break;
         }
+        case MsgEnum.ExitRoom:
+        case MsgEnum.Kick: {
+          const driver = ref_updater.current;
+          const leaver = resp.client;
+          if (!driver || !leaver || leaver.id === conn.client?.id) break;
+          driver.suspend();
+          const name = leaver.name || leaver.id;
+          if (!name) break;
+          set_leavers(prev => (prev.some(l => l.name === name) ? prev : [...prev, { name }]));
+          break;
+        }
+        case MsgEnum.Rejoin: {
+          const joined = resp.client;
+          if (!joined || joined.id === conn.client?.id) break;
+          const name = joined.name || joined.id;
+          if (!name) break;
+          set_leavers(prev => {
+            const next = prev.filter(l => l.name !== name);
+            if (!next.length) ref_updater.current?.resume();
+            return next;
+          });
+          break;
+        }
+        case MsgEnum.Abandon: {
+          const left = resp.client;
+          if (!left || left.id === conn.client?.id) break;
+          const name = left.name || left.id;
+          if (!name) break;
+          set_leavers(prev => prev.map(l => (l.name === name && !l.left) ? { ...l, left: true } : l));
+          break;
+        }
       }
+    },
+    on_reconnecting: (attempt) => {
+      set_reconnecting(attempt);
+      set_rejoin_failed('');
+    },
+    on_rejoin: (resp) => {
+      set_reconnecting(0);
+      set_rejoin_failed('');
+      ref_updater.current?.begin_rejoin(resp.resps ?? [], resp.next_seq ?? 0);
+    },
+    on_rejoin_failed: (reason) => {
+      set_reconnecting(0);
+      set_rejoin_failed(reason);
     }
   }, [lf2])
 
@@ -134,6 +190,45 @@ export function Networking(props: INetworkingProps) {
       conn={conn}
       className={styles.chat_box}
       style={chat_style} />
+    {rejoin_failed ? (
+      <MatchPauseNotice
+        title={t("reconnect_failed")}
+        lines={[]}
+        actions={[
+          {
+            text: t("continue_solo"),
+            onClick: () => {
+              set_rejoin_failed('');
+              ref_updater.current?.continue_solo();
+              conn?.close();
+            }
+          },
+          {
+            text: t("back_to_lobby"),
+            onClick: () => {
+              set_rejoin_failed('');
+              conn?.close();
+            }
+          },
+        ]} />
+    ) : reconnecting > 0 ? (
+      <MatchPauseNotice
+        title={t("reconnecting")}
+        lines={[t("reconnect_attempt").replace("%1", "" + reconnecting)]}
+        actions={[{ text: t("back_to_lobby"), onClick: () => conn?.give_up() }]} />
+    ) : leavers.length > 0 ? (
+      <MatchPauseNotice
+        title={t("match_paused")}
+        lines={leavers.map(l => t(l.left ? "player_left" : "player_disconnected").replace("%1", l.name))}
+        actions={[{
+          text: t("continue_game"),
+          onClick: () => {
+            conn?.send_nowait(MsgEnum.RoomContinue, {});
+            set_leavers([]);
+            ref_updater.current?.resume();
+          }
+        }]} />
+    ) : null}
   </>, document.body)
 }
 

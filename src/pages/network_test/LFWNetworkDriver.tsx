@@ -1,6 +1,6 @@
 import { md5 } from "@/DittoImpl";
 import { EntityEnum, GK, LFW, LFWKeyEvent, PlayerInfo, is_bot_ctrl, mt_cases, round_float, sus_cases, world_dataset_fields, type IWorldDataset } from "@/LFW";
-import { MsgEnum, type IKeyEvent, type IReqTick, type IRespClientInfo, type IRespDataset, type IRespRoomStart, type IRespTick, type TInfo } from "@/Net";
+import { MsgEnum, type IKeyEvent, type IReqTick, type IRespClientInfo, type IRespDataset, type IRespRoomStart, type IRespTick, type TInfo, type TRejoinTick } from "@/Net";
 import type { IRespKeyTick } from "@/Net/IMsg_KeyTick";
 import type { Connection } from "./Connection";
 import { EntitySnapshotBuffer } from "./EntitySnapshotBuffer";
@@ -47,6 +47,7 @@ export abstract class LFWNetworkDriver {
   lf2?: LFW | null;
   resp?: IRespTick | IRespKeyTick | null;
   _failed: boolean = false;
+  _suspended: boolean = false;
   _snapshot1?: EntitySnapshotBuffer;
   _snapshot2?: EntitySnapshotBuffer;
   _datas: SyncChecker = new SyncChecker('datas');
@@ -57,6 +58,9 @@ export abstract class LFWNetworkDriver {
   _failed_checker?: string;
   protected _applying_dataset = false;
   protected _reverting = false;
+  protected _last_run_seq = -1;
+  protected _last_req?: TInfo<IReqTick>;
+  get rejoin_seq(): number { return this._last_run_seq + 1 }
   is_owner() {
     const { conn } = this;
     if (!conn) return false;
@@ -64,10 +68,25 @@ export abstract class LFWNetworkDriver {
     if (!room || !me) return false;
     return room.owner?.id === me.id;
   }
+  suspend() {
+    if (this._suspended) return;
+    this._suspended = true;
+    this.lf2?.world.sleep();
+  }
+  resume() {
+    if (!this._suspended) return;
+    this._suspended = false;
+    const { lf2 } = this;
+    if (!lf2) return;
+    lf2.events.length = 0;
+    lf2.cmds.length = 0;
+    lf2.world.awake();
+  }
   abstract get lead(): number;
   abstract before_update: () => void;
   abstract after_update: () => void;
   protected abstract on_tick_data(resp: IRespTick | IRespKeyTick): void;
+  abstract begin_rejoin(resps: TRejoinTick[], next_seq: number): void;
   protected on_start(): void { }
   on_dataset_change(k?: keyof IWorldDataset, _value?: unknown, prev?: unknown) {
     const { conn, lf2 } = this;
@@ -195,6 +214,8 @@ export abstract class LFWNetworkDriver {
       return world.sleep();
     }
     this.resp = resp;
+    this._last_run_seq = seq;
+    this.apply_bot_events(resp);
     const req_events: IKeyEvent[] = lf2.events.map<IKeyEvent>(r => ({
       client_id: me.id,
       player_id: me.id + '#' + r.player,
@@ -231,7 +252,10 @@ export abstract class LFWNetworkDriver {
       }
     }).join('￥'));
     if (this._suspicious) req._s = safe_check(() => sus_cases.submit());
-    if (!this._failed) conn.send_nowait(MsgEnum.Tick, req);
+    if (!this._failed) {
+      this._last_req = req;
+      conn.send_nowait(MsgEnum.Tick, req);
+    }
     lf2.cmds.length = 0;
     lf2.events.length = 0;
     this._objects?.reset();
@@ -264,6 +288,30 @@ export abstract class LFWNetworkDriver {
       }
     }
   };
+  protected apply_bot_events(resp: IRespTick | IRespKeyTick) {
+    const { lf2 } = this;
+    const events = (resp as IRespTick).bot_events;
+    if (!lf2 || !events?.length) return;
+    for (const { client_id, to_bot } of events) {
+      if (!client_id) continue;
+      const prefix = client_id + '#';
+      for (const [player_id] of lf2.players)
+        if (player_id.startsWith(prefix))
+          lf2.set_player_bot(player_id, !!to_bot);
+    }
+  }
+  continue_solo() {
+    const { lf2 } = this;
+    if (!lf2) return;
+    for (const [player_id, player] of lf2.players)
+      if (!player.mine) lf2.set_player_bot(player_id, true);
+    lf2.world.before_update = void 0;
+    lf2.world.after_update = void 0;
+    lf2.events.length = 0;
+    lf2.cmds.length = 0;
+    this._suspended = false;
+    lf2.world.awake();
+  }
   private dump_snapshots() {
     const { _snapshot1, _snapshot2 } = this;
     if (!_snapshot1 || !_snapshot2) return;

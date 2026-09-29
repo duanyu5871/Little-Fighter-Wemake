@@ -1,4 +1,4 @@
-import { MsgEnum, type IRespTick } from "@/Net";
+import { MsgEnum, type IRespTick, type TRejoinTick } from "@/Net";
 import type { IRespKeyTick } from "@/Net/IMsg_KeyTick";
 import { LFWNetworkDriver } from "./LFWNetworkDriver";
 
@@ -15,6 +15,33 @@ export class DelayNetworkDriver extends LFWNetworkDriver {
 
   get lead(): number { return Math.max(1, Math.floor(this.input_delay)); }
 
+  override get rejoin_seq(): number { return this._seq; }
+
+  begin_rejoin(resps: TRejoinTick[], next_seq: number): void {
+    const { lf2, conn } = this;
+    if (!lf2) return;
+    this._suspended = false;
+    lf2.events.length = 0;
+    lf2.cmds.length = 0;
+    for (const resp of resps)
+      this._inputs.set(resp.seq!, resp as IRespTick);
+    const owed_end = this._seq - 1 + this.lead;
+    for (let seq = next_seq; seq <= owed_end; seq++) {
+      if (this._inputs.has(seq)) continue;
+      conn?.send_nowait(MsgEnum.Tick, { seq });
+    }
+    if (!resps.length) {
+      const req = this._last_req;
+      if (req && typeof req.seq === 'number')
+        conn?.send_nowait(MsgEnum.Tick, req);
+    }
+    this._starved = true;
+    if (this._inputs.has(this._seq)) {
+      this._starved = false;
+      lf2.world.awake();
+    }
+  }
+
   protected override on_start(): void {
     this._seq = 0;
     // 初始时 world 处于 sleep，等第 0 帧输入到达后由 on_tick_data 唤醒
@@ -29,7 +56,7 @@ export class DelayNetworkDriver extends LFWNetworkDriver {
   protected on_tick_data(resp: IRespTick | IRespKeyTick): void {
     const seq = resp.seq!;
     this._inputs.set(seq, resp);
-    if (this._starved && seq === this._seq) {
+    if (!this._suspended && this._starved && seq === this._seq) {
       this._starved = false;
       this.lf2?.world.awake();
     }
@@ -38,6 +65,7 @@ export class DelayNetworkDriver extends LFWNetworkDriver {
   before_update = () => {
     const { lf2 } = this;
     if (!lf2) return;
+    if (this._suspended) return lf2.world.sleep();
     const resp = this._inputs.get(this._seq);
     if (!resp) {
       this._starved = true;
