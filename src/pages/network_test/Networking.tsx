@@ -120,22 +120,24 @@ export function Networking(props: INetworkingProps) {
       on_state_change={set_conn_state}
       on_close={on_close}
       className={styles.rooms_box}
-      style={display_or_not(!conn_state)} />
+      style={{ ...overlay_style, ...display_or_not(!conn_state) }} />
     <RoomsBox
       conn={conn}
       conn_state={conn_state}
       show_all_rooms={show_all_rooms}
-      style={display_or_not(conn_state && !room)} />
+      style={{ ...overlay_style, ...display_or_not(conn_state && !room) }} />
     <RoomBox
       conn={conn}
       className={styles.rooms_box}
-      style={display_or_not(conn_state && room && !started)} />
+      style={{ ...overlay_style, ...display_or_not(conn_state && room && !started) }} />
     <ChatBox
       conn={conn}
       className={styles.chat_box}
       style={chat_style} />
   </>, document.body)
 }
+
+const overlay_style: CSSProperties = { position: 'fixed', padding: 0 };
 
 const display_or_not = (v: any) => ({ display: v ? void 0 : 'none' })
 
