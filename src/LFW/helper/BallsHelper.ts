@@ -14,6 +14,7 @@ export class BallsHelper extends ObjectsHelper {
   override get all(): Entity[] {
     const ret: Entity[] = [];
     this.lfw.world.entities.forEach((v) => is_ball(v) && ret.push(v));
+    this.lfw.world.ghosts.forEach((v) => is_ball(v) && ret.push(v));
     return ret;
   }
 }

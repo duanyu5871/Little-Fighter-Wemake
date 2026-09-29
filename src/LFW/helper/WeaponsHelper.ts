@@ -10,6 +10,7 @@ export class WeaponsHelper extends ObjectsHelper {
   override get all(): Entity[] {
     const ret: Entity[] = [];
     this.lfw.world.entities.forEach((v) => is_weapon(v) && ret.push(v));
+    this.lfw.world.ghosts.forEach((v) => is_weapon(v) && ret.push(v));
     return ret;
   }
   override add(

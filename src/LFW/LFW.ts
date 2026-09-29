@@ -741,6 +741,8 @@ export class LFW implements I.IKeyboardCallback, IDebugging {
         if (is_fighter(e) && this.players.has(e.ctrl.player_id)) continue;
         e.release();
       }
+      for (const e of this.world.ghosts)
+        e.release();
     }
     const time = this.world.stage.time;
     this.change_stage(next_stage?.id || '');

@@ -21,6 +21,7 @@ export class ObjectsHelper {
   get all(): Entity[] {
     const ret: Entity[] = [];
     this.lfw.world.entities.forEach((v) => ret.push(v));
+    this.lfw.world.ghosts.forEach((v) => ret.push(v));
     return ret;
   }
   get a(): Entity | undefined { return this.at(0) }

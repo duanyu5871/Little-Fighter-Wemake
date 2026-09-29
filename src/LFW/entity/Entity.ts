@@ -1077,7 +1077,7 @@ export class Entity {
     offset_velocity: IVector3 = Ditto.vec3(0, 0, 0),
     facing: TFace = this.facing,
   ): Entity | undefined {
-    if (opoint.unimportant && this.world.entities.length > 355) return void 0;
+    if (opoint.unimportant && this.world.entities.length + this.world.ghosts.length > 355) return void 0;
     this.lfw.mt.mark = "se_1";
     const oid = this.lfw.mt.pick(opoint.oid);
     if (!oid) {
@@ -1126,6 +1126,7 @@ export class Entity {
     this._spawn_time = this.world.game_time;
     this._mounted = 1;
     this._ghosted = ghost ? 1 : 0;
+    if (this._ghosted) this.motionless = this.shaking = 0;
     this.world.add_entities(this);
 
     this.set_state(this.frame.state)
@@ -1643,6 +1644,51 @@ export class Entity {
     this.update_aabb();
     if (this.lfw.mt.debugging)
       this.lfw.mt.case(`e_${this.id}_${this.name}_end`)
+  }
+
+  update_ghost(): void {
+    this._atom_time = this.world.dataset.atom_time;
+    const rf = round_float;
+    this._lifetime += this._atom_time;
+    if (this.frame.facing) this.facing = this.handle_facing_flag(this.frame.facing)
+    if (this.frame.hp) this.hp -= this.frame.hp * this._atom_time;
+    if (this.frame.mp) this.mp -= this.frame.mp * this._atom_time;
+    if (this._invisible > 0) {
+      this._invisible = rf(this._invisible - this._atom_time);
+      if (this._invisible <= 0) this._invisible = 0;
+    }
+    if (this._blinking > 0) {
+      this._blinking = rf(this._blinking - this._atom_time);
+      if (this._blinking <= 0) this._blinking = 0;
+    }
+    this._state?.pre_update?.(this);
+    this._from_wait_block = true;
+    if (this.wait > 0) {
+      this.wait = rf(this.wait - this._atom_time)
+      if (this.wait < 0) this.wait = 0;
+    } else if (this.frame.next) {
+      this.enter_frame(this.frame.next)
+    } else {
+      this.set_frame(this.find_auto_frame())
+    }
+    this._from_wait_block = false;
+
+    const tick_atom_time = this._atom_time;
+    const sub_steps =
+      Number.isInteger(tick_atom_time) && tick_atom_time > 1 && tick_atom_time <= 8
+        ? tick_atom_time
+        : 1;
+    if (sub_steps > 1) this._atom_time = round_float(tick_atom_time / sub_steps);
+    for (let i = 0; i < sub_steps; ++i) {
+      this.handle_gravity();
+      this.update_velocity(this.frame);
+      if (!i) this._state?.update(this);
+      this.update_position();
+    }
+    this._atom_time = tick_atom_time;
+    if (!this.bearer && !this.catcher)
+      this.update_landable();
+    this.prev_position.copy(this.position);
   }
 
   protected update_aabb() {

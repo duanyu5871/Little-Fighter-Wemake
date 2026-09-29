@@ -8,6 +8,7 @@ export class CharactersHelper extends ObjectsHelper {
   override get all(): Entity[] {
     const ret: Entity[] = [];
     this.lfw.world.entities.forEach((v) => is_fighter(v) && ret.push(v));
+    this.lfw.world.ghosts.forEach((v) => is_fighter(v) && ret.push(v));
     return ret;
   }
   override add(

@@ -92,6 +92,7 @@ export class World {
   readonly transform: Transform = new Transform()
   readonly entity_map = new Map<string, Entity>();
   readonly entities: Entity[] = [];
+  readonly ghosts: Entity[] = [];
   /** 
    * 被玩家操作的角色 
    * 键: 玩家ID
@@ -211,7 +212,8 @@ export class World {
           this.callbacks.call("on_puppet_add", e.ctrl.player_id);
         }
       }
-      this.entities.push(e);
+      if (e.ghosted) this.ghosts.push(e);
+      else this.entities.push(e);
       this.entity_map.set(e.id, e)
       this.renderer.add_entity(e);
       this.mark_players_alive(e, is_human_ctrl(e.ctrl) && e.hp > 0);
@@ -634,9 +636,11 @@ export class World {
     const view_w = this.dataset.screen_w / (this.bg.zoom_x || 1)
     // 前瞻量：固定世界距离（不随 zoom 缩放，zoom 越大屏幕上前瞻越明显）
     const lead = this.dataset.screen_w / 6
-    for (let i = 0; i < this.entities.length; i++) {
-      const a = this.entities[i];
-      if (offset) this.entities[i - offset] = a;
+    const entities = this.entities;
+    const ghosts = this.ghosts;
+    for (let i = 0; i < entities.length; i++) {
+      const a = entities[i];
+      if (offset) entities[i - offset] = a;
       if (a.frame.id === FID.Gone || a.state === SE.Gone) {
         a.hp = a.hp_r = 0;
         this._gones.add(a);
@@ -648,7 +652,6 @@ export class World {
         continue;
       }
       a.update();
-      if (a.ghosted) continue;
 
       if (is_fighter(a)) {
         if (a.hp > 0) {
@@ -680,13 +683,33 @@ export class World {
         }
       }
     }
-    const len = this.entities.length = this.entities.length - offset
-    this.entities.sort(x_sorter);
+    entities.length -= offset;
+
+    let goffset = 0;
+    for (let i = 0; i < ghosts.length; i++) {
+      const a = ghosts[i];
+      if (goffset) ghosts[i - goffset] = a;
+      if (a.frame.id === FID.Gone || a.state === SE.Gone) {
+        a.hp = a.hp_r = 0;
+        this._gones.add(a);
+        ++goffset
+        continue;
+      }
+      if (this._gones.has(a)) {
+        ++goffset
+        continue;
+      }
+      a.update_ghost();
+    }
+    ghosts.length -= goffset;
+
+    const len = entities.length;
+    entities.sort(x_sorter);
     this.ground_weapon_counts.clear();
 
     for (let i = 0; i < len; i++) {
-      const a = this.entities[i];
-      if (a.ghosted || a.frame.id === FID.Gone) continue;
+      const a = entities[i];
+      if (a.frame.id === FID.Gone) continue;
       if (is_weapon(a) && a.is_on_ground) {
         const section = round(a.position.x / WEAPON_X_SECTION);
         const count = this.ground_weapon_counts.get(section) ?? 0;
@@ -695,13 +718,16 @@ export class World {
       const { ctrl, lifetime } = a
       const lookingup = 0 == (lifetime % LOOKUP_UPDATE_INTERVAL);
       if (lookingup && (is_ball_ctrl(ctrl) || is_bot_ctrl(ctrl)))
-        ctrl.update_lookup(i, this.entities)
+        ctrl.update_lookup(i, entities)
 
+      const a_max_x = a.aabb_max_x;
+      const a_min_z = a.aabb_min_z;
+      const a_max_z = a.aabb_max_z;
       for (let j = i + 1; j < len; j++) {
-        const b = this.entities[j];
-        if (b.ghosted || b.frame.id === FID.Gone) continue;
-        if (a.aabb_max_x < b.aabb_min_x) break;
-        if (a.aabb_max_z < b.aabb_min_z || b.aabb_max_z < a.aabb_min_z) continue;
+        const b = entities[j];
+        if (a_max_x < b.aabb_min_x) break;
+        if (b.frame.id === FID.Gone) continue;
+        if (a_max_z < b.aabb_min_z || b.aabb_max_z < a_min_z) continue;
         // 细致的碰撞判定
         this.pairs_compared++;
         const c1 = collision_get(a, b);
@@ -787,7 +813,7 @@ export class World {
    * @memberof World
    */
   spark(x: number, y: number, z: number, f: string): void {
-    if (this.entities.length > MAX_DEBUG_ENTITIES) return;
+    if (this.entities.length + this.ghosts.length > MAX_DEBUG_ENTITIES) return;
     const oid = Defines.BuiltIn_Dats.Spark
     if (!this._spark_data)
       this._spark_data = this.lfw.datas.find(oid);
@@ -864,6 +890,7 @@ export class World {
     this.stop_update();
     this.stop_render();
     this.del_entities(Array.from(this.entities));
+    this.del_entities(Array.from(this.ghosts));
     this._alive_players.clear();
     this.has_players_alive = false;
     this.renderer.dispose();
@@ -881,6 +908,7 @@ export class World {
     this.dataset.infinity_mp = 0;
     this.dataset.playrate = 1;
     this.entities.forEach(v => v.set_frame(GONE_FRAME_INFO))
+    this.ghosts.forEach(v => v.set_frame(GONE_FRAME_INFO))
     this.buffs.forEach(v => v.duration = 0)
     if (this.stage.id !== Defines.VOID_STAGE.id)
       this.stage = new Stage(this, Defines.VOID_STAGE)

@@ -157,11 +157,16 @@ export class WorldRenderer implements IWorldRenderer {
     renderer.unmount();
     renderer.mounted = false;
   }
-  /** 单趟实体渲染（world.entities 为唯一来源） */
   protected render_entities(dt: number, df: number): void {
-    const { entities } = this.world;
+    const { entities, ghosts } = this.world;
     for (let i = 0; i < entities.length; i++) {
       const e = entities[i];
+      if (e.bearer || e.catcher) continue;
+      this.mount_renderer(e);
+      e.renderer!.render(dt, df);
+    }
+    for (let i = 0; i < ghosts.length; i++) {
+      const e = ghosts[i];
       if (e.bearer || e.catcher) continue;
       this.mount_renderer(e);
       e.renderer!.render(dt, df);
@@ -271,32 +276,34 @@ export class WorldRenderer implements IWorldRenderer {
 
   /** 收集已挂载实体渲染器为“组”：持有者与其持有/抓住的实体同组；组按 z 远→近排序（复用缓冲） */
   protected collect_entity_groups(): EntityRenderer[][] {
-    const { entities } = this.world;
+    const { entities, ghosts } = this.world;
     const map = this._grp_map;
     map.clear();
     const out = this._grps;
     out.length = 0;
-    for (let i = 0; i < entities.length; i++) {
-      const e = entities[i];
-      const er = e.renderer as EntityRenderer | undefined;
-      if (!er?.mounted || !er.body) continue;
-      const holder = (e.bearer ?? e.catcher) as Entity | undefined;
-      const hr = holder?.renderer as EntityRenderer | undefined;
-      let key = er;
-      if (holder && hr?.mounted && hr.body) key = hr;
-      let g = map.get(key);
-      if (!g) {
-        g = this._grp_pool.pop();
-        if (!g) g = [];
-        g.length = 1;
-        g[0] = key;
-        map.set(key, g);
-      }
-      if (er !== key) g.push(er);
-    }
+    for (let i = 0; i < entities.length; i++) this.collect_entity_group(entities[i], map);
+    for (let i = 0; i < ghosts.length; i++) this.collect_entity_group(ghosts[i], map);
     for (const g of map.values()) out.push(g);
     out.sort(by_group_z);
     return out;
+  }
+
+  protected collect_entity_group(e: Entity, map: Map<EntityRenderer, EntityRenderer[]>): void {
+    const er = e.renderer as EntityRenderer | undefined;
+    if (!er?.mounted || !er.body) return;
+    const holder = (e.bearer ?? e.catcher) as Entity | undefined;
+    const hr = holder?.renderer as EntityRenderer | undefined;
+    let key = er;
+    if (holder && hr?.mounted && hr.body) key = hr;
+    let g = map.get(key);
+    if (!g) {
+      g = this._grp_pool.pop();
+      if (!g) g = [];
+      g.length = 1;
+      g[0] = key;
+      map.set(key, g);
+    }
+    if (er !== key) g.push(er);
   }
 
   /**
