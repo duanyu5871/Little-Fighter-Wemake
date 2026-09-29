@@ -173,6 +173,7 @@ export abstract class LFWNetworkDriver {
   }
   protected start(lf2: LFW) {
     lf2.keyboard.enabled = true;
+    lf2.pointings.enabled = true;
     lf2.world.after_update = this.after_update;
     lf2.world.before_update = this.before_update;
     lf2.world.reset_game_time();
