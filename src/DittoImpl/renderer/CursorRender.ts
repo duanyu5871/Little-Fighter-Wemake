@@ -5,7 +5,8 @@ import type { WorldRenderer } from "./WorldRenderer";
 import csses from "./styles.module.scss";
 
 const COLORS = [0xff5b5b, 0x5b9dff, 0x5bd75b, 0xffd75b];
-const TIMEOUT = 2000;
+const TIMEOUT = 5000;
+const FADE_TIME = 1000;
 const EASE_TAU = 40;
 const PIXEL_RATIO = 4;
 const FONT_SIZE = 12;
@@ -143,10 +144,13 @@ export class CursorRender {
     view.sprite.scale.set(w, h, 1);
     view.sprite.center.set(TIP_X / w, (h - TIP_Y) / h);
   }
-  protected show_cursor(from: string, cursor: IPointerCursor, now: number): boolean {
-    if (cursor.hidden) return false;
-    if (!from) return !!this.renderer.lfw.ui && this.renderer.lfw.pointings.enabled;
-    return now - cursor.t <= TIMEOUT && !this.is_mine(from);
+  protected cursor_alpha(from: string, cursor: IPointerCursor, now: number): number {
+    if (cursor.hidden) return 0;
+    if (!from) return !!this.renderer.lfw.ui && this.renderer.lfw.pointings.enabled ? 1 : 0;
+    if (this.is_mine(from)) return 0;
+    const idle = now - cursor.t;
+    if (idle <= TIMEOUT) return 1;
+    return Math.max(0, 1 - (idle - TIMEOUT) / FADE_TIME);
   }
   set_canvas(host: HTMLCanvasElement | null | undefined): void {
     if (host && host === this._host && this._canvas) return;
@@ -204,17 +208,19 @@ export class CursorRender {
   protected update(dt: number): void {
     const cursors = get_pointer_cursors(this.renderer.world);
     const now = performance.now();
+    let any = false;
     for (const [from, view] of this._views) {
       const cursor = cursors?.get(from);
-      const visible = !!cursor && this.show_cursor(from, cursor, now);
-      view.sprite.visible = visible;
-      if (!visible) view.shown = false;
+      const alpha = cursor ? this.cursor_alpha(from, cursor, now) : 0;
+      view.sprite.visible = alpha > 0;
+      (view.sprite.material as SpriteMaterial).opacity = alpha;
+      if (alpha > 0) any = true;
+      else view.shown = false;
     }
-    let any = false;
     if (cursors) {
       const ease = 1 - Math.exp(-dt / EASE_TAU);
       for (const [from, cursor] of cursors) {
-        if (!this.show_cursor(from, cursor, now)) continue;
+        if (this.cursor_alpha(from, cursor, now) < 1) continue;
         const view = this.get_view(from);
         const name = this.name_of(from);
         if (view.name !== name) {
