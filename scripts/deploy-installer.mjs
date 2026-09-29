@@ -85,23 +85,54 @@ const oss = new OSS({
   bucket: OSS_BUCKET,
   accessKeyId: OSS_ACCESS_KEY_ID,
   accessKeySecret: OSS_ACCESS_KEY_SECRET,
-  timeout: 300000,
+  timeout: 10 * 60 * 1000,
+  retryMax: 3,
 });
 
+const PART_SIZE = 4 * 1024 * 1024;
+const UPLOAD_ATTEMPTS = 3;
+
 for (const name of upload_names) {
+  const key = `${REMOTE_DIR}/${name}`;
+  const file_path = join(dir, name);
+  // 先建好多段上传，重试时凭 checkpoint 从已完成的分片继续
+  const { uploadId } = await oss.initMultipartUpload(key);
+  const checkpoint = {
+    file: file_path,
+    name: key,
+    fileSize: statSync(file_path).size,
+    partSize: PART_SIZE,
+    uploadId,
+    doneParts: [],
+  };
   let step = 10;
-  await oss.multipartUpload(`${REMOTE_DIR}/${name}`, join(dir, name), {
-    partSize: 8 * 1024 * 1024,
-    parallel: 4,
-    progress: (p) => {
-      const pct = Math.min(100, Math.round(p <= 1 ? p * 100 : p));
-      if (pct >= step) {
-        step = pct + 10;
-        console.log(`[installer] 上传中 ${pct}% ${name}`);
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await oss.multipartUpload(key, file_path, {
+        checkpoint,
+        partSize: PART_SIZE,
+        parallel: 4,
+        progress: (p) => {
+          const pct = Math.min(100, Math.round(p <= 1 ? p * 100 : p));
+          if (pct >= step) {
+            step = pct + 10;
+            console.log(`[installer] 上传中 ${pct}% ${name}`);
+          }
+        },
+      });
+      break;
+    } catch (e) {
+      if (attempt >= UPLOAD_ATTEMPTS) {
+        await oss.abortMultipartUpload(key, uploadId).catch(() => void 0);
+        throw e;
       }
-    },
-  });
-  console.log(`[installer] 已上传 ${REMOTE_DIR}/${name}`);
+      console.warn(`[installer] ${name} 第 ${attempt} 次中断：${e?.message ?? e}`);
+      console.warn(`[installer] 从已完成的分片继续，重试 ${attempt + 1}/${UPLOAD_ATTEMPTS}`);
+      step = 10;
+      await new Promise((r) => setTimeout(r, 5000));
+    }
+  }
+  console.log(`[installer] 已上传 ${key}`);
 }
 await oss.put(`${REMOTE_DIR}/latest.yml`, yml_file, { headers: { 'Cache-Control': 'no-cache' } });
 console.log(`[installer] 已上传 ${REMOTE_DIR}/latest.yml: v${version}`);
