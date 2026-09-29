@@ -54,12 +54,15 @@ export class MoveTableLogic extends UIComponent {
   private _phase = 0;
   private _loading = false;
   private _char_label: UINode | null = null;
+  private _char_prev: UINode | null = null;
+  private _char_next: UINode | null = null;
   private _name_label: UINode | null = null;
   private _keys_label: UINode | null = null;
   private _desc_label: UINode | null = null;
   private _face: Picture | null = null;
   private _scroll: ScrollView | null = null;
   private _rows_bound = false;
+  private _arrows_bound = false;
   private _rows: UINode[] = [];
   private _row_names: UINode[] = [];
   private _row_keys: UINode[] = [];
@@ -82,6 +85,8 @@ export class MoveTableLogic extends UIComponent {
 
   override on_start(): void {
     this._char_label = this.node.search_node("move_table_char") ?? null;
+    this._char_prev = this.node.search_node("move_table_char_prev") ?? null;
+    this._char_next = this.node.search_node("move_table_char_next") ?? null;
     this._name_label = this.node.search_node("move_table_name") ?? null;
     this._keys_label = this.node.search_node("move_table_keys") ?? null;
     this._desc_label = this.node.search_node("move_table_desc") ?? null;
@@ -101,6 +106,11 @@ export class MoveTableLogic extends UIComponent {
         this._row_keys.push(row.children[1]);
       }
       this._rows_bound = true;
+    }
+    if (!this._arrows_bound) {
+      this._arrows_bound = true;
+      this._char_prev?.callbacks.add({ on_click: () => this.enter_list(this._list_index - 1) });
+      this._char_next?.callbacks.add({ on_click: () => this.enter_list(this._list_index + 1) });
     }
     if (this.lists.length) this.enter_list(0);
     else this.load_lists();
