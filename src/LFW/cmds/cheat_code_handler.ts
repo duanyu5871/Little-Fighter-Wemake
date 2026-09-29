@@ -1,6 +1,5 @@
 import { is_cheat_type } from "../defines/CheatType";
 import { Defines } from "../defines/defines";
-import { Ditto } from "../ditto/Instance";
 import type { CMDS } from "./CMDS";
 
 export const cheat_code_handler = (ctx: CMDS) => {

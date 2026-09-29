@@ -1,7 +1,7 @@
 import {
   clamp, Defines, type IPointingEvent, type IPointingsCallback, type IPropsMeta,
   type IUICallback, type IUICompnentCallbacks,
-  LF2PointerEvent, max, min, round, round_float, UIComponent, UINode
+  LFWPointerEvent, max, min, round, round_float, UIComponent, UINode
 } from "../../..";
 export interface ISliderHandleProps {
   mode?: string;
@@ -54,7 +54,7 @@ export class SliderHandle extends UIComponent<ISliderHandleProps, ISliderHandleC
   private _on_me = false;
   private _factor: number = 0;
   private p: IUICallback = {
-    on_pointer_down: (e: LF2PointerEvent): void => {
+    on_pointer_down: (e: LFWPointerEvent): void => {
       const { container, responser } = this;
       if (responser) responser.focused = true
       else if (container) container.focused = true

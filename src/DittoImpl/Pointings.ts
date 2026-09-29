@@ -43,7 +43,7 @@ export class __Pointings implements IPointings {
 
   private _on_pointer_down = (e: PointerEvent) => {
     this.grab_begin();
-    this.enabled && this._callbacks.call("on_pointer_down", new __PointingEvent(this._ele, e));
+    if (this.enabled) this._callbacks.call("on_pointer_down", new __PointingEvent(this._ele, e));
   };
   private _on_pointer_up = (e: PointerEvent) =>
     this.enabled && this._callbacks.call("on_pointer_up", new __PointingEvent(this._ele, e));

@@ -6,7 +6,7 @@ import { Ditto } from "../../ditto";
 import { is_num } from '../../utils/type_check/is_num';
 import type { IComponentInfo } from "../IComponentInfo";
 import type { IUIKeyEvent } from "../IUIKeyEvent";
-import { LF2PointerEvent } from "../LF2PointerEvent";
+import { LFWPointerEvent } from "../LFWPointerEvent";
 import type { UINode } from "../UINode";
 import type { IUICompnentCallbacks } from "./IUICompnentCallbacks";
 import { UIProps } from "./UIProps";
@@ -187,13 +187,13 @@ export class UIComponent<
   recycle_keys() {
     this._keys?.unmount()
   }
-  on_pointer_down?(e: LF2PointerEvent): void;
-  on_pointer_move?(e: LF2PointerEvent): void;
-  on_pointer_up?(e: LF2PointerEvent): void;
-  on_pointer_cancel?(e: LF2PointerEvent): void;
+  on_pointer_down?(e: LFWPointerEvent): void;
+  on_pointer_move?(e: LFWPointerEvent): void;
+  on_pointer_up?(e: LFWPointerEvent): void;
+  on_pointer_cancel?(e: LFWPointerEvent): void;
   on_pointer_leave?(): void;
   on_pointer_enter?(): void;
-  on_click?(e: LF2PointerEvent): void;
+  on_click?(e: LFWPointerEvent): void;
   on_start?(): void;
   on_resume?(): void
   on_pause?(): void

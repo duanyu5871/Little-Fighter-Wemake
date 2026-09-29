@@ -14,3 +14,5 @@ CMDS.register(CMD.F9, help, (c) => {
   for (const e of Array.from(c.world.entities)) if (is_weapon(e)) e.hp = 0;
   for (const e of Array.from(c.world.ghosts)) if (is_weapon(e)) e.hp = 0;
 })
+
+

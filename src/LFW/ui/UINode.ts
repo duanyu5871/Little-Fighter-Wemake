@@ -11,7 +11,7 @@ import type { ICrossInfo, IGeoInfo, IRectInfo } from "./ICrossInfo";
 import type { IUICallback } from "./IUICallback";
 import type { IUIInfo } from "./IUIInfo.dat";
 import type { IUIKeyEvent } from "./IUIKeyEvent";
-import { LF2PointerEvent } from "./LF2PointerEvent";
+import { LFWPointerEvent } from "./LFWPointerEvent";
 import { Style } from "./Style";
 import type { IPopPageOpts, UILayer } from './UILayer';
 import { actor } from './action/Actor';
@@ -502,33 +502,30 @@ export class UINode implements IDebugging {
     const [w, h] = this.data.size;
     return l <= x && t <= y && l + w >= x && t + h >= y;
   }
-  on_pointer_down(e: LF2PointerEvent) {
+  on_pointer_down(e: LFWPointerEvent) {
     this._pointer_down = 1;
     this._click_flag = 1;
     for (const c of this.components)
       c.on_pointer_down?.(e);
     this.callbacks.call('on_pointer_down', e, this);
   }
-  on_pointer_move(e: LF2PointerEvent) {
+  on_pointer_move(e: LFWPointerEvent) {
     for (const c of this.components)
       c.on_pointer_move?.(e);
     this.callbacks.call('on_pointer_move', e, this);
   }
-
-  on_pointer_up(e: LF2PointerEvent) {
+  on_pointer_up(e: LFWPointerEvent) {
     this._pointer_down = 0
     for (const c of this.components)
       c.on_pointer_up?.(e);
     this.callbacks.call('on_pointer_up', e, this);
   }
-
-  on_pointer_cancel(e: LF2PointerEvent) {
+  on_pointer_cancel(e: LFWPointerEvent) {
     this._pointer_down = 0
     for (const c of this.components)
       c.on_pointer_cancel?.(e);
     this.callbacks.call('on_pointer_cancel', e, this);
   }
-
   on_pointer_leave() {
     this._pointer_over = 0;
     this._click_flag = 0;
@@ -536,7 +533,6 @@ export class UINode implements IDebugging {
       c.on_pointer_leave?.();
     this.callbacks.call('on_pointer_leave', this);
   }
-
   on_pointer_enter() {
     this._pointer_over = 1
     for (const c of this.components)
@@ -673,7 +669,7 @@ export class UINode implements IDebugging {
     }
   }
 
-  on_click(e: LF2PointerEvent) {
+  on_click(e: LFWPointerEvent) {
     const { click, rclick, mclick } = this.data.actions ?? {};
     if (click && e.button == 0) {
       actor.act(this, click);
@@ -807,6 +803,7 @@ export class UINode implements IDebugging {
   find_child(id: string): UINode | undefined {
     return this.children.find(v => v.id == id)
   }
+
   search_node(id: string): UINode | undefined {
     let ret = this.find_child(id);
     if (ret) return ret;
@@ -815,6 +812,7 @@ export class UINode implements IDebugging {
       if (ret) return ret;
     }
   }
+
   lookup_node(id: string): UINode | undefined {
     return this.find_child(id) ?? this.parent?.lookup_node(id)
   }

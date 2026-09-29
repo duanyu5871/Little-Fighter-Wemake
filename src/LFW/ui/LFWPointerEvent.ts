@@ -3,7 +3,7 @@ import type { IUIPointerEvent } from "./IUIPointerEvent";
 import { LFWUIEvent } from "./LFWUIEvent";
 
 
-export class LF2PointerEvent extends LFWUIEvent implements IUIPointerEvent {
+export class LFWPointerEvent extends LFWUIEvent implements IUIPointerEvent {
   readonly point: IVector3;
   readonly button: number;
   constructor(vec3: IVector3, btn: number) {

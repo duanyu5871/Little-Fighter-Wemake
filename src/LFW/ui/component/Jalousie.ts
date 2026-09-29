@@ -2,7 +2,7 @@ import { Easing, Sequence } from "../../animation";
 import { Animation } from "../../animation/Animation";
 import { Sine } from "../../animation/Sine";
 import { Ditto } from "../../ditto";
-import { LF2PointerEvent } from "../LF2PointerEvent";
+import { LFWPointerEvent } from "../LFWPointerEvent";
 import { Flex } from "./Flex";
 import type { IUICompnentCallbacks } from "./IUICompnentCallbacks";
 export interface IJalousieCallbacks extends IUICompnentCallbacks {
@@ -46,7 +46,7 @@ export class Jalousie extends Flex<IJalousieCallbacks> {
   get w(): number { return this.node.root.w }
   get h(): number { return this.node.root.h }
 
-  override on_click(e: LF2PointerEvent): void {
+  override on_click(e: LFWPointerEvent): void {
     super.on_click?.(e)
     if (this.click_test) {
       this.open = !this.open;

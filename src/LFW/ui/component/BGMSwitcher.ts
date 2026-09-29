@@ -1,5 +1,5 @@
 import { loop_offset } from "../../utils/container_help/loop_offset";
-import { LF2PointerEvent } from "../LF2PointerEvent";
+import { LFWPointerEvent } from "../LFWPointerEvent";
 import { UIComponent } from "./UIComponent";
 
 export class BGMSwitcher extends UIComponent {
@@ -21,7 +21,7 @@ export class BGMSwitcher extends UIComponent {
   override on_pause(): void {
     this.lfw.sounds.callbacks.del(this._sounds_cbs)
   }
-  override on_click(e: LF2PointerEvent): void {
+  override on_click(e: LFWPointerEvent): void {
     super.on_click?.(e)
     e.stop_immediate_propagation()
     e.stop_propagation();

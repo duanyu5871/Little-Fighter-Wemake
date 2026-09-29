@@ -71,6 +71,10 @@ export class UILayer {
     this._index = index;
   }
 
+  at(idx: number): UINode | undefined {
+    return this.pages[idx];
+  }
+
   dispose(): void {
     this.pages.forEach(ui => {
       ui.on_pause();

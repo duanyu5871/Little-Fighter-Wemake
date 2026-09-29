@@ -1,7 +1,7 @@
 import type { IPointingEvent } from "@/LFW/ditto/pointings";
 import type { IUIInputHandle } from "@/LFW/ditto/ui/IEventHandle";
+import { CMD } from "@/LFW/defines/CMD";
 import type { LFW } from "@/LFW/LFW";
-import { LF2PointerEvent } from "@/LFW/ui/LF2PointerEvent";
 import { UINode } from "@/LFW/ui/UINode";
 import * as T from "../_t";
 import { UINodeRenderer } from "../renderer/UINodeRenderer";
@@ -10,90 +10,79 @@ interface IIntersection {
   extra: UINode;
   point: T.Vector3;
 }
+function node_path(node: UINode): string | undefined {
+  const layer = node.layer;
+  const page = node.root;
+  if (!layer || !page.id) return;
+  const page_idx = layer.pages.indexOf(page);
+  if (page_idx < 0) return;
+  const idx: number[] = [];
+  let n: UINode | undefined = node;
+  while (n && n !== page) {
+    const parent: UINode | undefined = n.parent;
+    if (!parent) return;
+    idx.unshift(parent.children.indexOf(n));
+    n = parent;
+  }
+  return [layer.index, page_idx, ...idx].join(',');
+}
 export class UIInputHandle implements IUIInputHandle {
   private lfw: LFW;
   private pointer_vec_2 = new T.Vector2();
   private pointer_raycaster = new T.Raycaster();
   private world_renderer: WorldRenderer
-  private _pointer_down_uis = new Set<UINode>();
-  private _pointer_on_uis = new Set<UINode>();
+  private _empty_move = false;
   constructor(lfw: LFW) {
     this.lfw = lfw;
     this.world_renderer = this.lfw.world.renderer as WorldRenderer
   }
 
   on_pointer_down(e: IPointingEvent) {
-    const { ui } = this.lfw; if (!ui) return;
-    const intersections = this.intersections(e.scene_x, e.scene_y, ui);
-    for (const i of intersections) {
-      this._pointer_down_uis.add(i.extra)
-      const _e = new LF2PointerEvent(i.point, e.button);
-      i.extra.on_pointer_down(_e);
-      if (_e.stopped) break;
-    }
+    this.push_pointer(CMD.POINTER_DOWN, e);
   }
   on_pointer_move(e: IPointingEvent) {
-    const { ui } = this.lfw; if (!ui) return;
-    const intersections = this.intersections(e.scene_x, e.scene_y, ui);
-    const leave_ui = this._pointer_on_uis;
-    const stay_ui = new Set<UINode>();
-    const enter_ui = new Set<UINode>();
-    for (const { extra: ui, point } of intersections) {
-      const _e = new LF2PointerEvent(point, e.button);
-      ui.on_pointer_move(_e);
-      if (leave_ui.has(ui)) {
-        leave_ui.delete(ui)
-        stay_ui.add(ui)
-      } else {
-        enter_ui.add(ui);
-      }
-    }
-    for (const ui of leave_ui) {
-      ui.on_pointer_leave();
-    }
-    this._pointer_on_uis.clear();
-    for (const ui of enter_ui) {
-      ui.on_pointer_enter();
-      this._pointer_on_uis.add(ui)
-    }
-    for (const ui of stay_ui) {
-      this._pointer_on_uis.add(ui)
-    }
-
+    this.push_pointer(CMD.POINTER_MOVE, e);
   }
   on_pointer_up(e: IPointingEvent) {
-    const { ui } = this.lfw; if (!ui) return;
-    const intersections = this.intersections(e.scene_x, e.scene_y, ui);
-    for (const i of intersections) {
-      if (i.extra.pointer_down) {
-        this._pointer_down_uis.delete(i.extra)
-        const _e = new LF2PointerEvent(i.point, e.button);
-        i.extra.on_pointer_up(_e);
-        if (_e.stopped) break;
-      }
-    }
-    for (const i of intersections) {
-      if (i.extra.click_flag) {
-        const _e = new LF2PointerEvent(i.point, e.button);
-        i.extra.on_click(_e);
-        if (_e.stopped) break;
-      }
-    }
-    for (const i of this._pointer_down_uis) {
-      const _e = new LF2PointerEvent(new T.Vector3(NaN, NaN, NaN), e.button);
-      i.on_pointer_cancel(_e);
-    }
-    this._pointer_down_uis.clear()
+    this.push_pointer(CMD.POINTER_UP, e);
   }
   on_pointer_cancel(e: IPointingEvent) {
-    for (const i of this._pointer_down_uis) {
-      const _e = new LF2PointerEvent(new T.Vector3(NaN, NaN, NaN), e.button);
-      i.on_pointer_cancel(_e);
-    }
-    this._pointer_down_uis.clear()
+    this.lfw.push_cmd(CMD.POINTER_CANCEL, `--b=${e.button}`);
   }
-  on_click(e: IPointingEvent): void { }
-  on_wheel(e: IPointingEvent): void { }
+  on_click(): void { }
+  on_wheel(): void { }
+  protected push_pointer(cmd: CMD, e: IPointingEvent) {
+    const { ui } = this.lfw; if (!ui) return;
+    const intersections = this.intersections(e.scene_x, e.scene_y, ui);
+    const paths: string[] = [];
+    const pages: string[] = [];
+    const points: string[] = [];
+    for (const { extra, point } of intersections) {
+      const path = node_path(extra);
+      const page_id = extra.root.id;
+      if (!path || !page_id) continue;
+      paths.push(path);
+      pages.push(page_id);
+      points.push(`${point.x},${point.y},${point.z}`);
+    }
+    const empty = !paths.length;
+    if (empty && cmd == CMD.POINTER_DOWN) return;
+    if (cmd == CMD.POINTER_MOVE) {
+      if (empty) {
+        if (this._empty_move) return;
+        this._empty_move = true;
+      } else {
+        this._empty_move = false;
+      }
+    }
+    const args = [`--b=${e.button}`];
+    if (!empty) {
+      args.push(`--paths=${paths.join('|')}`);
+      args.push(`--pages=${pages.join('|')}`);
+      args.push(`--points=${points.join('|')}`);
+    }
+    this.lfw.push_cmd(cmd, ...args);
+  }
   protected intersections(x: number, y: number, ui: UINode): IIntersection[] {
     this.pointer_vec_2.x = x;
     this.pointer_vec_2.y = y;

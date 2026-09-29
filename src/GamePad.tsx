@@ -2,12 +2,10 @@ import cns from "classnames";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useImmer } from "use-immer";
-import csses from "./GamePad.module.scss";
-import { pow } from "./LFW";
-import { LFW } from "./LFW";
-import { GameKey as GK } from "./LFW/defines/GameKey";
-import { LFWKeyEvent } from "./LFW/ui/LF2KeyEvent";
 import { __Keyboard } from "./DittoImpl";
+import csses from "./GamePad.module.scss";
+import { LFW, pow } from "./LFW";
+import { GameKey as GK } from "./LFW/defines/GameKey";
 
 export interface IGamePadProps extends React.HTMLAttributes<HTMLDivElement> {
   lf2?: LFW;
@@ -15,13 +13,13 @@ export interface IGamePadProps extends React.HTMLAttributes<HTMLDivElement> {
   enabled?: boolean;
   container?: () => Element | DocumentFragment | undefined | null
 }
-type TRect = { l: number; r: number; t: number; b: number };
+// type TRect = { l: number; r: number; t: number; b: number };
+// const get_rect = (ele: React.RefObject<HTMLElement | null>): TRect => {
+//   if (!ele.current) return { l: 0, t: 0, r: 0, b: 0 };
+//   const { x, y, width, height } = ele.current.getBoundingClientRect();
+//   return { l: x, t: y, r: x + width, b: y + height };
+// };
 type TCirc = { x: number; y: number; r: number };
-const get_rect = (ele: React.RefObject<HTMLElement | null>): TRect => {
-  if (!ele.current) return { l: 0, t: 0, r: 0, b: 0 };
-  const { x, y, width, height } = ele.current.getBoundingClientRect();
-  return { l: x, t: y, r: x + width, b: y + height };
-};
 const get_circ = (ele: React.RefObject<HTMLElement | null>): TCirc => {
   if (!ele.current) return { x: 0, y: 0, r: 0 };
   const { x, y, width, height } = ele.current.getBoundingClientRect();

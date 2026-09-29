@@ -58,7 +58,15 @@ export const enum CMD {
   /** 移除指定实体（直接删除） */
   DESPAWN = "DESPAWN",
   /** 击杀指定实体（hp=0，触发死亡流程） */
-  KILL = "KILL"
+  KILL = "KILL",
+
+  POINTER_DOWN   /**/ = "POINTER_DOWN",
+  POINTER_MOVE   /**/ = "POINTER_MOVE",
+  POINTER_UP     /**/ = "POINTER_UP",
+  POINTER_CANCEL /**/ = "POINTER_CANCEL",
+  POINTER_LEAVE  /**/ = "POINTER_LEAVE",
+  POINTER_ENTER  /**/ = "POINTER_ENTER",
+  POINTER_CLICK  /**/ = "POINTER_CLICK"
 }
 
 export const CMD_NAMES: Record<CMD, string> = {
@@ -91,4 +99,11 @@ export const CMD_NAMES: Record<CMD, string> = {
   [CMD.SPAWN]: "SPAWN",
   [CMD.DESPAWN]: "DESPAWN",
   [CMD.KILL]: "KILL",
+  [CMD.POINTER_DOWN]: "POINTER_DOWN",
+  [CMD.POINTER_MOVE]: "POINTER_MOVE",
+  [CMD.POINTER_UP]: "POINTER_UP",
+  [CMD.POINTER_CANCEL]: "POINTER_CANCEL",
+  [CMD.POINTER_LEAVE]: "POINTER_LEAVE",
+  [CMD.POINTER_ENTER]: "POINTER_ENTER",
+  [CMD.POINTER_CLICK]: "POINTER_CLICK"
 }
