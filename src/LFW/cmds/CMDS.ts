@@ -25,6 +25,7 @@ export class CMDS {
   }
   readonly world: World;
   words: string[] = [];
+  positionals: string[] = [];
   cmd: string = '';
   private _args: { [name in string]: string } | undefined;
   private constructor(world: World) {
@@ -32,11 +33,21 @@ export class CMDS {
   }
   set_cmd(cmd: string) {
     this.cmd = cmd;
-    this.words = cmd.split(' ').filter(t => t !== '');
+    this.words.length = 0;
+    this.positionals.length = 0;
+    const parts = cmd.split(' ');
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i].trim();
+      if (!part) continue;
+      this.words.push(part);
+      if (!part.startsWith('--')) {
+        this.positionals.push(part)
+      }
+    }
     this._args = void 0; // 使命名参数缓存失效
   }
   str(index: number): string | undefined {
-    return this.words[index]
+    return this.positionals[index]
   }
   num(index: number) {
     const str = this.str(index);

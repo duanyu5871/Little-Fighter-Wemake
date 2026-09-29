@@ -36,9 +36,8 @@ export function safe_check(fn: () => string): string {
   }
 }
 
-function with_pointer_from(cmd: string, client_id?: string): string {
-  if (!client_id || !cmd.startsWith('POINTER_')) return cmd;
-  return `${cmd} --from=${client_id}`;
+function with_from(cmd: string, client_id?: string): string {
+  return client_id ? `${cmd} --from=${client_id}` : cmd;
 }
 
 export abstract class LFWNetworkDriver {
@@ -203,7 +202,7 @@ export abstract class LFWNetworkDriver {
     }));
     const req: TInfo<IReqTick> = {
       seq: seq + this.lead,
-      cmds: lf2.cmds,
+      cmds: lf2.cmds.map(cmd => with_from(cmd, me.id)),
       events: req_events
     };
     if (seq == 0) {
@@ -253,8 +252,8 @@ export abstract class LFWNetworkDriver {
 
     if (this.debugging) this._snapshot1?.capture(lf2.world.entities)
     for (const req of reqs) {
-      const { cmds, events, client_id } = req;
-      if (cmds?.length) cmds.forEach(cmd => lf2.push_cmd(with_pointer_from(cmd, client_id)));
+      const { cmds, events } = req;
+      if (cmds?.length) cmds.forEach(cmd => lf2.push_cmd(cmd));
       if (!events?.length) continue;
       for (const { player_id, pressed = false, game_key = '' } of events) {
         if (!player_id) continue;
