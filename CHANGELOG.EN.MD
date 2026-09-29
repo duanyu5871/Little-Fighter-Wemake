@@ -4,11 +4,13 @@
 
 by [**Gim**](https://gim.ink)
 
-<!-- git-range: af9fdeb17..a0b586569 -->
+<!-- git-range: af9fdeb17..aab4b0bc6 -->
 
 ### What's New
 
 - Netplay nicknames: set one in the connection panel (up to 10 characters, remembered automatically); it shows up in the prepare screen, next to cursors, etc.
+  - Editable anytime during netplay: new nickname input at the top of the "Misc" tab in the settings panel (gear button)
+  - If never set, one is generated automatically: a random adjective + noun combo from English / Chinese word pools, picked by system language
 - Mouse input is fully enabled: you can click / hover the UI during netplay matches (it used to be locked online)
   - Cursors show the operator's nickname, so you can see at a glance who is pointing
   - The local cursor is now rendered independently and without easing, so it tracks the mouse much more closely (remote cursors keep their smoothing)
@@ -29,6 +31,7 @@ by [**Gim**](https://gim.ink)
 - Fixed: a character could get stuck on the same frame for a long time when hit rapidly and repeatedly
 - Fixed: typing into an input field also triggered in-game actions
 - Fixed: netplay panels (connect / room list / room info) are now locked to a centered overlay, avoiding position shifts and stray padding
+- Fixed: after switching the language, the netplay windows (connection panel / room list, etc.) kept the old language
 
 ## [v0.1.58](https://lf.gim.ink/0.1.58)
 
