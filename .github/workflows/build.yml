@@ -1,19 +1,28 @@
 name: Build
 
 on:
-  # 打 v* tag（如 v0.1.56-preview-1）时自动构建并发布 GitHub Release
+  # 打 v* tag（如 v0.1.56-preview-1）时自动构建并发布 GitHub Release；正式版本 tag（不含 -）另外发 Pages
   push:
     tags:
       - "v*"
-  # 手动触发：可指定 tag，并勾选是否同时发布到 lf.gim.ink
+  # 手动触发：可指定 tag，并单独勾选要执行的部署（Release / Pages / lf.gim.ink），三者互不绑定；
+  # 勾了 skip_build 时不做构建，按 tag 取上一次成功运行的产物来执行勾选的部署
   workflow_dispatch:
     inputs:
       tag:
         description: 发布用的 tag（留空 = v<package.json 版本>；不存在时基于当前分支创建）
         required: false
         default: ""
+      release:
+        description: 发布 GitHub Release（安装包 / 免安装版 / Web 7z；tag 带 preview 时自动标为预发布）
+        type: boolean
+        default: false
+      pages:
+        description: 发布 GitHub Pages（预览站）
+        type: boolean
+        default: false
       publish:
-        description: 同时发布到 lf.gim.ink（前端 <version>/ + latest.json + desktop/ 安装包）
+        description: 发布到 lf.gim.ink（前端 <version>/ + latest.json + desktop/ 安装包）
         type: boolean
         default: false
       dry_run:
@@ -21,11 +30,7 @@ on:
         type: boolean
         default: false
       skip_build:
-        description: 配 publish：复用已有构建产物（同一 tag 上一次成功的运行），不重新构建；须在 “Use workflow from” 选对应 tag
-        type: boolean
-        default: false
-      pages_only:
-        description: 只发布 GitHub Pages：复用 tag 一栏对应 tag 最近一次成功构建的产物（跳过构建与 Release / lf.gim.ink 更新）
+        description: 复用已有构建产物（按 tag 取上一次成功的运行），不重新构建；可与任意部署目标组合
         type: boolean
         default: false
 
@@ -37,7 +42,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # 手动触发先校验输入：勾了 skip_build 却没勾 publish 时，三个 job 会全部跳过（白跑一次）
+  # 手动触发先校验输入：没勾任何部署目标时提醒；勾了 skip_build 但没有任何目标时直接报错（否则白跑一次）
   guard:
     name: Check inputs
     if: ${{ github.event_name == 'workflow_dispatch' }}
@@ -45,25 +50,22 @@ jobs:
     steps:
       - name: Validate inputs
         run: |
-          if [ "${{ inputs.pages_only }}" = "true" ] && [ "${{ inputs.publish }}" = "true" ]; then
-            echo "::error::pages_only（只发 Pages）不能和 publish 同时勾选。"
-            exit 1
+          any=false
+          if [ "${{ inputs.release }}" = "true" ] || [ "${{ inputs.pages }}" = "true" ] || [ "${{ inputs.publish }}" = "true" ]; then any=true; fi
+          if [ "$any" = "false" ]; then
+            if [ "${{ inputs.skip_build }}" = "true" ]; then
+              echo "::error::勾了『复用已有构建产物』但没勾任何部署目标（release / pages / publish），这次会什么都不做。"
+              exit 1
+            fi
+            echo "::warning::没勾任何部署目标：本次只构建并上传 Artifacts，不会发布 Release / Pages / lf.gim.ink。"
           fi
-          if [ "${{ inputs.pages_only }}" = "true" ] && [ "${{ inputs.skip_build }}" = "true" ]; then
-            echo "::error::pages_only（只发 Pages）自带产物复用，不能和 skip_build 同时勾选。"
-            exit 1
-          fi
-          if [ "${{ inputs.skip_build }}" = "true" ] && [ "${{ inputs.publish }}" != "true" ]; then
-            echo "::error::勾了『复用已有构建产物』却没勾 publish —— 三个 job 都会被跳过。要发布 lf.gim.ink 就勾上 publish；要重新构建就取消 skip_build。"
-            exit 1
-          fi
-          if [ "${{ inputs.pages_only }}" != "true" ] && [ "${{ inputs.publish }}" != "true" ]; then
-            echo "::warning::没勾 publish：本次只构建并发 GitHub Release / Pages，不会传到 lf.gim.ink"
+          if [ "${{ inputs.dry_run }}" = "true" ] && [ "${{ inputs.publish }}" != "true" ]; then
+            echo "::warning::dry_run 只在勾了 publish 时才有意义。"
           fi
 
   build:
-    # 勾了 skip_build 就只走 publish（复用上次产物）、勾了 pages_only 就只复用产物发 Pages，这里整个跳过
-    if: ${{ !inputs.skip_build && !inputs.pages_only }}
+    # 勾了 skip_build 时不做构建，交给各部署 job 复用已有产物
+    if: ${{ !inputs.skip_build }}
     runs-on: windows-latest
     timeout-minutes: 90
     env:
@@ -175,37 +177,107 @@ jobs:
             release/Little Fighter Wemake Web v*.7z
           retention-days: 14
 
+  # 发布 GitHub Release：tag 推送时自动执行；手动触发时勾选 release 才执行。
+  # 默认用本次构建的产物；勾了 skip_build 则按 tag 去上一次成功的运行里取产物
+  release:
+    name: Publish GitHub Release
+    needs: build
+    if: ${{ !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.release) && (inputs.skip_build || needs.build.result == 'success') }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Find the run to reuse
+        if: inputs.skip_build
+        id: src
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          ref="${{ inputs.tag }}"
+          if [ -z "$ref" ]; then ref="v$version"; fi
+          id=$(gh run list --workflow build.yml --branch "$ref" --status success --limit 1 --json databaseId --jq '.[0].databaseId')
+          if [ -z "$id" ]; then
+            echo "::error::在 $ref 上找不到成功的构建运行；请在 tag 一栏填上有成功构建的 tag（如 v$version-preview-1）"
+            exit 1
+          fi
+          echo "复用运行 $id（$ref）"
+          echo "run_id=$id" >> "$GITHUB_OUTPUT"
+
+      - name: Download build artifacts (reused run)
+        if: inputs.skip_build
+        uses: actions/download-artifact@v4
+        with:
+          name: desktop-win
+          path: artifacts
+          run-id: ${{ steps.src.outputs.run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Download build artifacts (this run)
+        if: ${{ !inputs.skip_build }}
+        uses: actions/download-artifact@v4
+        with:
+          name: desktop-win
+          path: artifacts
+
+      - name: Locate release files
+        id: files
+        run: |
+          set -e
+          version=$(node -p "require('./package.json').version")
+          latest_yml=$(find artifacts -name latest.yml | head -1)
+          zip=$(find artifacts -name "Little Fighter Wemake_$version.zip" | head -1)
+          web7z=$(find artifacts -name "Little Fighter Wemake Web v$version.7z" | head -1)
+          if [ -z "$latest_yml" ] || [ -z "$zip" ] || [ -z "$web7z" ]; then
+            echo "::error::产物不完整：installer / 免安装 zip / Web 7z 没有齐"
+            exit 1
+          fi
+          echo "installer_dir=$(dirname "$latest_yml")" >> "$GITHUB_OUTPUT"
+          echo "zip=$zip" >> "$GITHUB_OUTPUT"
+          echo "web7z=$web7z" >> "$GITHUB_OUTPUT"
+
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
-          $tag = "${{ inputs.tag }}"
-          if (-not $tag) { $tag = "${{ github.ref_type == 'tag' && github.ref_name || '' }}" }
-          if (-not $tag) { $tag = "v$version" }
-          if ($tag -notlike "v$version*") { Write-Host "::warning::tag $tag 与 package.json 版本 $version 不一致" }
+          set -e
+          version=$(node -p "require('./package.json').version")
+          tag="${{ inputs.tag }}"
+          if [ -z "$tag" ]; then tag="${{ github.ref_type == 'tag' && github.ref_name || '' }}"; fi
+          if [ -z "$tag" ]; then tag="v$version"; fi
+          case "$tag" in
+            "v$version"*) ;;
+            *) echo "::warning::tag $tag 与 package.json 版本 $version 不一致" ;;
+          esac
 
-          $release_args = @("--title", $tag)
-          $notes = "docs/changelog/v$version/zh.md"
-          if (Test-Path $notes) {
-            $body = (Get-Content $notes | Select-Object -Skip 6) -join "`n"
-            Set-Content -Path "release/notes.md" -Value $body -Encoding utf8
-            $release_args += @("--notes-file", "release/notes.md")
-          } else {
-            $release_args += "--generate-notes"
-          }
+          args=(--title "$tag")
+          notes="docs/changelog/v$version/zh.md"
+          if [ -f "$notes" ]; then
+            tail -n +7 "$notes" > release_notes.md
+            args+=(--notes-file release_notes.md)
+          else
+            args+=(--generate-notes)
+          fi
 
-          $files = @(Get-ChildItem "release/installer" -File | ForEach-Object FullName)
-          $files += (Get-Item "release/Little Fighter Wemake_$version.zip").FullName
-          $files += (Get-Item "release/Little Fighter Wemake Web v$version.7z").FullName
+          files=()
+          while IFS= read -r f; do files+=("$f"); done < <(find "${{ steps.files.outputs.installer_dir }}" -maxdepth 1 -type f)
+          files+=("${{ steps.files.outputs.zip }}" "${{ steps.files.outputs.web7z }}")
 
-          gh release view $tag *> $null
-          if ($LASTEXITCODE -ne 0) {
-            if ($tag -match "preview") { $release_args += "--prerelease" }
-            gh release create $tag $release_args $files
-          } else {
-            gh release upload $tag $files --clobber
-          }
+          if gh release view "$tag" > /dev/null 2>&1; then
+            gh release upload "$tag" "${files[@]}" --clobber
+          else
+            case "$tag" in *preview*) args+=(--prerelease) ;; esac
+            gh release create "$tag" "${args[@]}" "${files[@]}"
+          fi
 
   # 只负责上传，不重新构建：默认用本次构建的产物；勾了 skip_build 则去同一 tag 上一次成功的运行里取产物
   publish:
@@ -310,9 +382,9 @@ jobs:
   pages:
     name: Deploy to GitHub Pages
     needs: build
-    # 正式版本 tag 或手动触发才发 Pages（预览 tag 跳过）；构建被跳过（复用产物发布）时也不发
-    # pages_only：跳过构建，复用指定 tag 最近一次成功运行的产物，只发 Pages
-    if: ${{ inputs.pages_only || (needs.build.result == 'success' && (github.event_name == 'workflow_dispatch' || !contains(github.ref_name, '-'))) }}
+    # tag 推送：正式版本（tag 不含 -）自动发 Pages，预览 tag 跳过
+    # 手动触发：勾了 pages 才发；勾了 skip_build 时复用指定 tag 上次成功运行的产物
+    if: ${{ !cancelled() && (inputs.skip_build || needs.build.result == 'success') && ((github.event_name == 'workflow_dispatch' && inputs.pages) || (github.event_name != 'workflow_dispatch' && !contains(github.ref_name, '-'))) }}
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -324,18 +396,18 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Checkout
-        if: inputs.pages_only
+        if: inputs.skip_build
         uses: actions/checkout@v7
 
       - name: Setup Node
-        if: inputs.pages_only
+        if: inputs.skip_build
         uses: actions/setup-node@v6
         with:
           node-version: 22
 
-      # 复用逻辑与 publish 的 skip_build 同款：按 tag 找最近一次成功的构建运行
+      # 复用逻辑与 release / publish 的 skip_build 同款：按 tag 找最近一次成功的构建运行
       - name: Find the run to reuse
-        if: inputs.pages_only
+        if: inputs.skip_build
         id: src
         env:
           GH_TOKEN: ${{ github.token }}
@@ -352,7 +424,7 @@ jobs:
           echo "run_id=$id" >> "$GITHUB_OUTPUT"
 
       - name: Download build artifacts
-        if: inputs.pages_only
+        if: inputs.skip_build
         uses: actions/download-artifact@v4
         with:
           name: desktop-win
@@ -361,7 +433,7 @@ jobs:
           github-token: ${{ github.token }}
 
       - name: Restore dist from the web archive
-        if: inputs.pages_only
+        if: inputs.skip_build
         run: |
           set -e
           sudo apt-get update -qq
@@ -383,7 +455,7 @@ jobs:
           echo "产物版本 v$dist_ver，准备发布 Pages"
 
       - name: Upload Pages artifact
-        if: inputs.pages_only
+        if: inputs.skip_build
         uses: actions/upload-pages-artifact@v5
         with:
           path: dist
