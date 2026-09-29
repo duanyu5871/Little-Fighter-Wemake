@@ -647,4 +647,11 @@ i18n
     interpolation: { escapeValue: false }
   });
 
+export function react_lang_code(engine_lang: string): string {
+  if (engine_lang === "zh-hans") return "zh-Hans";
+  if (engine_lang === "zh-hant") return "zh-Hant";
+  if (!engine_lang) return "en";
+  return engine_lang;
+}
+
 export default i18n;

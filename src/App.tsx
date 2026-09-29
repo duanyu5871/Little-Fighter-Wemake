@@ -64,7 +64,7 @@ import img_btn_4_3 from "./assets/btn_4_3.png";
 import { install_danmu_bridge_if_requested } from "./danmu_bridge";
 import { load_desktop_mods } from "./desktop_mods";
 import { useForage } from "./hooks/useForage";
-import i18n from "./i18n";
+import i18n, { react_lang_code } from "./i18n";
 import "./init";
 import { install_mock_danmu_if_requested } from "./mock_danmu";
 import { DatViewer } from "./pages/dat_viewer/DatViewer";
@@ -329,7 +329,10 @@ function App() {
       const { page } = params
       if (typeof page === 'string') lf2.layers.set_page({ id: page }, 0)
     },
-    on_lang_changed: (lang) => window.runtime?.SetLang?.(lang),
+    on_lang_changed: (lang, _prev, lf2) => {
+      window.runtime?.SetLang?.(lang);
+      i18n.changeLanguage(react_lang_code(lf2.canonical_lang(lang)));
+    },
   })
 
   useEffect(() => {
