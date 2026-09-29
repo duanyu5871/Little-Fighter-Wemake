@@ -1,7 +1,8 @@
 import { get_pointer_cursors, type IPointerCursor } from "@/LFW/cmds/CMD_POINTER_EVENTS";
 import { current_connection } from "@/pages/network_test/current_connection";
-import { CanvasTexture, Object3D, Sprite, SpriteMaterial } from "../_t";
+import { CanvasTexture, Object3D, OrthographicCamera, Scene, Sprite, SpriteMaterial, WebGLRenderer } from "../_t";
 import type { WorldRenderer } from "./WorldRenderer";
+import csses from "./styles.module.scss";
 
 const COLORS = [0xff5b5b, 0x5b9dff, 0x5bd75b, 0xffd75b];
 const TIMEOUT = 2000;
@@ -69,8 +70,26 @@ export class CursorRender {
   readonly container = new Object3D();
   protected _views = new Map<string, ICursorView>();
   protected _colors = new Map<string, number>();
+  protected _scene = new Scene();
+  protected _camera = new OrthographicCamera();
+  protected _canvas?: HTMLCanvasElement;
+  protected _host?: HTMLCanvasElement;
+  protected _renderer?: WebGLRenderer;
+  protected _raf = 0;
+  protected _last_time = 0;
+  protected _had_content = false;
   constructor(protected renderer: WorldRenderer) {
-    renderer.ui_fg_container.add(this.container);
+    const { screen_w, screen_h } = renderer.world.dataset;
+    const camera = this._camera;
+    camera.left = 0;
+    camera.right = screen_w;
+    camera.top = screen_h;
+    camera.bottom = 0;
+    camera.near = 0.1;
+    camera.far = 1000000;
+    camera.position.set(0, 0, 100);
+    camera.updateProjectionMatrix();
+    this._scene.add(this.container);
   }
   protected color_of(from: string): number {
     if (!from) return 0xffffff;
@@ -129,7 +148,60 @@ export class CursorRender {
     if (!from) return !!this.renderer.lfw.ui && this.renderer.lfw.pointings.enabled;
     return now - cursor.t <= TIMEOUT && !this.is_mine(from);
   }
-  update(dt: number): void {
+  set_canvas(host: HTMLCanvasElement | null | undefined): void {
+    if (host && host === this._host && this._canvas) return;
+    this.stop();
+    this._canvas?.remove();
+    this._canvas = void 0;
+    this._host = void 0;
+    if (this._renderer) {
+      this._renderer.dispose();
+      this._renderer = void 0;
+    }
+    if (!host || !host.parentElement) return;
+    const { w, h } = this.renderer.renderer_size;
+    if (!w || !h) return;
+    const canvas = this._canvas = document.createElement("canvas");
+    canvas.className = csses.cursor_overlay;
+    host.insertAdjacentElement("afterend", canvas);
+    const overlay = this._renderer = new WebGLRenderer({ canvas, alpha: true });
+    overlay.setClearColor(0x000000, 0);
+    overlay.setSize(w, h, false);
+    this._host = host;
+    this.sync_overlay();
+    this.start();
+  }
+  sync_overlay(): void {
+    const { _canvas: canvas, _host: host } = this;
+    if (!canvas || !host) return;
+    const styles = window.getComputedStyle(host);
+    canvas.style.top = styles.top;
+    canvas.style.left = styles.left;
+    canvas.style.width = styles.width;
+    canvas.style.height = styles.height;
+  }
+  dispose(): void {
+    this.stop();
+    this.set_canvas(null);
+    this._views.clear();
+    this._colors.clear();
+  }
+  protected start(): void {
+    if (this._raf) return;
+    this._last_time = 0;
+    this._raf = window.requestAnimationFrame(this.frame);
+  }
+  protected stop(): void {
+    if (this._raf) window.cancelAnimationFrame(this._raf);
+    this._raf = 0;
+  }
+  protected frame = (time: number): void => {
+    this._raf = window.requestAnimationFrame(this.frame);
+    const dt = this._last_time ? time - this._last_time : 0;
+    this._last_time = time;
+    this.update(dt);
+  };
+  protected update(dt: number): void {
     const cursors = get_pointer_cursors(this.renderer.world);
     const now = performance.now();
     for (const [from, view] of this._views) {
@@ -138,28 +210,39 @@ export class CursorRender {
       view.sprite.visible = visible;
       if (!visible) view.shown = false;
     }
-    if (!cursors) return;
-    const ease = 1 - Math.exp(-dt / EASE_TAU);
-    for (const [from, cursor] of cursors) {
-      if (!this.show_cursor(from, cursor, now)) continue;
-      const view = this.get_view(from);
-      const name = this.name_of(from);
-      if (view.name !== name) {
-        view.name = name;
-        this.apply_name(view, name);
+    let any = false;
+    if (cursors) {
+      const ease = 1 - Math.exp(-dt / EASE_TAU);
+      for (const [from, cursor] of cursors) {
+        if (!this.show_cursor(from, cursor, now)) continue;
+        const view = this.get_view(from);
+        const name = this.name_of(from);
+        if (view.name !== name) {
+          view.name = name;
+          this.apply_name(view, name);
+        }
+        const tx = cursor.x;
+        const ty = -cursor.y;
+        if (from && view.shown) {
+          view.rx += (tx - view.rx) * ease;
+          view.ry += (ty - view.ry) * ease;
+        } else {
+          view.rx = tx;
+          view.ry = ty;
+        }
+        view.shown = true;
+        view.sprite.visible = true;
+        view.sprite.position.set(view.rx, view.ry, 0);
+        any = true;
       }
-      const tx = cursor.x;
-      const ty = -cursor.y;
-      if (view.shown) {
-        view.rx += (tx - view.rx) * ease;
-        view.ry += (ty - view.ry) * ease;
-      } else {
-        view.rx = tx;
-        view.ry = ty;
-      }
-      view.shown = true;
-      view.sprite.visible = true;
-      view.sprite.position.set(view.rx, view.ry, 0);
     }
+    const overlay = this._renderer;
+    if (!overlay) return;
+    if (!any && !this._had_content) return;
+    this._had_content = any;
+    const { ui_offset } = this.renderer;
+    const { screen_h } = this.renderer.world.dataset;
+    this.container.position.set(ui_offset.x, screen_h + ui_offset.y, ui_offset.z);
+    overlay.render(this._scene, this._camera);
   }
 }

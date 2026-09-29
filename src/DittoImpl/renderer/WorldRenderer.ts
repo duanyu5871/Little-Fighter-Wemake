@@ -87,6 +87,7 @@ export class WorldRenderer implements IWorldRenderer {
     this._css_renderer.domElement.style.zIndex = '1';
     this._css_renderer.domElement.style.transform = `scale(${scale})`
     this._css_renderer.domElement.style.transformOrigin = `0px 0px`
+    this.cursor_render.sync_overlay()
   }
   constructor(world: World) {
     if (!world) debugger;
@@ -233,7 +234,6 @@ export class WorldRenderer implements IWorldRenderer {
     for (let i = 0; i < layers.length; i++)
       layers.at(i)?.ui?.renderer.render(dt, this.dfactor)
 
-    this.cursor_render.update(dt);
     this.render_layers();
     this.dirty = false;
   }
@@ -382,8 +382,10 @@ export class WorldRenderer implements IWorldRenderer {
       this._css_renderer.domElement.className = csses.css_2d_renderer
       this.on_win_resize()
       canvas.parentElement?.appendChild(this._css_renderer.domElement);
+      this.cursor_render.set_canvas(canvas);
     } else {
       this._canvas_ob.disconnect()
+      this.cursor_render.set_canvas(null);
     }
   }
   add_camera(...cameras: Camera[]) {
@@ -395,6 +397,7 @@ export class WorldRenderer implements IWorldRenderer {
   dispose() {
     window.removeEventListener('resize', this.on_win_resize)
     if (this._css_renderer) this._css_renderer?.domElement.remove()
+    this.cursor_render.dispose()
     this._canvas_ob.disconnect()
     this._renderer?.clear();
     this._renderer?.dispose();
