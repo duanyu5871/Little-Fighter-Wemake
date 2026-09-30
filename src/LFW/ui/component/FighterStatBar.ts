@@ -104,6 +104,14 @@ export class FighterStatBar extends UIComponent<IFighterStatBarProps> {
     this._eid = this.entity?.id;
     this.entity = entity
     if (entity) {
+      // this.update_tiers(this.props.hp_bar, 0, 1);
+      // this.update_tiers(this.props.dark_hp_bar, 0, 1);
+      // this.props.dark_mp_bar?.set_scale(0)
+      // this.props.mp_bar?.set_scale(0)
+      // this.props.defend_value_bar?.set_scale(0)
+      // this.props.fall_value_bar?.set_scale(0)
+      // this.props.toughness_bar?.set_scale(0)
+
       this.hp_max.target           /**/ = entity.hp_max
       this.hp_r.target             /**/ = entity.hp_r
       this.mp_max.target           /**/ = entity.mp_max
@@ -121,7 +129,8 @@ export class FighterStatBar extends UIComponent<IFighterStatBarProps> {
     this.update_head();
   }
   override on_show(): void {
-    this.direction = this.props_holder.str('direction') ?? ''
+    this.direction = this.props_holder.str('direction') ?? '';
+
   }
   protected update_bars() {
     this.update_defend_value();

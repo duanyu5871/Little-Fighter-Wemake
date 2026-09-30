@@ -91,32 +91,32 @@
       id: "dark_mp",
       template: "bar",
       pos: "-30, 18",
-      items: [ { color: "#2b1285", template: "bar_inner_1" } ],
+      items: [{ color: "#2b1285", template: "bar_inner_1" }],
     },
     {
       id: "mp",
       size: "300,8",
       center: "1,0",
       pos: "-30, 18",
-      items: [ { color: "#3030e2", template: "bar_inner_1" } ],
+      items: [{ color: "#3030e2", template: "bar_inner_1" }],
     },
     {
       id: "fall_value",
       template: "bar_2",
       pos: "-30, 25",
-      items: [ { color: "rgb(216, 115, 0)", template: "bar_inner_2" } ],
+      items: [{ color: "rgb(216, 115, 0)", template: "bar_inner_2" }],
     },
     {
       id: "defend_value",
       template: "bar_2",
       pos: "-30, 27",
-      items: [ { color: "rgb(0, 122, 71)", template: "bar_inner_2" } ],
+      items: [{ color: "rgb(0, 122, 71)", template: "bar_inner_2" }],
     },
     {
       id: "toughness",
       template: "bar_2",
       pos: "-30, 27",
-      items: [ { color: "rgb(0, 204, 255)", template: "bar_inner_2" } ],
+      items: [{ color: "rgb(0, 204, 255)", template: "bar_inner_2" }],
     },
     {
       i18n: "Template(com)",
@@ -126,7 +126,7 @@
       outlineAlpha: 1,
       style: {
         fill_style: "white",
-        font: "9px Arial"
+        font: "9px Arial",
       },
       id: "name_txt",
       component: [
