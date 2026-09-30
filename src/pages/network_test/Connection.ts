@@ -56,15 +56,15 @@ export class Connection {
   constructor(nickname: string = '') {
     this._nickname = clamp_nickname(nickname);
   }
-  set_nickname(nickname: string) {
+  set_nickname(nickname: string): void {
     this._nickname = clamp_nickname(nickname);
     if (this.opened) this._submit_client();
   }
-  set_players(players: string[]) {
+  set_players(players: string[]): void {
     this._players = [...players];
     if (this.opened) this._submit_client();
   }
-  protected _submit_client() {
+  protected _submit_client(): void {
     this.send(MsgEnum.ClientInfo, {
       name: this._nickname,
       players: this._players,
@@ -87,7 +87,7 @@ export class Connection {
     }, {
       timeout: 1000
     }).then((resp) => {
-      this.start_ping_job();
+      this.start_ping();
       this._client = resp.client;
       if (!this._reconnecting) this._secret = resp.secret ?? this._secret;
       this.callbacks.call('on_register', resp, this)
@@ -132,7 +132,7 @@ export class Connection {
   }
   protected _on_close = (e: CloseEvent) => {
     console.log(`[${Connection.TAG}::_on_close]`);
-    this.stop_ping_job();
+    this.stop_ping();
     this._ws = null;
     if (this._urls.length) {
       this.try_url(this._urls.shift())
@@ -146,13 +146,13 @@ export class Connection {
     this._teardown(e);
   }
 
-  enable_rejoin(provider: () => number) {
+  enable_rejoin(provider: () => number): void {
     this._rejoin_provider = provider;
   }
-  disable_rejoin() {
+  disable_rejoin(): void {
     this._rejoin_provider = void 0;
   }
-  protected _teardown(e?: CloseEvent) {
+  protected _teardown(e?: CloseEvent): void {
     if (this._dead) return;
     this._dead = true;
     this._cancel_reconnect();
@@ -184,7 +184,7 @@ export class Connection {
       this.close();
     }
   }
-  protected _cancel_reconnect() {
+  protected _cancel_reconnect(): void {
     if (this._reconnect_timer) {
       clearTimeout(this._reconnect_timer);
       this._reconnect_timer = 0;
@@ -192,7 +192,7 @@ export class Connection {
     this._reconnecting = false;
     this._reconnect_attempt = 0;
   }
-  protected _schedule_reconnect() {
+  protected _schedule_reconnect(): void {
     if (this._reconnect_timer) return;
     this._reconnecting = true;
     if (!this._resume_client_id) this._resume_client_id = this._client?.id;
@@ -217,7 +217,7 @@ export class Connection {
       this.try_url(this._last_url || this._urls[0]);
     }, delay);
   }
-  protected _submit_rejoin() {
+  protected _submit_rejoin(): void {
     const provider = this._rejoin_provider;
     if (!provider) return;
     const from_seq = provider();
@@ -247,7 +247,7 @@ export class Connection {
       })
   }
 
-  open(url: string) {
+  open(url: string): void {
     url = url.trim()
     this._dead = false;
     switch (this._ws?.readyState) {
@@ -403,16 +403,16 @@ export class Connection {
       }
     }
   }
-  ping() {
-    if (this._ws?.readyState !== WebSocket.OPEN) return;
+  private send_ping(): void {
+    if (!this.opened) return;
     // 携带上次测得的真实 RTT，供房间内其他成员显示
     this.send(MsgEnum.Ping, { time: Date.now(), rtt: this._rtt || void 0 })
   }
-  start_ping_job() {
-    this.stop_ping_job();
-    this._ping_job_timer = window.setInterval(() => this.ping(), 500);
+  start_ping(): void {
+    this.stop_ping();
+    this._ping_job_timer = window.setInterval(() => this.send_ping(), 500);
   }
-  stop_ping_job() {
+  stop_ping(): void {
     if (!this._ping_job_timer) return;
     clearInterval(this._ping_job_timer);
   }
