@@ -485,19 +485,16 @@ export class DanmuGameLogic extends SummaryLogic {
         this._fill_templates();
       }
       if (this._waiting_next_stage) {
-        if (this._next_stage_delay.is_max) {
+        if (this._next_stage_delay.add()) {
           this._waiting_next_stage = false;
           this._survivors = this._collect_survivors();
           this.lfw.goto_next_stage();
-        } else {
-          this._next_stage_delay.add();
         }
       }
     }
     if (this.join_queue.size && (this.mode === "coop" || this._teams.size > 1)) this._try_join();
     if (this._queue_sweep_timer.add()) this._sweep_queue();
-    this._staring_countdown.add();
-    if (this._staring_countdown.is_max) this.update_staring()
+    if (this._staring_countdown.add()) this.update_staring()
 
     const staring = this._cam_ctrl?.staring;
     if (staring && this._cam_ctrl?.auto != false) {
@@ -509,16 +506,13 @@ export class DanmuGameLogic extends SummaryLogic {
 
     const finished = this.mode !== "coop" && this._teams.size <= 1;
     if (finished) {
-      if (this._gameover_countdown.is_max) {
+      if (this._gameover_countdown.add()) {
         if (this._teams.size) {
           for (const [k, v] of this.teams) {
             if (this._teams.has(k)) v.wins += 1
           }
         }
-        this._gameover_countdown.reset()
         this.update_bg()
-      } else {
-        this._gameover_countdown.add()
       }
     } else {
       this._gameover_countdown.reset()

@@ -62,7 +62,8 @@ export class Times {
     const v = this._value = round_float(this._value + d);
     const ret = v >= this._max;
     if (ret && this._remains > 0) --this._remains;
-    if (v > this._max) this._value = this._min;
+    /** 到达上限即回绕，保证下一拍不会再触发 */
+    if (v >= this._max) this._value = this._min;
     if (v < this._min) this._value = this._max;
     return ret;
   }
