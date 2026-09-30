@@ -10,13 +10,16 @@ const POS_LABEL_OFFSET = 16;
 
 export class BgLayerIndicator {
   readonly layer_render: BgLayerRender;
+  readonly index: number;
   protected outline: T.Line2 | null = null;
   protected label: TextMesh | null = null;
   protected pos_label: TextMesh | null = null;
+  protected readonly _vec = new T.Vector3();
   visible = false;
 
-  constructor(layer_render: BgLayerRender) {
+  constructor(layer_render: BgLayerRender, index: number = 0) {
     this.layer_render = layer_render;
+    this.index = index;
   }
 
   set_visible(v: boolean): void {
@@ -39,7 +42,9 @@ export class BgLayerIndicator {
     this.clear();
     if (!this.visible) return;
 
-    const { mesh, width: w, height: h, layer } = this.layer_render;
+    const { width: w, height: h } = this.layer_render;
+    const layer = this.layer_render.layers[this.index];
+    const anchor = this.layer_render.anchors[this.index];
     const loop_tag = layer.loop_index >= 0 ? `#${layer.loop_index}` : '';
     const abs_tag = layer.info.absolute ? ' *' : '';   // * = 相对相机静止（absolute）
     const name = `${layer.info.name ?? 'layer'} [${layer.data_index}]${loop_tag}${abs_tag}`;
@@ -66,7 +71,7 @@ export class BgLayerIndicator {
     outline.name = `BgLayerIndicatorOutline:${name}`;
     outline.renderOrder = 100;
     outline.frustumCulled = false;
-    mesh.add(outline);
+    anchor.add(outline);
     this.outline = outline;
 
     const label = TextMesh.get();
@@ -75,7 +80,7 @@ export class BgLayerIndicator {
     label.strokeStyle = LABEL_STROKE;
     void label.set_text(layer.bg.world.lfw, name);
     label.position.set(w / 2, -h / 2, 2);
-    mesh.add(label);
+    anchor.add(label);
     this.label = label;
 
     const pos_label = TextMesh.get();
@@ -84,7 +89,7 @@ export class BgLayerIndicator {
     pos_label.strokeStyle = LABEL_STROKE;
     void pos_label.set_text(layer.bg.world.lfw, this._pos_text());
     pos_label.position.set(w / 2, -h / 2 - POS_LABEL_OFFSET, 2);
-    mesh.add(pos_label);
+    anchor.add(pos_label);
     this.pos_label = pos_label;
   }
 
@@ -97,7 +102,7 @@ export class BgLayerIndicator {
   }
 
   private _pos_text(): string {
-    const { x, y, z } = this.layer_render.mesh.position;
+    const { x, y, z } = this.layer_render.copy_position(this.index, this._vec);
     return `(${Math.round(x)}, ${Math.round(y)}, ${Math.round(z)})`;
   }
 

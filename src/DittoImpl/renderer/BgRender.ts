@@ -54,20 +54,26 @@ export class BgRender {
     this.root_node.name = "Background:" + base.name;
 
 
-    for (const layer of bg.layers) {
-      const layer_render = new BgLayerRender(this, layer)
+    const all_layers = bg.layers;
+    for (let i = 0; i < all_layers.length;) {
+      const data_index = all_layers[i].data_index;
+      let j = i + 1;
+      while (j < all_layers.length && all_layers[j].data_index === data_index) j++;
+      const layer_render = new BgLayerRender(this, all_layers.slice(i, j))
       this.layers.push(layer_render);
 
-      const is_fg = layer.info.z > 0;
+      const { info } = all_layers[i];
+      const is_fg = info.z > 0;
       if (is_fg) {
         const [root, cam] = this.ensure_fg_nodes(base.name);
-        if (layer.info.absolute) cam.add(layer_render.mesh);
+        if (info.absolute) cam.add(layer_render.mesh);
         else root.add(layer_render.mesh);
-      } else if (layer.info.absolute) {
+      } else if (info.absolute) {
         this.cam_node!.add(layer_render.mesh);
       } else {
         this.root_node!.add(layer_render.mesh);
       }
+      i = j;
     }
     this.world_renderer.bg_container.add(this.root_node, this.cam_node);
   }

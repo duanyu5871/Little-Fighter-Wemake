@@ -12,8 +12,10 @@ const pos_mod = (v: number, period: number): number => ((v % period) + period) %
 export class BgLayerRender {
   readonly mesh: T.Mesh;
   readonly layer: Layer;
+  readonly layers: readonly Layer[];
+  readonly anchors: T.Object3D[];
   readonly bg_render: BgRender;
-  readonly indicators: BgLayerIndicator;
+  readonly indicators: BgLayerIndicator[];
   /** 目标（几何/mesh）宽度：dw ?? 源图尺寸；纯色层沿用 w ?? width */
   readonly width: number;
   /** 目标（几何/mesh）高度：dh ?? 源图尺寸；纯色层沿用 h ?? height */
@@ -33,12 +35,14 @@ export class BgLayerRender {
   protected anim_material: MeshBasicMaterial | null = null;
   protected anim_on: boolean = false;
   protected readonly shared_material: MeshBasicMaterial;
-  constructor(bg_render: BgRender, layer: Layer) {
-    this.layer = layer;
+  protected readonly instanced_mesh: T.InstancedMesh | null;
+  constructor(bg_render: BgRender, layers: readonly Layer[]) {
+    this.layers = [...layers];
+    this.layer = this.layers[0];
     this.bg_render = bg_render
     const { lfw: lf2 } = this.layer.bg.world
-    const { info } = layer;
-    const { x, y, z, file, id, name, color, dw, dh, uv_loop } = info;
+    const { info } = this.layer;
+    const { y, z, file, id, name, color, dw, dh, uv_loop } = info;
     const pic = file ? lf2.images.find(file)?.pic : null
     const has_pic = !!pic
     const src_w = pic?.w ?? 0
@@ -53,7 +57,10 @@ export class BgLayerRender {
     this.height = dst_h;
     this.src_texture = file ? (lf2.images.find(file)?.pic?.texture ?? null) : null;
     this._color = color;
-    if (file) lf2.images.pin(file);
+    for (const layer of this.layers) {
+      const f = layer.info.file;
+      if (f) lf2.images.pin(f);
+    }
 
     const k = `bg_l_${file ?? color}`
     const m = MaterialFactory.get(Kind.Basic, MeshBasicMaterial, k)
@@ -64,19 +71,38 @@ export class BgLayerRender {
     m.opacity = 1;
     this.shared_material = m;
 
-    this.mesh = new T.Mesh(
-      get_static_plane_geometry(dst_w, dst_h, dst_w / 2, -dst_h / 2),
-      m
-    );
+    const geo = get_static_plane_geometry(dst_w, dst_h, dst_w / 2, -dst_h / 2);
+    if (this.layers.length > 1) {
+      const mesh = new T.InstancedMesh(geo, m, this.layers.length);
+      const mat4 = new T.Matrix4();
+      const anchors: T.Object3D[] = [];
+      for (let i = 0; i < this.layers.length; i++) {
+        const x = this.layers[i].info.x;
+        mat4.makeTranslation(x, y, z);
+        mesh.setMatrixAt(i, mat4);
+        const anchor = new T.Object3D();
+        anchor.position.set(x, y, z);
+        mesh.add(anchor);
+        anchors.push(anchor);
+      }
+      this.instanced_mesh = mesh;
+      this.mesh = mesh;
+      this.anchors = anchors;
+    } else {
+      const mesh = new T.Mesh(geo, m);
+      mesh.position.set(info.x, y, z);
+      this.instanced_mesh = null;
+      this.mesh = mesh;
+      this.anchors = [mesh];
+    }
     this.mesh.name = `bg layer ${name ?? id ?? 'unnamed'}`;
-    this.mesh.position.set(x, y, z);
     this.offsetX = 0;
     this.offsetY = 0;
-    this.indicators = new BgLayerIndicator(this);
+    this.indicators = this.layers.map((_, i) => new BgLayerIndicator(this, i));
   }
 
   set_indicator_visible(v: boolean): void {
-    this.indicators.set_visible(v);
+    for (const indicator of this.indicators) indicator.set_visible(v);
   }
 
   render(dt: number): void {
@@ -85,7 +111,7 @@ export class BgLayerRender {
       info: { absolute, offsetAnimX, offsetAnimY }
     } = this.layer;
     this.mesh.visible = visible;
-    this.indicators.update();
+    for (const indicator of this.indicators) indicator.update();
     if (offsetAnimX !== void 0) this.offsetX += (dt / 1000) * offsetAnimX;
     if (offsetAnimY !== void 0) this.offsetY += (dt / 1000) * offsetAnimY;
     this.update_uv(offsetAnimX, offsetAnimY);
@@ -95,10 +121,16 @@ export class BgLayerRender {
     const { screen_w } = world.dataset;
     const { width: bg_width } = world;
     const cam_x = this.bg_render.world_renderer.camera.position.x;
-    const _x = bg_width > screen_w ?
-      x + (bg_width - layer_width) * cam_x / (bg_width - screen_w) :
-      x + (bg_width - layer_width) * cam_x
-    this.mesh.position.x = _x;
+    const parallax = bg_width > screen_w ?
+      (bg_width - layer_width) * cam_x / (bg_width - screen_w) :
+      (bg_width - layer_width) * cam_x
+    this.mesh.position.x = this.instanced_mesh ? parallax : x + parallax;
+  }
+
+  copy_position(i: number, out: T.Vector3): T.Vector3 {
+    out.copy(this.anchors[i].position);
+    if (this.instanced_mesh) out.x += this.mesh.position.x;
+    return out;
   }
 
   /**
@@ -175,7 +207,9 @@ export class BgLayerRender {
 
   release(): void {
     this.deactivate_uv();
-    const { file } = this.layer.info;
-    if (file) this.layer.bg.world.lfw.images.unpin(file);
+    for (const layer of this.layers) {
+      const { file } = layer.info;
+      if (file) layer.bg.world.lfw.images.unpin(file);
+    }
   }
 }
