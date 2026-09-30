@@ -103,13 +103,7 @@ export function Networking(props: INetworkingProps) {
         case MsgEnum.Rejoin: {
           const joined = resp.client;
           if (!joined || joined.id === conn.client?.id) break;
-          const name = joined.name || joined.id;
-          if (!name) break;
-          set_leavers(prev => {
-            const next = prev.filter(l => l.name !== name);
-            if (!next.length) ref_updater.current?.resume();
-            return next;
-          });
+          // 归队方还在回放追帧：先不解除暂停，等它追上（服务端广播 RoomContinue）再一起继续
           break;
         }
         case MsgEnum.Abandon: {
@@ -118,6 +112,12 @@ export function Networking(props: INetworkingProps) {
           const name = left.name || left.id;
           if (!name) break;
           set_leavers(prev => prev.map(l => (l.name === name && !l.left) ? { ...l, left: true } : l));
+          break;
+        }
+        case MsgEnum.RoomContinue: {
+          // 有人点了「继续游戏」：全员解除暂停，掉线者的角色已由服务端交给电脑
+          set_leavers([]);
+          ref_updater.current?.resume();
           break;
         }
       }
@@ -171,7 +171,7 @@ export function Networking(props: INetworkingProps) {
 
   return createPortal(<>
     <ConnectionBox
-      lf2={lfw}
+      lfw={lfw}
       on_conn_change={set_conn}
       on_state_change={set_conn_state}
       on_close={on_close}
@@ -199,8 +199,11 @@ export function Networking(props: INetworkingProps) {
             text: t("continue_solo"),
             onClick: () => {
               set_rejoin_failed('');
+              set_reconnecting(0);
               ref_updater.current?.continue_solo();
-              conn?.close();
+              conn?.give_up();
+              // 转入单机后整个联机界面（房间/聊天等）一律收起
+              on_close?.();
             }
           },
           {
@@ -215,19 +218,31 @@ export function Networking(props: INetworkingProps) {
       <MatchPauseNotice
         title={t("reconnecting")}
         lines={[t("reconnect_attempt").replace("%1", "" + reconnecting)]}
-        actions={[{ text: t("back_to_lobby"), onClick: () => conn?.give_up() }]} />
+        actions={[
+          {
+            text: t("continue_solo"),
+            onClick: () => {
+              set_reconnecting(0);
+              ref_updater.current?.continue_solo();
+              conn?.give_up();
+              // 转入单机后整个联机界面（房间/聊天等）一律收起
+              on_close?.();
+            }
+          },
+          { text: t("back_to_lobby"), onClick: () => conn?.give_up() },
+        ]} />
     ) : leavers.length > 0 ? (
       <MatchPauseNotice
         title={t("match_paused")}
         lines={leavers.map(l => t(l.left ? "player_left" : "player_disconnected").replace("%1", l.name))}
-        actions={[{
+        actions={room?.owner?.id === conn?.client?.id ? [{
           text: t("continue_game"),
           onClick: () => {
             conn?.send_nowait(MsgEnum.RoomContinue, {});
             set_leavers([]);
             ref_updater.current?.resume();
           }
-        }]} />
+        }] : []} />
     ) : null}
   </>, document.body)
 }

@@ -1,4 +1,5 @@
 import { BG_INDICATINGS } from "@/DittoImpl/renderer/INDICATINGS";
+import type { LFW } from "@/LFW";
 import { InvalidController } from "@/LFW/controller/InvalidController";
 import { Defines, type IBgData, type IBgLayerInfo } from "@/LFW/defines";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -41,10 +42,10 @@ export function BackgroundPreviewer() {
   const { center_on, lock_camera, limits, zoom } = view;
   const bg = lfw?.world.bg;
 
-  const focus_center = useCallback((lf2: NonNullable<typeof lfw>) => {
+  const focus_center = useCallback((lfw: LFW) => {
     // 把舞台中线放到画面正中（center_on 自己会减去半个视口）
-    center_on(lf2.world.middle.x, -lf2.world.middle.z / 2);
-    const p = lf2.world.camera.position;
+    center_on(lfw.world.middle.x, -lfw.world.middle.z / 2);
+    const p = lfw.world.camera.position;
     set_cam({ x: p.x, y: p.y });
   }, [center_on]);
 

@@ -5,10 +5,10 @@ import { useCallbacks } from "./pages/network_test/useCallbacks";
 import { current_connection } from "./pages/network_test/current_connection";
 
 export interface IDevStatsViewProps {
-  lf2?: LFW | null;
+  lfw?: LFW | null;
 }
 export function DevStatsView(props: IDevStatsViewProps) {
-  const { lf2 } = props;
+  const { lfw } = props;
   const ref_fps = useRef<HTMLSpanElement>(null);
   const ref_ups = useRef<HTMLSpanElement>(null);
   const ref_ent = useRef<HTMLSpanElement>(null);
@@ -23,11 +23,11 @@ export function DevStatsView(props: IDevStatsViewProps) {
   const ref_loading = useRef<HTMLSpanElement>(null);
   const ref_tid = useRef<number>(0);
   const ref_tid2 = useRef<number>(0);
-  const ref_lf2 = useRef(lf2);
-  ref_lf2.current = lf2;
+  const ref_lf2 = useRef(lfw);
+  ref_lf2.current = lfw;
 
   useCallbacks(
-    lf2?.world.callbacks,
+    lfw?.world.callbacks,
     useMemo<IWorldCallbacks>(() => ({
       on_ups_update: (ups, _score, speed) => {
         ref_ups.current!.innerText =
@@ -52,7 +52,7 @@ export function DevStatsView(props: IDevStatsViewProps) {
     }), [])
   )
   useCallbacks(
-    lf2?.callbacks,
+    lfw?.callbacks,
     useMemo<ILFWCallback>(() => ({
       on_progress: (content, progress) => {
         const el = ref_loading.current!;

@@ -8,7 +8,7 @@ import { LFW, pow } from "./LFW";
 import { GameKey as GK } from "./LFW/defines/GameKey";
 
 export interface IGamePadProps extends React.HTMLAttributes<HTMLDivElement> {
-  lf2?: LFW;
+  lfw?: LFW;
   player_id?: string;
   enabled?: boolean;
   container?: () => Element | DocumentFragment | undefined | null
@@ -46,7 +46,7 @@ function copy_touch(touch: Touch): ITouchInfo {
   };
 }
 export default function GamePad(props: IGamePadProps) {
-  const { player_id, lf2, enabled, container, ..._p } = props;
+  const { player_id, lfw, enabled, container, ..._p } = props;
   const [pressings, set_pressings] = useImmer<{ [x in GK]?: boolean }>({})
   const ref_btn_U = useRef<HTMLDivElement>(null);
   const ref_btn_D = useRef<HTMLDivElement>(null);
@@ -64,8 +64,8 @@ export default function GamePad(props: IGamePadProps) {
     if (!enabled) return;
     const l_pad = ref_left_pad.current;
     const r_pad = ref_right_pad.current;
-    if (!player_id || !lf2 || !l_pad || !r_pad) return;
-    const player = lf2.players.get(player_id)
+    if (!player_id || !lfw || !l_pad || !r_pad) return;
+    const player = lfw.players.get(player_id)
     if (!player) return;
     const btn_infos = [
       { key: GK.U, circ: () => get_circ(ref_btn_U) },
@@ -86,7 +86,7 @@ export default function GamePad(props: IGamePadProps) {
     };
     const pad_text = ref_pad_text.current;
     if (!pad_text) return;
-    const kb = (lf2.keyboard as __Keyboard);
+    const kb = (lfw.keyboard as __Keyboard);
     const handle_touchs = () => {
       pressings_1.clear();
       for (const { circ, key } of btn_infos) {
@@ -155,7 +155,7 @@ export default function GamePad(props: IGamePadProps) {
       r_pad.removeEventListener("touchend", touchend);
       r_pad.removeEventListener("touchcancel", touchend);
     };
-  }, [lf2, player_id, enabled]);
+  }, [lfw, player_id, enabled]);
 
   const _c = container?.()
   if (!_c || !enabled) return <></>

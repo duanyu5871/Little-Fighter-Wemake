@@ -1,7 +1,7 @@
 import { Buff_Healing } from "../../buff/Buff_Healing";
 import { Buff_MpHealing } from "../../buff/Buff_MpHealing";
 import { Defines, T_E, type IPropsMeta } from "../../defines";
-import { Entity, type IEntityCallbacks } from "../../entity";
+import { Entity, is_bot_ctrl, type IEntityCallbacks } from "../../entity";
 import { clamp } from "../../utils/math/clamp";
 import { UINode } from "../UINode";
 import { Picture } from "./Picture";
@@ -219,11 +219,16 @@ export class FighterStatBar extends UIComponent<IFighterStatBarProps> {
   update_name() {
     const { name_txt } = this.props;
     if (!name_txt) return;
-    const name0 = this.entity?.name.trim() ?? 'NONE'
-    const name1 = this.entity?.data.base.name.trim() ?? ''
+    const { entity } = this;
+    // 被电脑接管的玩家（非 COM 槽）仅显示上加 (bot) 后缀，不动玩家名本身，交回后自动恢复
+    const ctrl = entity?.ctrl;
+    const player = ctrl ? this.lfw.players.get(ctrl.player_id) : void 0;
+    const taken_over = !!entity && is_bot_ctrl(ctrl) && !!player && !player.is_com;
+    const name0 = (entity?.name.trim() ?? 'NONE') + (taken_over ? '(bot)' : '');
+    const name1 = entity?.data.base.name.trim() ?? ''
     let name = name0 || name1;
     if (name0 !== name1 && name0 && name1)
-      name = `${name1} (${name0})`
+      name = `${name1} [${name0}]`
     const version = name_txt.style.version;
     const outline = name_txt.outlineColor;
     if (name === this._last_name && version === this._last_name_version && outline === this._last_name_outline) return;

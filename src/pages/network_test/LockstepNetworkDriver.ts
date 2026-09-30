@@ -34,6 +34,7 @@ export class LockstepNetworkDriver extends LFWNetworkDriver {
     if (!lfw) return;
     if (this.debugging) this._snapshot2?.capture(lfw.world.entities);
     if (this._resyncing.length) return;
+    this.set_catchup(0);
     lfw.world.sleep();
   };
 
@@ -52,6 +53,7 @@ export class LockstepNetworkDriver extends LFWNetworkDriver {
       return;
     }
     this._resyncing.push(...resps as (IRespTick | IRespKeyTick)[]);
+    this.set_catchup(resps.length);
     lfw.world.awake();
   }
 }

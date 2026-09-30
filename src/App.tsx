@@ -325,13 +325,13 @@ function App() {
           break;
       }
     },
-    on_prel_loaded: (lf2) => {
+    on_prel_loaded: (lfw) => {
       const { page } = params
-      if (typeof page === 'string') lf2.layers.set_page({ id: page }, 0)
+      if (typeof page === 'string') lfw.layers.set_page({ id: page }, 0)
     },
-    on_lang_changed: (lang, _prev, lf2) => {
+    on_lang_changed: (lang, _prev, lfw) => {
       window.runtime?.SetLang?.(lang);
-      i18n.changeLanguage(react_lang_code(lf2.canonical_lang(lang)));
+      i18n.changeLanguage(react_lang_code(lfw.canonical_lang(lang)));
     },
   })
 
@@ -392,22 +392,22 @@ function App() {
     recreate_key: params,
     debug: params.dev == '1',
     zips: [LFW.ZIPS[0]],
-    setup: (lf2) => {
+    setup: (lfw) => {
       let lang = params.lang;
       if (typeof lang !== 'string') lang = navigator.language.toLowerCase()
       else lang = lang.toLowerCase()
 
-      lf2.toy_env = is_toy_env()
-      init_survival_rank(lf2)
+      lfw.toy_env = is_toy_env()
+      init_survival_rank(lfw)
       if (
         location.pathname.endsWith('demo') ||
         location.pathname.endsWith('demo/') ||
         location.search.indexOf('demo=0') > 0 ||
         location.hash.indexOf('demo=0') > 0
       ) {
-        lf2.first_page = 'init_demo'
+        lfw.first_page = 'init_demo'
       }
-      lf2.lang = lang;
+      lfw.lang = lang;
 
       function print_ui_tree(node = LFW.ui) {
         console.group('id: ' + node?.id + ', name: ' + node?.name);
@@ -425,20 +425,20 @@ function App() {
         configurable: true
       })
 
-      set_lfw(lf2)
-      lf2.sounds.set_volume(app_state.volume);
-      lf2.sounds.set_bgm_muted(app_state.bgm_muted);
-      lf2.sounds.set_bgm_volume(app_state.bgm_volume);
-      lf2.sounds.set_sound_muted(app_state.sound_muted);
-      lf2.sounds.set_sound_volume(app_state.sound_volume);
-      Object.assign(lf2.world.dataset, world_dataset);
-      _set_bg_id(lf2.world.stage.bg.id);
+      set_lfw(lfw)
+      lfw.sounds.set_volume(app_state.volume);
+      lfw.sounds.set_bgm_muted(app_state.bgm_muted);
+      lfw.sounds.set_bgm_volume(app_state.bgm_volume);
+      lfw.sounds.set_sound_muted(app_state.sound_muted);
+      lfw.sounds.set_sound_volume(app_state.sound_volume);
+      Object.assign(lfw.world.dataset, world_dataset);
+      _set_bg_id(lfw.world.stage.bg.id);
       const on_touchstart = () => set_app_state(d => {
         d.touchpad_enabled = true;
-        d.touchpad = d.touchpad || Array.from(lf2.players.keys())[0]
+        d.touchpad = d.touchpad || Array.from(lfw.players.keys())[0]
       })
       window.addEventListener("touchstart", on_touchstart);
-      const del_lf2_callback = lf2.callbacks.add({
+      const del_lf2_callback = lfw.callbacks.add({
         controller_detected: ({ id }) => set_app_state(draft => {
           if (draft.touchpad === id)
             draft.touchpad_enabled = false
@@ -448,7 +448,7 @@ function App() {
             draft.touchpad_enabled = false
         }),
       })
-      for (const [id, player] of lf2.players) {
+      for (const [id, player] of lfw.players) {
         player.callbacks.add({
           on_ctrl_changed(value, prev) {
             set_app_state(draft => {
@@ -465,15 +465,15 @@ function App() {
         })
       }
       _set_is_fullscreen(!!fullscreen.target);
-      _set_paused(lf2.world.paused);
+      _set_paused(lfw.world.paused);
 
-      const visibilitychange = () => lf2.sounds.set_muted(document.hidden)
-      const blur = () => lf2.sounds.set_muted(true)
-      const focus = () => lf2.sounds.set_muted(false)
+      const visibilitychange = () => lfw.sounds.set_muted(document.hidden)
+      const blur = () => lfw.sounds.set_muted(true)
+      const focus = () => lfw.sounds.set_muted(false)
       document.addEventListener('visibilitychange', visibilitychange);
       window.addEventListener('blur', blur);
       window.addEventListener('focus', focus);
-      lf2.sounds.set_muted(!document.hasFocus() || document.hidden);
+      lfw.sounds.set_muted(!document.hasFocus() || document.hidden);
 
       return () => {
         window.removeEventListener("touchstart", on_touchstart)
@@ -691,7 +691,7 @@ function App() {
         onDrop={on_drop}
       />
       <div className={classNames(csses.game_overlay, { [csses.gone]: !app_state.show_stats })} >
-        {app_state.show_stats && <DevStatsView lf2={lfw} />}
+        {app_state.show_stats && <DevStatsView lfw={lfw} />}
         {app_state.show_bg_scroll && <BgScrollerView lfw={lfw} />}
       </div>
       <DanmuPanel lfw={lfw} />
@@ -699,7 +699,7 @@ function App() {
         id='game_pad'
         player_id={app_state.touchpad}
         enabled={!!app_state.touchpad && app_state.touchpad_enabled}
-        lf2={lfw}
+        lfw={lfw}
         container={() => ele_game_canvas?.parentElement} />
       <Loading loading={!ui_id} big className={csses.loading_img} />
       <div className={classNames(csses.top_bar, { [csses.toy_bar_shift]: toy_mobile })}>
@@ -1157,7 +1157,7 @@ function App() {
         ))}
       </Show>
       <SettingsRows
-        lf2={lfw}
+        lfw={lfw}
         show_stage_settings={app_state.showing_panel === "stage"}
         show_bg_settings={app_state.showing_panel === "bg"}
         show_weapon_settings={app_state.showing_panel === "weapon"}
@@ -1176,7 +1176,7 @@ function App() {
         open={editor_open}
         onClose={() => set_editor_open(false)}
         style={{ background: 'black', position: 'fixed', left: 0, top: 0, right: 0, bottom: 0, zIndex: 1 }}
-        lf2={lfw} />
+        lfw={lfw} />
       {networking && <Networking
         lfw={lfw}
         sync_mode={params.net_sync === 'delay' ? 'delay' : params.net_sync === 'lockstep' ? 'lockstep' : void 0}

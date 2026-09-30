@@ -49,7 +49,7 @@ Gaia.registerShape(
   EditorShapeEnum.LF2_FRAME,
   () => new FrameDrawerData(),
   (d) => new FrameDrawer(d),
-  { desc: 'lf2 frame drawer' }
+  { desc: 'lfw frame drawer' }
 )
 const factory = Gaia.factory(FactoryEnum.Default)();
 
@@ -57,7 +57,7 @@ export interface IEditorViewProps extends React.HTMLAttributes<HTMLDivElement> {
   onClose?: (e: React.MouseEvent<HTMLButtonElement>) => void;
   loading?: boolean;
   open?: boolean;
-  lf2?: LFW;
+  lfw?: LFW;
 }
 type TTreeNode = ITreeNode<IEntityData | IBgData | null>
 
@@ -78,20 +78,20 @@ const get_icon: ITreeNodeGetIcon<IEntityData | IBgData | null> = ({ node, depth 
 export default function EditorView(props: IEditorViewProps) {
   const ref_board = useRef<Board>(undefined);
   const [board_wrapper, set_board_wrapper] = useState<HTMLDivElement>()
-  const { onClose, loading, open, lf2, ..._p } = props;
+  const { onClose, loading, open, lfw: lfw, ..._p } = props;
   const [zip_name, set_zip_name] = useState('');
   const [zips, set_zips] = useState<IZip[]>();
   const [zip, set_zip] = useState<IZip>();
 
   useEffect(() => {
-    if (!lf2) return;
+    if (!lfw) return;
     const cb: ILFWCallback = {
       on_zips_changed: (zips) => set_zips(zips)
     }
-    lf2.callbacks.add(cb);
-    return () => lf2.callbacks.del(cb);
+    lfw.callbacks.add(cb);
+    return () => lfw.callbacks.del(cb);
 
-  }, [lf2])
+  }, [lfw])
 
   const [opens, set_opens] = useState<string[]>()
   const [tree, set_tree] = useState<TTreeNode>();

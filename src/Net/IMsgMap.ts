@@ -10,6 +10,7 @@ import type { IReqKeyTick, IRespKeyTick } from "./IMsg_KeyTick";
 import type { IReqListClients, IRespListClients } from "./IMsg_ListClients";
 import type { IReqListRooms, IRespListRooms } from "./IMsg_ListRooms";
 import type { IReqRejoin, IRespRejoin } from "./IMsg_Rejoin";
+import type { IReqRejoinFrames, IRespRejoinFrames } from "./IMsg_RejoinFrames";
 import type { IReqRoomContinue, IRespRoomContinue } from "./IMsg_RoomContinue";
 import type { IReqRoomPwd, IRespRoomPwd } from "./IMsg_RoomPwd";
 import type { IReqRoomSync, IRespRoomSync } from "./IMsg_RoomSync";
@@ -38,6 +39,7 @@ export interface IMsgReqMap {
   [MsgEnum.Dataset]: IReqDataset,
   [MsgEnum.Ping]: IReq<MsgEnum.Ping> & { time: number, client?: string, rtt?: number },
   [MsgEnum.Rejoin]: IReqRejoin,
+  [MsgEnum.RejoinFrames]: IReqRejoinFrames,
   [MsgEnum.RoomContinue]: IReqRoomContinue,
   [MsgEnum.Abandon]: IReqAbandon,
 }
@@ -62,6 +64,7 @@ export interface IMsgRespMap {
   [MsgEnum.Dataset]: IRespDataset,
   [MsgEnum.Ping]: IResp<MsgEnum.Ping> & { time: number, client?: string, rtt?: number },
   [MsgEnum.Rejoin]: IRespRejoin,
+  [MsgEnum.RejoinFrames]: IRespRejoinFrames,
   [MsgEnum.RoomContinue]: IRespRoomContinue,
   [MsgEnum.Abandon]: IRespAbandon,
 }

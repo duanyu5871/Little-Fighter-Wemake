@@ -27,7 +27,7 @@ const bot_controllers: { [x in string]?: (e: Entity) => BaseController } = {
 };
 
 export interface ISettingsRowsProps {
-  lf2?: LFW;
+  lfw?: LFW;
   visible?: boolean;
   show_stage_settings?: boolean;
   show_bg_settings?: boolean;
@@ -37,15 +37,15 @@ export interface ISettingsRowsProps {
 }
 
 export default function SettingsRows(props: ISettingsRowsProps) {
-  const { lf2, visible = true } = props;
-  const _stage = lf2?.world.stage;
+  const { lfw, visible = true } = props;
+  const _stage = lfw?.world.stage;
   const _stage_data = _stage?.data;
 
   const [stage_list, set_stage_list] = useState<IStageInfo[]>();
   const [bg_id, set_bg_id] = useState(Defines.VOID_BG.id);
   const [stage_id, set_stage_id] = useState(Defines.VOID_STAGE.id);
 
-  const [bgm, set_bgm] = useState<string>(lf2?.sounds.bgm() ?? "");
+  const [bgm, set_bgm] = useState<string>(lfw?.sounds.bgm() ?? "");
   const [stage_phase_list, set_stage_phases] = useState<IStagePhaseInfo[]>(
     _stage_data?.phases ?? [],
   );
@@ -53,12 +53,12 @@ export default function SettingsRows(props: ISettingsRowsProps) {
     _stage?.phase_idx ?? -1,
   );
   const [difficulty, set_difficulty] = useState<Difficulty>(
-    lf2?.world.dataset.difficulty ?? Difficulty.Difficult,
+    lfw?.world.dataset.difficulty ?? Difficulty.Difficult,
   );
   useEffect(() => {
-    set_bgm(lf2?.sounds.bgm() ?? "");
-    set_difficulty(lf2?.world.dataset.difficulty ?? Difficulty.Difficult);
-    set_stage_list(lf2?.datas.stages);
+    set_bgm(lfw?.sounds.bgm() ?? "");
+    set_difficulty(lfw?.world.dataset.difficulty ?? Difficulty.Difficult);
+    set_stage_list(lfw?.datas.stages);
     const on_stage_change = (stage: Stage | undefined) => {
       set_stage_id(stage?.data.id ?? Defines.VOID_STAGE.id);
       set_bg_id(stage?.bg.data.id ?? Defines.VOID_BG.id);
@@ -70,14 +70,14 @@ export default function SettingsRows(props: ISettingsRowsProps) {
         },
       });
     };
-    on_stage_change(lf2?.world.stage);
+    on_stage_change(lfw?.world.stage);
 
-    if (!lf2) return;
+    if (!lfw) return;
     const a = [
-      lf2.callbacks.add({
-        on_loading_end: () => set_stage_list(lf2.datas.stages),
+      lfw.callbacks.add({
+        on_loading_end: () => set_stage_list(lfw.datas.stages),
       }),
-      lf2.world.callbacks.add({
+      lfw.world.callbacks.add({
         on_stage_change,
         on_dataset_change: (k, v) => {
           if (k === 'difficulty') set_difficulty(v as Difficulty)
@@ -86,13 +86,13 @@ export default function SettingsRows(props: ISettingsRowsProps) {
     ];
 
     return () => a.forEach((b) => b());
-  }, [lf2]);
+  }, [lfw]);
 
   useEffect(() => {
-    if (!lf2) return;
-    if (!bgm) lf2.sounds.stop_bgm();
-    else lf2.sounds.play_bgm(bgm);
-  }, [bgm, lf2]);
+    if (!lfw) return;
+    if (!bgm) lfw.sounds.stop_bgm();
+    else lfw.sounds.play_bgm(bgm);
+  }, [bgm, lfw]);
 
   const min_rwn = 1;
   const max_rwn = 100;
@@ -113,40 +113,40 @@ export default function SettingsRows(props: ISettingsRowsProps) {
 
 
   useEffect(() => {
-    if (!lf2) return;
-    if (!lf2?.world) return;
+    if (!lfw) return;
+    if (!lfw?.world) return;
     if (!ready) return;
-    Object.assign(lf2.world.dataset, cwds)
-  }, [ready, cwds, lf2])
+    Object.assign(lfw.world.dataset, cwds)
+  }, [ready, cwds, lfw])
 
   useEffect(() => {
-    if (!lf2?.world) return;
+    if (!lfw?.world) return;
     set_dwds(d => {
       for (const [k] of world_dataset_fields) {
         const key = k as keyof IWorldDataset;
-        d[key] = lf2.world.dataset[key]
+        d[key] = lfw.world.dataset[key]
       }
     })
     set_cwds(d => {
       for (const [k] of world_dataset_fields) {
         const key = k as keyof IWorldDataset;
-        d[key] = lf2.world.dataset[key]
+        d[key] = lfw.world.dataset[key]
       }
     })
     set_ready(true);
-  }, [lf2, set_dwds, set_cwds])
+  }, [lfw, set_dwds, set_cwds])
 
-  if (!lf2 || visible === false) return <></>;
+  if (!lfw || visible === false) return <></>;
   const on_click_add_weapon = () => {
-    weapon_id ? lf2.weapons.add(weapon_id, rwn) : lf2.weapons.add_random(rwn);
+    weapon_id ? lfw.weapons.add(weapon_id, rwn) : lfw.weapons.add_random(rwn);
   };
   const on_click_del_weapon = () => {
-    lf2.weapons.all.forEach(v => v.hp = v.hp_r = 0)
+    lfw.weapons.all.forEach(v => v.hp = v.hp_r = 0)
   };
   const on_click_add_bot = () => {
     (c_id
-      ? lf2.fighters.add(c_id, rcn, team)
-      : lf2.fighters.add_random(rcn, team)
+      ? lfw.fighters.add(c_id, rcn, team)
+      : lfw.fighters.add_random(rcn, team)
     ).forEach((e) => {
       e.name = "bot";
       const controller_creator = bot_controllers[bot_ctrl];
@@ -164,7 +164,7 @@ export default function SettingsRows(props: ISettingsRowsProps) {
           <Combine>
             <Select
               value={stage_id}
-              onChange={v => lf2.change_stage(v || '')}
+              onChange={v => lfw.change_stage(v || '')}
               options={stage_list}
               parse={(i) => [i.id!, i.name]}
             />
@@ -183,16 +183,16 @@ export default function SettingsRows(props: ISettingsRowsProps) {
           </Combine>
         </Titled>
         <Combine>
-          <Button onClick={() => lf2?.push_cmd(CMD.HERO_FT, '1').push_cmd(CMD.KILL_ENEMIES)}>
+          <Button onClick={() => lfw?.push_cmd(CMD.HERO_FT, '1').push_cmd(CMD.KILL_ENEMIES)}>
             杀死全部敌人
           </Button>
-          <Button onClick={() => lf2?.push_cmd(CMD.HERO_FT, '1').push_cmd(CMD.KILL_BOSS)}>
+          <Button onClick={() => lfw?.push_cmd(CMD.HERO_FT, '1').push_cmd(CMD.KILL_BOSS)}>
             杀死Boss
           </Button>
-          <Button onClick={() => lf2?.push_cmd(CMD.HERO_FT, '1').push_cmd(CMD.KILL_SOLIDERS)}>
+          <Button onClick={() => lfw?.push_cmd(CMD.HERO_FT, '1').push_cmd(CMD.KILL_SOLIDERS)}>
             杀死士兵
           </Button>
-          <Button onClick={() => lf2?.push_cmd(CMD.HERO_FT, '1').push_cmd(CMD.KILL_OTHERS)}>
+          <Button onClick={() => lfw?.push_cmd(CMD.HERO_FT, '1').push_cmd(CMD.KILL_OTHERS)}>
             杀死其他
           </Button>
         </Combine>
@@ -202,8 +202,8 @@ export default function SettingsRows(props: ISettingsRowsProps) {
         <Titled float_label="背景">
           <Select
             value={bg_id}
-            onChange={v => lf2.change_bg(v ?? '')}
-            options={lf2.datas.backgrounds}
+            onChange={v => lfw.change_bg(v ?? '')}
+            options={lfw.datas.backgrounds}
             parse={(i) => [i.id, i.base.name]}
           />
         </Titled>
@@ -220,7 +220,7 @@ export default function SettingsRows(props: ISettingsRowsProps) {
             parse={(i) => [i, Defines.DifficultyLabels[i]]}
           />
         </Titled>
-        <Button onClick={(v) => lf2.entities.del_all()}>清场</Button>
+        <Button onClick={(v) => lfw.entities.del_all()}>清场</Button>
       </Show.Div>
 
       <Show.Div
@@ -247,7 +247,7 @@ export default function SettingsRows(props: ISettingsRowsProps) {
             <Select
               value={weapon_id}
               onChange={v => set_weapon_id(v!)}
-              options={[0, ...lf2.datas.weapons]}
+              options={[0, ...lfw.datas.weapons]}
               parse={i => is_num(i) ? ["", "Random"] : [i.id, i.base.name]} >
             </Select>
             <Button onClick={on_click_add_weapon}>
@@ -280,7 +280,7 @@ export default function SettingsRows(props: ISettingsRowsProps) {
               }
             />
             <CharacterSelect
-              lfw={lf2} value={c_id} onChange={v => set_character_id(v!)} />
+              lfw={lfw} value={c_id} onChange={v => set_character_id(v!)} />
             <TeamSelect value={team} onChange={v => set_team(v!)} />
             <Select
               value={bot_ctrl}
@@ -296,7 +296,7 @@ export default function SettingsRows(props: ISettingsRowsProps) {
       <Show.Div
         className={csses.settings_row}
         show={props.show_world_tuning !== false}>
-        <WorldDatasetView lf2={lf2} />
+        <WorldDatasetView lfw={lfw} />
       </Show.Div>
     </>
   );

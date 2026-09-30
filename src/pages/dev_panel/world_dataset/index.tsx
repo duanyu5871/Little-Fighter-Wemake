@@ -10,37 +10,37 @@ import { useImmer } from "use-immer";
 import csses from "./index.module.scss";
 
 interface IWorldDatasetProps extends React.HTMLAttributes<HTMLDivElement> {
-  lf2?: LFW | null;
+  lfw?: LFW | null;
 }
 export function WorldDatasetView(props: IWorldDatasetProps) {
-  const { lf2 } = props;
+  const { lfw } = props;
 
   const [dwds, set_dwds] = useImmer<Partial<IWorldDataset>>({})
   const [cwds, set_cwds] = useImmer<Partial<IWorldDataset>>({})
   const [ready, set_ready] = useState(false)
 
   useEffect(() => {
-    if (!lf2?.world) return;
+    if (!lfw?.world) return;
     if (!ready) return;
-    Object.assign(lf2.world.dataset, cwds)
-  }, [ready, cwds, lf2])
+    Object.assign(lfw.world.dataset, cwds)
+  }, [ready, cwds, lfw])
 
   useEffect(() => {
-    if (!lf2?.world) return;
+    if (!lfw?.world) return;
     set_dwds(d => {
       for (const [k] of world_dataset_fields) {
         const key = k as keyof IWorldDataset;
-        d[key] = lf2.world.dataset[key]
+        d[key] = lfw.world.dataset[key]
       }
     })
     set_cwds(d => {
       for (const [k] of world_dataset_fields) {
         const key = k as keyof IWorldDataset;
-        d[key] = lf2.world.dataset[key]
+        d[key] = lfw.world.dataset[key]
       }
     })
     set_ready(true);
-  }, [lf2, set_dwds, set_cwds])
+  }, [lfw, set_dwds, set_cwds])
 
 
   const dump = () => {
@@ -48,7 +48,7 @@ export function WorldDatasetView(props: IWorldDatasetProps) {
       JSON.stringify(
         {
           __is_world_dataset__: true,
-          ...lf2?.world.dataset.dump_dataset(),
+          ...lfw?.world.dataset.dump_dataset(),
         }
       )], {
       type: 'application/json;charset=utf-8'

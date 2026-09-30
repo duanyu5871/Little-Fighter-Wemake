@@ -25,6 +25,7 @@ export class DelayNetworkDriver extends LFWNetworkDriver {
     lfw.cmds.length = 0;
     for (const resp of resps)
       this._inputs.set(resp.seq!, resp as IRespTick);
+    this.set_catchup(resps.length);
     const owed_end = this._seq - 1 + this.lead;
     for (let seq = next_seq; seq <= owed_end; seq++) {
       if (this._inputs.has(seq)) continue;
@@ -82,6 +83,7 @@ export class DelayNetworkDriver extends LFWNetworkDriver {
     this._seq++;
     if (!this._inputs.has(this._seq)) {
       this._starved = true;
+      this.set_catchup(0);
       lfw.world.sleep();
     }
   };

@@ -76,11 +76,16 @@ export abstract class LFWNetworkDriver {
   resume() {
     if (!this._suspended) return;
     this._suspended = false;
-    const { lfw: lf2 } = this;
-    if (!lf2) return;
-    lf2.events.length = 0;
-    lf2.cmds.length = 0;
-    lf2.world.awake();
+    const { lfw } = this;
+    if (!lfw) return;
+    lfw.events.length = 0;
+    lfw.cmds.length = 0;
+    lfw.world.awake();
+  }
+  /** 追帧加速：让世界在每次更新里尽量多推进 n 帧（0 = 恢复正常速度） */
+  protected set_catchup(n: number): void {
+    const { lfw } = this;
+    if (lfw) lfw.world.extra_steps = n;
   }
   abstract get lead(): number;
   abstract before_update: () => void;
@@ -89,24 +94,24 @@ export abstract class LFWNetworkDriver {
   abstract begin_rejoin(resps: TRejoinTick[], next_seq: number): void;
   protected on_start(): void { }
   on_dataset_change(k?: keyof IWorldDataset, _value?: unknown, prev?: unknown) {
-    const { conn, lfw: lf2 } = this;
-    if (!conn || !lf2) return;
+    const { conn, lfw } = this;
+    if (!conn || !lfw) return;
     if (this.is_owner()) {
-      conn.send(MsgEnum.Dataset, { dataset: lf2.world.dataset.dump_dataset() }).catch(() => void 0);
+      conn.send(MsgEnum.Dataset, { dataset: lfw.world.dataset.dump_dataset() }).catch(() => void 0);
       return;
     }
     if (this._applying_dataset || this._reverting) return;
     if (typeof k === 'undefined') return;
     this._reverting = true;
-    (lf2.world.dataset as any)[k] = prev;
+    (lfw.world.dataset as any)[k] = prev;
     this._reverting = false;
     console.warn(`仅房主可修改世界数据集: ${String(k)} 已回滚`);
   }
   on_room_start(resp: IRespRoomStart) {
-    const { conn, lfw: lf2 } = this;
+    const { conn, lfw } = this;
     const me = conn?.client;
-    if (!conn || !lf2 || !me) return;
-    lf2.world.sleep();
+    if (!conn || !lfw || !me) return;
+    lfw.world.sleep();
     const clients = conn.room?.clients;
     if (clients?.length) {
       for (const client of clients) {
@@ -114,11 +119,11 @@ export abstract class LFWNetworkDriver {
           const id = `${client.id}#${i}`;
           const name = client.players?.[i - 1] ?? i.toString();
           const player = new PlayerInfo(id, name, false, client.id === me.id);
-          lf2.players.set(id, player);
+          lfw.players.set(id, player);
         }
       }
     }
-    lf2.mt.debugging = this.debugging;
+    lfw.mt.debugging = this.debugging;
     if (this.debugging) {
       this._snapshot1 = new EntitySnapshotBuffer();
       this._snapshot2 = new EntitySnapshotBuffer();
@@ -133,31 +138,31 @@ export abstract class LFWNetworkDriver {
     const double_click_interval_arr = ups_arr.map(v => 30 * v / 60)
     const key_hit_duration_arr = ups_arr.map(v => 10 * v / 60)
     const v = 1;
-    lf2.world.dataset.UPS = ups_arr[v];
-    lf2.world.dataset.atom_time = atom_time_arr[v];
-    lf2.world.dataset.wait_offset = 0;
-    lf2.world.dataset.fvy_f = -0.5;
-    lf2.world.dataset.double_click_interval = double_click_interval_arr[v];
-    lf2.world.dataset.key_hit_duration = key_hit_duration_arr[v];
+    lfw.world.dataset.UPS = ups_arr[v];
+    lfw.world.dataset.atom_time = atom_time_arr[v];
+    lfw.world.dataset.wait_offset = 0;
+    lfw.world.dataset.fvy_f = -0.5;
+    lfw.world.dataset.double_click_interval = double_click_interval_arr[v];
+    lfw.world.dataset.key_hit_duration = key_hit_duration_arr[v];
 
-    lf2.load(...LFW.ZIPS);
-    lf2.layers.set_page({ id: "network_loading" }, 0);
-    lf2.pointings.enabled = false;
-    lf2.keyboard.enabled = false;
-    lf2.mt.reset(resp.seed ?? 0, this.debugging);
+    lfw.load(...LFW.ZIPS);
+    lfw.layers.set_page({ id: "network_loading" }, 0);
+    lfw.pointings.enabled = false;
+    lfw.keyboard.enabled = false;
+    lfw.mt.reset(resp.seed ?? 0, this.debugging);
 
-    lf2.reset_new_id();
-    lf2.reset_new_team();
+    lfw.reset_new_id();
+    lfw.reset_new_team();
 
     if (this.is_owner())
       this.on_dataset_change();
   }
   update_dataset(resp: IRespDataset) {
-    const { lfw: lf2 } = this;
-    if (!lf2) return;
+    const { lfw } = this;
+    if (!lfw) return;
     const incoming = resp.dataset;
     if (!incoming) return;
-    const { dataset } = lf2.world;
+    const { dataset } = lfw.world;
     const local_only = new Set<keyof IWorldDataset>(['sync_render']);
     this._applying_dataset = true;
     for (const key of world_dataset_fields.keys()) {
@@ -169,40 +174,40 @@ export abstract class LFWNetworkDriver {
     this._applying_dataset = false;
   }
   update_client(resp: IRespClientInfo) {
-    const { lfw: lf2 } = this;
+    const { lfw } = this;
     const { client } = resp;
     if (!client) return;
-    if (!lf2) return;
+    if (!lfw) return;
 
     for (let i = 1; i <= 4; i++) {
       const id = `${client.id}#${i}`;
       const name = client.players?.[i - 1] ?? i.toString();
-      const player = lf2.players.get(id);
+      const player = lfw.players.get(id);
       if (!player) continue;
       player.set_name(name, true);
     }
   }
   on_tick(resp: IRespTick | IRespKeyTick) {
-    const { conn, lfw: lf2 } = this;
-    if (!conn || !lf2) return;
+    const { conn, lfw } = this;
+    if (!conn || !lfw) return;
     if (this._failed) return;
     if (typeof resp.seq !== 'number') return;
-    if (resp.seq === 0) this.start(lf2);
+    if (resp.seq === 0) this.start(lfw);
     this.on_tick_data(resp);
   }
-  protected start(lf2: LFW) {
-    lf2.keyboard.enabled = true;
-    lf2.pointings.enabled = true;
-    lf2.world.after_update = this.after_update;
-    lf2.world.before_update = this.before_update;
-    lf2.world.reset_game_time();
-    lf2.layers.set_page({ id: "main_page" }, 0);
+  protected start(lfw: LFW) {
+    lfw.keyboard.enabled = true;
+    lfw.pointings.enabled = true;
+    lfw.world.after_update = this.after_update;
+    lfw.world.before_update = this.before_update;
+    lfw.world.reset_game_time();
+    lfw.layers.set_page({ id: "main_page" }, 0);
     this.on_start();
   }
   protected run_tick(seq: number, resp: IRespTick | IRespKeyTick): void {
-    const { lfw: lf2, conn } = this;
-    if (!lf2 || !conn) return;
-    const { world } = lf2;
+    const { lfw, conn } = this;
+    if (!lfw || !conn) return;
+    const { world } = lfw;
     const { reqs } = resp;
     const me = conn.client;
     if (!me) {
@@ -216,7 +221,7 @@ export abstract class LFWNetworkDriver {
     this.resp = resp;
     this._last_run_seq = seq;
     this.apply_bot_events(resp);
-    const req_events: IKeyEvent[] = lf2.events.map<IKeyEvent>(r => ({
+    const req_events: IKeyEvent[] = lfw.events.map<IKeyEvent>(r => ({
       client_id: me.id,
       player_id: me.id + '#' + r.player,
       game_key: r.game_key,
@@ -224,23 +229,23 @@ export abstract class LFWNetworkDriver {
     }));
     const req: TInfo<IReqTick> = {
       seq: seq + this.lead,
-      cmds: lf2.cmds.map(cmd => with_from(cmd, me.id)),
+      cmds: lfw.cmds.map(cmd => with_from(cmd, me.id)),
       events: req_events
     };
     if (seq == 0) {
       const groups: [string, Array<{ id?: string }>][] = [
-        ['objects', lf2.datas.objects],
-        ['backgrounds', lf2.datas.backgrounds],
-        ['bots', lf2.datas.bots],
-        ['stages', lf2.datas.stages],
+        ['objects', lfw.datas.objects],
+        ['backgrounds', lfw.datas.backgrounds],
+        ['bots', lfw.datas.bots],
+        ['stages', lfw.datas.stages],
       ];
       req._d = safe_check(() => groups
         .map(([k, list]) => `${k}=` + (list ?? []).map(v => `${v?.id ?? '?'}:${md5(safe_json(v))}`).join(','))
         .join('|'));
     }
-    if (this._events) req._a = safe_check(() => `game_time=${lf2.world.game_time}`);
+    if (this._events) req._a = safe_check(() => `game_time=${lfw.world.game_time}`);
     if (this._randoms) req._r = safe_check(() => mt_cases.submit());
-    if (this._objects) req._p = safe_check(() => Array.from(lf2.world.entities).map((e) => {
+    if (this._objects) req._p = safe_check(() => Array.from(lfw.world.entities).map((e) => {
       try {
         const { x, y, z } = e.position;
         const { x: vx, y: vy, z: vz } = e.velocity;
@@ -256,8 +261,8 @@ export abstract class LFWNetworkDriver {
       this._last_req = req;
       conn.send_nowait(MsgEnum.Tick, req);
     }
-    lf2.cmds.length = 0;
-    lf2.events.length = 0;
+    lfw.cmds.length = 0;
+    lfw.events.length = 0;
     this._objects?.reset();
     this._randoms?.reset();
     this._events?.reset();
@@ -275,42 +280,43 @@ export abstract class LFWNetworkDriver {
     if (this._failed) world.sleep();
     if (this._failed) return;
 
-    if (this.debugging) this._snapshot1?.capture(lf2.world.entities)
+    if (this.debugging) this._snapshot1?.capture(lfw.world.entities)
     for (const req of reqs) {
       const { cmds, events } = req;
-      if (cmds?.length) cmds.forEach(cmd => lf2.push_cmd(cmd));
+      if (cmds?.length) cmds.forEach(cmd => lfw.push_cmd(cmd));
       if (!events?.length) continue;
       for (const { player_id, pressed = false, game_key = '' } of events) {
         if (!player_id) continue;
         const gk = game_key as GK;
         const le = new LFWKeyEvent(player_id, pressed, gk, gk);
-        lf2.events.push(le);
+        lfw.events.push(le);
       }
     }
   };
   protected apply_bot_events(resp: IRespTick | IRespKeyTick) {
-    const { lfw: lf2 } = this;
+    const { lfw } = this;
     const events = (resp as IRespTick).bot_events;
-    if (!lf2 || !events?.length) return;
+    if (!lfw || !events?.length) return;
     for (const { client_id, to_bot } of events) {
       if (!client_id) continue;
       const prefix = client_id + '#';
-      for (const [player_id] of lf2.players)
+      for (const [player_id] of lfw.players)
         if (player_id.startsWith(prefix))
-          lf2.set_player_bot(player_id, !!to_bot);
+          lfw.set_player_bot(player_id, !!to_bot);
     }
   }
   continue_solo() {
-    const { lfw: lf2 } = this;
-    if (!lf2) return;
-    for (const [player_id, player] of lf2.players)
-      if (!player.mine) lf2.set_player_bot(player_id, true);
-    lf2.world.before_update = void 0;
-    lf2.world.after_update = void 0;
-    lf2.events.length = 0;
-    lf2.cmds.length = 0;
+    const { lfw } = this;
+    if (!lfw) return;
+    for (const [player_id, player] of lfw.players)
+      if (!player.mine) lfw.set_player_bot(player_id, true);
+    lfw.world.before_update = void 0;
+    lfw.world.after_update = void 0;
+    this.set_catchup(0);
+    lfw.events.length = 0;
+    lfw.cmds.length = 0;
     this._suspended = false;
-    lf2.world.awake();
+    lfw.world.awake();
   }
   private dump_snapshots() {
     const { _snapshot1, _snapshot2 } = this;
@@ -347,7 +353,7 @@ export abstract class LFWNetworkDriver {
           : /Chrome\//.test(ua) ? 'chrome'
             : /Safari\//.test(ua) ? 'safari'
               : 'unknown';
-    a.download = `lf2-snapshot-${data.game_time ?? Date.now()}_${browser}_${md5(ua)}.json`;
+    a.download = `lfw-snapshot-${data.game_time ?? Date.now()}_${browser}_${md5(ua)}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);

@@ -4,8 +4,8 @@ import {
   type IClientInfo,
   type IConnError, type IJob, type IMsgReqMap, type IMsgRespMap,
   type IReq, type IResp,
-  type IRespClientInfo, type IRespRejoin, type IRoomInfo, type ISendOpts, MsgEnum, req_timeout_error,
-  req_unknown_error, resp_error, type TInfo, type TReq, type TResp
+  type IRespClientInfo, type IRespRejoin, type IRespRejoinFrames, type IRoomInfo, type ISendOpts, MsgEnum, req_timeout_error,
+  req_unknown_error, resp_error, type TInfo, type TReq, type TResp, type TRejoinTick
 } from "../../Net";
 
 export interface IConnectionCallbacks {
@@ -228,12 +228,13 @@ export class Connection {
       return;
     }
     this.send(MsgEnum.Rejoin, { roomid, client_id, secret: this._secret, from_seq }, { timeout: 5000 })
-      .then((resp) => {
+      .then(async (resp) => {
+        const resps = await this._pull_rejoin_frames(resp)
         this._cancel_reconnect();
         this._resume_client_id = void 0;
         if (resp.client) this._client = resp.client;
         if (resp.room) this.callbacks.call('on_room_change', this.room = resp.room, this);
-        this.callbacks.call('on_rejoin', resp, this);
+        this.callbacks.call('on_rejoin', { ...resp, resps }, this);
       })
       .catch((e) => {
         const code = (e as IConnError)?.lfw?.code;
@@ -245,6 +246,22 @@ export class Connection {
         }
         this._schedule_reconnect();
       })
+  }
+
+  /** 分批拉取归队回放帧（服务端一次只发一包，避免单条消息过大） */
+  protected async _pull_rejoin_frames(resp: IRespRejoin): Promise<TRejoinTick[]> {
+    const resps: TRejoinTick[] = resp.resps ? [...resp.resps] : [];
+    let done = resp.done ?? true;
+    let from = (resp.from_seq ?? 0) + resps.length;
+    while (!done) {
+      const chunk: IRespRejoinFrames = await this.send(MsgEnum.RejoinFrames, { from_seq: from }, { timeout: 15000 });
+      const part = chunk.resps ?? [];
+      if (!part.length) break;
+      resps.push(...part);
+      from += part.length;
+      done = !!chunk.done;
+    }
+    return resps;
   }
 
   open(url: string): void {

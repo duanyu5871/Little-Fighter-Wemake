@@ -17,6 +17,7 @@ export enum MsgEnum {
   Ping = "Ping",
   Dataset = 'Dataset',
   Rejoin = 'Rejoin',
+  RejoinFrames = 'RejoinFrames',
   RoomContinue = 'RoomContinue',
   Abandon = 'Abandon',
 

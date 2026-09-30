@@ -30,7 +30,7 @@ import { useRooms } from "./useRooms";
 export interface IRoomsBoxProps extends IFrameProps {
   conn?: Connection | null;
   conn_state?: TriState;
-  lf2?: LFW | null;
+  lfw?: LFW | null;
   /** 是否显示全部同步模式的房间（缺省由服务器过滤） */
   show_all_rooms?: boolean;
   page_size?: number;
@@ -41,7 +41,6 @@ function _RoomsBox(props: IRoomsBoxProps, f_ref: ForwardedRef<HTMLDivElement>) {
     conn = null,
     conn_state = TriState.False,
     className,
-    lf2,
     show_all_rooms,
     page_size = 5,
     ..._p

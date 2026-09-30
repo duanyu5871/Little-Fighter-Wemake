@@ -18,6 +18,7 @@ export * from "./IMsg_ExitRoom";
 export * from "./IMsg_JoinRoom";
 export * from "./IMsg_ListRooms";
 export * from "./IMsg_Rejoin";
+export * from "./IMsg_RejoinFrames";
 export * from "./IMsg_RoomContinue";
 export * from "./IMsg_Abandon";
 export * from "./IMsg_RoomPwd";

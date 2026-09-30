@@ -11,6 +11,7 @@ import {
   IReqExitRoom,
   IReqJoinRoom, IReqKick,
   IReqRejoin,
+  IReqRejoinFrames,
   IReqRoomPwd,
   IReqRoomSync,
   IReqRoomStart,
@@ -22,6 +23,7 @@ import {
   IRespExitRoom,
   IRespJoinRoom, IRespKick,
   IRespRejoin,
+  IRespRejoinFrames,
   IRespRoomSync,
   IRespRoomStart,
   IRespTick,
@@ -34,8 +36,19 @@ import { next_msg_seq } from './handle_req_chat';
 let room_id = 0;
 
 const MAX_PIPELINE = 16;
-const MAX_TICK_CACHE = 4096;
 const REJOIN_TTL = 5 * 60 * 1000;
+/** 保留 5 分钟(60UPS)的帧，保证重连能追帧 */
+const MAX_TICK_CACHE = (REJOIN_TTL / 1000) * 60;
+/** 归队回放每包帧数 */
+const REJOIN_CHUNK = 512;
+/** 联机时会提示“谁按了”的指令（F1~F10 与作弊类）：小写指令 → 展示名 */
+const NOTIFY_CMDS = new Map<string, string>([
+  ['f1', 'F1'], ['f2', 'F2'], ['f3', 'F3'], ['f4', 'F4'], ['f5', 'F5'],
+  ['f6', 'F6'], ['f7', 'F7'], ['f8', 'F8'], ['f9', 'F9'], ['f10', 'F10'],
+  ['lf2_net', 'LF2_NET'], ['hero_ft', 'HERO_FT'], ['gim_ink', 'GIM_INK'],
+  ['kill_enemies', 'KILL_ENEMIES'], ['kill_boss', 'KILL_BOSS'],
+  ['kill_soliders', 'KILL_SOLIDERS'], ['kill_others', 'KILL_OTHERS'],
+]);
 export class Room {
   static TAG = 'Room';
   readonly id = '' + (++room_id);
@@ -51,6 +64,10 @@ export class Room {
   rejoin_records = new Map<string, { secret: string; client_info: Required<IClientInfo>; disconnected_at: number }>();
   pending_bot_events: IBotEvent[] = [];
   bot_clients = new Set<string>();
+  /** 已离开对局的玩家（id -> 名字）：不设时限，随时可交给电脑接管 */
+  readonly absent_clients = new Map<string, string>();
+  /** 已归队、还在回放追帧的玩家（值 = 是否已开始回放旧帧），追平后广播 RoomContinue */
+  protected catching_up = new Map<string, boolean>();
   protected _cleanup_timer?: ReturnType<typeof setTimeout>;
   private _tick_seq = -1;
   /** 房主选择的同步模式 */
@@ -142,6 +159,7 @@ export class Room {
     players.delete(client)
     if (this.owner === client && players.size)
       room.owner = players.values().next().value!;
+    if (player_info?.id) this.absent_clients.set(player_info.id, player_info.name)
     const { room_info } = this;
     const resp: TInfo<IRespKick> = {
       client: player_info,
@@ -177,6 +195,7 @@ export class Room {
 
     for (const pl of players)
       pl.resp(MsgEnum.Chat, '', { target: 'room', sender: SystemPlayerInfo, text: `玩家[${player_info.name}]退出了房间`, seq: next_msg_seq() }).catch(() => void 0)
+    if (player_info.id) this.absent_clients.set(player_info.id, player_info.name)
     this.drop_pending_reqs(client)
     this.flush_ticks()
     if (!this.clients.size && !this.rejoin_records.size)
@@ -203,6 +222,8 @@ export class Room {
     this.broadcast(MsgEnum.ExitRoom, resp, client)
     for (const pl of players)
       pl.resp(MsgEnum.Chat, '', { target: 'room', sender: SystemPlayerInfo, text: `玩家[${player_info.name}]掉线了，等待重连…`, seq: next_msg_seq() }).catch(() => void 0)
+    if (player_info.id) this.absent_clients.set(player_info.id, player_info.name)
+    if (player_info.id) this.catching_up.delete(player_info.id)
     this.drop_pending_reqs(client)
     this.flush_ticks()
     this.rejoin_records.set(player_info.id!, {
@@ -235,8 +256,9 @@ export class Room {
     const next = this._tick_seq;
     const need = typeof from_seq === 'number' ? from_seq : -1
     if (need < 0 || need > next) return fail('invalid from_seq')
+    const end = Math.min(next, need + REJOIN_CHUNK)
     const resps: TInfo<IRespTick>[] = []
-    for (let s = need; s < next; s++) {
+    for (let s = need; s < end; s++) {
       const r = this.tick_resp_cache.get(s)
       if (!r) {
         this.rejoin_records.delete(client_id)
@@ -246,6 +268,8 @@ export class Room {
     }
     this.rejoin_records.delete(client_id)
     this.cancel_cleanup()
+    this.absent_clients.delete(client_id)
+    if (end > need) this.catching_up.set(client_id, false)
     if (this.bot_clients.delete(client_id))
       this.pending_bot_events.push({ client_id, to_bot: false })
 
@@ -260,12 +284,46 @@ export class Room {
       client: client.client_info,
       room: this.room_info,
       next_seq: next,
+      from_seq: need,
+      done: end >= next,
       resps,
     }
     client.resp(req.type, req.pid, resp).catch(() => void 0)
     this.broadcast(req.type, { client: client.client_info, room: this.room_info }, client)
     for (const pl of this.clients)
       pl.resp(MsgEnum.Chat, '', { target: 'room', sender: SystemPlayerInfo, text: `玩家[${client.client_info.name}]重新连接`, seq: next_msg_seq() }).catch(() => void 0)
+    return true
+  }
+  /** 房间系统提示（聊天栏里的系统消息） */
+  system_chat(text: string) {
+    for (const pl of this.clients)
+      pl.resp(MsgEnum.Chat, '', { target: 'room', sender: SystemPlayerInfo, text, seq: next_msg_seq() }).catch(() => void 0)
+  }
+  /** 分批下发归队回放的帧 */
+  rejoin_frames(client: Client, req: IReqRejoinFrames): boolean {
+    const client_id = client.client_info?.id
+    const from = req.from_seq ?? -1
+    const next = this._tick_seq
+    if (!client_id || !this.catching_up.has(client_id)) return false
+    if (from < 0 || from > next) return false
+    const end = Math.min(next, from + Math.max(1, req.count ?? REJOIN_CHUNK))
+    const resps: TInfo<IRespTick>[] = []
+    for (let s = from; s < end; s++) {
+      const r = this.tick_resp_cache.get(s)
+      if (!r) {
+        this.catching_up.delete(client_id)
+        this.broadcast(MsgEnum.RoomContinue, {})
+        return false
+      }
+      resps.push(r)
+    }
+    const resp: TInfo<IRespRejoinFrames> = {
+      from_seq: from,
+      next_seq: next,
+      done: end >= next,
+      resps,
+    }
+    client.resp(req.type, req.pid, resp).catch(() => void 0)
     return true
   }
   protected schedule_cleanup() {
@@ -276,12 +334,12 @@ export class Room {
     }, REJOIN_TTL)
   }
   continue_without_leavers() {
-    for (const [client_id, record] of this.rejoin_records) {
+    for (const [client_id, name] of this.absent_clients) {
       if (this.bot_clients.has(client_id)) continue;
       this.bot_clients.add(client_id)
       this.pending_bot_events.push({ client_id, to_bot: true })
       for (const pl of this.clients)
-        pl.resp(MsgEnum.Chat, '', { target: 'room', sender: SystemPlayerInfo, text: `玩家[${record.client_info.name}]掉线，由电脑接管`, seq: next_msg_seq() }).catch(() => void 0)
+        pl.resp(MsgEnum.Chat, '', { target: 'room', sender: SystemPlayerInfo, text: `玩家[${name}]掉线，由电脑接管`, seq: next_msg_seq() }).catch(() => void 0)
     }
   }
   abandon(client: Client, req: IReqAbandon) {
@@ -295,6 +353,9 @@ export class Room {
     const record = this.rejoin_records.get(client_id)
     if (!record || record.secret !== secret) return fail('abandon record not found')
     this.rejoin_records.delete(client_id)
+    this.absent_clients.delete(client_id)
+    if (this.catching_up.delete(client_id))
+      this.broadcast(MsgEnum.RoomContinue, {})
     if (!this.bot_clients.has(client_id)) {
       this.bot_clients.add(client_id)
       this.pending_bot_events.push({ client_id, to_bot: true })
@@ -410,6 +471,8 @@ export class Room {
     };
     this.broadcast(req.type, start_info, client)
     client.resp(req.type, req.pid, start_info).catch(() => void 0)
+    this.absent_clients.clear()
+    this.catching_up.clear()
     this._tick_seq = 0
   }
 
@@ -435,15 +498,45 @@ export class Room {
 
   tick(client: Client, req: IReqTick) {
     const seq = req.seq;
-    if (typeof seq !== 'number' || seq < this._tick_seq) return;
-    if (seq > this._tick_seq + MAX_PIPELINE) return;
+    if (typeof seq !== 'number') return;
     req.client_id = client.client_info?.id;
+    const catching = req.client_id ? this.catching_up.get(req.client_id) : void 0;
+    if (seq < this._tick_seq) {
+      // 正在回放旧帧
+      if (req.client_id && catching === false) this.catching_up.set(req.client_id, true);
+      return;
+    }
+    if (seq > this._tick_seq + MAX_PIPELINE) return;
     if (seq === 0)
       req.client_name = client.client_info?.name;
+    // 回放完旧帧后请求追上最新帧：宣告追平，其他人可以解除「等待重连」了
+    if (req.client_id && catching === true) {
+      this.catching_up.delete(req.client_id);
+      this.broadcast(MsgEnum.RoomContinue, {});
+    }
     let map = this.tick_req_maps.get(seq);
     if (!map) this.tick_req_maps.set(seq, map = new Map());
     map.set(client, req);
+    this.notify_cmds(client, req.cmds);
     this.flush_ticks();
+  }
+
+  /**
+   * 提示“谁按了 F1~F10 / 作弊指令”。
+   *
+   * 本地按下的指令只会由本人发过来一次（`--from=` 就是发送者自己），
+   * 收到别人的指令后各端不会二次转发；这里仍然校验一下，避免将来多出转发层时刷屏。
+   */
+  protected notify_cmds(client: Client, cmds: string[] | undefined) {
+    const { name, id } = client.client_info ?? {};
+    if (!name || !id || !cmds?.length) return;
+    for (const cmd of cmds) {
+      const key = cmd.split(' ')[0] ?? '';
+      const display = NOTIFY_CMDS.get(key.toLowerCase());
+      if (!display) continue;
+      if (cmd.match(/--from=/g)?.length !== 1 || !cmd.includes(`--from=${id}`)) continue;
+      this.system_chat(`玩家[${name}] 按了 ${display}`);
+    }
   }
 
   protected drop_pending_reqs(client: Client) {

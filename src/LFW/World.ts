@@ -107,6 +107,10 @@ export class World {
   private _alive_players = new Set<Entity>();
   public has_players_alive: boolean = false;
   public TU: number = 1;
+  /** 追帧：每次更新时额外连续推进的最大帧数（网络重连回放用，0 = 关闭） */
+  public extra_steps: number = 0;
+  /** 追帧：每次额外推进的时间预算(ms)，避免长时间阻塞主线程 */
+  public extra_step_budget_ms: number = 16;
   readonly ground_weapon_counts = new Map<number, number>();
   get bg() { return this._bg; }
   set bg(v: Background) {
@@ -326,6 +330,7 @@ export class World {
     this.lfw.events.length = 0;
     this.lfw.cmds.length = 0;
     this.lfw.broadcasts.length = 0;
+    if (this.extra_steps > 0) this.catch_up();
 
     const { sync_render } = this.dataset;
     if (sync_render == SyncRenderEnum.Sync) {
@@ -348,6 +353,25 @@ export class World {
 
     if (this.dataset.sync_render !== sync_render)
       this.start_render();
+  }
+
+  /**
+   * 追帧：在时间预算内连续推进多帧（不渲染），直到驱动说停（world.sleep）或预算用尽
+   */
+  protected catch_up(): void {
+    const t0 = Ditto.Clock.now();
+    for (let i = 0; i < this.extra_steps; i++) {
+      if (this._sleeping) break;
+      this.before_update?.();
+      if (this._sleeping) break;
+      this.step();
+      this._lifetime++;
+      this.lfw.events.length = 0;
+      this.lfw.cmds.length = 0;
+      this.lfw.broadcasts.length = 0;
+      this.after_update?.();
+      if (Ditto.Clock.now() - t0 >= this.extra_step_budget_ms) break;
+    }
   }
 
   start_update() {
@@ -907,6 +931,7 @@ export class World {
     this.set_fn_locked(0);
     this.dataset.infinity_mp = 0;
     this.dataset.playrate = 1;
+    this.extra_steps = 0;
     this.entities.forEach(v => v.set_frame(GONE_FRAME_INFO))
     this.ghosts.forEach(v => v.set_frame(GONE_FRAME_INFO))
     this.buffs.forEach(v => v.duration = 0)

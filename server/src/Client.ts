@@ -146,6 +146,7 @@ export class Client {
     switch (req.type) {
       case MsgEnum.ClientInfo: {
         const name = clamp_nickname(req.name?.trim() ?? '')
+        const prev = this.client_info
         const client_info = this.client_info = {
           id: this.id,
           name: name || `${this.id}`,
@@ -153,6 +154,17 @@ export class Client {
         }
         this.resp(req.type, req.pid, { client: client_info, secret: this.secret }).catch(() => void 0);
         if (this.room) this.room.broadcast(MsgEnum.ClientInfo, { client: client_info }, this)
+        if (this.room && prev) {
+          if (prev.name !== client_info.name)
+            this.room.system_chat(`玩家[${prev.name}] 改名为 [${client_info.name}]`)
+          const len = Math.max(prev.players?.length ?? 0, client_info.players.length)
+          for (let i = 0; i < len; i++) {
+            const before = prev.players?.[i]
+            const after = client_info.players[i]
+            if (!after || before === after) continue
+            this.room.system_chat(`玩家[${client_info.name}] 的 ${i + 1}P 名称改为 [${after}]`)
+          }
+        }
         console.log(`[${Client.TAG}::${MsgEnum.ClientInfo}] ${JSON.stringify(client_info)}`)
         break;
       }
@@ -205,13 +217,29 @@ export class Client {
         }
         break;
       }
-      case MsgEnum.RoomContinue: {
+      case MsgEnum.RejoinFrames: {
         if (
           ensure_player_info(this, req) &&
           ensure_in_room(this, req)
         ) {
-          this.room?.continue_without_leavers();
-          this.resp(req.type, req.pid, {}).catch(() => void 0);
+          if (!this.room?.rejoin_frames(this, req))
+            this.resp(
+              req.type,
+              req.pid,
+              { code: ErrCode.RejoinFailed, error: 'rejoin frames not available' }
+            ).catch(() => void 0)
+        }
+        break;
+      }
+      case MsgEnum.RoomContinue: {
+        if (
+          ensure_player_info(this, req) &&
+          ensure_in_room(this, req) &&
+          ensure_room_owner(this, req)
+        ) {
+          const { room } = this;
+          room?.continue_without_leavers();
+          room?.broadcast(req.type, {});
         }
         break;
       }

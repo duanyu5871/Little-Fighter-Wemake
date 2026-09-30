@@ -21,11 +21,11 @@ export interface IConnectionBoxProps extends ICombineProps {
   on_conn_change?(conn: Connection | null): void;
   on_state_change?(conn_state: TriState): void;
   on_close?(): void;
-  lf2?: LFW | null;
+  lfw?: LFW | null;
 }
 function _ConnectionBox(props: IConnectionBoxProps, f_ref: ForwardedRef<HTMLDivElement>) {
   const { t } = useTranslation();
-  const { on_state_change, on_conn_change, on_close, lf2, ..._p } = props;
+  const { on_state_change, on_conn_change, on_close, lfw, ..._p } = props;
   const [ref, on_ref] = useForwardedRef(f_ref)
   const ref_responser = useRef<HTMLSpanElement>(null)
   useFloating({
@@ -51,20 +51,20 @@ function _ConnectionBox(props: IConnectionBoxProps, f_ref: ForwardedRef<HTMLDivE
   useMemo(() => ref_on_state_change.current?.(conn_state), [conn_state])
 
   useEffect(() => {
-    if (!lf2 || !nickname_ready || nickname) return;
+    if (!lfw || !nickname_ready || nickname) return;
     const players = [
-      lf2.players.get('1'),
-      lf2.players.get('2'),
-      lf2.players.get('3'),
-      lf2.players.get('4'),
+      lfw.players.get('1'),
+      lfw.players.get('2'),
+      lfw.players.get('3'),
+      lfw.players.get('4'),
     ]
     const player = players.find((p, i) => {
       if (!p) return false;
       return p.name.trim() && p.name !== `${i + 1}`
     })
     if (player) set_nickname(player.name)
-    else set_nickname(pick_default_nickname(lf2.canonical_lang(), navigator.language))
-  }, [lf2, nickname_ready])
+    else set_nickname(pick_default_nickname(lfw.canonical_lang(), navigator.language))
+  }, [lfw, nickname_ready])
 
   function connect() {
     if (ref_conn.current) return;
