@@ -387,7 +387,7 @@ export class GamePrepareLogic extends UIComponent<IGamePrepareLogicProps> {
         FacingFlag.Right :
         this.lfw.mt.pick([FacingFlag.Left, FacingFlag.Right])!;
       fighter.name_visible = 1
-      fighter.as_key_role(true)
+      fighter.as_key_role(true);
       const xx1 = is_stage_mode ? 40 : 1 * Defines.MODERN_SCREEN_WIDTH / 3;
       const xx2 = is_stage_mode ? 80 : 2 * Defines.MODERN_SCREEN_WIDTH / 3;
       if (is_survival_rank) {
@@ -400,7 +400,7 @@ export class GamePrepareLogic extends UIComponent<IGamePrepareLogicProps> {
       }
       this.lfw.mt.mark = 'gpl_fighter_x';
       const x = this.lfw.mt.range(xx1, xx2) + cam_x;
-    this.lfw.mt.mark = 'gpl_fighter_z';
+      this.lfw.mt.mark = 'gpl_fighter_z';
       const z = this.lfw.mt.range(far, near)
       const seg = this.world.ground.segment(x, z)
       const y = this.world.ground.y(seg, x, z);

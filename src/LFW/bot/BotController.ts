@@ -17,7 +17,7 @@ import {
   WT
 } from "../defines";
 import { Ditto } from "../ditto";
-import { Entity, is_ball, is_fighter, is_weapon } from "../entity";
+import { Entity, is_ball, is_fighter, is_human_ctrl, is_weapon } from "../entity";
 import { closer_one } from "../helper";
 import { abs, between, max, round } from '../utils/math/base';
 import { clamp } from '../utils/math/clamp';
@@ -82,7 +82,15 @@ export class BotController extends BaseController {
     this.key_up(...Object.values(GK));
     this._dummy = v;
   }
-  difficulty: Difficulty;
+  /** 难度：闯关模式下玩家的队友固定困难，其余跟随世界设置 */
+  get difficulty(): Difficulty {
+    if (this.world.stage.id !== D.VOID_STAGE.id) {
+      for (const [, f] of this.world.puppets)
+        if (f !== this.entity && f.team === this.team && is_human_ctrl(f.ctrl))
+          return Difficulty.Difficult;
+    }
+    return this.world.dataset.difficulty;
+  }
   get facing() { return this.entity.facing }
   get team(): string { return this.entity.team }
   get me(): Entity { return this.entity }
@@ -226,7 +234,6 @@ export class BotController extends BaseController {
   constructor(player_id: string, entity: Entity) {
     super(player_id, entity);
     this.fsm.reset(BSE.Idle);
-    this.difficulty = this.world.dataset.difficulty;
   }
 
   override reset(player_id: string, entity: Entity): void {
@@ -422,6 +429,8 @@ export class BotController extends BaseController {
 
     const abs_dx = abs(me.position.x - en_x)
     if (is_weapon(e)) {
+      if (this.difficulty === Difficulty.Easy) return false; // 简单难度不拾取任何武器
+      if (this.difficulty === Difficulty.Normal && e.base_type === WT.Drink) return false; // 普通难度不拾取饮料
       if (me.holding)
         return false;
       if (this.is_leave_goto_range(e))

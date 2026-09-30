@@ -13,7 +13,7 @@ export abstract class BotState_Base implements IState<BotStateEnum> {
   abstract key: BotStateEnum;
   readonly ctrl: BotController;
   get world(): World { return this.ctrl.world }
-  get difficulty(): Difficulty { return this.world.dataset.difficulty }
+  get difficulty(): Difficulty { return this.ctrl.difficulty }
   get stage(): Stage { return this.world.stage }
 
   get s(): Stage { return this.stage }
