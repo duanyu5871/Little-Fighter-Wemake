@@ -17,13 +17,7 @@ import type { WorldRenderer } from "./WorldRenderer";
 /** 平滑时间常数(ms)：约一帧(60fps)，每帧都移动、无停顿，避免 30UPS/60FPS 下 df 复位造成的抖动 */
 const SMOOTH_TAU = 1000 / 60;
 
-function intersect_clip(a: IUIClipRect, b: IUIClipRect): IUIClipRect | null {
-  const x0 = Math.max(a.x0, b.x0);
-  const y0 = Math.max(a.y0, b.y0);
-  const x1 = Math.min(a.x1, b.x1);
-  const y1 = Math.min(a.y1, b.y1);
-  return x0 < x1 && y0 < y1 ? { x0, y0, x1, y1 } : null;
-}
+let clip_version = 0;
 
 interface IUserData {
   w?: number;
@@ -49,7 +43,6 @@ export class UINodeRenderer implements IUINodeRenderer {
   protected _img: ImageInfo<T.Texture> | null = null;
   protected _text_renderer: UITextRenderer | undefined;
   protected _uv_anim_angle: number = 0;
-  protected _uv_anim_vec = new T.Vector2(0, 0);
   protected _p1 = new T.Vector3();
   protected _s1 = new T.Vector3(1, 1, 1);
   protected _old_alpha: number | null = null;
@@ -57,6 +50,19 @@ export class UINodeRenderer implements IUINodeRenderer {
   protected _bg_layer_proxy: T.Object3D | undefined;
   protected _frame_rect: IUIClipRect | null = null;
   protected readonly _v_tmp = new T.Vector3();
+  protected _mx = NaN;
+  protected _my = NaN;
+  protected _mz = NaN;
+  protected _sx = NaN;
+  protected _sy = NaN;
+  protected _sz = NaN;
+  protected _clip_children_last: boolean | undefined = void 0;
+  protected _clip_ver = -1;
+  protected _clip_empty = true;
+  protected readonly _clip_cache = { x0: 0, y0: 0, x1: 0, y1: 0 };
+  protected readonly _clip_applied = { x0: 0, y0: 0, x1: 0, y1: 0 };
+  protected _clip_applied_empty = false;
+  protected _clip_text_done = false;
 
   protected get dom() {
     if (this._dom) return this._dom;
@@ -102,6 +108,7 @@ export class UINodeRenderer implements IUINodeRenderer {
     this.mesh.material.alpha = 0;
     this.mesh.material.texture = void 0;
     this.mesh.userData.owner = ui;
+    this.mesh.matrixAutoUpdate = false;
 
     if (ui.text) {
       this._text_renderer = new UITextRenderer(this);
@@ -110,9 +117,11 @@ export class UINodeRenderer implements IUINodeRenderer {
   }
   del(child: UINodeRenderer) {
     this.mesh.remove(child.mesh)
+    clip_version++;
   }
   add(child: UINodeRenderer) {
     this.mesh.add(child.mesh)
+    clip_version++;
   }
   del_self() {
     this.mesh.removeFromParent();
@@ -176,6 +185,7 @@ export class UINodeRenderer implements IUINodeRenderer {
     this.update_center_and_size()
     const { x, y, z } = this.ui;
     this.mesh.position.set(x, -y, z)
+    this.mesh.updateMatrix()
     this.update_pos_scale()
     this.mesh.visible = this.ui.visible;
     this.mesh.name = `layout(name= ${this.ui.name}, id=${this.ui.id})`
@@ -239,6 +249,7 @@ export class UINodeRenderer implements IUINodeRenderer {
       if (!this._text_renderer) {
         this._text_renderer = new UITextRenderer(this);
         this.mesh.add(this._text_renderer.mesh);
+        this._clip_text_done = false;
       }
       this._text_renderer.update();
     }
@@ -279,9 +290,9 @@ export class UINodeRenderer implements IUINodeRenderer {
     }
   }
   get x(): number { return this.mesh.position.x }
-  set x(v: number) { this.mesh.position.x = v; }
+  set x(v: number) { this.mesh.position.x = v; this.mesh.updateMatrix(); }
   get y(): number { return this.mesh.position.y }
-  set y(v: number) { this.mesh.position.y = v; }
+  set y(v: number) { this.mesh.position.y = v; this.mesh.updateMatrix(); }
   get visible() {
     return this.mesh.visible
   }
@@ -359,16 +370,16 @@ export class UINodeRenderer implements IUINodeRenderer {
     if (!t || !this._ui_img) return;
     const { offsetAnimX = 0, offsetAnimY = 0, offsetAnimR = 0 } = this._ui_img;
     const { wrapS, wrapT, repeatX, repeatY } = this._ui_img;
+    if (!offsetAnimX && !offsetAnimY && !offsetAnimR &&
+      wrapS === void 0 && wrapT === void 0 && repeatX === void 0 && repeatY === void 0) return;
     const sec = dt / 1000;
-
-    this._uv_anim_angle += sec * offsetAnimR
-    this._uv_anim_vec.x = offsetAnimX ?? 0
-    this._uv_anim_vec.y = offsetAnimY ?? 0
-
-    if (this._uv_anim_vec.x || this._uv_anim_vec.y) {
-      const { x, y } = this._uv_anim_vec.clone().rotateAround(new T.Vector2(0, 0), this._uv_anim_angle)
-      t.offset.x += sec * x;
-      t.offset.y += sec * y;
+    if (offsetAnimR) this._uv_anim_angle += sec * offsetAnimR;
+    if (offsetAnimX || offsetAnimY) {
+      const angle = this._uv_anim_angle;
+      const cos = Math.cos(angle);
+      const sin = Math.sin(angle);
+      t.offset.x += sec * (offsetAnimX * cos - offsetAnimY * sin);
+      t.offset.y += sec * (offsetAnimX * sin + offsetAnimY * cos);
     }
     if (wrapS !== void 0) t.wrapS = (wrapS as any);
     if (wrapT !== void 0) t.wrapT = (wrapT as any);
@@ -384,12 +395,17 @@ export class UINodeRenderer implements IUINodeRenderer {
     const t = 1 - Math.exp(-dt / SMOOTH_TAU);
     this.mesh.position.lerp(this._p1, t);
     this.mesh.scale.lerp(this._s1, t);
+    this.update_matrix_if_changed();
 
     if (this.world.lifetime !== this._last_sync_lifetime) {
       this._last_sync_lifetime = this.world.lifetime;
       this.sync();
     }
 
+    if (this._clip_children_last !== ui.clip_children) {
+      this._clip_children_last = ui.clip_children;
+      clip_version++;
+    }
     this.apply_clip(this.compute_effective_clip());
     if (ui.clip_children) this.update_frame_rect();
 
@@ -399,33 +415,81 @@ export class UINodeRenderer implements IUINodeRenderer {
     }
   }
 
+  protected update_matrix_if_changed(): void {
+    const p = this.mesh.position, s = this.mesh.scale;
+    if (p.x === this._mx && p.y === this._my && p.z === this._mz &&
+      s.x === this._sx && s.y === this._sy && s.z === this._sz) return;
+    this._mx = p.x; this._my = p.y; this._mz = p.z;
+    this._sx = s.x; this._sy = s.y; this._sz = s.z;
+    this.mesh.updateMatrix();
+  }
+
   quad_world_rect(): IUIClipRect | null {
     return this.update_frame_rect();
   }
 
   effective_clip_rect(refresh: boolean = false): IUIClipRect | null {
-    let ret: IUIClipRect | null = null;
+    if (!refresh && this._clip_ver === clip_version)
+      return this._clip_empty ? null : this._clip_cache;
+    let has = false;
+    let x0 = 0, y0 = 0, x1 = 0, y1 = 0;
     let p = this.ui.parent;
     while (p) {
       if (p.clip_children) {
         const r = refresh
           ? (p.renderer as UINodeRenderer).update_frame_rect()
           : (p.renderer as UINodeRenderer)._frame_rect;
-        if (r) ret = ret ? intersect_clip(ret, r) : r;
+        if (r) {
+          if (!has) {
+            has = true;
+            x0 = r.x0; y0 = r.y0; x1 = r.x1; y1 = r.y1;
+          } else {
+            if (r.x0 > x0) x0 = r.x0;
+            if (r.y0 > y0) y0 = r.y0;
+            if (r.x1 < x1) x1 = r.x1;
+            if (r.y1 < y1) y1 = r.y1;
+            if (x0 >= x1 || y0 >= y1) has = false;
+          }
+        }
       }
       p = p.parent;
     }
-    return ret;
+    this._clip_ver = clip_version;
+    this._clip_empty = !has;
+    if (!has) return null;
+    const c = this._clip_cache;
+    c.x0 = x0; c.y0 = y0; c.x1 = x1; c.y1 = y1;
+    return c;
   }
 
   protected apply_clip(clip: IUIClipRect | null): void {
-    this.mesh.material.set_clip_rect(clip);
-    if (this._text_renderer) this._text_renderer.mesh.material.set_clip_rect(clip);
+    const a = this._clip_applied;
+    const same = clip
+      ? !this._clip_applied_empty && a.x0 === clip.x0 && a.y0 === clip.y0 && a.x1 === clip.x1 && a.y1 === clip.y1
+      : this._clip_applied_empty;
+    if (same && (!this._text_renderer || this._clip_text_done)) return;
+    if (!same) {
+      this._clip_applied_empty = !clip;
+      if (clip) {
+        a.x0 = clip.x0; a.y0 = clip.y0; a.x1 = clip.x1; a.y1 = clip.y1;
+      }
+      this.mesh.material.set_clip_rect(clip);
+    }
+    if (this._text_renderer) {
+      this._text_renderer.mesh.material.set_clip_rect(clip);
+      this._clip_text_done = true;
+    }
   }
 
   protected update_frame_rect(): IUIClipRect | null {
     const { _w: w, _h: h, _tran_x: tx, _tran_y: ty } = this;
-    if (!(w > 0) || !(h > 0)) return this._frame_rect = null;
+    if (!(w > 0) || !(h > 0)) {
+      if (this._frame_rect) {
+        this._frame_rect = null;
+        clip_version++;
+      }
+      return null;
+    }
     this.mesh.updateWorldMatrix(true, false);
     const m = this.mesh.matrixWorld;
     const v = this._v_tmp;
@@ -433,15 +497,32 @@ export class UINodeRenderer implements IUINodeRenderer {
     const y0 = ty - h / 2;
     const x1 = tx + w / 2;
     const y1 = ty + h / 2;
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const [cx, cy] of [[x0, y0], [x1, y0], [x0, y1], [x1, y1]] as const) {
-      v.set(cx, cy, 0).applyMatrix4(m);
-      if (v.x < minX) minX = v.x;
-      if (v.y < minY) minY = v.y;
-      if (v.x > maxX) maxX = v.x;
-      if (v.y > maxY) maxY = v.y;
+    v.set(x0, y0, 0).applyMatrix4(m);
+    let minX = v.x, minY = v.y, maxX = v.x, maxY = v.y;
+    v.set(x1, y0, 0).applyMatrix4(m);
+    if (v.x < minX) minX = v.x;
+    if (v.y < minY) minY = v.y;
+    if (v.x > maxX) maxX = v.x;
+    if (v.y > maxY) maxY = v.y;
+    v.set(x0, y1, 0).applyMatrix4(m);
+    if (v.x < minX) minX = v.x;
+    if (v.y < minY) minY = v.y;
+    if (v.x > maxX) maxX = v.x;
+    if (v.y > maxY) maxY = v.y;
+    v.set(x1, y1, 0).applyMatrix4(m);
+    if (v.x < minX) minX = v.x;
+    if (v.y < minY) minY = v.y;
+    if (v.x > maxX) maxX = v.x;
+    if (v.y > maxY) maxY = v.y;
+    const cur = this._frame_rect;
+    if (cur) {
+      if (cur.x0 === minX && cur.y0 === minY && cur.x1 === maxX && cur.y1 === maxY) return cur;
+      cur.x0 = minX; cur.y0 = minY; cur.x1 = maxX; cur.y1 = maxY;
+    } else {
+      this._frame_rect = { x0: minX, y0: minY, x1: maxX, y1: maxY };
     }
-    return this._frame_rect = { x0: minX, y0: minY, x1: maxX, y1: maxY };
+    clip_version++;
+    return this._frame_rect;
   }
 
   protected compute_effective_clip(): IUIClipRect | null {
