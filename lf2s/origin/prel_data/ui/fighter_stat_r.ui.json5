@@ -84,7 +84,7 @@
         { id: "hp_t1", color: "#ffaa25", template: "bar_inner_1" },
         { id: "hp_t2", color: "#27ee27", template: "bar_inner_1" },
         { id: "hp_t3", color: "#4682B4", template: "bar_inner_1" },
-        { id: "hp_t4", color: "#FFFFFF", template: "bar_inner_1" },
+        { id: "hp_t4", color: "#a7beff", template: "bar_inner_1" },
       ],
     },
     {
