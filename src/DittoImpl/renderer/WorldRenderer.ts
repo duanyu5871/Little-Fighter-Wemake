@@ -8,6 +8,7 @@ import { BgRender } from "./BgRender";
 import { CursorRender } from "./CursorRender";
 import { EntityRenderer } from "./EntityRenderer";
 import { BG_INDICATINGS } from "./INDICATINGS";
+import { ShadowBatch } from "./ShadowBatch";
 import csses from "./styles.module.scss";
 import { TerrainIndicator } from "./TerrainIndicator";
 
@@ -25,6 +26,7 @@ export class WorldRenderer implements IWorldRenderer {
   readonly bg_render: BgRender;
   readonly bg_flags: TerrainIndicator;
   readonly cursor_render: CursorRender;
+  readonly shadow_batch: ShadowBatch;
   readonly camera: Camera;
   readonly bg_camera: OrthographicCamera;
   readonly fg_camera: OrthographicCamera;
@@ -103,6 +105,7 @@ export class WorldRenderer implements IWorldRenderer {
     this.set_renderer_size(w * 4, h * 4);
     this.scene.add(this.world_node);
     this.world_node.add(this.overlay_node);
+    this.shadow_batch = new ShadowBatch(this);
 
     this.ui_bg_container = new Object3D();
     this.ui_bg_scene.add(this.ui_bg_container);
@@ -324,6 +327,12 @@ export class WorldRenderer implements IWorldRenderer {
     this.world_node.updateMatrixWorld(true);
     for (const g of groups) for (const er of g) er.body.visible = false;
 
+    if (this.shadow_batch.collect(groups)) {
+      r.clearDepth();
+      r.render(this.scene, this.camera);
+      this.shadow_batch.end();
+    }
+
     const n = groups.length;
     let i = 0;
     while (i < n) {
@@ -402,6 +411,7 @@ export class WorldRenderer implements IWorldRenderer {
     this._renderer?.clear();
     this._renderer?.dispose();
     this._renderer = void 0;
+    this.shadow_batch.dispose();
     this.bg_render.release();
     this.bg_flags.release();
   }

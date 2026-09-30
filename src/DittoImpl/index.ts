@@ -5,6 +5,7 @@ export * from "./FullScreen";
 export * from "./Importer";
 export * from "./Interval";
 export * from "./Keyboard";
+export * from "./LazyZip";
 export * from "./Pointings";
 export * from "./RImageInfo";
 export * from "./Render";
