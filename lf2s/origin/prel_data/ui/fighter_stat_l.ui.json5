@@ -21,35 +21,29 @@
     bar: {
       center: "0,0",
       size: "300,8",
-      color: "#000000",
+      color: "#222222",
     },
     bar_2: {
       center: "0,0",
       size: "300,3",
-      color: "#000000",
+      color: "#222222",
     },
-    bar_inner: {
+    bar_inner_1: {
       center: "0,0",
-      component: [
-        {
-          cls: "Alignment",
-          properties: {
-            left: "left",
-            top: "top",
-            right: "right",
-            bottom: "bottom",
-            offset: { l: 1, r: -1, t: 1, b: -1 },
-            once: true,
-          },
-        },
-      ],
+      pos: "0,1",
+      size: "298,6",
+    },
+    bar_inner_2: {
+      center: "0,0",
+      pos: "0,1",
+      size: "298,1",
     },
   },
   items: [
     {
       id: "head_frame",
       size: "30,30",
-      color: "black",
+      color: "#333333",
       center: "0,0",
       items: [
         {
@@ -68,119 +62,54 @@
     {
       id: "dark_hp",
       template: "bar",
-      component: [
-        {
-          cls: "Alignment",
-          properties: {
-            left: "right",
-            bottom: "bottom",
-            offset: { b: -11, l: -1 },
-            followed: "bro:-1",
-            once: true,
-          },
-        },
+      pos:"30, 10",
+      items: [
+        { id: "dark_hp_t0", color: "#6f081f", template: "bar_inner_1" },
+        { id: "dark_hp_t1", color: "#8B6508", template: "bar_inner_1" },
+        { id: "dark_hp_t2", color: "#008B00", template: "bar_inner_1" },
+        { id: "dark_hp_t3", color: "#36648B", template: "bar_inner_1" },
+        { id: "dark_hp_t4", color: "#7F7F7F", template: "bar_inner_1" },
       ],
-      items: [ { color: "rgb(111,8,31)", template: "bar_inner" } ],
     },
     {
       id: "hp",
-      template: "bar",
-      component: [
-        {
-          cls: "Alignment",
-          properties: {
-            left: "right",
-            bottom: "bottom",
-            offset: { b: -11, l: -1 },
-            followed: "bro:0",
-            once: true,
-          },
-        },
+      pos:"30, 10",
+      items: [
+        { id: "hp_t0", color: "#FF0000", template: "bar_inner_1" },
+        { id: "hp_t1", color: "#FFC125", template: "bar_inner_1" },
+        { id: "hp_t2", color: "#00FF00", template: "bar_inner_1" },
+        { id: "hp_t3", color: "#4682B4", template: "bar_inner_1" },
+        { id: "hp_t4", color: "#FFFFFF", template: "bar_inner_1" },
       ],
-      items: [ { color: "#EE3F3A", template: "bar_inner" } ],
     },
     {
       id: "dark_mp",
       template: "bar",
-      component: [
-        {
-          cls: "Alignment",
-          properties: {
-            left: "left",
-            top: "bottom",
-            followed: "bro:-1",
-            offset: { t: -1 },
-            once: true,
-          },
-        },
-      ],
-      items: [ { color: "rgb(31,8,111)", template: "bar_inner" } ],
+      pos:"30, 18",
+      items: [{ color: "rgb(31,8,111)", template: "bar_inner_1" }],
     },
     {
       id: "mp",
-      template: "bar",
-      component: [
-        {
-          cls: "Alignment",
-          properties: {
-            left: "left",
-            top: "top",
-            followed: "bro:-1",
-            once: true,
-          },
-        },
-      ],
-      items: [ { color: "rgb(0,0,255)", template: "bar_inner" } ],
+      pos:"30, 18",
+      items: [{ color: "rgb(0,0,255)", template: "bar_inner_1" }],
     },
     {
       id: "fall_value",
       template: "bar_2",
-      component: [
-        {
-          cls: "Alignment",
-          properties: {
-            left: "left",
-            top: "bottom",
-            followed: "bro:-1",
-            offset: { t: -1 },
-            once: true,
-          },
-        },
-      ],
-      items: [ { color: "rgb(216,115,0)", template: "bar_inner" } ],
+      pos:"30, 26",
+      items: [{ color: "rgb(216,115,0)", template: "bar_inner_2" }],
     },
     {
       id: "defend_value",
       template: "bar_2",
-      component: [
-        {
-          cls: "Alignment",
-          properties: {
-            left: "left",
-            top: "bottom",
-            followed: "bro:-1",
-            offset: { t: -1 },
-            once: true,
-          },
-        },
-      ],
-      items: [ { color: "rgb(0,122,71)", template: "bar_inner" } ],
+      pos:"30, 28",
+      items: [{ color: "rgb(0,122,71)", template: "bar_inner_2" }],
     },
     {
       id: "toughness",
       template: "bar_2",
-      component: [
-        {
-          cls: "Alignment",
-          properties: {
-            left: "left",
-            top: "top",
-            followed: "bro:-1",
-            once: true,
-          },
-        },
-      ],
-      items: [ { color: "rgb(0,204,255)", template: "bar_inner" } ],
+      pos:"30, 28",
+      items: [{ color: "rgb(0,204,255)", template: "bar_inner_2" }],
     },
     {
       i18n: "NONE",
@@ -190,7 +119,7 @@
       outlineAlpha: 1,
       style: {
         fill_style: "white",
-        font: "9px Arial"
+        font: "9px Arial",
       },
       id: "name_txt",
       component: [
