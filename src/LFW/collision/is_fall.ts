@@ -10,6 +10,6 @@ export function is_fall(collision: Collision): boolean {
     victim.hp <= 0 ||
     victim.state === SE.Frozen ||
     (victim.fall_value < D.DEFAULT_FALL_VALUE_DIZZY && SE.Caught === victim.state) ||
-    (victim.fall_value <= D.DEFAULT_FALL_VALUE_CRITICAL && !victim.is_on_ground)
+    (victim.fall_value < D.DEFAULT_FALL_VALUE_CRITICAL && !victim.is_on_ground)
   );
 }
