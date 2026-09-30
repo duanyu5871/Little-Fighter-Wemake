@@ -1445,13 +1445,12 @@ export class Entity {
     this._mp_r_tick.max = this.dataset("mp_r_ticks");
     if (!this._mp_r_tick.add(this._atom_time)) return;
     const r_ratio = this.dataset("mp_r_ratio");
-    const value =
-      1 +
-      floor(
-        round_float(
-          (this.hp_max - min(r_ratio * this._hp, this.hp_max)) / 100,
-        ),
-      );
+    let { hp_max: a, _hp: b } = this;
+    if (a > 500) a = 500;
+    if (b > 500) b = 500;
+    const value = 1 + round_float(
+      (a - min(r_ratio * b, a)) / 100,
+    );
     this.mp = min(this.mp_max, this._mp + value);
   }
 
