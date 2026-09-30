@@ -1,4 +1,4 @@
-import { Defines, FacingFlag, SurvivalRankOids, TeamEnum } from "../../defines";
+import { Defines, Difficulty, FacingFlag, SurvivalRankOids, TeamEnum } from "../../defines";
 import type { IPropsMeta } from "../../defines/ISchema";
 import { Ditto } from "../../ditto";
 import type { ILFWCallback } from "../../ILFWCallback";
@@ -38,6 +38,18 @@ const i18n_fmt = (template: string, ...args: (string | number)[]): string =>
     const i = Number(m.slice(1)) - 1
     return String(args[i] ?? '')
   })
+const hp_map = {
+  [Difficulty.Easy]: 2500,
+  [Difficulty.Normal]: 1000,
+  [Difficulty.Difficult]: 500,
+  [Difficulty.Crazy]: 500
+};
+const mp_map = {
+  [Difficulty.Easy]: 2500,
+  [Difficulty.Normal]: 1000,
+  [Difficulty.Difficult]: 500,
+  [Difficulty.Crazy]: 500
+}
 export class GamePrepareLogic extends UIComponent<IGamePrepareLogicProps> {
   static override readonly TAGS: string[] = ["GamePrepareLogic"];
   static override readonly PROPS: IPropsMeta<IGamePrepareLogicProps> = {
@@ -364,7 +376,6 @@ export class GamePrepareLogic extends UIComponent<IGamePrepareLogicProps> {
       const fighter = is_com ?
         this.lfw.factory.create_entity_with_bot(player.id, this.world, fighter_data) :
         this.lfw.factory.create_entity_with_player(player.id, this.world, fighter_data)
-
       if (!fighter) {
         Ditto.warn(`[${GamePrepareLogic.TAG}::start_game] failed to create fighter. figher data: ${fighter_data}`);
         debugger;
@@ -379,10 +390,17 @@ export class GamePrepareLogic extends UIComponent<IGamePrepareLogicProps> {
       fighter.as_key_role(true)
       const xx1 = is_stage_mode ? 40 : 1 * Defines.MODERN_SCREEN_WIDTH / 3;
       const xx2 = is_stage_mode ? 80 : 2 * Defines.MODERN_SCREEN_WIDTH / 3;
-
+      if (is_survival_rank) {
+        fighter.hp = fighter.hp_max = 2000
+        fighter.mp = fighter.mp_max = 1000
+      } else if (is_stage_mode) {
+        const { difficulty } = this.world.dataset
+        fighter.hp = fighter.hp_max = hp_map[difficulty] ?? 500
+        fighter.mp = fighter.mp_max = mp_map[difficulty] ?? 500
+      }
       this.lfw.mt.mark = 'gpl_fighter_x';
       const x = this.lfw.mt.range(xx1, xx2) + cam_x;
-      this.lfw.mt.mark = 'gpl_fighter_z';
+    this.lfw.mt.mark = 'gpl_fighter_z';
       const z = this.lfw.mt.range(far, near)
       const seg = this.world.ground.segment(x, z)
       const y = this.world.ground.y(seg, x, z);

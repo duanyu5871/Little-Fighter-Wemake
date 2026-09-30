@@ -21,35 +21,35 @@
     bar: {
       center: "0,0",
       size: "300,8",
-      color: "#222222",
+      color: "#111111",
     },
     bar_2: {
       center: "0,0",
       size: "300,3",
-      color: "#222222",
+      color: "#111111",
     },
     bar_inner_1: {
       center: "0,0",
       pos: "0,1",
-      size: "298,6",
+      size: "299,6",
     },
     bar_inner_2: {
       center: "0,0",
       pos: "0,1",
-      size: "298,1",
+      size: "299,1",
     },
   },
   items: [
     {
       id: "head_frame",
       size: "30,30",
-      color: "#333333",
+      color: "#111111",
       center: "0,0",
       items: [
         {
           id: "head",
-          size: "26,26",
-          pos: "2,2",
+          size: "28,28",
+          pos: "1,1",
           component: [
             {
               id: "head_img",
@@ -62,22 +62,22 @@
     {
       id: "dark_hp",
       template: "bar",
-      pos:"30, 10",
+      pos:"30, 11",
       items: [
         { id: "dark_hp_t0", color: "#6f081f", template: "bar_inner_1" },
-        { id: "dark_hp_t1", color: "#8B6508", template: "bar_inner_1" },
-        { id: "dark_hp_t2", color: "#008B00", template: "bar_inner_1" },
-        { id: "dark_hp_t3", color: "#36648B", template: "bar_inner_1" },
-        { id: "dark_hp_t4", color: "#7F7F7F", template: "bar_inner_1" },
+        { id: "dark_hp_t1", color: "#8a4403", template: "bar_inner_1" },
+        { id: "dark_hp_t2", color: "#006300", template: "bar_inner_1" },
+        { id: "dark_hp_t3", color: "#2e5679", template: "bar_inner_1" },
+        { id: "dark_hp_t4", color: "#5a5a5a", template: "bar_inner_1" },
       ],
     },
     {
       id: "hp",
-      pos:"30, 10",
+      pos:"30, 11",
       items: [
-        { id: "hp_t0", color: "#FF0000", template: "bar_inner_1" },
-        { id: "hp_t1", color: "#FFC125", template: "bar_inner_1" },
-        { id: "hp_t2", color: "#00FF00", template: "bar_inner_1" },
+        { id: "hp_t0", color: "#f53535", template: "bar_inner_1" },
+        { id: "hp_t1", color: "#ffaa25", template: "bar_inner_1" },
+        { id: "hp_t2", color: "#27ee27", template: "bar_inner_1" },
         { id: "hp_t3", color: "#4682B4", template: "bar_inner_1" },
         { id: "hp_t4", color: "#FFFFFF", template: "bar_inner_1" },
       ],
@@ -86,29 +86,29 @@
       id: "dark_mp",
       template: "bar",
       pos:"30, 18",
-      items: [{ color: "rgb(31,8,111)", template: "bar_inner_1" }],
+      items: [{ color: "#2b1285", template: "bar_inner_1" }],
     },
     {
       id: "mp",
       pos:"30, 18",
-      items: [{ color: "rgb(0,0,255)", template: "bar_inner_1" }],
+      items: [{ color: "#3030e2", template: "bar_inner_1" }],
     },
     {
       id: "fall_value",
       template: "bar_2",
-      pos:"30, 26",
+      pos:"30, 25",
       items: [{ color: "rgb(216,115,0)", template: "bar_inner_2" }],
     },
     {
       id: "defend_value",
       template: "bar_2",
-      pos:"30, 28",
+      pos:"30, 27",
       items: [{ color: "rgb(0,122,71)", template: "bar_inner_2" }],
     },
     {
       id: "toughness",
       template: "bar_2",
-      pos:"30, 28",
+      pos:"30, 27",
       items: [{ color: "rgb(0,204,255)", template: "bar_inner_2" }],
     },
     {
