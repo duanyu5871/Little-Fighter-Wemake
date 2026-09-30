@@ -139,6 +139,7 @@ export class EntityMainRender {
   protected img_pending = new Set<string>();
   protected pinned_keys: string[] = [];
   protected render_effect_time = -1;
+  protected outline_enabled: number | null = -1;
   protected variant: number = -1;
 
   constructor(owner: EntityRenderer) {
@@ -161,6 +162,7 @@ export class EntityMainRender {
     this.shaking = 0;
     this.shaking_x = 0;
     this.render_effect_time = -1;
+    this.outline_enabled = -1;
     const { data } = entity;
     this.file_variants.clear();
     const files = this.files = data.base.files ?? {};
@@ -764,18 +766,18 @@ export class EntityMainRender {
 
 
   private update_outline(): void {
-    const { ghosted, render_effect_time } = this.entity;
+    const { ghosted, render_effect_time, outline_enabled } = this.entity;
     if (ghosted) return;
 
-    if (this.render_effect_time == render_effect_time) return;
+    if (this.render_effect_time == render_effect_time && this.outline_enabled === outline_enabled) return;
     this.render_effect_time = render_effect_time;
+    this.outline_enabled = outline_enabled;
     const mesh0 = this.meshs[0];
     const { material: m } = mesh0;
     const {
       outline_color,
       outline_alpha,
       outline_width,
-      outline_enabled,
       greyscale,
       mix_color,
       mix_strength
