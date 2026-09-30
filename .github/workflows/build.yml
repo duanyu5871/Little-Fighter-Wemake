@@ -260,9 +260,11 @@ jobs:
           esac
 
           args=(--title "$tag")
-          notes="docs/changelog/v$version/zh.md"
-          if [ -f "$notes" ]; then
-            tail -n +7 "$notes" > release_notes.md
+          zh="docs/changelog/v$version/zh.md"
+          en="docs/changelog/v$version/en.md"
+          if [ -f "$zh" ]; then
+            # 中英双语：两边都去掉标题/作者/git-range 前 6 行，用分隔线拼接
+            { tail -n +7 "$zh"; if [ -f "$en" ]; then printf '\n---\n\n'; tail -n +7 "$en"; fi; } > release_notes.md
             args+=(--notes-file release_notes.md)
           else
             args+=(--generate-notes)
@@ -274,6 +276,8 @@ jobs:
 
           if gh release view "$tag" > /dev/null 2>&1; then
             gh release upload "$tag" "${files[@]}" --clobber
+            # 已有 Release（例如移动 tag 后重跑）也把中英双语说明刷新一遍
+            if [ -f release_notes.md ]; then gh release edit "$tag" --notes-file release_notes.md; fi
           else
             case "$tag" in *preview*) args+=(--prerelease) ;; esac
             gh release create "$tag" "${args[@]}" "${files[@]}"
