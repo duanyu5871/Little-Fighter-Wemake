@@ -33,13 +33,11 @@
       center: "0,0",
       pos: "0,1",
       size: "155,6",
-      scale: "0,1,1",
     },
     bar_inner_2: {
       center: "0,0",
       pos: "0,1",
       size: "155,1",
-      scale: "0,1,1",
     },
   },
   items: [
