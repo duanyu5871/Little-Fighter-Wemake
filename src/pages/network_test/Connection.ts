@@ -99,10 +99,11 @@ export class Connection {
     })
 
   }
-  protected _on_message = (event: MessageEvent<any>) => {
+  protected _on_message = (event: MessageEvent<unknown>) => {
     // console.log(`[${Connection.TAG}::_on_message]`, event.data);
+
     try {
-      const what = JSON.parse(event.data) as TResp | TReq;
+      const what = JSON.parse(event.data as string) as TResp | TReq;
       if ('is_resp' in what) {
         const { pid, code } = what;
         const job = this._jobs.get(pid);
@@ -199,7 +200,7 @@ export class Connection {
     this._ws = null;
     if (ws) {
       ws.removeEventListener('close', this._on_close);
-      try { ws.close(); } catch { }
+      ws.close();
     }
     this.callbacks.call('on_reconnecting', this._reconnect_attempt, this);
     const delay = Math.min(300 * this._reconnect_attempt, 3000);
@@ -280,7 +281,7 @@ export class Connection {
     const ws = this._ws;
     this._ws = null;
     if (ws) {
-      try { ws.close(); } catch { }
+      ws.close();
     } else {
       this._teardown();
     }
@@ -321,7 +322,7 @@ export class Connection {
         this.callbacks.call('on_error', error, this)
         reject(error);
       }, timeout) : void 0;
-
+      // FIXME: as any?
       this._jobs.set(pid, { resolve: resolve as any, timerId, reject, ...options });
       try {
         ws.send(JSON.stringify(_req));
@@ -352,10 +353,11 @@ export class Connection {
         this.callbacks.call('on_room_change', this.room = void 0, this)
         break;
       case MsgEnum.ExitRoom:
-      case MsgEnum.Kick:
+      case MsgEnum.Kick: {
         const room = resp.client?.id === this._client?.id ? void 0 : resp.room
         this.callbacks.call('on_room_change', this.room = room, this)
         break;
+      }
       case MsgEnum.ClientReady: {
         const prev = this.room
         if (prev) {
