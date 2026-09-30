@@ -10,7 +10,17 @@ const { L, R, U, D, j, d } = GK
 export class BallController extends BaseController {
   readonly __is_ball_ctrl__ = true;
   chasing: Entity | null = null;
-  chase_point: IVector3 = this.entity.position.clone();
+  /**
+   * 跟踪点。
+   *
+   * 惰性初始化：首次访问时取自身当前位置。
+   * 不能在构造/reset 时取 —— 那时实体还没被摆到出生点，位置是 (0,0,0)，
+   * 无目标(hover)时球会一路朝原点飞（Z=0 在舞台 z 范围外，表现为沿 Z 轴冲出屏幕）。
+   */
+  protected _chase_point: IVector3 | null = null;
+  get chase_point(): IVector3 {
+    return this._chase_point ??= this.entity.position.clone();
+  }
   frame: IFrameInfo = EMPTY_FRAME_INFO;
   gave_up = false;
   dir_x: 0 | 1 | -1 = 0;
@@ -27,7 +37,7 @@ export class BallController extends BaseController {
     this.dir_z = 0;
     this.leave_dir = 0;
     this.frame = EMPTY_FRAME_INFO;
-    this.chase_point.copy(this.entity.position);
+    this._chase_point = null;
   }
 
   set_chase_point(x: number, y: number, z: number) {
