@@ -51,19 +51,18 @@ export class Connection {
   room?: IRoomInfo;
   rooms: IRoomInfo[] = [];
   get url() { return this._ws?.url }
+  get opened() { return this._ws?.readyState === 1 }
 
   constructor(nickname: string = '') {
     this._nickname = clamp_nickname(nickname);
   }
   set_nickname(nickname: string) {
     this._nickname = clamp_nickname(nickname);
-    if (this._ws?.readyState === this._ws?.OPEN)
-      this._submit_client();
+    if (this.opened) this._submit_client();
   }
   set_players(players: string[]) {
     this._players = [...players];
-    if (this._ws?.readyState === this._ws?.OPEN)
-      this._submit_client();
+    if (this.opened) this._submit_client();
   }
   protected _submit_client() {
     this.send(MsgEnum.ClientInfo, {
@@ -165,17 +164,25 @@ export class Connection {
       this.callbacks.call('on_rooms_change', this.rooms = [], this)
     this.callbacks.call('on_close', e as CloseEvent, this)
   }
-  abandon(): Promise<void> {
+  async abandon(): Promise<void> {
     const roomid = this.room?.id;
     const client_id = this._resume_client_id ?? this._client?.id;
     if (this._ws?.readyState !== WebSocket.OPEN || !roomid || !client_id || !this._secret)
-      return Promise.resolve();
-    return this.send(MsgEnum.Abandon, { roomid, client_id, secret: this._secret }, { timeout: 1000 })
-      .then(() => void 0)
-      .catch(() => void 0);
+      return;
+    try {
+      await this.send(MsgEnum.Abandon, { roomid, client_id, secret: this._secret }, { timeout: 1000 })
+    } catch (e) {
+      console.warn(`[${Connection.TAG}::abandon]`, e)
+    }
   }
-  give_up(): Promise<void> {
-    return this.abandon().finally(() => this.close());
+  async give_up(): Promise<void> {
+    try {
+      await this.abandon();
+    } catch (e) {
+      console.warn(`[${Connection.TAG}::give_up]`, e)
+    } finally {
+      this.close();
+    }
   }
   protected _cancel_reconnect() {
     if (this._reconnect_timer) {
@@ -360,28 +367,28 @@ export class Connection {
       }
       case MsgEnum.ClientReady: {
         const prev = this.room
-        if (prev) {
-          const room = { ...prev }
-          if (room.clients)
-            for (const p of room.clients)
-              if (p.id === resp.client?.id)
-                p.ready = !!resp.ready;
-          if (room.clients) room.clients = [...room.clients]
-          this.callbacks.call('on_room_change', this.room = room, this)
+        if (!prev) break;
+        const room = { ...prev }
+        if (room.clients) {
+          for (const p of room.clients)
+            if (p.id === resp.client?.id)
+              p.ready = !!resp.ready;
+          room.clients = [...room.clients]
         }
+        this.callbacks.call('on_room_change', this.room = room, this)
         break;
       }
       case MsgEnum.ClientInfo: {
         const prev = this.room
-        if (prev) {
-          const room = { ...prev }
-          if (room.clients)
-            for (const p of room.clients)
-              if (p.id === resp.client?.id)
-                Object.assign(p, resp.client)
-          if (room.clients) room.clients = [...room.clients]
-          this.callbacks.call('on_room_change', this.room = room, this)
+        if (!prev) break;
+        const room = { ...prev }
+        if (room.clients) {
+          for (const p of room.clients)
+            if (p.id === resp.client?.id)
+              Object.assign(p, resp.client)
+          room.clients = [...room.clients]
         }
+        this.callbacks.call('on_room_change', this.room = room, this)
         break;
       }
       case MsgEnum.ListRooms: {
