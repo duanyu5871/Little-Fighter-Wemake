@@ -1178,7 +1178,7 @@ function App() {
         style={{ background: 'black', position: 'fixed', left: 0, top: 0, right: 0, bottom: 0, zIndex: 1 }}
         lf2={lfw} />
       {networking && <Networking
-        lf2={lfw}
+        lfw={lfw}
         sync_mode={params.net_sync === 'delay' ? 'delay' : params.net_sync === 'lockstep' ? 'lockstep' : void 0}
         input_delay={Number(params.net_delay) || void 0}
         show_all_rooms={params.rooms === 'all'}

@@ -236,7 +236,7 @@ export class Connection {
         this.callbacks.call('on_rejoin', resp, this);
       })
       .catch((e) => {
-        const code = (e as IConnError)?.lf2?.code;
+        const code = (e as IConnError)?.lfw?.code;
         if (typeof code === 'number') {
           this._cancel_reconnect();
           this._rejoin_provider = void 0;

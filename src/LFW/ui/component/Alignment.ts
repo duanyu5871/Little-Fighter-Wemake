@@ -25,6 +25,7 @@ class Offsets implements IOffsets {
   t: number = 0;
   b: number = 0;
 }
+/** FIXME: 总觉得这玩意设计有问题 -Gim */
 export class Alignment extends UIComponent {
   static override readonly TAGS: string[] = ["Alignment"];
   follower: UINode | null = null;

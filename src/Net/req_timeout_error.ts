@@ -6,7 +6,7 @@ export function req_timeout_error(req: IReq, timeout: number): IConnError {
   const code = ErrCode.Timeout;
   const info = `timeout! over ${timeout}ms`;
   return Object.assign(new Error(`[${code}]${info}`), {
-    lf2: {
+    lfw: {
       type: req.type,
       pid: req.pid,
       code: code,

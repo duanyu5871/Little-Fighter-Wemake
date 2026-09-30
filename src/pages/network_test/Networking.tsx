@@ -21,7 +21,7 @@ import { TriState } from "./TriState";
 import { useCallbacks } from "./useCallbacks";
 import { useRoom } from "./useRoom";
 export interface INetworkingProps {
-  lf2?: LFW | undefined | null;
+  lfw?: LFW | undefined | null;
   on_close?(): void;
   /** 调试用：强制同步模式，缺省时听服务器下发 */
   sync_mode?: NetSyncMode;
@@ -32,10 +32,10 @@ export interface INetworkingProps {
 }
 
 export function Networking(props: INetworkingProps) {
-  const { lf2, on_close, sync_mode, input_delay, show_all_rooms } = props;
+  const { lfw, on_close, sync_mode, input_delay, show_all_rooms } = props;
   const { t } = useTranslation();
-  const ref_lf2 = useRef(lf2);
-  ref_lf2.current = lf2;
+  const ref_lfw = useRef(lfw);
+  ref_lfw.current = lfw;
   const [conn_state, set_conn_state] = useState<TriState>(TriState.False);
   const [conn, set_conn] = useStateRef<Connection | null>(null)
   const [reconnecting, set_reconnecting] = useState(0)
@@ -48,7 +48,7 @@ export function Networking(props: INetworkingProps) {
       ? new DelayNetworkDriver(input_delay ?? resp.input_delay ?? 2)
       : new LockstepNetworkDriver();
     driver.conn = conn;
-    driver.lf2 = lf2;
+    driver.lfw = lfw;
     ref_updater.current = driver;
     current_connection.driver = driver;
     return driver;
@@ -71,7 +71,7 @@ export function Networking(props: INetworkingProps) {
   useCallbacks(conn?.callbacks, {
     on_message: (resp, conn) => {
       const me = conn.client;
-      if (!lf2 || !me) return;
+      if (!lfw || !me) return;
       switch (resp.type) {
         case MsgEnum.ClientInfo:
           ref_updater.current?.update_client(resp);
@@ -135,43 +135,43 @@ export function Networking(props: INetworkingProps) {
       set_reconnecting(0);
       set_rejoin_failed(reason);
     }
-  }, [lf2])
+  }, [lfw])
 
-  useCallbacks(lf2?.callbacks, {
+  useCallbacks(lfw?.callbacks, {
     on_loading_end: () => {
-      if (!lf2 || !conn) return;
-      if (lf2.zips.zips.length < 1) return;
+      if (!lfw || !conn) return;
+      if (lfw.zips.zips.length < 1) return;
       conn?.send(MsgEnum.Tick, { seq: 0 });
     }
-  }, [lf2, conn])
+  }, [lfw, conn])
 
-  useCallbacks(lf2?.world.callbacks, {
+  useCallbacks(lfw?.world.callbacks, {
     on_dataset_change: (k, value, prev) => ref_updater.current?.on_dataset_change(k, value, prev),
-  }, [lf2, conn])
+  }, [lfw, conn])
 
   useEffect(() => {
-    if (!lf2) return;
+    if (!lfw) return;
     const sync_player_names = () => {
       if (!conn) return;
       const player_names: string[] = []
-      for (const [, { name }] of lf2.players)
+      for (const [, { name }] of lfw.players)
         if (player_names.length < 8)
           player_names.push(name)
       conn.set_players(player_names)
     }
     const callback: IPlayerInfoCallback = { on_name_changed: sync_player_names }
-    const watched = Array.from(lf2.players.values()).filter(v => v.local)
+    const watched = Array.from(lfw.players.values()).filter(v => v.local)
     for (const player of watched) player.callbacks.add(callback)
     sync_player_names()
     return () => {
       for (const player of watched) player.callbacks.del(callback)
     }
-  }, [lf2, conn])
+  }, [lfw, conn])
 
 
   return createPortal(<>
     <ConnectionBox
-      lf2={lf2}
+      lf2={lfw}
       on_conn_change={set_conn}
       on_state_change={set_conn_state}
       on_close={on_close}

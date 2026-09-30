@@ -122,7 +122,7 @@ export default defineConfig(({ command, mode }) => {
             return 'editor';
           }
           if (id.includes('/src/LFW/') || id.includes('/src/DittoImpl/') || id.includes('/src/Net/')) {
-            return 'lf2-dom'
+            return 'lfw-dom'
           }
           if (id.match('/src/pages/')) {
             return 'other-pages'

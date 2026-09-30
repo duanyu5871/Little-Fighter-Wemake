@@ -49,31 +49,31 @@ export class EntityStatRender {
     this.owner = owner;
     const entity = this.entity = owner.entity;
     this.world_renderer = owner.owner;
-    const { lfw: lf2 } = owner.entity.world;
-    this.bars_bg = new Bar(lf2, "rgb(0,0,0)", BAR_BG_W, BAR_BG_H, 0.5, 0);
+    const { lfw } = owner.entity.world;
+    this.bars_bg = new Bar(lfw, "rgb(0,0,0)", BAR_BG_W, BAR_BG_H, 0.5, 0);
     this.self_healing_hp_bar = new Bar(
-      lf2,
+      lfw,
       "rgb(111,8,31)",
       BAR_W,
       BAR_H,
       0.5,
       1,
     );
-    this.hp_bar = new Bar(lf2, "rgb(255,0,0)", BAR_W, BAR_H, 0.5, 1);
+    this.hp_bar = new Bar(lfw, "rgb(255,0,0)", BAR_W, BAR_H, 0.5, 1);
 
     this.self_healing_mp_bar = new Bar(
-      lf2,
+      lfw,
       "rgb(31,8,111)",
       BAR_W,
       BAR_H,
       0.5,
       1,
     );
-    this.mp_bar = new Bar(lf2, "rgb(0,0,255)", BAR_W, BAR_H, 0.5, 1);
+    this.mp_bar = new Bar(lfw, "rgb(0,0,255)", BAR_W, BAR_H, 0.5, 1);
 
-    this.fall_value_bar = new Bar(lf2, "rgb(216, 115, 0)", BAR_W, 1, 0.5, 1);
-    this.defend_value_bar = new Bar(lf2, "rgb(0, 122, 71)", BAR_W, 1, 0.5, 1);
-    this.toughness_value_bar = new Bar(lf2, "rgba(0, 204, 255, 1)", BAR_W, 1, 0.5, 1);
+    this.fall_value_bar = new Bar(lfw, "rgb(216, 115, 0)", BAR_W, 1, 0.5, 1);
+    this.defend_value_bar = new Bar(lfw, "rgb(0, 122, 71)", BAR_W, 1, 0.5, 1);
+    this.toughness_value_bar = new Bar(lfw, "rgba(0, 204, 255, 1)", BAR_W, 1, 0.5, 1);
 
     let y = -1;
     this.bars_bg.mesh.position.x = -1;
@@ -153,9 +153,9 @@ export class EntityStatRender {
       }
       return;
     }
-    const { lfw: lf2, team } = e;
+    const { lfw, team } = e;
     const mesh = this.reserve_mesh;
-    mesh.set_text(lf2, `x${reserve}`)
+    mesh.set_text(lfw, `x${reserve}`)
     mesh.visible = true;
     if (mesh.userData.team != team) {
       mesh.userData.team = team;

@@ -41,17 +41,17 @@ export class EntityCtrlRender {
     ]);
     this._ctrls = new Map();
 
-    const { lfw: lf2 } = this.entity;
+    const { lfw } = this.entity;
     for (const [k, pos] of map) {
       const mesh = TextMesh.get();
       mesh.name = `key ${k}`;
       mesh.position.set(BAR_BG_W / 2 + pos.x, 10 + pos.y, pos.z);
       if (k == 'bot') {
-        mesh.set_text(lf2, ' ').catch(e => console.warn(e));
+        mesh.set_text(lfw, ' ').catch(e => console.warn(e));
       } else if (k == 'keys') {
-        mesh.set_text(lf2, ' ').catch(e => console.warn(e));
+        mesh.set_text(lfw, ' ').catch(e => console.warn(e));
       } else {
-        mesh.set_text(lf2, GKLabels[k]).catch(e => console.warn(e));
+        mesh.set_text(lfw, GKLabels[k]).catch(e => console.warn(e));
       }
       mesh.strokeStyle = 'black';
       this.ctrl_node.add(mesh);
@@ -72,7 +72,7 @@ export class EntityCtrlRender {
 
     const { x, z, y } = this.owner.position;
     const {
-      lfw: lf2, world, frame: { centery }
+      lfw, world, frame: { centery }
     } = this.entity;
 
     const _ctrl_visible = this.entity.ctrl_visible ?? !!(world.dataset.entity_flags & ENTITY_INDICATINGS.ctrl);
@@ -100,12 +100,12 @@ export class EntityCtrlRender {
 
     if (keys) {
       keys.visible = true;
-      keys.set_text(lf2, ctrl.key_list);
+      keys.set_text(lfw, ctrl.key_list);
     }
     if (bot) {
       const is_bot = is_bot_ctrl(ctrl);
       bot.visible = is_bot;
-      if (is_bot) bot.set_text(lf2, ctrl.fsm.state?.key ?? 'ERROR');
+      if (is_bot) bot.set_text(lfw, ctrl.fsm.state?.key ?? 'ERROR');
     }
   }
 }

@@ -40,10 +40,10 @@ export class BgLayerRender {
     this.layers = [...layers];
     this.layer = this.layers[0];
     this.bg_render = bg_render
-    const { lfw: lf2 } = this.layer.bg.world
+    const { lfw } = this.layer.bg.world
     const { info } = this.layer;
     const { y, z, file, id, name, color, dw, dh, uv_loop } = info;
-    const pic = file ? lf2.images.find(file)?.pic : null
+    const pic = file ? lfw.images.find(file)?.pic : null
     const has_pic = !!pic
     const src_w = pic?.w ?? 0
     const src_h = pic?.h ?? 0
@@ -55,11 +55,11 @@ export class BgLayerRender {
     const dst_h = has_pic ? (dh ?? src_h) : (info.h || info.height || 0)
     this.width = dst_w;
     this.height = dst_h;
-    this.src_texture = file ? (lf2.images.find(file)?.pic?.texture ?? null) : null;
+    this.src_texture = file ? (lfw.images.find(file)?.pic?.texture ?? null) : null;
     this._color = color;
     for (const layer of this.layers) {
       const f = layer.info.file;
-      if (f) lf2.images.pin(f);
+      if (f) lfw.images.pin(f);
     }
 
     const k = `bg_l_${file ?? color}`

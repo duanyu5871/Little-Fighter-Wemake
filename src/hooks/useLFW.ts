@@ -48,13 +48,13 @@ export function useLFW(options: IUseLFWOptions = {}): IUseLFWResult {
   // 建实例 / 销毁
   useEffect(() => {
     if (!enabled) return;
-    const lf2 = new LFW(opts.current.debug);
-    Object.assign(window, { LFW, lf2, world: lf2.world });
-    set_lfw(lf2);
+    const lfw = new LFW(opts.current.debug);
+    Object.assign(window, { LFW, lfw, world: lfw.world });
+    set_lfw(lfw);
     return () => {
       ready_ref.current = false;
       set_ready(false);
-      lf2.dispose();
+      lfw.dispose();
     };
   }, [enabled, recreate_key]);
 

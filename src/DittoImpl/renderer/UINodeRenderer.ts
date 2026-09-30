@@ -96,7 +96,7 @@ export class UINodeRenderer implements IUINodeRenderer {
     this.mesh.add(this._css_obj);
   }
   get world() { return this.ui.lfw.world }
-  get lf2() { return this.ui.lfw }
+  get lfw() { return this.ui.lfw }
   get parent() { return this.ui.parent?.renderer || null }
   constructor(ui: UINode) {
     this.ui = ui;
@@ -152,7 +152,7 @@ export class UINodeRenderer implements IUINodeRenderer {
   }
 
   protected attach_ui_layer(): void {
-    const wr = this.lf2.world.renderer as WorldRenderer;
+    const wr = this.lfw.world.renderer as WorldRenderer;
     if ((this.ui.z ?? 0) < 0) {
       wr.ui_bg_container.add(this.mesh);
       return;

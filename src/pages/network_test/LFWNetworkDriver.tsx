@@ -44,7 +44,7 @@ export abstract class LFWNetworkDriver {
   static readonly TAG = 'Lf2NetworkDriver';
   debugging: boolean = true;
   conn?: Connection | null;
-  lf2?: LFW | null;
+  lfw?: LFW | null;
   resp?: IRespTick | IRespKeyTick | null;
   _failed: boolean = false;
   _suspended: boolean = false;
@@ -71,12 +71,12 @@ export abstract class LFWNetworkDriver {
   suspend() {
     if (this._suspended) return;
     this._suspended = true;
-    this.lf2?.world.sleep();
+    this.lfw?.world.sleep();
   }
   resume() {
     if (!this._suspended) return;
     this._suspended = false;
-    const { lf2 } = this;
+    const { lfw: lf2 } = this;
     if (!lf2) return;
     lf2.events.length = 0;
     lf2.cmds.length = 0;
@@ -89,7 +89,7 @@ export abstract class LFWNetworkDriver {
   abstract begin_rejoin(resps: TRejoinTick[], next_seq: number): void;
   protected on_start(): void { }
   on_dataset_change(k?: keyof IWorldDataset, _value?: unknown, prev?: unknown) {
-    const { conn, lf2 } = this;
+    const { conn, lfw: lf2 } = this;
     if (!conn || !lf2) return;
     if (this.is_owner()) {
       conn.send(MsgEnum.Dataset, { dataset: lf2.world.dataset.dump_dataset() }).catch(() => void 0);
@@ -103,7 +103,7 @@ export abstract class LFWNetworkDriver {
     console.warn(`仅房主可修改世界数据集: ${String(k)} 已回滚`);
   }
   on_room_start(resp: IRespRoomStart) {
-    const { conn, lf2 } = this;
+    const { conn, lfw: lf2 } = this;
     const me = conn?.client;
     if (!conn || !lf2 || !me) return;
     lf2.world.sleep();
@@ -153,7 +153,7 @@ export abstract class LFWNetworkDriver {
       this.on_dataset_change();
   }
   update_dataset(resp: IRespDataset) {
-    const { lf2 } = this;
+    const { lfw: lf2 } = this;
     if (!lf2) return;
     const incoming = resp.dataset;
     if (!incoming) return;
@@ -169,7 +169,7 @@ export abstract class LFWNetworkDriver {
     this._applying_dataset = false;
   }
   update_client(resp: IRespClientInfo) {
-    const { lf2 } = this;
+    const { lfw: lf2 } = this;
     const { client } = resp;
     if (!client) return;
     if (!lf2) return;
@@ -183,7 +183,7 @@ export abstract class LFWNetworkDriver {
     }
   }
   on_tick(resp: IRespTick | IRespKeyTick) {
-    const { conn, lf2 } = this;
+    const { conn, lfw: lf2 } = this;
     if (!conn || !lf2) return;
     if (this._failed) return;
     if (typeof resp.seq !== 'number') return;
@@ -200,7 +200,7 @@ export abstract class LFWNetworkDriver {
     this.on_start();
   }
   protected run_tick(seq: number, resp: IRespTick | IRespKeyTick): void {
-    const { lf2, conn } = this;
+    const { lfw: lf2, conn } = this;
     if (!lf2 || !conn) return;
     const { world } = lf2;
     const { reqs } = resp;
@@ -289,7 +289,7 @@ export abstract class LFWNetworkDriver {
     }
   };
   protected apply_bot_events(resp: IRespTick | IRespKeyTick) {
-    const { lf2 } = this;
+    const { lfw: lf2 } = this;
     const events = (resp as IRespTick).bot_events;
     if (!lf2 || !events?.length) return;
     for (const { client_id, to_bot } of events) {
@@ -301,7 +301,7 @@ export abstract class LFWNetworkDriver {
     }
   }
   continue_solo() {
-    const { lf2 } = this;
+    const { lfw: lf2 } = this;
     if (!lf2) return;
     for (const [player_id, player] of lf2.players)
       if (!player.mine) lf2.set_player_bot(player_id, true);
@@ -316,7 +316,7 @@ export abstract class LFWNetworkDriver {
     const { _snapshot1, _snapshot2 } = this;
     if (!_snapshot1 || !_snapshot2) return;
     const data = {
-      game_time: this.lf2?.world.game_time,
+      game_time: this.lfw?.world.game_time,
       snapshot1: this._snapshot1?.to_readable(),
       snapshot2: this._snapshot2?.to_readable(),
       events: [

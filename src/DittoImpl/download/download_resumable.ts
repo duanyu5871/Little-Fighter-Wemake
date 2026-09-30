@@ -41,7 +41,7 @@ const DEFAULT_RETRY_DELAY = 500;
 const DEFAULT_STALL_TIMEOUT = 15000;
 
 export function download_key(url: string): string {
-  return md5("lf2-partial:" + url);
+  return md5("lfw-partial:" + url);
 }
 
 function is_abort_error(e: unknown): boolean {

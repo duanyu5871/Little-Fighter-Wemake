@@ -18,11 +18,11 @@ export class DelayNetworkDriver extends LFWNetworkDriver {
   override get rejoin_seq(): number { return this._seq; }
 
   begin_rejoin(resps: TRejoinTick[], next_seq: number): void {
-    const { lf2, conn } = this;
-    if (!lf2) return;
+    const { lfw, conn } = this;
+    if (!lfw) return;
     this._suspended = false;
-    lf2.events.length = 0;
-    lf2.cmds.length = 0;
+    lfw.events.length = 0;
+    lfw.cmds.length = 0;
     for (const resp of resps)
       this._inputs.set(resp.seq!, resp as IRespTick);
     const owed_end = this._seq - 1 + this.lead;
@@ -38,7 +38,7 @@ export class DelayNetworkDriver extends LFWNetworkDriver {
     this._starved = true;
     if (this._inputs.has(this._seq)) {
       this._starved = false;
-      lf2.world.awake();
+      lfw.world.awake();
     }
   }
 
@@ -58,31 +58,31 @@ export class DelayNetworkDriver extends LFWNetworkDriver {
     this._inputs.set(seq, resp);
     if (!this._suspended && this._starved && seq === this._seq) {
       this._starved = false;
-      this.lf2?.world.awake();
+      this.lfw?.world.awake();
     }
   }
 
   before_update = () => {
-    const { lf2 } = this;
-    if (!lf2) return;
-    if (this._suspended) return lf2.world.sleep();
+    const { lfw } = this;
+    if (!lfw) return;
+    if (this._suspended) return lfw.world.sleep();
     const resp = this._inputs.get(this._seq);
     if (!resp) {
       this._starved = true;
-      return lf2.world.sleep();
+      return lfw.world.sleep();
     }
     this._inputs.delete(this._seq);
     this.run_tick(this._seq, resp);
   };
 
   after_update = () => {
-    const { lf2 } = this;
-    if (!lf2) return;
-    if (this.debugging) this._snapshot2?.capture(lf2.world.entities);
+    const { lfw } = this;
+    if (!lfw) return;
+    if (this.debugging) this._snapshot2?.capture(lfw.world.entities);
     this._seq++;
     if (!this._inputs.has(this._seq)) {
       this._starved = true;
-      lf2.world.sleep();
+      lfw.world.sleep();
     }
   };
 }
