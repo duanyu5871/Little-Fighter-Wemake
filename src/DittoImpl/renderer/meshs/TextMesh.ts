@@ -8,7 +8,9 @@ import { get_static_plane_geometry } from "../GeometryKeeper";
 import { BLACK, TextMaterial } from "../materials";
 
 const TEXT_GEOMETRY = get_static_plane_geometry(1, 1);
-const DEFAULT_FONT = "9px Arial";
+const DEFAULT_FONT_SIZE = 9;
+const DEFAULT_FONT = `${DEFAULT_FONT_SIZE}px Arial`;
+const TEXT_SUPERSAMPLE = 4;
 
 interface ITextLineInfo { x: number; y: number; t: string; w: number; h: number; }
 
@@ -159,7 +161,9 @@ export class TextMesh extends Mesh<BufferGeometry, TextMaterial> {
   set strokeStyle(v: string) {
     this._strokeStyle = v
     this.material.outlineAlpha = v ? 1 : 0;
-    this.material.outlineWidth = v ? 1 : 0;
+    // 描边按纹理像素计（shader 里 texel = outlineWidth / textureSize），
+    // 超采样后 1 世界单位 = TEXT_SUPERSAMPLE 个像素，故乘以倍数保持视觉宽度不变
+    this.material.outlineWidth = v ? TEXT_SUPERSAMPLE : 0;
     this.material.outlineColor = v ? v : BLACK;
     if (this._text) this._draw_text();
   }
@@ -199,7 +203,11 @@ export class TextMesh extends Mesh<BufferGeometry, TextMaterial> {
     this._baked_text = this._text;
     this._baked_style_version = this._style_version;
 
-    _ctx.font = DEFAULT_FONT;
+    // 画布按 TEXT_SUPERSAMPLE 倍分辨率绘制（font 同步放大），
+    // 网格缩放仍取逻辑尺寸，因此贴图分辨率提升 4 倍而显示大小不变
+    const s = TEXT_SUPERSAMPLE;
+    const font = `${DEFAULT_FONT_SIZE * s}px Arial`;
+    _ctx.font = font;
     _ctx.textAlign = 'left';
     _ctx.textBaseline = 'alphabetic';
     _ctx.imageSmoothingEnabled = false;
@@ -207,8 +215,8 @@ export class TextMesh extends Mesh<BufferGeometry, TextMaterial> {
     const metrics = _ctx.measureText(this._text);
     const tw = Math.max(1, Math.ceil(metrics.width));
     const th = Math.max(1, Math.ceil(metrics.fontBoundingBoxAscent + metrics.fontBoundingBoxDescent));
-    this._text_w = tw;
-    this._text_h = th;
+    this._text_w = tw / s;
+    this._text_h = th / s;
 
     const pad = this.material.outlineWidth;
     const cw = tw + 2 * pad;
@@ -221,7 +229,7 @@ export class TextMesh extends Mesh<BufferGeometry, TextMaterial> {
       this._texture = new CanvasTexture(_canvas);
     }
 
-    _ctx.font = DEFAULT_FONT;
+    _ctx.font = font;
     _ctx.fillStyle = 'white';
     _ctx.textAlign = 'left';
     _ctx.textBaseline = 'top';
@@ -230,8 +238,8 @@ export class TextMesh extends Mesh<BufferGeometry, TextMaterial> {
     _ctx.clearRect(0, 0, cw, ch);
     _ctx.fillText(this._text, pad, pad);
 
-    this.scale.x = cw;
-    this.scale.y = ch;
+    this.scale.x = cw / s;
+    this.scale.y = ch / s;
     this._texture.needsUpdate = true;
   }
 
