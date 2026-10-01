@@ -22,6 +22,11 @@ import type { IDownloadedZip } from './zip/IDownloadedZip';
 import type { IZip } from './zip/IZip';
 import type { IZipDownloadOpts } from './zip/IZipDownloadOpts';
 
+export interface IJSON5 {
+  parse<T = any>(text: string): T;
+  stringify(value: any): string;
+}
+
 export interface IDitto extends IDittoPack {
   setup(pack: IDittoPack): void;
   vec3(x?: number, y?: number, z?: number): IVector3;
@@ -34,6 +39,7 @@ export interface IDittoPack {
   Render: IRender;
   Clock: IClock;
   MD5: (...args: string[]) => string;
+  JSON5: IJSON5;
   Zip: {
     read_file(file: IReadable): Promise<IZip>;
     read_buf(name: string, buf: Uint8Array): Promise<IZip>;

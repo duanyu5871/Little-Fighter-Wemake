@@ -3,6 +3,7 @@ export * from "./AsyncCache";
 export * from "./Clock";
 export * from "./FullScreen";
 export * from "./Importer";
+export * from "./JSON5";
 export * from "./Interval";
 export * from "./Keyboard";
 export * from "./LazyZip";

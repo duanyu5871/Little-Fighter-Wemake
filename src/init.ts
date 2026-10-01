@@ -39,6 +39,7 @@ Ditto.setup({
   Cache: dom.__Cache,
   Zip: dom.__Zip,
   MD5: dom.md5,
+  JSON5: dom.__JSON5,
   Importer: new dom.__Importer(),
   Vector3: dom.Vector3,
   Vector2: dom.Vector2,

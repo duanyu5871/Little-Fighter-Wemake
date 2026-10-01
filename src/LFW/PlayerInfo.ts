@@ -1,4 +1,3 @@
-import json5 from "json5";
 import { Callbacks } from './base/Callbacks';
 import { CtrlDevice } from "./defines/CtrlDevice";
 import { Defines } from "./defines/defines";
@@ -84,7 +83,7 @@ export class PlayerInfo {
 
     try {
       const raw_text = decodeUTF8(data);
-      const raw_info = json5.parse<Partial<IPurePlayerInfo>>(raw_text);
+      const raw_info = Ditto.JSON5.parse<Partial<IPurePlayerInfo>>(raw_text);
       const { name, keys, ctrl = this.ctrl, version } = raw_info;
       if (version !== this._info.version) {
         Ditto.warn("[PlayerInfo::load] version changed");
