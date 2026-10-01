@@ -31,6 +31,27 @@ export function numHex(d: number): string {
   return Number.isNaN(d) ? "nan" : bitsHex(d);
 }
 
+export function renderValue(v: unknown): string {
+  if (v === undefined) return "u";
+  if (v === null) return "z";
+  if (typeof v === "boolean") return v ? "b1" : "b0";
+  if (typeof v === "number") return "n" + String(v) + ":" + numHex(v);
+  if (typeof v === "string") return "s" + esc(v);
+  if (Array.isArray(v)) return "[" + v.map(renderValue).join(",") + "]";
+  if (v instanceof Map) {
+    const parts: string[] = [];
+    for (const [k, val] of v) parts.push(esc(String(k)) + ":" + renderValue(val));
+    return "{" + parts.join(",") + "}";
+  }
+  if (typeof v === "object") {
+    const o = v as Record<string, unknown>;
+    const parts: string[] = [];
+    for (const k of Object.keys(o)) parts.push(esc(k) + ":" + renderValue(o[k]));
+    return "{" + parts.join(",") + "}";
+  }
+  return "?";
+}
+
 export function parseJsStringLiteral(tok: string): string {
   let out = "";
   let i = 0;

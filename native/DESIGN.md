@@ -126,6 +126,9 @@ using Value = std::variant<
 | V5 | 关系比较 `< > <= >=` | **已完成**（107 行差分全过） |
 | V6 | `Object` + `Object.keys` 顺序 | **已完成**（109 行差分全过） |
 | V7 | `Expression` 跑在 `Value` 上 | **已完成**（303 + 216 行差分全过） |
+| V8 | `JSON.stringify` / `JSON.parse` | **已完成**（62 + 157 行差分全过） |
+| V9 | `JSON5.parse` / `JSON5.stringify` | **已完成**（详见 `JSON5.md`） |
+| V10 | `fields.ts`（字段描述 DSL + `fields()` + `reorder_fields` + `validate_fields`） | **已完成**（77 + 155 行差分全过；19 条变异全杀） |
 ### 4.1 V1 `Value` 的落地结果
 
 **先量后做**：把 5 张 getter 表（`get_val_from_entity` / `get_val_from_collision` /
@@ -464,8 +467,69 @@ class Object {
 **已知偏差**：JS 的 `Object.keys(null)` / `Object.keys(undefined)` 会**抛 TypeError**；
 C++ 的 `object_keys` 对非对象返回空列表。这条在本作数据里不可达。
 
-**还没做**：`JSON.stringify` / `JSON.parse`（`DatMgr` 的往返校验需要）——
-它是 `Object` 的下一个消费者，不是 `Object` 本身的一部分。
+### 4.8 V8 `JSON.stringify` / `JSON.parse`
+
+见 `native/README.md` 的“已知偏差”表与 `tests/differential/PROTOCOL.md` §6；要点：
+
+- `json_stringify(const Value&) -> std::optional<std::u16string>`，`nullopt` 就是 JS 的 `undefined`。
+  `undefined` 在顶层→`undefined`、在数组→`null`、在对象→**整个键被跳过**；非有限数→`null`；
+  转义表 = `"` `\` `\b\f\n\r\t` + `<0x20` → `\u00XX`，**不转义 `/` 也不转义非 ASCII**。
+- `json_parse` 严格：只认 `\t\n\r` 与空格、数字不许前导零/`+`/`.` 开头或结尾/hex/`Infinity`/`NaN`、
+  不许尾随逗号/注释/单引号/BOM，重复键**后者胜**。
+- 差分发现 1 个真 bug：`json_parse` 漏了**开头的 `ws()`** ⇒ `JSON.parse(" 1 ")` 被自己判成 err。
+
+### 4.9 V9 `JSON5`
+
+`lfw/core/json5.{h,cpp}` + `json5_util.h` + 生成的 `json5_unicode.{h,cpp}`。
+**目标是与仓库里的 `json5@2.2.3` 逐一对齐**，不是“按规范写一个”。完整细节见 `native/JSON5.md`。
+
+### 4.10 V10 `fields.ts`（字段描述层）
+
+**为什么可以直接用 `Value` 实现**：§1.2 已把 `fields` 归到“一次性装载路径”，
+而且 TS 里的字段描述符（`{type:'int', min:0, title:'...'}`）**本身就是普通对象**。
+所以 C++ 侧不造 struct，直接对 `Value`/`Object` 操作 —— 1:1 忠实，且能用现成的值字面量 DSL 对拍。
+
+```cpp
+Value field_desc(const std::u16string& type, const std::vector<Value>& args);  // w()
+Value fields_of(const Value& source);                       // fields()
+Value fields_map_2_fields_obj(const Value& field_map);      // 反向
+void  reorder_fields(Value& obj, const Value& field_map);   // 按 order 重排，稳定
+Value to_array(const Value& v);                             // TS 里叫 as_array（改名避冲突）
+bool  validate_fields(const Value& obj, const Value& field_map,
+                      std::vector<std::u16string>* errors,
+                      std::vector<std::u16string>* warnings);
+```
+
+**TS 的 `Map` 在 C++ 侧用 `Object` 顶替**，两边行为等价（已在差分中验证）：
+`fields()` 是从对象字面量按 `for...in` 插入的 ⇒ Map 顺序 = 对象的 `Object.keys` 顺序
+（整数样式键升序在前），而 C++ 的 `Object::keys()` 刚好就是这个顺序。
+`reorder_fields` / `validate_fields` 只用到 `get` / `has` / 迭代，对两者都是同一套语义。
+差分侧 TS 那边用 `new Map(Object.entries(obj))` 还原成真 Map。
+
+**两个把我坑住的语义细节**（都是被测用例抓出来的）：
+
+1. **`Array.prototype.join` 把 `undefined` 变成空串，而模板字符串变成 `"undefined"`**。
+   `field.options.map(o => JSON.stringify(o.value)).join(', ')` 里若某个 option 没有 `value`，
+   结果是 `"1, "` 而不是 `"1, undefined"` ⇒ C++ 需要两个 helper（`json_text` / `json_join_item`）。
+   这个 bug 是“value 不在白名单里”的用例抓到的 —— **错误消息文本也要对拍**。
+2. **`typeof v === 'object'` 包含 `null` 与数组**，所以 `w()` 里 `Object.assign` 对它们都会执行
+   （`null` 无效果；数组会把下标变成键 `"0"`/`"1"`）；而**字符串走另一个分支**（当 title/desc）。
+
+**不可达的 TS 抛异常路径**（C++ 无异常，能测的都写成等价行为）：
+
+| 情形 | TS | C++ |
+|---|---|---|
+| `reorder_fields(obj, null)` | TypeError | 直接返回 |
+| `object` 类型字段缺 `fields` 且值非空对象 | TypeError | 当空字段表 |
+| `validate_value` 的 `field` 为 `undefined` | TypeError | 当空字段 |
+
+都在 `defines/` 的真实数据里不可达（`fields` 一定存在，`field_map` 一定是 `Map`）。
+
+**变异测试 19/19 全杀**，覆盖：`w()` 的 title/desc 计数与追加、`order` 起点、
+“先合并源对象再补 key/order”的顺序、排序方向/稳定性/清空重插、`undefined` 是否算已知字段、
+`to_array` 的 null/undefined 与引用语义、`assign` 的字符串索引键、`nullable` 真值、
+`array===true`/`'auto'` 的严格比较、int 的整数判定与 `min` 比较、options 的严格相等与 join 语义、
+未知字段告警。
 
 ---
 

@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "lfw/core/js_num.h"
+#include "lfw/core/js_string.h"
 #include "lfw/core/value.h"
 #include "lfw/utils/math/round_float.h"
 
@@ -175,7 +176,8 @@ inline std::u16string key_of(const std::string& tok) {
 
 inline lfw::Value parse_value(const std::vector<std::string>& t, size_t& i) {
   if (i >= t.size()) {
-    std::fprintf(stderr, "unexpected end of value literal\n");
+    std::fprintf(stderr, "value literal truncated at token %zu of %zu:\n", i, t.size());
+    for (const std::string& s : t) std::fprintf(stderr, "  %s\n", s.c_str());
     std::exit(2);
   }
   const std::string kind = t[i++];
@@ -199,7 +201,9 @@ inline lfw::Value parse_value(const std::vector<std::string>& t, size_t& i) {
     }
     return lfw::Value(obj);
   }
-  std::fprintf(stderr, "bad value literal '%s'\n", kind.c_str());
+  std::fprintf(stderr, "bad value literal '%s' at token %zu of %zu:\n", kind.c_str(), i - 1,
+               t.size());
+  for (const std::string& s : t) std::fprintf(stderr, "  %s\n", s.c_str());
   std::exit(2);
 }
 
@@ -214,6 +218,43 @@ inline std::string vtag(const lfw::Value& v) {
   const lfw::Object* o = lfw::as_object(v);
   if (o != nullptr) return "o" + std::to_string(o->size());
   return "?";
+}
+
+inline std::u16string render_value(const lfw::Value& v) {
+  if (std::holds_alternative<std::monostate>(v)) return u"u";
+  if (std::holds_alternative<lfw::NullTag>(v)) return u"z";
+  if (const bool* b = std::get_if<bool>(&v)) return *b ? u"b1" : u"b0";
+  if (const double* d = std::get_if<double>(&v)) {
+    return u"n" + lfw::number_to_string(*d) + u":" + to_u16(num_hex(*d));
+  }
+  if (const std::u16string* s = std::get_if<std::u16string>(&v)) {
+    return u"s" + to_u16(esc(*s));
+  }
+  if (const lfw::Array* a = lfw::as_array(v)) {
+    std::u16string out = u"[";
+    for (size_t i = 0; i < a->size(); ++i) {
+      if (i != 0) out.push_back(u',');
+      out += render_value(a->at(i));
+    }
+    out.push_back(u']');
+    return out;
+  }
+  if (const lfw::Object* o = lfw::as_object(v)) {
+    std::u16string out = u"{";
+    bool first = true;
+    for (const std::u16string& k : o->keys()) {
+      const lfw::Value* p = o->get(k);
+      if (p == nullptr) continue;
+      if (!first) out.push_back(u',');
+      first = false;
+      out += to_u16(esc(k));
+      out.push_back(u':');
+      out += render_value(*p);
+    }
+    out.push_back(u'}');
+    return out;
+  }
+  return u"?";
 }
 
 }

@@ -392,7 +392,86 @@ Select-String -Path native\build\gen\trace.json5.real_data.cpp.txt -Pattern ' pe
 
 应当为 0，且 `ok=` 等于文件数。**任何"批量喂数据"的对拍都要做这一步自检。**
 
-### 6.4 切词器曾经在静默地截断参数（重要）
+### 6.4 `fields`（19 条全杀）
+
+`fields.ts` 是“字段描述 DSL + 字段表 + 校验”，C++ 侧直接用 `Value`/`Object` 实现
+（TS 的 `Map` 用 `Object` 顶替），所以共用同一套值字面量 DSL。
+TS 侧用**仓库里真正的** `src/LFW/fields.ts` 当参照。
+
+| 变异 | 抓它的用例 |
+|---|---|
+| `w()` 的第二个字符串不进 `desc` 分支 | `fw "int" 2 s "T" s "D"` |
+| `w()` 的 `desc` 追加改成覆盖 | `fw "int" 3 s "T" s "D" s "E3"` |
+| `fields()` 的 `order` 从 1 开始 | 任意 `ff` |
+| `fields()` 先补 `key`/`order` 再合并源对象 | `ff o 1 a o 2 key s "old" order n 9` |
+| `reorder_fields` 排序方向反向 | `fr o 3 c n 1 a n 2 b n 3 o 3 a…2 b…0 c…1` |
+| `order` 为 `undefined` 也算已知字段 | `fr o 2 a n 1 b n 2 o 2 a o 1 order u b o 1 order n 1` |
+| 重排时不先清空（`set` 原地更新 ⇒ 序不变） | 任意 `fr` |
+| `known` 初始顺序反转（暴露稳定排序） | `fr … order n 1 … order n 1`（相等） |
+| `to_array` 只看 `null` 不看 `undefined` | `fa u` |
+| `to_array` 对数组返回拷贝 | `fas a 2 n 1 n 2` |
+| `Object.assign` 的字符串索引键全取第 0 个 | `ff o 1 a s "x"` |
+| `nullable` 不看真值 | `fv o 1 a z o 1 a o 2 type s "int" nullable b 0` |
+| `array === 'auto'` 失效 | `fv o 1 a n 1 o 1 a o 2 type s "int" array s "auto"` |
+| `array === true` 用真值判定 | `fv o 1 a n 1 o 1 a o 2 type s "int" array s "no"` |
+| int 丢掉整数判定 | `fv o 1 a n 1.5 o 1 a o 1 type s "int"` |
+| int 的 `min` 用 `<=` | `fv o 1 a n 2 o 1 a o 2 type s "int" min n 2` |
+| options 用宽松相等 | `fv o 1 a n 1 o 1 a o 2 type s "int" options a 1 o 1 value s "1"` |
+| options 列表里 `undefined` 用 `json_text` | `fv o 1 a n 9 … options a 2 o 1 value n 1 o 2 label s "x" desc s "d"` |
+| 未知字段不告警 | 任意带多余键的 `fv` |
+
+**两个真 bug 是用例抓出来的，值得记**：
+
+1. **`Array.prototype.join` 把 `undefined` 变成空串，模板字符串变成 `"undefined"`**。
+   `field.options.map(o => JSON.stringify(o.value)).join(', ')` 在某个 option 缺 `value` 时
+   产出 `"1, "`，而我第一版复用了同一个 helper 得到 `"1, undefined"`。
+   ⇒ **错误消息的文本也在对拍范围内，不是"无关紧要的输出"**。
+2. **TS 里 `typeof null === 'object'`**，所以 `w()` 的 `Object.assign` 分支会吃 `null` 与数组
+   （数组会把下标变成键 `"0"`/`"1"`），而**字符串走另一个分支**（当 title/desc）。
+
+**三条“TS 会抛异常”的输入不能入对拍**（C++ 无异常）：`reorder_fields(obj, null)`、
+`object` 字段缺 `fields` 且值为非空对象、`validate_value` 的 `field` 为 `undefined`。
+都记进 `README.md` 的已知偏差表。
+
+### 6.5 用例 DSL 的两个坑（我踩了 6 次）
+
+值字面量是**前缀记法带个数**：`o <n> <k1> <v1> …`、`a <n> <v1> …`。
+个数写错时症状分三种，都要会认：
+
+| 症状 | 含义 |
+|---|---|
+| `value literal truncated at token i of n` | 个数**写多了**（或整行少了 token） |
+| `bad value literal 'x'` | 个数写多了，多出来的位置被当成下一项的 kind |
+| `line N: K trailing token(s) after op 'x'` | 个数**写少了**（`fields` subject 专有这个自检） |
+
+三种都会**把整行的 token 逐行打印出来**，所以定位是直接的。
+写用例时宁可用 `Select-String -Pattern '^fr '` 把同类行列出来逐个核对个数。
+
+### 1.6 subject: `fields`（`fields.ts`）
+
+TS 侧用**仓库里真正的 `src/LFW/fields.ts`**，C++ 侧是 `lfw/fields.cpp`。
+因为描述符本身就是普通对象，所以直接复用值字面量；字段表是 TS 的 `Map`，
+C++ 侧用 `Object` 顶替，TS 侧用 `new Map(Object.entries(o))` 还原。
+
+```
+fw "<type>" <n> <v1>..<vn>      构造描述符（type 取 string/float/int/boolean/object/map/空串）
+ff <obj>                         fields(obj)         → 字段表
+fm <map>                         fields_map_2_fields_obj
+fr <obj> <map>                   reorder_fields（就地重排）后打印 obj
+fa <v>                           to_array
+fas <v>                          to_array 是否与原数组同一个引用
+fv <data> <map>                  validate_fields → 1 行 ok + 每行 `e <err>` / `w <warn>`
+```
+
+`fields` subject 额外有“残留 token”自检：任何 op 解析完后若还有 token 未消费，直接报错
+（挡的是“个数写少了”这类静默错误）。
+
+输出统一走 `trace_util` 的 `render_value` / `renderValue`：
+`u` / `z` / `b0|b1` / `n<number_to_string>:<16位十六进制位模式>` / `s"..."`（`esc` 转义）/
+`[...]` / `{"key":...}`（键按 `Object.keys` 序，TS 的 `Map` 也渲染成 `{}`）。
+**同一个 `render*` 两边必须产出完全相同的文本**，所以 `Map` 与 `Object` 的差异在这里被抹平。
+
+### 1.7 切词器曾经在静默地截断参数（重要）
 
 `split_ws` 原来按空白切，**不认引号**。后果：
 

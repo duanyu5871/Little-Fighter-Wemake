@@ -6,6 +6,7 @@ add_library(lfw_core STATIC
   core/json5_unicode.cpp
   core/state_hash.cpp
   core/value.cpp
+  fields.cpp
   base/predicate.cpp
   utils/math/mersenne_twister.cpp
   utils/math/normalize_plane.cpp
