@@ -115,16 +115,22 @@ native/
     core/                            JS 语义地基（TS 侧无对应物）
       js_num.{h,cpp}                 js_round / js_to_uint32 / f64_bits
       state_hash.{h,cpp}             FNV-1a 64（差分测试用）
-    utils/math/                      ← 镜像 src/LFW/utils/math/
-      base.h                         ★ libm 单一收口（镜像 base.ts）
-      floor_float.h  round_float.h
-      clamp.h  clamp_add.h  float_equal.h  normalize.h
-      normalize_plane.{h,cpp}  calc_plane.{h,cpp}
-      line_plane_intersection.{h,cpp}  range.{h,cpp}
-      probability.{h,cpp}  project_to_line.{h,cpp}
-      mersenne_twister.{h,cpp}       ← utils/math/MersenneTwister.ts
-    (待搬) utils/{container_help,schema,easing,...} defines/ base/ loader/
-           collision/ entity/ state/ stage/ bot/ buff/ bg/ cmds/ controller/
+    defines/
+      i_bounding.h                   ← defines/IBounding
+    utils/
+      math/                          ← 镜像 src/LFW/utils/math/
+        base.h                       ★ libm 单一收口（镜像 base.ts）
+        floor_float.h  round_float.h
+        clamp.h  clamp_add.h  float_equal.h  normalize.h
+        normalize_plane.{h,cpp}  calc_plane.{h,cpp}
+        line_plane_intersection.{h,cpp}  range.{h,cpp}
+        probability.{h,cpp}  project_to_line.{h,cpp}
+        mersenne_twister.{h,cpp}     ← utils/math/MersenneTwister.ts
+      easing/
+        ease_linearity.h  ease_in_out_sine.h  ease_in_out_quint.h
+      cross_bounding.h  utf8.{h,cpp}  times.{h,cpp}
+    (待搬) utils/{container_help,schema,string_parser,type_check,type_cast,array,list_*}
+           base/ loader/ collision/ entity/ state/ stage/ bot/ buff/ bg/ cmds/ controller/
   tests/differential/                ★ 两侧对拍（详见 PROTOCOL.md）
   tools/
     native.mjs                       configure / build / lint / test
@@ -175,10 +181,16 @@ VS Code 里也已经指好（`.vscode/settings.json`）：
 | 0 | `core/` + 差分测试台 | ✅ 通过（MT19937 逐位一致，7564 行） |
 | 0.5 | 差分台子泛化为可插拔 subject | ✅ 通过 |
 | 1 | `utils/math/` | ✅ 通过（`math/scalar` 90 行、`math/plane` 52 行） |
-| 1.5 | `utils/{container_help,schema,easing}` | 待做 |
-| 2 | `collision/` | 待做 |
+| 1.5a | `utils/{easing,cross_bounding,utf8,times}` + `defines/i_bounding.h` | ✅ 通过（52 / 8 / 41 / 74 行） |
+| 1.5b | `utils/{container_help,type_check,type_cast,array,list_writable_properties}` | 待做 |
+| 2 | `collision/`（含 `defines` 的几何类型） | 待做 |
 | 3 | `defines/` + `base/Expression` + `loader/get_val_*`（103 条 getter 表） | 待做 |
 | 4 | `entity/` + `World.step` | 待做（高价值但最耦合） |
+
+`utils/{schema,string_parser}` 属于数据装载路径，跟第 3 步一起搬。
+`utils/container_help/list_fn.ts` 依赖 `Object.getOwnPropertyNames` + 原型链
+（整个 `src/LFW` 里唯一的真·反射），只有 `NoEmitCallbacks.add()` 一个调用点 ——
+它是宿主 API 的人体工程学，**移植时改成显式注册表，不要照搬**。
 
 **注意修正过的顺序**：`loader/preprocess_*.ts` 在运行时依赖 `dat_translator`
 （`CondMaker` / `set_hit_flag` / `make_entity_special` / `xml_x_entity_data` /

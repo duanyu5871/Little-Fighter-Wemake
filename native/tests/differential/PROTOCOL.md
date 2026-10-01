@@ -80,6 +80,47 @@ C++ 侧返回 `std::optional` 的 `nullopt`。执行器把两者都渲染成 `nu
 - 若两侧都是共享单例 → 两次输出都等于**第二次**的结果
 - 若 C++ 改成按值返回 → 第一次输出会是**第一次**的结果 → 差异暴露
 
+### 1.4 subject: `utils`
+
+镜像 `src/LFW/utils/`（`math/` 之外的部分）。
+
+```
+ease_linearity            <factor> [<from>] [<to>]
+ease_linearity_backward   <v> [<from>] [<to>]
+ease_in_out_sine          <factor> [<from>] [<to>]
+ease_in_out_sine_backward <v> [<from>] [<to>]
+ease_in_out_quint         <factor> [<from>] [<to>]
+ease_in_out_quint_backward <v> [<from>] [<to>]
+cross_bounding            <l0> <r0> <t0> <b0> <n0> <f0> <l1> <r1> <t1> <b1> <n1> <f1>
+utf8_encode               <u16hex>...
+utf8_decode               <bytehex>...
+times_new                 [<min>] [<max>]
+times_set_range           <a> <b>
+times_set_lifes           [<v>]
+times_set_min             <v>
+times_set_max             <v>
+times_set_value           <v>
+times_reset
+times_reborn
+times_state
+times_add                 <d>
+times_write_nums
+times_read_nums           <v> <min> <max> <lifes> <remains>
+times_snapshot
+times_read_snapshot       <v> <min> <max> <lifes> <remains>
+```
+
+缺省值：`<from>` = 0，`<to>` = 1；`times_new` 的 `<min>` = 0、`<max>` = `Number.MAX_SAFE_INTEGER`；
+`times_set_lifes` = `-1`。
+
+**名字映射**：TS 把 `backward` 挂在函数对象上（`ease_linearity.backward`），
+C++ 侧是独立函数 `ease_linearity_backward`。TS 里 `times.min` / `times.max` /
+`times.value` 是 getter+setter，C++ 里是 `min()` / `set_min()`。
+
+**`utf8_encode` / `utf8_decode` 用十六进制 token 传参**，因为需要能表达
+孤立代理项（`d83d`）、非法前导字节（`f8` / `ff`）这类 UTF-16 / UTF-8 的边角。
+输出是**十进制**的字节值 / UTF-16 code unit 值。
+
 ---
 
 ## 2. 输出 trace
@@ -107,6 +148,13 @@ C++ 侧返回 `std::optional` 的 `nullopt`。执行器把两者都渲染成 `nu
 | | `line_plane` | `line_plane <bits16>×3` 或 `line_plane null` |
 | | `project_to_line` | `project_to_line <bits16> <bits16>` 或 `project_to_line null` |
 | | `alias_*` | `<op> <两次捕获到的值依次输出>` |
+| utils | `ease_linearity` / `_backward` | `<op> <bits16>` |
+| | `ease_in_out_sine` / `_backward` | `<op> <bits16>`（量化） |
+| | `ease_in_out_quint` / `_backward` | `<op> <bits16>`（量化） |
+| | `cross_bounding` | `cross_bounding <bits16>×6` |
+| | `utf8_encode` | `utf8_encode <byteCount> <byteDecimal>...` |
+| | `utf8_decode` | `utf8_decode <u16Count> <codeUnitDecimal>...` |
+| | `times_*` | `<op> <bits16>×5`（`times_add` 前面多一个 `<true\|false>`） |
 
 ### 2.1 判据：量化后再比（**不是**原始位模式）
 
@@ -134,6 +182,9 @@ C++ 侧返回 `std::optional` 的 `nullopt`。执行器把两者都渲染成 `nu
 | `mersenne_twister` 的 `int` / `state` / 剩余长度 | **逐位精确** | 整数与内部状态，是最后一道防线 |
 | `math` 的 `probability` | 量化 | 内部走 `pow`（libm），跨实现不可保证 |
 | `math` 其余全部 | **逐位精确** | 纯 IEEE 算术（`+ - * /`、比较、`std::floor`），精确是可达且是应有的标准 |
+| `utils` 的 `ease_in_out_sine` / `_backward` | 量化 | `cos` / `acos` |
+| `utils` 的 `ease_in_out_quint` / `_backward` | 量化 | `pow` |
+| `utils` 其余全部（含 `ease_linearity` / `cross_bounding` / `utf8_*` / `times_*`） | **逐位精确** | 纯 IEEE 算术或整数 |
 
 `-0` 与 `+0` 位模式不同（`8000000000000000` vs `0000000000000000`），
 所以位模式输出顺带锁住了符号零的行为。
@@ -206,6 +257,8 @@ diff 失败时脚本会打印**第一处不同的行号**与两侧内容 —— 
 | MT `next_float()` 加 `+1e-15`（亚量化） | PASS —— 容忍度确实生效 |
 | MT 量化格点从 1/1000 改成 1/100 | FAIL，第 10 行（第一个 `float`） |
 | `line_plane_intersection` 的 `is_segment` 去掉 eps 容差 | FAIL，第 36 行（`t = -1e-20`，落在 `[-eps, 0)` 内） |
+| `utf8.cpp` decode 的 4 字节前导判定 `(b0 & 0xf8) == 0xf0` 放宽成 `b0 >= 0xf0` | FAIL，第 32 行（`f8 80 80 80 80` 本该被跳过） |
+| `times.cpp` `set_range` 的 `_value = a` 改成 `_value = _min` | FAIL，第 7 行（`times_set_range 10 5`） |
 
 **最后一条值得记一笔**：最初写的边界用例是错的（算出来 `t = 0.5`，离边界很远），
 变异**没被抓住**。原因是 `t > 1+eps` 与 `t > 1` 只在 `1 < t <= 1+eps` 时才有区别，

@@ -8,6 +8,8 @@ add_library(lfw_core STATIC
   utils/math/range.cpp
   utils/math/probability.cpp
   utils/math/project_to_line.cpp
+  utils/utf8.cpp
+  utils/times.cpp
 )
 
 target_include_directories(lfw_core PUBLIC
