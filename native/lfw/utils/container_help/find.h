@@ -1,10 +1,21 @@
 #pragma once
 
+#include <cstddef>
 #include <functional>
 #include <optional>
 #include <vector>
 
+#include "lfw/core/value.h"
+
 namespace lfw {
+
+inline size_t find_value_index(const Array* a, const std::function<bool(const Value&)>& pred) {
+  if (a == nullptr) return SIZE_MAX;
+  for (size_t i = 0; i < a->size(); ++i) {
+    if (pred(a->at(i))) return i;
+  }
+  return SIZE_MAX;
+}
 
 template <typename C, typename P>
 std::optional<typename C::value_type> find(const C& set, P p) {

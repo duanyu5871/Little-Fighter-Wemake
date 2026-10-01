@@ -262,3 +262,5 @@ VS Code 里也已经指好（`.vscode/settings.json`）：
 | 3p | `dat_translator/cook_ball_frame_state_15/3000/3001/3005/3006`（+ 内部 `cook_shrink_and_bounce`） | ✅ 通过（`ball_frame_state/all` 21 行；变异 **22/22 全杀**） |
 | 3q | `dat_translator/hit_next_frame_*`（8 个）+ `utils/container_help/assign` | ✅ 通过（`hit_next_frame/all` 15 行；变异 **26/26 全杀**） |
 | 3r | `dat_translator/parase_indexes` + `match_hash_end` + `utils/string_help` | ✅ 通过（`parase_indexes/all` 18 行、`string_matchers/all` 48 行；变异 **19/19** + **15/15**） |
+| 3s | `dat_translator/cook_frames` + `take_sections` | ✅ 通过（`cook_frames/all` 20 行；变异 **27/27 全杀**） |
+| 3t | `dat_translator/make_ball_special` + `find_value_index` | ✅ 通过（`make_ball_special/all` 17 行；变异 **24/24 全杀**） |

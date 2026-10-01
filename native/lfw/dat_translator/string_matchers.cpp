@@ -1,12 +1,15 @@
 #include "lfw/dat_translator/string_matchers.h"
 
 #include <cstddef>
+#include <memory>
 #include <optional>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "lfw/core/js_string.h"
+#include "lfw/core/value.h"
+#include "lfw/utils/type_check.h"
 
 namespace lfw {
 namespace dat_translator {
@@ -151,6 +154,23 @@ std::optional<std::u16string> match_hash_end(const std::u16string& text) {
     out.push_back(c);
   }
   return out;
+}
+
+TakeSectionsResult take_sections(const std::u16string& text, const std::u16string& start,
+                                 const std::u16string& end) {
+  const TakeBlocksResult blocks = take_blocks(text, start, end);
+  TakeSectionsResult ret;
+  for (const std::u16string& block : blocks.blocks) {
+    Object item;
+    for (const std::pair<std::u16string, std::u16string>& kv : match_colon_value(block)) {
+      const double num = to_number(Value(kv.second));
+      if (is_num(num)) item.set(kv.first, Value(num));
+      else item.set(kv.first, Value(kv.second));
+    }
+    ret.sections.push_back(Value(std::make_shared<Object>(item)));
+  }
+  ret.remains = blocks.remains;
+  return ret;
 }
 
 }

@@ -5,6 +5,8 @@
 #include <utility>
 #include <vector>
 
+#include "lfw/core/value.h"
+
 namespace lfw {
 namespace dat_translator {
 
@@ -21,6 +23,14 @@ struct TakeBlocksResult {
 
 TakeBlocksResult take_blocks(const std::u16string& text, const std::u16string& start,
                              const std::u16string& end);
+
+struct TakeSectionsResult {
+  std::vector<Value> sections;
+  std::u16string remains;
+};
+
+TakeSectionsResult take_sections(const std::u16string& text, const std::u16string& start,
+                                 const std::u16string& end);
 
 std::optional<std::u16string> match_hash_end(const std::u16string& text);
 

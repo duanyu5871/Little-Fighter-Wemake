@@ -848,3 +848,35 @@ P.S. TS 侧那个 `Times.lifes` 的无限递归（`return this.lifes`）就是�
   `a.ddat`（只被前者命中）与 `a.doc`（都不命中 ⇒ stage 报错）。
 - 工艺：`trim_str`/`js_trim` 这类逐字相同的重复实现必须先合并再写新调用方，
   否则同一规则会有第三份（合并后 `cond_maker`/`bg_data` 差分重跑仍绿）。
+
+### 6.9.22 `cook_frames`（27/27；一次 AV 调试 + 两类归因边界）
+
+- subject `cook_frames`（op `cook`，用例用 `new/set` 构造 `{text, base}`），**20 行全对**，变异 **27/27 全杀**。
+- **AV 调试法**：C++ 挂掉且**无任何输出** ⇒ 用 `Get-Content <case> -First N` 截断做二分（每步 4 行）
+  定位到具体用例，再用最小样本（拆开可疑的两个分支）分离。本轮根因是
+  `frame.hit` 为 **truthy 非对象**（dat 里 `hit:` 后接 `id:` 被 `match_colon_value` 解析成字符串 `"id:"`）
+  ⇒ `as_object` 得 nullptr 后解引用。TS 在同样输入下抛 TypeError（属“前提不满足”），
+  C++ 改为跳过并写入 DESIGN §4.33（有意差异，不写进用例）。
+- **差分抓到的真差异**：`base.files` 缺失时 TS 用解构默认值 `{}`，我给了 undefined。
+  注意：**解构默认值只在属性为 undefined 时生效，对象本身为 undefined 会直接抛** ⇒
+  `base` 必须由用例显式提供。
+- **归因边界样本**（先问“它对哪个输入才会不同”）：
+  - `content ≥ 1` 的边界需要“`\s+`(2nd) 之后的第一个字符紧接 `<frame_end>`”
+    ⇒ `<frame> id x<frame_end>`（name 空、content 1 字符）；
+  - `zero_as` 分支需要 `next: 0`；
+  - `not_zero_num` 分支需要**非数字真值**（`dvy: abc` ⇒ `to_num` 回退成字符串）。
+- 无效变异提醒：把 `row` 改成 `col` 会**编译失败**（作用域外）——那不是有效度量，要换成可编译的等价破坏。
+
+### 6.9.23 `make_ball_special`（24/24；前提条件与锚点缩进）
+
+- subject `make_ball_special`（op `ball`），**17 行全对**，变异 **24/24 全杀**。
+- **前提条件（TS 会抛错，样本必须提供）**：
+  - `id` 为 `JanChase`/`FirzenChasef`/`FirzenChasei` 时必须给 `base.hit_sounds`；
+  - `id` 为 `JanChase`/`JanChaseh` 时必须给 `frames['50'/'51'/'52']`（**全部三支**，代码无条件访问）；
+  - 这类崩在差分里表现为 `TS failed` + `TypeError: Cannot read properties of undefined`。
+- **锚点缩进要从文件里复制**：chase 组内的 `for` 是 **4 空格**、其内部是 **6/8 空格**；
+  我按 8/10 写锚点直接 0 次匹配（上一轮也踩了同类的“锚点行含多语句”）。
+- **嵌套锚点要分两次调用**：若一条变异的 `from` 是另一条的**子串**，同一次 `multi_replace` 里
+  先执行的替换会让后面的锚点失效（本轮 `invisible`/`invulnerable` 两条就是这种关系）。
+- 杂项：首行 `const Value item = make_obj({{u"oid", ...` 与后续对齐行要一起写进锚点，
+  否则以 `{u"oid"...}` 开头的锚点匹配不到。

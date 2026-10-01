@@ -1185,3 +1185,56 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
   原本各一份（`trim_str` 与 `js_trim` 逐字相同）⇒ 统一到 `utils/string_help.h`（两处差分重跑仍绿）。
   ⚠️ 提升时删掉了 `parase_indexes.cpp` 里自己写的 `is_non_empty_str`（与 `utils/type_check.h` 同名冲突）。
 
+---
+
+### 4.33 V33 `cook_frames`（+ `take_sections`）
+
+- 文件：`native/lfw/dat_translator/cook_frames.{h,cpp}`；`take_sections` 落在 `string_matchers.{h,cpp}`
+  （`take_blocks` + 每块 `match_colon_value` + `to_num(v) ?? v`）。
+- **`<frame>` 正则是手写模拟的**，原文 `/<frame>\s+(.*?)\s+(.*)((.|\n)+?)<frame_end>/g`：
+  - 第 1 个 `\s+` 贪婪吃满空白（至少 1 个）；
+  - `(.*?)` 因为 `\s+`(2nd) 必须先失败再回退 ⇒ **id = 第一个词**（不跨行）；
+  - `(.*)` 不跨行 + `((.|\n)+?)` 懒惰 + 字面 `<frame_end>` ⇒
+    `name_len = min(到行尾的长度, e - m - 1)`、content **至少 1 字符**，`e` 取**第一个** `<frame_end>`；
+  - 匹配失败要从 `p0 + 1` 继续扫描；成功则从 `e + 10` 继续（非重叠）。
+- **`ctx.base` 必须存在**（TS 的 `{ text, base: { files = {} } }` 解构默认值救不了 `base` 本身为 undefined）；
+  `files` 缺失 ⇒ **空对象**（不是 undefined，否则 `__ERROR__.files` 就会漂移）。
+- `wait = Number(fields.wait) * 2 + 2` ⇒ 缺失时是 **NaN**（照抄，不要换成 0）。
+- 隐身区间用 `raw_next` 的**宽松数值**比较（字符串 `"1200"` 也命中）；而 `vy === 550` 是**严格**。
+- 键插入序：`id, name, pic, wait, next, width, height` + `...fields`（覆盖同名但**保位**），
+  然后按 `itr, bdy, opoint, wpoint, cpoint, bpoint` 顺序补。`frames[frame_id]` 用 `Object::set`
+  （整数键升序，与 JS 一致）。
+- `delete` 分两类：`.length` 类（itr/bdy/opoint）判“数组且非空”，真值类（wpoint/bpoint/cpoint）判 truthy。
+- `cook_dvxyz`：`not_zero_num(v)` 才处理；`v === 550` ⇒ `[Fixed, 0, None]`；否则 `[undefined, round_float(v)]`。
+- **有意差异**：`frame.hit = frame.hit || {}` 之后 TS 会给它赋属性 —— 若 `hit` 是 truthy 非对象
+  （dat 里 `hit:` 后面接 `id:` 会被 `match_colon_value` 解析成字符串 `"id:"`）TS 会抛 TypeError，
+  C++ 选择跳过（这类输入不写进用例）。
+
+---
+
+### 4.34 V34 `make_ball_special`
+
+- 文件：`native/lfw/dat_translator/make_ball_special.{h,cpp}`；`find_value_index` 加到
+  `native/lfw/utils/container_help/find.h`（TS 的 `find` 对数组返回**元素**，C++ 返回**下标**再取）。
+- `switch (data.id)` 是**字符串严格**匹配；`data.id` 缺失或非字符串则直接返回。11 组分支：
+  1. `FirenFlame`(211)：逐 frame 逐个 `itr` → `set_hit_flag(itr, AllEnemy)`；
+  2. `FirzenBall`(223) / `BatBall`(224)：逐 frame 写 `no_shadow=1`、`dvz=0`、`vzm=Fixed`；
+  3. `JanChase`(220)：`base.drop_sounds = base.hit_sounds`；`frames[50/51/52].invisible = .wait`；
+     对 `behavior === ChasingSameEnemy(7)` 的 frame 插入 opoint（`x: centerx`、`y: centery`）；
+     再改 `opoint` 里第一个 `oid === JanChase && action.id === "40"` 的项；
+  4. `JanChaseh`(219)：`frames[50/51/52]` 的 `invulnerable ??= invisible ??= wait`（**nullish**，不是 falsy）；
+     只改 tail（**不**插入 opoint）；
+  5. `FirzenChasef`(221)：同 3，但 frames 是 `59/80/81`，opoint 坐标用 `floor(pic.w/2)`/`floor(pic.h/2)`；
+  6. `FirzenChasei`(222)：只有 drop_sounds + 插入 opoint（**没有** tail 处理）；
+  7. `DeepBall`/`DennisBall`/`WoodyBall`/`DavisBall`/`DennisChase`/`JackBall`/`JohnBall`：
+     `base.group = ensure(base.group, FreezableBall)`；
+  8. `JohnBiscuit`：无操作；`FreezeBall`(209)：`group = ensure(..., Freezer)`；
+  9. `BatChase`(225)：`behavior === Bat(12)` 的帧逐个 `itr` →
+     `actions = ensure(actions, {type: VALUE_STEAL, data:{target:1, itr_hp_ratio:0.2, itr_hp_r_ratio:0.2}})`；
+  10. 其余一大串 case 无操作。
+- tail 的字段写入顺序（链式赋值从右往左）：`unimportant` → `dvz, dvy, dvx, speedz` → `ghost`。
+- **有意差异**：TS 里 `data.base.hit_sounds`、`data.frames['50']` 缺失会抛错（前提条件），C++ 跳过。
+- 教训：**不要为“好看”把三组 chase 逻辑抽成带 `with_opoint` 开关的共享函数** ——
+  `JanChase` 用 `centerx/centery` 而 `FirzenChase*` 用 `pic.w/2`，抽共享会掩盖真实差异
+  （本轮一度这么写，已撤回；抽出但逐字相同的只保留 `pic_half`/`tail_index`/`edit_tail`）。
+

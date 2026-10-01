@@ -17,11 +17,13 @@ add_library(lfw_core STATIC
   dat_translator/ball_frame_state.cpp
   dat_translator/bg_data.cpp
   dat_translator/cookers.cpp
+  dat_translator/cook_frames.cpp
   dat_translator/entity_data.cpp
   dat_translator/entity_kinds.cpp
   dat_translator/frame_behavior.cpp
   dat_translator/itr_prefabs.cpp
   dat_translator/make_frame_state.cpp
+  dat_translator/make_ball_special.cpp
   dat_translator/parase_indexes.cpp
   dat_translator/string_matchers.cpp
   dat_translator/helpers.cpp
