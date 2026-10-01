@@ -118,6 +118,14 @@ std::pair<double, double> take_raw_frame_mp(Object& frame) {
   return {rem, hp};
 }
 
+Value take_number(Object& any, const std::u16string& key, const Value& or_value) {
+  const Value* v = any.get(key);
+  const bool is_number = v != nullptr && std::holds_alternative<double>(*v);
+  Value ret = is_number ? *v : or_value;
+  any.remove(key);
+  return ret;
+}
+
 Object& set_hit_flag(Object& info, const Value& value) {
   info.set(u"hit_flag", value);
   info.set(u"hit_flag_name", Value(defines::get_hit_flag_name(value)));

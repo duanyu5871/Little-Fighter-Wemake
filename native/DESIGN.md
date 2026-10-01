@@ -1267,3 +1267,120 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
   临时析构后 `Object` 被释放（`make_obj` 用 `make_shared`，引用计数归零）⇒ 悬垂指针，
   表现为“`aa` 展开的那整段字段全不见了”（不是崩溃）。⇒ 取指针前必须把临时存进局部变量。
 
+---
+
+### 4.36 V36 `make_stage_info_list`
+
+- 文件：`native/lfw/dat_translator/make_stage_info_list.{h,cpp}`。
+  `stage_info_new()` / `stage_phase_info_new()` 在 TS 里都只是 `return {}`（无字段）⇒
+  C++ 直接建空对象，**不需要**扩展 `gen_defines_runtime.mjs`。
+- 前置加工两步：`replace(/\\\\/g, "/")`（**两个**连续反斜杠 → `/`，手写而非 `replace_all`），
+  再 `replace(/<phase_end>[\n|\s|\r]*<stage>/g, "<phase_end><stage_end><stage>")`
+  （字符类里的 `|` 是**字面竖线**；贪婪吃空白，所以 `<phase_end>` 与 `<stage>` 之间可隔任意空白）。
+- 每个 `<stage>` 块：先建空 `phases` 数组并 `stage_info.phases = phases`（**同一个数组**），
+  再用 `take_blocks` 抽 `<phase>`；每个 phase 逐行（**只按 `\n` 切**，再逐行 `trim`）处理三类行：
+  `bound`（顺带 `music`，最后写 `desc = match_hash_end(line)?.trim() ?? ""`）、
+  `music`（只认 `music`）、`id`（建 object：`{id: [value], x: phase_info.bound}`，
+  `<soldier>`/`<boss>` 标记，`id`/`act` 走专用分支，其余键 `to_num(value) ?? 旧值`，
+  **每个键之后**都重算 `facing = (x && x < 0) ? 1 : -1`；`is_soldier && !times` ⇒ `times = 50`；
+  `phase_info.objects ??= []` 后 push）。
+- `head = stage_str.replace(/\s+\n+/g, "\n").trim()` 后 `match_colon_value` 的键值**一律当字符串**赋给 stage；
+  `name = (match_hash_end(head) ?? id)?.replace(/stage/gi, "").trim()`（`gi` 忽略大小写）。
+- `nid % 10 === 0` ⇒ `is_starting` + `starting_name = "" + (1 + nid / 10)`。
+- 每 phase：`enemy_r = (bound ?? 0) + 300`、`enemy_l = -300`、`on_end = [EnterNextPhase]`；
+  最后一段改 `[LoopGoGoGoRight]`，`i > 0` 的段加 `on_start = [GoGoGoRight]`。
+- **链式赋值 `p.health_up = p.respawn = {...}` 从右往左** ⇒ 键插入序是 `respawn` 再 `health_up`
+  （差分会直接抓到，和 `frame_behavior` 那轮的教训同源）。
+- `nid === 50` 两段（每 phase 的 `respawn*`；然后整体改成 Survival + 每 phase 的 `drink_l/drink_r/title/on_start=undefined/on_end`）；
+  `nid <= 9/19/29/39/49` 五段 chapter 分段。
+- 收尾三循环：第一段的 `cam_jump_to_x/player_jump_to_x/player_facing`；
+  `stable_sort`（JS `Array.sort` 自 ES2019 是**稳定**的 ⇒ 必须用 `std::stable_sort`）；
+  `next` 不在列表里则按区间改写；`is_stage_end` 的 stage 把 `last_phase.on_end` 置 undefined。
+
+
+---
+
+### 4.37 V37 `cook_file_variants` + `FrameEditing`
+
+两个 `make_fighter_data` 的前置单元，同轮完成。
+
+**`cook_file_variants`**（`native/lfw/dat_translator/cook_file_variants.{h,cpp}`）
+
+- `strip_suffix` 是 `/\.[^.]*$/` 的等价物 ⇒ 找**最后一个** `.` 并把其后全部丢掉；
+  没有 `.` 时**整串保留**（不是丢弃）。
+- `letter_of(offset) = char16(98 + offset)` ⇒ 0 是 `b`。
+- 取 `ret.base.files` 的键（`Object.keys` 顺序），**必须按字典序 `std::sort`**：
+  因为 `infos[0]` 与后面的 `findIndex` 下标都依赖顺序，顺序错了整段结果落在**别的文件**上。
+- 键为空或**奇数**个 ⇒ 直接返回。
+- 基准串 `first_str = strip_suffix(infos[0].path)`；然后 16 个字母逐个
+  `findIndex(path_of === first_str + letter)`，`found < 1` 即 break ⇒ 找不到任何变体时
+  `indexes = [0]`，后面的 gap 归约为 0 ⇒ `truthy(0)` 为假 ⇒ 直接返回（不写 `variants`）。
+- 间隔计算是 `reduce` 语义：`idx === 0` 用当前项（`n`），之后 `gap_v = (to_number(gap_v) == diff) ? gap_v : null`，
+  其中 `diff = idx - indexes[idx-1]`。**一旦不一致就变成 `null` 并保持**（`null` 是假值）。
+- `is_match` 逐项检查：`path_of(infos[j]) == path_of(infos[i]) + letter_of(idx - 1)`
+  且 `col/row/cell_w/cell_h` 与模板 **严格**相等（`same_field` 是 `===`）。
+- 通过后 `infos[i].variants = indexes.slice(1).map(j => infos[j + i].id)` ⇒
+  直接**就地改写共享的 `files` 对象**（不是拷贝）。
+
+**`FrameEditing`**（`native/lfw/dat_translator/frame_editing.{h,cpp}`）
+
+- 结构：`frame`（被编辑的帧对象）+ `costs`（`Map<string, {mp, hp}>`，可为 `nullptr`）。
+- `cook_one`：`is_str || is_num` ⇒ `get_next_frame_by_raw_id(to_string(v), "frame", "hit", costs)`；
+  否则**浅拷贝**后 `cook_next_frame_cost(out, "hit", costs)`。注意 `zero_as` 是 `"frame"`：
+  只有 `id` 为 `"0"` 时才看得出来（此时输出 `{id:"0"}`，写成 `"repeat"` 就变成 `{}`）。
+- `keydown` / `hit` 逻辑完全相同，只有目标键不同（`key_down` / `hit`）：
+  先 `??= {}` 保证容器存在，再对每个键 `add_next_frame(已有值, cooks)`。
+  `key` 既可以是字符串也可以是**字符串数组**（`keys_of` 只取其中的字符串项）。
+- `seq`：
+  1. `seqs ??= {}`；遍历 `nexts`，**先跳过所有 falsy**（注意 `0` 与 `""` 也是 falsy，
+     所以这里不能只靠 `is_str || is_num` 判分支 —— 少了这句 `n 0` 会被 cook 出来）；
+     `is_str || is_num` ⇒ `get_next_frame_by_raw_id(...)`；对象 ⇒ 浅拷贝 + `cook_next_frame_cost`；
+     其余（`null`/`undefined`/`false`）不产生任何元素。
+  2. `key[0] === 'F'` ⇒ 写 `"L" + key.slice(1)` 与 `"R" + key.slice(1)` 两个键：
+     每个 cooked 项各生成一份，`facing` 用**宽松**比较判定是否 Backward（所以字符串 `"2"`
+     也算 B），B 的写 `L`，非 B 的写 `R`（两个数组的 `facing` 互为反向）。
+  3. 否则写 `seqs[key]`（同样 `add_next_frame(已有值, cookeds)`）。
+- 两处都必须调用 `add_next_frame` 并传入**旧值**，否则同一键第二次调用会丢掉第一批。
+
+
+---
+
+### 4.38 V38 `make_fighter_data`（594 行 TS）
+
+- 文件：`native/lfw/dat_translator/make_fighter_data.{h,cpp}`；配套新增
+  `native/lfw/dat_translator/bots_frames.{h,cpp}`（`fids.defends`，其余 `bots/frames` 字段等
+  `make_bot_data_*` 落地时再补）与 `helpers` 里的 `take_number`。
+- **`take_number(v, k, or)` 的判定必须是 `typeof v[k] === "number"` 而不是"有限数字"**：
+  JS 里 `NaN` 也是 `"number"` ⇒ C++ 用 `std::holds_alternative<double>`，**不要**用 `is_num`。
+  它无条件 `delete v[k]`（无论是否命中）。
+- `switch (Number(frame.id))` **不能**直译成 C++ `switch`（不支持 `double`）：用 `to_number` +
+  `if/else` 链比较 double，语义与 JS `case` 的 `===` 一致（`NaN` 不等于任何 case）。
+  `Number("")` 是 0 ⇒ 空 id 也会落进 `case 0`，这一点被链式比较天然保留。
+- `frame_mp_hp_map` 在 C++ 里用 `Object` 表示（键 = frame id，值 = `{mp, hp}`），由
+  `traversal(frames, …)` + `take_raw_frame_mp` 填；注意 `take_raw_frame_mp` 会**先从帧里删掉 `mp`**，
+  所以 `infos` 里的 `mp/hp` 与帧上残留的 `mp` 无关。
+- `k9 = ["Fa","Fj","Da","Dj","Ua","Uj","ja"]`：`take` 无条件删键；随后
+  `if (!is_str && !is_num) return; if (next === "0" || next === 0) return;`（**严格**相等，
+  字符串 `"0"` 与数字 `0` 都要挡）。
+- `switch (frame.state)` 的两处（回头 / cook）以及 `frame.state` 可能被前面的 case 改过
+  （`200` → Frozen、`220~225` → Injured、`226~229` → Tired、`213/216` 的 Jump → Dash），
+  顺序敏感，必须照抄。
+- **`frame.ctrl_x = frame.ctrl_z = 1` 是链式赋值 ⇒ 右到左 ⇒ `ctrl_z` 先插入**（`case 12~15`）。
+  `case 5~8` 里写的是两条独立语句（`ctrl_z` 然后 `ctrl_x`），顺序不同，别"统一"。
+- `traversal` 的对象路径**先快照键**再逐个取值 ⇒ 遍历中 `delete frames[frame_id]` 安全（与 JS 一致）。
+- `round_trip_frames_map[frame.name]` 用 `to_string(undefined)` = `"undefined"` 作键
+  （JS 里 `map[undefined]` 就是这个键）；随后 `for (const key in ...)` 只遍历**已收集的键**，
+  而 `make_round_trip_frames` 只往 `frames` 里加、不往 map 里加，所以互不干扰。
+- `make_round_trip_frames`：`i < src_frames.length` 时**直接用源帧对象**（会改它的 `id`/`next`），
+  否则 `{...src_frames[2*(len-1)-i]}` 浅拷贝；`next.id` 的回环点是 `2*len-3`。
+  ⚠️ Walking/Running 的帧在循环里被 `delete frames[id]` 了，但**对象仍被 map 持有**，
+  并被这里重新写回 `frames` ⇒ 这些帧上写过的 `dvx/dvz/wait/ctrl_*` 依然可观察。
+- `indexes` 常量：`{-1:…, 1:…}` 里的 `-1` **不是**数组索引 ⇒ 是普通字符串键（排在整数键 `1` 之后），
+  与 `Object::set(u"-1")` 的表现一致。
+- `ret` 键序固定 `id, type, base, indexes, frames, processed`；`base` 与 `frames` 都是**共享**的对象
+  （不是拷贝），`cook_transform_begin_expression_to_hit` 之后才 `cook_file_variants`，
+  最后 `datIndex.bot` 真值才写 `base.bot_id`。
+- `cook_transform_begin_expression_to_hit`：先扫出 `state === TransformToCatching_Begin(500)` 的帧表
+  （键是 `frame.id`）；`tframes` 为空直接返回；然后遍历每帧的 `key_down/key_up/hit/seqs` 的**值**
+  （值是数组就逐项，否则单值），命中即写 `expression = "has_transform_data==1"`。
+- **有意保留的差异**：TS 在 `ctx.index` 缺失时抛 TypeError，C++ 返回空值（与之前几轮同策略）。

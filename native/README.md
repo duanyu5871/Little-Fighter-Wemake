@@ -265,3 +265,7 @@ VS Code 里也已经指好（`.vscode/settings.json`）：
 | 3s | `dat_translator/cook_frames` + `take_sections` | ✅ 通过（`cook_frames/all` 20 行；变异 **27/27 全杀**） |
 | 3t | `dat_translator/make_ball_special` + `find_value_index` | ✅ 通过（`make_ball_special/all` 17 行；变异 **24/24 全杀**） |
 | 3u | `dat_translator/make_weapon_special` + `broken_piece_frames` | ✅ 通过（`make_weapon_special/all` 42 行；变异 **29/29 全杀**） |
+| 3v | `dat_translator/make_stage_info_list` | ✅ 通过（`make_stage_info_list/all` 22 行；变异 **25/25 全杀**） |
+| 3w | `dat_translator/cook_file_variants` | ✅ 通过（`cook_file_variants/all` 14 行；变异 **13/13 全杀**） |
+| 3x | `dat_translator/frame_editing` | ✅ 通过（`frame_editing/all` 24 行；变异 **13/13 全杀**） |
+| 3y | `dat_translator/make_fighter_data` + `take_number` + `bots/frames` | ✅ 通过（`make_fighter_data/all` 38 行；变异 **37/37 全杀**） |

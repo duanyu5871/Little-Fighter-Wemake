@@ -894,3 +894,87 @@ P.S. TS 侧那个 `Times.lifes` 的无限递归（`return this.lifes`）就是�
   样本必须让那个帧**同时**带 `state = Weapon_Rebounding` 与 `itr`（本轮就是这么补上的）。
 - 共享常量：`broken_piece_frames` 的 27 个数组在 JS 里是可变的模块级常量 ⇒ C++ 必须返回
   `static` 的同一实例，否则 `pmut` 那组用例会漏。
+
+### 6.9.25 `make_stage_info_list`（25/25；两条等价变异 + 一条写坏的变异）
+
+- subject `make_stage_info_list`（op `mkstage`，整段 dat 文本写一行字面量），**22 行全对**，变异 **25/25 全杀**。
+- **差分抓到的漂移**：只差**键插入序** —— `p.health_up = p.respawn = {...}` 是链式赋值，
+  右侧先算 ⇒ `respawn` 先插入。又一次验证“链式赋值从右往左”。
+- **等价变异（已删并记录）**：
+  1. `collapse_ws_newlines`（`\s+\n+` → `\n`）：它的输出只拿去给 `match_colon_value` 与
+     `match_hash_end`，而前者的空白无关结果、后者的结果又会被 `.trim()` 抹平 ⇒ 在当前调用面**不可观察**。
+  2. `is_stage_end` 里的 `strict_equals(next, "end")`：删掉后会走 `find` 失败分支，
+     而 `"end"` 永远不在 id 列表里 ⇒ 同样为真 ⇒ 等价。
+- **写坏的变异**：我为了“取消排序”在前面**又插了一个**恒返回 `false` 的 `stable_sort`，
+  但原来的 sort 照旧执行 ⇒ 顺序不变 ⇒ 变异无效（不是幸存，是没生效）。
+  ⇒ 要破坏排序就改**比较器本身**（`return av < bv;` → `return false;`）。
+- 归因补样本：`bound` 行里的 `music` 需要“同一行同时有 bound 与 music”；
+  `nid < 49` 的边界需要 `id: 49`；排序需要乱序输入（30/3/12）。
+
+### 6.9.26 `cook_file_variants` + `frame_editing`（各 13/13；一条不可观察变异）
+
+- subject `cook_file_variants`（op `cfv <id>`）**14 行全对**、`frame_editing`
+  （op `kd`/`ht`/`sq`，另有把字面量写进共享 `costs` 的 `set C <key> <literal>`）
+  **24 行全对**；两个变异文件各 13 条、**13/13 全杀**。
+- **DSL 陷阱（本轮踩了两次，务必记住）**：`o N` 里的 `N` 是**键值对的个数**，
+  不是 token 数。`o 2 id s "50"` 会被判为“声明 2 对只给了 1 对” ⇒
+  `value literal truncated at token 10 of 9`。正确写法是 `o 1 id s "50"`，
+  两组就是 `o 2 id s "50" facing n 1`。
+  注意报错信息里的 token 下标由 `parse_value` **先算后判**，偶尔会读到 vector 末尾之外，
+  在 Windows 上表现为 `0xC0000005`（而不是干净的 exit 2）⇒ 见到“无输出 + AV”先怀疑字面量计数。
+- **两条“第一版没杀掉”的教训**：
+  1. `strip_suffix` 取最后一个点：只放一个多点样本没用，因为 `infos[0]` 必须**正好是**那个
+     多点文件（`std::sort` 后 `a.b.pb.png` 排在 `a.b.png` 前面）⇒ 样本要构造成
+     `a.a.png` / `a.ab.png` / `a.ac.png` / `a.ad.png` 这种“基准自身含两个点且字典序最小”。
+  2. gap 间隔不一致：字母必须**连续**（否则中间会 break，`indexes` 长度不够），
+     但下标要**跳** ⇒ 插中间干扰项 `abb.png` / `abd.png`（字典序排在 `a.png` 与 `ac.png` 之间，
+     且本身不是 `a` + 单字母，不会被 `findIndex` 选中）。
+- **`frame_editing` 补样本的归因**：
+  - `zero_as` 写成 `repeat`：只有 `id` 为 `"0"` 才可观察 ⇒ `kd f17 s "F" n 0`
+    （输出 `{id:"0"}` 而非 `{}`）。
+  - `seq` 少写“跳过 falsy”：`u`/`z` 走 else 分支本来就什么都不做 ⇒ **等价**；
+    必须用 `n 0`（`is_num` 为真但 falsy）与 `s ""` 才可观察。
+  - `seq` 普通分支丢掉旧值：同一键要 `sq` **两次**。
+  - 数字 next / 对象 next 的 cook：`sq <id> s "F" n 10`、`set C 50 {mp,hp}` + `sq <id> s "K" {id:"50"}`。
+  - `facing` 用宽松相等：样本给 `facing s "2"`（字符串）。
+- **一条已删的不可观察变异**：把 `cook_one` 里对象的浅拷贝改成直接用入参 `v`。
+  源对象在 DSL 里只能是**内联字面量**（没有“引用 `g_objs` 中对象”的语法），
+  就地改写它无法被任何观察点看到 ⇒ 记作**测试缺口**（不是等价变异，生产路径下源对象来自
+  帧表、是可达的）⇒ 后续 `make_fighter_data` 的集成用例会从真实数据取源对象，届时可覆盖。
+  **后续修正（§6.9.27）**：`make_fighter_data` 落地后确认这条缺口**仍在** —— `FrameEditing`
+  的 `nexts` 参数在两个方面都只能是内联字面量（帧表里的引用走的是 `is_str/is_num` 分支），
+  所以"对象浅拷贝"这一条目前无法用 DSL 观察；保留为已知缺口。
+
+### 6.9.27 `make_fighter_data`（37/37；两条等价变异）
+
+- subject `make_fighter_data`（op `reset` / `c <key> <literal>` / `f <frameKey> <literal>` /
+  `s <frameKey> <subKey> <literal>` / `run`）**38 行全对**，变异 **37/37 全杀**。
+- **本轮最大的教训：变异"存活"要先问「这条语句的效果最后可见吗」**。
+  Walking/Running 分支会 `delete frames[frame_id]`，看上去写进去的字段都白写了；
+  但 `round_trip_frames_map` 持有的是**同一对象**，`make_round_trip_frames` 又会把它重新写回
+  `frames` ⇒ `wait`/`dvx`/`dvz` **依然可观察**。前提是同一个 `name` 至少有 **2** 个帧
+  （否则 `2*len-2 === 0`，一个副本都不生成）。本轮 3 条"看似等价"的变异就是靠这个维度救回来的。
+- **归因要顺着"谁来覆盖它"往下追**：
+  1. `next` 的 cook 类型（`"next"` vs `"hit"`）需要 `next` 对象自带 `mp: -5`（只有负值才会被
+     `type === "next"` 取反），并且该帧的 `state` **不能**是 Standing/Jump/Walking ——
+     否则紧随其后的 `hit_next_frame_turn_back` 会把 `next` 整个换掉，差异被吞掉。
+  2. `mp/hp` 互换需要 `mp: 4300` 这种 `hp` 非零的值（`mp` 在 ±1000 内时 `hp` 恒为 0，看不出互换）。
+  3. `walking_speedz` 的默认值只能在 `state` **不是** Walking 的帧上观察（否则第三段 switch 会用
+     真实值把 `dvz` 覆盖回去）。
+- **改完用例一定要重新 `build`**：本轮出现过一次假 drift（`ctrl_x`/`ctrl_z` 键序），实际是
+  变异测试还原源码后没有重编译，exe 还是旧的。
+- **链式赋值再中一次**：`frame.ctrl_x = frame.ctrl_z = 1` 是 `ctrl_z` 先；而 `case 5~8` 是两条
+  独立语句（`ctrl_z` 在前）。同一份代码里两种写法并存，差分直接抓出来。
+- **两条等价变异（已删并记录）**：
+  1. `cook_file_variants(ret)` 与 `cook_transform_begin_expression_to_hit(ret.frames)` 互换顺序 ——
+     一个只碰 `ret.base.files`、另一个只碰 `frames[*].{key_down,key_up,hit,seqs}`，互不干扰，
+     且我们的 `cook_file_variants` 不会抛异常 ⇒ 不可观察（TS 里顺序只影响"抛错前完成的工作"）。
+  2. `if (tframes.keys().empty()) return;` 改成恒假 —— `cook_marker` 自己会用
+     `tframes.get(...) == nullptr` 全部 continue ⇒ 无副作用。
+- **`o N` 计数写错本轮又犯了 8 次**（`o 2` 后面给了 3 对之类）。养成习惯：
+  写完 `f`/`c`/`s` 行后先数一遍键值对。
+
+- **同一条语句在两条分支上各写了一遍时，一个变异只能覆盖其中一条**：`cook_next_frame_cost(item, "next", …)`
+  在 `next` 的**数组**分支和**单值**分支里各出现一次，第一条变异只打数组分支 ⇒ 单值样本救不了它。
+  修法是让样本同时覆盖两种形态（`next a 2 …` 与 `next o 3 …`），并**再补一条针对另一分支的变异**。
+  这是本轮最后一条幸存（也是唯一一条）真正的归因。

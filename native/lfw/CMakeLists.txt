@@ -25,11 +25,16 @@ add_library(lfw_core STATIC
   dat_translator/make_frame_state.cpp
   dat_translator/make_ball_special.cpp
   dat_translator/make_weapon_special.cpp
+  dat_translator/make_stage_info_list.cpp
+  dat_translator/cook_file_variants.cpp
+  dat_translator/frame_editing.cpp
   dat_translator/broken_piece_frames.cpp
   dat_translator/parase_indexes.cpp
   dat_translator/string_matchers.cpp
   dat_translator/helpers.cpp
   dat_translator/next_frame.cpp
+  dat_translator/bots_frames.cpp
+  dat_translator/make_fighter_data.cpp
   base/predicate.cpp
   utils/math/mersenne_twister.cpp
   utils/math/normalize_plane.cpp

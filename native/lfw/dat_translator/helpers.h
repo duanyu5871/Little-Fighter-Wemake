@@ -22,6 +22,7 @@ std::optional<double> take_positive_num(Object& any, const std::u16string& key,
 std::optional<double> take_not_zero_num(Object& any, const std::u16string& key,
                                         std::function<double(double)> fn = nullptr);
 std::pair<double, double> take_raw_frame_mp(Object& frame);
+Value take_number(Object& any, const std::u16string& key, const Value& or_value);
 
 Object& set_hit_flag(Object& info, const Value& value);
 Object& set_bdy_kind(Object& bdy, const Value& kind);
