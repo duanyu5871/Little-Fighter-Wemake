@@ -59,13 +59,45 @@ inline std::vector<std::string> split_ws(const std::string& s) {
   size_t i = 0;
   const size_t n = s.size();
   while (i < n) {
-    while (i < n && std::isspace(static_cast<unsigned char>(s[i]))) ++i;
+    const char c = s[i];
+    if (c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v' || c == '\f') {
+      ++i;
+      continue;
+    }
     size_t j = i;
-    while (j < n && !std::isspace(static_cast<unsigned char>(s[j]))) ++j;
-    if (j > i) out.push_back(s.substr(i, j - i));
+    if (c == '"') {
+      ++j;
+      while (j < n && s[j] != '"') {
+        if (s[j] == '\\' && j + 1 < n) ++j;
+        ++j;
+      }
+      if (j < n) ++j;
+    } else {
+      while (j < n) {
+        const char d = s[j];
+        if (d == ' ' || d == '\t' || d == '\n' || d == '\r' || d == '\v' || d == '\f') break;
+        ++j;
+      }
+    }
+    out.push_back(s.substr(i, j - i));
     i = j;
   }
   return out;
+}
+
+inline std::string strip_comment(const std::string& line) {
+  bool quoted = false;
+  for (size_t i = 0; i < line.size(); ++i) {
+    const char c = line[i];
+    if (quoted) {
+      if (c == '\\') ++i;
+      else if (c == '"') quoted = false;
+      continue;
+    }
+    if (c == '"') quoted = true;
+    else if (c == '#') return line.substr(0, i);
+  }
+  return line;
 }
 
 inline double to_double(const std::string& t) { return std::strtod(t.c_str(), nullptr); }
@@ -136,6 +168,11 @@ inline std::u16string to_u16(const std::string& s) {
   return out;
 }
 
+inline std::u16string key_of(const std::string& tok) {
+  if (!tok.empty() && tok[0] == '"') return parse_js_string_literal(tok);
+  return to_u16(tok);
+}
+
 inline lfw::Value parse_value(const std::vector<std::string>& t, size_t& i) {
   if (i >= t.size()) {
     std::fprintf(stderr, "unexpected end of value literal\n");
@@ -153,6 +190,15 @@ inline lfw::Value parse_value(const std::vector<std::string>& t, size_t& i) {
     for (size_t j = 0; j < n; ++j) arr->push_back(parse_value(t, i));
     return lfw::Value(arr);
   }
+  if (kind == "o") {
+    const size_t n = static_cast<size_t>(to_long(t[i++]));
+    auto obj = std::make_shared<lfw::Object>();
+    for (size_t j = 0; j < n; ++j) {
+      const std::u16string key = key_of(t[i++]);
+      obj->set(key, parse_value(t, i));
+    }
+    return lfw::Value(obj);
+  }
   std::fprintf(stderr, "bad value literal '%s'\n", kind.c_str());
   std::exit(2);
 }
@@ -165,6 +211,8 @@ inline std::string vtag(const lfw::Value& v) {
   if (std::holds_alternative<std::u16string>(v)) return "s";
   const lfw::Array* a = lfw::as_array(v);
   if (a != nullptr) return "a" + std::to_string(a->size());
+  const lfw::Object* o = lfw::as_object(v);
+  if (o != nullptr) return "o" + std::to_string(o->size());
   return "?";
 }
 

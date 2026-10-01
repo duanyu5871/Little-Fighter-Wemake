@@ -80,7 +80,7 @@ int main(int argc, char** argv) {
   int lineno = 0;
   while (std::getline(in, raw)) {
     ++lineno;
-    if (const auto hash = raw.find('#'); hash != std::string::npos) raw.erase(hash);
+    raw = trace::strip_comment(raw);
 
     const std::vector<std::string> tok = split_ws(raw);
     if (tok.empty()) continue;

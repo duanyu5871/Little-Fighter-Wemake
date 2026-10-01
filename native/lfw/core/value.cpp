@@ -9,7 +9,7 @@ namespace lfw {
 
 namespace {
 
-enum VKind { V_UNDEF, V_NULL, V_BOOL, V_NUM, V_STR, V_ARR };
+enum VKind { V_UNDEF, V_NULL, V_BOOL, V_NUM, V_STR, V_ARR, V_OBJ };
 
 VKind kind_of(const Value& v) {
   if (std::holds_alternative<std::monostate>(v)) return V_UNDEF;
@@ -17,7 +17,21 @@ VKind kind_of(const Value& v) {
   if (std::holds_alternative<bool>(v)) return V_BOOL;
   if (std::holds_alternative<double>(v)) return V_NUM;
   if (std::holds_alternative<std::u16string>(v)) return V_STR;
+  if (std::holds_alternative<std::shared_ptr<Object>>(v)) return V_OBJ;
   return V_ARR;
+}
+
+bool is_array_index(const std::u16string& k, uint32_t& out) {
+  if (k.empty() || k.size() > 10) return false;
+  if (k.size() > 1 && k[0] == u'0') return false;
+  uint64_t v = 0;
+  for (char16_t c : k) {
+    if (c < u'0' || c > u'9') return false;
+    v = v * 10 + static_cast<uint64_t>(c - u'0');
+  }
+  if (v > 4294967294ull) return false;
+  out = static_cast<uint32_t>(v);
+  return true;
 }
 
 }
@@ -52,6 +66,70 @@ Array* as_array(Value& v) {
 
 bool is_array(const Value& v) { return as_array(v) != nullptr; }
 
+const Object* as_object(const Value& v) {
+  const std::shared_ptr<Object>* p = std::get_if<std::shared_ptr<Object>>(&v);
+  return p && *p ? p->get() : nullptr;
+}
+
+Object* as_object(Value& v) {
+  std::shared_ptr<Object>* p = std::get_if<std::shared_ptr<Object>>(&v);
+  return p && *p ? p->get() : nullptr;
+}
+
+bool Object::has(const std::u16string& key) const { return get(key) != nullptr; }
+
+const Value* Object::get(const std::u16string& key) const {
+  uint32_t idx = 0;
+  if (is_array_index(key, idx)) {
+    const auto it = _ints.find(idx);
+    return it == _ints.end() ? nullptr : &it->second;
+  }
+  for (const auto& kv : _strs) {
+    if (kv.first == key) return &kv.second;
+  }
+  return nullptr;
+}
+
+void Object::set(const std::u16string& key, Value v) {
+  uint32_t idx = 0;
+  if (is_array_index(key, idx)) {
+    _ints[idx] = std::move(v);
+    return;
+  }
+  for (auto& kv : _strs) {
+    if (kv.first == key) {
+      kv.second = std::move(v);
+      return;
+    }
+  }
+  _strs.emplace_back(key, std::move(v));
+}
+
+bool Object::remove(const std::u16string& key) {
+  uint32_t idx = 0;
+  if (is_array_index(key, idx)) return _ints.erase(idx) != 0;
+  for (size_t i = 0; i < _strs.size(); ++i) {
+    if (_strs[i].first == key) {
+      _strs.erase(_strs.begin() + static_cast<std::ptrdiff_t>(i));
+      return true;
+    }
+  }
+  return false;
+}
+
+std::vector<std::u16string> Object::keys() const {
+  std::vector<std::u16string> out;
+  out.reserve(size());
+  for (const auto& kv : _ints) out.push_back(number_to_string(static_cast<double>(kv.first)));
+  for (const auto& kv : _strs) out.push_back(kv.first);
+  return out;
+}
+
+std::vector<std::u16string> object_keys(const Value& v) {
+  const Object* o = as_object(v);
+  return o != nullptr ? o->keys() : std::vector<std::u16string>();
+}
+
 std::u16string array_join(const Array& a) {
   std::u16string out;
   for (size_t i = 0; i < a.size(); ++i) {
@@ -70,11 +148,13 @@ std::u16string to_string(const Value& v) {
   if (const bool* b = std::get_if<bool>(&v)) return *b ? u"true" : u"false";
   if (const double* d = std::get_if<double>(&v)) return number_to_string(*d);
   if (const std::u16string* s = std::get_if<std::u16string>(&v)) return *s;
-  return array_join(*as_array(v));
+  if (const Array* a = as_array(v)) return array_join(*a);
+  return u"[object Object]";
 }
 
 Value to_primitive(const Value& v) {
   if (const Array* a = as_array(v)) return Value(array_join(*a));
+  if (as_object(v) != nullptr) return Value(std::u16string(u"[object Object]"));
   return v;
 }
 
@@ -84,7 +164,8 @@ double to_number(const Value& v) {
   if (const bool* b = std::get_if<bool>(&v)) return *b ? 1.0 : 0.0;
   if (const double* d = std::get_if<double>(&v)) return *d;
   if (const std::u16string* s = std::get_if<std::u16string>(&v)) return string_to_number(*s);
-  return string_to_number(array_join(*as_array(v)));
+  if (const Array* a = as_array(v)) return string_to_number(array_join(*a));
+  return string_to_number(u"[object Object]");
 }
 
 bool strict_equals(const Value& a, const Value& b) {
@@ -104,8 +185,9 @@ bool strict_equals(const Value& a, const Value& b) {
     const std::u16string* y = std::get_if<std::u16string>(&b);
     return y != nullptr && *x == *y;
   }
-  const Array* x = as_array(a);
-  return x != nullptr && x == as_array(b);
+  if (const Array* xa = as_array(a)) return xa == as_array(b);
+  if (const Object* xo = as_object(a)) return xo == as_object(b);
+  return false;
 }
 
 bool equals(const Value& a, const Value& b) {
@@ -121,8 +203,8 @@ bool equals(const Value& a, const Value& b) {
   if (ka == V_NUM && kb == V_STR) return strict_equals(a, Value(to_number(b)));
   if (ka == V_STR && kb == V_NUM) return strict_equals(Value(to_number(a)), b);
 
-  if (ka == V_ARR && (kb == V_NUM || kb == V_STR)) return equals(to_primitive(a), b);
-  if (kb == V_ARR && (ka == V_NUM || ka == V_STR)) return equals(a, to_primitive(b));
+  if ((ka == V_ARR || ka == V_OBJ) && (kb == V_NUM || kb == V_STR)) return equals(to_primitive(a), b);
+  if ((kb == V_ARR || kb == V_OBJ) && (ka == V_NUM || ka == V_STR)) return equals(a, to_primitive(b));
 
   return false;
 }

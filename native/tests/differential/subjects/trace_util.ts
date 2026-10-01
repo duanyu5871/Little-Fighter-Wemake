@@ -56,7 +56,45 @@ export function parseJsStringLiteral(tok: string): string {
 }
 
 export function splitWs(s: string): string[] {
-  return s.trim().length ? s.trim().split(/\s+/) : [];
+  const out: string[] = [];
+  const isWs = (c: string): boolean =>
+    c === " " || c === "\t" || c === "\n" || c === "\r" || c === "\v" || c === "\f";
+  let i = 0;
+  while (i < s.length) {
+    if (isWs(s[i]!)) {
+      i++;
+      continue;
+    }
+    let j = i;
+    if (s[i] === '"') {
+      j++;
+      while (j < s.length && s[j] !== '"') {
+        if (s[j] === "\\" && j + 1 < s.length) j++;
+        j++;
+      }
+      if (j < s.length) j++;
+    } else {
+      while (j < s.length && !isWs(s[j]!)) j++;
+    }
+    out.push(s.slice(i, j));
+    i = j;
+  }
+  return out;
+}
+
+export function stripComment(line: string): string {
+  let quoted = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i]!;
+    if (quoted) {
+      if (c === "\\") i++;
+      else if (c === '"') quoted = false;
+      continue;
+    }
+    if (c === '"') quoted = true;
+    else if (c === "#") return line.slice(0, i);
+  }
+  return line;
 }
 
 export function esc(s: string): string {
@@ -74,7 +112,11 @@ export function esc(s: string): string {
 export function readCaseLines(path: string): string[] {
   return readFileSync(path, "utf8")
     .split(/\r?\n/)
-    .map((l) => l.replace(/#.*$/, ""));
+    .map((l) => stripComment(l));
+}
+
+export function keyOf(tok: string): string {
+  return tok.startsWith('"') ? parseJsStringLiteral(tok) : tok;
 }
 
 export function parseValue(tok: string[], idx: number[]): unknown {
@@ -96,6 +138,15 @@ export function parseValue(tok: string[], idx: number[]): unknown {
       for (let j = 0; j < n; j++) arr.push(parseValue(tok, idx));
       return arr;
     }
+    case "o": {
+      const n = Number(tok[idx[0]!++]!);
+      const obj: Record<string, unknown> = {};
+      for (let j = 0; j < n; j++) {
+        const key = keyOf(tok[idx[0]!++]!);
+        obj[key] = parseValue(tok, idx);
+      }
+      return obj;
+    }
     default:
       process.stderr.write(`bad value literal '${kind}'\n`);
       return process.exit(2);
@@ -109,6 +160,7 @@ export function vtag(v: unknown): string {
   if (typeof v === "number") return "n";
   if (typeof v === "string") return "s";
   if (Array.isArray(v)) return "a" + v.length;
+  if (typeof v === "object" && v !== null) return "o" + Object.keys(v).length;
   return "?";
 }
 

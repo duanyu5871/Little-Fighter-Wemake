@@ -1,4 +1,4 @@
-import { bitsHex, esc, parseValue, readCaseLines, splitWs } from "./trace_util";
+import { bitsHex, esc, keyOf, parseValue, readCaseLines, splitWs, vtag } from "./trace_util";
 
 function line(...parts: (string | number)[]): string {
   return parts.map((p) => String(p)).join(" ");
@@ -54,7 +54,11 @@ function main(): void {
     if (op === "same") {
       const a = handles[Number(tok[1])];
       const b = handles[Number(tok[2])];
-      out.push(line(op, Array.isArray(a) && Array.isArray(b) ? String(a === b) : "-"));
+      const ka = Array.isArray(a);
+      const kb = Array.isArray(b);
+      const oa = a !== null && typeof a === "object" && !ka;
+      const ob = b !== null && typeof b === "object" && !kb;
+      out.push(line(op, ka && kb ? String(a === b) : oa && ob ? String(a === b) : "-"));
       continue;
     }
 
@@ -65,6 +69,29 @@ function main(): void {
         out.push(line(op, "-"));
       } else {
         out.push(line(op, pushHandle(held[idx])));
+      }
+      continue;
+    }
+
+    if (op === "okeys" || op === "olen" || op === "ohas" || op === "oprop" || op === "oset" || op === "odel") {
+      const held = handles[Number(tok[1])];
+      const o = held !== null && typeof held === "object" && !Array.isArray(held)
+        ? (held as Record<string, unknown>)
+        : undefined;
+      if (op === "okeys") out.push(line(op, esc(o ? Object.keys(o).join(",") : "")));
+      else if (op === "olen") out.push(line(op, o ? Object.keys(o).length : 0));
+      else if (op === "ohas") {
+        out.push(line(op, o && Object.hasOwn(o, keyOf(tok[2]!)) ? "true" : "false"));
+      } else if (op === "oprop") {
+        const key = keyOf(tok[2]!);
+        if (o && Object.hasOwn(o, key)) out.push(line(op, vtag(o[key]), esc(String(o[key]))));
+        else out.push(line(op, "-", "-"));
+      } else if (op === "oset") {
+        if (o) o[keyOf(tok[2]!)] = parseValue(tok, [3]);
+        out.push(line(op, tok[2]!));
+      } else {
+        if (o) delete o[keyOf(tok[2]!)];
+        out.push(line(op, tok[2]!));
       }
       continue;
     }

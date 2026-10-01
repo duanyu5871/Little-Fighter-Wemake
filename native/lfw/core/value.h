@@ -1,6 +1,9 @@
 #pragma once
 
+#include <cstdint>
+
 #include <cstddef>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -11,11 +14,12 @@
 namespace lfw {
 
 class Array;
+class Object;
 
 struct NullTag {};
 
-using Value =
-    std::variant<std::monostate, NullTag, bool, double, std::u16string, std::shared_ptr<Array>>;
+using Value = std::variant<std::monostate, NullTag, bool, double, std::u16string,
+                           std::shared_ptr<Array>, std::shared_ptr<Object>>;
 
 class Array {
  public:
@@ -33,11 +37,32 @@ class Array {
   std::vector<Value> _items;
 };
 
+class Object {
+ public:
+  Object() = default;
+
+  size_t size() const { return _ints.size() + _strs.size(); }
+  bool empty() const { return _ints.empty() && _strs.empty(); }
+
+  bool has(const std::u16string& key) const;
+  const Value* get(const std::u16string& key) const;
+  void set(const std::u16string& key, Value v);
+  bool remove(const std::u16string& key);
+  std::vector<std::u16string> keys() const;
+
+ private:
+  std::map<uint32_t, Value> _ints;
+  std::vector<std::pair<std::u16string, Value>> _strs;
+};
+
 bool truthy(const Value& v);
 const char* type_of(const Value& v);
 bool is_array(const Value& v);
 const Array* as_array(const Value& v);
 Array* as_array(Value& v);
+const Object* as_object(const Value& v);
+Object* as_object(Value& v);
+std::vector<std::u16string> object_keys(const Value& v);
 
 std::u16string array_join(const Array& a);
 Value to_primitive(const Value& v);

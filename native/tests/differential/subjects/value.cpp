@@ -10,11 +10,13 @@
 #include "trace_util.h"
 
 using trace::esc;
+using trace::key_of;
 using trace::Line;
 using trace::parse_value;
 using trace::split_ws;
 using trace::to_double;
 using trace::to_long;
+using trace::vtag;
 
 namespace {
 
@@ -46,7 +48,7 @@ int main(int argc, char** argv) {
   int lineno = 0;
   while (std::getline(in, raw)) {
     ++lineno;
-    if (const auto hash = raw.find('#'); hash != std::string::npos) raw.erase(hash);
+    raw = trace::strip_comment(raw);
 
     const std::vector<std::string> tok = split_ws(raw);
     if (tok.empty()) continue;
@@ -92,9 +94,12 @@ int main(int argc, char** argv) {
       }
       const lfw::Array* pa = lfw::as_array(g_handles[ia]);
       const lfw::Array* pb = lfw::as_array(g_handles[ib]);
+      const lfw::Object* oa = lfw::as_object(g_handles[ia]);
+      const lfw::Object* ob = lfw::as_object(g_handles[ib]);
       Line out;
       out.add(op);
       if (pa && pb) out.add_bool(pa == pb);
+      else if (oa && ob) out.add_bool(oa == ob);
       else out.add(std::string_view("-"));
       out.out();
 
@@ -113,6 +118,52 @@ int main(int argc, char** argv) {
         out.add(std::string_view("-"));
       } else {
         out.add(static_cast<unsigned long long>(add_handle(a->at(idx))));
+      }
+      out.out();
+
+    } else if (op == "okeys" || op == "olen" || op == "ohas" || op == "oprop" || op == "oset" ||
+               op == "odel") {
+      const size_t ih = static_cast<size_t>(to_long(tok[1]));
+      if (ih >= g_handles.size()) {
+        std::fprintf(stderr, "line %d: handle %zu out of range\n", lineno, ih);
+        return 2;
+      }
+      lfw::Value& held = g_handles[ih];
+      lfw::Object* o = lfw::as_object(held);
+      Line out;
+      out.add(op);
+      if (op == "okeys") {
+        std::u16string joined;
+        if (o != nullptr) {
+          const std::vector<std::u16string> ks = o->keys();
+          for (size_t k = 0; k < ks.size(); ++k) {
+            if (k != 0) joined.push_back(u',');
+            joined += ks[k];
+          }
+        }
+        out.add(esc(joined));
+      } else if (op == "olen") {
+        out.add(static_cast<unsigned long long>(o != nullptr ? o->size() : 0));
+      } else if (op == "ohas") {
+        out.add_bool(o != nullptr && o->has(key_of(tok[2])));
+      } else if (op == "oprop") {
+        const lfw::Value* p = o != nullptr ? o->get(key_of(tok[2])) : nullptr;
+        if (p != nullptr) {
+          out.add(vtag(*p));
+          out.add(esc(lfw::to_string(*p)));
+        } else {
+          out.add(std::string_view("-"));
+          out.add(std::string_view("-"));
+        }
+      } else if (op == "oset") {
+        if (o != nullptr) {
+          size_t i = 3;
+          o->set(key_of(tok[2]), parse_value(tok, i));
+        }
+        out.add(tok[2]);
+      } else {
+        if (o != nullptr) o->remove(key_of(tok[2]));
+        out.add(tok[2]);
       }
       out.out();
 

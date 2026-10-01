@@ -124,7 +124,7 @@ using Value = std::variant<
 | V3 | **`number_to_string`**（最短往返 + JS 指数阈值） | **已完成**（77 + 10558 行差分全过） |
 | V4 | **宽松 `==`** 完整规则表 | **已完成**（89 + 61 + 84 行差分全过；`{{`/`}}` 延到 V7） |
 | V5 | 关系比较 `< > <= >=` | **已完成**（107 行差分全过） |
-| V6 | `Object` + `Object.keys` 顺序 | 待做 |
+| V6 | `Object` + `Object.keys` 顺序 | **已完成**（109 行差分全过） |
 | V7 | `Expression` 跑在 `Value` 上 | **已完成**（303 + 216 行差分全过） |
 ### 4.1 V1 `Value` 的落地结果
 
@@ -416,6 +416,56 @@ class Expression { std::vector<Expression> children; ... };
 | OR 短路返回时丢掉 `not_`（`result = true`） | FAIL `eval` 第 142 行（`!((hp==100)|(mp==200))`） |
 | 去掉 `&&`/`\|\|` 双字符检测里的 `++i` | FAIL `eval` 第 118 行 + `parse` 侧崩 |
 | `find_op` 改成从左往右找 | FAIL `parse` 第 44 行（`A==B!=C`） |
+
+### 4.7 V6 `Object` 与键顺序（C2）
+
+**表示直接按规范的 `OrdinaryOwnPropertyKeys` 结构来**，不用一个容器再排序：
+
+```cpp
+class Object {
+  std::map<uint32_t, Value> _ints;                              // 整数样式的键：自动升序
+  std::vector<std::pair<std::u16string, Value>> _strs;          // 其余：插入序
+};
+// keys() = _ints 的键（转回十进制串） + _strs 的键
+```
+
+这样“插入时即维持顺序”是天然成立的，不需要在 `keys()` 里重排。普通对象只在 I/O 边界用（§1.1），
+所以字符串键的线性查找是可接受的。
+
+**“整数样式”的判定**（`ToUint32` 往返 + 显式排除 `2^32-1`）：
+
+- 非空、长度 ≤ 10（避免溢出）
+- **无前导零**（`"01"` / `"00"` 不算，但 `"0"` 算）
+- 全为 ASCII 数字
+- 数值 ≤ **4294967294**（`2^32-2`）—— `"4294967295"` 按规范不算
+
+于是 `"1e2"` / `"1.0"` / `"+1"` / `"-1"` / `"\u00201"` / `"NaN"` / `"Infinity"` / `""` 全是**字符串键**，
+按插入序排在整数键之后。
+
+**`Value` 层的接入**：`to_primitive(Object)` 与 `to_string(Object)` 都是 **`"[object Object]"`**
+（`Object.prototype.toString` 的默认结果 ⇒ `to_number(Object)` 是 NaN）；`kind_of` 新增 `V_OBJ`；
+`strict_equals` 对 Object 按指针比；`equals` 的规则 10/11 改成 `(V_ARR || V_OBJ)` —— **依然是对称的两条**。
+
+#### 一个测试教训
+
+`4294967295` 的“整数键 / 字符串键”之争，**单键对象区分不出来** —— 因为
+`number_to_string(4294967295.0)` 恰好就是 `"4294967295"`，两种存法 `keys()` 输出完全一样。
+必须让那个键**有机会跳到字符串键前面**才可区分：
+`hold o 2 a n 1 4294967295 n 2` → 正确是 `"a,4294967295"`，错成整数键则是 `"4294967295,a"`。
+（第一版我写的是 `o 2 4294967295 n 1 5 n 2`，两种存法都得 `"4294967295,5"`，**变异没抓到**。）
+
+| 变异 | 结果 |
+|---|---|
+| 去掉“无前导零”判定 | FAIL 第 15 行（`"01"` 与 `"1"` 合并） |
+| `2^32-2` 放宽成 `2^32-1` | FAIL 第 84 行（`4294967295` 跳到 `"a"` 前面） |
+| `keys()` 先输出字符串键 | FAIL 第 11 行（`o 5 b n 1 2 n 2 a n 3 1 n 4 c n 5`） |
+| `set` 更新已有的字符串键改成追加 | FAIL 第 49 行（键重复成 `"a,b,a"`） |
+
+**已知偏差**：JS 的 `Object.keys(null)` / `Object.keys(undefined)` 会**抛 TypeError**；
+C++ 的 `object_keys` 对非对象返回空列表。这条在本作数据里不可达。
+
+**还没做**：`JSON.stringify` / `JSON.parse`（`DatMgr` 的往返校验需要）——
+它是 `Object` 的下一个消费者，不是 `Object` 本身的一部分。
 
 ---
 

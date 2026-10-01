@@ -1,6 +1,9 @@
 add_library(lfw_core STATIC
   core/js_num.cpp
   core/js_string.cpp
+  core/json.cpp
+  core/json5.cpp
+  core/json5_unicode.cpp
   core/state_hash.cpp
   core/value.cpp
   base/predicate.cpp
