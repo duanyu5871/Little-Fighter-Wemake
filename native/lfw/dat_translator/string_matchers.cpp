@@ -1,7 +1,7 @@
 #include "lfw/dat_translator/string_matchers.h"
 
 #include <cstddef>
-#include <memory>
+ #include <memory>
 #include <optional>
 #include <string>
 #include <utility>

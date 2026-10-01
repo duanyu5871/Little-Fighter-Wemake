@@ -880,3 +880,17 @@ P.S. TS 侧那个 `Times.lifes` 的无限递归（`return this.lifes`）就是�
   先执行的替换会让后面的锚点失效（本轮 `invisible`/`invulnerable` 两条就是这种关系）。
 - 杂项：首行 `const Value item = make_obj({{u"oid", ...` 与后续对齐行要一起写进锚点，
   否则以 `{u"oid"...}` 开头的锚点匹配不到。
+
+### 6.9.24 `make_weapon_special`（29/29；"少字段"也是 bug）
+
+- subject `make_weapon_special`（op `wsp`；另外用 `piece <name>` / `pmut <name> <idx> <literal>`
+  直接验证 `broken_piece_frames` 的**共享性**：改一次再读应看到同一个数组被改），**42 行全对**，变异 **29/29 全杀**。
+- **差分抓到的真 bug（不崩，只是少字段）**：`as_object(make_aa(idx))` 传入**临时** `Value`，
+  临时析构 ⇒ `Object` 被释放（`make_shared` 计数归零）⇒ 悬垂 ⇒ 表现为“`aa` 展开的 `dvy`/`dvx` 全没了”。
+  ⇒ **少字段也要当 bug 查**，别只看崩溃。修法：先存局部变量再取指针。
+- **前提条件**：`data.base` 必须存在（TS 无条件访问 `data.base.group` / `data.base.type`）
+  ⇒ 每个样本都要给 `base`；这类崩在差分里表现为 `TS failed` + `Cannot read properties of undefined`。
+- **等价变异提醒**：`delete frame.itr` 对“本来就没有 `itr` 的帧”是 no-op ⇒ 要区分该分支，
+  样本必须让那个帧**同时**带 `state = Weapon_Rebounding` 与 `itr`（本轮就是这么补上的）。
+- 共享常量：`broken_piece_frames` 的 27 个数组在 JS 里是可变的模块级常量 ⇒ C++ 必须返回
+  `static` 的同一实例，否则 `pmut` 那组用例会漏。

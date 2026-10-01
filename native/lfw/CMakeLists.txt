@@ -24,6 +24,8 @@ add_library(lfw_core STATIC
   dat_translator/itr_prefabs.cpp
   dat_translator/make_frame_state.cpp
   dat_translator/make_ball_special.cpp
+  dat_translator/make_weapon_special.cpp
+  dat_translator/broken_piece_frames.cpp
   dat_translator/parase_indexes.cpp
   dat_translator/string_matchers.cpp
   dat_translator/helpers.cpp

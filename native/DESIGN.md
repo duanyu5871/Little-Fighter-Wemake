@@ -1238,3 +1238,32 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
   `JanChase` 用 `centerx/centery` 而 `FirzenChase*` 用 `pic.w/2`，抽共享会掩盖真实差异
   （本轮一度这么写，已撤回；抽出但逐字相同的只保留 `pic_half`/`tail_index`/`edit_tail`）。
 
+---
+
+### 4.35 V35 `make_weapon_special` + `broken_piece_frames`
+
+- 文件：`native/lfw/dat_translator/make_weapon_special.{h,cpp}`、
+  `native/lfw/dat_translator/broken_piece_frames.{h,cpp}`。
+- `broken_piece_frames` 是 **27 个模块级数组常量**（TS 里可被就地改写）⇒ C++ 用
+  `static const Value v = ...` 惰性构造并**返回同一实例**（每次返回 `shared_ptr` 副本）。
+  `range(a, b)` 是**闭区间**：`range(0, 3)` ⇒ `["0","1","2","3"]`。
+- `make_weapon_special`：
+  - `num_data_id = Number(data.id)`；`100..199` ⇒ `group = ensure(group, [VsWeapon, StageWeapon])`；
+  - `switch (data.base.type)`：`Heavy`→`w_atk_r_x ??= 200`、`Knife`→`70`、`Stick`→`100`、
+    `Baseball`/`Drink`→`w_atk_m_x ??= 100` + `w_atk_r_x ??= 200`（`w_atk_m_x ??= -1` 只在前三个）——
+    全部是 `??=`（**nullish**，不是 falsy）；
+  - `switch (data.id)`：`HenryArrow1`（weight=ARROW、删 group、非 Rebounding 的帧给 itr 加动作）、
+    `RudolfWeapon`（weight=ARROW、删 group、删 Rebounding 的 itr）、
+    `Weapon_Stick`/`_Hoe`/`_Knife`/`_baseball`/`_milk`/`_Stone`/`_WoodenBox`/`_Beer`/
+    `_Boomerang`/`_LouisArmourA`/`_LouisArmourB`/`_IceSword`（weight + brokens，其中 A 组是**直接覆盖**、
+    其余 `??=`；milk/Beer 额外写 `group` 与 `drink`）。
+  - `broken_pieces_opoints(frame_ids)` 的键序：`kind,x,y,pos_type,action,oid,unimportant,
+    inherit_speed_x/y/z`，再把 `aa[idx % 10]` 的 `dvy`/`dvx` **追加上去**（`aa` 有 10 个模板，其中 3 个只有 `dvy`）。
+  - `handled` 是**模块级 `Set`**（按**对象身份**去重）；TS 里重复会 `throw`，C++ 用 `continue`
+    跳过（**有意差异**，正常数据不会触发）。
+- **前提条件**：`data.base` 必须存在（TS 无条件访问 `data.base.group` / `data.base.type`）
+  ⇒ **所有**样本都要给 `base`，否则 TS 直接抛错。
+- **C++ 坑（本轮差分抓到的真 bug）**：`as_object(make_aa(idx))` 把**临时** `Value` 传进去，
+  临时析构后 `Object` 被释放（`make_obj` 用 `make_shared`，引用计数归零）⇒ 悬垂指针，
+  表现为“`aa` 展开的那整段字段全不见了”（不是崩溃）。⇒ 取指针前必须把临时存进局部变量。
+
