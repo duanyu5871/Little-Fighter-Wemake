@@ -194,10 +194,10 @@ VS Code 里也已经指好（`.vscode/settings.json`）：
 | 1.5b | `base/graves.h` + `utils/array/` + `utils/container_help/` | ✅ 通过（`collections/basic` 81 行、`collections/nested` 55 行） |
 | 1.6 | `base/Expression`（V7）+ `Object`（V6）+ `JSON`/`JSON5` | ✅ 通过（`expression` 303+216、`value/object` 109、`json` 62+157、`json5` 302+111+6454 行；共 48 条变异全杀） |
 | 1.7 | `fields.ts`（字段描述 DSL + `fields()` + `reorder_fields` + `validate_fields`） | ✅ 通过（`fields` 77+155 行；19 条变异全杀） |
-| 2a | `defines/` 的**枚举**（46 个：43 生成 + 3 手写） | ✅ 通过（`defines/all` 796 行；6 条变异全杀） |
+| 2a | `defines/` 的**枚举**（52 个：47 生成 + 5 手写；覆盖已验） | ✅ 通过（`defines/all` 851 行；6 条变异全杀） |
 | 2b | `defines/` 的**字段表**（34 张，生成） | ✅ 通过（`defines_fields/all` 34 行；5 条变异全杀） |
 | 2c | `defines/` 的**结构体**（`I*.ts` 的 interface，约 3071 行）+ 其余常量（`defines.ts` / `CMD.ts` / `actions/`） | 待做 |
-| 2d | `base/{FSM,Callbacks,NoEmitCallbacks}` | 待做 |
+| 2d | `base/{FSM,Callbacks,NoEmitCallbacks}` | ✅ 通过（`base/core` 3127 行；21 条变异全杀） |
 | 3 | `loader/get_val_*`（103 条 getter 表） | 待做 |
 | 4 | `entity` + `collision` + `buff` + `state` + `controller` + `bot` + `World` | 待做（**必须整块搬**，见下） |
 
@@ -231,10 +231,13 @@ VS Code 里也已经指好（`.vscode/settings.json`）：
 | `fields.cpp` 用 `Object` 顶替 TS 的 `Map` | 字段描述表在 C++ 侧是 `Object` | 两边等价（Map 插入序 = 对象的 `Object.keys` 序，已由差分验证）；C++ 的 `Value` 没有 Map 种类 |
 | `fields.cpp` 对三类“TS 会抛异常”的输入 | 直接返回 / 当空字段表 | 无异常可用；且（`field_map` 为 `null`、`object` 字段缺 `fields`、`field` 为 `undefined`）在 `defines/` 数据里不可达 |
 | `lfw/defines/*.h`（43 个） | **由 `native/tools/gen_defines_enums.mjs` 生成，不要手改** | 枚举是纯数据。改完 TS 重跑生成器；差分 `defines` 会验 |
-| `FacingFlag` / `HitFlag` / `EntityEnum` | **手写**，不在生成范围内 | 成员引用了同文件常量、同枚举成员或别的枚举，生成器不求值 |
+| `FacingFlag` / `HitFlag` / `EntityEnum` / `CMD` / `BinOp` | **手写**，不在生成范围内 | 前 4 个的成员引用了同文件常量 / 同枚举成员 / 别的枚举（生成器不求值）；`BinOp` 是早期手写的 `bin_op.h` |
 | 生成的 `bdy_kind_name_of` 等 | 命名 `xxx_name_of`（TS 里叫 `bdy_kind_name`） | 避开将来手写同名函数 |
 | `lfw/defines/fields_gen.h` | **由 `native/tools/gen_defines_fields.mjs` 生成，不要手改** | 它跑真实的 TS 字段表、内嵌成 JSON5，运行时用 `json5_parse` 还原 |
 | `JSON.stringify` 会把 `-0` 写成 `0` | 生成字段表时用 | 当前 34 张表里没有 `-0`；若有，差分会在位模式上暴露 |
+
+> `native.mjs all` 里的 `coverage` 步骤会跑 `tools/check_defines_coverage.mjs`：
+> 它用「运行时枚举 TS 导出」这条**独立于生成器**的路径，检查 TS 里的枚举/字段表有没有漏搬。
 
 **注意修正过的顺序**：`loader/preprocess_*.ts` 在运行时依赖 `dat_translator`
 （`CondMaker` / `set_hit_flag` / `make_entity_special` / `xml_x_entity_data` /

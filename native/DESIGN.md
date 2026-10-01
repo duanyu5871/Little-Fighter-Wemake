@@ -561,6 +561,26 @@ bool  validate_fields(const Value& obj, const Value& field_map,
   （`FacingFlag` 的 `SameAsCatcher` 与 `SameAsBearer` 都是 4 ⇒ `FacingFlag[4] === "SameAsBearer"`）。
 - 字符串枚举**没有**反向映射。
 
+#### 覆盖检查（`tools/check_defines_coverage.mjs`，已接进 `native.mjs all`）
+
+**⚠ 这里曾有一个真实漏洞，值得记**：C++ 侧与 TS 侧的枚举名单**都出自同一个生成器**，
+所以生成器漏掉的东西会被两边**同时**漏掉 —— **差分测试看不见**。
+
+补的办法是加一条**独立于生成器**的路径：把 `defines/**/*.ts` 全部 import 进来，
+在运行时扫导出并按形状分类（数值枚举 = 同时有 `名→数` 与 `数→名`；字段表 = `*_fields`；
+`*Descriptions` / `*Labels` / `Record<枚举, string>` = 标签表；同一对象再次出现 = 别名），
+再与 C++ 注册表比对。别名按**对象同一性**归组，只要有一个名字被注册就算覆盖。
+
+它立刻查出 **1 个真漏洞**：`ITerrainInfo.ts` 里是 `export const enum TerrainEnum`
+（生成器的正则只写 `export enum`）⇒ 补上后 `defines` 从 796 → **851 行**。
+另外 `CMD`（`const enum`，3 个成员引用 `CheatEnum`）和 `BinOp`（生成器跳过）也补进了注册表。
+
+现在：**字段表 34/34、枚举 52 个、`coverage: OK`**（唯一剩下的 `suffix_map` 是
+`Record<DatTypeEnum, string>` 标签表，已人工确认不是枚举）。
+
+> **教训：「两边同源」消除了转录错误，但也消除了交叉检查。**
+> 凡是生成出来的数据，都要再配一条从**权威实现**出发的独立覆盖检查。
+
 ### 4.12 V12 `defines/` 的字段表（34 张）
 
 字段表是 `defines/` 里**运行期真正相关**的部分：`reorder_fields(obj, table)` 只取 `order`；
@@ -589,6 +609,44 @@ bool  validate_fields(const Value& obj, const Value& field_map,
 
 **边界**：`JSON.stringify` 会把 `-0` 写成 `0`。当前 34 张表里没有 `-0`；
 若将来有，diff 会在数字位模式上暴露，那时改成手工序列化即可。
+
+### 4.13 V13 `base/{NoEmitCallbacks, Callbacks, FSM}`
+
+`native/lfw/base/no_emit_callbacks.h`（内含 `CallbacksT`）、`native/lfw/base/fsm.h`。
+
+**移植要点**
+
+- `NoEmitCallbacksT<Payload>`：TS 的 `_map: Map<key, Pack>` → `std::vector<Pack> _packs`
+  （保插入序 + 线性查找；键是十个量级，不值得上哈希表）。
+- TS 的 `Pack._set: Set<F>` → `std::vector<Listener*>`：必须保插入序、按**身份**去重、
+  `del` 后重新 `add` 要排到末尾。这就是不能用 `set` / `unordered_set` 的原因。
+- **`list_fn` 的替代**：TS 用 `list_fn`（反射枚举 listener 的方法名）取 key 列表，C++ 没有反射，
+  改为显式 `handlers` 列表（`{key, fn}`），`Pack` 按 key 线性查 handler。
+- **重入 + 延迟操作**：`emit()` 先入队，已在派发中则直接返回，否则进 `handle_pendings()`；
+  派发期间的 `add` / `remove` 进 `_waits`，**每轮结束后**统一应用（否则迭代 `_set` 时会错位）；
+  `once` 的删除以「延迟 del」入队 ⇒ 一次 flush 内不会重复触发。
+- **溢出保护**：单次 flush 最多派发 `kMaxPendingsPerFlush = 1000` 条；超了告警一次
+  （`_overflow_warned`，队列耗尽后复位）、`compact()` 保留剩余、下次 `emit` 继续。
+  `_head` 是「已消费下标」，`compact()` 会把它归零 ⇒ flush 之外恒为 0，
+  所以「`size() - _head` 写成 `size()`」是**等价变异体**（见 PROTOCOL §6.9.1）。
+- **告警出口**：TS 是 `Ditto.warn`，C++ 是 `callbacks_warn()`（宿主注入的 `std::function`，
+  默认空 ⇒ 静默）——`Ditto` 那类全局可变宿主状态的标准做法。
+- **`FSM`**：`_state_map` 用 `std::vector<std::pair<Value, IState*>>` 保序（同 `Map`），
+  键比较 `strict_equals`（≈ SameValueZero）。`set_state` 的顺序必须是
+  `prev = cur` → `cur.leave()` → `state_time = 0` → `cur = next` → `next.enter()` → 日志 → 通知回调；
+  顺序错了差分立刻红（`E` / `LV` 行会串位）。
+- `IState::update` 用 `std::optional<Value>` 表达「不切状态」：TS 的 `undefined` / `null` 都早退。
+- `state_label` 的**宽松相等**是 TS 原样行为（`name == key`，`"7" == 7` 为真 ⇒ 标签不带括号），
+  移植时不能「顺手改成严格相等」；数字 key 用例专门盯这一点。
+
+**验证**：subject `base`（`cases/base/core.txt`，3127 行全对）+ 21 条变异全杀。
+用例覆盖：身份去重、插入序、`del` 后重加、重入 `emit`、派发期间 `add`/`del` 延迟生效、
+`once` 自删、未知 key 是 no-op、`clear`、溢出告警文案与「耗尽后复位 + 二次告警」、
+数字 key 的宽松标签、`use`/`reset`/`update`/`snapshot`/`restore`、`enter`/`leave` 顺序、
+`on_state_changed` 通知。
+
+**渲染注意**：告警文案含 `U+2014`。终端里的 `to_ascii` 只做 `static_cast<char>` ⇒ 非 ASCII 被截成
+控制字符，两侧看起来不一致。**自由文本一律用两侧共用的 `esc()` 渲染**（`>0x7e` 转义成 `\uXXXX`）。
 
 ---
 

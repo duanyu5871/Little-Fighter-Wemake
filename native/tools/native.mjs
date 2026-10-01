@@ -100,6 +100,12 @@ function cmdLint() {
   return spawnSync(process.execPath, [join(HERE, "check_lfw_cpp_includes.mjs")], { stdio: "inherit" }).status ?? 1;
 }
 
+function cmdCoverage() {
+  return (
+    spawnSync(process.execPath, [join(HERE, "check_defines_coverage.mjs")], { stdio: "inherit" }).status ?? 1
+  );
+}
+
 function cmdTest() {
   const r = spawnSync(
     process.execPath,
@@ -113,11 +119,13 @@ const table = {
   configure: () => step("configure", cmdConfigure),
   build: () => step("build", cmdBuild),
   lint: () => step("lint", cmdLint),
+  coverage: () => step("coverage", cmdCoverage),
   test: () => step("test", cmdTest),
   all: () => {
     step("configure", cmdConfigure);
     step("build", cmdBuild);
     step("lint", cmdLint);
+    step("coverage", cmdCoverage);
     step("test", cmdTest);
     console.log("");
     console.log(C.green(C.bold("all passed")));

@@ -17,30 +17,31 @@ import * as M15 from "../../../../../src/LFW/defines/FrameId";
 import * as M16 from "../../../../../src/LFW/defines/GameKey";
 import * as M17 from "../../../../../src/LFW/defines/IDatIndex";
 import * as M18 from "../../../../../src/LFW/defines/IDialogInfo";
-import * as M19 from "../../../../../src/LFW/defines/ItrEffect";
-import * as M20 from "../../../../../src/LFW/defines/ItrKind";
-import * as M21 from "../../../../../src/LFW/defines/LF2Val";
-import * as M22 from "../../../../../src/LFW/defines/MagnificationTextureFilter";
-import * as M23 from "../../../../../src/LFW/defines/MinificationTextureFilter";
-import * as M24 from "../../../../../src/LFW/defines/OID";
-import * as M25 from "../../../../../src/LFW/defines/OpointKind";
-import * as M26 from "../../../../../src/LFW/defines/OpointMultiEnum";
-import * as M27 from "../../../../../src/LFW/defines/OpointSpreading";
-import * as M28 from "../../../../../src/LFW/defines/SparkEnum";
-import * as M29 from "../../../../../src/LFW/defines/SpeedCtrl";
-import * as M30 from "../../../../../src/LFW/defines/SpeedMode";
-import * as M31 from "../../../../../src/LFW/defines/StageActions";
-import * as M32 from "../../../../../src/LFW/defines/StageGroup";
-import * as M33 from "../../../../../src/LFW/defines/StageVal";
-import * as M34 from "../../../../../src/LFW/defines/StateEnum";
-import * as M35 from "../../../../../src/LFW/defines/SyncRenderEnum";
-import * as M36 from "../../../../../src/LFW/defines/TeamEnum";
-import * as M37 from "../../../../../src/LFW/defines/TextureWrapping";
-import * as M38 from "../../../../../src/LFW/defines/WeaponType";
-import * as M39 from "../../../../../src/LFW/defines/WorldVal";
-import * as M40 from "../../../../../src/LFW/defines/WpointKind";
-import * as M41 from "../../../../../src/LFW/defines/actions/ActionType";
-import * as M42 from "../../../../../src/LFW/defines/defines";
+import * as M19 from "../../../../../src/LFW/defines/ITerrainInfo";
+import * as M20 from "../../../../../src/LFW/defines/ItrEffect";
+import * as M21 from "../../../../../src/LFW/defines/ItrKind";
+import * as M22 from "../../../../../src/LFW/defines/LF2Val";
+import * as M23 from "../../../../../src/LFW/defines/MagnificationTextureFilter";
+import * as M24 from "../../../../../src/LFW/defines/MinificationTextureFilter";
+import * as M25 from "../../../../../src/LFW/defines/OID";
+import * as M26 from "../../../../../src/LFW/defines/OpointKind";
+import * as M27 from "../../../../../src/LFW/defines/OpointMultiEnum";
+import * as M28 from "../../../../../src/LFW/defines/OpointSpreading";
+import * as M29 from "../../../../../src/LFW/defines/SparkEnum";
+import * as M30 from "../../../../../src/LFW/defines/SpeedCtrl";
+import * as M31 from "../../../../../src/LFW/defines/SpeedMode";
+import * as M32 from "../../../../../src/LFW/defines/StageActions";
+import * as M33 from "../../../../../src/LFW/defines/StageGroup";
+import * as M34 from "../../../../../src/LFW/defines/StageVal";
+import * as M35 from "../../../../../src/LFW/defines/StateEnum";
+import * as M36 from "../../../../../src/LFW/defines/SyncRenderEnum";
+import * as M37 from "../../../../../src/LFW/defines/TeamEnum";
+import * as M38 from "../../../../../src/LFW/defines/TextureWrapping";
+import * as M39 from "../../../../../src/LFW/defines/WeaponType";
+import * as M40 from "../../../../../src/LFW/defines/WorldVal";
+import * as M41 from "../../../../../src/LFW/defines/WpointKind";
+import * as M42 from "../../../../../src/LFW/defines/actions/ActionType";
+import * as M43 from "../../../../../src/LFW/defines/defines";
 import { EXTRA_ENUMS } from "./defines_enums_extra";
 
 export const ENUMS: { name: string; value: unknown }[] = [
@@ -63,32 +64,33 @@ export const ENUMS: { name: string; value: unknown }[] = [
   { name: "GK", value: M16.GK },
   { name: "DatTypeEnum", value: M17.DatTypeEnum },
   { name: "DialogCloseBy", value: M18.DialogCloseBy },
-  { name: "ItrEffect", value: M19.ItrEffect },
-  { name: "ItrKind", value: M20.ItrKind },
-  { name: "LF2Val", value: M21.LF2Val },
-  { name: "MagnificationTextureFilter", value: M22.MagnificationTextureFilter },
-  { name: "MinificationTextureFilter", value: M23.MinificationTextureFilter },
-  { name: "OID", value: M24.OID },
-  { name: "OpointKind", value: M25.OpointKind },
-  { name: "OpointMultiEnum", value: M26.OpointMultiEnum },
-  { name: "OpointSpreading", value: M27.OpointSpreading },
-  { name: "SparkEnum", value: M28.SparkEnum },
-  { name: "SpeedCtrl", value: M29.SpeedCtrl },
-  { name: "SpeedMode", value: M30.SpeedMode },
-  { name: "StageActions", value: M31.StageActions },
-  { name: "StageGroup", value: M32.StageGroup },
-  { name: "StageVal", value: M33.StageVal },
-  { name: "StateEnum", value: M34.StateEnum },
-  { name: "SyncRenderEnum", value: M35.SyncRenderEnum },
-  { name: "TeamEnum", value: M36.TeamEnum },
-  { name: "TextureWrapping", value: M37.TextureWrapping },
-  { name: "WeaponEnum", value: M38.WeaponEnum },
-  { name: "WorldVal", value: M39.WorldVal },
-  { name: "WpointKind", value: M40.WpointKind },
-  { name: "ActionType", value: M41.ActionType },
-  { name: "BuiltIn_Imgs", value: M42.Defines.BuiltIn_Imgs },
-  { name: "BuiltIn_Dats", value: M42.Defines.BuiltIn_Dats },
-  { name: "BuiltIn_Broadcast", value: M42.Defines.BuiltIn_Broadcast },
-  { name: "BuiltIn_Sounds", value: M42.Defines.BuiltIn_Sounds },
+  { name: "TerrainEnum", value: M19.TerrainEnum },
+  { name: "ItrEffect", value: M20.ItrEffect },
+  { name: "ItrKind", value: M21.ItrKind },
+  { name: "LF2Val", value: M22.LF2Val },
+  { name: "MagnificationTextureFilter", value: M23.MagnificationTextureFilter },
+  { name: "MinificationTextureFilter", value: M24.MinificationTextureFilter },
+  { name: "OID", value: M25.OID },
+  { name: "OpointKind", value: M26.OpointKind },
+  { name: "OpointMultiEnum", value: M27.OpointMultiEnum },
+  { name: "OpointSpreading", value: M28.OpointSpreading },
+  { name: "SparkEnum", value: M29.SparkEnum },
+  { name: "SpeedCtrl", value: M30.SpeedCtrl },
+  { name: "SpeedMode", value: M31.SpeedMode },
+  { name: "StageActions", value: M32.StageActions },
+  { name: "StageGroup", value: M33.StageGroup },
+  { name: "StageVal", value: M34.StageVal },
+  { name: "StateEnum", value: M35.StateEnum },
+  { name: "SyncRenderEnum", value: M36.SyncRenderEnum },
+  { name: "TeamEnum", value: M37.TeamEnum },
+  { name: "TextureWrapping", value: M38.TextureWrapping },
+  { name: "WeaponEnum", value: M39.WeaponEnum },
+  { name: "WorldVal", value: M40.WorldVal },
+  { name: "WpointKind", value: M41.WpointKind },
+  { name: "ActionType", value: M42.ActionType },
+  { name: "BuiltIn_Imgs", value: M43.Defines.BuiltIn_Imgs },
+  { name: "BuiltIn_Dats", value: M43.Defines.BuiltIn_Dats },
+  { name: "BuiltIn_Broadcast", value: M43.Defines.BuiltIn_Broadcast },
+  { name: "BuiltIn_Sounds", value: M43.Defines.BuiltIn_Sounds },
   ...EXTRA_ENUMS,
 ];

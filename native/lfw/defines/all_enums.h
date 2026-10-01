@@ -21,6 +21,7 @@
 #include "lfw/defines/game_key.h"
 #include "lfw/defines/i_dat_index.h"
 #include "lfw/defines/i_dialog_info.h"
+#include "lfw/defines/i_terrain_info.h"
 #include "lfw/defines/itr_effect.h"
 #include "lfw/defines/itr_kind.h"
 #include "lfw/defines/lf2_val.h"
@@ -63,6 +64,7 @@ inline const std::vector<EnumNumberTableRef>& all_number_enum_tables() {
       {u"CtrlDevice", &ctrl_device_entries(), &ctrl_device_name_of},
       {u"Difficulty", &difficulty_entries(), &difficulty_name_of},
       {u"FrameBehavior", &frame_behavior_entries(), &frame_behavior_name_of},
+      {u"TerrainEnum", &terrain_enum_entries(), &terrain_enum_name_of},
       {u"ItrEffect", &itr_effect_entries(), &itr_effect_name_of},
       {u"ItrKind", &itr_kind_entries(), &itr_kind_name_of},
       {u"MagnificationTextureFilter", &magnification_texture_filter_entries(), &magnification_texture_filter_name_of},

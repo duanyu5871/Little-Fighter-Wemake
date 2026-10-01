@@ -60,7 +60,7 @@ function stripComments(src) {
 
 function findEnums(src) {
   const found = [];
-  const re = /export\s+enum\s+(\w+)\s*\{/g;
+  const re = /export\s+(?:const\s+|declare\s+)?enum\s+(\w+)\s*\{/g;
   let m;
   while ((m = re.exec(src)) !== null) {
     const name = m[1];
