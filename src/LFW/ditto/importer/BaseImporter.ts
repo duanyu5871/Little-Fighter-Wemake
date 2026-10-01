@@ -10,6 +10,9 @@ export class BaseImporter implements IImporter {
   async import_as_blob_url(urls: string[]): Promise<[BlobUrl, HitUrl]> {
     throw new Error("BaseImporter import_as_blob_url not implemented.");
   }
+  async import_as_image_bitmap(urls: string[]): Promise<[ImageBitmap, HitUrl]> {
+    throw new Error("BaseImporter import_as_image_bitmap not implemented.");
+  }
   async import_as_text(urls: string[]): Promise<[string, HitUrl]> {
     throw new Error("BaseImporter import_as_text not implemented.");
   }

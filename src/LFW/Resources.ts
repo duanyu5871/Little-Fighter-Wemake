@@ -52,11 +52,8 @@ export class Resources {
       const paths = exact ? [path] : get_import_fallbacks(path)[0];
       const { file, origin: tag } = this.find(paths, true).at(0) || {}
       if (file && tag) return { data: await file.image_bitmap(), file: file.name, origin: tag };
-      // 网络回退：fetch → Blob → ImageBitmap
-      const [blob_url] = await I.Ditto.Importer.import_as_blob_url(paths);
-      const resp = await fetch(blob_url);
-      const blob = await resp.blob();
-      return { data: await createImageBitmap(blob), file: paths[0] };
+      const [data] = await I.Ditto.Importer.import_as_image_bitmap(paths);
+      return { data, file: paths[0] };
     });
   }
 

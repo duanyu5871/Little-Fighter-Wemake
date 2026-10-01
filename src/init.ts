@@ -52,6 +52,7 @@ Ditto.setup({
   debug: Debug.print,
   XML: dom.XML,
   DEV,
+  IsDesktop: !!window.runtime,
   alert: (msg) => window.alert(msg),
 });
 ewents.filter = async (type: string, event: object) => {

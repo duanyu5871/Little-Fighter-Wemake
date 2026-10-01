@@ -64,6 +64,8 @@ export interface IDittoPack {
   Log(...args: any[]): unknown;
   debug(...args: any[]): unknown;
   DEV: boolean;
+  /** 是否运行在桌面壳（Wails/Electron）中 */
+  IsDesktop: boolean;
   alert(msg: string): unknown;
 }
 

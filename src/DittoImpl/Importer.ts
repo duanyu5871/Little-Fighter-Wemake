@@ -129,6 +129,14 @@ export class __Importer implements IImporter {
       return [URL.createObjectURL(resp.data), url];
     });
   }
+  async import_as_image_bitmap(urls: string[]): Promise<[ImageBitmap, string]> {
+    const key = `__Importer.import_as_image_bitmap.${urls.join(',')}`;
+    return deduped(key, async () => {
+      const url_list: string[] = get_possible_url_list(urls);
+      const [resp, url] = await import_as<Blob>("blob", url_list);
+      return [await createImageBitmap(resp.data), url];
+    });
+  }
 
   async import_as_text(urls: string[]): Promise<[string, string]> {
     const key = `__Importer.import_as_text.${urls.join(',')}`;

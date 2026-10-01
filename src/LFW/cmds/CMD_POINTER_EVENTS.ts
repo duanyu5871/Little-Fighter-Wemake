@@ -140,7 +140,7 @@ export function set_local_cursor(world: World, x: number, y: number, hidden: boo
   cursor.y = y;
   if (hidden != void 0) cursor.hidden = hidden;
   if (down != void 0) cursor.down = down;
-  cursor.t = performance.now();
+  cursor.t = Ditto.Clock.now();
 }
 
 function move_cursor(c: CMDS, hidden: boolean | undefined, down?: boolean): IPointerCursor | undefined {
@@ -154,7 +154,7 @@ function move_cursor(c: CMDS, hidden: boolean | undefined, down?: boolean): IPoi
   }
   if (hidden != void 0) cursor.hidden = hidden;
   if (down != void 0) cursor.down = down;
-  cursor.t = performance.now();
+  cursor.t = Ditto.Clock.now();
   return cursor;
 }
 
