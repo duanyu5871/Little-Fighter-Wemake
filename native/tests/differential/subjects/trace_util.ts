@@ -10,6 +10,11 @@ export function f64Bits(v: number): bigint {
   return _dv.getBigUint64(0, true);
 }
 
+export function f64FromBits(v: bigint): number {
+  _dv.setBigUint64(0, v, true);
+  return _dv.getFloat64(0, true);
+}
+
 export function hex16(v: bigint): string {
   return v.toString(16).padStart(16, "0");
 }

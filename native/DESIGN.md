@@ -114,7 +114,7 @@ using Value = std::variant<
 |---|---|---|
 | V1 | `Value` 基本类型 + 真值 / `typeof` / `Array.isArray` | 待做 |
 | V2 | **`string_to_number`**（`ToNumber(string)`） | **已完成**（146 + 81 行差分全过） |
-| V3 | **`number_to_string`**（最短往返 + JS 指数阈值） | 待做 |
+| V3 | **`number_to_string`**（最短往返 + JS 指数阈值） | **已完成**（77 + 10558 行差分全过） |
 | V4 | **宽松 `==`** 完整规则表 | 待做 |
 | V5 | 关系比较 `< > <= >=` | 待做 |
 | V6 | `Object` + `Object.keys` 顺序 | 待做 |
@@ -172,11 +172,51 @@ NonDecimalIntegerLiteral  ::  0b|0B | 0o|0O | 0x|0X  + 至少一位数字（**�
 若某个实现把次正规也报成 `result_out_of_range`，按十进制指数 `E < 0` 就会返回 `+0`，而 V8 返回 `5e-324`。
 用例里的 `"4.9e-324"` / `"5e-324"` 正是钉住这一点的，**实测 MSVC 的 `from_chars` 行为正确**。
 
-### 4.2 V3 的注意点
+### 4.2 V3 `number_to_string`
 
-`number_to_string` 要：最短往返（`std::to_chars` 能做到）+ JS 的指数阈值
-（`|x| >= 1e21` 或 `< 1e-6` 用指数）+ `-0` → `"0"`。
-**不做这条，`DatMgr` 的 `JSON.stringify` 比对就没法验。**
+**不实现这条，`DatMgr` 的 `JSON.stringify` 往返校验（`DatMgr.ts:135/157`）就没法验。**
+
+不要自己写最短往返算法 —— `std::to_chars(..., std::chars_format::scientific)` 就是最短往返的，
+（**无精度的 `scientific` 重载**；给了精度就不是最短了）。拿到 `d0.d1…dk-1 e±E` 后按规范重排：
+
+```
+k = 数字个数,  n = E + 1
+
+5.b  k ≤ n ≤ 21         →  s 的 k 位 + (n-k) 个 '0'          "123"
+5.c  0 < n ≤ 21          →  s 前 n 位 + '.' + 剩下 k-n 位     "1.23"
+5.d  -6 < n ≤ 0          →  "0." + (-n) 个 '0' + s            "0.000123"
+5.e  其他                 →  d0 [ '.' + d1..dk-1 ] 'e' sign |n-1|   "1e+21" / "1.5e-7"
+```
+
+特值：`NaN` / `Infinity` / `-Infinity` / **`±0` 都输出 `"0"`**（`-0` 不是 `"-0"`）。
+
+**5.b 与 5.c 的界必须都是 21**（不能只改一个）：能进 5.c 就意味着 5.b 失败，
+而 5.c 自己要求 `n ≤ 21`，所以必然 `k > n` —— 这正是规范把两个分支写成同一个上界的原因。
+若两者不一致，5.c 会按 `n` 个数字去读一个只有 `k < n` 位的串（越界）。
+
+**落地结果与变异测试**（`native/lfw/core/js_string.{h,cpp}`，差分 subject `core` 的 `to_string` / `to_string_bits`）：
+
+| 变异 | 结果 |
+|---|---|
+| 5.b/5.c 的 `21` → `20` | FAIL 第 27 行（`1e20` 变成 `1e+20`） |
+| 5.d 的 `-6` → `-5` | FAIL 第 38 行（`1e-6` 变成 `1e-6` 而非 `0.000001`）+ fuzz 第 195 行 |
+| 指数位 `n - 1` → `n` | FAIL 第 28 行（`1e+22`）+ fuzz 第 1 行 |
+| 5.e 的 `k > 1` → `k >= 1` | FAIL 第 28 行（`1.e+21`）+ fuzz 第 801 行 |
+
+**最短往返的取舍是否与 V8 一致 —— 只能靠随机搜**：V8 在「两个等长候选」中挑靠近 x 的那个、
+并列时挑偶尾数，而 C++ 标准的措辞不保证同样规则。实测 **569,110 个随机 double**
+（均匀随机 64 位模式 + 全部 2 的幂 / 10 的幂 + ±1/±2 ULP 扰动）**全部一致**
+⇒ MSVC 的 `to_chars` 取的位数与 V8 一致。
+
+定种子的固件 `cases/core/number_to_string_fuzz.txt`（10,558 行）由
+`native/build/gen/gen_number_to_string_fuzz.mjs <N> <out>` 生成（脚本在 gitignore 的 `build/gen/`）；
+需要更大规模时直接跑大 N 的临时文件即可，不必入库。
+
+### 4.2.1 不在 V3 范围内：`toFixed`
+
+`get_short_file_size_txt.ts` 和 `dat_translator/fixed_float.ts` 用 `Number(n.toFixed(d))`，
+那是**另一套舍入规则**（`toFixed` 有自成的舍入与补零逻辑）。
+它们只被 `cook_frames` / `make_itr_prefabs` 调用 ⇒ **构建期 cook**，不在运行期，运行期移植不需要。
 
 ---
 

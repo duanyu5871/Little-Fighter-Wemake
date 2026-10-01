@@ -1,4 +1,4 @@
-import { numHex, parseJsStringLiteral, readCaseLines, splitWs } from "./trace_util";
+import { f64FromBits, numHex, num, parseJsStringLiteral, readCaseLines, splitWs } from "./trace_util";
 
 function line(...parts: (string | number)[]): string {
   return parts.map((p) => String(p)).join(" ");
@@ -58,6 +58,14 @@ function main(): void {
         out.push(line(op, numHex(v)));
         break;
       }
+
+      case "to_string":
+        out.push(line(op, String(num(tok[1]!))));
+        break;
+
+      case "to_string_bits":
+        out.push(line(op, String(f64FromBits(BigInt("0x" + tok[1]!)))));
+        break;
 
       default:
         process.stderr.write(`line ${lineno}: unknown op '${op}'\n`);

@@ -199,4 +199,94 @@ double string_to_number(const std::u16string& raw) {
   return v;
 }
 
+namespace {
+
+bool shortest_digits(double v, std::string& digits, int& exp10) {
+  char buf[40];
+  const std::to_chars_result r =
+      std::to_chars(buf, buf + sizeof buf, v, std::chars_format::scientific);
+  if (r.ec != std::errc()) return false;
+  const size_t n = static_cast<size_t>(r.ptr - buf);
+
+  digits.clear();
+  size_t i = 0;
+  if (i < n && buf[i] == '-') ++i;
+  digits.push_back(buf[i++]);
+  if (i < n && buf[i] == '.') {
+    ++i;
+    while (i < n && buf[i] != 'e') digits.push_back(buf[i++]);
+  }
+
+  int e = 0;
+  bool eneg = false;
+  if (i < n && buf[i] == 'e') {
+    ++i;
+    if (i < n && (buf[i] == '+' || buf[i] == '-')) {
+      eneg = (buf[i] == '-');
+      ++i;
+    }
+    while (i < n) e = e * 10 + static_cast<int>(buf[i++] - '0');
+  }
+  exp10 = eneg ? -e : e;
+  return true;
+}
+
+}
+
+std::u16string number_to_string(double v) {
+  if (std::isnan(v)) return u"NaN";
+  if (v == 0.0) return u"0";
+  if (std::isinf(v)) return v < 0 ? u"-Infinity" : u"Infinity";
+
+  const bool neg = v < 0;
+  const double a = neg ? -v : v;
+
+  std::string d;
+  int e10 = 0;
+  if (!shortest_digits(a, d, e10)) return u"NaN";
+
+  const int k = static_cast<int>(d.size());
+  const int n = e10 + 1;
+
+  std::u16string out;
+  if (neg) out.push_back(u'-');
+
+  const auto push_digits = [&out](const char* p, size_t count) {
+    for (size_t j = 0; j < count; ++j) out.push_back(static_cast<char16_t>(p[j]));
+  };
+
+  if (k <= n && n <= 21) {
+    push_digits(d.data(), d.size());
+    out.append(static_cast<size_t>(n - k), u'0');
+  } else if (n > 0 && n <= 21) {
+    push_digits(d.data(), static_cast<size_t>(n));
+    out.push_back(u'.');
+    push_digits(d.data() + n, d.size() - static_cast<size_t>(n));
+  } else if (n > -6 && n <= 0) {
+    out.push_back(u'0');
+    out.push_back(u'.');
+    out.append(static_cast<size_t>(-n), u'0');
+    push_digits(d.data(), d.size());
+  } else {
+    push_digits(d.data(), 1);
+    if (k > 1) {
+      out.push_back(u'.');
+      push_digits(d.data() + 1, d.size() - 1);
+    }
+    out.push_back(u'e');
+    const int ex = n - 1;
+    out.push_back(ex < 0 ? u'-' : u'+');
+    int ax = ex < 0 ? -ex : ex;
+    char tmp[12];
+    int ti = 0;
+    do {
+      tmp[ti++] = static_cast<char>('0' + ax % 10);
+      ax /= 10;
+    } while (ax > 0);
+    while (ti > 0) out.push_back(static_cast<char16_t>(tmp[--ti]));
+  }
+
+  return out;
+}
+
 }

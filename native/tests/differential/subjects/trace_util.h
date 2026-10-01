@@ -102,4 +102,15 @@ inline std::u16string parse_js_string_literal(const std::string& tok) {
   return out;
 }
 
+inline std::string to_ascii(const std::u16string& s) {
+  std::string out;
+  out.reserve(s.size());
+  for (char16_t c : s) out.push_back(static_cast<char>(c));
+  return out;
+}
+
+inline double bits_from_hex(const std::string& h) {
+  return lfw::f64_from_bits(std::strtoull(h.c_str(), nullptr, 16));
+}
+
 }

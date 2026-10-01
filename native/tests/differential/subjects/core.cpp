@@ -9,9 +9,11 @@
 
 #include "trace_util.h"
 
+using trace::bits_from_hex;
 using trace::Line;
 using trace::parse_js_string_literal;
 using trace::split_ws;
+using trace::to_ascii;
 using trace::to_double;
 
 int main(int argc, char** argv) {
@@ -61,6 +63,12 @@ int main(int argc, char** argv) {
     } else if (op == "bits_roundtrip") {
       const double v = to_double(tok[1]);
       Line().add(op).add_num(lfw::f64_from_bits(lfw::f64_bits(v))).out();
+
+    } else if (op == "to_string") {
+      Line().add(op).add(to_ascii(lfw::number_to_string(to_double(tok[1])))).out();
+
+    } else if (op == "to_string_bits") {
+      Line().add(op).add(to_ascii(lfw::number_to_string(bits_from_hex(tok[1])))).out();
 
     } else {
       std::fprintf(stderr, "line %d: unknown op '%s'\n", lineno, op.c_str());
