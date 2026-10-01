@@ -1471,3 +1471,23 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
   `ref ?? prefab_id` 是 nullish；`while (ref !== void 0)` 用**严格 undefined** 判停（`null` 会停下）；
   `{...prefab, ...base}` 与 `{...base, ...obj}` 的展开顺序不能反（后者决定谁覆盖谁）。
 - **有意保留的差异**：`resolve_prefab` 返回 `ok` 时不带 `chain`（TS 的成功结果里也没有 `chain`）。
+
+---
+
+### 4.42 V42 `cook_frame_indicator_info`（122 行 TS）
+
+- 文件：`native/lfw/dat_translator/cook_frame_indicator_info.{h,cpp}`，纯数据、零外部依赖。
+- 尺寸来源：`const w = pic && "w" in pic ? pic.w : frame.width`，**`"w" in pic` 是键存在性判定**
+  （不是 truthy）；`h` 那行同样用 `"w" in pic`（原代码笔误，照抄）。`!w || !h` 都是宽松 falsy ⇒ 直接 return。
+- `f_qube_1` 键序 `x,y,w,h,z,l`，值 `{-centerx, centery-h, w, h, 0, 0}`；
+  `f_qube_2 = {...f_qube_1, x: centerx - f_qube_1.w}`（**覆盖保持位置** ⇒ 键序不变）。
+  `frame.__indicator_info = { 1: f1, [-1]: f2 }`（`1` 是整数键排前，`-1` 是普通字符串键排后）。
+- 五个子块 `opoint / cpoint / bpoint / wpoint / bdy / itr` 各写一份 `__indicator_info`；
+  **它们的 rect 键序不同**：`opoint/cpoint/bpoint/wpoint` 是 `w,h,x,y,z,l`，
+  `bdy/itr` 是 `w,h,z,l,x,y` —— 不能合并成一个 helper。
+- **`|| 0` 与解构默认 `= 0` 语义不同**：`opoint/bpoint/wpoint` 的 `z` 用 `o.z || 0`
+  （任何 falsy 都给 0），`cpoint` 的 `x/y/z` 与 `bdy/itr` 的 `z/l/w/h/x/y` 用解构默认
+  （**只在 `undefined` 时**生效，`null`/`""`/`0` 原样保留）。C++ 用两个 helper 分别对应：
+  `or_zero_if_falsy` 与 `or_zero_if_undefined`。
+- `cpoint` 的 `x/y` 只参与 `add`/`sub` 等数值运算 ⇒ `null` 与 `0` 经 `to_number` 后结果相同
+  （见 PROTOCOL §6.9.31 的等价变异说明）。

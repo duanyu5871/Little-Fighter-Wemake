@@ -1,0 +1,30 @@
+cfi o 4 centerx n 10 centery n 20 width n 4 height n 6
+
+cfi o 4 pic o 2 w n 8 h n 9 x n 0 centerx n 5 centery n 6
+
+cfi o 3 centerx n 1 centery n 1 width n 0
+
+cfi o 3 centerx n 1 centery n 1 height n 0
+
+cfi o 5 centerx n 1 centery n 1 width n 4 height n 6 opoint a 2 o 3 x n 1 y n 2 z n 3 o 2 x n 0 y n 0
+
+cfi o 7 centerx n 1 centery n 1 width n 4 height n 6 cpoint o 1 x n 2 bpoint o 2 x n 1 y n 2 wpoint o 1 y n 9
+
+cfi o 6 centerx n 1 centery n 1 width n 4 height n 6 bdy a 1 o 4 x n 1 y n 2 w n 3 h n 4 itr a 1 o 5 x n 1 y n 2 w n 3 h n 4 z n 5
+
+cfi o 6 centerx n 1 centery n 1 width n 4 height n 6 cpoint o 1 z n 0 bdy a 1 o 1 w n 0
+
+cfi o 5 centerx n 1 centery n 1 width n 4 height n 6 opoint a 1 o 2 x n 1 z z
+
+cfi o 3 pic o 2 w n 8 h n 9 centerx n 5 centery n 6
+cfi o 3 pic o 1 h n 9 width n 4 height n 6
+
+cfi o 4 centerx n 1 centery n 1 width n 4 junk n 1
+
+cfi o 5 centerx n 1 centery n 1 width n 4 height n 6 cpoint o 2 x z z z
+
+cfi o 5 centerx n 1 centery n 1 width n 4 height n 6 bpoint o 1 z z
+
+cfi o 5 centerx n 1 centery n 1 width n 4 height n 6 itr a 1 o 2 z z x n 1
+
+cfi o 5 centerx n 1 centery n 1 width n 4 height n 6 bdy a 1 o 2 w s "" z z

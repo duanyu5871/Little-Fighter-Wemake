@@ -1037,3 +1037,19 @@ P.S. TS 侧那个 `Times.lifes` 的无限递归（`return this.lifes`）就是�
   `Ditto.warn/error`，而 `Ditto.error` 在 node 下**不存在** ⇒ TS harness 里给
   `lfwStub = {images:{…}, sounds:{…}}` 并把 `Ditto.warn/error` 打桩成空函数。
   这些都不影响数据，C++ 侧相应逻辑本来就不移植。
+### 6.9.31 `indicator_info`（22/22；一条真等价变异）
+
+- subject `indicator_info`（op `cfi <frameLiteral>`）**16 行全对**，变异 **22/22 全杀**。
+- **同一个函数里"两种默认值"并存，必须用两个 helper**：`opoint/bpoint/wpoint` 的 `z` 是
+  `o.z || 0`（任何 falsy ⇒ 0），而 `cpoint` 的 `x/y/z`、`bdy/itr` 的 `z/l/w/h/x/y` 是解构默认
+  （**只有 `undefined` ⇒ 0**，`null`/`""`/`0` 原样留着）。C++ 分别对应
+  `or_zero_if_falsy` / `or_zero_if_undefined`。把它们的实现互换，只有**直接写进输出对象**的
+  那些字段（`bdy`/`itr`/`bpoint` 的 `z`、`bdy.w` 写空串）才杀得掉 —— 这四个方向的变异都留着。
+- **`"w" in pic` 是键存在性判定**：`pic` 存在但没有 `w` 键时会走 `frame.width` 分支；
+  去掉这个判定（只判 `pic` 真值）的变异要用"只有 `h` 没有 `w` 的 pic"才杀得掉。
+- **`!w || !h` 的"或"改成"与"** 要用"一真一假"的输入（有 `width` 没 `height`）才可观察。
+- **一条真等价变异（已删）**：`cpoint` 的 `ox`/`oy` 从 `or_zero_if_undefined` 换成
+  `or_zero_if_falsy` —— 这两个值**只**参与 `add`/`sub`（内部 `to_number`），`null` 与 `0`
+  数值相同 ⇒ 渲染结果一致。注意同样的替换在 `or_zero_if_undefined` 本体上**是**可观察的。
+- 老毛病又犯一次：`o N` 数字数错 ⇒ `parse_value` 越界 ⇒ **无输出 + 退出码 `0xC0000005`**
+  （不是干净的 exit 2）⇒ 见到 AV 先数字面量计数。

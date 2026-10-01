@@ -272,3 +272,4 @@ VS Code 里也已经指好（`.vscode/settings.json`）：
 | 3z | `dat_translator/obj_dat_to_json` + `set_obj_field` | ✅ 通过（`obj_dat_to_json/all` 14 行；变异 **27/27 全杀**） |
 | 4a | `dat_translator/make_buring_smoke` + `loader/preprocess_pic` + `loader/preprocess_stage` | ✅ 通过（`loader_helpers/all` 22 行；变异 **23/23 全杀**） |
 | 4b | `loader/preprocess_ball_frame` + `loader/preprocess_bg_data` + `loader/resolve_prefab` | ✅ 通过（`loader_more/all` 25 行；变异 **29/29 全杀**） |
+| 4c | `dat_translator/cook_frame_indicator_info` | ✅ 通过（`indicator_info/all` 16 行；变异 **22/22 全杀**） |
