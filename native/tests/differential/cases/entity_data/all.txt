@@ -69,3 +69,32 @@ set e4 base o 1 name s "old"
 set e4 frames o 1 a o 1 x n 1
 dump e4
 med e4
+
+# post_process_obj_data：data 缺失 / groups 缺席 / groups 为空数组（真值！）/ 有分组 / 带 frames
+new pp1
+ppo pp1
+new pp2
+set pp2 data o 2 id s "1" base o 1 name s "old"
+set pp2 index o 1 file s "f"
+ppo pp2
+new pp3
+set pp3 data o 2 id s "1" base o 1 name s "old"
+set pp3 index o 1 groups a 0
+ppo pp3
+new pp4
+set pp4 data o 2 id s "1" base o 1 name s "old"
+set pp4 index o 1 groups a 2 s "x" s "y"
+ppo pp4
+new pp5
+set pp5 data o 3 id s "1" base o 1 name s "old" frames o 1 a o 2 hit_a s "1" keep n 2
+set pp5 index o 1 groups a 1 s "z"
+ppo pp5
+# groups 为 null / false：假值 ⇒ 不改 group
+new pp6
+set pp6 data o 2 id s "1" base o 1 name s "old"
+set pp6 index o 1 groups z
+ppo pp6
+new pp7
+set pp7 data o 2 id s "1" base o 1 name s "old"
+set pp7 index o 1 groups b 0
+ppo pp7

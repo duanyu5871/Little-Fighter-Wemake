@@ -696,6 +696,14 @@ node native/tools/check_defines_coverage.mjs      # 已接进 native.mjs all 的
 - **前置的 `.trim()` 会把“前提”吃掉**：块内空行的变异幸存，因为 `make_bg_layer` 先对整个块
   `.trim()` ⇒ 块首的空行根本进不了 `split`。改成块**中间**的空行后立刻被杀。
 
+### 6.9.17 `post_process_obj_data`（追加 5 条，16/16 全杀）
+
+- **真值判断里的“空容器”是陷阱**：`ctx.index.groups` 用 `if (… && ctx.index.groups)` ⇒
+  空数组**通过**（把 group 设成 `[]`）、`null` / `false` 不通过。用例要两边都写，
+  否则“只判 null”的变异会活下来。
+- **`as_object` 的 const 重载会咬人**：`Object* p = as_object(v);` 只有当 `v` 是**非 const**
+  `Value` 时才给可变指针；声明成 `const Value v` 会拿到 `const Object*` 并编译失败。
+
 ### 6.9 用例 DSL 的两个坑（我踩了 6 次）
 
 值字面量是**前缀记法带个数**：`o <n> <k1> <v1> …`、`a <n> <v1> …`。

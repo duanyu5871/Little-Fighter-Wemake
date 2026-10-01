@@ -87,5 +87,35 @@ export default {
       from: `  out.set(u"type", en(EntityEnum::Entity));`,
       to: `  out.set(u"type", en(EntityEnum::Ball));`,
     },
+    {
+      note: "post_process_obj_data: 不再调 make_frames_special",
+      file: "native/lfw/dat_translator/entity_data.cpp",
+      from: `  make_frames_special(data);\n`,
+      to: ``,
+    },
+    {
+      note: "post_process_obj_data: groups 只判 null 不判真值",
+      file: "native/lfw/dat_translator/entity_data.cpp",
+      from: `  if (groups == nullptr || !truthy(*groups)) return;`,
+      to: `  if (groups == nullptr) return;`,
+    },
+    {
+      note: "post_process_obj_data: group 写成 undefined",
+      file: "native/lfw/dat_translator/entity_data.cpp",
+      from: `  bobj->set(u"group", *groups);`,
+      to: `  bobj->set(u"group", Value());`,
+    },
+    {
+      note: "post_process_obj_data: group 写到 data 而不是 data.base",
+      file: "native/lfw/dat_translator/entity_data.cpp",
+      from: `  bobj->set(u"group", *groups);`,
+      to: `  dobj->set(u"group", *groups);`,
+    },
+    {
+      note: "post_process_obj_data: 完全不再写 group",
+      file: "native/lfw/dat_translator/entity_data.cpp",
+      from: `  bobj->set(u"group", *groups);`,
+      to: ``,
+    },
   ],
 };

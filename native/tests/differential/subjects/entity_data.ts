@@ -1,5 +1,6 @@
 import { make_entity_data } from "../../../../src/LFW/dat_translator/make_entity_data";
 import { make_frames_special } from "../../../../src/LFW/dat_translator/make_frames_special";
+import { post_process_obj_data } from "../../../../src/LFW/dat_translator/post_process_obj_data";
 import { traversal } from "../../../../src/LFW/utils/container_help/traversal";
 
 import { parseValue, readCaseLines, renderValue, splitWs } from "./trace_util";
@@ -84,6 +85,11 @@ function main(): void {
       const id = next();
       const v = objOf(id);
       out.push(`MED ${id} ${render(make_entity_data(v as never))}`);
+    } else if (op === "ppo") {
+      const id = next();
+      const v = objOf(id);
+      post_process_obj_data(v as never);
+      out.push(`PPO ${id} ${render(v)}`);
     } else {
       process.stderr.write(`unknown op '${op}'\n`);
       process.exit(2);

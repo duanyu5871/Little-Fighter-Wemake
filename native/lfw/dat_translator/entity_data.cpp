@@ -63,6 +63,27 @@ void make_frames_special(Value& ret) {
 
 void make_entity_special(Value& ret) { (void)ret; }
 
+void post_process_obj_data(Value& ctx) {
+  Object* c = as_object(ctx);
+  if (c == nullptr) return;
+  const Value* data_ptr = c->get(u"data");
+  if (data_ptr == nullptr || !truthy(*data_ptr)) return;
+  Value data = *data_ptr;
+  make_frames_special(data);
+  const Value* index_ptr = c->get(u"index");
+  const Value index = index_ptr != nullptr ? *index_ptr : Value();
+  const Object* idx = as_object(index);
+  const Value* groups = idx != nullptr ? idx->get(u"groups") : nullptr;
+  if (groups == nullptr || !truthy(*groups)) return;
+  Object* dobj = as_object(data);
+  if (dobj == nullptr) return;
+  const Value* base = dobj->get(u"base");
+  Value base_copy = base != nullptr ? *base : Value();
+  Object* bobj = as_object(base_copy);
+  if (bobj == nullptr) return;
+  bobj->set(u"group", *groups);
+}
+
 Value make_entity_data(Value& ctx) {
   Object* c = as_object(ctx);
   if (c == nullptr) return Value();

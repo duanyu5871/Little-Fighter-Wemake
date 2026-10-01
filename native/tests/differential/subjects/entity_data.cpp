@@ -108,6 +108,11 @@ int main(int argc, char** argv) {
       const std::string id = t[i++];
       lfw::Value& v = g_objs[id];
       emit("MED " + id + " " + render(lfw::dat_translator::make_entity_data(v)));
+    } else if (op == "ppo") {
+      const std::string id = t[i++];
+      lfw::Value& v = g_objs[id];
+      lfw::dat_translator::post_process_obj_data(v);
+      emit("PPO " + id + " " + render(v));
     } else {
       std::fprintf(stderr, "line %d: unknown op '%s'\n", lineno, op.c_str());
       return 2;

@@ -1052,6 +1052,23 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
 
 **验证**：subject `bg_data`（`/all` 11 行）+ 22 条变异全杀。
 
+### 4.28 V28 `post_process_obj_data`
+
+形态：加在 `native/lfw/dat_translator/entity_data.{h,cpp}`（它是装配层的**入口**）。
+
+**移植要点**
+
+- `if (ctx.data) make_frames_special(ctx.data)` 两处都用**真值**判断 ⇒ `data` 为 `null`/`0`/`""`
+  都跳过。
+- `ctx.index.groups` 也是**真值**判断 ⇒ `[]`（空数组）**是**真值，会把 `group` 设成 `[]`；
+  而 `null` / `false` / `""` 会跳过 ⇒ 用例必须同时盖住这两种。
+- `ctx.data.base.group = …` 是**原地改共享对象** ⇒ C++ 里用 `Value` 拷贝（共享 `shared_ptr`）
+  再 `as_object` 取可变指针；注意 `as_object` 有 const / 非 const 两个重载，**局部变量别声明成
+  `const Value`**（否则拿到 `const Object*`，编译报“无法从 const Object* 转换”）。
+
+**验证**：subject `entity_data`（`/all` 29 行：22 + 5 个 `ppo` + 2 个假值 `groups`）+
+累计 16 条变异全杀。
+
 ---
 
 ## 5. 风险
