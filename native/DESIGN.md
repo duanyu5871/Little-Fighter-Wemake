@@ -679,6 +679,35 @@ bool  validate_fields(const Value& obj, const Value& field_map,
 **验证**：subject `defines_runtime`，`cases/defines_runtime/all.txt` **149 行全对**；
 9 条变异全杀（含 1 条打生成表里的数值，证明这些表确实在对拍范围内）。
 
+### 4.15 V15 `dat_translator/CondMaker`（条件字符串构造器）
+
+**第四块（`entity`/`collision`/`buff`/`state`/`controller`/`bot`/`World`）先量再做。**
+实测总规模 **12,526 行**（entity 3498 / bot 1854 / loader 1839 / collision 1481 /
+state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验证」找缝隙：
+
+| 候选 | 判断 |
+|---|---|
+| `collision/**` 的 32 个导出函数 | 几乎全吃 `Collision`（内含 `Entity`）⇒ 不是可独立验证的缝隙 |
+| `loader/preprocess_*` | 纯数据→数据，但依赖 `CondMaker` / `set_hit_flag` / `get_val_geter_*`（需步骤 4 的数据模型） |
+| `dat_translator` 的纯逻辑核心 | **可独立验证**，且是上面两者的共同前置 ⇒ 先做它 |
+
+`CondMaker` 是所有默认条件（`bdy.test` / `itr.test`）的构造器：fluent 拼**中缀字符串**，
+产出交给已验证的 `Expression` 解析 —— 所以它的可验证面是**文本 + 错误文案**，很干净。
+
+- 迁移形态：`native/lfw/dat_translator/cond_maker.{h,cpp}`。
+- TS 用 `throw` 报错，C++ 禁 `throw` ⇒ 改成**首错冻结**（`ok()` / `error()`）：一旦出错，
+  后续操作与 `done()` 都不再改变状态，等价于「异常向上传播、调用方停止」。
+- **`not` / `and` / `or` 是 C++ 关键字** ⇒ 改名 `not_` / `and_` / `or_`（唯一 API 偏离）。
+- `one_of(...)` 家族参数从 `std::initializer_list` 改为 `const std::vector<Value>&`
+  （没法从迭代器构造 `initializer_list`）。
+- 复刻的 TS 细节：宽松 `== void 0` 同时抓 `undefined` **和 `null`**；`done()` 对文本片段
+  做 `${v}`.trim()、最后再整串 trim 并删 `\n\r`；`wrap` 只在片段**前**无运算符时允许；
+  `quote_strings` 只转义引号字符本身；子构造器继承 `term`/引号设置，且子错误向上传播。
+- `js_trim` 的空白集合（含 NBSP / U+3000 / U+FEFF / LS / PS）在 `lfw_core` 里没有现成的，
+  本地实现并用用例锁住（NBSP、U+3000、U+FEFF、`\t\n\r` 各一条）。
+
+**验证**：subject `cond_maker`（55 行：29 条正常文本 + 19+ 条错误文案）+ 17 条变异全杀。
+
 ---
 
 ## 5. 风险
