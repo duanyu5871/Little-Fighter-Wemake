@@ -17,7 +17,7 @@ import { UIProps } from "./UIProps";
  * @class Component
  */
 export class UIComponent<
-  P extends unknown = unknown,
+  P = unknown,
   C extends IUICompnentCallbacks = IUICompnentCallbacks
 > implements IDebugging {
 
@@ -49,9 +49,12 @@ export class UIComponent<
     return this._props
   }
   __debugging?: boolean | undefined;
-  debug(...args: any[]): void { }
-  warn(...args: any[]): void { }
-  log(...args: any[]): void { }
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  debug(...args: unknown[]): void { }
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  warn(...args: unknown[]): void { }
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  log(...args: unknown[]): void { }
 
   id: string = '';
   name: string = ''

@@ -33,10 +33,10 @@ export class Factory {
   static readonly entity_creators = new Map<Key, IEntityCreators>();
   static readonly ctrl_creators = new Map<Key, ICtrlCreator>();
   static readonly buff_creators = new Map<Key, IBuffCreator>();
-  static readonly components = new Map<string, typeof UIComponent>();
+  static readonly components = new Map<string, typeof UIComponent<unknown>>();
   protected static readonly _usedALIAS = new Set<string[]>()
   static readonly buff_groups = new Map<string, Set<string | number>>()
-  static register_component(Cls: typeof UIComponent<any, any>): void {
+  static register_component(Cls: typeof UIComponent<unknown>): void {
     const names = Cls.TAGS
     for (let i = 0; i < names.length; i++) {
       const name = names[i];
