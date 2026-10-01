@@ -733,6 +733,28 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
 
 **验证**：subject `labels`（107 行）+ 15 条变异全杀。
 
+### 4.17 V17 `dat_translator` 小助手（`take*` / `set_*` / `fixed_float` / `find_float` / `copy_*`）
+
+形态：`native/lfw/utils/type_check.h`（谓词）+ `native/lfw/dat_translator/helpers.{h,cpp}`。
+全部吃 `Value`/`Object`，所以现在就能对拍，不用等步骤 4 的数据模型。
+
+- **`take` 家族**：`take`/`take_str`/`take_num`/`take_positive_num`/`take_not_zero_num`
+  （取值并**删除**键）。`take_str` 只在值确实是字符串时才删；没有就**不删**。
+- **`0xCDCDCDCD` 哨兵值必须过滤**（`-842150451`，LF2 定长结构体里未初始化内存的读法）：
+  `take_num` / `take_not_zero_num` 都要过滤，否则**源数据导入会出错**。
+  这是**必须保留的行为**，不是可选项；用例 `o5` 锁住它，变异点扮它的删除。
+- **`fixed_float` = `Number(n.toFixed(digits))`**：`toFixed` 是**对精确值**四舍五入
+  （半值远离零）⇒ `fixed_float(2.675, 2)` 是 **2.67**（因为 double 2.675 实际是 2.67499…）。
+  先用 `a * scale` 再取整**是错的**（乘积会被舍成 267.5，于是误判平局）⇒
+  用 `std::fma(a, scale, -p)` 取**精确残差**，在 `frac == 0.5` 时用残差符号定平局。
+  负数先取绝对值再补符号（所以 `-0` 返回 `+0`、`-0.4` 返回 `-0`，与 `toFixed` 一致）。
+- **`find_float`**：遍历顺序是数组按下标、对象按 JS 键序；整数不算，`NaN`/`∞` 算。
+- **`copy_bdy_info` 走 `JSON`、`copy_itr_info` 走 `JSON5`** ⇒ 两者对 `NaN`/`Infinity` 的结果不同
+  （前者变 `null`，后者保留）——这是**真的行为差异**，不是笔误。
+- 合并语义 `{...src, ...edit}`：`Object::set` 对已有键原地更新 ⇒ 已有键**保位**。
+
+**验证**：subject `dat_helpers`（100 行）+ 19 条变异全杀。
+
 ---
 
 ## 5. 风险

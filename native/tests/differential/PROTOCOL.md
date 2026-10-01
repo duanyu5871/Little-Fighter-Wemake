@@ -557,6 +557,21 @@ node native/tools/check_defines_coverage.mjs      # 已接进 native.mjs all 的
   所以 `bd_kind_name("0")` 会得到 `"Normal"`、而 `bdy_kind_name("Normal")` 得到
   `unknown_Normal`（falsy）。用例两边都要写。
 
+### 6.9.5 `dat_helpers`（19 条全杀；两个“假存活”的原因）
+
+- **声明顺序 = 无限递归**：`is_num(const Value&)` 写成 `is_num(*d)` 委托给
+  `is_num(double)`，但后者声明在**后面** ⇒ 普通名字查找看不到它 ⇒ `double` 隐式转成
+  `Value` ⇒ **自己调自己** ⇒ 爆栈（表现为 `C++ failed` 且无输出）。修法：把 `is_num(double)`
+  提到前面。教训：**C++ 重载不要“先写调用方后写被调方”**。
+- **“存活”先看是不是等价变异**：
+  1. 「`is_positive`/`not_zero_num` 允许 0」存活 —— 因为我在 `take_num_impl` 里把
+     `> 0`/`== 0` 又**内联了一遍**，那两个谓词根本没被调。改成调用谓词后立刻可杀。
+  2. 「`is_num` 不再要求有限」存活 —— 因为 `is_num(const Value&)` 把检查也**内联了一遍**，
+     `is_num(double)` 不可达。改成委托后立刻可杀。
+  ⇒ 规律：**同一规则只能写一处**，否则变异打在死代码上，永远杀不掉。
+- `toFixed` 不能用 `x * 10^f` 近似：`2.675 * 100` 会被舍成 `267.5`，而精确值是
+  `267.4999…` ⇒ 平局判错。用 `std::fma` 的精确残差定平局（见 `DESIGN.md` §4.17）。
+
 ### 6.9 用例 DSL 的两个坑（我踩了 6 次）
 
 值字面量是**前缀记法带个数**：`o <n> <k1> <v1> …`、`a <n> <v1> …`。
