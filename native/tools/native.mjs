@@ -68,7 +68,7 @@ function runInVsEnv(cmd) {
   return spawnSync("cmd.exe", ["/d", "/c", CMD_FILE], { stdio: "inherit" }).status ?? 1;
 }
 
-const EXE = join(BUILD_DIR, "bin", process.platform === "win32" ? "lfw_mt_trace.exe" : "lfw_mt_trace");
+const BIN = join(BUILD_DIR, "bin");
 
 function step(name, fn) {
   console.log("");
@@ -92,7 +92,7 @@ function cmdConfigure() {
 function cmdBuild() {
   const code = runInVsEnv(`cmake --build "${BUILD_DIR}"`);
   if (code !== 0) return code;
-  console.log(C.dim(`  -> ${EXE}`));
+  console.log(C.dim(`  -> ${BIN}`));
   return 0;
 }
 

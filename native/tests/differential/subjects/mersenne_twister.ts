@@ -1,18 +1,11 @@
-import { MersenneTwister } from "../../../src/LFW/utils/math/MersenneTwister";
-import { round_float } from "../../../src/LFW/utils/math/round_float";
 import { readFileSync } from "node:fs";
+
+import { MersenneTwister } from "../../../../src/LFW/utils/math/MersenneTwister";
+import { bitsHex, f64Bits, qBits, splitWs } from "./trace_util";
 
 const FNV_OFFSET = 0xcbf29ce484222325n;
 const FNV_PRIME = 0x100000001b3n;
 const MASK64 = 0xffffffffffffffffn;
-
-const _buf = new ArrayBuffer(8);
-const _dv = new DataView(_buf);
-
-function f64Bits(v: number): bigint {
-  _dv.setFloat64(0, v, true);
-  return _dv.getBigUint64(0, true);
-}
 
 class StateHash {
   private h = FNV_OFFSET;
@@ -38,22 +31,6 @@ class StateHash {
   hex(): string {
     return this.h.toString(16).padStart(16, "0");
   }
-}
-
-function hex16(v: bigint): string {
-  return v.toString(16).padStart(16, "0");
-}
-
-function bitsHex(d: number): string {
-  return hex16(f64Bits(d));
-}
-
-function qBits(d: number): string {
-  return bitsHex(round_float(d));
-}
-
-function splitWs(s: string): string[] {
-  return s.trim().length ? s.trim().split(/\s+/) : [];
 }
 
 function main(): void {

@@ -1,67 +1,22 @@
-#include <cctype>
 #include <cstdint>
 #include <cstdio>
-#include <cstdlib>
 #include <fstream>
 #include <optional>
 #include <string>
-#include <string_view>
 #include <vector>
 
 #include "lfw/core/js_num.h"
-#include "lfw/core/mersenne_twister.h"
+#include "lfw/utils/math/mersenne_twister.h"
 
-namespace {
+#include "trace_util.h"
 
-std::string hex16(uint64_t v) {
-  char buf[17];
-  std::snprintf(buf, sizeof buf, "%016llx",
-                static_cast<unsigned long long>(v));
-  return std::string(buf);
-}
-
-std::string bits_hex(double d) { return hex16(lfw::f64_bits(d)); }
-
-std::string q_bits(double d) { return bits_hex(lfw::round_float(d)); }
-
-class Line {
- public:
-  Line& add(std::string_view v) {
-    if (!_s.empty()) _s += ' ';
-    _s += v;
-    return *this;
-  }
-  Line& add(long long v) { return add(std::to_string(v)); }
-  Line& add(unsigned long long v) { return add(std::to_string(v)); }
-  Line& add_u32(uint32_t v) { return add(static_cast<unsigned long long>(v)); }
-  Line& add_opt(bool has_value, double v) {
-    return add(has_value ? q_bits(v) : std::string_view("-"));
-  }
-  void out() const { std::printf("%s\n", _s.c_str()); }
-
- private:
-  std::string _s;
-};
-
-std::vector<std::string> split_ws(const std::string& s) {
-  std::vector<std::string> out;
-  size_t i = 0;
-  const size_t n = s.size();
-  while (i < n) {
-    while (i < n && std::isspace(static_cast<unsigned char>(s[i]))) ++i;
-    size_t j = i;
-    while (j < n && !std::isspace(static_cast<unsigned char>(s[j]))) ++j;
-    if (j > i) out.push_back(s.substr(i, j - i));
-    i = j;
-  }
-  return out;
-}
-
-double to_double(const std::string& t) { return std::strtod(t.c_str(), nullptr); }
-
-long to_long(const std::string& t) { return std::strtol(t.c_str(), nullptr, 10); }
-
-}
+using trace::bits_hex;
+using trace::hex16;
+using trace::Line;
+using trace::q_bits;
+using trace::split_ws;
+using trace::to_double;
+using trace::to_long;
 
 int main(int argc, char** argv) {
   if (argc < 2) {
@@ -105,7 +60,7 @@ int main(int argc, char** argv) {
     } else if (op == "int") {
       const long count = to_long(tok[1]);
       for (long i = 0; i < count; ++i) {
-        Line().add("int").add_u32(mt.next_int()).out();
+        Line().add("int").add(mt.next_int()).out();
       }
 
     } else if (op == "float") {

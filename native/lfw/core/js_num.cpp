@@ -19,15 +19,6 @@ double js_floor(double x) { return std::floor(x); }
 double js_ceil(double x) { return std::ceil(x); }
 double js_abs(double x) { return std::fabs(x); }
 
-double floor_float(double n, double multiplier) {
-  return std::floor(n * multiplier) / multiplier;
-}
-
-double round_float(double n, double multiplier) {
-  if (std::isnan(n) || n == 0.0) return n;
-  return js_round(n * multiplier) / multiplier;
-}
-
 uint32_t js_to_uint32(double x) {
   if (!std::isfinite(x) || x == 0.0) return 0;
   const double t = std::trunc(x);

@@ -1,10 +1,11 @@
 #include "mersenne_twister.h"
 
-#include <cmath>
 #include <cstdint>
 
-#include "js_num.h"
-#include "state_hash.h"
+#include "lfw/core/js_num.h"
+#include "lfw/core/state_hash.h"
+#include "lfw/utils/math/base.h"
+#include "lfw/utils/math/floor_float.h"
 
 namespace lfw {
 
@@ -64,7 +65,7 @@ double MersenneTwister::next_float() {
 
 double MersenneTwister::range(double min, double max) {
   if (min == max) return min;
-  return std::floor(next_float() * (max - min)) + min;
+  return floor(next_float() * (max - min)) + min;
 }
 
 std::optional<double> MersenneTwister::pick(const std::vector<double>& arr) {

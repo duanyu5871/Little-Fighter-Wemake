@@ -1,6 +1,11 @@
-add_executable(lfw_mt_trace mt_trace_main.cpp)
-target_link_libraries(lfw_mt_trace PRIVATE lfw_core)
+file(GLOB SUBJECT_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/subjects/*.cpp")
 
-set_target_properties(lfw_mt_trace PROPERTIES
-  RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
-)
+foreach(src ${SUBJECT_SOURCES})
+  get_filename_component(subject "${src}" NAME_WE)
+  set(target "lfw_trace_${subject}")
+  add_executable(${target} "${src}")
+  target_link_libraries(${target} PRIVATE lfw_core)
+  set_target_properties(${target} PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+  )
+endforeach()

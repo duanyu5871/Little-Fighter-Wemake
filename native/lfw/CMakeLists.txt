@@ -1,7 +1,13 @@
 add_library(lfw_core STATIC
   core/js_num.cpp
   core/state_hash.cpp
-  core/mersenne_twister.cpp
+  utils/math/mersenne_twister.cpp
+  utils/math/normalize_plane.cpp
+  utils/math/calc_plane.cpp
+  utils/math/line_plane_intersection.cpp
+  utils/math/range.cpp
+  utils/math/probability.cpp
+  utils/math/project_to_line.cpp
 )
 
 target_include_directories(lfw_core PUBLIC
