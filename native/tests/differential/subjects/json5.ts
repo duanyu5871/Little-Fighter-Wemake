@@ -47,12 +47,18 @@ function main(): void {
     const op = tok[0]!;
 
     if (op === "p5") {
-      const r = tryParse(parseJsStringLiteral(tok[1]!));
+      const labelled = tok.length >= 3;
+      const label = labelled ? tok[1]! : "";
+      const r = tryParse(parseJsStringLiteral(tok[labelled ? 2 : 1]!));
+      const parts: (string | number)[] = [op];
+      if (labelled) parts.push(label);
       if (r.ok) {
-        out.push(line(op, "ok"));
+        parts.push("ok");
+        out.push(parts.map((p) => String(p)).join(" "));
         dump(r.value, 0, out);
       } else {
-        out.push(line(op, "err", esc(r.message)));
+        parts.push("err", esc(r.message));
+        out.push(parts.map((p) => String(p)).join(" "));
       }
       continue;
     }
@@ -64,16 +70,21 @@ function main(): void {
     }
 
     if (op === "w5") {
-      const r = tryParse(parseJsStringLiteral(tok[1]!));
-      if (!r.ok) {
-        out.push(line(op, "perr", esc(r.message)));
-        continue;
+      const labelled = tok.length >= 3;
+      const label = labelled ? tok[1]! : "";
+      const text = parseJsStringLiteral(tok[labelled ? 2 : 1]!);
+      const r = tryParse(text);
+      const parts: (string | number)[] = [op];
+      if (labelled) parts.push(label);
+      if (!r.ok) parts.push("perr", esc(r.message));
+      else {
+        try {
+          parts.push("ok", esc(JSON5.stringify(r.value)));
+        } catch (e) {
+          parts.push("serr", esc((e as Error).message));
+        }
       }
-      try {
-        out.push(line(op, "ok", esc(JSON5.stringify(r.value))));
-      } catch (e) {
-        out.push(line(op, "serr", esc((e as Error).message)));
-      }
+      out.push(parts.map((p) => String(p)).join(" "));
       continue;
     }
 

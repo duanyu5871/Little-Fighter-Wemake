@@ -63,6 +63,23 @@ TS 侧参考实现直接 `import JSON5 from "json5"` —— 用原库当真相�
 12 条变异**全杀**（§6.3）。只实现了默认参数路径 —— LFW 唯一的调用点
 （`dat_translator/copy_itr_info.ts`）就是 `Ditto.JSON5.stringify(value)` 单参数。
 `replacer` / `space` / `quote` 选项（只有 `tool/` 下的 Node 脚本在用）**未移植**。
+
+### 真实游戏数据对拍（最有力的一条证据）
+
+`lf2s/` 下全部 **114 个 `.json5`（662,145 字符）**，两路验：
+
+| 用例 | 内容 | 结果 |
+|---|---|---|
+| `json5/real_data` | 每个文件 `w5`（解析 → 重新序列化） | 114/114 `ok`，**0 个解析失败**，逐行相同 |
+| `json5/real_data_tree` | 小于 4KB 的 86 个文件再走 `p5`（逐节点 dump） | **6454 行**节点级相同 |
+
+`w5` 是字节级比较（含键序），`p5` 额外能区分 `-0`/`0` 这类序列化看不出的差异。
+两层叠加后，**真实数据里每一条词法分支都被走到过**（注释、单引号、无引号键、十六进制、
+转义、Unicode 空白、尾逗号、嵌套）。
+
+重新生成（数据变了要跑）：`node native/tools/gen_json5_real_data_cases.mjs`。
+用例里的非 ASCII 一律写成 `\uXXXX` —— 因为 C++ 侧读用例是把字节当 Latin-1 逐个转 `char16_t`，
+UTF-8 多字节会被拆坏（`parse_js_string_literal` 不支持 UTF-8）。
 ### 移植时必须注意
 
 - **按码点工作，不是 UTF-16 码元**：`peek()` 是 `String.fromCodePoint(source.codePointAt(pos))`，

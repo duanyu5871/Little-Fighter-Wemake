@@ -77,13 +77,18 @@ int main(int argc, char** argv) {
     const std::string& op = tok[0];
 
     if (op == "p5") {
-      const std::u16string text = parse_js_string_literal(tok[1]);
+      const bool labelled = tok.size() >= 3;
+      const std::string label = labelled ? tok[1] : std::string();
+      const std::u16string text = parse_js_string_literal(tok[labelled ? 2 : 1]);
       const lfw::Json5Result r = lfw::json5_parse(text);
+      Line head;
+      head.add(op);
+      if (labelled) head.add(label);
       if (r.ok) {
-        Line().add(op).add(std::string_view("ok")).out();
+        head.add(std::string_view("ok")).out();
         dump(r.value, 0);
       } else {
-        Line().add(op).add(std::string_view("err")).add(esc(r.error)).out();
+        head.add(std::string_view("err")).add(esc(r.error)).out();
       }
 
     } else if (op == "s5") {
@@ -95,15 +100,21 @@ int main(int argc, char** argv) {
       out.out();
 
     } else if (op == "w5") {
-      const std::u16string text = parse_js_string_literal(tok[1]);
+      const bool labelled = tok.size() >= 3;
+      const std::string label = labelled ? tok[1] : std::string();
+      const std::u16string text = parse_js_string_literal(tok[labelled ? 2 : 1]);
       const lfw::Json5Result r = lfw::json5_parse(text);
+      Line out;
+      out.add(op);
+      if (labelled) out.add(label);
       if (!r.ok) {
-        Line().add(op).add(std::string_view("perr")).add(esc(r.error)).out();
+        out.add(std::string_view("perr")).add(esc(r.error));
       } else {
         const lfw::Json5TextResult s = lfw::json5_stringify(r.value);
-        if (!s.ok) Line().add(op).add(std::string_view("serr")).add(esc(s.error)).out();
-        else Line().add(op).add(std::string_view("ok")).add(esc(s.text)).out();
+        if (!s.ok) out.add(std::string_view("serr")).add(esc(s.error));
+        else out.add(std::string_view("ok")).add(esc(s.text));
       }
+      out.out();
 
     } else if (op == "q5") {
       const lfw::Json5TextResult s =

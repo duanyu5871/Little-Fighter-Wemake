@@ -374,6 +374,24 @@ node native/tools/mutate.mjs native/tests/differential/mutations/<subject>.mjs
 `q5` 是"把一段字符串直接 stringify"，`w5` 是"解析再序列化"，`c5` 验循环引用。
 **`w5` 顺带覆盖了 `number_to_string`**（`-0` → `0`、`1e21` → `1e+21`、`0x10` → `16`）。
 
+`w5` / `p5` 的第一个 token 之后可以插一个**可选标签**（`w5 <label> <text>`），
+两侧都会把它原样打进输出行。真实数据用例（`real_data*.txt`，114 个文件）就靠它定位是哪个文件出问题。
+
+### 6.3.1 真实数据用例
+
+`cases/json5/real_data.txt`（114 个文件，全部 `w5`）与 `real_data_tree.txt`
+（<4KB 的 86 个文件，`p5` 逐节点）由 `native/tools/gen_json5_real_data_cases.mjs`
+从 `lf2s/**/*.json5` 生成。
+
+⚠ **这类用例要断言"确实解析成功了"**：如果 114 个文件全部报同一个错，两侧当然"一致"，
+但测试什么也没验。核对办法：
+
+```powershell
+Select-String -Path native\build\gen\trace.json5.real_data.cpp.txt -Pattern ' perr ' -AllMatches
+```
+
+应当为 0，且 `ok=` 等于文件数。**任何"批量喂数据"的对拍都要做这一步自检。**
+
 ### 6.4 切词器曾经在静默地截断参数（重要）
 
 `split_ws` 原来按空白切，**不认引号**。后果：
