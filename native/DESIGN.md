@@ -78,8 +78,8 @@ Undefined | Null | Bool | Number | String | Array | Object
 ## 3. `Value` 的表示（A2）
 
 ```cpp
-class Array;   // vector<Value>
-class Object;  // 维持 JS 键顺序
+class Array;
+class Object;
 
 using Value = std::variant<
     std::monostate,                 // Undefined
@@ -90,6 +90,13 @@ using Value = std::variant<
     std::shared_ptr<Array>,
     std::shared_ptr<Object>>;
 ```
+
+**已落地的部分（V1）只含到 `std::shared_ptr<Array>`** —— `Object` 连同它的键顺序一起推迟到 V6。
+理由：实测 `Expression` 的价值域里**根本没有 object**（见 §4.1），所以先加 `Object` 只会得到
+一段在 V6 之前没人测的代码。加 `Object` 时要同步改的是：`value.h` 的 variant、`truthy`、`type_of` 三处。
+
+> **陷阱**：`Value` 里同时有 `bool` 和 `double` 两个替代，所以 `Value(0)` / `Value(1)` 是
+> **有歧义的**（int 能隐式转到两者）。构造时一律写显式类型：`Value(false)` / `Value(0.0)`。
 
 - 标量**零堆分配**，约 40 字节（MSVC 上 `std::u16string` 是 32 字节）
 - Array / Object 用 `shared_ptr` ⇒ 引用语义，贴近 JS
@@ -112,15 +119,59 @@ using Value = std::variant<
 
 | 阶段 | 内容 | 状态 |
 |---|---|---|
-| V1 | `Value` 基本类型 + 真值 / `typeof` / `Array.isArray` | 待做 |
+| V1 | `Value` 基本类型 + 真值 / `typeof` / `Array.isArray` | **已完成**（89 行差分全过；`Object` 延到 V6） |
 | V2 | **`string_to_number`**（`ToNumber(string)`） | **已完成**（146 + 81 行差分全过） |
 | V3 | **`number_to_string`**（最短往返 + JS 指数阈值） | **已完成**（77 + 10558 行差分全过） |
 | V4 | **宽松 `==`** 完整规则表 | 待做 |
 | V5 | 关系比较 `< > <= >=` | 待做 |
 | V6 | `Object` + `Object.keys` 顺序 | 待做 |
 | V7 | `Expression` 跑在 `Value` 上 | 待做 |
+### 4.1 V1 `Value` 的落地结果
 
-### 4.1 V2 `string_to_number` 的实现要点
+**先量后做**：把 5 张 getter 表（`get_val_from_entity` / `get_val_from_collision` /
+`get_val_getter_from_stage` / `get_val_from_bot_ctrl` / `get_val_from_world`+`lfw`）读到底，
+实际返回的类型只有：
+
+| 实际类型 | 例子 |
+|---|---|
+| `number` | 绝大多数（`e.hp` / `e.velocity.x` / `c.itr.kind` / `round(...)`） |
+| `boolean` | `HoldingHeavy: e => e.holding?.base_type == WeaponEnum.Heavy`；`ctrl.is_hit/is_start/is_db_hit` |
+| `string` \| `undefined` | `HoldingOID: e => e.holding?.data.id`（`IEntityData.id: string`） |
+| `string` | `AEmitter: c => c.attacker.emitter ?? ''`；`BotState: e => e.fsm.state?.key ?? ''` |
+| `number[]` | `HitByState / HitByItrKind / HitByItrEffect / HitOnState`（`.map(...)`） |
+| `string[]` | `S_Val.Broadcast: e => e.lfw.broadcasts`（`LFW.broadcasts: string[]`） |
+| `string` | **getter 兜底**：`get_val_from_bot_ctrl` 未命中时是 `() => word`，返回字面字符串 |
+
+`Expression` 自己还会造出两种值：字面量右侧直接是**字符串**（`let val_1 = word_1`），
+以及 `{{`/`}}`/`!{`/`!}` 的右侧 `word_1.split(",")` → **`string[]`**。
+
+⇒ **`Expression` 的价值域不含 object**，所以 V1 只需要
+`Undefined | Null | Bool | Number | String | Array`。
+
+落地：`lfw/core/value.{h,cpp}`（`Value` + `Array` + `truthy` / `type_of` / `is_array` / `as_array`）。
+真值：`Undefined`/`Null` 假；`bool` 原样；`number` 在 `±0` 与 `NaN` 时假；`string` 空串假；**数组恒真**。
+`type_of`：`Null` 与 `Array` 都返回 `"object"`（`typeof null === "object"`、`typeof [] === "object"`）。
+
+差分 subject `value` 用一个**前缀记法的值字面量 + 句柄表**来构造并观测值：
+
+```
+u / z / b 0|1 / n <token> / s "..." / a <k> <v1>..<vk>      构造
+ typeof <expr> | truthy <expr> | is_array <expr> | length <expr>   观测（只打印一行）
+hold <expr>  → hold <idx>       把值放进句柄表
+dup <idx>    → dup <idx>        拷贝这个值（对数组就是 shared_ptr 拷贝）
+elem <idx> <i> → elem <newidx>  取数组元素并放进句柄表
+same <i> <j> → same true|false|-   两个句柄是否同一个数组（非数组打印 "-"）
+```
+
+`hold` / `dup` / `elem` / `same` 这组的存在理由是**验证 A2 的引用语义决策**：
+`dup` 出的句柄必须与原件指向同一个 `Array`（`same true`），而两个独立字面量必须不同（`same false`）。
+
+| 变异 | 结果 |
+|---|---|
+| `truthy` 去掉 `isnan` 判定 | FAIL 第 24 行（`truthy n nan`） |
+| `type_of` 对数组返回 `"array"` | FAIL 第 14 行（`typeof a 0`） |
+| `dup` 改做深拷贝（模拟 "Value 拷贝 = 深拷贝"） | FAIL 第 59 行（`same 0 1`）—— **引用语义测试不是空转** |
+### 4.2 V2 `string_to_number` 的实现要点
 
 ECMAScript 的 `StringNumericLiteral` 语法：
 
@@ -166,13 +217,13 @@ NonDecimalIntegerLiteral  ::  0b|0B | 0o|0O | 0x|0X  + 至少一位数字（**�
 - 二进制需 ≥ 70 位，八进制需 ≥ 26 位。
 - **十进制整数串 400 万次采样 0 个判别用例** ⇒ `a*10+d` 的 double 累积极少出错。
 
-### 4.1.1 一条必须记住的隐含前提
+### 4.2.1 一条必须记住的隐含前提
 
 `from_chars` 的 `result_out_of_range` 只用于**超出 double 范围**的判定，而次正规数（`4.9e-324`）**不算越界**。
 若某个实现把次正规也报成 `result_out_of_range`，按十进制指数 `E < 0` 就会返回 `+0`，而 V8 返回 `5e-324`。
 用例里的 `"4.9e-324"` / `"5e-324"` 正是钉住这一点的，**实测 MSVC 的 `from_chars` 行为正确**。
 
-### 4.2 V3 `number_to_string`
+### 4.3 V3 `number_to_string`
 
 **不实现这条，`DatMgr` 的 `JSON.stringify` 往返校验（`DatMgr.ts:135/157`）就没法验。**
 
@@ -212,7 +263,7 @@ k = 数字个数,  n = E + 1
 `native/build/gen/gen_number_to_string_fuzz.mjs <N> <out>` 生成（脚本在 gitignore 的 `build/gen/`）；
 需要更大规模时直接跑大 N 的临时文件即可，不必入库。
 
-### 4.2.1 不在 V3 范围内：`toFixed`
+### 4.3.1 不在 V3 范围内：`toFixed`
 
 `get_short_file_size_txt.ts` 和 `dat_translator/fixed_float.ts` 用 `Number(n.toFixed(d))`，
 那是**另一套舍入规则**（`toFixed` 有自成的舍入与补零逻辑）。
