@@ -26,7 +26,7 @@ export class Times {
   set min(v: number) { this._min = floor(Number(v)) }
   set max(v: number) { this._max = floor(Number(v)) }
   set value(v: number) { this._value = floor(Number(v)) }
-  get lifes(): number { return this.lifes }
+  get lifes(): number { return this._lifes }
   get remains(): number { return this._remains }
   get is_max(): boolean { return this._value >= this._max; }
   get is_min(): boolean { return this._value <= this._min; }
