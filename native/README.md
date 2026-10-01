@@ -258,3 +258,5 @@ VS Code 里也已经指好（`.vscode/settings.json`）：
 （`CondMaker` / `set_hit_flag` / `make_entity_special` / `xml_x_entity_data` /
 `cook_ball_frame_state_*`），所以 `dat_translator` 里那块**必须和 `loader/` 一起搬**，
 不能跳过。`ui/` 永远不要先搬。
+
+| 3p | `dat_translator/cook_ball_frame_state_15/3000/3001/3005/3006`（+ 内部 `cook_shrink_and_bounce`） | ✅ 通过（`ball_frame_state/all` 21 行；变异 **22/22 全杀**） |

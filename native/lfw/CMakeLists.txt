@@ -13,6 +13,7 @@ add_library(lfw_core STATIC
   dat_translator/colon_value_reader.cpp
   dat_translator/cond_maker.cpp
   dat_translator/ball_bdy.cpp
+  dat_translator/ball_frame_state.cpp
   dat_translator/bg_data.cpp
   dat_translator/cookers.cpp
   dat_translator/entity_data.cpp
