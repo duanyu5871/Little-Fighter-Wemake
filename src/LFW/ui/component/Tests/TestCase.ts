@@ -2,6 +2,7 @@ import type { IState } from "../../../base";
 import { CMD } from "../../../defines/CMD";
 import { OID } from "../../../defines/OID";
 import { Entity } from "../../../entity";
+import { cos, sin } from "../../../utils/math/base";
 import { round_float } from "../../../utils/math/round_float";
 import { ActionDirector } from "./ActionDirector";
 import type { Tests } from "./Tests";
@@ -76,8 +77,8 @@ export class TestCase implements IState<number> {
     for (let i = 0; i < count; i++) {
       const oid = oids[i % oids.length];
       const a = round_float(d * i);
-      const x = count === 1 ? ox : round_float(ox + Math.cos(a) * r1);
-      const z = count === 1 ? oz : round_float(oz + Math.sin(a) * r2);
+      const x = count === 1 ? ox : round_float(ox + cos(a) * r1);
+      const z = count === 1 ? oz : round_float(oz + sin(a) * r2);
       const e = this.spawn(oid);
       if (!e) break;
       ret.push(e);

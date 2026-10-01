@@ -1,4 +1,5 @@
 import type { ITransform } from "./ITransform";
+import { pow } from "./utils/math/base";
 import { round_float } from "./utils/math/round_float";
 
 export interface ITransformTweenOpts {
@@ -54,7 +55,7 @@ export class Transform implements ITransform {
     const d = this._d
     if (!this._smoothing) return this
     const c = this
-    const k = 1 - Math.pow(1 - this._rate, dt)
+    const k = 1 - pow(1 - this._rate, dt)
     this._x = round_float(c.x + (d.x - c.x) * k, 100)
     this._y = round_float(c.y + (d.y - c.y) * k, 100)
     this._z = round_float(c.z + (d.z - c.z) * k, 100)
