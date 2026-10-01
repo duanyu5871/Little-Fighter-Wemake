@@ -1,0 +1,94 @@
+import * as M0 from "../../../../../src/LFW/defines/ArmorEnum";
+import * as M1 from "../../../../../src/LFW/defines/BackgroundGroup";
+import * as M2 from "../../../../../src/LFW/defines/BdyKind";
+import * as M3 from "../../../../../src/LFW/defines/BotStateEnum";
+import * as M4 from "../../../../../src/LFW/defines/BotVal";
+import * as M5 from "../../../../../src/LFW/defines/CPointKind";
+import * as M6 from "../../../../../src/LFW/defines/ChaseLost";
+import * as M7 from "../../../../../src/LFW/defines/ChaseStrategy";
+import * as M8 from "../../../../../src/LFW/defines/CheatType";
+import * as M9 from "../../../../../src/LFW/defines/CollisionVal";
+import * as M10 from "../../../../../src/LFW/defines/CtrlDevice";
+import * as M11 from "../../../../../src/LFW/defines/Difficulty";
+import * as M12 from "../../../../../src/LFW/defines/EntityGroup";
+import * as M13 from "../../../../../src/LFW/defines/EntityVal";
+import * as M14 from "../../../../../src/LFW/defines/FrameBehavior";
+import * as M15 from "../../../../../src/LFW/defines/FrameId";
+import * as M16 from "../../../../../src/LFW/defines/GameKey";
+import * as M17 from "../../../../../src/LFW/defines/IDatIndex";
+import * as M18 from "../../../../../src/LFW/defines/IDialogInfo";
+import * as M19 from "../../../../../src/LFW/defines/ItrEffect";
+import * as M20 from "../../../../../src/LFW/defines/ItrKind";
+import * as M21 from "../../../../../src/LFW/defines/LF2Val";
+import * as M22 from "../../../../../src/LFW/defines/MagnificationTextureFilter";
+import * as M23 from "../../../../../src/LFW/defines/MinificationTextureFilter";
+import * as M24 from "../../../../../src/LFW/defines/OID";
+import * as M25 from "../../../../../src/LFW/defines/OpointKind";
+import * as M26 from "../../../../../src/LFW/defines/OpointMultiEnum";
+import * as M27 from "../../../../../src/LFW/defines/OpointSpreading";
+import * as M28 from "../../../../../src/LFW/defines/SparkEnum";
+import * as M29 from "../../../../../src/LFW/defines/SpeedCtrl";
+import * as M30 from "../../../../../src/LFW/defines/SpeedMode";
+import * as M31 from "../../../../../src/LFW/defines/StageActions";
+import * as M32 from "../../../../../src/LFW/defines/StageGroup";
+import * as M33 from "../../../../../src/LFW/defines/StageVal";
+import * as M34 from "../../../../../src/LFW/defines/StateEnum";
+import * as M35 from "../../../../../src/LFW/defines/SyncRenderEnum";
+import * as M36 from "../../../../../src/LFW/defines/TeamEnum";
+import * as M37 from "../../../../../src/LFW/defines/TextureWrapping";
+import * as M38 from "../../../../../src/LFW/defines/WeaponType";
+import * as M39 from "../../../../../src/LFW/defines/WorldVal";
+import * as M40 from "../../../../../src/LFW/defines/WpointKind";
+import * as M41 from "../../../../../src/LFW/defines/actions/ActionType";
+import * as M42 from "../../../../../src/LFW/defines/defines";
+import { EXTRA_ENUMS } from "./defines_enums_extra";
+
+export const ENUMS: { name: string; value: unknown }[] = [
+  { name: "ArmorEnum", value: M0.ArmorEnum },
+  { name: "BackgroundGroup", value: M1.BackgroundGroup },
+  { name: "BdyKind", value: M2.BdyKind },
+  { name: "BotStateEnum", value: M3.BotStateEnum },
+  { name: "BotVal", value: M4.BotVal },
+  { name: "CPointKind", value: M5.CPointKind },
+  { name: "ChaseLost", value: M6.ChaseLost },
+  { name: "ChaseStrategy", value: M7.ChaseStrategy },
+  { name: "CheatEnum", value: M8.CheatEnum },
+  { name: "CollisionVal", value: M9.CollisionVal },
+  { name: "CtrlDevice", value: M10.CtrlDevice },
+  { name: "Difficulty", value: M11.Difficulty },
+  { name: "EntityGroup", value: M12.EntityGroup },
+  { name: "EntityVal", value: M13.EntityVal },
+  { name: "FrameBehavior", value: M14.FrameBehavior },
+  { name: "FrameId", value: M15.FrameId },
+  { name: "GK", value: M16.GK },
+  { name: "DatTypeEnum", value: M17.DatTypeEnum },
+  { name: "DialogCloseBy", value: M18.DialogCloseBy },
+  { name: "ItrEffect", value: M19.ItrEffect },
+  { name: "ItrKind", value: M20.ItrKind },
+  { name: "LF2Val", value: M21.LF2Val },
+  { name: "MagnificationTextureFilter", value: M22.MagnificationTextureFilter },
+  { name: "MinificationTextureFilter", value: M23.MinificationTextureFilter },
+  { name: "OID", value: M24.OID },
+  { name: "OpointKind", value: M25.OpointKind },
+  { name: "OpointMultiEnum", value: M26.OpointMultiEnum },
+  { name: "OpointSpreading", value: M27.OpointSpreading },
+  { name: "SparkEnum", value: M28.SparkEnum },
+  { name: "SpeedCtrl", value: M29.SpeedCtrl },
+  { name: "SpeedMode", value: M30.SpeedMode },
+  { name: "StageActions", value: M31.StageActions },
+  { name: "StageGroup", value: M32.StageGroup },
+  { name: "StageVal", value: M33.StageVal },
+  { name: "StateEnum", value: M34.StateEnum },
+  { name: "SyncRenderEnum", value: M35.SyncRenderEnum },
+  { name: "TeamEnum", value: M36.TeamEnum },
+  { name: "TextureWrapping", value: M37.TextureWrapping },
+  { name: "WeaponEnum", value: M38.WeaponEnum },
+  { name: "WorldVal", value: M39.WorldVal },
+  { name: "WpointKind", value: M40.WpointKind },
+  { name: "ActionType", value: M41.ActionType },
+  { name: "BuiltIn_Imgs", value: M42.Defines.BuiltIn_Imgs },
+  { name: "BuiltIn_Dats", value: M42.Defines.BuiltIn_Dats },
+  { name: "BuiltIn_Broadcast", value: M42.Defines.BuiltIn_Broadcast },
+  { name: "BuiltIn_Sounds", value: M42.Defines.BuiltIn_Sounds },
+  ...EXTRA_ENUMS,
+];

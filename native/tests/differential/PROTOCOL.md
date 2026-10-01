@@ -433,7 +433,34 @@ TS 侧用**仓库里真正的** `src/LFW/fields.ts` 当参照。
 `object` 字段缺 `fields` 且值为非空对象、`validate_value` 的 `field` 为 `undefined`。
 都记进 `README.md` 的已知偏差表。
 
-### 6.5 用例 DSL 的两个坑（我踩了 6 次）
+### 6.5 `defines`（46 个枚举，6 条全杀）
+
+这个 subject **不需要输入**（`cases/defines/all.txt` 只是占位）：它把全部枚举 dump 出来与 TS 侧对拍。
+输出格式：
+
+```
+E <EnumName>
+F <成员名> <值|"...">        成员（按成员名排序）
+R <值> <名字>                数值枚举的反向映射（按值升序，去重）
+```
+
+C++ 侧完全由 `lfw/defines/all_enums.h` 的注册表驱动、TS 侧由生成的
+`subjects/gen/defines_enums.ts` 清单驱动 —— **两边都没有手抄的枚举名单**。
+
+| 变异 | 结果 |
+|---|---|
+| 生成的 `BdyKind::Defend = 2000` → `2001` | killed（`F` 行） |
+| 生成的 `name_of` 少一个 case | killed（`R` 行少一条） |
+| 生成的字符串枚举 `kTeam_8 = u"8"` → `u"9"` | killed（`F` 行） |
+| 手写 `HitFlag::Both = Ally \| Enemy` → 再加 `\| Ball` | killed（位组合值错） |
+| 手写 `FacingFlag` 的反向映射把 `SameAsBearer` 写成 `SameAsCatcher` | killed（别名「后者胜」语义） |
+| 手写 `EntityEnum::Ball` 从 `HitFlag::Ball` 改常量 `31` | killed（跨枚举引用） |
+
+**⚠ 教训**：第一版生成的头里**同时**写了枚举初始值和表里的字面量 ⇒
+前 3 条变异**全部存活**（比对的只是那张表）。改成表引用枚举成员后全杀。
+⇒ 打变异时如果要用"改值"来验，先确认被改的那处**就是**被比对的那处。
+
+### 6.6 用例 DSL 的两个坑（我踩了 6 次）
 
 值字面量是**前缀记法带个数**：`o <n> <k1> <v1> …`、`a <n> <v1> …`。
 个数写错时症状分三种，都要会认：

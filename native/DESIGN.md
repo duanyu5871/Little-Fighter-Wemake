@@ -531,6 +531,36 @@ bool  validate_fields(const Value& obj, const Value& field_map,
 `array===true`/`'auto'` 的严格比较、int 的整数判定与 `min` 比较、options 的严格相等与 join 语义、
 未知字段告警。
 
+### 4.11 V11 `defines/` 的枚举（46 个）
+
+`native/lfw/defines/*.h`，**由 `native/tools/gen_defines_enums.mjs` 从 `src/LFW/defines/**/*.ts` 生成**：
+数值枚举 → `enum class X : int`；字符串枚举 → `namespace x { inline constexpr const char16_t* kMember = ... }`。
+另有统一注册表 `defines/all_enums.h`（生成）+ 手写扩展 `defines/all_enums_extra.h`。
+
+**为什么生成而不是手抄**：43 个文件含 `export enum`，共 1341 行 / ~1000 个成员，纯数据零逻辑 ——
+手抄的唯一价值是引入 typo。生成器**同时**产出 TS 侧的枚举清单
+（`tests/differential/subjects/gen/defines_enums.ts`），所以两边都**没有手抄的枚举名单**。
+配套工具 `native/tools/list_ts_enums.mjs`（剥注释、尊重字符串字面量地列出所有枚举，用于读数据）。
+
+**验证**：差分 subject `defines` 对每个枚举都打出「成员名 → 值」以及 TS 运行时枚举的**反向映射**，
+与 C++ 侧同一形式逐行比 —— `defines/all` **796 行全对**。
+
+**⚠ 一个被变异测试抓到的设计错误（重要）**：第一版让生成的头里同时写「枚举成员初始值」
+和「表里的字面量」，于是**改枚举值根本测不到**（被比对的是表），3 条变异存活。
+改成表**引用枚举成员本身**（`static_cast<double>(BdyKind::Defend)`、`team_enum::kTeam_8`）后 6/6 全杀。
+
+> ⇒ **生成的代码内部也不要重复字面量。任何「名字 → 值」的表都必须引用权威定义本身，
+> 否则测试验的是那张表，而不是被测的枚举。**
+
+**跳过的 3 个文件**（生成器不求值 → 手写，`entries()`/`name_of()` 同样引用枚举成员）：
+`FacingFlag`（成员引用同文件常量 `L`/`R`/`B`）、`HitFlag`（`Both = Ally | Enemy` 等位组合）、
+`EntityEnum`（`Entity = HitFlag.Ohters` 跨枚举引用）。
+
+**两个必须复刻的 TS 语义**（差分都在验）：
+- 数值枚举有**反向映射**（`BdyKind[2000] === "Defend"`）；**同值时后者胜**
+  （`FacingFlag` 的 `SameAsCatcher` 与 `SameAsBearer` 都是 4 ⇒ `FacingFlag[4] === "SameAsBearer"`）。
+- 字符串枚举**没有**反向映射。
+
 ---
 
 ## 5. 风险
