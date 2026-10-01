@@ -13,7 +13,9 @@ add_library(lfw_core STATIC
   dat_translator/colon_value_reader.cpp
   dat_translator/cond_maker.cpp
   dat_translator/cookers.cpp
+  dat_translator/entity_data.cpp
   dat_translator/frame_behavior.cpp
+  dat_translator/itr_prefabs.cpp
   dat_translator/make_frame_state.cpp
   dat_translator/string_matchers.cpp
   dat_translator/helpers.cpp

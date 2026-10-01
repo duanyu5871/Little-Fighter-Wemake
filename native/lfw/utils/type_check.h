@@ -38,4 +38,6 @@ inline bool is_int(const Value& v) {
 
 inline bool is_str(const Value& v) { return std::holds_alternative<std::u16string>(v); }
 
+inline bool is_non_empty_str(const Value& v) { return truthy(v) && is_str(v); }
+
 }

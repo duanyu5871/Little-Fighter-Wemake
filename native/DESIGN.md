@@ -945,6 +945,53 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
 
 **验证**：subject `string_matchers`（`/all` **35 行**）+ 13 条变异全杀。
 
+### 4.24 V24 `make_frames_special` / `make_entity_data`（+ `traversal`）
+
+形态：`native/lfw/dat_translator/entity_data.{h,cpp}`（`make_frames_special` /
+`make_entity_special`（空实现，照抄）/ `make_entity_data`）+ `utils/container_help/traversal.h`。
+
+**移植要点**
+
+- **`traversal` 对数组也会遍历**（`Object.keys([a,b])` ⇒ `["0","1"]`）⇒ C++ 除了对象路径还要有
+  数组路径，键名是 `String(i)`。对象路径用 `Object::keys()`（已验：整数下标键升序在前，
+  其余按插入序），并且**先快照键、再逐个 `r[k]`**（回调改了容器也按快照走，与 TS 一致）。
+- 回调拿到的元素是**值拷贝**（C++ 的 `Object::get` 只给 const）⇒ 改**元素内部的字段**会传播
+  （共享 `shared_ptr`），但替换整个元素不会。当前所有调用点都只改内部字段（`take(frame, …)`）。
+- `make_frames_special` = 对 `frames` 逐个 `take` 11 个 hit 键（`hit_Ua` 在源里写了**两遍**，
+  第二遍是 no-op ⇒ 照抄；删掉它是**等价变异**）。`foreach` 的两个分支都要有用例。
+- `make_entity_data` 的 `info.name` 是**原地改共享的 base**（返回的 `base` 与 ctx 里的是同一个
+  对象）⇒ 用例必须同时 `dump` ctx 才能锁住这一点（变异「改成改副本」可杀）。
+- `hash ?? file.replace(...)` 是 **nullish**：`hash: ""` **不**回落（`""` 保留），`hash: 0` 也不
+  回落（`name` 会变成数字 0 —— 源里没有类型校验）。变异「把空串也算 nullish」可杀。
+- 文件名字符过滤 `[^a-z|A-Z|0-9|_]` 里的 **`|` 是字面竖线、也会被保留**（不是「或」）⇒ 用例
+  必须有含 `|` 的文件名（第一版把 `|` 放在 `hash:""` 的样本里，等于没测到 ⇒ 补 e4 后才杀掉）。
+- `make_entity_special` 是空函数，照抄一个空函数（保持调用点存在）。
+
+**验证**：subject `entity_data`（`/all` 22 行）+ 11 条变异全杀。
+
+### 4.25 V25 `make_itr_prefabs`（+ 手写的 `entry:` 匹配器）
+
+形态：`native/lfw/dat_translator/itr_prefabs.{h,cpp}`；配套 `utils/type_cast.h`（`to_num`）
+与 `utils/type_check.h` 的 `is_non_empty_str`。
+
+**移植要点**
+
+- `make_itr_prefabs(full_str)`：`match_block_once("<weapon_strength_list>", "…_end")?.trim()`
+  → `is_non_empty_str`（**先判 falsy**：`""` 为空、`"  "` 非空）→ 逐行匹配。
+- `entry:` 的正则是 `/entry:\s*(\d+)\s*(\S+)\s*\n?(.*)\n?/g`：
+  - `(\d+)` 贪婪但**会回溯**：`entry:12 34` 的 id 是 `12`、名字是 `34`；必须
+    “从最长数字段往短试”（`entry:abc` 不匹配，扫描继续往后找）；
+  - 名字后的 `\s*` **会跳换行**（`\s` 含 `\n`）⇒ `(.*)` 拿到的是**下一行**的内容，
+    空行会被吞掉 —— 这就是源数据把冒号键值写在下一行的原因；
+  - `\n?` 在 `(.*)` **之前**，且 `\s*` 已贪婪吃掉换行 ⇒ `\n?` 实际总是匹配空。
+- 每个 entry 先 `{kind: 0, id, name}`，再把 `match_colon_value(remain)` 的键值
+  按 `to_num(v) ?? v` 写进去（**可能覆盖 `id`** ⇒ 最终映射的键取覆盖后的 id），
+  最后 `cook_itr(entry)` 再规整。
+- 结果 `{[id]: item}`：重复 id 后者覆盖、键位置保持首次出现；`list` 为空时返回 `undefined`
+  （“块存在但无 entry”是一个**独立**分支，要有用例）。
+
+**验证**：subject `itr_prefabs`（`/all` 14 行）+ 11 条变异全杀。
+
 ---
 
 ## 5. 风险
