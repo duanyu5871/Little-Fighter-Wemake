@@ -195,8 +195,9 @@ VS Code 里也已经指好（`.vscode/settings.json`）：
 | 1.6 | `base/Expression`（V7）+ `Object`（V6）+ `JSON`/`JSON5` | ✅ 通过（`expression` 303+216、`value/object` 109、`json` 62+157、`json5` 302+111+6454 行；共 48 条变异全杀） |
 | 1.7 | `fields.ts`（字段描述 DSL + `fields()` + `reorder_fields` + `validate_fields`） | ✅ 通过（`fields` 77+155 行；19 条变异全杀） |
 | 2a | `defines/` 的**枚举**（46 个：43 生成 + 3 手写） | ✅ 通过（`defines/all` 796 行；6 条变异全杀） |
-| 2b | `defines/` 的**结构体 + 字段表**（63 个 `I*.ts` / 4864 行）+ 其余常量（`defines.ts` / `CMD.ts` / `actions/`） | 待做 |
-| 2c | `base/{FSM,Callbacks,NoEmitCallbacks}` | 待做 |
+| 2b | `defines/` 的**字段表**（34 张，生成） | ✅ 通过（`defines_fields/all` 34 行；5 条变异全杀） |
+| 2c | `defines/` 的**结构体**（`I*.ts` 的 interface，约 3071 行）+ 其余常量（`defines.ts` / `CMD.ts` / `actions/`） | 待做 |
+| 2d | `base/{FSM,Callbacks,NoEmitCallbacks}` | 待做 |
 | 3 | `loader/get_val_*`（103 条 getter 表） | 待做 |
 | 4 | `entity` + `collision` + `buff` + `state` + `controller` + `bot` + `World` | 待做（**必须整块搬**，见下） |
 
@@ -232,6 +233,8 @@ VS Code 里也已经指好（`.vscode/settings.json`）：
 | `lfw/defines/*.h`（43 个） | **由 `native/tools/gen_defines_enums.mjs` 生成，不要手改** | 枚举是纯数据。改完 TS 重跑生成器；差分 `defines` 会验 |
 | `FacingFlag` / `HitFlag` / `EntityEnum` | **手写**，不在生成范围内 | 成员引用了同文件常量、同枚举成员或别的枚举，生成器不求值 |
 | 生成的 `bdy_kind_name_of` 等 | 命名 `xxx_name_of`（TS 里叫 `bdy_kind_name`） | 避开将来手写同名函数 |
+| `lfw/defines/fields_gen.h` | **由 `native/tools/gen_defines_fields.mjs` 生成，不要手改** | 它跑真实的 TS 字段表、内嵌成 JSON5，运行时用 `json5_parse` 还原 |
+| `JSON.stringify` 会把 `-0` 写成 `0` | 生成字段表时用 | 当前 34 张表里没有 `-0`；若有，差分会在位模式上暴露 |
 
 **注意修正过的顺序**：`loader/preprocess_*.ts` 在运行时依赖 `dat_translator`
 （`CondMaker` / `set_hit_flag` / `make_entity_special` / `xml_x_entity_data` /

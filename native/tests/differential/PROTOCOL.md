@@ -460,7 +460,23 @@ C++ 侧完全由 `lfw/defines/all_enums.h` 的注册表驱动、TS 侧由生成�
 前 3 条变异**全部存活**（比对的只是那张表）。改成表引用枚举成员后全杀。
 ⇒ 打变异时如果要用"改值"来验，先确认被改的那处**就是**被比对的那处。
 
-### 6.6 用例 DSL 的两个坑（我踩了 6 次）
+### 6.6 `defines_fields`（34 张字段表，5 条全杀）
+
+不需要输入（`cases/defines_fields/all.txt` 只是占位）：每张表打一行 `T <name> <render>`。
+C++ 侧读生成的内嵌 JSON5（`json5_parse`），TS 侧读真正的 `src/LFW/defines/*.ts`。
+
+| 变异 | 结果 |
+|---|---|
+| 字段表里的 `order` 值改错 | killed |
+| `options` 的某个 `value` 改错 | killed |
+| 非 ASCII 标题改错（`??比例` → `XX比例`） | killed |
+| 整条字段被删掉 | killed |
+| 字段 `type` 改错（`float` → `int`） | killed |
+
+这个 subject 的价值有两层：① 验生成器内嵌的数据与 TS 一致；
+② 验 `json5_parse` 能原样还原这些真实数据（**非 ASCII + 键序 + 嵌套表**）。
+
+### 6.7 用例 DSL 的两个坑（我踩了 6 次）
 
 值字面量是**前缀记法带个数**：`o <n> <k1> <v1> …`、`a <n> <v1> …`。
 个数写错时症状分三种，都要会认：

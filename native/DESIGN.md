@@ -561,6 +561,35 @@ bool  validate_fields(const Value& obj, const Value& field_map,
   （`FacingFlag` 的 `SameAsCatcher` 与 `SameAsBearer` 都是 4 ⇒ `FacingFlag[4] === "SameAsBearer"`）。
 - 字符串枚举**没有**反向映射。
 
+### 4.12 V12 `defines/` 的字段表（34 张）
+
+字段表是 `defines/` 里**运行期真正相关**的部分：`reorder_fields(obj, table)` 只取 `order`；
+`WorldDataset.ts` 用 `has`/`keys` 做 schema 比对；`IFrameInfo.ts:398` 把整张
+`world_dataset_fields` 嵌成嵌套字段的 `fields`。
+
+**做法：跑真实的 TS，把结果内嵌成 JSON5。**
+
+`native/tools/gen_defines_fields.mjs`：用 esbuild 打包一个临时入口
+（`import * as M from ".../defines/xxx"`，遍历每个模块里所有 `*_fields` 导出，
+把 `Map` 递归转成保序的普通对象）→ 用 node 跑一遍 → `JSON.stringify` →
+生成 `native/lfw/defines/fields_gen.h`，每张表是一个惰性解析函数：
+
+    inline const Value& bdy_info_fields() {
+      static const Value v = json5_parse(uR"J({...})J").value;
+      return v;
+    }
+
+字符串按 8000 个 UTF-16 单元**分块拼接**（MSVC 单个字面量上限 16380 字节，超了报 C2026；
+拼接要避开从代理对中间切开）。
+
+**为什么不手抄**：961 行字段表里塞满了中文标题/描述/`options` —— 手抄的唯一产物是 typo。
+生成法下 C++ 的字段表与 TS **同源**，而 `json5_parse` 本身已被 JSON5 那一整套差分验证过。
+差分 subject `defines_fields` 再比一次「C++ 解析结果 vs TS 原表」，
+顺带覆盖「JSON5 往返丢信息」的风险 —— `defines_fields/all` 34 行全对，5 条变异全杀。
+
+**边界**：`JSON.stringify` 会把 `-0` 写成 `0`。当前 34 张表里没有 `-0`；
+若将来有，diff 会在数字位模式上暴露，那时改成手工序列化即可。
+
 ---
 
 ## 5. 风险
