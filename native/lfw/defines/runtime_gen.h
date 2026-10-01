@@ -3,6 +3,8 @@
 #include <string>
 #include <vector>
 
+#include "lfw/core/value.h"
+
 namespace lfw {
 
 struct DefinesRuntimeEntry {
@@ -12,5 +14,9 @@ struct DefinesRuntimeEntry {
 };
 
 const std::vector<DefinesRuntimeEntry>& defines_runtime_entries();
+
+Value bg_info_new();
+Value bg_layer_info_new();
+Value bg_data_new();
 
 }

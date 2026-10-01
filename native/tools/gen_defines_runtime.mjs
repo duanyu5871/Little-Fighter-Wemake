@@ -35,11 +35,17 @@ const TOP_LEVEL = [
   ["OLD_BDY_KIND_GOTO_MAX", "OLD_BDY_KIND_GOTO_MAX", "BdyKind"],
 ];
 
+const NEW_FUNCS = [
+  ["bg_info_new", "bg_info_new()", "IBgInfo"],
+  ["bg_layer_info_new", "bg_layer_info_new()", "IBgLayerInfo"],
+  ["bg_data_new", "bg_data_new()", "IBgData"],
+];
+
 function flatModuleName(s) {
   return "M_" + s.replace(/[^A-Za-z0-9]/g, "_");
 }
 
-const topImports = [...new Set(TOP_LEVEL.map((x) => x[2]))];
+const topImports = [...new Set([...TOP_LEVEL.map((x) => x[2]), ...NEW_FUNCS.map((x) => x[2])])];
 
 const entry = [];
 entry.push(`import * as M_defines from "${REL}/defines";`);
@@ -80,9 +86,13 @@ entry.push("  return '{' + Object.keys(o).map((k) => JSON.stringify(k) + ':' + j
 entry.push("}");
 entry.push("");
 entry.push("const out: { name: string; json: string; kind: string }[] = [];");
+entry.push("const funcs: { name: string; json: string }[] = [];");
 entry.push("const skipped: string[] = [];");
 entry.push("function add(name: string, v: unknown, kind: string) {");
 entry.push("  out.push({ name, json: json5ify(plain(v)), kind });");
+entry.push("}");
+entry.push("function addf(name: string, v: unknown) {");
+entry.push("  funcs.push({ name, json: json5ify(plain(v)) });");
 entry.push("}");
 entry.push("");
 entry.push("for (const k of Object.keys(M_defines.Defines).sort()) {");
@@ -100,7 +110,10 @@ entry.push("}");
 for (const [name, expr, mod] of TOP_LEVEL) {
   entry.push(`add(${JSON.stringify(name)}, ${flatModuleName(mod)}.${expr}, 'top');`);
 }
-entry.push("console.log(JSON.stringify({ out, skipped }));");
+for (const [name, expr, mod] of NEW_FUNCS) {
+  entry.push(`addf(${JSON.stringify(name)}, ${flatModuleName(mod)}.${expr});`);
+}
+entry.push("console.log(JSON.stringify({ out, skipped, funcs }));");
 
 mkdirSync(gen_dir, { recursive: true });
 mkdirSync(dirname(out_ts), { recursive: true });
@@ -122,7 +135,7 @@ esbuild.buildSync({
 });
 
 const json = execFileSync(process.execPath, [bundle], { encoding: "utf8", maxBuffer: 1 << 28 });
-const { out: entries, skipped } = JSON.parse(json);
+const { out: entries, skipped, funcs } = JSON.parse(json);
 
 if (entries.length === 0) {
   console.error("gen_defines_runtime: no entries extracted");
@@ -178,6 +191,8 @@ header.push("");
 header.push("#include <string>");
 header.push("#include <vector>");
 header.push("");
+header.push("#include \"lfw/core/value.h\"");
+header.push("");
 header.push("namespace lfw {");
 header.push("");
 header.push("struct DefinesRuntimeEntry {");
@@ -188,12 +203,18 @@ header.push("};");
 header.push("");
 header.push("const std::vector<DefinesRuntimeEntry>& defines_runtime_entries();");
 header.push("");
+for (const f of funcs) header.push(`Value ${f.name}();`);
+header.push("");
 header.push("}");
 header.push("");
 writeFileSync(out_h, header.join("\n"));
 
 const cpp = [];
-cpp.push('#include "lfw/defines/runtime_gen.h"');
+cpp.push("#include \"lfw/defines/runtime_gen.h\"");
+cpp.push("");
+cpp.push("#include <optional>");
+cpp.push("");
+cpp.push("#include \"lfw/core/json5.h\"");
 cpp.push("");
 cpp.push("namespace lfw {");
 cpp.push("namespace {");
@@ -236,6 +257,22 @@ cpp.push("  static const std::vector<DefinesRuntimeEntry> kEntries = build();");
 cpp.push("  return kEntries;");
 cpp.push("}");
 cpp.push("");
+for (let i = 0; i < funcs.length; i++) {
+  const chunks = splitChunks(funcs[i].json);
+  if (chunks.length === 1) {
+    cpp.push(`const char16_t kNew${i}[] = ${cxxU16(chunks[0])};`);
+  } else {
+    cpp.push(`const char16_t kNew${i}[] = ${chunks.map((c) => cxxU16(c)).join(" ")};`);
+  }
+}
+cpp.push("");
+for (let i = 0; i < funcs.length; i++) {
+  cpp.push(`Value ${funcs[i].name}() {`);
+  cpp.push(`  const Json5Result r = json5_parse(kNew${i});`);
+  cpp.push("  return r.ok ? r.value : Value();");
+  cpp.push("}");
+  cpp.push("");
+}
 cpp.push("}");
 cpp.push("");
 writeFileSync(out_cpp, cpp.join("\n"));
@@ -258,7 +295,7 @@ ts.push("];");
 ts.push("");
 writeFileSync(out_ts, ts.join("\n"));
 
-console.log(`defines_runtime: ${entries.length} entries (${entries.filter((e) => e.kind === "top").length} top-level)`);console.log(`  header: ${relative(root, out_h)}`);
+console.log(`defines_runtime: ${entries.length} entries (${entries.filter((e) => e.kind === "top").length} top-level), ${funcs.length} new-funcs`);console.log(`  header: ${relative(root, out_h)}`);
 console.log(`  source: ${relative(root, out_cpp)}`);
 console.log(`  ts:     ${relative(root, out_ts)}`);
 const nonNull = entries.filter((e) => e.kind !== "top" && e.kind !== "object");

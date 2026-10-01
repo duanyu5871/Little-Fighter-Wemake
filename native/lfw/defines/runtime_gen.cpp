@@ -1,5 +1,9 @@
 #include "lfw/defines/runtime_gen.h"
 
+#include <optional>
+
+#include "lfw/core/json5.h"
+
 namespace lfw {
 namespace {
 
@@ -187,6 +191,25 @@ std::vector<DefinesRuntimeEntry> build() {
 const std::vector<DefinesRuntimeEntry>& defines_runtime_entries() {
   static const std::vector<DefinesRuntimeEntry> kEntries = build();
   return kEntries;
+}
+
+const char16_t kNew0[] = u"{}";
+const char16_t kNew1[] = u"{\"width\":0,\"height\":0,\"x\":0,\"y\":0,\"z\":0,\"w\":0,\"h\":0}";
+const char16_t kNew2[] = u"{\"type\":\"background\",\"id\":\"\",\"base\":{},\"layers\":[]}";
+
+Value bg_info_new() {
+  const Json5Result r = json5_parse(kNew0);
+  return r.ok ? r.value : Value();
+}
+
+Value bg_layer_info_new() {
+  const Json5Result r = json5_parse(kNew1);
+  return r.ok ? r.value : Value();
+}
+
+Value bg_data_new() {
+  const Json5Result r = json5_parse(kNew2);
+  return r.ok ? r.value : Value();
 }
 
 }

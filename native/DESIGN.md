@@ -1023,6 +1023,35 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
 
 **验证**：subject `entity_kinds`（`/all` 17 行）+ 19 条变异全杀。
 
+### 4.27 V27 `make_bg_data`（+ `make_bg_layer` / `bg_color_translate`）
+
+形态：`native/lfw/dat_translator/bg_data.{h,cpp}`，一个 subject 覆盖三个函数（后两个未导出，
+只能通过 `make_bg_data` 间接对拍）。**前置工作**：给 `gen_defines_runtime.mjs` 加了
+`NEW_FUNCS`，把 `bg_info_new()` / `bg_layer_info_new()` / `bg_data_new()` 生成为
+**每次新建** 的 C++ 函数（进 `runtime_gen.{h,cpp}`）—— 它们返回新对象，
+不能像 `TOP_LEVEL` 那样做成共享条目。
+
+**移植要点**
+
+- **整串的 `/\\\\/g` → `'/'` 是“两个连续反斜杠”换一个斜杠**（不是单反斜杠），而 `make_bg_layer`
+  里的 `/\\/g` 才是单反斜杠 ⇒ 两处规则不同，各写各的。
+- `shadow?.replace(/.bmp$/, ".png")` 的 `.` 是**正则任意字符**（未转义）⇒ 匹配“任意字符 +
+  `bmp` 结尾”，且要求至少 4 个字符（所以 `"abmp"` 也会被换成 `".png"`）。
+- `layer` 解析：`block_str.trim().split(/\n|\r/g).filter(v => v).map(v => v.trim())` ⇒
+  **先 trim 整块**（块首空行因此看不见），`filter` 只丢**空串**，只有前两段有意义
+  （`file` / `remains`）。
+- `layer.z = ret.layers.length - blocks.length` 是**长度差值**（第一层是 `-n`），不是下标。
+- `fields.rect` 为真值时才走颜色分支：`file = undefined`、`absolute = 1`、
+  `color = bg_color_translate(rect)`；否则 `file` 走 `/.bmp$/` + 单反斜杠替换。
+- `bg_color_translate`：先 `switch ('' + rect)`（11 个固定映射，含字符串 `"40179b"`），
+  再 `is_str(rect)` 原样返回，否则 `js_to_int32` 后做位运算；`r/g/b` 的 `+7` 条件是
+  `> 64 || === 0`，绿色额外的 `+4` 条件是 `((rect >> 5) & 1) && g > 80`（两个都要）。
+- `layer.x/w/h` 用 `typeof === 'number'`、`width/height` 用 `??`、`cc/c1/c2` 用 `typeof`
+  且 `*2` / `*2+1`，`loop` 是 `?? undefined`（键会被写进去，随后 `delete_undefined` 删掉）。
+- `ret.base.name` 的 `_` → 空格；`out.id` 用 `datIndex.id ?? fields.name`（nullish）。
+
+**验证**：subject `bg_data`（`/all` 11 行）+ 22 条变异全杀。
+
 ---
 
 ## 5. 风险

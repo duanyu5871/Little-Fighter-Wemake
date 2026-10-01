@@ -7,6 +7,9 @@ import * as M_Difficulty from "../../../../../src/LFW/defines/Difficulty";
 import * as M_HitFlag from "../../../../../src/LFW/defines/HitFlag";
 import * as M_WpointKind from "../../../../../src/LFW/defines/WpointKind";
 import * as M_BdyKind from "../../../../../src/LFW/defines/BdyKind";
+import * as M_IBgInfo from "../../../../../src/LFW/defines/IBgInfo";
+import * as M_IBgLayerInfo from "../../../../../src/LFW/defines/IBgLayerInfo";
+import * as M_IBgData from "../../../../../src/LFW/defines/IBgData";
 
 export const definesRuntimeEntries: { name: string; value: unknown; isTopLevel: boolean }[] = [
   { name: "ALL_HIT_FLAG", value: M_HitFlag.ALL_HIT_FLAG, isTopLevel: true },
