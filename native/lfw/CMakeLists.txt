@@ -35,6 +35,7 @@ add_library(lfw_core STATIC
   dat_translator/next_frame.cpp
   dat_translator/bots_frames.cpp
   dat_translator/make_fighter_data.cpp
+  dat_translator/obj_dat_to_json.cpp
   base/predicate.cpp
   utils/math/mersenne_twister.cpp
   utils/math/normalize_plane.cpp
