@@ -1,7 +1,10 @@
 import "current-device";
 import './DittoImpl';
 import * as dom from "./DittoImpl";
+import { HeadlessUIInputHandle } from "./DittoImpl/ui/HeadlessUIInputHandle";
+import { get_ui_snapshot, HeadlessUINodeRenderer } from "./DittoImpl/renderer/HeadlessUINodeRenderer";
 import { UINodeRenderer } from "./DittoImpl/renderer/UINodeRenderer";
+import { ui_test_run } from "./ui_test";
 import { WorldRenderer } from "./DittoImpl/renderer/WorldRenderer";
 import { actor, Ditto, LFW, UIActionEnum } from "./LFW";
 import { Debug, Log, Warn } from "./Log";
@@ -27,6 +30,8 @@ actor
   })
 
 const DEV = window.location.href.includes('DEV=1')
+// ?headless_ui=1：把 UI 渲染器换成不画东西的实现，只记录节点树快照（验证模型/渲染分层用）
+const HEADLESS_UI = new URLSearchParams(window.location.search).has('headless_ui')
 Ditto.setup({
   Timeout: dom.__Timeout,
   Interval: dom.__Interval,
@@ -44,9 +49,9 @@ Ditto.setup({
   Vector3: dom.Vector3,
   Vector2: dom.Vector2,
   WorldRender: WorldRenderer,
-  UINodeRenderer: UINodeRenderer,
+  UINodeRenderer: HEADLESS_UI ? HeadlessUINodeRenderer : UINodeRenderer,
   ImageMgr: dom.ImageMgr,
-  UIInputHandle: dom.UIInputHandle,
+  UIInputHandle: HEADLESS_UI ? HeadlessUIInputHandle : dom.UIInputHandle,
   warn: Warn.print,
   error: Err.print,
   Log: Log.print,
@@ -56,6 +61,19 @@ Ditto.setup({
   IsDesktop: !!window.runtime,
   alert: (msg) => window.alert(msg),
 });
+if (HEADLESS_UI) {
+  Object.assign(window, {
+    ui_snapshot: () => ({
+      frames: HeadlessUINodeRenderer.frames,
+      nodes: get_ui_snapshot(),
+    }),
+    ui_test_run: (steps?: unknown) => {
+      const lfw = (window as any).world?.lfw;
+      if (!lfw) throw new Error("[ui_test_run] world 未就绪");
+      return ui_test_run(lfw, steps as any);
+    },
+  });
+}
 ewents.filter = async (type: string, event: object) => {
   if (localStorage.getItem('last_admin') == '255')
     return false

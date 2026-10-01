@@ -1,5 +1,6 @@
 import react from '@vitejs/plugin-react';
 import { execSync } from 'child_process';
+import { mkdirSync, writeFileSync } from 'fs';
 import { resolve } from 'path';
 import { defineConfig, type Plugin } from 'vite';
 import checker from 'vite-plugin-checker';
@@ -47,6 +48,32 @@ function version_file_plugin(): Plugin {
     },
   };
 }
+// 开发期：把无头 UI 测试（?headless_ui=1 + window.ui_test_run()）的结果落盘，
+// 复现：npm run dev → 打开页面 → await ui_test_run() → node scripts/ui-snapshot-diff.mjs temp/ui-run.json
+function ui_snapshot_sink_plugin(): Plugin {
+  return {
+    name: 'lfj-ui-snapshot-sink',
+    apply: 'serve',
+    configureServer(server) {
+      server.middlewares.use('/__ui-snapshot', (req, res) => {
+        if (req.method !== 'POST') { res.statusCode = 405; res.end(); return; }
+        const chunks: Buffer[] = [];
+        req.on('data', (c) => chunks.push(c));
+        req.on('end', () => {
+          try {
+            mkdirSync('temp', { recursive: true });
+            writeFileSync('temp/ui-run.json', Buffer.concat(chunks));
+            res.end('ok');
+          } catch (e) {
+            res.statusCode = 500;
+            res.end(String(e));
+          }
+        });
+      });
+    },
+  };
+}
+
 // bilibili-toy 构建：`vite build --mode bili-toy` → 产物输出到 dist-toy（不覆盖 web 的 dist），
 // 并把默认数据包指向 https://lf.gim.ink/<version>/（版本号取构建时 package.json 的 version，非固定）
 export default defineConfig(({ command, mode }) => {
@@ -71,7 +98,8 @@ export default defineConfig(({ command, mode }) => {
       }
     }),
     glsl(),
-    version_file_plugin()
+    version_file_plugin(),
+    ui_snapshot_sink_plugin()
   ],
   define: {
     VERSION_NAME: JSON.stringify(json.version),

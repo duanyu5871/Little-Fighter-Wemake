@@ -27,6 +27,7 @@ function node_path(node: UINode): string | undefined {
   }
   return [layer.index, page_idx, ...idx].join(',');
 }
+export { node_path };
 export class UIInputHandle implements IUIInputHandle {
   private lfw: LFW;
   private pointer_vec_2 = new T.Vector2();
