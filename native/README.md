@@ -201,6 +201,7 @@ VS Code 里也已经指好（`.vscode/settings.json`）：
 | 3a | `dat_translator/CondMaker`（条件字符串构造器，所有默认条件的共同前置） | ✅ 通过（`cond_maker/all` 55 行；17 条变异全杀） |
 | 3b | `defines/` 名称/标签函数（`labels`，`set_hit_flag`/`set_bdy_kind` 的前置） | ✅ 通过（`labels/all` 107 行；15 条变异全杀） |
 | 3c | `dat_translator` 小助手（`take*` / `set_*` / `fixed_float` / `find_float` / `copy_*`） | ✅ 通过（`dat_helpers/all` 100 行；19 条变异全杀） |
+| 3d | `dat_translator` 帧跳转（`get_next_frame_by_raw_id` / `cook_next_frame_cost` / `add_next_frame`） | ✅ 通过（`next_frame/all` 83 行；17 条变异全杀） |
 | 3 | `loader/get_val_*`（103 条 getter 表） | 待做 |
 | 4 | `entity` + `collision` + `buff` + `state` + `controller` + `bot` + `World` | 待做（**必须整块搬**，见下） |
 
