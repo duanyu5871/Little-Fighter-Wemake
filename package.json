@@ -14,6 +14,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "jest",
+    "native": "node native/tools/native.mjs",
     "___build___": "___build___",
     "build:tool": "cd ./tool && npm i && npm run build",
     "build:data": "node ./tool make-data-zip -c ./lf2s/origin/conf.json5 -d",
