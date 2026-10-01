@@ -7,6 +7,8 @@ add_library(lfw_core STATIC
   core/state_hash.cpp
   core/value.cpp
   fields.cpp
+  defines/defines.cpp
+  defines/runtime_gen.cpp
   base/predicate.cpp
   utils/math/mersenne_twister.cpp
   utils/math/normalize_plane.cpp

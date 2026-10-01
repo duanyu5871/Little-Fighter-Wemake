@@ -517,6 +517,17 @@ node native/tools/check_defines_coverage.mjs      # 已接进 native.mjs all 的
   `once` 在一次 flush 内只触发一次、`del` 后重加排到末尾、溢出告警的复位（第二次溢出要再报一次）、
   `enter` / `leave` 的先后。
 
+### 6.9.2 `defines_runtime`（`Defines` 运行时数据，9 条全杀）
+
+- **序列化保真度也是被测对象**：生成器最初用 `JSON.stringify`，`-0` 变 `0`、`NaN` 变 `null`，
+  差分停在第 51 行（`VOID_BG.base.near`）。改成自家 JSON5 序列化（`-0`/`NaN`/`Infinity` 原样）后全对。
+- **两侧的「条目顺序」是测试基建，不是数据**：C++ 侧按 `Defines` 名排序、TS 侧把 TOP_LEVEL 放在前，
+  造成「第 2 行就漂移」的假象。两侧统一 `sort()` 后，差分才反映真实内容。
+- **`parse_value` 的 `s` 是独立 token**：`s"1"` 会报 `bad value literal`，正确写法 `s "1"`。
+  这条坑使「空字符串」很久没被真测到——`isind ""` 传的是 2 个引号字符 ⇒ `!== 1` 与 `> 1` 等价，变异存活。
+- **「缺失的成员」用存在性表达**，不要让访问器伪造默认值：`num()` 对未知名字回 0 是刻意的
+  （真实调用点都传已知名），差分里用 `has`（C++ `find() != nullptr`）表达 `Defines[k] === undefined`。
+
 ### 6.9 用例 DSL 的两个坑（我踩了 6 次）
 
 值字面量是**前缀记法带个数**：`o <n> <k1> <v1> …`、`a <n> <v1> …`。

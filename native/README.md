@@ -196,7 +196,7 @@ VS Code 里也已经指好（`.vscode/settings.json`）：
 | 1.7 | `fields.ts`（字段描述 DSL + `fields()` + `reorder_fields` + `validate_fields`） | ✅ 通过（`fields` 77+155 行；19 条变异全杀） |
 | 2a | `defines/` 的**枚举**（52 个：47 生成 + 5 手写；覆盖已验） | ✅ 通过（`defines/all` 851 行；6 条变异全杀） |
 | 2b | `defines/` 的**字段表**（34 张，生成） | ✅ 通过（`defines_fields/all` 34 行；5 条变异全杀） |
-| 2c | `defines/` 的**结构体**（`I*.ts` 的 interface，约 3071 行）+ 其余常量（`defines.ts` / `CMD.ts` / `actions/`） | 待做 |
+| 2c | `defines/` 的**运行时数据**（`Defines` 命名空间 66 条 + 7 个顶层对象 + 5 个函数） | ✅ 通过（`defines_runtime/all` 149 行；9 条变异全杀）。`I*.ts` 结构体与 33 个 `*_new()` 只服务 `dat_translator`，运行时不用，暂缓 |
 | 2d | `base/{FSM,Callbacks,NoEmitCallbacks}` | ✅ 通过（`base/core` 3127 行；21 条变异全杀） |
 | 3 | `loader/get_val_*`（103 条 getter 表） | 待做 |
 | 4 | `entity` + `collision` + `buff` + `state` + `controller` + `bot` + `World` | 待做（**必须整块搬**，见下） |

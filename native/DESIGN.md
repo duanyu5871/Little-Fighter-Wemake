@@ -648,6 +648,37 @@ bool  validate_fields(const Value& obj, const Value& field_map,
 **渲染注意**：告警文案含 `U+2014`。终端里的 `to_ascii` 只做 `static_cast<char>` ⇒ 非 ASCII 被截成
 控制字符，两侧看起来不一致。**自由文本一律用两侧共用的 `esc()` 渲染**（`>0x7e` 转义成 `\uXXXX`）。
 
+### 4.14 V14 `defines/` 的运行时数据（`Defines` 命名空间）
+
+**先验证范围，再动手。** `defines/` 有 127 个文件 / 8613 行，按「谁在用」分成三类
+（`native/tools/list_defines_exports.mjs` 分类导出 + 全仓库查引用）：
+
+| 类别 | 规模 | 使用者 | 结论 |
+|---|---|---|---|
+| 33 个 `xxx_new()` 默认构造 | 33 个函数 | **只被 `dat_translator/`**（XML→数据 翻译层）用 | 运行时不用，**不移植**（要移就等 `dat_translator` 一起） |
+| `I*.ts` / `type` / interface | 约 3000 行 | 只有类型，无运行时面 | C++ 运行时用 `Value` 动态取字段，**不需要结构体** |
+| `Defines` 命名空间的常量与数据表 | 66 条 + 7 个顶层对象 | `entity/` `collision/` `World` `bot/` `controller/` | **必须移**，且可差分 |
+
+所以 V14 只做第三类：`native/lfw/defines/runtime_gen.{h,cpp}`（生成）+ `defines_data.{h,cpp}`（手写访问层）。
+
+- 生成器 `native/tools/gen_defines_runtime.mjs` 跑**真实 TS**，把 `Defines` 命名空间的每个成员
+  （number/string/boolean/数组/普通对象/`Map`）与 7 个顶层运行时对象
+  （`EMPTY_FRAME_INFO` `GONE_FRAME_INFO` `ENTITY_PRIORITY_MAP` `CONFLICTS_KEY_MAP`
+  `DifficultyList` `DifficultyNames` `DifficultyDescriptions`）序列化成 JSON5 字面量。
+  这是**完整覆盖**（只跳过 2 个函数，它们单独手写并差分）——不像枚举生成器那样有「规则漏掉一类」的盲点。
+- 手写层只做零重复访问：`defines::table()/find()/num()` 直接读生成表；
+  `desire()` 用 `num(u"Defines.MAX_AI_DESIRE")`（**不重抄 10000**）；
+  `is_cheat_type()` 用已移植的 `cheat_enum::k*`；`is_difficulty()` 用已移植的 `Difficulty`。
+- 序列化用 **JSON5 而不是 JSON**：`JSON.stringify` 把 `-0` 写成 `0`、`NaN` 写成 `null`，
+  而 `VOID_BG.base.near` 正是 `-0`、`EMPTY_FRAME_INFO.state` 是 `NaN`
+  ⇒ 差分在数字位模式上立即暴露（`n0:8000…` vs `n0:0000…`）。
+  C++ 侧本来就用 `json5_parse`，所以生成 JSON5 是零成本的正解。
+- **构建陷阱**：`native/lfw/CMakeLists.txt` 用的是**显式源文件列表**（不是 glob）——
+  新增 `.cpp` 必须手工登记；只有 subject 目录是 glob。
+
+**验证**：subject `defines_runtime`，`cases/defines_runtime/all.txt` **149 行全对**；
+9 条变异全杀（含 1 条打生成表里的数值，证明这些表确实在对拍范围内）。
+
 ---
 
 ## 5. 风险
