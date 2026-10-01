@@ -1,4 +1,4 @@
-import { parseJsStringLiteral, readCaseLines, splitWs } from "./trace_util";
+import { bitsHex, esc, parseJsStringLiteral, readCaseLines, splitWs } from "./trace_util";
 
 function line(...parts: (string | number)[]): string {
   return parts.map((p) => String(p)).join(" ");
@@ -91,6 +91,26 @@ function main(): void {
       } else {
         out.push(line(op, pushHandle(held[idx])));
       }
+      continue;
+    }
+
+    if (op === "eq" || op === "seq") {
+      const idx = [1];
+      const x = parseValue(tok, idx) as never;
+      const y = parseValue(tok, idx) as never;
+      out.push(line(op, (op === "eq" ? x == y : x === y) ? "true" : "false"));
+      continue;
+    }
+
+    if (op === "ton") {
+      const v = parseValue(tok, [1]);
+      const d = Number(v);
+      out.push(line(op, Number.isNaN(d) ? "nan" : bitsHex(d)));
+      continue;
+    }
+
+    if (op === "tos") {
+      out.push(line(op, esc(String(parseValue(tok, [1])))));
       continue;
     }
 

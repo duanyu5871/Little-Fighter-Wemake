@@ -36,4 +36,11 @@ bool is_array(const Value& v);
 const Array* as_array(const Value& v);
 Array* as_array(Value& v);
 
+std::u16string array_join(const Array& a);
+Value to_primitive(const Value& v);
+double to_number(const Value& v);
+std::u16string to_string(const Value& v);
+bool strict_equals(const Value& a, const Value& b);
+bool equals(const Value& a, const Value& b);
+
 }

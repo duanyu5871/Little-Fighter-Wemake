@@ -122,7 +122,7 @@ using Value = std::variant<
 | V1 | `Value` 基本类型 + 真值 / `typeof` / `Array.isArray` | **已完成**（89 行差分全过；`Object` 延到 V6） |
 | V2 | **`string_to_number`**（`ToNumber(string)`） | **已完成**（146 + 81 行差分全过） |
 | V3 | **`number_to_string`**（最短往返 + JS 指数阈值） | **已完成**（77 + 10558 行差分全过） |
-| V4 | **宽松 `==`** 完整规则表 | 待做 |
+| V4 | **宽松 `==`** 完整规则表 | **已完成**（89 + 61 + 84 行差分全过；`{{`/`}}` 延到 V7） |
 | V5 | 关系比较 `< > <= >=` | 待做 |
 | V6 | `Object` + `Object.keys` 顺序 | 待做 |
 | V7 | `Expression` 跑在 `Value` 上 | 待做 |
@@ -268,6 +268,59 @@ k = 数字个数,  n = E + 1
 `get_short_file_size_txt.ts` 和 `dat_translator/fixed_float.ts` 用 `Number(n.toFixed(d))`，
 那是**另一套舍入规则**（`toFixed` 有自成的舍入与补零逻辑）。
 它们只被 `cook_frames` / `make_itr_prefabs` 调用 ⇒ **构建期 cook**，不在运行期，运行期移植不需要。
+
+### 4.4 V4 宽松 `==` 与它的强制转换核心
+
+先做**强制转换原语** —— `==` 只是它们的一个消费者，V5 的关系比较也要用同一套：
+
+```cpp
+Value          to_primitive(const Value&);   // 只有 Array 需要动：→ join(",")
+double         to_number(const Value&);      // undefined→NaN, null→0, bool→0/1, string→string_to_number
+std::u16string to_string(const Value&);      // number→number_to_string, Array→join(","), 其余按字面
+std::u16string array_join(const Array&);
+bool strict_equals(const Value&, const Value&);
+bool equals(const Value&, const Value&);
+```
+
+**`Array.prototype.toString` 就是 `join(",")`**，而 `join` 把 `null` / `undefined` 元素变成**空串**
+（不是 `"null"` / `"undefined"`）：
+
+```
+[].toString()            = ""
+[undefined].toString()   = ""
+[null].toString()        = ""
+[undefined,1].toString() = ",1"
+[null,null].toString()   = ","
+[[1,2],3].toString()     = "1,2,3"     内层先 toString 再拼 ⇒ 会被"压平"
+```
+
+**`==` 的规则表**（值域已限定为 Undefined|Null|Bool|Number|String|Array）：
+
+| 情况 | 结果 |
+|---|---|
+| 同类型 | `strict_equals`（`NaN != NaN`、`+0 == -0`、**Array 按引用**） |
+| `null` ↔ `undefined` | `true` |
+| 任一边是 Bool | 那一边 `ToNumber(bool)`，然后递归 |
+| Number ↔ String | `ToNumber(string)`，然后按数字比 |
+| Array ↔ Number/String | `ToPrimitive(array)`，然后递归 |
+| 其余 | `false`（含 Array ↔ `undefined`/`null`；Array ↔ Array 不同引用） |
+
+**两条最容易被漏掉的是“不对称”的那两条**：Bool / Array 出现在**右边**时同样要转换。
+`eq n 1 b 1` / `eq n 0 a 0` 就是专门钉这两个方向的。
+
+差分 subject `value` 新增 `eq` / `seq` / `ton` / `tos` 四个 op（`tos` 用 `\uXXXX` 转义输出，全是 ASCII）。
+
+| 变异 | 结果 |
+|---|---|
+| 删掉 `kb == V_BOOL` 分支（规则 9） | FAIL 第 40 行（`eq n 1 b 1`） |
+| 删掉 `kb == V_ARR` 分支（规则 11） | FAIL 第 61 行（`eq n 0 a 0`） |
+| `array_join` 去掉 `null`/`undefined` → 空串 | FAIL `coerce` 第 22 行 + `equality` 第 65 行 |
+| 数字比较加 `signbit` 区分 `±0` | FAIL 第 2 行（`eq n 0 n -0`） |
+
+**不在 V4 范围**：`{{` / `}}` / `!{` / `!}` 的 `a_included_b` 留到 V7。它用 `indexOf` ⇒
+**严格相等**（不是 `==`，也不等于 `includes` 的 SameValueZero，所以 `NaN` 永不匹配）；
+另外它在非数组操作数上会**抛 TypeError**（`!b.length` 过了之后调 `b.findIndex`，或 `a.indexOf`），
+而数值操作数因为 `!b.length` 为真会**直接返回 `true`** —— 这条要在 V7 逐字照抄。
 
 ---
 

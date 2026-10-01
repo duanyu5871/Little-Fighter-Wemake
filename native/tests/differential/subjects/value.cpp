@@ -9,6 +9,7 @@
 
 #include "trace_util.h"
 
+using trace::esc;
 using trace::Line;
 using trace::parse_js_string_literal;
 using trace::split_ws;
@@ -134,6 +135,31 @@ int main(int argc, char** argv) {
       } else {
         out.add(static_cast<unsigned long long>(add_handle(a->at(idx))));
       }
+      out.out();
+
+    } else if (op == "eq" || op == "seq") {
+      size_t i = 1;
+      const lfw::Value x = parse_value(tok, i);
+      const lfw::Value y = parse_value(tok, i);
+      Line out;
+      out.add(op);
+      out.add_bool(op == "eq" ? lfw::equals(x, y) : lfw::strict_equals(x, y));
+      out.out();
+
+    } else if (op == "ton") {
+      size_t i = 1;
+      const lfw::Value x = parse_value(tok, i);
+      Line out;
+      out.add(op);
+      out.add(trace::num_hex(lfw::to_number(x)));
+      out.out();
+
+    } else if (op == "tos") {
+      size_t i = 1;
+      const lfw::Value x = parse_value(tok, i);
+      Line out;
+      out.add(op);
+      out.add(esc(lfw::to_string(x)));
       out.out();
 
     } else {

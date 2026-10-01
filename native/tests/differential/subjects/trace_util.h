@@ -113,4 +113,19 @@ inline double bits_from_hex(const std::string& h) {
   return lfw::f64_from_bits(std::strtoull(h.c_str(), nullptr, 16));
 }
 
+inline std::string esc(const std::u16string& s) {
+  std::string out = "\"";
+  for (char16_t c : s) {
+    if (c == u'"') out += "\\\"";
+    else if (c == u'\\') out += "\\\\";
+    else if (c < 0x20 || c > 0x7e) {
+      char buf[8];
+      std::snprintf(buf, sizeof buf, "\\u%04x", static_cast<unsigned>(c));
+      out += buf;
+    } else out.push_back(static_cast<char>(c));
+  }
+  out += '"';
+  return out;
+}
+
 }

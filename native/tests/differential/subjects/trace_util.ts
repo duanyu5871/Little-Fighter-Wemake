@@ -59,6 +59,18 @@ export function splitWs(s: string): string[] {
   return s.trim().length ? s.trim().split(/\s+/) : [];
 }
 
+export function esc(s: string): string {
+  let out = '"';
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c === 0x22) out += '\\"';
+    else if (c === 0x5c) out += "\\\\";
+    else if (c < 0x20 || c > 0x7e) out += "\\u" + c.toString(16).padStart(4, "0");
+    else out += s.charAt(i);
+  }
+  return out + '"';
+}
+
 export function readCaseLines(path: string): string[] {
   return readFileSync(path, "utf8")
     .split(/\r?\n/)
