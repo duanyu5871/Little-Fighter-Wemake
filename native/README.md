@@ -117,6 +117,8 @@ native/
       state_hash.{h,cpp}             FNV-1a 64（差分测试用）
     defines/
       i_bounding.h                   ← defines/IBounding
+    base/
+      graves.h                       ← base/Graves.ts（对象池）
     utils/
       math/                          ← 镜像 src/LFW/utils/math/
         base.h                       ★ libm 单一收口（镜像 base.ts）
@@ -126,11 +128,18 @@ native/
         line_plane_intersection.{h,cpp}  range.{h,cpp}
         probability.{h,cpp}  project_to_line.{h,cpp}
         mersenne_twister.{h,cpp}     ← utils/math/MersenneTwister.ts
+      array/
+        loop_arr.h  make_arr.h  map_arr.h
+      container_help/
+        filter.h  find.h  fisrt.h  ensure.h  loop_offset.h
+        map_no_void.h  nested_map.h  nested_multi_map.h
       easing/
         ease_linearity.h  ease_in_out_sine.h  ease_in_out_quint.h
       cross_bounding.h  utf8.{h,cpp}  times.{h,cpp}
-    (待搬) utils/{container_help,schema,string_parser,type_check,type_cast,array,list_*}
-           base/ loader/ collision/ entity/ state/ stage/ bot/ buff/ bg/ cmds/ controller/
+    (待搬) utils/{container_help/traversal,get_keys,set_obj_field,take_number,assign,list_fn,
+           schema,string_parser,type_check,type_cast}
+           loader/ entity/ state/ stage/ bot/ buff/ bg/ cmds/ controller/
+           collision/（非叶子：靠 entity/buff/World）
   tests/differential/                ★ 两侧对拍（详见 PROTOCOL.md）
   tools/
     native.mjs                       configure / build / lint / test
@@ -182,15 +191,37 @@ VS Code 里也已经指好（`.vscode/settings.json`）：
 | 0.5 | 差分台子泛化为可插拔 subject | ✅ 通过 |
 | 1 | `utils/math/` | ✅ 通过（`math/scalar` 90 行、`math/plane` 52 行） |
 | 1.5a | `utils/{easing,cross_bounding,utf8,times}` + `defines/i_bounding.h` | ✅ 通过（52 / 8 / 41 / 74 行） |
-| 1.5b | `utils/{container_help,type_check,type_cast,array,list_writable_properties}` | 待做 |
-| 2 | `collision/`（含 `defines` 的几何类型） | 待做 |
-| 3 | `defines/` + `base/Expression` + `loader/get_val_*`（103 条 getter 表） | 待做 |
-| 4 | `entity/` + `World.step` | 待做（高价值但最耦合） |
+| 1.5b | `base/graves.h` + `utils/array/` + `utils/container_help/` | ✅ 通过（`collections/basic` 81 行、`collections/nested` 55 行） |
+| 2 | `defines/`（需要先搬 `src/LFW/fields.ts`）+ `base/{FSM,Expression,Callbacks,NoEmitCallbacks}` | 待做 |
+| 3 | `loader/get_val_*`（103 条 getter 表） | 待做 |
+| 4 | `entity` + `collision` + `buff` + `state` + `controller` + `bot` + `World` | 待做（**必须整块搬**，见下） |
 
-`utils/{schema,string_parser}` 属于数据装载路径，跟第 3 步一起搬。
-`utils/container_help/list_fn.ts` 依赖 `Object.getOwnPropertyNames` + 原型链
-（整个 `src/LFW` 里唯一的真·反射），只有 `NoEmitCallbacks.add()` 一个调用点 ——
-它是宿主 API 的人体工程学，**移植时改成显式注册表，不要照搬**。
+**步骤 2–4 是修正过的。** 把 `import type` 排除后算运行时依赖图，得到两个关键事实：
+
+1. `utils/` 到根目录只有两条边：`cross_bounding.ts → ../defines`（仅类型，无害）和
+   `MersenneTwister.ts → ../../cases_instances`（`mt_cases` **调试探针**，C++ 侧本来就不移植）；
+   到 `base/` 只有一条边：`container_help/nested_map.ts → base/Graves`。
+   ⇒ **补上 `Graves` 之后，`utils/` 就是一个完整、自洽的叶子。**
+2. `defines/` 到根目录的 36 条边里 35 条都是 `→ ../fields`。
+3. **`entity` / `collision` / `buff` / `state` / `controller` / `bot` / `(root)` 互相依赖，
+   是一个约 1.3 万行的强连通块 —— 无法逐个搬，必须整块搬。**
+   （之前把 `collision/` 当成步骤 2 是错的：它依赖 `buff` / `entity` / `World` / `LFW`。）
+
+`utils/{schema,string_parser}` 属于数据装载路径，跟步骤 2/3 一起搬。
+
+### 已知偏差（C++ 侧**没有**照搬的地方）
+
+| 位置 | 偏差 | 原因 |
+|---|---|---|
+| `container_help/find.h` | 只实现了“按值找”。TS 版在可迭代对象未命中后还会退到 `for...in`，把 `[key, value]` 元组喂给谓词 | 对数值数组 + 数值谓词而言两条路径等价（元组参与数值比较恒为 false），但这个差异要记住 |
+| `container_help/{traversal,get_keys,set_obj_field,take_number,assign}` + `foreach` 的对象分支 | 未移植 | 都依赖“JS 对象”这个动态类型，等 `Value`/`JsObject` 建好再搬 |
+| `container_help/list_fn.h` | 不移植 | 整个 `src/LFW` 里唯一的真·反射，只有 `NoEmitCallbacks.add()` 一个调用点 ⇒ 改成显式注册表 |
+| `math/mersenne_twister` | 少了 `mark` / `debugging` / `mt_cases` | 只是写 `Cases` 的调试探针，不影响输出与状态 |
+| `ensure.h` | 接受了 `std::vector` 而不是变参 | 语义等价；**但两边都不能传空 items**（TS 的 `item` 是必填项） |
+| `NestedMap` | 用 `std::map`（按键序），不是 JS `Map` 的插入序 | 它的公开 API 不暴露迭代 ⇒ **序不可观测**。若将来给它加迭代方法，必须先补插入序 |
+| `NestedMap::ref()` | C++ 独有的新增方法（返回内层值的引用） | 让 `NestedMultiMap::add` 能 O(1)；不影响已有行为 |
+| `NestedMultiMap` | 内部统一存 `std::vector<V>`（TS 是 `V \| V[]` 两态） | 公开 API（`add`/`first`/`has`/`collect`/`remove`/`clear`）上两者行为一致 |
+| `Graves` / `NestedMap` | TS 的 `delete` → C++ 的 `remove` | `delete` 是 C++ 保留字 |
 
 **注意修正过的顺序**：`loader/preprocess_*.ts` 在运行时依赖 `dat_translator`
 （`CondMaker` / `set_hit_flag` / `make_entity_special` / `xml_x_entity_data` /

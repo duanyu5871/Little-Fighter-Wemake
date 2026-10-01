@@ -121,6 +121,58 @@ C++ 侧是独立函数 `ease_linearity_backward`。TS 里 `times.min` / `times.m
 孤立代理项（`d83d`）、非法前导字节（`f8` / `ff`）这类 UTF-16 / UTF-8 的边角。
 输出是**十进制**的字节值 / UTF-16 code unit 值。
 
+### 1.5 subject: `collections`
+
+镜像 `base/Graves` + `utils/array/*` + `utils/container_help/*`。
+
+```
+graves_new
+graves_add            <v>
+graves_take
+graves_l
+
+filter_gt             <t> <x>...
+find_gt               <t> <x>...
+find_last_gt          <t> <x>...
+fisrt_gt              <t> <x>...
+last_gt               <t> <x>...
+map_no_void_gt        <t> <x>...
+intersection          <x>... | <x>...
+ensure                [<x>...] | <x>...
+loop_offset           <current> <offset> <x>...
+make_arr              <size>
+map_arr_mul           <k> <x>...
+map_arr_scalar        <k> <x>
+loop_arr_idx          <x>...
+loop_arr_scalar       <x>
+
+nested_set            <k1> <k2> <v>
+nested_get            <k1> <k2>
+nested_has            <k1> <k2>
+nested_del            <k1> <k2>
+nested_clear
+nested_multi_add      <k1> <k2> <v>
+nested_multi_first    <k1> <k2>
+nested_multi_has      <k1> <k2>
+nested_multi_collect  <k1> <k2>
+nested_multi_del      <k1> <k2>
+nested_multi_clear
+```
+
+**谓词词汇表**：为了避免在 case 里写函数，谓词统一是“大于阈值”：
+
+| 后缀 | 实际谓词 |
+|---|---|
+| `filter_gt` / `find_gt` / `find_last_gt` | `v => v > t` |
+| `fisrt_gt` / `last_gt` | `v => v > t ? v : undefined` |
+| `map_no_void_gt` | `v => v > t ? v * 2 : undefined` |
+
+`|` 是两个数组的分隔符。`ensure` 的左侧为空 = output 是 `undefined`；
+**右侧不能为空**（TS 的 `item` 是必填项）。
+
+`make_arr` / `map_arr_*` / `loop_arr_*` 用的是恒等 / 乘常数这样的小函数 ——
+测的是**辅助函数的机制**（含 `map_arr` / `loop_arr` 的标量分支），不是那个 fn。
+
 ---
 
 ## 2. 输出 trace
@@ -155,6 +207,12 @@ C++ 侧是独立函数 `ease_linearity_backward`。TS 里 `times.min` / `times.m
 | | `utf8_encode` | `utf8_encode <byteCount> <byteDecimal>...` |
 | | `utf8_decode` | `utf8_decode <u16Count> <codeUnitDecimal>...` |
 | | `times_*` | `<op> <bits16>×5`（`times_add` 前面多一个 `<true\|false>`） |
+| collections | `graves_add` | `graves_add <l.length>` |
+| | `graves_take` / `graves_l` | `<op> <bits16\|->...`（`graves_l` 前面多一个长度） |
+| | `filter_gt` `map_no_void_gt` `intersection` `ensure` `make_arr` `map_arr_*` `nested_multi_collect` | `<op> <count> <bits16>...` |
+| | `find_gt` `find_last_gt` `fisrt_gt` `last_gt` `loop_offset` `nested_get` `nested_multi_first` | `<op> <bits16\|->` |
+| | `nested_has` `nested_del` `nested_multi_has` `nested_multi_del` | `<op> <true\|false>` |
+| | `loop_arr_idx` `loop_arr_scalar` | `<op> <count> <idxDecimal>...` |
 
 ### 2.1 判据：量化后再比（**不是**原始位模式）
 
@@ -185,6 +243,7 @@ C++ 侧是独立函数 `ease_linearity_backward`。TS 里 `times.min` / `times.m
 | `utils` 的 `ease_in_out_sine` / `_backward` | 量化 | `cos` / `acos` |
 | `utils` 的 `ease_in_out_quint` / `_backward` | 量化 | `pow` |
 | `utils` 其余全部（含 `ease_linearity` / `cross_bounding` / `utf8_*` / `times_*`） | **逐位精确** | 纯 IEEE 算术或整数 |
+| `collections` 全部 | **逐位精确** | 下标 / 计数 / 整数，没有浮点运算 |
 
 `-0` 与 `+0` 位模式不同（`8000000000000000` vs `0000000000000000`），
 所以位模式输出顺带锁住了符号零的行为。
@@ -259,6 +318,23 @@ diff 失败时脚本会打印**第一处不同的行号**与两侧内容 —— 
 | `line_plane_intersection` 的 `is_segment` 去掉 eps 容差 | FAIL，第 36 行（`t = -1e-20`，落在 `[-eps, 0)` 内） |
 | `utf8.cpp` decode 的 4 字节前导判定 `(b0 & 0xf8) == 0xf0` 放宽成 `b0 >= 0xf0` | FAIL，第 32 行（`f8 80 80 80 80` 本该被跳过） |
 | `times.cpp` `set_range` 的 `_value = a` 改成 `_value = _min` | FAIL，第 7 行（`times_set_range 10 5`） |
+| `graves.h` `add` 的 `_l[--_i]` 改成 `_l[_i--]` | FAIL（**崩溃**，不是漂移 —— 索引回绕后越界） |
+| `nested_map.h` `clear()` 去掉 `kv.second.clear()` | FAIL，第 29 行（回收的内层 map 带着旧键） |
+
+倒数第二条值得记：`Graves::add` 的 `_l[_i--]` 会让 `_i` 回绕成 `SIZE_MAX`，
+下一次访问直接越界崩掉。**这是我自己写的 bug**，`/W4` 没报，差分测试第 6 行就抓到了。
+顺带说明：差分的失败形式有两种 —— “漂移”（能逐行定位）和“崩溃”（只能知道哪一侧挂了），
+两者都是有效的失败信号。
+
+**另外两条的教训**：
+
+- `nested_map.h` 的那条最初**没被抓住** —— 因为当时用例里 `clear()` 之后设的键
+  正好是之前设过的键，回收的脏 map 被覆写了。补上“`clear()` 后设一个**不同**的键，
+  再查旧键应当不存在”才变可区分。**回收池（`Graves`）的 bug 必须用“回收后访问旧键”来抓。**
+- 两个变异一起打上去时，二者都报 “C++ failed” 而分不清是谁 —— **变异测试要一个一个来。**
+
+P.S. TS 侧那个 `Times.lifes` 的无限递归（`return this.lifes`）就是在写 `times` subject 时
+被执行器直接撞出来的 —— `RangeError: Maximum call stack size exceeded`。
 
 **最后一条值得记一笔**：最初写的边界用例是错的（算出来 `t = 0.5`，离边界很远），
 变异**没被抓住**。原因是 `t > 1+eps` 与 `t > 1` 只在 `1 < t <= 1+eps` 时才有区别，
