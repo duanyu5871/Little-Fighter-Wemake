@@ -1420,3 +1420,54 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
   `post_process_obj_data(ctx)`（后者读 `ctx.data` 与 `ctx.index.groups`）。
 - **有意保留的差异**：`datIndex` 缺失（`ctx.index` 为 `undefined`）时 TS 抛 TypeError，
   C++ 返回 `ok = false`（与之前几轮同策略）。
+
+---
+
+### 4.40 V40 loader 第一批纯助手（`make_buring_smoke` / `preprocess_pic` / `preprocess_stage`）
+
+- `native/lfw/dat_translator/make_buring_smoke.{h,cpp}`：
+  `make_buring_smoke(foo)` 里 `foo === 1` 决定 `gen_x`/`gen_y` 的表达式文本；
+  `interval_id` 是 `` `buring_smoke_${foo}` ``；`oid` 用 `OID.BrokenWeapon`（= `"999"`，见 `defines/oid.h`
+  的 `oid::kBrokenWeapon`，**不要**走 `defines::find("OID.…")`，注册表里没有这个前缀）。
+- `native/lfw/loader/preprocess_pic.{h,cpp}`（合并了 TS 的 `preprocess_pic` / `preprocess_frame_pic` /
+  `preprocess_wpoint` 三个文件，都是纯函数）：
+  - `preprocess_pic`：`typeof pic.rad === "number"` **优先**，否则 `typeof pic.deg === "number"`；
+    两个分支都补 `__cos_r`/`__sin_r`（**用 `rad` 算，deg 分支是先算出 `rad` 再算三角函数**）。
+    `typeof x === "number"` 的判定要用 `std::holds_alternative<double>`（`0` 也是数字，不能用 truthy）。
+  - `preprocess_frame_pic`：`if (!pic) return pic;` 是**宽松** falsy 判定（`0`/`""`/`null` 都直接返回）。
+  - `preprocess_wpoint`：恒等返回。
+- `native/lfw/loader/preprocess_stage.{h,cpp}`（合并 `preprocess_stage` / `preprocess_stage_phase`）：
+  - `delete_undefined(v)`（在 `dat_translator` 命名空间，**要写全称**）→ `reorder_fields(v, 键表)`。
+  - `preprocess_stage` 先对 `v.phases` 数组逐项调 `preprocess_stage_phase`，再做自己的两步。
+  - `reorder_fields` 只重排**键表里有的**键，不在表里的键保持原相对顺序（用例里 `junk` 原地不动即是证据）。
+- **已知差异（Expression 类）**：TS 会往数据上挂 `Expression`/`ValExpression` 实例字段 ——
+  `preprocess_next_frame.__judger`、`preprocess_opoint.__gen_*`、`preprocess_stage_phase.__end_testers`、
+  `preprocess_bot_data.judger`、`make_buring_smoke.action.__gen_facing`。`Value` 只有 7 种类型装不下函数，
+  而这些字段**只被运行时**（`Entity.ts` 等）读取 ⇒ C++ 侧一律**不生成**，差分时由 TS harness 侧
+  删掉同名字段对齐。等步骤 4 移植运行时再补。
+- **已知差异（浮点）**：`__cos_r`/`__sin_r` 用 `std::cos`/`std::sin`，与 V8 的 `Math.cos`/`Math.sin`
+  在个别角度上会差 **1 ULP**（例如 45° 时 `sin` 的尾位不同）。这是库实现差异，不是移植错误；
+  差分用例里避开这类角度（90° 时 `cos`/`sin` 完全一致）。
+
+---
+
+### 4.41 V41 loader 第二批（`preprocess_ball_frame` / `preprocess_bg_data` / `resolve_prefab`）
+
+- `native/lfw/loader/preprocess_ball_frame.{h,cpp}`：`ctx = {data, frame}`；两轮遍历 `frame.itr`：
+  第一轮给 `kind === JohnShield` 的 itr 补 `A_NEXT_FRAME`（`data` 用 `frame.on_dead`，**必须先判
+  `frame.on_dead` 真值**）、再给"有 hit_sounds 且 kind 不属于 Whirlwind/Freeze/Block/Heal"的 itr 补
+  `A_SOUND`（只取 `hit_sounds[0]`）；然后 `gravity_enabled ??= false`；再按 `frame.state` 分派
+  `cook_ball_frame_state_3000/3001/3005/3006/15`（严格相等，默认 15）；第二轮给
+  `Normal/JohnShield/CharacterThrew/WeaponSwing` 的 itr 补 `A_SOUND`（`path` 用**整个** `hit_sounds`）。
+  `ItrKind` 的值：Normal 0 / CharacterThrew 4 / WeaponSwing 5 / Heal 8 / JohnShield 9 / Block 14 /
+  Whirlwind 15 / **Freeze 16**。
+- `native/lfw/loader/preprocess_bg_data.{h,cpp}`：`jobs`（图片加载）与 `SV.validate + Ditto.warn/error`
+  （schema 校验）**都不改数据**，C++ 略过；其余照抄 —— `base`/`dataset`/`layers[*]`/`terrain[*]`
+  各自 `reorder_fields + delete_undefined`，`base.height ??= MODERN_SCREEN_HEIGHT`，
+  `shadowsize`/`zoom` 解构后用 `typeof === "number" ? v : 0`（**不是 truthy**）写
+  `shadow_w/shadow_h`、`zoom_x/zoom_y/zoom_z`，最后 `reorder_fields(data, bg_data_fields)` + `delete_undefined`。
+- `native/lfw/loader/resolve_prefab.{h,cpp}`：返回 `ResolvePrefabResult{ok, cycle, chain, value}`，
+  `prefab_error` 在 C++ 里只返回**消息字符串**（不构造 `Error`）。
+  `ref ?? prefab_id` 是 nullish；`while (ref !== void 0)` 用**严格 undefined** 判停（`null` 会停下）；
+  `{...prefab, ...base}` 与 `{...base, ...obj}` 的展开顺序不能反（后者决定谁覆盖谁）。
+- **有意保留的差异**：`resolve_prefab` 返回 `ok` 时不带 `chain`（TS 的成功结果里也没有 `chain`）。

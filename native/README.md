@@ -270,3 +270,5 @@ VS Code 里也已经指好（`.vscode/settings.json`）：
 | 3x | `dat_translator/frame_editing` | ✅ 通过（`frame_editing/all` 24 行；变异 **13/13 全杀**） |
 | 3y | `dat_translator/make_fighter_data` + `take_number` + `bots/frames` | ✅ 通过（`make_fighter_data/all` 38 行；变异 **37/37 全杀**） |
 | 3z | `dat_translator/obj_dat_to_json` + `set_obj_field` | ✅ 通过（`obj_dat_to_json/all` 14 行；变异 **27/27 全杀**） |
+| 4a | `dat_translator/make_buring_smoke` + `loader/preprocess_pic` + `loader/preprocess_stage` | ✅ 通过（`loader_helpers/all` 22 行；变异 **23/23 全杀**） |
+| 4b | `loader/preprocess_ball_frame` + `loader/preprocess_bg_data` + `loader/resolve_prefab` | ✅ 通过（`loader_more/all` 25 行；变异 **29/29 全杀**） |

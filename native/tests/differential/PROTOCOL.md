@@ -996,3 +996,44 @@ P.S. TS 侧那个 `Times.lifes` 的无限递归（`return this.lifes`）就是�
   修法：`ReadAllText` + `-replace "`r`n", "`n"` + `WriteAllText`，改完再重新编译验证。
 - `utils/string_help.h` 的 `replace_all` 只有**(字符串, char16_t, char16_t)** 版本，
   两个反斜杠 → `/` 这类多字符替换要手写（`make_stage_info_list` 也是这么做的）。
+### 6.9.29 `loader_helpers`（23/23；一笔平台差异）
+
+- subject `loader_helpers`（op `b n <1|2>` / `pic|fpic|wp|phase|stage <literal>`）**22 行全对**，
+  变异 **23/23 全杀**。覆盖 `make_buring_smoke` + `preprocess_pic`/`preprocess_frame_pic`/
+  `preprocess_wpoint` + `preprocess_stage`/`preprocess_stage_phase`。
+- **差分抓到一笔真实的平台差异**：`pic o 3 rad u deg n 45 x u` 时 `__sin_r` 在 C++ 与 TS 上
+  末位不同（`0.7071067811865476` vs `…75`）。`rad = deg*PI/180` 两边完全一致，差的是
+  `std::sin` 与 V8 `Math.sin` 的实现 ⇒ **不是移植错误**，用例改用 90° 避开，并在 DESIGN 记录。
+  ⇒ 以后凡是走三角函数的用例，选角度要挑"两边精确一致"的点（0°/90° 等）。
+- **falsy 判定的跨度容易搞错**：`preprocess_frame_pic` 的 `if (!pic) return pic` 是宽松 falsy
+  （`pic z` 要返回 `null` 而不是 `undefined`）；而 `preprocess_pic` 里的 `typeof x === "number"`
+  连 `0` 都算数字 ⇒ 不能用 truthy。这两个"松/紧"混在同一个文件里，变异要分别覆盖。
+- **`reorder_fields` 的语义**：只重排键表里**存在**的键，不在表里的键保持原相对顺序
+  ⇒ 用它来区分"两个键表"的变异，必须让输入里同时有**只在 A 表**和**只在 B 表**的键，
+  否则两表结果一样（本轮 `stage`/`phase` 的"用错键表"两条变异就是这么才被杀掉的）。
+- `defines::find("OID.BrokenWeapon")` **取不到**（注册表里没有该前缀）⇒ 直接用 `oid::kBrokenWeapon`。
+### 6.9.30 `loader_more`（29/29；三条靠"改输入顺序/改 falsy 种类"救回来）
+
+- subject `loader_more`（op `bf` / `bg` / `rp` / `rpm`）**25 行全对**，变异 **29/29 全杀**。
+  覆盖 `preprocess_ball_frame` + `preprocess_bg_data` + `resolve_prefab`。
+- **变异存活先问"我的数据真的触发了那条分支吗"**，本轮连续踩了 3 次：
+  1. `kind === JohnShield` 的补充动作**有额外前提**（`frame.on_dead` 为真）⇒ 只给 kind=9
+     而不给 `on_dead`，那 4 条变异全都白跑。
+  2. `Whirlwind`(15) 与 `Freeze`(16) 是**两个**排除项，用 15 只能杀掉"漏掉 Whirlwind"，
+     要另造一个 kind=16 的 itr 才杀得掉"Freeze 写成 Block"。
+  3. `cook_ball_frame_state_3005` 与 `_3006` 都只动 `frame.bdy[*].actions` ⇒ 没有 `bdy` 时
+     两者输出一样的空 frame ⇒ 分派互换的变异不可观察。**必须给 bdy**。
+- **`reorder_fields` 类的变异要靠"输入顺序 ≠ 目标表顺序"观察**：`layers` 里写
+  `z, x, w, file` 才能区分 `bg_layer_info_fields` 与 `bg_info_fields`；写成 `file, x, z` 时
+  两张表都只命中 `file`，结果完全一样。
+- **`!truthy(x)` 与 `is_undefined(x)` 的差别用 falsy 非 undefined 的值观察**：prefab 写 `n 0`
+  时前者判为"缺失"、后者会继续展开。
+- **`ref ?? prefab_id` 的优先级要用同时带两者的对象**（`ref: "A", prefab_id: "B"`）才可观察。
+- **一条真等价变异（已删）**：`res.value = has_base ? spread_assign(base, obj) : obj;` 改成
+  无条件 `spread_assign(base, obj)` —— 无 base 时 `base` 是 undefined，`spread_assign` 只复制
+  `obj` 的键值 ⇒ **渲染结果完全相同**（对象身份不同但这是不可观察的）。等以后有身份敏感的比较
+  （如 `===` 判断）时再考虑恢复这条变异。
+- **harness 侧的桩**：`preprocess_bg_data` 在 TS 里要 `lfw.images`，且内部会 `SV.validate` →
+  `Ditto.warn/error`，而 `Ditto.error` 在 node 下**不存在** ⇒ TS harness 里给
+  `lfwStub = {images:{…}, sounds:{…}}` 并把 `Ditto.warn/error` 打桩成空函数。
+  这些都不影响数据，C++ 侧相应逻辑本来就不移植。
