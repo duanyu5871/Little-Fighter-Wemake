@@ -474,7 +474,7 @@ void make_fb_julian_ball(Value& frame) {
   const std::u16string expr = hp_gt_0_text();
   if (fid >= 50 && fid <= 59) {
     o.set(u"key_down",
-          make_obj({{u"F", make_obj({{u"id", Value(number_to_string(fid - 50))},
+          make_obj({{u"F", make_obj({{u"id", Value(number_to_string(fid + 50))},
                                      {u"wait", s(u"i")},
                                      {u"expression", Value(expr)}})}}));
   } else if (fid >= 1 && fid <= 9) {

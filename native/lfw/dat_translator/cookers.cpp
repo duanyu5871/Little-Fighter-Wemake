@@ -228,7 +228,7 @@ void cook_opoint(Value& opoint, const Value& frame) {
 
   const Value dvx = take(*o, u"dvx");
   if (not_zero_num(dvx)) o->set(u"dvx", Value(std::get<double>(dvx) * 0.5));
-
+  else o->set(u"dvx", Value(0.0));
 
   const Value dvz = take(*o, u"dvz");
   if (not_zero_num(dvz)) o->set(u"dvz", Value(std::get<double>(dvz) * 0.5));
