@@ -1,4 +1,4 @@
-export interface IBaseField<T extends object, V extends any = any> {
+export interface IBaseField<T extends object, V = unknown> {
   /** 字段名 */
   key: keyof T;
 
@@ -127,7 +127,7 @@ export function fields_map_2_fields_obj<T extends object>(map: Map<keyof T, IFie
   return obj;
 }
 
-export function reorder_fields<T extends {}>(obj: Partial<T>, fields_map: Map<keyof T, IField<Partial<T>>>) {
+export function reorder_fields<T extends object>(obj: Partial<T>, fields_map: Map<keyof T, IField<Partial<T>>>) {
   const all_keys = new Set(Object.keys(obj));
   const known_keys = [...all_keys].filter(k => fields_map.get(k as any)?.order !== undefined);
   known_keys.sort((a, b) => (fields_map.get(a as any)?.order ?? 0) - (fields_map.get(b as any)?.order ?? 0));
