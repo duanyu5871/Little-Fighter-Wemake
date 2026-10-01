@@ -2,11 +2,11 @@ import { to_num } from "../type_cast/to_num";
 import { match_colon_value } from "./match_colon_value";
 import { take_blocks } from "./take_blocks";
 
-export interface ITakeSectionsResult<T = any> {
+export interface ITakeSectionsResult<T = unknown> {
   sections: T[];
   remains: string
 }
-export function take_sections<T = any>(
+export function take_sections<T = unknown>(
   text: string,
   start: string,
   end: string,
