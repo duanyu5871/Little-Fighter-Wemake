@@ -8,6 +8,7 @@ add_library(lfw_core STATIC
   core/value.cpp
   fields.cpp
   defines/defines.cpp
+  defines/labels.cpp
   defines/runtime_gen.cpp
   dat_translator/cond_maker.cpp
   base/predicate.cpp

@@ -199,6 +199,7 @@ VS Code 里也已经指好（`.vscode/settings.json`）：
 | 2c | `defines/` 的**运行时数据**（`Defines` 命名空间 66 条 + 7 个顶层对象 + 5 个函数） | ✅ 通过（`defines_runtime/all` 149 行；9 条变异全杀）。`I*.ts` 结构体与 33 个 `*_new()` 只服务 `dat_translator`，运行时不用，暂缓 |
 | 2d | `base/{FSM,Callbacks,NoEmitCallbacks}` | ✅ 通过（`base/core` 3127 行；21 条变异全杀） |
 | 3a | `dat_translator/CondMaker`（条件字符串构造器，所有默认条件的共同前置） | ✅ 通过（`cond_maker/all` 55 行；17 条变异全杀） |
+| 3b | `defines/` 名称/标签函数（`labels`，`set_hit_flag`/`set_bdy_kind` 的前置） | ✅ 通过（`labels/all` 107 行；15 条变异全杀） |
 | 3 | `loader/get_val_*`（103 条 getter 表） | 待做 |
 | 4 | `entity` + `collision` + `buff` + `state` + `controller` + `bot` + `World` | 待做（**必须整块搬**，见下） |
 

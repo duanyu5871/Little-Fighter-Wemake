@@ -545,6 +545,18 @@ node native/tools/check_defines_coverage.mjs      # 已接进 native.mjs all 的
      改用 nullish 操作数才能真正触发子错误。
 - 教训：**用例里“构造非法输入”的手段本身也要验证**（先确认它真的非法）。
 
+### 6.9.4 `labels`（15 条全杀）
+
+- **`falsy` 与 `nullish` 回退会给相反结果**：`bdy_kind_name` 用 `if (!ret)`，
+  `wpoint_kind_name` 用 `??` ⇒ 前者把 `BdyKind["Normal"]`（=0）当成未命中。
+  这是差分第一轮就抳到的真差异（第 88 行）。
+- **记忆化是可观察行为**：`get_hit_flag_name` 会把组合名写回源表，而且**键用原始值**。
+  只用“多次调用结果一致”无法验证它 ⇒ 在用例里 `dump` 整张表（开头一次、中间一次）
+  才能看到表长变化与键的形状。
+- **枚举对象的正/反向键都是字符串**：数字枚举 `obj[0]` 与 `obj["0"]` 命中同一键，
+  所以 `bd_kind_name("0")` 会得到 `"Normal"`、而 `bdy_kind_name("Normal")` 得到
+  `unknown_Normal`（falsy）。用例两边都要写。
+
 ### 6.9 用例 DSL 的两个坑（我踩了 6 次）
 
 值字面量是**前缀记法带个数**：`o <n> <k1> <v1> …`、`a <n> <v1> …`。

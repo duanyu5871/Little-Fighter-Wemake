@@ -25,6 +25,14 @@ const TOP_LEVEL = [
   ["DifficultyList", "DifficultyList", "Difficulty"],
   ["DifficultyNames", "DifficultyNames", "Difficulty"],
   ["DifficultyDescriptions", "DifficultyDescriptions", "Difficulty"],
+  ["HIT_FLAG_NAME_MAP", "HIT_FLAG_NAME_MAP", "HitFlag"],
+  ["HIT_FLAG_DESC_MAP", "HIT_FLAG_DESC_MAP", "HitFlag"],
+  ["HitFlagDescriptions", "HitFlagDescriptions", "HitFlag"],
+  ["ALL_HIT_FLAG", "ALL_HIT_FLAG", "HitFlag"],
+  ["WpointKindDescriptions", "WpointKindDescriptions", "WpointKind"],
+  ["BdyKindDescriptions", "BdyKindDescriptions", "BdyKind"],
+  ["OLD_BDY_KIND_GOTO_MIN", "OLD_BDY_KIND_GOTO_MIN", "BdyKind"],
+  ["OLD_BDY_KIND_GOTO_MAX", "OLD_BDY_KIND_GOTO_MAX", "BdyKind"],
 ];
 
 function flatModuleName(s) {

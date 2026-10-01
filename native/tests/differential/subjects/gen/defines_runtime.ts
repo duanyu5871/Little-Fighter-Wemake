@@ -4,8 +4,13 @@ import * as M_GONE_FRAME_INFO from "../../../../../src/LFW/defines/GONE_FRAME_IN
 import * as M_EntityEnum from "../../../../../src/LFW/defines/EntityEnum";
 import * as M_GameKey from "../../../../../src/LFW/defines/GameKey";
 import * as M_Difficulty from "../../../../../src/LFW/defines/Difficulty";
+import * as M_HitFlag from "../../../../../src/LFW/defines/HitFlag";
+import * as M_WpointKind from "../../../../../src/LFW/defines/WpointKind";
+import * as M_BdyKind from "../../../../../src/LFW/defines/BdyKind";
 
 export const definesRuntimeEntries: { name: string; value: unknown; isTopLevel: boolean }[] = [
+  { name: "ALL_HIT_FLAG", value: M_HitFlag.ALL_HIT_FLAG, isTopLevel: true },
+  { name: "BdyKindDescriptions", value: M_BdyKind.BdyKindDescriptions, isTopLevel: true },
   { name: "CONFLICTS_KEY_MAP", value: M_GameKey.CONFLICTS_KEY_MAP, isTopLevel: true },
   { name: "Defines.AI_COME_RANGE_IN_X", value: M_defines.Defines["AI_COME_RANGE_IN_X"], isTopLevel: false },
   { name: "Defines.AI_COME_RANGE_IN_Z", value: M_defines.Defines["AI_COME_RANGE_IN_Z"], isTopLevel: false },
@@ -79,4 +84,10 @@ export const definesRuntimeEntries: { name: string; value: unknown; isTopLevel: 
   { name: "EMPTY_FRAME_INFO", value: M_EMPTY_FRAME_INFO.EMPTY_FRAME_INFO, isTopLevel: true },
   { name: "ENTITY_PRIORITY_MAP", value: M_EntityEnum.ENTITY_PRIORITY_MAP, isTopLevel: true },
   { name: "GONE_FRAME_INFO", value: M_GONE_FRAME_INFO.GONE_FRAME_INFO, isTopLevel: true },
+  { name: "HIT_FLAG_DESC_MAP", value: M_HitFlag.HIT_FLAG_DESC_MAP, isTopLevel: true },
+  { name: "HIT_FLAG_NAME_MAP", value: M_HitFlag.HIT_FLAG_NAME_MAP, isTopLevel: true },
+  { name: "HitFlagDescriptions", value: M_HitFlag.HitFlagDescriptions, isTopLevel: true },
+  { name: "OLD_BDY_KIND_GOTO_MAX", value: M_BdyKind.OLD_BDY_KIND_GOTO_MAX, isTopLevel: true },
+  { name: "OLD_BDY_KIND_GOTO_MIN", value: M_BdyKind.OLD_BDY_KIND_GOTO_MIN, isTopLevel: true },
+  { name: "WpointKindDescriptions", value: M_WpointKind.WpointKindDescriptions, isTopLevel: true },
 ];
