@@ -992,6 +992,37 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
 
 **验证**：subject `itr_prefabs`（`/all` 14 行）+ 11 条变异全杀。
 
+### 4.26 V26 `make_ball_data` / `make_weapon_data`
+
+形态：`native/lfw/dat_translator/entity_kinds.{h,cpp}`（两者共用一个 `cook_kind_frames`，
+差别只有 `acc_z` 的除数 1 / 2）。
+
+**移植要点**
+
+- **`hit_j !== 0` 是严格不等** ⇒ `hit_j` 缺失（`undefined`）时**仍然进入**分支：
+  `vzm = Extra`、`acc_z = round_float((to_num(undefined, 50) - 50) / div)` = `round_float(0)` = 0。
+  别“顺手”改成 truthy 判断（变异可杀）。
+- `hit_a` 走 `if (hit_a)`（真值）⇒ `hp = round_float(v / 2, 10)`（第二个参数是 **multiplier**，
+  不是小数位数）。
+- `hit_d && hit_d !== frame.id` ⇒ 不相同时才写 `on_dead`；`get_next_frame_by_raw_id(hit_d, 'frame')`
+  的第三参 `type` 用 `'frame'`。
+- `hit_Fa` 的 `behavior_name = "FrameBehavior." + FrameBehavior[hit_Fa]`：无效值 ⇒
+  **`"FrameBehavior.undefined"`**（用 `defines::js_enum_get`，别用生成的 `*_name_of`，
+  后者是 `switch` 无 default 的实现）。
+- `info.name`：`hash ?? (最后一段 → 非 `[A-Za-z0-9_|]` 换 `'-'` → 去掉 `-obj-json5` 后缀)`。
+  **`|` 保留**；`hash: ""` 不回落（nullish 而非 falsy）。
+- 音效：`take_str` 取出后 `if (sound)`（空串 falsy ⇒ 不写 `*_sounds`），再
+  `.replace(/\\/g,'/') + ".mp3"`（ball 侧写成 `(sound + ".mp3").replace(...)`，两者等价）。
+- `make_weapon_data` 的类型表是**两级**：`switch ('' + datIndex.type)`（字符串比较 ⇒
+  `type: 1`（数字）不命中）+ `"1"` 分支内 `{"120":Knife,"124":Knife}["" + id] ?? Stick`。
+  不命中任何分支 ⇒ `info.type` 保持缺省 ⇒ `indexes_map[undefined] ?? indexes_map[None]`（全空串）。
+- `indexes` 与 `on_dead`（`Defines.NEXT_FRAME_GONE`）都是**共享对象** ⇒ C++ 用 `static` 表 +
+  `defines::find` 取同一个实例（不能在每次调用里重建）。
+- `drop_hurt` / `weapon_hp` 是 `if (x && Number(x))`：字符串 `"0"` **真值**但 `Number` 后为 0 ⇒
+  跳过；空串 ⇒ 直接跳过。
+
+**验证**：subject `entity_kinds`（`/all` 17 行）+ 19 条变异全杀。
+
 ---
 
 ## 5. 风险

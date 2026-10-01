@@ -33,6 +33,7 @@ const spec = (await import(pathToFileURL(resolve(process.cwd(), specPath)).href)
 const { subject, mutations } = spec;
 
 const originals = new Map();
+const badAnchors = [];
 for (const m of mutations) {
   const file = resolve(root, m.file);
   if (!originals.has(file)) {
@@ -43,10 +44,12 @@ for (const m of mutations) {
     originals.set(file, readFileSync(file, "utf8"));
   }
   const count = originals.get(file).split(m.from).length - 1;
-  if (count !== 1) {
-    process.stderr.write(`[${m.note}] anchor occurs ${count} times in ${m.file}\n`);
-    process.exit(2);
-  }
+  if (count !== 1) badAnchors.push(`[${m.note}] anchor occurs ${count} times in ${m.file}`);
+}
+if (badAnchors.length) {
+  for (const line of badAnchors) process.stderr.write(`${line}\n`);
+  process.stderr.write(`${badAnchors.length} bad anchor(s)\n`);
+  process.exit(2);
 }
 
 function restoreAll() {

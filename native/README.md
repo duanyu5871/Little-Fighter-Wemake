@@ -209,6 +209,7 @@ VS Code 里也已经指好（`.vscode/settings.json`）：
 | 3i | `dat_translator` 字符串匹配器（`match_colon_value` / `match_block_once` / `take_blocks` / `delete_undefined`） | ✅ 通过（`string_matchers/all` 35 行；13 条变异全杀） |
 | 3j | `dat_translator` 的 `make_frames_special` / `make_entity_data`（+ `traversal`） | ✅ 通过（`entity_data/all` 22 行；11 条变异全杀） |
 | 3k | `dat_translator/make_itr_prefabs`（+ 手写 `entry:` 匹配器 / `to_num` / `is_non_empty_str`） | ✅ 通过（`itr_prefabs/all` 14 行；11 条变异全杀） |
+| 3l | `dat_translator` 的 `make_ball_data` / `make_weapon_data` | ✅ 通过（`entity_kinds/all` 17 行；19 条变异全杀） |
 | 3 | `loader/get_val_*`（103 条 getter 表） | 待做 |
 | 4 | `entity` + `collision` + `buff` + `state` + `controller` + `bot` + `World` | 待做（**必须整块搬**，见下） |
 
