@@ -197,11 +197,11 @@ export class LFW implements I.IKeyboardCallback, IDebugging {
   dev: boolean = false;
   __debugging = false
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  debug(..._1: any[]): void { };
+  debug(..._1: unknown[]): void { };
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  warn(..._1: any[]): void { };
+  warn(..._1: unknown[]): void { };
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  log(..._1: any[]): void { };
+  log(..._1: unknown[]): void { };
 
   readonly callbacks = new Callbacks<ILFWCallback>();
   readonly factory: Factory = new Factory();
