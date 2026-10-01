@@ -1384,3 +1384,39 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
   （键是 `frame.id`）；`tframes` 为空直接返回；然后遍历每帧的 `key_down/key_up/hit/seqs` 的**值**
   （值是数组就逐项，否则单值），命中即写 `expression = "has_transform_data==1"`。
 - **有意保留的差异**：TS 在 `ctx.index` 缺失时抛 TypeError，C++ 返回空值（与之前几轮同策略）。
+
+---
+
+### 4.39 V39 `obj_dat_to_json`（121 行 TS）
+
+- 文件：`native/lfw/dat_translator/obj_dat_to_json.{h,cpp}`；配套新增
+  `native/lfw/utils/container_help/set_obj_field.h`（header-only，与 `ensure.h` 同风格）。
+  `post_process_obj_data` 在 `entity_data` 那轮就已经落地，本轮直接复用。
+- 入口返回 `ObjDatToJsonResult{ok, error, data}`，把 TS 的 `throw new Error('[dat_to_json] failed, 3')`
+  变成 `ok = false`。
+- 预处理两步：`replace(/\\\\/g, "/")`（**两个**连续反斜杠 → `/`；`string_help.h` 的 `replace_all`
+  只有**单字符**版本，手写）；`match_block_once(text, "<bmp_begin>", "<bmp_end>")`
+  （懒惰 + 中间至少一个字符，取**最早**的 `<bmp_end>`）。
+- 块内容 `trim()` 后 `split("\n")`，**不过滤空串** ⇒ 空行会一路落到最后一条规则，
+  写进 `base[""] = ""`（这是原样行为，别"顺手"过滤掉）。
+- 每行按**固定顺序**依次尝试 8 条规则，第一条命中即 `continue`：
+  1. `/name:\s*(\S*)/`、2. `/head:…/`、3. `/small:…/`（键内无空白 ⇒ 直接 `find("name:")` 再跳空白取 `\S*`）
+  4. `startsWith("file(")`
+  5. `/(\S*)\s*:\s*([+-]?([0-9]*[.])?[0-9]+)/`、6. `/(\S*)\s*:\s*(\S*)/`
+  7. `/(\S*)\s*([+-]?…)/`、8. `/(\S*)\s*(\S*)/`
+- 5~8 都是**最左匹配 + `(\S*)` 贪婪**：手写版逐个起始位置 `p`、每个 `p` 内 `g` 从"连续非空白长度"
+  递减到 0（等价于正则回溯），**先命中的起始位置最左、同一位置里 key 最长**。
+  注意 `(\S*)` 不可能含空白 ⇒ 对 `**key**:\s*` 这一形式解是**唯一**的。
+- `/.bmp$/` 里的 `.` 是**未转义任意字符** ⇒ 长度 ≥4 且以 `bmp` 结尾（`abmp` 会匹配、`bmp` 不会），
+  替换成 `.png`；随后 `replace(/\\/g, '/')`（单个反斜杠）。
+- `file(...)` 行交给既有的 `match_colon_value`；`file_id` = 当前 `base.files` 的键数；
+  先按 `id, path, row, col, cell_w, cell_h` 顺序建字段，随后 colon 里同名的键**覆盖但保持位置**；
+  键以 `file` 开头 ⇒ `path`，`w`/`h` ⇒ `cell_w`/`cell_h`，其余 ⇒ `Number(value)`。
+- 数字段 `[+-]?([0-9]*[.])?[0-9]+`：`+.5`/`.5` 可以，`5.` 退化成 `5`，单独的 `.` 不匹配；
+  `[0-9]` 是 **ASCII**（不是 `\d` 的 Unicode 版）。
+- `switch (datIndex.type)` 是**字符串**比较：`"0"` → `make_fighter_data`；`"1","2","4","6"` →
+  `make_weapon_data`；`"3"` → `make_ball_data`；其余（含 `"5"`）→ `make_entity_data`。
+- 顺序：先 `ctx.frames = cook_frames(ctx)`，再算 `data`，**先写回 `ctx.data`** 才调
+  `post_process_obj_data(ctx)`（后者读 `ctx.data` 与 `ctx.index.groups`）。
+- **有意保留的差异**：`datIndex` 缺失（`ctx.index` 为 `undefined`）时 TS 抛 TypeError，
+  C++ 返回 `ok = false`（与之前几轮同策略）。

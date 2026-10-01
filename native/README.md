@@ -269,3 +269,4 @@ VS Code 里也已经指好（`.vscode/settings.json`）：
 | 3w | `dat_translator/cook_file_variants` | ✅ 通过（`cook_file_variants/all` 14 行；变异 **13/13 全杀**） |
 | 3x | `dat_translator/frame_editing` | ✅ 通过（`frame_editing/all` 24 行；变异 **13/13 全杀**） |
 | 3y | `dat_translator/make_fighter_data` + `take_number` + `bots/frames` | ✅ 通过（`make_fighter_data/all` 38 行；变异 **37/37 全杀**） |
+| 3z | `dat_translator/obj_dat_to_json` + `set_obj_field` | ✅ 通过（`obj_dat_to_json/all` 14 行；变异 **27/27 全杀**） |

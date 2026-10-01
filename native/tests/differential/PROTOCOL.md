@@ -977,4 +977,22 @@ P.S. TS 侧那个 `Times.lifes` 的无限递归（`return this.lifes`）就是�
 - **同一条语句在两条分支上各写了一遍时，一个变异只能覆盖其中一条**：`cook_next_frame_cost(item, "next", …)`
   在 `next` 的**数组**分支和**单值**分支里各出现一次，第一条变异只打数组分支 ⇒ 单值样本救不了它。
   修法是让样本同时覆盖两种形态（`next a 2 …` 与 `next o 3 …`），并**再补一条针对另一分支的变异**。
-  这是本轮最后一条幸存（也是唯一一条）真正的归因。
+  这是本轮最后一条幸存（也是唯一一条）真正的归因。### 6.9.28 `obj_dat_to_json`（27/27；一条等价变异）
+
+- subject `obj_dat_to_json`（op `reset` / `t s "..."` 逐行拼数据 / `i <key> <literal>` 设 datIndex /
+  `run`，失败时输出 `E <message>` 以便和 TS 的 `throw` 对齐）**14 行全对**，变异 **27/27 全杀**。
+- **手写正则时"贪心回溯"的迭代方向常常是等价的，别急着补样本**：`(\S*)\s*:` 里 `\S` 不含空白，
+  `\S*` 的长度直接决定下一个字符，所以"`g` 从最长递减"与"从 0 递增"给出**同一个**解。
+  本轮先把它当成用例缺口，推导后确认是等价变异并删掉。
+- **规则有优先级，前一条会吃掉后一条本来能观察的输入**：`key:number`(R4) 永远优先于
+  `key:value`(R5) 与 `key number`(R6)，所以 `a 1:2` 观察不到 R5/R6 的差别；要区分 R5 与 R6，
+  必须构造"**有冒号但冒号后不是数字**"的行：`a: b 1`（R5 ⇒ `a = "b"`；R6 ⇒ `b = 1`）。
+- **"`\S*` 取到行尾"这种变异必须用同一行里含空格的输入**（`head: a b.bmp`），
+  因为 `name: davis` 取到行尾与取到空白前的**结果相同**。
+- **前缀判定放宽要用"像前缀但更长"的行观察**：`startsWith(line, "file(")` → `"file"` 需要
+  `file_extra 1` 这样的行（原版走 `key number`，变异会被当成第 N 个贴图文件）。
+- 字节级陷阱：`PowerShell` 的 `[System.IO.File]::WriteAllLines` 会把整个文件换成 **CRLF**，
+  之后 `.mjs` 里的变异锚点（LF）会**全部**失配（本轮报了 20 条 bad anchor）。
+  修法：`ReadAllText` + `-replace "`r`n", "`n"` + `WriteAllText`，改完再重新编译验证。
+- `utils/string_help.h` 的 `replace_all` 只有**(字符串, char16_t, char16_t)** 版本，
+  两个反斜杠 → `/` 这类多字符替换要手写（`make_stage_info_list` 也是这么做的）。
