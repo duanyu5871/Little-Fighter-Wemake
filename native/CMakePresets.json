@@ -1,0 +1,25 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": { "major": 3, "minor": 20, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "msvc-x64",
+      "displayName": "MSVC x64 (Ninja)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/msvc-x64",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+    },
+    {
+      "name": "wasm",
+      "displayName": "Emscripten (WASM)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/wasm",
+      "toolchainFile": "${sourceDir}/cmake/toolchains/emscripten.cmake",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+    }
+  ],
+  "buildPresets": [
+    { "name": "msvc-x64", "configurePreset": "msvc-x64" },
+    { "name": "wasm", "configurePreset": "wasm" }
+  ]
+}
