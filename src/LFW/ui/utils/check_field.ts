@@ -1,15 +1,15 @@
 import { is_positive_int as is_non_nagative_int } from "../../utils/type_check/is_num";
 
 abstract class _Checker {
-  abstract check(value: any): boolean
+  abstract check(value: unknown): boolean
 }
 class _OneOf extends _Checker {
-  readonly values: any[];
-  constructor(values: any[]) {
+  readonly values: unknown[];
+  constructor(values: unknown[]) {
     super();
     this.values = values
   }
-  override check(value: any): boolean {
+  override check(value: unknown): boolean {
     return this.values.some(v => v === value)
   }
   override toString(): string {
@@ -20,11 +20,11 @@ class _ArrayOf {
 
 }
 class _NonNagativeInt extends _Checker {
-  override check(value: any): boolean {
+  override check(value: unknown): boolean {
     return is_non_nagative_int(value)
   }
 }
-export function one_of(...values: any[]): _OneOf {
+export function one_of(...values: unknown[]): _OneOf {
   return new _OneOf(values)
 }
 export function arr_of(): _ArrayOf {
@@ -37,7 +37,7 @@ export type Expected = _OneOf | _ArrayOf | _NonNagativeInt |
   "string" | "number" | "bigint" | "boolean" | "symbol" | "undefined" |
   "object" | "function"
 
-export function check_field<T extends {}>(
+export function check_field<T extends object>(
   obj: T,
   obj_name: string,
   field_name: keyof T,
