@@ -1491,3 +1491,37 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
   `or_zero_if_falsy` 与 `or_zero_if_undefined`。
 - `cpoint` 的 `x/y` 只参与 `add`/`sub` 等数值运算 ⇒ `null` 与 `0` 经 `to_number` 后结果相同
   （见 PROTOCOL §6.9.31 的等价变异说明）。
+
+---
+
+### 4.43 V43 `loader/preprocess_action` / `preprocess_bot_data` / `preprocess_next_frame`
+
+- 文件：`native/lfw/loader/preprocess_action.{h,cpp}`、`preprocess_bot_data.{h,cpp}`、
+  `preprocess_next_frame.{h,cpp}`。三个函数都返回 `bool`：`false` 表示"TS 会抛异常"
+  （沿用"TS 的 throw ⇒ 用返回值表达"的既有约定）。
+- `preprocess_next_frame`：只给 `nf.__judger` 赋一个 `Expression` ⇒ **零数据可见行为**。
+  C++ 只保留它唯一可观察的副作用 —— `nf` 是 `null`/`undefined` 时 `typeof nf.expression`
+  **会抛**（数字/字符串/布尔读属性只得到 `undefined`，不抛）。数组分支递归，遇错即停。
+- `preprocess_action`：
+  - `action.tester = …`（`Expression`）**不生成**（TS harness 删掉这个键）；
+  - `action.type = action.type.toUpperCase()` 是唯一的纯数据变更。JS 的 `toUpperCase` 走
+    Unicode Default Case Conversion，C++ 只做 ASCII（`a`..`z` 减 32）—— 动作类型全是
+    ASCII ⇒ 可接受，已记入差异表；
+  - `A_SOUND`/`V_SOUND` 分支只往 `jobs` 里塞加载任务（宿主副作用，不改数据）⇒ 不移植；
+    但它的**抛出条件**保留：`action.data` nullish 会抛，`action.data.path` 不是字符串/数组
+    （含 nullish）也会抛（`for…of` 不可迭代）；
+  - 六种 next-frame 类型（`A/V_NEXT_FRAME`、`A/V_DEFEND`、`A/V_BROKEN_DEFEND`）会调用
+    `preprocess_next_frame(action.data)`；其余类型**不碰** `data`（所以 `data` 缺了也不抛）。
+- `preprocess_bot_data`：
+  - `traversal(data.actions, …)` 写 `judger` ⇒ 同 `tester`，不生成；
+  - `frames` 与 `states` 各自做"逗号键展开"：`k.split(',')` 长度 >1 时 `delete o[k]`，
+    再对每个新键写 `[...v]`。**`traversal` 的键是快照**（`Object.keys(r).map`）⇒ 新写入的键
+    不会被本轮再访问，但**同一个键被删掉后重新插入会改变键序**；
+  - `[...v]` 的可迭代语义照搬：数组 ⇒ 浅拷贝；**字符串 ⇒ 按码点切**（代理对算一个元素）；
+    其他类型 ⇒ **抛**（C++ 返回 `false`，此时原键已被删、新键一个都没建，与 JS 中途抛出的
+    状态一致）；
+  - `states` 分支的 `("" + k)` 在 C++ 里是恒等（键本来就是字符串）⇒ 与 `frames` 共用 helper；
+  - `data` 是 `null`/`undefined` 时 `data.actions` 就抛 ⇒ C++ 也返回 `false`；非对象
+    （数字/字符串/数组）时 `data.actions` 只是 `undefined` ⇒ 不抛、原样返回。
+- `preprocess_opoint`（26 行）**没有任何数据可见行为**（只写 `__gen_*` 的 `ValExpression`）
+  ⇒ 不建文件，与 `make_buring_smoke.action.__gen_facing` 同类处理。

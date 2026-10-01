@@ -1053,3 +1053,25 @@ P.S. TS 侧那个 `Times.lifes` 的无限递归（`return this.lifes`）就是�
   数值相同 ⇒ 渲染结果一致。注意同样的替换在 `or_zero_if_undefined` 本体上**是**可观察的。
 - 老毛病又犯一次：`o N` 数字数错 ⇒ `parse_value` 越界 ⇒ **无输出 + 退出码 `0xC0000005`**
   （不是干净的 exit 2）⇒ 见到 AV 先数字面量计数。
+### 6.9.32 `loader_actions`（33/33；无等价变异）
+
+- subject `loader_actions`（op `bd` / `pa` / `pnf`）**68 行全对**，变异 **33/33 全杀**。
+- **抛出路径也要渲染数据**：三个 op 的输出统一是 `<op> ok|throw <render(value)>`。
+  如果抛出不渲染，就分不清"抛在 frames 还是 states" —— `if (!expand_comma_keys(holder))
+  return false;` 的传播变异会活下来。渲染之后，"删了原键、新键没建成"这种**部分变更**
+  也变成可观察量。
+- **整数键重排是最好用的差分锤**：`o 2 1,2 <数组> 3 <数组>` 里 `"1,2"` 是普通字符串键、
+  `"3"` 是整数键；展开后 `"1"`、`"2"` 变成整数键 ⇒ `Object.keys` 序从 `["3","1,2"]` 变成
+  `["1","2","3"]`。这一条同时盖住了 `traversal` 的快照语义与 `Object::keys()` 的
+  "整数升序在前"规则。
+- **无逗号的键也必须留在用例里**（让 `a,b` 与 `b` 共存）：`if (ks.size() <= 1) return;`
+  改成 `ks.empty()`，只有在"前面的展开已经改过键序、且该键不是整数键"时才可观察
+  （删除+重插会把键挪到末尾）。
+- **字符串的 `[...s]` 按码点切**：用例写 `s "\ud83d\ude00"`（**不能直接写 emoji**，否则
+  `to_ascii` 丢信息）；`esc` 会把代理对逐码元转义成 `\ud83d\ude00`，两侧输出都是纯 ASCII。
+- **六种 next-frame 类型要各自一条 `data z` 用例**：只写"类型匹配 + data 正常"的用例，
+  删掉某个类型的变异会活下来（此时分派与不分派都返回 `true`）。同类陷阱：`is_sound_type`
+  删掉 `V_SOUND` 也要一条 `v_sound data z`。
+- **两条等价项没写成变异**：① `sound_path_iterable` 里的 `is_nullish(data)` 是冗余的
+  （`field_of` 对 nullish 已经返回 `undefined` ⇒ 后续 `is_str`/`as_array` 同样为假）；
+  ② `[...v]` 的"浅拷贝 vs 直接引用"不可观察（`Value` 渲染按值递归）。

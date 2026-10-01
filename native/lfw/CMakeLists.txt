@@ -43,6 +43,9 @@ add_library(lfw_core STATIC
   loader/preprocess_ball_frame.cpp
   loader/preprocess_bg_data.cpp
   loader/resolve_prefab.cpp
+  loader/preprocess_action.cpp
+  loader/preprocess_bot_data.cpp
+  loader/preprocess_next_frame.cpp
   base/predicate.cpp
   utils/math/mersenne_twister.cpp
   utils/math/normalize_plane.cpp
