@@ -12,6 +12,7 @@ add_library(lfw_core STATIC
   defines/runtime_gen.cpp
   dat_translator/colon_value_reader.cpp
   dat_translator/cond_maker.cpp
+  dat_translator/cookers.cpp
   dat_translator/helpers.cpp
   dat_translator/next_frame.cpp
   base/predicate.cpp

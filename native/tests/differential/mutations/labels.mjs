@@ -2,17 +2,22 @@ export default {
   subject: "labels",
   mutations: [
     {
-      note: "bdy_kind_name 的 falsy 回退丢掉（改成只看存在）",
+      note: "bdy_kind_name 的 falsy 回退丢掉",
       file: "native/lfw/defines/labels.cpp",
-      from: `  if (it != m.end() && truthy(it->second)) return it->second;`,
-      to: `  if (it != m.end()) return it->second;`,
+      from: `  const Value r = js_enum_get(u"BdyKind", v);
+  return truthy(r) ? r : Value(u"unknown_" + to_string(v));`,
+      to: `  return js_enum_get(u"BdyKind", v);`,
     },
     {
       note: "wpoint_kind_name 的 nullish 回退错用 truthy",
       file: "native/lfw/defines/labels.cpp",
-      from: `  if (it != m.end() && !std::holds_alternative<std::monostate>(it->second) &&
-      !std::holds_alternative<NullTag>(it->second)) {`,
-      to: `  if (it != m.end() && truthy(it->second)) {`,
+      from: `  const Value r = js_enum_get(u"WpointKind", v);
+  if (std::holds_alternative<std::monostate>(r) || std::holds_alternative<NullTag>(r)) {
+    return Value(u"unknown_" + to_string(v));
+  }
+  return r;`,
+      to: `  const Value r = js_enum_get(u"WpointKind", v);
+  return truthy(r) ? r : Value(u"unknown_" + to_string(v));`,
     },
     {
       note: "枚举表不建反向（数字→名）表项",

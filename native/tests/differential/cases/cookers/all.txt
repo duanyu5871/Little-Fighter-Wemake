@@ -1,0 +1,164 @@
+# cook_bdy：kind 归一化 + 字段重排（键序会被 bdy_info_fields 规整）
+new b1
+set b1 zzz n 1
+set b1 kind s "2000"
+set b1 yy n 2
+bdy b1
+new b2
+set b2 kind n 0
+bdy b2
+new b3
+set b3 kind s "nope"
+bdy b3
+new b4
+bdy b4
+new b5
+set b5 kind s "1"
+bdy b5
+
+# cook_wpoint：x/y/z 归零、惯性非零才留、attacking 转字符串、kind==1 时 z=±2
+new w1
+set w1 x n 5
+set w1 y z
+set w1 z s ""
+set w1 dvx n 0
+set w1 dvy n 3
+set w1 attacking n 7
+wp w1
+new w2
+set w2 kind n 1
+set w2 cover n 1
+wp w2
+new w3
+set w3 kind n 1
+set w3 cover n 2
+wp w3
+new w4
+set w4 kind s "1"
+set w4 cover s "1"
+wp w4
+new w5
+set w5 kind n 1
+wp w5
+new w6
+set w6 weaponact n 5
+wp w6
+new w7
+wp w7
+
+# cook_cpoint：cover 码、kind、injury、vaction
+new c1
+set c1 x n 3
+set c1 y n 0
+set c1 cover n 11
+set c1 vaction n 300
+cp c1
+new c2
+set c2 cover n 10
+set c2 vaction s "-300"
+cp c2
+new c3
+set c3 cover n 1
+set c3 vaction n 1000
+cp c3
+new c4
+set c4 kind n 1
+cp c4
+new c5
+set c5 kind n 2
+cp c5
+new c6
+set c6 injury n -5
+cp c6
+new c7
+set c7 injury n 5
+cp c7
+new c8
+set c8 injury n 0
+cp c8
+new c9
+set c9 injury nan
+cp c9
+new c10
+set c10 decrease n 4
+set c10 throwvx n 2
+set c10 vaction n 999
+cp c10
+new c11
+set c11 throwinjury n -3
+set c11 throwvy n 0
+cp c11
+new c12
+cp c12
+new c13
+set c13 throwvx n 2
+set c13 vaction n -300
+cp c13
+new c14
+set c14 cover n 11
+set c14 vaction n -300
+cp c14
+
+# cook_itr：vrest/arest、dv*、fall、bdefend、zwidth、kind/effect 名、catch 帧
+new i1
+set i1 vrest n 3
+set i1 arest n -3
+set i1 dvx n 1.23456789
+set i1 dvy n -1.5
+set i1 dvz n 0
+set i1 fall n 4
+set i1 bdefend n 6
+set i1 zwidth n 3
+set i1 kind n 1
+set i1 effect n 2
+itr i1
+new i2
+set i2 catchingact n 300
+set i2 caughtact n 300
+itr i2
+new i3
+set i3 catchingact n 1000
+set i3 caughtact n 999
+itr i3
+new i4
+set i4 catchingact s "abc"
+set i4 caughtact s "abc"
+itr i4
+new i5
+itr i5
+new i6
+set i6 kind s "nope"
+set i6 effect n 999
+itr i6
+new i7
+set i7 effect z
+itr i7
+new i8
+set i8 vrest n 0
+set i8 zwidth n 0
+itr i8
+
+# float_scaling_itr
+new f1
+set f1 dvx n 1.2345
+set f1 dvy n -0.5
+set f1 dvz n 2
+fsitr f1
+new f2
+set f2 dvx nan
+set f2 dvy s "1"
+fsitr f2
+new f3
+fsitr f3
+new f4
+set f4 dvx n 0.1235
+set f4 dvy n -0.1235
+set f4 dvz n 0.00005
+fsitr f4
+new f5
+set f5 dvx n 1234567.89
+fsitr f5
+
+# 共享常量不应被 cook 污染（caughtact 必须克隆）
+nf n 999 repeat
+nf n 1000 repeat

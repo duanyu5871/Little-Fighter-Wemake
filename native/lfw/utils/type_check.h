@@ -36,4 +36,6 @@ inline bool is_int(const Value& v) {
   return d != nullptr && is_int(*d);
 }
 
+inline bool is_str(const Value& v) { return std::holds_alternative<std::u16string>(v); }
+
 }

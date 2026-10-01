@@ -8,10 +8,9 @@
 #include "lfw/core/js_num.h"
 #include "lfw/core/js_string.h"
 #include "lfw/core/value.h"
-#include "lfw/defines/bdy_kind.h"
+#include "lfw/defines/all_enums.h"
 #include "lfw/defines/defines_data.h"
 #include "lfw/defines/enum_entries.h"
-#include "lfw/defines/wpoint_kind.h"
 
 namespace lfw {
 namespace defines {
@@ -27,29 +26,19 @@ std::map<std::u16string, Value> build_enum_map(const std::vector<EnumNumberEntry
   return m;
 }
 
-const std::map<std::u16string, Value>& bdy_kind_map() {
-  static const std::map<std::u16string, Value> kMap = build_enum_map(bdy_kind_entries());
-  return kMap;
-}
-
-const std::map<std::u16string, Value>& wpoint_kind_map() {
-  static const std::map<std::u16string, Value> kMap = build_enum_map(wpoint_kind_entries());
-  return kMap;
-}
-
-Value lookup_js_enum_falsy(const std::map<std::u16string, Value>& m, const Value& v) {
-  std::map<std::u16string, Value>::const_iterator it = m.find(to_string(v));
-  if (it != m.end() && truthy(it->second)) return it->second;
-  return Value(u"unknown_" + to_string(v));
-}
-
-Value lookup_js_enum_nullish(const std::map<std::u16string, Value>& m, const Value& v) {
-  std::map<std::u16string, Value>::const_iterator it = m.find(to_string(v));
-  if (it != m.end() && !std::holds_alternative<std::monostate>(it->second) &&
-      !std::holds_alternative<NullTag>(it->second)) {
-    return it->second;
+const std::map<std::u16string, Value>* enum_map(const char16_t* enum_name) {
+  static std::map<std::u16string, std::map<std::u16string, Value>> kCache;
+  const std::u16string key(enum_name);
+  std::map<std::u16string, std::map<std::u16string, Value>>::iterator it = kCache.find(key);
+  if (it != kCache.end()) return &it->second;
+  std::map<std::u16string, Value> built;
+  for (const EnumNumberTableRef& t : all_number_enum_tables()) {
+    if (t.name != nullptr && t.entries != nullptr && std::u16string(t.name) == key) {
+      built = build_enum_map(*t.entries);
+      break;
+    }
   }
-  return Value(u"unknown_" + to_string(v));
+  return &kCache.emplace(key, std::move(built)).first->second;
 }
 
 const Object* table_object(const char16_t* name) {
@@ -71,13 +60,29 @@ std::map<std::u16string, std::u16string>& hit_flag_memo() {
 
 }
 
-Value bdy_kind_name(const Value& v) { return lookup_js_enum_falsy(bdy_kind_map(), v); }
+Value js_enum_get(const char16_t* enum_name, const Value& v) {
+  const std::map<std::u16string, Value>* m = enum_map(enum_name);
+  std::map<std::u16string, Value>::const_iterator it = m->find(to_string(v));
+  if (it == m->end()) return Value();
+  return it->second;
+}
+
+Value bdy_kind_name(const Value& v) {
+  const Value r = js_enum_get(u"BdyKind", v);
+  return truthy(r) ? r : Value(u"unknown_" + to_string(v));
+}
 
 std::u16string bdy_kind_full_name(const Value& v) {
   return u"BdyKind." + to_string(bdy_kind_name(v));
 }
 
-Value wpoint_kind_name(const Value& v) { return lookup_js_enum_nullish(wpoint_kind_map(), v); }
+Value wpoint_kind_name(const Value& v) {
+  const Value r = js_enum_get(u"WpointKind", v);
+  if (std::holds_alternative<std::monostate>(r) || std::holds_alternative<NullTag>(r)) {
+    return Value(u"unknown_" + to_string(v));
+  }
+  return r;
+}
 
 std::u16string wpoint_kind_full_name(const Value& v) {
   return u"WpointKind." + to_string(wpoint_kind_name(v));

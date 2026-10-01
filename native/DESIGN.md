@@ -802,6 +802,38 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
 
 **验证**：subject `colon_reader`（52 行）+ 14 条变异全杀。
 
+### 4.20 V20 `dat_translator` 的 cook 系列
+
+形态：`native/lfw/dat_translator/cookers.{h,cpp}`，含 `cook_bdy` / `cook_wpoint` /
+`cook_cpoint` / `cook_itr` / `float_scaling_itr`。这五个都是纯数据→数据。
+
+**范围判定**（同样先量再做）：
+
+| 文件 | 判定 |
+|---|---|
+| `cook_bpoint` | 空实现（`// TODO`）⇒ 不写 |
+| `float_scaling_bdy` | 空实现（注释掉的一行）⇒ 不写 |
+| `float_scaling_qube` | **未导出**（文件内局部函数）⇒ 不写 |
+| `post_process_obj_data` | 依赖 `make_frames_special` ⇒ 待办 |
+| 上面那五个 | 依赖已就位（`take*` / `fixed_float` / `get_next_frame_by_raw_id` / `reorder_fields`） | ✅ 做了 |
+
+**移植要点**
+
+- **两处宽松 `==` 不能改成严格比较**：`unsure_wpoint.kind == 1` 与
+  `CPointKind.Attacker == cpoint.kind` 都是 **`==`** ⇒ 字符串 `"1"` / `"1"` 也算命中。
+  用 `equals()`，不是 `strict_equals()`。
+- **`o.x = take(o,"x")` 的两种语义要分清**：`x || 0` 是**取值**（回退 0）；
+  而 `cpoint.x = take_not_zero_num(...)` 是**赋 undefined**（键仍在但值为 undefined）。
+  两者在 `render` 下能看到差异（后者打印 `u`）。
+- **`{...get_next_frame_by_raw_id(...), facing: ...}` 是浅拷贝** ⇒ C++ 用 `shallow_clone`，
+  不能直接改返回的对象（可能正好是 `Defines.NEXT_FRAME_*` 共享常量）。用例末尾加 `nf n 999`
+  检查共享常量没被污染。
+- **通用枚举反查 `defines::js_enum_get(name, v)`**：`cook_itr` 要 `(ItrKind as any)[kind]`，
+  而 `all_enums.h` 已经有 `{名字, entries, name_of}` 注册表 ⇒ 用注册表惰性建 JS 风格的
+  正/反向 map。顺手把 `labels.cpp` 里 bdy/wpoint 各自的两份实现合并到这一处。
+
+**验证**：subject `cookers`（41 行）+ 16 条变异全杀；`labels` 重构后 15/15 仍全杀。
+
 ---
 
 ## 5. 风险
