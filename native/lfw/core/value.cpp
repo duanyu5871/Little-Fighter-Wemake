@@ -127,4 +127,36 @@ bool equals(const Value& a, const Value& b) {
   return false;
 }
 
+std::optional<bool> less_than(const Value& a, const Value& b) {
+  const Value px = to_primitive(a);
+  const Value py = to_primitive(b);
+  const std::u16string* sx = std::get_if<std::u16string>(&px);
+  const std::u16string* sy = std::get_if<std::u16string>(&py);
+  if (sx != nullptr && sy != nullptr) return *sx < *sy;
+  const double nx = to_number(px);
+  const double ny = to_number(py);
+  if (std::isnan(nx) || std::isnan(ny)) return std::nullopt;
+  return nx < ny;
+}
+
+bool lt(const Value& a, const Value& b) {
+  const std::optional<bool> r = less_than(a, b);
+  return r.has_value() && *r;
+}
+
+bool gt(const Value& a, const Value& b) {
+  const std::optional<bool> r = less_than(b, a);
+  return r.has_value() && *r;
+}
+
+bool le(const Value& a, const Value& b) {
+  const std::optional<bool> r = less_than(b, a);
+  return r.has_value() && !*r;
+}
+
+bool ge(const Value& a, const Value& b) {
+  const std::optional<bool> r = less_than(a, b);
+  return r.has_value() && !*r;
+}
+
 }

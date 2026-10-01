@@ -162,6 +162,20 @@ int main(int argc, char** argv) {
       out.add(esc(lfw::to_string(x)));
       out.out();
 
+    } else if (op == "lt" || op == "gt" || op == "le" || op == "ge") {
+      size_t i = 1;
+      const lfw::Value x = parse_value(tok, i);
+      const lfw::Value y = parse_value(tok, i);
+      bool r = false;
+      if (op == "lt") r = lfw::lt(x, y);
+      else if (op == "gt") r = lfw::gt(x, y);
+      else if (op == "le") r = lfw::le(x, y);
+      else r = lfw::ge(x, y);
+      Line out;
+      out.add(op);
+      out.add_bool(r);
+      out.out();
+
     } else {
       std::fprintf(stderr, "line %d: unknown op '%s'\n", lineno, op.c_str());
       return 2;

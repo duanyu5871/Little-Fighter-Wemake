@@ -123,7 +123,7 @@ using Value = std::variant<
 | V2 | **`string_to_number`**（`ToNumber(string)`） | **已完成**（146 + 81 行差分全过） |
 | V3 | **`number_to_string`**（最短往返 + JS 指数阈值） | **已完成**（77 + 10558 行差分全过） |
 | V4 | **宽松 `==`** 完整规则表 | **已完成**（89 + 61 + 84 行差分全过；`{{`/`}}` 延到 V7） |
-| V5 | 关系比较 `< > <= >=` | 待做 |
+| V5 | 关系比较 `< > <= >=` | **已完成**（107 行差分全过） |
 | V6 | `Object` + `Object.keys` 顺序 | 待做 |
 | V7 | `Expression` 跑在 `Value` 上 | 待做 |
 ### 4.1 V1 `Value` 的落地结果
@@ -321,6 +321,44 @@ bool equals(const Value&, const Value&);
 **严格相等**（不是 `==`，也不等于 `includes` 的 SameValueZero，所以 `NaN` 永不匹配）；
 另外它在非数组操作数上会**抛 TypeError**（`!b.length` 过了之后调 `b.findIndex`，或 `a.indexOf`），
 而数值操作数因为 `!b.length` 为真会**直接返回 `true`** —— 这条要在 V7 逐字照抄。
+
+### 4.5 V5 关系比较
+
+**这是整个 `Value` 里最容易写错的一步**：规范的 `IsLessThan` 返回的是 **`true` / `false` / `undefined` 三态**
+（两边沾了 `NaN` 就是 `undefined`），而四个运算符是这样映射的：
+
+| JS | 定义 |
+|---|---|
+| `a <  b` | `IsLessThan(a, b) === true` |
+| `a >  b` | `IsLessThan(b, a) === true` |
+| `a <= b` | `IsLessThan(b, a) !== true` —— **`undefined` 也算"不是 true"，所以结果是 `false`** |
+| `a >= b` | `IsLessThan(a, b) !== true` |
+
+⇒ `NaN <= 1`、`NaN >= 1`、`NaN < 1`、`NaN > 1` **全部是 `false`**。
+若把 `le` 写成 `!gt(a, b)`（因为 `gt` 对 NaN 返回 `false`），`NaN <= 1` 就会错成 `true`。
+所以 C++ 侧先用 `std::optional<bool> less_than(...)` 把三态显式带出来，四个运算符都从它派生。
+
+比较体（两边 `ToPrimitive` 之后）：
+
+```cpp
+if (两边都是 string) return sx < sy;        // UTF-16 code unit 字典序
+// 否则
+if (isnan(nx) || isnan(ny)) return std::nullopt;
+return nx < ny;
+```
+
+- **字符串比较用 `std::u16string::operator<` 就对了** —— `char16_t` 是无符号 16 位，
+  逐 code unit 比大小正是规范的语义。规范里那三段 `IsStringPrefix` 只是这个的写法优化，不用单独特判。
+  （所以 `"\u00e9" > "z"` 而 `"\ud83d\ude00" > "z"` —— 比较的是 **code unit**，不是码点，也不是字节。）
+- **最大的坑是两侧类型不同**：`"2" < "10"` 是 `false`（字符串序），但 `2 < "10"` 是 `true`（先 `ToNumber`）。
+  用例 `lt s "2" s "10"` / `lt n 2 s "10"` / `lt a 1 n 2 s "10"` 三个成组钉这一点：
+  前两个是字符串则按字符串比（**数组 `[2]` 先 `ToPrimitive` 成 `"2"`，所以也是字符串序**）。
+
+| 变异 | 结果 |
+|---|---|
+| `le` 写成 `!gt(a, b)`（丢掉三态） | FAIL 第 25 行（`le n nan n 1`） |
+| `less_than` 去掉字符串分支（永远转数字） | FAIL 第 34 行（`lt s "" s "a"`） |
+| `ge` 的参数顺序写成 `less_than(b, a)`（从 `le` 复制粘贴） | FAIL 第 8 行（`ge n 2 n 1`） |
 
 ---
 

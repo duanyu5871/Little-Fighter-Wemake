@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <memory>
+#include <optional>
 #include <string>
 #include <variant>
 #include <vector>
@@ -42,5 +43,11 @@ double to_number(const Value& v);
 std::u16string to_string(const Value& v);
 bool strict_equals(const Value& a, const Value& b);
 bool equals(const Value& a, const Value& b);
+
+std::optional<bool> less_than(const Value& a, const Value& b);
+bool lt(const Value& a, const Value& b);
+bool gt(const Value& a, const Value& b);
+bool le(const Value& a, const Value& b);
+bool ge(const Value& a, const Value& b);
 
 }

@@ -114,6 +114,15 @@ function main(): void {
       continue;
     }
 
+    if (op === "lt" || op === "gt" || op === "le" || op === "ge") {
+      const idx = [1];
+      const x = parseValue(tok, idx) as number;
+      const y = parseValue(tok, idx) as number;
+      const r = op === "lt" ? x < y : op === "gt" ? x > y : op === "le" ? x <= y : x >= y;
+      out.push(line(op, r ? "true" : "false"));
+      continue;
+    }
+
     process.stderr.write(`line ${lineno}: unknown op '${op}'\n`);
     process.exit(2);
   }
