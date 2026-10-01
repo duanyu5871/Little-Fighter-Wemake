@@ -33,7 +33,7 @@ import { Ditto } from "../ditto";
 import { States } from "../state";
 import { ENTITY_STATES } from "../state/ENTITY_STATES";
 import { State_Base } from "../state/State_Base";
-import { abs, clamp, clamp_add, eqlt, find, floor, is_num, max, min, pow, round, round_float } from "../utils";
+import { abs, clamp, clamp_add, eqlt, find, is_num, max, min, pow, round, round_float } from "../utils";
 import { Times } from "../utils/Times";
 import { cross_bounding } from "../utils/cross_bounding";
 import { is_f_num, is_positive, is_str } from "../utils/type_check";
@@ -2008,11 +2008,25 @@ export class Entity {
     const z = max(f, n) + 3;
     return [x, y, z] as const;
   }
-
+  clean_holding() {
+    if (!this.holding) return;
+    if (this.holding.bearer == this)
+      this.holding.bearer = null;
+    this.holding = null;
+  }
+  clean_catching() {
+    if (!this.catching) return;
+    if (this.catching.catcher == this)
+      this.catching.catcher = null;
+    this.catching = null;
+  }
   release(): void {
     if (!this._mounted) return;
     this.bearer?.drop_holding();
     this.catcher?.drop_catching();
+    this.clean_holding()
+    this.clean_catching()
+
     this._mounted = 0;
     this.callbacks.call("on_disposed", this);
     this.callbacks.clear()
