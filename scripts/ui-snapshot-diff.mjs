@@ -1,10 +1,13 @@
 /**
  * UI 回归快照：归一化 + 比对。
  *
- *   node scripts/ui-snapshot-diff.mjs <current.json> [--baseline=<path>] [--update] [--tol=2]
+ *   node scripts/ui-snapshot-diff.mjs <scenario> [--update] [--tol=2]
  *
- * current.json 由应用内的 `window.ui_test_run()` 产出（见 src/ui_test.ts，
- * 在 `?headless_ui=1` 打开的页面里执行）。
+ *   current  : temp/ui-run.<scenario>.json
+ *   baseline : scripts/ui-snapshots/<scenario>.json
+ *
+ * current.json 由应用内的 `ui_test_run("<scenario>")` 产出（见 src/ui_test.ts，
+ * 在 `?headless_ui=1` 打开的页面里执行）。可用场景见 src/ui_test.ts 的 SCENARIOS。
  *
  * 归一化规则（去掉动画噪声，只留"会被人改动"的东西）：
  * - 只保留 visible && 有 id 的节点；
@@ -14,7 +17,7 @@
  * 节点身份用 `parent>id#n`（n = 同一父节点下同名 id 的出现序），因为 id 会重复
  * （比如每个按钮下都有一个 back_label）。
  */
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 const args = process.argv.slice(2);
@@ -22,14 +25,19 @@ const flags = new Map(
   args.filter((a) => a.startsWith("--") && a.includes("=")).map((a) => a.split("=")),
 );
 const positional = args.filter((a) => !a.startsWith("--"));
-const current_path = positional[0];
-const baseline_path = flags.get("--baseline") ?? "scripts/ui-snapshot.baseline.json";
+const scenario = positional[0] ?? "entry";
+const current_path = `temp/ui-run.${scenario}.json`;
+const baseline_path = `scripts/ui-snapshots/${scenario}.json`;
 const tol = Number(flags.get("--tol") ?? 2);
 const update = args.includes("--update");
 
-if (!update && !current_path) {
-  console.error("用法: node scripts/ui-snapshot-diff.mjs <current.json> [--baseline=...] [--update]");
-  process.exit(2);
+if (!update) {
+  try {
+    readFileSync(current_path);
+  } catch {
+    console.error(`读不到 ${current_path}。先在 ?headless_ui=1 的页面里跑 ui_test_run("${scenario}")。`);
+    process.exit(2);
+  }
 }
 
 function normalize(run) {
@@ -106,10 +114,6 @@ function diff_step(base, cur) {
 }
 
 if (update) {
-  if (!current_path) {
-    console.error("--update 需要同时给出 current.json");
-    process.exit(2);
-  }
   const run = JSON.parse(readFileSync(current_path, "utf8"));
   const normalized = normalize(run);
   const out = {
@@ -120,6 +124,7 @@ if (update) {
       nodes: [...v.nodes].map(([key, n]) => ({ key, ...n })),
     })),
   };
+  mkdirSync(path.dirname(baseline_path), { recursive: true });
   writeFileSync(baseline_path, JSON.stringify(out, null, 1) + "\n");
   console.log(`基线已写入 ${baseline_path}（${out.steps.length} 个步骤）`);
   process.exit(0);

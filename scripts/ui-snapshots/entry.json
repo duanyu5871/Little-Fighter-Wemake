@@ -37,9 +37,9 @@
      "id": "version_name",
      "x": 1,
      "y": 449,
-     "w": 178,
+     "w": 177,
      "h": 14,
-     "text": "v0.1.61-a970d3b-dirty 2026-10-01 16:26:32",
+     "text": "v0.1.61-d59dc6e-dirty 2026-10-01 16:32:39",
      "img": null,
      "color": "",
      "clip": false
@@ -220,15 +220,15 @@
      "clip": false
     },
     {
-     "key": "bg_l_face>no_id_941#0",
+     "key": "bg_l_face>no_id_951#0",
      "parent": "bg_l_face",
-     "id": "no_id_941",
+     "id": "no_id_951",
      "x": 0,
      "y": 0,
      "w": 338,
      "h": 450,
      "text": null,
-     "img": "sprite/MENU_BACK1.png",
+     "img": "sprite/MENU_BACK11.png",
      "color": "",
      "clip": false
     },
@@ -246,15 +246,15 @@
      "clip": false
     },
     {
-     "key": "bg_r_face>no_id_958#0",
+     "key": "bg_r_face>no_id_960#0",
      "parent": "bg_r_face",
-     "id": "no_id_958",
+     "id": "no_id_960",
      "x": 0,
      "y": 0,
      "w": 338,
      "h": 450,
      "text": null,
-     "img": "sprite/MENU_BACK4.png",
+     "img": "sprite/MENU_BACK6.png",
      "color": "",
      "clip": false
     },
@@ -264,9 +264,9 @@
      "id": "version_name",
      "x": 1,
      "y": 449,
-     "w": 178,
+     "w": 177,
      "h": 14,
-     "text": "v0.1.61-a970d3b-dirty 2026-10-01 16:26:32",
+     "text": "v0.1.61-d59dc6e-dirty 2026-10-01 16:32:39",
      "img": null,
      "color": "",
      "clip": false
@@ -1857,15 +1857,15 @@
      "clip": false
     },
     {
-     "key": "bg_l_face>no_id_941#0",
+     "key": "bg_l_face>no_id_951#0",
      "parent": "bg_l_face",
-     "id": "no_id_941",
+     "id": "no_id_951",
      "x": 0,
      "y": 0,
      "w": 338,
      "h": 450,
      "text": null,
-     "img": "sprite/MENU_BACK1.png",
+     "img": "sprite/MENU_BACK11.png",
      "color": "",
      "clip": false
     },
@@ -1883,15 +1883,15 @@
      "clip": false
     },
     {
-     "key": "bg_r_face>no_id_958#0",
+     "key": "bg_r_face>no_id_960#0",
      "parent": "bg_r_face",
-     "id": "no_id_958",
+     "id": "no_id_960",
      "x": 0,
      "y": 0,
      "w": 338,
      "h": 450,
      "text": null,
-     "img": "sprite/MENU_BACK4.png",
+     "img": "sprite/MENU_BACK6.png",
      "color": "",
      "clip": false
     },
@@ -1901,9 +1901,9 @@
      "id": "version_name",
      "x": 1,
      "y": 449,
-     "w": 178,
+     "w": 177,
      "h": 14,
-     "text": "v0.1.61-a970d3b-dirty 2026-10-01 16:26:32",
+     "text": "v0.1.61-d59dc6e-dirty 2026-10-01 16:32:39",
      "img": null,
      "color": "",
      "clip": false

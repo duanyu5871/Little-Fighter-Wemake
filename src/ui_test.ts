@@ -22,6 +22,8 @@ export interface IUITestStep {
   id?: string;
   /** 动作后期望的页面 id（`UINode.data.id`）；用于等页面切换完，避免在转场中途取样 */
   expect_page?: string;
+  /** expect_page 的超时（默认 15s；过 loading 这种要加载数据的步骤需要放宽） */
+  timeout_ms?: number;
 }
 
 export interface IUITestStepResult {
@@ -35,12 +37,21 @@ export interface IUITestStepResult {
 
 const sleep = (ms: number) => new Promise<void>((r) => globalThis.setTimeout(r, ms));
 
-export const DEFAULT_SCENARIO: IUITestStep[] = [
-  { name: "launch", action: "wait", expect_page: "init" },
-  { name: "entry", action: "click_ui", at: [397, 225], expect_page: "entry" },
-  { name: "settings", action: "click_id", id: "btn_ctrl_settings", expect_page: "settings" },
-  { name: "back", action: "click_id", id: "btn_exit_settings", expect_page: "entry" },
-];
+export const SCENARIOS: Record<string, IUITestStep[]> = {
+  /** 入口页 + 设置页往返 */
+  entry: [
+    { name: "launch", action: "wait", expect_page: "init" },
+    { name: "entry", action: "click_ui", at: [397, 225], expect_page: "entry" },
+    { name: "settings", action: "click_id", id: "btn_ctrl_settings", expect_page: "settings" },
+    { name: "back", action: "click_id", id: "btn_exit_settings", expect_page: "entry" },
+  ],
+  /** 走 Game Start 真正加载数据包，一路等到主页（含 data.zip 下载/解析） */
+  main_menu: [
+    { name: "launch", action: "wait", expect_page: "init" },
+    { name: "entry", action: "click_ui", at: [397, 225], expect_page: "entry" },
+    { name: "start_game", action: "click_id", id: "btn_game_start", expect_page: "main_page", timeout_ms: 60000 },
+  ],
+};
 
 function find_node(root: UINode, id: string): UINode | undefined {
   if (root.id === id) return root;
@@ -136,8 +147,11 @@ async function click_ui(
 
 export async function ui_test_run(
   lfw: LFW,
-  steps: IUITestStep[] = DEFAULT_SCENARIO,
-): Promise<{ steps: IUITestStepResult[] }> {
+  scenario: string | IUITestStep[] = "entry",
+): Promise<{ scenario: string; steps: IUITestStepResult[] }> {
+  const name = typeof scenario === "string" ? scenario : "inline";
+  const steps = typeof scenario === "string" ? SCENARIOS[scenario] : scenario;
+  if (!steps) throw new Error(`[ui_test_run] 未知场景: ${scenario}`);
   const out: IUITestStepResult[] = [];
   // 用被注入的那个实现（?headless_ui=1 时就是 HeadlessUIInputHandle），只跳过 DOM→scene 换算
   const handle = new Ditto.UIInputHandle(lfw);
@@ -159,7 +173,7 @@ export async function ui_test_run(
       }
     }
     let page_ok = true;
-    if (!error && step.expect_page) page_ok = await wait_page(lfw, step.expect_page);
+    if (!error && step.expect_page) page_ok = await wait_page(lfw, step.expect_page, step.timeout_ms);
     const settled = error ? false : await settle(lfw);
     out.push({
       name: step.name,
@@ -170,10 +184,13 @@ export async function ui_test_run(
       nodes: get_ui_snapshot(),
     });
   }
-  const result = { steps: out };
+  const result = { scenario: name, steps: out };
   // 开发期落盘（vite 中间件，见 vite.config.ts 的 ui_snapshot_sink_plugin）；生产环境静默失败
   try {
-    await fetch("/__ui-snapshot", { method: "POST", body: JSON.stringify(result) });
+    await fetch(`/__ui-snapshot?scenario=${encodeURIComponent(name)}`, {
+      method: "POST",
+      body: JSON.stringify(result),
+    });
   } catch { /* 非 dev server 时忽略 */ }
   return result;
 }

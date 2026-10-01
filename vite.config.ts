@@ -57,12 +57,16 @@ function ui_snapshot_sink_plugin(): Plugin {
     configureServer(server) {
       server.middlewares.use('/__ui-snapshot', (req, res) => {
         if (req.method !== 'POST') { res.statusCode = 405; res.end(); return; }
+        const scenario = (new URL(req.url ?? '/', 'http://localhost').searchParams.get('scenario') ?? 'default')
+          .replace(/[^\w.-]/g, '_');
+        const file = `temp/ui-run.${scenario}.json`;
         const chunks: Buffer[] = [];
         req.on('data', (c) => chunks.push(c));
         req.on('end', () => {
           try {
             mkdirSync('temp', { recursive: true });
-            writeFileSync('temp/ui-run.json', Buffer.concat(chunks));
+            writeFileSync(file, Buffer.concat(chunks));
+            server.config.logger.info(`[ui-snapshot] 已写入 ${file}`);
             res.end('ok');
           } catch (e) {
             res.statusCode = 500;
