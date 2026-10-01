@@ -5,6 +5,22 @@ import { cook_opoint } from "../../../../src/LFW/dat_translator/cook_opoint";
 import { cook_wpoint } from "../../../../src/LFW/dat_translator/cook_wpoint";
 import { float_scaling_itr } from "../../../../src/LFW/dat_translator/float_scaling_itr";
 import { get_next_frame_by_raw_id } from "../../../../src/LFW/dat_translator/get_the_next";
+import { make_frame_state } from "../../../../src/LFW/dat_translator/make_frame_state";
+import { make_frame_behavior } from "../../../../src/LFW/dat_translator/make_frame_behavior";
+import { make_fb_bat_chase_start } from "../../../../src/LFW/dat_translator/frame_behavior/make_fb_bat_chase_start";
+import { make_fb_bat_chase } from "../../../../src/LFW/dat_translator/frame_behavior/make_fb_bat_chase";
+import { make_fb_boomerang } from "../../../../src/LFW/dat_translator/frame_behavior/make_fb_boomerang";
+import { make_fb_chasing_same_enemy } from "../../../../src/LFW/dat_translator/frame_behavior/make_fb_chasing_same_enemy";
+import { make_fb_dennis_chase } from "../../../../src/LFW/dat_translator/frame_behavior/make_fb_dennis_chase";
+import { make_fb_firzen_disater_start } from "../../../../src/LFW/dat_translator/frame_behavior/make_fb_firzen_disater_start";
+import { make_fb_firzen_volcano_start } from "../../../../src/LFW/dat_translator/frame_behavior/make_fb_firzen_volcano_start";
+import { make_fb_jan_angle_blessing } from "../../../../src/LFW/dat_translator/frame_behavior/make_fb_jan_angle_blessing";
+import { make_fb_jan_chase_start } from "../../../../src/LFW/dat_translator/frame_behavior/make_fb_jan_chase_start";
+import { make_fb_jan_chaseh_start } from "../../../../src/LFW/dat_translator/frame_behavior/make_fb_jan_chaseh_start";
+import { make_fb_john_chase } from "../../../../src/LFW/dat_translator/frame_behavior/make_fb_john_chase";
+import { make_fb_john_chase_leaving } from "../../../../src/LFW/dat_translator/frame_behavior/make_fb_john_chase_leaving";
+import { make_fb_julian_ball } from "../../../../src/LFW/dat_translator/frame_behavior/make_fb_julian_ball";
+import { make_fb_julian_ball_start } from "../../../../src/LFW/dat_translator/frame_behavior/make_fb_julian_ball_start";
 
 import { parseValue, readCaseLines, renderValue, splitWs } from "./trace_util";
 
@@ -40,6 +56,30 @@ function valueOf(t: string[], i: number[]): unknown {
     return -Infinity;
   }
   return parseValue(t, i);
+}
+
+function dispatchFb(fn: string, v: Record<string, unknown>, x: unknown, y: unknown): void {
+  const fx = x as number;
+  const fy = y as number;
+  switch (fn) {
+    case "bat_chase_start": make_fb_bat_chase_start(v as never); break;
+    case "bat_chase": make_fb_bat_chase(v as never); break;
+    case "boomerang": make_fb_boomerang(v as never); break;
+    case "chasing_same_enemy": make_fb_chasing_same_enemy(v as never, (x ?? "x") as string); break;
+    case "dennis_chase": make_fb_dennis_chase(v as never); break;
+    case "firzen_disater_start": make_fb_firzen_disater_start(v as never, fx, fy); break;
+    case "firzen_volcano_start": make_fb_firzen_volcano_start(v as never, fx, fy); break;
+    case "jan_angle_blessing": make_fb_jan_angle_blessing(v as never); break;
+    case "jan_chase_start": make_fb_jan_chase_start(v as never, fx, fy); break;
+    case "jan_chaseh_start": make_fb_jan_chaseh_start(v as never, fx, fy); break;
+    case "john_chase_leaving": make_fb_john_chase_leaving(v as never); break;
+    case "john_chase": make_fb_john_chase(v as never); break;
+    case "julian_ball_start": make_fb_julian_ball_start(v as never); break;
+    case "julian_ball": make_fb_julian_ball(v as never); break;
+    default:
+      process.stderr.write(`unknown fb '${fn}'\n`);
+      process.exit(2);
+  }
 }
 
 function main(): void {
@@ -85,6 +125,27 @@ function main(): void {
       const v = objOf(id);
       cook_opoint(v as never, objOf(fid));
       out.push(`CO ${id} ${render(v)}`);
+    } else if (op === "mfstate") {
+      const id = next();
+      const v = objOf(id);
+      make_frame_state(v as never);
+      out.push(`MS ${id} ${render(v)}`);
+    } else if (op === "fb") {
+      const id = next();
+      const fn = next();
+      const v = objOf(id);
+      const xt = t[i[0]!];
+      const x = xt === "-" ? (i[0]!++, undefined) : valueOf(t, i);
+      const yt = t[i[0]!];
+      const y = yt === "-" ? (i[0]!++, undefined) : valueOf(t, i);
+      dispatchFb(fn, v, x, y);
+      out.push(`FB ${id} ${render(v)}`);
+    } else if (op === "fbd") {
+      const id = next();
+      const oid = next();
+      const v = objOf(id);
+      make_frame_behavior(v as never, oid);
+      out.push(`FBD ${id} ${render(v)}`);
     } else if (op === "bdy" || op === "wp" || op === "cp" || op === "itr" || op === "fsitr") {
       const id = next();
       const v = objOf(id);

@@ -3,11 +3,14 @@
 #include <limits>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "lfw/core/value.h"
 #include "lfw/dat_translator/cookers.h"
+#include "lfw/dat_translator/frame_behavior.h"
+#include "lfw/dat_translator/make_frame_state.h"
 #include "lfw/dat_translator/next_frame.h"
 
 #include "trace_util.h"
@@ -50,6 +53,25 @@ lfw::Object& obj_of(const std::string& id) {
 }
 
 const lfw::Value kNoFrame;
+
+void dispatch_fb(const std::string& fn, lfw::Value& v, std::optional<lfw::Value> x,
+                 std::optional<lfw::Value> y) {
+  using namespace lfw::dat_translator;
+  if (fn == "bat_chase_start") make_fb_bat_chase_start(v);
+  else if (fn == "bat_chase") make_fb_bat_chase(v);
+  else if (fn == "boomerang") make_fb_boomerang(v);
+  else if (fn == "chasing_same_enemy") make_fb_chasing_same_enemy(v, x.has_value() ? to_string(*x) : std::u16string(u"x"));
+  else if (fn == "dennis_chase") make_fb_dennis_chase(v);
+  else if (fn == "firzen_disater_start") make_fb_firzen_disater_start(v, x, y);
+  else if (fn == "firzen_volcano_start") make_fb_firzen_volcano_start(v, x, y);
+  else if (fn == "jan_angle_blessing") make_fb_jan_angle_blessing(v);
+  else if (fn == "jan_chase_start") make_fb_jan_chase_start(v, x, y);
+  else if (fn == "jan_chaseh_start") make_fb_jan_chaseh_start(v, x, y);
+  else if (fn == "john_chase_leaving") make_fb_john_chase_leaving(v);
+  else if (fn == "john_chase") make_fb_john_chase(v);
+  else if (fn == "julian_ball_start") make_fb_julian_ball_start(v);
+  else if (fn == "julian_ball") make_fb_julian_ball(v);
+}
 
 }
 
@@ -104,6 +126,29 @@ int main(int argc, char** argv) {
       lfw::Value& v = g_objs[id];
       lfw::dat_translator::cook_opoint(v, g_objs[fid]);
       emit("CO " + id + " " + render(v));
+    } else if (op == "mfstate") {
+      const std::string id = t[i++];
+      lfw::Value& v = g_objs[id];
+      lfw::dat_translator::make_frame_state(v);
+      emit("MS " + id + " " + render(v));
+    } else if (op == "fb") {
+      const std::string id = t[i++];
+      const std::string fn = t[i++];
+      lfw::Value& v = g_objs[id];
+      std::optional<lfw::Value> x;
+      std::optional<lfw::Value> y;
+      if (t[i] != "-") x = value_of(t, i);
+      else ++i;
+      if (t[i] != "-") y = value_of(t, i);
+      else ++i;
+      dispatch_fb(fn, v, x, y);
+      emit("FB " + id + " " + render(v));
+    } else if (op == "fbd") {
+      const std::string id = t[i++];
+      const std::string oid = t[i++];
+      lfw::Value& v = g_objs[id];
+      lfw::dat_translator::make_frame_behavior(v, to_u16(oid));
+      emit("FBD " + id + " " + render(v));
     } else if (op == "bdy" || op == "wp" || op == "cp" || op == "itr" || op == "fsitr") {
       const std::string id = t[i++];
       lfw::Value& v = g_objs[id];

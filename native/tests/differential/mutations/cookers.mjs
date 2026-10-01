@@ -204,5 +204,323 @@ export default {
       from: `             oid == std::u16string(oid::kBatBall) || oid == std::u16string(oid::kJanChase) ||`,
       to: `             oid == std::u16string(oid::kJanChase) ||`,
     },
+    {
+      note: "make_frame_state: Ball_3005 不再设 no_shadow",
+      file: "native/lfw/dat_translator/make_frame_state.cpp",
+      from: `  if (is_state(state, StateEnum::Ball_3005)) {
+    o->set(u"no_shadow", num(1));
+  } else if (is_state(state, StateEnum::HeavyWeapon_OnHand) ||`,
+      to: `  if (is_state(state, StateEnum::Ball_3005)) {
+  } else if (is_state(state, StateEnum::HeavyWeapon_OnHand) ||`,
+    },
+    {
+      note: "make_frame_state: gravity_enabled 写反",
+      file: "native/lfw/dat_translator/make_frame_state.cpp",
+      from: `    o->set(u"gravity_enabled", Value(false));`,
+      to: `    o->set(u"gravity_enabled", Value(true));`,
+    },
+    {
+      note: "make_frame_state: 漏掉 HeavyWeapon_OnHand 分支",
+      file: "native/lfw/dat_translator/make_frame_state.cpp",
+      from: `  } else if (is_state(state, StateEnum::HeavyWeapon_OnHand) ||
+             is_state(state, StateEnum::Weapon_OnHand)) {`,
+      to: `  } else if (is_state(state, StateEnum::Weapon_OnHand)) {`,
+    },
+    {
+      note: "make_frame_state: Burning 不再写 hit_flag",
+      file: "native/lfw/dat_translator/make_frame_state.cpp",
+      from: `    if (const Value* itr = o->get(u"itr")) {
+      Value arr = *itr;
+      fill_hit_flag(arr);
+    }`,
+      to: `    if (const Value* itr = o->get(u"itr")) {
+      Value arr = *itr;
+    }`,
+    },
+    {
+      note: "make_frame_state: Frozen 不再写 hit_flag",
+      file: "native/lfw/dat_translator/make_frame_state.cpp",
+      from: `    if (const Value* bdy = o->get(u"bdy")) {
+      Value arr = *bdy;
+      fill_hit_flag(arr);
+    }`,
+      to: `    if (const Value* bdy = o->get(u"bdy")) {
+      Value arr = *bdy;
+    }`,
+    },
+    {
+      note: "make_frame_state: state 判定用宽松相等（字符串 \"3005\" 也命中）",
+      file: "native/lfw/dat_translator/make_frame_state.cpp",
+      from: `bool is_state(const Value& state, StateEnum want) { return strict_equals(state, state_value(want)); }`,
+      to: `bool is_state(const Value& state, StateEnum want) { return equals(state, state_value(want)); }`,
+    },
+    {
+      note: "make_frame_state: Falling 的 kind 判定改用宽松相等（字符串 \"0\" 也命中）",
+      file: "native/lfw/dat_translator/make_frame_state.cpp",
+      from: `    if (kind == nullptr || !strict_equals(*kind, num(static_cast<double>(BdyKind::Normal)))) return;`,
+      to: `    if (kind == nullptr || !equals(*kind, num(static_cast<double>(BdyKind::Normal)))) return;`,
+    },
+    {
+      note: "make_frame_state: Falling 的比较量写成 itr_kind",
+      file: "native/lfw/dat_translator/make_frame_state.cpp",
+      from: `    cm.add(text(collision_val::kItrFall), u">=",`,
+      to: `    cm.add(text(collision_val::kItrKind), u">=",`,
+    },
+    {
+      note: "make_frame_state: Falling 的比较符 >= 写成 >",
+      file: "native/lfw/dat_translator/make_frame_state.cpp",
+      from: `    cm.add(text(collision_val::kItrFall), u">=",`,
+      to: `    cm.add(text(collision_val::kItrFall), u">",`,
+    },
+    {
+      note: "make_frame_state: Falling 丢掉 MagicFlute2 条件",
+      file: "native/lfw/dat_translator/make_frame_state.cpp",
+      from: `    cm.or_(text(collision_val::kItrKind), u"==",
+           num(static_cast<double>(ItrKind::MagicFlute2)));
+`,
+      to: ``,
+    },
+    {
+      note: "make_frame_state: Falling 写死的 test 常量",
+      file: "native/lfw/dat_translator/make_frame_state.cpp",
+      from: `    b->set(u"test", Value(cm.done()));`,
+      to: `    b->set(u"test", Value(u"x"));`,
+    },
+    {
+      note: "make_frame_state: LouisCastOff 的 state 写成 Frozen",
+      file: "native/lfw/dat_translator/make_frame_state.cpp",
+      from: `  o.set(u"state", state_value(StateEnum::Attacking));`,
+      to: `  o.set(u"state", state_value(StateEnum::Frozen));`,
+    },
+    {
+      note: "make_frame_state: LouisCastOff 第 2 个 opoint 的 x 符号写反",
+      file: "native/lfw/dat_translator/make_frame_state.cpp",
+      from: `                            {u"x", num(39 + offset_z)},
+                            {u"y", num(y_b)},
+                            {u"z", num(30)},
+                            {u"oid", text(oid::kWeapon_LouisArmourA)},
+                            {u"dvy", num(dvy_b)},
+                            {u"dvx", num(-dvx_b)},
+                            {u"dvz", num(dvx_z)},`,
+      to: `                            {u"x", num(39 - offset_z)},
+                            {u"y", num(y_b)},
+                            {u"z", num(30)},
+                            {u"oid", text(oid::kWeapon_LouisArmourA)},
+                            {u"dvy", num(dvy_b)},
+                            {u"dvx", num(-dvx_b)},
+                            {u"dvz", num(dvx_z)},`,
+    },
+    {
+      note: "make_frame_state: LouisCastOff 第 1 个 opoint 的 oid 写成 A",
+      file: "native/lfw/dat_translator/make_frame_state.cpp",
+      from: `                            {u"oid", text(oid::kWeapon_LouisArmourB)},`,
+      to: `                            {u"oid", text(oid::kWeapon_LouisArmourA)},`,
+    },
+    {
+      note: "make_frame_state: LouisCastOff 第 1 个 opoint 的字段顺序颠倒（x/y 互换）",
+      file: "native/lfw/dat_translator/make_frame_state.cpp",
+      from: `  items.push_back(make_obj({{u"kind", num(static_cast<double>(OpointKind::Normal))},
+                            {u"x", num(39)},
+                            {u"y", num(79)},`,
+      to: `  items.push_back(make_obj({{u"kind", num(static_cast<double>(OpointKind::Normal))},
+                            {u"y", num(79)},
+                            {u"x", num(39)},`,
+    },
+    {
+      note: "make_frame_state: Message 不再设 no_shadow",
+      file: "native/lfw/dat_translator/make_frame_state.cpp",
+      from: `  } else if (is_state(state, StateEnum::Message)) {
+    o->set(u"no_shadow", num(1));
+  }`,
+      to: `  } else if (is_state(state, StateEnum::Message)) {
+  }`,
+    },
+    {
+      note: "ensure: 为假值时忘记写回新数组",
+      file: "native/lfw/utils/container_help/ensure.h",
+      from: `  Array fresh;
+  for (const Value& v : items) fresh.push_back(v);
+  output = Value(std::make_shared<Array>(fresh));
+  return output;`,
+      to: `  Array fresh;
+  for (const Value& v : items) fresh.push_back(v);
+  return output;`,
+    },
+    {
+      note: "fb: 默认速度表把 acc_z 写错（bat_chase）",
+      file: "native/lfw/dat_translator/frame_behavior.cpp",
+      from: `  set_default_speed(o, 14, 0.25, 0.125, 0.125);`,
+      to: `  set_default_speed(o, 14, 0.25, 0.125, 0.25);`,
+    },
+    {
+      note: "fb: 默认速度表里 ctrl_z/ctrl_x 的插入顺序颠倒",
+      file: "native/lfw/dat_translator/frame_behavior.cpp",
+      from: `  o.set(u"ctrl_z", n(1));
+  o.set(u"ctrl_y", n(1));
+  o.set(u"ctrl_x", n(1));
+}
+
+void put_opoint`,
+      to: `  o.set(u"ctrl_x", n(1));
+  o.set(u"ctrl_y", n(1));
+  o.set(u"ctrl_z", n(1));
+}
+
+void put_opoint`,
+    },
+    {
+      note: "fb: boomerang 的 ctrl_x 写成 None",
+      file: "native/lfw/dat_translator/frame_behavior.cpp",
+      from: `  o.set(u"ctrl_x", en(SpeedCtrl::Control));
+  o.set(u"dvz", n(1.8));`,
+      to: `  o.set(u"ctrl_x", en(SpeedCtrl::None));
+  o.set(u"dvz", n(1.8));`,
+    },
+    {
+      note: "fb: chasing_same_enemy 的 on_hit_ground 两个 id 互换",
+      file: "native/lfw/dat_translator/frame_behavior.cpp",
+      from: `    it->set(u"on_hit_ground", make_obj({{u"id", s(firzen ? u"60" : u"10")}}));`,
+      to: `    it->set(u"on_hit_ground", make_obj({{u"id", s(firzen ? u"10" : u"60")}}));`,
+    },
+    {
+      note: "fb: chasing_same_enemy 的 dvy 写成 -0.5",
+      file: "native/lfw/dat_translator/frame_behavior.cpp",
+      from: `  o.set(u"dvy", n(8));
+  o.set(u"acc_y", n(-0.25));`,
+      to: `  o.set(u"dvy", n(-0.5));
+  o.set(u"acc_y", n(-0.25));`,
+    },
+    {
+      note: "fb: same_str 改成宽松相等（数字 id 也命中分支）",
+      file: "native/lfw/dat_translator/value_builder.h",
+      from: `  return strict_equals(v, Value(std::u16string(str)));`,
+      to: `  return equals(v, Value(std::u16string(str)));`,
+    },
+    {
+      note: "fb: field_or 缺键时返回 0 而不是 undefined",
+      file: "native/lfw/dat_translator/value_builder.h",
+      from: `  const Value* v = o->get(std::u16string(key));
+  return v != nullptr ? *v : Value();`,
+      to: `  const Value* v = o->get(std::u16string(key));
+  return v != nullptr ? *v : Value(0.0);`,
+    },
+    {
+      note: "fb: firzen_disater_start 的 min 写成 3",
+      file: "native/lfw/dat_translator/frame_behavior.cpp",
+      from: `                           {u"min", n(4)},
+                           {u"skip_zero", Value(true)}})},`,
+      to: `                           {u"min", n(3)},
+                           {u"skip_zero", Value(true)}})},`,
+    },
+    {
+      note: "fb: jan_angle_blessing 的 itr kind 写成 MagicFlute",
+      file: "native/lfw/dat_translator/frame_behavior.cpp",
+      from: `      {u"kind", en(ItrKind::Heal)},
+      {u"x", n(25)},`,
+      to: `      {u"kind", en(ItrKind::MagicFlute)},
+      {u"x", n(25)},`,
+    },
+    {
+      note: "fb: jan_angle_blessing 的 itr x 写成 24",
+      file: "native/lfw/dat_translator/frame_behavior.cpp",
+      from: `      {u"kind", en(ItrKind::Heal)},
+      {u"x", n(25)},
+      {u"y", n(13)},`,
+      to: `      {u"kind", en(ItrKind::Heal)},
+      {u"x", n(24)},
+      {u"y", n(13)},`,
+    },
+    {
+      note: "fb: victim_chasing 的条件常量写成 0",
+      file: "native/lfw/dat_translator/frame_behavior.cpp",
+      from: `  cm.and_(s(collision_val::kVictimIsChasing), u"==", n(1));`,
+      to: `  cm.and_(s(collision_val::kVictimIsChasing), u"==", n(0));`,
+    },
+    {
+      note: "fb: hp_gt_0 的比较符写成 <",
+      file: "native/lfw/dat_translator/frame_behavior.cpp",
+      from: `  cm.and_(s(entity_val::kHP), u">", n(0));`,
+      to: `  cm.and_(s(entity_val::kHP), u"<", n(0));`,
+    },
+    {
+      note: "fb: jan_chaseh_start 第二个 opoint 的 y 写成减 40",
+      file: "native/lfw/dat_translator/frame_behavior.cpp",
+      from: `      {u"y", n(add(yv, 40))},`,
+      to: `      {u"y", n(sub(yv, 40))},`,
+    },
+    {
+      note: "fb: bat_chase_start 的 oid 写成 JanChase",
+      file: "native/lfw/dat_translator/frame_behavior.cpp",
+      from: `      {u"oid", s(oid::kBatChase)},`,
+      to: `      {u"oid", s(oid::kJanChase)},`,
+    },
+    {
+      note: "fb: julian_ball 的 id 上界写成 58",
+      file: "native/lfw/dat_translator/frame_behavior.cpp",
+      from: `  if (fid >= 50 && fid <= 59) {`,
+      to: `  if (fid >= 50 && fid <= 58) {`,
+    },
+    {
+      note: "fb: julian_ball 的 key_down id 偏移方向写反",
+      file: "native/lfw/dat_translator/frame_behavior.cpp",
+      from: `          make_obj({{u"F", make_obj({{u"id", Value(number_to_string(fid - 50))},`,
+      to: `          make_obj({{u"F", make_obj({{u"id", Value(number_to_string(fid + 50))},`,
+    },
+    {
+      note: "fb: julian_ball_start 的 spreading 写成 Spreading",
+      file: "native/lfw/dat_translator/frame_behavior.cpp",
+      from: `      {u"spreading", en(OpointSpreading::FloatRange)},`,
+      to: `      {u"spreading", en(OpointSpreading::Spreading)},`,
+    },
+    {
+      note: "fb: volcano 的第 2 个 opoint x 写成 134",
+      file: "native/lfw/dat_translator/frame_behavior.cpp",
+      from: `                            {u"oid", s(oid::kFreezeColumn)},
+                            {u"x", n(135)},
+                            {u"y", n(24)},
+                            {u"action", make_obj({{u"id", s(u"100")}})}}));`,
+      to: `                            {u"oid", s(oid::kFreezeColumn)},
+                            {u"x", n(134)},
+                            {u"y", n(24)},
+                            {u"action", make_obj({{u"id", s(u"100")}})}}));`,
+    },
+    {
+      note: "fb: volcano 的 +38 写成 +39",
+      file: "native/lfw/dat_translator/frame_behavior.cpp",
+      from: `                            {u"x", n(add(cx, 38))},
+                            {u"y", n(26)},
+                            {u"z", n(-15)},
+                            {u"action", make_obj({{u"id", s(u"54")}, {u"facing", n(2)}})}}));`,
+      to: `                            {u"x", n(add(cx, 39))},
+                            {u"y", n(26)},
+                            {u"z", n(-15)},
+                            {u"action", make_obj({{u"id", s(u"54")}, {u"facing", n(2)}})}}));`,
+    },
+    {
+      note: "fb: 分发器把 AngelBlessingStart / DevilJudgementStart 映射互换",
+      file: "native/lfw/dat_translator/frame_behavior.cpp",
+      from: `  } else if (strict_equals(behavior, en(FrameBehavior::AngelBlessingStart))) {
+    make_fb_jan_chaseh_start(frame, std::nullopt, std::nullopt);
+  } else if (strict_equals(behavior, en(FrameBehavior::DevilJudgementStart))) {
+    make_fb_jan_chase_start(frame, std::nullopt, std::nullopt);`,
+      to: `  } else if (strict_equals(behavior, en(FrameBehavior::AngelBlessingStart))) {
+    make_fb_jan_chase_start(frame, std::nullopt, std::nullopt);
+  } else if (strict_equals(behavior, en(FrameBehavior::DevilJudgementStart))) {
+    make_fb_jan_chaseh_start(frame, std::nullopt, std::nullopt);`,
+    },
+    {
+      note: "fb: 分发器的 behavior 判定改成宽松相等（字符串 \"4\" 也命中）",
+      file: "native/lfw/dat_translator/frame_behavior.cpp",
+      from: `  if (strict_equals(behavior, en(FrameBehavior::AngelBlessing))) {`,
+      to: `  if (equals(behavior, en(FrameBehavior::AngelBlessing))) {`,
+    },
+    {
+      note: "fb: 分发器漏掉 JulianBall 分支",
+      file: "native/lfw/dat_translator/frame_behavior.cpp",
+      from: `  } else if (strict_equals(behavior, en(FrameBehavior::JulianBall))) {
+    make_fb_julian_ball(frame);
+  }`,
+      to: `  }`,
+    },
   ],
 };

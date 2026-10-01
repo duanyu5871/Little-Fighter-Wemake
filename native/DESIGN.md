@@ -848,9 +848,78 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
   也就是说必须用 `action: -50 / -109` 这种**负数**（会经 `get_next_frame_by_raw_id` 变成 `id: "50"`）
   才能走到那段代码。
 - 两个 `speedz` 常量（`DEFAULT_OPOINT_SPEED_Z` = 3.5、`DEFAULT_FIREN_FLAME_SPEED_Z` = 0.5）
-  一律用 `defines::num(...)` 读生成表，不重抄 литерал。
+  一律用 `defines::num(...)` 读生成表，不重抄字面量。
 - `cook_opoint` 会往**返回的下一帧对象**上写 `facing` ⇒ 当 action 是 `999/1000` 时会直接
   写进 `Defines.NEXT_FRAME_*` 共享常量（原代码如此，已对拍）。
+
+### 4.21 V21 `make_frame_state`（+ `foreach` / `ensure`）
+
+形态：`native/lfw/dat_translator/make_frame_state.{h,cpp}`，纯数据→数据（就帧对象改）。
+
+**范围**：8 个 `state` 分支（`Ball_3005` / `HeavyWeapon_OnHand` / `Weapon_OnHand` /
+`Burning` / `OLD_LouisCastOff` / `Falling` / `Frozen` / `Message`）。`make_frame_behavior`
+是 14 个 `frame_behavior/make_fb_*.ts` 的分发器 ⇒ 先补那 14 个模块再搬（延后）。
+
+**移植要点**
+
+- **`foreach` 的对象分支在本仓库里是“观测上等价”的死代码**：TS 是
+  `Array.isArray(x) ? x.forEach(fn) : traversal(x, (v,k,a)=>fn(k,v,a))`，而
+  `traversal` 内部是 `Object.keys(r).map(_k => { func(k, r[k], r) })` —— 参数被
+  **交换两次**，于是对象路径最终也是 `fn(value, key, obj)`，与数组路径同序。
+  对数组而言 `Object.keys` 给 `"0","1",…`、`r["0"]` 恒等于 `r[0]` ⇒ 两条路径
+  逐个元素、同顺序、同参数。**C++ 只实现数组路径**（`as_array == nullptr` 直接返回）。
+  破口只有两处：**稀疏数组**（`Object.keys` 只列存在的下标）与非下标自有键
+  （如 `bdy` 是 `{a:1}` 这种普通对象）；用例 `f6` 专门盖住后者，把“等价”钉住。
+- **`ensure` 的 C++ 版是另一套签名**（`optional<vector<T>>`）⇒ 为 `Value` 加重载，
+  且必须真的**写回** `output`（falsy 时是“新建数组”，不是“返回数组”）。
+- **`Falling` 的 `kind` 判定是严格 `!==`**：`bdy.kind` 为字符串 `"0"` / 缺键
+  （`undefined`）都**跳过**。用 `strict_equals`，不是 `equals`。
+- **`OLD_LouisCastOff` 的 5 个 opoint 是硬编码字面量**（`39±offset_z`、`-dvx_b`、
+  `z: ±30`、`dvz: ±dvx_z`、两个 `action.facing: Backward`）⇒ 逐字手抄，差分来抓错。
+  字段**顺序**也可观测（`render` 按插入序打印）⇒ 变异里加了“x/y 互换”。
+- **`ensure(frame.opoint, …)` 的三条路径**都要有用例：缺键、显式 `null`（都是
+  “新建数组”）、已有数组（`push` 追加）。
+
+**验证**：subject `cookers`（`/all` 68 行不变）+ 新用例 `cookers/mfstate`（20 行，8 个分支
+加非数字/缺键/`null` 反例）；新增 17 条变异，合计 **49/49 全杀**。
+
+### 4.22 V22 `frame_behavior/*`（14 个模块 + 分发器）
+
+形态：`native/lfw/dat_translator/frame_behavior.{h,cpp}`（14 个 `make_fb_*` +
+`make_frame_behavior`），以及共享的字面量工具 `native/lfw/dat_translator/value_builder.h`
+（`n` / `s` / `en` / `make_obj` / `make_arr` / `field_or` / `same_str`）。后者的目的是让
+「TS 对象字面量 → C++」几乎是逐字转写（少一次转写就少一类错），同时把 `make_frame_state.cpp`
+里那份同类工具统一到一处。
+
+**移植要点**
+
+- **链式赋值的副作用顺序是从右往左**：`frame.ctrl_x = frame.ctrl_y = frame.ctrl_z = 1`
+  先执行 `ctrl_z = 1` ⇒ 键的插入序是 `ctrl_z, ctrl_y, ctrl_x`。因为 `render` 按插入序
+  打印，所以 C++ 必须按这个顺序 `set`（变异「顺序颠倒」可杀）。
+- **`switch (frame.id)` 是严格 `===`**：数字 `1` 不命中 `case '1'`。`same_str` 用
+  `strict_equals`（变异改成 `equals` 即被杀）。
+- **同名字段取值不同 ⇒ 不能硬套一张“默认速度表”**：`boomerang`（无 `dvy`/`vym`，
+  `ctrl_x`/`ctrl_z` 是 `SpeedCtrl.Control`）、`chasing_same_enemy`（`dvy=8`、`acc_y=-0.25`、
+  **无 `ctrl_y`**）、`julian_ball`（`dvx=12`、`acc_x=0.18`…）各自单写；只有
+  `bat_chase` / `dennis_chase` / `john_chase` / `jan_angle_blessing` 四者的字段与**顺序**
+  完全一致，才共用 `set_default_speed`。
+- **`...set_hit_flag({}, HitFlag.AllyFighter)` 是对象展开**：`hit_flag`/`hit_flag_name`
+  被插在字面量**中间** ⇒ 不能对目标对象直接调 `set_hit_flag`（那是追加到末尾）。
+  用 `hit_flag_pair()`（内部就是调 `set_hit_flag` 再读回），规则仍只有一处。
+- **`make_fb_*_start` 的默认参数是 `frame.centerx` / `centery`** ⇒ C++ 用
+  `std::optional<Value>`，缺省时取 `field_or(frame, u"centerx")`（**raw 值**，不转数字），
+  只有 `frame.centerx - 25` 这类算式才走 `to_number`（缺键 ⇒ NaN）。
+- **`firzen_volcano_start` 先调 `disater_start` 再追加 20 个 opoint**；分发器传的是
+  `(frame.centerx, -79)`。
+- **分发器里有看着像写反的映射**：`AngelBlessingStart → make_fb_jan_chaseh_start`、
+  `DevilJudgementStart → make_fb_jan_chase_start` ⇒ 照抄（变异「互换」可杀）。
+- `frame.chase` 的 `stratedy` 是原代码错字，照抄；`hp_gt_0` 是 `CondMaker` 产出的**字符串**
+  （`new CondMaker().and(EntityVal.HP, '>', 0).done()`）⇒ 用同一个 `CondMaker` 生成，不手抄。
+- `ensure` 对非数组的**真值**（如数字）在 TS 里会 `throw`，C++ 会当成 falsy 重建数组。
+  这是有意保留的差异（不可达：真实数据里 `opoint`/`itr`/`bdy` 要么是数组要么缺失）。
+
+**验证**：subject `cookers` 新用例 `fbehavior`（52 行：14 个模块 + 分发器 14 个分支 +
+字符串 `behavior` / 未知值 / 缺字段的反例）；新增 22 条变异。
 
 ---
 
