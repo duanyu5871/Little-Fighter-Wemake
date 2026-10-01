@@ -12,6 +12,7 @@ add_library(lfw_core STATIC
   defines/runtime_gen.cpp
   dat_translator/colon_value_reader.cpp
   dat_translator/cond_maker.cpp
+  dat_translator/hit_next_frame.cpp
   dat_translator/ball_bdy.cpp
   dat_translator/ball_frame_state.cpp
   dat_translator/bg_data.cpp
@@ -21,6 +22,7 @@ add_library(lfw_core STATIC
   dat_translator/frame_behavior.cpp
   dat_translator/itr_prefabs.cpp
   dat_translator/make_frame_state.cpp
+  dat_translator/parase_indexes.cpp
   dat_translator/string_matchers.cpp
   dat_translator/helpers.cpp
   dat_translator/next_frame.cpp

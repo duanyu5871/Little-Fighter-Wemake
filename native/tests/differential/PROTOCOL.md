@@ -815,3 +815,36 @@ P.S. TS 侧那个 `Times.lifes` 的无限递归（`return this.lifes`）就是�
   `n 212`（宽松命中）/ `s "209"` / `n 209`（严格不命中）/ `s "214"`（special）/ `s "1"`；
   `frame.bdy` 缺键 / `u` / `z` / 数组；itr `kind` 数字与字符串；`behavior` 1 / 10 / 3 / 缺键；
   `_3006` 的 bdy 带与不带已有 `actions`（区分 append 与 replace）。
+
+### 6.9.20 `hit_next_frame`（26 条全杀；锚点两个新坑）
+
+- subject `hit_next_frame`（8 个 op：`drink`/`super_punch`/`punch`/`jump`/`defend`/`weapon_atk`/
+  `jump_atk`/`turn_back`），用例 8 个样本 / **15 行输出**，变异 **26/26 全杀**。
+- **差分抓到的漂移（唯一一条）**：我漏了字面量的**外层 `B` 键**。
+  TS 是 `assign(frame.key_down, { B: { id, wait, facing } })` ⇒ 结果是 `key_down.B` 而不是把
+  三个字段直接放到 `key_down` 上。这种“嵌套字面量少了一层”的错误，只要输入里 `key_down` 已存在
+  就能看出来 ⇒ 用例必须同时覆盖“已存在 / 不存在 / 空对象 / falsy”四种。
+- **变异锚点坑一：行内含多语句。** `{u"id", s(u"210")},` 并不是独立行，它和
+  `  return make_arr({make_obj({{` 同在一行 ⇒ 只写这一行当锚点会得到 `anchor occurs 0 times`。
+  教训：从文件里**复制**锚点，不要凭印象重打。
+- **变异锚点坑二：`.mjs` 里的 `\uXXXX` 会被 JS 先解释。** C++ 源码里中文写作转义序列
+  `u"\u8df3..."`，而写进变异文件的模板字符串会被 JS 先变成**真实汉字** ⇒ 与源码不匹配。
+  必须写 `\\uXXXX`（双反斜杠）才能匹配源码里的字面转义。
+- **`assign` 的范围**：只实现对象源。JS 对 Array/String 源会拷下标键，但 LFW 的真实调用点
+  只有 `turn_back` 两处（都是对象字面量）⇒ 未实现，并在 DESIGN §4.31 记录（不是隐性差异）。
+
+### 6.9.21 `parase_indexes`（两个存活教了“测试面归属”）
+
+- subject `parase_indexes`（op `parse`，把整段 dat 文本写成一行字面量：
+  `parse s "json5" s "<object>\nid:\s100\s...\n<object_end>"`），用例 18 行，变异 **19/19 全杀**。
+- **前两个存活变异都是 `match_hash_end` 的**（改成 `rfind` 取最后一个 `#`、只有 `\r` 才终止捕获）。
+  原因不是用例缺样本，而是**测试面错位**：`parase_indexes` 传给 `match_hash_end` 的永远是
+  `split_lines` 之后的**单行**，换行/多 `#` 的规则在那里**永不可达** ⇒ 等价变异。
+  ⇒ 对策：把这两条变异交给 `string_matchers` subject（那里能直接喂多行文本），并给它的 harness
+  加 `hash` op（`hash s "a#b\nc#d"`）；`string_matchers` 用例 35 → **48 行**，变异 **15/15 全杀**。
+- 教训：**变异放在哪个 subject 上，取决于哪个 subject 能构造出该分支的前置条件**；
+  跟单元调用的工具函数，其边界要在“能被直接调用”的那个 subject 上测。
+- 另一个真实收获：`/.dat$/`（通配）与 `endsWith(".dat")`（字面）并存，样本要同时覆盖
+  `a.ddat`（只被前者命中）与 `a.doc`（都不命中 ⇒ stage 报错）。
+- 工艺：`trim_str`/`js_trim` 这类逐字相同的重复实现必须先合并再写新调用方，
+  否则同一规则会有第三份（合并后 `cond_maker`/`bg_data` 差分重跑仍绿）。

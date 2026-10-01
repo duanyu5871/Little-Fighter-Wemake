@@ -86,5 +86,17 @@ export default {
       from: `    if (v != nullptr && std::string(type_of(*v)) == "undefined") p->remove(k);`,
       to: `    if (v != nullptr) p->remove(k);`,
     },
+    {
+      note: "match_hash_end: 取最后一个 # 而不是第一个",
+      file: "native/lfw/dat_translator/string_matchers.cpp",
+      from: `  const size_t pos = text.find(u'#');`,
+      to: `  const size_t pos = text.rfind(u'#');`,
+    },
+    {
+      note: "match_hash_end: 只有 \\r 才终止捕获",
+      file: "native/lfw/dat_translator/string_matchers.cpp",
+      from: `    if (c == u'\\n' || c == u'\\r' || c == u'\\u2028' || c == u'\\u2029') break;`,
+      to: `    if (c == u'\\r') break;`,
+    },
   ],
 };

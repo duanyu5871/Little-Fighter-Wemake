@@ -22,6 +22,8 @@ struct TakeBlocksResult {
 TakeBlocksResult take_blocks(const std::u16string& text, const std::u16string& start,
                              const std::u16string& end);
 
+std::optional<std::u16string> match_hash_end(const std::u16string& text);
+
 }
 
 }

@@ -20,6 +20,7 @@
 #include "lfw/defines/fields_gen.h"
 #include "lfw/defines/runtime_gen.h"
 #include "lfw/fields.h"
+#include "lfw/utils/string_help.h"
 #include "lfw/utils/type_cast.h"
 #include "lfw/utils/type_check.h"
 
@@ -82,12 +83,6 @@ std::u16string replace_single_back_slash(const std::u16string& s) {
   return out;
 }
 
-std::u16string replace_all(const std::u16string& s, char16_t from, char16_t to) {
-  std::u16string out;
-  for (char16_t c : s) out.push_back(c == from ? to : c);
-  return out;
-}
-
 std::u16string replace_bmp_suffix(const std::u16string& s) {
   if (s.size() >= 4 && s.compare(s.size() - 3, 3, u"bmp") == 0) {
     return s.substr(0, s.size() - 4) + u".png";
@@ -130,29 +125,6 @@ std::u16string bg_color_translate(const Value& rect) {
   return rgb_of(r, g, b, (n >> 5) & 1);
 }
 
-std::vector<std::u16string> split_lines(const std::u16string& s) {
-  std::vector<std::u16string> out;
-  std::u16string cur;
-  for (char16_t c : s) {
-    if (c == u'\n' || c == u'\r') {
-      out.push_back(cur);
-      cur.clear();
-    } else {
-      cur.push_back(c);
-    }
-  }
-  out.push_back(cur);
-  return out;
-}
-
-std::u16string trim_str(const std::u16string& s) {
-  size_t b = 0;
-  size_t e = s.size();
-  while (b < e && is_str_white_space(s[b])) ++b;
-  while (e > b && is_str_white_space(s[e - 1])) --e;
-  return s.substr(b, e - b);
-}
-
 double field_num(const Object& o, const char16_t* key, double fallback) {
   const Value* v = o.get(std::u16string(key));
   if (v == nullptr) return fallback;
@@ -166,10 +138,10 @@ Value field_value(const Object& o, const char16_t* key) {
 }
 
 Value make_bg_layer(const std::u16string& block_str) {
-  const std::vector<std::u16string> pieces = split_lines(trim_str(block_str));
+  const std::vector<std::u16string> pieces = split_lines(js_trim(block_str));
   std::vector<std::u16string> kept;
   for (const std::u16string& p : pieces) {
-    if (!p.empty()) kept.push_back(trim_str(p));
+    if (!p.empty()) kept.push_back(js_trim(p));
   }
   const std::u16string file = kept.size() > 0 ? kept[0] : std::u16string();
   const std::u16string remains = kept.size() > 1 ? kept[1] : std::u16string();

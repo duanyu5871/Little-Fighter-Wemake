@@ -271,8 +271,8 @@ void cook_ball_frame_state_3006(Value& ctx) {
                        equals(id, s(oid::kJohnBiscuit));
 
   const Value bdy_list = field_or_any(*f, u"bdy");
-  foreach (bdy_list, [&special](Value& item, size_t) {
-    Object* bo = as_object(item);
+  foreach (bdy_list, [&special](Value& bdy_item, size_t) {
+    Object* bo = as_object(bdy_item);
     if (bo == nullptr) return;
     if (special) {
       CondMaker c1;

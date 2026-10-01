@@ -111,3 +111,17 @@ du d3
 new d4
 set d4 nested o 1 x u
 du d4
+
+hash s "a#b#c"
+hash s "a#b\nc#d"
+hash s "#\n"
+hash s "#"
+hash s "x\u2028#y"
+hash s "#x\u2028y"
+hash s "no-hash"
+hash s "a#b|c0d"
+hash s "a#b\r\nc"
+hash s ""
+hash n 5
+hash u
+hash s "a#b#c\rd"

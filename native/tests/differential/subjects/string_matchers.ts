@@ -1,6 +1,7 @@
 import { delete_undefined } from "../../../../src/LFW/dat_translator/xml/delete_undefined";
 import { match_block_once } from "../../../../src/LFW/utils/string_parser/match_block";
 import { match_colon_value } from "../../../../src/LFW/utils/string_parser/match_colon_value";
+import { match_hash_end } from "../../../../src/LFW/utils/string_parser/match_hash_end";
 import { take_blocks } from "../../../../src/LFW/utils/string_parser/take_blocks";
 import { is_str } from "../../../../src/LFW/utils/type_check";
 
@@ -61,6 +62,10 @@ function main(): void {
     } else if (op === "dump") {
       const id = next();
       out.push(`D ${id} ${render(objs.get(id))}`);
+    } else if (op === "hash") {
+      const tv = parseValue(t, i);
+      const h = typeof tv === "string" ? match_hash_end(tv) : undefined;
+      out.push(`hash ${h === undefined ? "u" : renderValue(h)}`);
     } else if (op === "mcv") {
       const id = next();
       const text = fieldOf(id, "text");

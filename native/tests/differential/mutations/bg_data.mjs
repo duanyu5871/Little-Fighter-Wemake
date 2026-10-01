@@ -58,8 +58,8 @@ export default {
     {
       note: "make_bg_layer: 不再过滤空行",
       file: "native/lfw/dat_translator/bg_data.cpp",
-      from: `    if (!p.empty()) kept.push_back(trim_str(p));`,
-      to: `    kept.push_back(trim_str(p));`,
+      from: `    if (!p.empty()) kept.push_back(js_trim(p));`,
+      to: `    kept.push_back(js_trim(p));`,
     },
     {
       note: "layer.z 用 0 而不是 length 差值",

@@ -8,6 +8,7 @@
 #include "lfw/core/json.h"
 #include "lfw/core/js_string.h"
 #include "lfw/core/value.h"
+#include "lfw/utils/string_help.h"
 
 namespace lfw {
 namespace {
@@ -19,14 +20,6 @@ bool is_nullish(const Value& v) {
 bool is_bool(const Value& v) { return std::holds_alternative<bool>(v); }
 bool is_number(const Value& v) { return std::holds_alternative<double>(v); }
 bool is_string(const Value& v) { return std::holds_alternative<std::u16string>(v); }
-
-std::u16string js_trim(const std::u16string& s) {
-  size_t b = 0;
-  size_t e = s.size();
-  while (b < e && is_str_white_space(s[b])) ++b;
-  while (e > b && is_str_white_space(s[e - 1])) --e;
-  return s.substr(b, e - b);
-}
 
 std::u16string json_text(const Value& v) {
   const std::optional<std::u16string> r = json_stringify(v);

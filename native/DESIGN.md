@@ -1134,3 +1134,54 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
   - `edit_bdy_edit` 对 `Value` 是引用传递，但 bdy 对象是共享 `shared_ptr` ⇒ 原地改即传播；
     需要**替换**数组元素时（`_15`/`_3000` 的 `bdy_list[i] = ...`）要 `arr->at(i) = ...`。
 
+---
+
+### 4.31 V31 `hit_next_frame_*`（8 个）+ `utils/container_help/assign`
+
+- 文件：`native/lfw/dat_translator/hit_next_frame.{h,cpp}`（`drink` / `super_punch` / `punch` /
+  `turn_back` / `jump` / `defend` / `weapon_atk` / `jump_atk`）、
+  `native/lfw/utils/container_help/assign.h`（header-only，与同级 `foreach.h`/`ensure.h` 一致）。
+- **键插入序逐个对象不同，必须照抄**（差分按插入序打印）：
+  - `drink`：`id, desc, mp_mode, expression`
+  - `super_punch`：`id, mp_mode, facing, desc, expression`
+  - `punch`：`mp_mode, id, facing, desc`
+  - `jump` / `defend`：`id, facing, mp_mode`
+  - `weapon_atk`：两支都是 `mp_mode, id, facing, expression`
+  - `jump_atk`：前两支 `id, facing, desc, mp_mode, expression`；第三支只有 `id, desc, facing`
+- `id` 允许是**字符串或字符串数组**（`punch` 的 `["60","65"]`、`weapon_atk` 的 `["20","25"]`）。
+- **`assign(output, item)` = `Object.assign(output || {}, item)`**：`output` falsy 时新建对象，
+  否则**就地合并并返回同一个对象**（`turn_back` 就是靠这个改 `frame.key_down`）。
+  C++ 版只实现**对象源**：LFW 里 `assign` 的真实调用点只有 `hit_next_frame_turn_back` 两处，
+  都是对象字面量；JS 对 Array/String 源会拷下标键，本项目不出现，未实现（已记录，不是隐性差异）。
+- `hit_next_frame_turn_back(frame, back_frame?)`：
+  - `back_frame == void 0` 是**宽松**比较 ⇒ 显式传 `null` 也走 `facing = Ctrl` 分支（用例 `f2` 钉住）；
+  - 否则写入 `{ B: { id: <原值>, wait: "i", facing: Backward } }` —— **外层 `B` 键容易漏**
+    （本轮唯一的漂移就是它）；`id` 放的是**原值**，不转字符串（数字 5 就写数字，用例 `f7`）；
+  - `key_down` 与 `hit` 的赋值**先后有序**（影响键插入序，变异可杀）。
+- `CondMaker` 用法：`one_of(key, {v...})`、`add(key, op, v)`、`or_/and_(lambda)`（lambda 返回 `CondMaker*`）。
+
+---
+
+### 4.32 V32 `parase_indexes` + `match_hash_end`（+ `utils/string_help.h`）
+
+- 文件：`native/lfw/dat_translator/parase_indexes.{h,cpp}`（TS 原文件名就是 `parase_indexes.ts`，拼写照抄）、
+  `match_hash_end` 落在 `dat_translator/string_matchers.{h,cpp}`、
+  `js_trim` / `split_lines` / `replace_all` 落在新建的 `native/lfw/utils/string_help.h`。
+- **throw → 结果结构**：TS 抛异常的三处（text 为空 / `[NOT_READY]` 残留 / stage 的 file 后缀不支持）
+  在 C++ 里用 `ParseIndexesResult{ok, error, lists}` 返回；错误文本逐字照抄，`lists` 保持 undefined。
+- `match_block_once` 三次取 `<object>` / `<background>` / `<stage>` 块；**块缺失 ⇒ 空数组**。
+- 每个块内：`split(/\n|\r/)` → **只丢空串**（`filter(v=>v)`）→ 逐行 `trim()` →
+  以 `#` 开头的行跳过 → **其余行都会产出一条 item**（包括 trim 后变空的空白行）。
+- item 初始键序固定 `id, type, file, src`；`file` 是后缀替换后的名字，`src` 是仅做
+  反斜杠→斜杠替换的原值；`groups` 用 `,` 切分（空值 ⇒ `[""]`）。
+- **`/.dat$/` 的 `.` 是通配**（需 ≥4 字符且第 4 个字符不能是行终止符）⇒ `"a.ddat"` → `"a..obj.json5"`；
+  而 stages 的 `.dat`/`.txt` 判定用 `endsWith`（**字面**比较）⇒ 两者语义不同，不能合并。
+- `id`/`alias` 同时非空时**互换**（键位置不变，只换值）；随后 4 个硬编码 id **覆盖** `hash`
+  （顺序：先 `match_hash_end` 再硬编码 ⇒ 硬编码胜出）。
+- `match_hash_end` = `/#(.*)[\n|\r|\0]*/` 的第一个捕获组：取**第一个** `#` 之后的字符，到第一个
+  行终止符（`\n`/`\r`/`\u2028`/`\u2029`）或串尾为止；无 `#` ⇒ undefined；`#` 后为空 ⇒ `""`。
+  字符类里的 `|` 是**字面竖线**，不是或。
+- 重构：`cond_maker.cpp` 的 `js_trim`、`bg_data.cpp` 的 `replace_all`/`split_lines`/`trim_str`
+  原本各一份（`trim_str` 与 `js_trim` 逐字相同）⇒ 统一到 `utils/string_help.h`（两处差分重跑仍绿）。
+  ⚠️ 提升时删掉了 `parase_indexes.cpp` 里自己写的 `is_non_empty_str`（与 `utils/type_check.h` 同名冲突）。
+

@@ -141,5 +141,17 @@ TakeBlocksResult take_blocks(const std::u16string& text, const std::u16string& s
   return ret;
 }
 
+std::optional<std::u16string> match_hash_end(const std::u16string& text) {
+  const size_t pos = text.find(u'#');
+  if (pos == std::u16string::npos) return std::nullopt;
+  std::u16string out;
+  for (size_t i = pos + 1; i < text.size(); ++i) {
+    const char16_t c = text[i];
+    if (c == u'\n' || c == u'\r' || c == u'\u2028' || c == u'\u2029') break;
+    out.push_back(c);
+  }
+  return out;
+}
+
 }
 }

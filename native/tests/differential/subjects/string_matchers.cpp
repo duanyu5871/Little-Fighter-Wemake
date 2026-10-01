@@ -90,6 +90,15 @@ int main(int argc, char** argv) {
     } else if (op == "dump") {
       const std::string id = t[i++];
       emit("D " + id + " " + render(g_objs[id]));
+    } else if (op == "hash") {
+      const lfw::Value tv = value_of(t, i);
+      if (!lfw::is_str(tv)) {
+        emit("hash u");
+      } else {
+        const std::optional<std::u16string> h =
+            lfw::dat_translator::match_hash_end(lfw::to_string(tv));
+        emit("hash " + (h.has_value() ? render(lfw::Value(*h)) : std::string("u")));
+      }
     } else if (op == "mcv") {
       const std::string id = t[i++];
       const lfw::Value tv = field_of(id, u"text");
