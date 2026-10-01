@@ -13,9 +13,12 @@
 #include "lfw/dat_translator/helpers.h"
 #include "lfw/dat_translator/next_frame.h"
 #include "lfw/defines/c_point_kind.h"
+#include "lfw/defines/defines_data.h"
 #include "lfw/defines/fields_gen.h"
 #include "lfw/defines/facing_flag.h"
 #include "lfw/defines/labels.h"
+#include "lfw/defines/oid.h"
+#include "lfw/defines/state_enum.h"
 #include "lfw/fields.h"
 #include "lfw/utils/math/base.h"
 #include "lfw/utils/type_check.h"
@@ -26,6 +29,23 @@ namespace {
 
 void set_opt(Object& o, const char16_t* key, const std::optional<double>& v) {
   o.set(std::u16string(key), v.has_value() ? Value(*v) : Value());
+}
+
+bool state_is(const Value& frame, StateEnum want) {
+  const Object* fo = as_object(frame);
+  if (fo == nullptr) return false;
+  const Value* s = fo->get(u"state");
+  return s != nullptr && strict_equals(*s, Value(static_cast<double>(want)));
+}
+
+bool is_hardcoded_action(const Value* action) {
+  if (action == nullptr || as_array(*action) != nullptr) return false;
+  const Object* ao = as_object(*action);
+  if (ao == nullptr) return false;
+  const Value* idv = ao->get(u"id");
+  if (idv == nullptr || !is_str(*idv)) return false;
+  const std::u16string id = std::get<std::u16string>(*idv);
+  return id == u"50" || id == u"54" || id == u"109";
 }
 
 Value shallow_clone(const Value& v) {
@@ -181,6 +201,58 @@ void float_scaling_itr(Value& v) {
     if (x != nullptr && is_num(*x)) {
       o->set(std::u16string(k), Value(js_floor(10000 * std::get<double>(*x))));
     }
+  }
+}
+
+void cook_opoint(Value& opoint, const Value& frame) {
+  Object* o = as_object(opoint);
+  if (o == nullptr) return;
+
+  const Value raw_action = take(*o, u"action");
+  o->set(u"oid", Value(to_string(take(*o, u"oid"))));
+
+  if (is_num(raw_action)) {
+    Value act = get_next_frame_by_raw_id(raw_action, u"frame", u"", nullptr);
+    const Value facing = take(*o, u"facing");
+    double face = static_cast<double>(FacingFlag::None);
+    if (is_num(facing)) {
+      const double f = std::get<double>(facing);
+      face = std::fmod(f, 2.0) != 0 ? static_cast<double>(FacingFlag::Backward)
+                                    : static_cast<double>(FacingFlag::None);
+      if (f >= 2 && f <= 19) face = static_cast<double>(FacingFlag::Right);
+      else if (f >= 20) o->set(u"multi", Value(js_round(f / 10)));
+    }
+    if (Object* ao = as_object(act)) ao->set(u"facing", Value(face));
+    o->set(u"action", act);
+  }
+
+  const Value dvx = take(*o, u"dvx");
+  if (not_zero_num(dvx)) o->set(u"dvx", Value(std::get<double>(dvx) * 0.5));
+  else o->set(u"dvx", Value(0.0));
+
+  const Value dvz = take(*o, u"dvz");
+  if (not_zero_num(dvz)) o->set(u"dvz", Value(std::get<double>(dvz) * 0.5));
+
+  const Value dvy = take(*o, u"dvy");
+  if (not_zero_num(dvy)) o->set(u"dvy", Value(std::get<double>(dvy) * -0.5));
+
+  if (state_is(frame, StateEnum::Ball_Flying) || state_is(frame, StateEnum::Ball_3006) ||
+      state_is(frame, StateEnum::Weapon_Throwing) ||
+      state_is(frame, StateEnum::HeavyWeapon_InTheSky)) {
+    o->set(u"speedz", Value(defines::num(u"Defines.DEFAULT_OPOINT_SPEED_Z")));
+  }
+
+  const Value* oidv = o->get(u"oid");
+  const std::u16string oid = oidv != nullptr ? to_string(*oidv) : std::u16string();
+  if (oid == std::u16string(oid::kFirenFlame)) {
+    const bool hardcoded = is_hardcoded_action(o->get(u"action"));
+    o->set(u"speedz", hardcoded ? Value(0.0)
+                                 : Value(defines::num(u"Defines.DEFAULT_FIREN_FLAME_SPEED_Z")));
+  } else if (oid == std::u16string(oid::kHenryWind) || oid == std::u16string(oid::kFirzenBall) ||
+             oid == std::u16string(oid::kBat) || oid == std::u16string(oid::kBatChase) ||
+             oid == std::u16string(oid::kBatBall) || oid == std::u16string(oid::kJanChase) ||
+             oid == std::u16string(oid::kJanChaseh)) {
+    o->set(u"speedz", Value(0.0));
   }
 }
 

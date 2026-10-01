@@ -1,6 +1,7 @@
 import { cook_bdy } from "../../../../src/LFW/dat_translator/cook_bdy";
 import { cook_cpoint } from "../../../../src/LFW/dat_translator/cook_cpoint";
 import { cook_itr } from "../../../../src/LFW/dat_translator/cook_itr";
+import { cook_opoint } from "../../../../src/LFW/dat_translator/cook_opoint";
 import { cook_wpoint } from "../../../../src/LFW/dat_translator/cook_wpoint";
 import { float_scaling_itr } from "../../../../src/LFW/dat_translator/float_scaling_itr";
 import { get_next_frame_by_raw_id } from "../../../../src/LFW/dat_translator/get_the_next";
@@ -78,6 +79,12 @@ function main(): void {
     } else if (op === "dump") {
       const id = next();
       out.push(`D ${id} ${render(objs.get(id))}`);
+    } else if (op === "copo") {
+      const id = next();
+      const fid = next();
+      const v = objOf(id);
+      cook_opoint(v as never, objOf(fid));
+      out.push(`CO ${id} ${render(v)}`);
     } else if (op === "bdy" || op === "wp" || op === "cp" || op === "itr" || op === "fsitr") {
       const id = next();
       const v = objOf(id);

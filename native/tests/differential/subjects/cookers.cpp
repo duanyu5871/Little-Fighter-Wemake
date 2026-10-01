@@ -98,6 +98,12 @@ int main(int argc, char** argv) {
     } else if (op == "dump") {
       const std::string id = t[i++];
       emit("D " + id + " " + render(g_objs[id]));
+    } else if (op == "copo") {
+      const std::string id = t[i++];
+      const std::string fid = t[i++];
+      lfw::Value& v = g_objs[id];
+      lfw::dat_translator::cook_opoint(v, g_objs[fid]);
+      emit("CO " + id + " " + render(v));
     } else if (op == "bdy" || op == "wp" || op == "cp" || op == "itr" || op == "fsitr") {
       const std::string id = t[i++];
       lfw::Value& v = g_objs[id];
