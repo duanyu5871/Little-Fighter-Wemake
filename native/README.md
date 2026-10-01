@@ -205,6 +205,7 @@ VS Code 里也已经指好（`.vscode/settings.json`）：
 | 3e | `dat_translator/ColonValueReader`（手写匹配，替代被禁的 `RegExp`） | ✅ 通过（`colon_reader/all` 52 行；14 条变异全杀） |
 | 3f | `dat_translator` 的 `cook_*` / `float_scaling_itr` | ✅ 通过（`cookers/all` 68 行；32 条变异全杀） |
 | 3g | `dat_translator/make_frame_state`（+ `foreach` / `ensure` 的 `Value` 重载） | ✅ 通过（`cookers/mfstate` 20 行；累计 49 条变异全杀） |
+| 3h | `dat_translator/frame_behavior/*`（14 个模块）+ `make_frame_behavior` 分发器 | ✅ 通过（`cookers/fbehavior` 52 行一次全对） |
 | 3 | `loader/get_val_*`（103 条 getter 表） | 待做 |
 | 4 | `entity` + `collision` + `buff` + `state` + `controller` + `bot` + `World` | 待做（**必须整块搬**，见下） |
 

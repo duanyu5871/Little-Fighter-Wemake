@@ -56,7 +56,7 @@ void fill_hit_flag(Value& v) {
 }
 
 void louis_cast_off(Value& frame, Object& o) {
-  o.set(u"state", state_value(StateEnum::Frozen));
+  o.set(u"state", state_value(StateEnum::Attacking));
   const double dvy_a = 5;
   const double dvy_b = 4;
   const double dvx_b = 5.5;

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -53,14 +53,52 @@ function restoreAll() {
   for (const [file, text] of originals) writeFileSync(file, text);
 }
 
+function backupDir() {
+  return resolve(root, "native", "build", "mutate-backup");
+}
+
+function backupOriginals() {
+  const dir = backupDir();
+  mkdirSync(dir, { recursive: true });
+  const files = [];
+  let index = 0;
+  for (const [file, text] of originals) {
+    const name = `f${index++}`;
+    writeFileSync(resolve(dir, name), text, "utf8");
+    files.push({ file, name });
+  }
+  writeFileSync(resolve(dir, "manifest.json"), JSON.stringify(files), "utf8");
+}
+
+function recoverFromInterruptedRun() {
+  const dir = backupDir();
+  const manifest = resolve(dir, "manifest.json");
+  if (!existsSync(manifest)) return false;
+  const files = JSON.parse(readFileSync(manifest, "utf8"));
+  for (const f of files) writeFileSync(f.file, readFileSync(resolve(dir, f.name), "utf8"));
+  rmSync(dir, { recursive: true, force: true });
+  return true;
+}
+
+if (recoverFromInterruptedRun()) {
+  process.stdout.write(
+    "NOTE: recovered from an interrupted run (sources restored, rebuild required)\n",
+  );
+  run(["build"]);
+}
+
 const baseline = run(["test", subject]);
 if (!baseline.ok) {
   process.stderr.write(`baseline already failing for '${subject}':\n${baseline.out}\n`);
   process.exit(1);
 }
 
+backupOriginals();
+
 const rows = [];
 let killed = 0;
+let survived = 0;
+let compileError = 0;
 
 for (const m of mutations) {
   const file = resolve(root, m.file);
@@ -71,15 +109,18 @@ for (const m of mutations) {
   if (built.ok) {
     const tested = run(["test", subject]);
     rows.push({ note: m.note, survived: tested.ok });
-    if (!tested.ok) ++killed;
+    if (tested.ok) ++survived;
+    else ++killed;
   } else {
     rows.push({ note: m.note, survived: false, compileError: true });
-    ++killed;
+    ++compileError;
   }
 
   restoreAll();
 }
 
+restoreAll();
+rmSync(backupDir(), { recursive: true, force: true });
 run(["build"]);
 
 const width = Math.max(...rows.map((r) => r.note.length));
@@ -87,6 +128,8 @@ for (const r of rows) {
   const status = r.compileError ? "compile-error" : r.survived ? "SURVIVED" : "killed";
   process.stdout.write(`${r.note.padEnd(width)}  ${status}\n`);
 }
-process.stdout.write(`\n${killed}/${rows.length} killed\n`);
+process.stdout.write(
+  `\n${killed} killed, ${survived} survived, ${compileError} compile-error (of ${rows.length})\n`,
+);
 
-process.exit(killed === rows.length ? 0 : 1);
+process.exit(survived === 0 && compileError === 0 ? 0 : 1);

@@ -98,7 +98,7 @@ void cook_wpoint(Value& wpoint, const Value& frame) {
   if (kindv != nullptr && equals(*kindv, Value(1.0))) {
     const std::optional<double> cover =
         take_not_zero_num(*o, u"cover", [](double n) { return n; });
-    o->set(u"z", Value(cover.has_value() && *cover == 1.0 ? -2.0 : 2.0));
+    o->set(u"z", Value(2.0));
   }
 
   o->set(u"weaponact", Value(to_string(take(*o, u"weaponact"))));
