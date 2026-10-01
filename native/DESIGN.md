@@ -921,6 +921,30 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
 **验证**：subject `cookers` 新用例 `fbehavior`（52 行：14 个模块 + 分发器 14 个分支 +
 字符串 `behavior` / 未知值 / 缺字段的反例）；新增 22 条变异。
 
+### 4.23 V23 `dat_translator` 的字符串匹配器（+ `delete_undefined`）
+
+形态：`native/lfw/dat_translator/string_matchers.{h,cpp}`（`match_colon_value` /
+`match_block_once` / `take_blocks`），`delete_undefined` 落在 `helpers.{h,cpp}`。
+这三条都源自 TS 的 **RegExp**，而 C++ 禁 `<regex>` ⇒ 手写匹配（与 `ColonValueReader` 同路）。
+
+**移植要点**
+
+- `match_colon_value` = 对 `text.trim()` 全局迭代 `/\s*(\S*)\s*:\s*(\S*)/g`。三个易错点：
+  1. `:` **后面还有一个 `\s*`**（值前的空白要跳过）—— 第一版漏了它，差分第一次就报出来；
+  2. 键的 `\S*` 是**贪婪**的，必须从最长往短回溯（`a:b:c` 的键是 `a:b`、值是 `c`）；
+  3. 匹配区间收在**值末尾**（不是冒号处），下一轮从那继续。
+- `match_block_once` / `take_blocks` 共用模板 `${start.trim()}((.|\n)+?)${end.trim()}`：**懒惰**、
+  body **至少一个字符**、start/end 会 trim。C++ 把 trim 收敛成 `find_block_trimmed` **一处**
+  （两个公开函数都走它），避免同一条规则写两遍。
+- `take_blocks` 的 `remains` 是把**匹配段整个挖掉**后拼回（用 `match.index` / `match[0].length`），
+  不是「去掉捕获组」⇒ 挖过的区间要成对用。
+- `delete_undefined` 只删**顶层**值为 `undefined` 的键（`Object.keys` 快照后逐个删，
+  顺序不影响结果）；嵌套数组/对象里的 `undefined` 保留。
+- 有意与 TS 不同的地方：TS 传非字符串（`null` / `number`）时这三个函数返回空/原值，
+  C++ 里由调用方用 `is_str` 守住（harness 已对拍）。
+
+**验证**：subject `string_matchers`（`/all` **35 行**）+ 13 条变异全杀。
+
 ---
 
 ## 5. 风险

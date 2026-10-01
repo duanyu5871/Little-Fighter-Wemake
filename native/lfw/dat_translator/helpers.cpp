@@ -130,6 +130,17 @@ Object& set_bdy_kind(Object& bdy, const Value& kind) {
   return bdy;
 }
 
+Value& delete_undefined(Value& o) {
+  Object* p = as_object(o);
+  if (p == nullptr) return o;
+  const std::vector<std::u16string> keys = p->keys();
+  for (const std::u16string& k : keys) {
+    const Value* v = p->get(k);
+    if (v != nullptr && std::string(type_of(*v)) == "undefined") p->remove(k);
+  }
+  return o;
+}
+
 double fixed_float(double n, double digits) {
   if (!std::isfinite(n)) return n;
   if (std::abs(n) >= 1e21) return n;

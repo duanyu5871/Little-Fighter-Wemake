@@ -15,6 +15,7 @@ add_library(lfw_core STATIC
   dat_translator/cookers.cpp
   dat_translator/frame_behavior.cpp
   dat_translator/make_frame_state.cpp
+  dat_translator/string_matchers.cpp
   dat_translator/helpers.cpp
   dat_translator/next_frame.cpp
   base/predicate.cpp

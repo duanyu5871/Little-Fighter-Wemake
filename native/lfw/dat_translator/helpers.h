@@ -32,6 +32,8 @@ std::pair<bool, std::u16string> find_float(const Value& v, const std::u16string&
 Value copy_bdy_info(const Value& src, const Object& edit);
 Value copy_itr_info(const Value& src, const Object& edit);
 
+Value& delete_undefined(Value& o);
+
 }
 
 }
