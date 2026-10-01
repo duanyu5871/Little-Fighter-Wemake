@@ -8,7 +8,7 @@ export class Cases {
     this.times = 0;
     this.cases.length = 0
   }
-  push(mark: string, ...args: any[]): void {
+  push(mark: string, ...args: (string | number | boolean)[]): void {
     //"mark(100)￥mark(101):[aa,bb,cc]"
     const v = args.length ? `:[${args.join()}]` : ''
     this.cases.push(`${mark}(${++this.times})${v}`);
