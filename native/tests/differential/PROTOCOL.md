@@ -704,6 +704,14 @@ node native/tools/check_defines_coverage.mjs      # 已接进 native.mjs all 的
 - **`as_object` 的 const 重载会咬人**：`Object* p = as_object(v);` 只有当 `v` 是**非 const**
   `Value` 时才给可变指针；声明成 `const Value v` 会拿到 `const Object*` 并编译失败。
 
+### 6.9.18 `ball_bdy`（14 条全杀；含一次“前提条件”事故）
+
+- **又一次“前提条件”**：`ctx.data.id` 被无条件访问 ⇒ TS 在 `data` 缺失时**抛错**，
+  而 C++ 把它当成 `undefined` ⇒ 差分直接报 `TS failed`。这类输入要从用例里**剔除**，
+  并在 DESIGN 里记成“有意保留的差异”。
+- **C++ 端的 API 细节**：`CondMaker` 只有 **`add`**（没有 `add_`），`not_` / `and_` / `or_` 才带后缀。
+  照 TS 的 `add(` 写就不会错；我按“成对”习惯写了 `add_`，编译一次报 10 处。
+
 ### 6.9 用例 DSL 的两个坑（我踩了 6 次）
 
 值字面量是**前缀记法带个数**：`o <n> <k1> <v1> …`、`a <n> <v1> …`。

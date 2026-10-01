@@ -1069,6 +1069,29 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
 **验证**：subject `entity_data`（`/all` 29 行：22 + 5 个 `ppo` + 2 个假值 `groups`）+
 累计 16 条变异全杀。
 
+### 4.29 V29 `EditBdy` + `cook_ball_bdy_get_hit_to_frame_20/30`
+
+形态：`native/lfw/dat_translator/ball_bdy.{h,cpp}`。
+
+**移植要点**
+
+- `EditBdy.clone` 用 **JSON 往返**（`JSON.parse(JSON.stringify(bdy))`）做深拷贝 ⇒ C++ 用
+  `json_stringify` + `json_parse`。注意 **`undefined` 值的键会被丢掉**，这与 `deco` 的
+  delete 分支配合才有意义。
+- `deco()`：`hit_flag !== void 0` / `kind !== void 0` 是**严格 undefined 判断**
+  （`null` 走**设置**分支 ⇒ 会调 `get_hit_flag_name(null)`）；两个 else 分支都要
+  `delete` 键 *和* `*_name`（`remove` 对不存在的键是 no-op）；最后 `reorder_fields(raw, …)`。
+- `kind_name` 用 **`bdy_kind_name`**（falsy 版，`0` → `unknown_Normal`），不是
+  `bdy_kind_full_name`（`set_bdy_kind` 用的才是后者）⇒ 两个 API 别混。
+- `_20`：`ctx.data.id == OID.FreezeColumn` 是**宽松**比较（数字 `212` 也命中），
+  而 `ctx.data.id === OID.FreezeBall` 是**严格**的 ⇒ 同一个函数里两种并存，用例要都盖。
+- `_30`：`one_of` 三元素列表 + 两级 `add/or_` 嵌套（同队相向那一支）；`hit_flag: AllBoth`
+  由编辑字段**覆盖**原值。
+- **前提条件**：`ctx.data.id` 是无条件访问 ⇒ `data` 缺失时 TS **抛错**，而 C++ 静默按
+  `undefined` 处理 ⇒ 这种输入不进差分（有意保留的差异）。
+
+**验证**：subject `ball_bdy`（`/all` 11 行）+ 14 条变异全杀。
+
 ---
 
 ## 5. 风险

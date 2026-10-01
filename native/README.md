@@ -212,6 +212,7 @@ VS Code 里也已经指好（`.vscode/settings.json`）：
 | 3l | `dat_translator` 的 `make_ball_data` / `make_weapon_data` | ✅ 通过（`entity_kinds/all` 17 行；19 条变异全杀） |
 | 3m | `dat_translator/make_bg_data`（+ `make_bg_layer` / `bg_color_translate`） | ✅ 通过（`bg_data/all` 11 行；22 条变异全杀） |
 | 3n | `dat_translator/post_process_obj_data`（装配层入口） | ✅ 通过（`entity_data/all` 29 行；累计 16 条变异全杀） |
+| 3o | `dat_translator/EditBdy` + `cook_ball_bdy_get_hit_to_frame_20/30` | ✅ 通过（`ball_bdy/all` 11 行；14 条变异全杀） |
 | 3 | `loader/get_val_*`（103 条 getter 表） | 待做 |
 | 4 | `entity` + `collision` + `buff` + `state` + `controller` + `bot` + `World` | 待做（**必须整块搬**，见下） |
 
