@@ -11,7 +11,7 @@
 
 using trace::esc;
 using trace::Line;
-using trace::parse_js_string_literal;
+using trace::parse_value;
 using trace::split_ws;
 using trace::to_double;
 using trace::to_long;
@@ -19,27 +19,6 @@ using trace::to_long;
 namespace {
 
 std::vector<lfw::Value> g_handles;
-
-lfw::Value parse_value(const std::vector<std::string>& t, size_t& i) {
-  if (i >= t.size()) {
-    std::fprintf(stderr, "unexpected end of value literal\n");
-    std::exit(2);
-  }
-  const std::string kind = t[i++];
-  if (kind == "u") return lfw::Value();
-  if (kind == "z") return lfw::Value(lfw::NullTag{});
-  if (kind == "b") return lfw::Value(t[i++] == "1");
-  if (kind == "n") return lfw::Value(to_double(t[i++]));
-  if (kind == "s") return lfw::Value(parse_js_string_literal(t[i++]));
-  if (kind == "a") {
-    const size_t n = static_cast<size_t>(to_long(t[i++]));
-    auto arr = std::make_shared<lfw::Array>();
-    for (size_t j = 0; j < n; ++j) arr->push_back(parse_value(t, i));
-    return lfw::Value(arr);
-  }
-  std::fprintf(stderr, "bad value literal '%s'\n", kind.c_str());
-  std::exit(2);
-}
 
 size_t add_handle(lfw::Value v) {
   g_handles.push_back(std::move(v));

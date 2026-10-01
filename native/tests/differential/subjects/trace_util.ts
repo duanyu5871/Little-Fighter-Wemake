@@ -77,6 +77,41 @@ export function readCaseLines(path: string): string[] {
     .map((l) => l.replace(/#.*$/, ""));
 }
 
+export function parseValue(tok: string[], idx: number[]): unknown {
+  const kind = tok[idx[0]!++]!;
+  switch (kind) {
+    case "u":
+      return undefined;
+    case "z":
+      return null;
+    case "b":
+      return tok[idx[0]!++] === "1";
+    case "n":
+      return Number(tok[idx[0]!++]!);
+    case "s":
+      return parseJsStringLiteral(tok[idx[0]!++]!);
+    case "a": {
+      const n = Number(tok[idx[0]!++]!);
+      const arr: unknown[] = [];
+      for (let j = 0; j < n; j++) arr.push(parseValue(tok, idx));
+      return arr;
+    }
+    default:
+      process.stderr.write(`bad value literal '${kind}'\n`);
+      return process.exit(2);
+  }
+}
+
+export function vtag(v: unknown): string {
+  if (v === undefined) return "u";
+  if (v === null) return "z";
+  if (typeof v === "boolean") return "b";
+  if (typeof v === "number") return "n";
+  if (typeof v === "string") return "s";
+  if (Array.isArray(v)) return "a" + v.length;
+  return "?";
+}
+
 export function num(tok: string): number {
   return Number(tok);
 }

@@ -3,6 +3,7 @@ add_library(lfw_core STATIC
   core/js_string.cpp
   core/state_hash.cpp
   core/value.cpp
+  base/predicate.cpp
   utils/math/mersenne_twister.cpp
   utils/math/normalize_plane.cpp
   utils/math/calc_plane.cpp

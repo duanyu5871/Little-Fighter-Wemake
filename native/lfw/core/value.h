@@ -4,6 +4,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -19,6 +20,7 @@ using Value =
 class Array {
  public:
   Array() = default;
+  explicit Array(std::vector<Value> items) : _items(std::move(items)) {}
 
   size_t size() const { return _items.size(); }
   bool empty() const { return _items.empty(); }

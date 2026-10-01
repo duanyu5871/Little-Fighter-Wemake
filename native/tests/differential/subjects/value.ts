@@ -1,35 +1,10 @@
-import { bitsHex, esc, parseJsStringLiteral, readCaseLines, splitWs } from "./trace_util";
+import { bitsHex, esc, parseValue, readCaseLines, splitWs } from "./trace_util";
 
 function line(...parts: (string | number)[]): string {
   return parts.map((p) => String(p)).join(" ");
 }
 
 const handles: unknown[] = [];
-
-function parseValue(tok: string[], idx: number[]): unknown {
-  const kind = tok[idx[0]!++]!;
-  switch (kind) {
-    case "u":
-      return undefined;
-    case "z":
-      return null;
-    case "b":
-      return tok[idx[0]!++] === "1";
-    case "n":
-      return Number(tok[idx[0]!++]!);
-    case "s":
-      return parseJsStringLiteral(tok[idx[0]!++]!);
-    case "a": {
-      const n = Number(tok[idx[0]!++]!);
-      const arr: unknown[] = [];
-      for (let j = 0; j < n; j++) arr.push(parseValue(tok, idx));
-      return arr;
-    }
-    default:
-      process.stderr.write(`bad value literal '${kind}'\n`);
-      return process.exit(2);
-  }
-}
 
 function pushHandle(v: unknown): number {
   handles.push(v);

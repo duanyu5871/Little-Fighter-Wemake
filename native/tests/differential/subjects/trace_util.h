@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "lfw/core/js_num.h"
+#include "lfw/core/value.h"
 #include "lfw/utils/math/round_float.h"
 
 namespace trace {
@@ -126,6 +127,45 @@ inline std::string esc(const std::u16string& s) {
   }
   out += '"';
   return out;
+}
+
+inline std::u16string to_u16(const std::string& s) {
+  std::u16string out;
+  out.reserve(s.size());
+  for (char c : s) out.push_back(static_cast<char16_t>(static_cast<unsigned char>(c)));
+  return out;
+}
+
+inline lfw::Value parse_value(const std::vector<std::string>& t, size_t& i) {
+  if (i >= t.size()) {
+    std::fprintf(stderr, "unexpected end of value literal\n");
+    std::exit(2);
+  }
+  const std::string kind = t[i++];
+  if (kind == "u") return lfw::Value();
+  if (kind == "z") return lfw::Value(lfw::NullTag{});
+  if (kind == "b") return lfw::Value(t[i++] == "1");
+  if (kind == "n") return lfw::Value(to_double(t[i++]));
+  if (kind == "s") return lfw::Value(parse_js_string_literal(t[i++]));
+  if (kind == "a") {
+    const size_t n = static_cast<size_t>(to_long(t[i++]));
+    auto arr = std::make_shared<lfw::Array>();
+    for (size_t j = 0; j < n; ++j) arr->push_back(parse_value(t, i));
+    return lfw::Value(arr);
+  }
+  std::fprintf(stderr, "bad value literal '%s'\n", kind.c_str());
+  std::exit(2);
+}
+
+inline std::string vtag(const lfw::Value& v) {
+  if (std::holds_alternative<std::monostate>(v)) return "u";
+  if (std::holds_alternative<lfw::NullTag>(v)) return "z";
+  if (std::holds_alternative<bool>(v)) return "b";
+  if (std::holds_alternative<double>(v)) return "n";
+  if (std::holds_alternative<std::u16string>(v)) return "s";
+  const lfw::Array* a = lfw::as_array(v);
+  if (a != nullptr) return "a" + std::to_string(a->size());
+  return "?";
 }
 
 }

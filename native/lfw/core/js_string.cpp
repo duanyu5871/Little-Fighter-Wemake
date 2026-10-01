@@ -12,6 +12,8 @@ namespace {
 
 double nan_v() { return std::numeric_limits<double>::quiet_NaN(); }
 
+}
+
 bool is_str_white_space(char16_t c) {
   switch (c) {
     case 0x0009:
@@ -33,6 +35,8 @@ bool is_str_white_space(char16_t c) {
       return c >= 0x2000 && c <= 0x200a;
   }
 }
+
+namespace {
 
 int digit_value(char16_t c) {
   if (c >= u'0' && c <= u'9') return static_cast<int>(c - u'0');
