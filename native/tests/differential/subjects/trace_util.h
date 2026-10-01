@@ -24,6 +24,8 @@ inline std::string bits_hex(double d) { return hex16(lfw::f64_bits(d)); }
 
 inline std::string q_bits(double d) { return bits_hex(lfw::round_float(d)); }
 
+inline std::string num_hex(double d) { return std::isnan(d) ? "nan" : bits_hex(d); }
+
 class Line {
  public:
   Line& add(std::string_view v) {
@@ -38,6 +40,7 @@ class Line {
   }
 
   Line& add_bits(double d) { return add(bits_hex(d)); }
+  Line& add_num(double d) { return add(num_hex(d)); }
   Line& add_qbits(double d) { return add(q_bits(d)); }
   Line& add_bool(bool b) { return add(b ? std::string_view("true") : std::string_view("false")); }
   Line& add_opt(bool has_value, double v) {
@@ -69,5 +72,34 @@ inline double to_double(const std::string& t) { return std::strtod(t.c_str(), nu
 inline long to_long(const std::string& t) { return std::strtol(t.c_str(), nullptr, 10); }
 
 inline bool to_flag(const std::string& t) { return t == "1" || t == "true"; }
+
+inline std::u16string parse_js_string_literal(const std::string& tok) {
+  std::u16string out;
+  size_t i = 0;
+  if (i < tok.size() && tok[i] == '"') ++i;
+  for (; i < tok.size(); ++i) {
+    const char c = tok[i];
+    if (c == '"') break;
+    if (c == '\\' && i + 1 < tok.size()) {
+      const char e = tok[++i];
+      if (e == 's') out.push_back(u' ');
+      else if (e == 't') out.push_back(u'\t');
+      else if (e == 'n') out.push_back(u'\n');
+      else if (e == 'r') out.push_back(u'\r');
+      else if (e == '\\') out.push_back(u'\\');
+      else if (e == '"') out.push_back(u'"');
+      else if (e == 'u' && i + 4 < tok.size()) {
+        out.push_back(static_cast<char16_t>(
+            std::strtoul(tok.substr(i + 1, 4).c_str(), nullptr, 16)));
+        i += 4;
+      } else {
+        out.push_back(static_cast<char16_t>(static_cast<unsigned char>(e)));
+      }
+    } else {
+      out.push_back(static_cast<char16_t>(static_cast<unsigned char>(c)));
+    }
+  }
+  return out;
+}
 
 }

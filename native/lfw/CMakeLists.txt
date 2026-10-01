@@ -1,5 +1,6 @@
 add_library(lfw_core STATIC
   core/js_num.cpp
+  core/js_string.cpp
   core/state_hash.cpp
   utils/math/mersenne_twister.cpp
   utils/math/normalize_plane.cpp

@@ -22,6 +22,34 @@ export function qBits(d: number): string {
   return bitsHex(round_float(d));
 }
 
+export function numHex(d: number): string {
+  return Number.isNaN(d) ? "nan" : bitsHex(d);
+}
+
+export function parseJsStringLiteral(tok: string): string {
+  let out = "";
+  let i = 0;
+  if (tok[i] === '"') i++;
+  for (; i < tok.length; i++) {
+    const c = tok[i]!;
+    if (c === '"') break;
+    if (c === "\\" && i + 1 < tok.length) {
+      const e = tok[++i]!;
+      if (e === "s") out += " ";
+      else if (e === "t") out += "\t";
+      else if (e === "n") out += "\n";
+      else if (e === "r") out += "\r";
+      else if (e === "\\") out += "\\";
+      else if (e === '"') out += '"';
+      else if (e === "u" && i + 4 < tok.length) {
+        out += String.fromCharCode(parseInt(tok.slice(i + 1, i + 5), 16));
+        i += 4;
+      } else out += e;
+    } else out += c;
+  }
+  return out;
+}
+
 export function splitWs(s: string): string[] {
   return s.trim().length ? s.trim().split(/\s+/) : [];
 }
