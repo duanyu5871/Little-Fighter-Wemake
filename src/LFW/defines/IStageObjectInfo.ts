@@ -1,4 +1,4 @@
-import { any, fields, flt, int, str } from "../fields";
+import { todo, fields, flt, int, str } from "../fields";
 import { Difficulty } from "./Difficulty";
 
 export interface IStageObjectInfo {
@@ -95,12 +95,12 @@ export const stage_object_info_fields = fields<IStageObjectInfo>({
   facing: int('朝向', { options: [{ value: -1, label: '左' }, { value: 1, label: '右' }] }),
   hp: int('血量'),
   mp: int('蓝量'),
-  hp_map: any('血量(按难度)'),
-  mp_map: any('蓝量(按难度)'),
+  hp_map: todo('血量(按难度)'),
+  mp_map: todo('蓝量(按难度)'),
   times: int('出现次数'),
   ratio: flt('比例系数'),
-  is_boss: any('是否为Boss'),
-  is_soldier: any('是否为士兵'),
+  is_boss: todo('是否为Boss'),
+  is_soldier: todo('是否为士兵'),
   reserve: int('备用数量'),
   join: int('归降血量'),
   join_team: str('归降队伍'),

@@ -1,4 +1,4 @@
-import { any, fields, flt, int, str } from "../fields";
+import { todo, fields, flt, int, str } from "../fields";
 import { make_schema } from "../utils/schema";
 
 export interface IBgLayerInfo {
@@ -101,7 +101,7 @@ export const bg_layer_info_fields = fields<IBgLayerInfo>({
   name: str("预留名称"),
   file: str("文件"),
   absolute: int("绝对"),
-  color: any,
+  color: todo,
   opacity: flt("不透明度"),
   width: int("宽度"),
   height: int("高度"),

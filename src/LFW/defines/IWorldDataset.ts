@@ -1,4 +1,4 @@
-import { any, fields, flt, int } from "../fields";
+import { todo, fields, flt, int } from "../fields";
 import { make_schema } from "../utils/schema";
 import { CheatEnum } from "./CheatType";
 import { Difficulty } from "./Difficulty";
@@ -340,9 +340,9 @@ export const world_dataset_fields = fields<IWorldDataset>({
   land_friction_factor: flt("落地摩擦X", "在物体着地时，当前动作结束前，速度将每帧乘以此值"),
   land_friction_x: flt("落地摩擦X", "在物体着地时，当前动作结束前，每帧速度X将±=此值,向0靠近"),
   land_friction_z: flt("落地摩擦Z", "在物体着地时，当前动作结束前，每帧速度Z将±=此值,向0靠近"),
-  screen_w: any,
-  screen_h: any,
-  sync_render: any,
+  screen_w: todo,
+  screen_h: todo,
+  sync_render: todo,
   difficulty: flt,
   infinity_mp: int("无限MP", "无限MP, 1=无限, 0=有限(默认)", { min: 0, max: 1 }),
   fall_r_ticks: int("摔落值恢复周期", "每几帧恢复一次摔落值"),

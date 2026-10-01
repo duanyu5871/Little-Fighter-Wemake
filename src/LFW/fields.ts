@@ -86,7 +86,7 @@ export const int = assign(<T extends object>(...p: (string | Omit<IIntField<T>, 
 export const bool = assign(<T extends object>(...p: (string | Omit<IBoolField<T>, 'key' | 'type'>)[]): IRet<T> => w('boolean', ...p), w('boolean'))
 export const obj = assign(<T extends object, D extends object>(...p: (string | Omit<IObjField<T, D>, 'key' | 'type'>)[]): IRet<T> => w('object', ...p), w('object'))
 export const map = assign(<T extends object, D extends object>(...p: (string | Omit<IMapField<T, D>, 'key' | 'type'>)[]): IRet<T> => w('map', ...p), w('map'))
-export const any = assign(<T extends object>(...p: (string | Omit<IField<T>, 'key' | 'type'>)[]): IRet<T> => w('', ...p), w(''))
+export const todo = assign(<T extends object>(...p: (string | Omit<IField<T>, 'key' | 'type'>)[]): IRet<T> => w('', ...p), w(''))
 
 /**
  * 将字段定义对象转换为字段信息 Map

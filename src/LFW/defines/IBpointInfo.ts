@@ -1,5 +1,5 @@
 import type { IQubePair } from "./IQubePair";
-import { any, fields, int } from "../fields";
+import { todo, fields, int } from "../fields";
 
 export interface IBpointInfo {
   x: number;
@@ -21,5 +21,5 @@ export const bpoint_info_fields = fields<IBpointInfo>({
   y: int("Y"),
   z: int("Z"),
   r: int("R"),
-  __indicator_info: any,
+  __indicator_info: todo,
 })

@@ -1,4 +1,4 @@
-import { any, fields, flt, int, str } from "../fields";
+import { todo, fields, flt, int, str } from "../fields";
 import { make_schema } from "../utils/schema";
 import type { Difficulty } from "./Difficulty";
 import type { IDialogInfo } from "./IDialogInfo";
@@ -141,23 +141,23 @@ export const stage_phase_info_fields = fields<Partial<IStagePhaseInfo>>({
   drink_l: int('饮料左边界'),
   drink_r: int('饮料右边界'),
   desc: str('描述'),
-  objects: any('物件列表', { array: true }),
+  objects: todo('物件列表', { array: true }),
   music: str('背景音乐'),
-  sounds: any('音效', { array: true }),
-  respawn: any('重生'),
-  respawn_r: any('重生(右)'),
-  respawn_x: any('重生X'),
-  health_up: any('血量补给'),
-  mp_up: any('蓝量补给'),
+  sounds: todo('音效', { array: true }),
+  respawn: todo('重生'),
+  respawn_r: todo('重生(右)'),
+  respawn_x: todo('重生X'),
+  health_up: todo('血量补给'),
+  mp_up: todo('蓝量补给'),
   cam_jump_to_x: flt('相机跳至X'),
   player_jump_to_x: flt('玩家跳至X'),
   player_jump_to_z: flt('玩家跳至Z'),
   player_facing: int('玩家朝向', { options: [{ value: -1, label: '左' }, { value: 1, label: '右' }] }),
   end_test: str('结束判定', { array: true }),
-  __end_testers: any('结束测试器', { array: true }),
+  __end_testers: todo('结束测试器', { array: true }),
   on_start: str('开始时动作', { array: true }),
   on_end: str('结束时动作', { array: true }),
-  dialogs: any('对话框', { array: true }),
+  dialogs: todo('对话框', { array: true }),
   hide_stats: int('隐藏状态栏'),
   world_pause: int('世界暂停'),
   control_disabled: int('禁用控制'),

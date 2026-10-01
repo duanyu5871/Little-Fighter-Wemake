@@ -1,4 +1,4 @@
-import { any, fields, str } from "../fields";
+import { todo, fields, str } from "../fields";
 import { make_schema } from "../utils/schema";
 import type { IStagePhaseInfo } from "./IStagePhaseInfo";
 /**
@@ -93,10 +93,10 @@ export const stage_info_fields = fields<IStageInfo>({
   group: str('分组', { array: true }),
   cond_end: str('结束条件', '默认全部阶段结束'),
   act_of_goto_next: str('通过动作', '默认玩家跑到场景最右边'),
-  is_starting: any('初始关卡', { options: [{ value: true, label: 'YES' }, { value: false, label: 'NO' }] }),
+  is_starting: todo('初始关卡', { options: [{ value: true, label: 'YES' }, { value: false, label: 'NO' }] }),
   starting_name: str('起点名称'),
   title: str('大标题'),
-  phases: any('阶段列表', { array: true }),
+  phases: todo('阶段列表', { array: true }),
 });
 
 export const Schema_IStageInfo = make_schema<IStageInfo>({

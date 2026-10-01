@@ -1,4 +1,4 @@
-import { any, bool, fields, flt, int, map, obj, str } from "../fields";
+import { todo, bool, fields, flt, int, map, obj, str } from "../fields";
 import { make_schema } from "../utils/schema";
 import { ALL_FACING_FLAG, FACING_FLAG_DESC_MAP, FACING_FLAG_LABEL_MAP, FacingFlag } from "./FacingFlag";
 import { ALL_FRAME_BEHAVIOR, FRAME_BEHAVIOR_DESC_MAP, FRAME_BEHAVIOR_LABEL_MAP, FrameBehavior } from "./FrameBehavior";
@@ -398,15 +398,15 @@ export const frame_info_fields = fields<IFrameInfo>({
   dataset: obj('dataset', { nullable: true, fields: world_dataset_fields }),
 
   // 内部/渲染用字段
-  __seq_map: any,
-  __indicator_info: any,
-  __tex: any,
-  __aabb_x1: any,
-  __aabb_x2: any,
-  __aabb_z1: any,
-  __aabb_z2: any,
-  __hit_ground_itrs: any,
-  __hit_ground_bdys: any,
+  __seq_map: todo,
+  __indicator_info: todo,
+  __tex: todo,
+  __aabb_x1: todo,
+  __aabb_x2: todo,
+  __aabb_z1: todo,
+  __aabb_z2: todo,
+  __hit_ground_itrs: todo,
+  __hit_ground_bdys: todo,
 });
 
 export const Schema_IFrameInfo = make_schema<IFrameInfo>({

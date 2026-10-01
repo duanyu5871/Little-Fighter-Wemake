@@ -1,4 +1,4 @@
-import { any, fields, flt, int, str } from "../fields";
+import { todo, fields, flt, int, str } from "../fields";
 import type { FacingFlag } from "./FacingFlag";
 import type { TNextFrame } from "./INextFrame";
 import type { IOpointMulti } from "./IOpointMulti";
@@ -270,14 +270,14 @@ export const opoint_info_fields = fields<IOpointInfo>({
   }),
   x: int("X"),
   y: int("Y"),
-  pos_type: any,
+  pos_type: todo,
   z: int("Z"),
   oid: str("实体数据ID"),
-  action: any,
+  action: todo,
   dvx: flt("初速度X"),
   dvy: flt("初速度Y"),
   dvz: flt("初速度Z"),
-  multi: any,
+  multi: todo,
   max_hp: int("最大血量"),
   hp: int("血量"),
   max_mp: int("最大蓝量"),
@@ -315,14 +315,14 @@ export const opoint_info_fields = fields<IOpointInfo>({
   gen_spread_z: str("扩散Z表达式"),
 
 
-  __gen_spread_x: any,
-  __gen_spread_y: any,
-  __gen_spread_z: any,
-  __indicator_info: any,
-  __gen_x: any,
-  __gen_y: any,
-  __gen_z: any,
-  __gen_dvx: any,
-  __gen_dvy: any,
-  __gen_dvz: any,
+  __gen_spread_x: todo,
+  __gen_spread_y: todo,
+  __gen_spread_z: todo,
+  __indicator_info: todo,
+  __gen_x: todo,
+  __gen_y: todo,
+  __gen_z: todo,
+  __gen_dvx: todo,
+  __gen_dvy: todo,
+  __gen_dvz: todo,
 })

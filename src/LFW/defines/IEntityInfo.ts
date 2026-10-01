@@ -1,4 +1,4 @@
-import { any, fields, fields_map_2_fields_obj, flt, int, str } from "../fields";
+import { todo, fields, fields_map_2_fields_obj, flt, int, str } from "../fields";
 import type { WorldDataset } from "../WorldDataset";
 import { ALL_ENTITY_ENUM, ENTITY_ENUM_DESC_MAP, ENTITY_ENUM_LABEL_MAP, EntityEnum } from "./EntityEnum";
 import { ALL_ENTITY_GROUP, ENTITY_GROUP_DESC_MAP, ENTITY_GROUP_LABEL_MAP } from "./EntityGroup";
@@ -232,21 +232,21 @@ export const entity_info_fields = fields<IEntityInfo>({
   fast_vy: flt('武器快速Y', '武器速度超过此值时，会变为投掷状态', { nullable: true }),
   fast_vx: flt('武器快速X', '武器速度超过此值时，会变为投掷状态', { nullable: true }),
   fast_vz: flt('武器快速Z', '武器速度超过此值时，会变为投掷状态', { nullable: true }),
-  files: any,
-  models: any,
-  brokens: any,
-  drink: any,
-  drop_hurt: any,
-  hit_sounds: any,
-  drop_sounds: any,
-  dead_sounds: any,
-  armor: any,
+  files: todo,
+  models: todo,
+  brokens: todo,
+  drink: todo,
+  drop_hurt: todo,
+  hit_sounds: todo,
+  drop_sounds: todo,
+  dead_sounds: todo,
+  armor: todo,
   weight: flt('重量', '目前为武器重量', { nullable: true }),
-  bot_id: any,
-  bot: any,
+  bot_id: todo,
+  bot: todo,
   bot_ignore: int('BOT忽略', '为1时，BOT不会尝试也无法拾取该武器', { nullable: true }),
   w_atk_m_x: int('站立攻击距离死区', '手持该武器时，敌人的X与我的X之差小于此值时，BOT会先拉开距离再站定攻击', { nullable: true }),
   w_atk_r_x: int('站立攻击最大距离', '手持该武器时，BOT站定攻击的最大触发距离，超出则不站定攻击', { nullable: true }),
-  portraits: any,
+  portraits: todo,
   ...fields_map_2_fields_obj(world_dataset_fields),
 });

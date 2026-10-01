@@ -6,7 +6,7 @@ import type { IQubePair } from "./IQubePair";
 import { ItrEffect, ItrEffectDescriptions } from "./ItrEffect";
 import { ItrKind, ItrKindDescriptions } from "./ItrKind";
 import type { TAction } from "./actions/TAction";
-import { any, fields, flt, int, str } from "../fields";
+import { todo, fields, flt, int, str } from "../fields";
 
 export interface IItrInfo extends Partial<IQube> {
   id?: string;
@@ -142,7 +142,7 @@ export const itr_info_fields = fields<IItrInfo>({
       desc: (ItrKindDescriptions as Record<number, string>)[v] || "",
     })),
   }),
-  kind_name: any,
+  kind_name: todo,
   x: int("X"),
   y: int("Y"),
   w: int("W"),
@@ -158,7 +158,7 @@ export const itr_info_fields = fields<IItrInfo>({
       desc: HIT_FLAG_DESC_MAP[v],
     })),
   }),
-  hit_flag_name: any,
+  hit_flag_name: todo,
   motionless: int("自身停顿值"),
   shaking: int("目标停顿值"),
   dvx: flt("初速度X"),
@@ -176,15 +176,15 @@ export const itr_info_fields = fields<IItrInfo>({
       desc: (ItrEffectDescriptions as Record<number, string>)[v] || "",
     })),
   }),
-  effect_name: any,
-  catchingact: any,
-  caughtact: any,
-  on_hit_ground: any,
-  actions: any,
+  effect_name: todo,
+  catchingact: todo,
+  caughtact: todo,
+  on_hit_ground: todo,
+  actions: todo,
   test: str("测试表达式"),
-  __tester: any,
+  __tester: todo,
   code: str("Code"),
   ref: str("预制信息ID"),
-  __indicator_info: any,
+  __indicator_info: todo,
   prefab_id: str("预制信息ID"),
 })

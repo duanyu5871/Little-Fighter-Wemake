@@ -1,4 +1,4 @@
-import { any, fields, str } from "../fields";
+import { todo, fields, str } from "../fields";
 import { make_schema } from "../utils/schema";
 import { bg_info_new, type IBgInfo } from "./IBgInfo";
 import { Schema_IBgLayerInfo, type IBgLayerInfo } from "./IBgLayerInfo";
@@ -18,10 +18,10 @@ export const bg_data_fields = fields<IBgData>({
   id: str("ID"),
   alias_id: str("别名ID"),
   type: str("类型"),
-  base: any,
-  dataset: any,
-  layers: any,
-  terrain: any
+  base: todo,
+  dataset: todo,
+  layers: todo,
+  terrain: todo
 });
 
 export function bg_data_new(): IBgData {

@@ -1,4 +1,4 @@
-import { any, fields, flt, int, str } from "../fields";
+import { todo, fields, flt, int, str } from "../fields";
 import { ALL_ARMOR_ENUM, ARMOR_ENUM_DESC_MAP, ARMOR_ENUM_LABEL_MAP, ArmorEnum } from "./ArmorEnum";
 
 export interface IArmorInfo {

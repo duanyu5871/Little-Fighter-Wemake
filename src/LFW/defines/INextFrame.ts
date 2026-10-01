@@ -1,7 +1,7 @@
 import type { FacingFlag } from "./FacingFlag";
 import type { IExpression } from "./IExpression";
 import type { IVelocityInfo } from "./IVelocityInfo";
-import { any, fields, fields_map_2_fields_obj, int, str } from "../fields";
+import { todo, fields, fields_map_2_fields_obj, int, str } from "../fields";
 import { velocity_info_fields } from "./IVelocityInfo";
 export interface INextFrame extends IVelocityInfo {
   id?: string | string[];
@@ -110,7 +110,7 @@ export type TNextFrame = INextFrame | INextFrame[];
 export const next_frame_fields = fields<INextFrame>({
   id: str('帧ID', { nullable: true, array: 'auto' }),
   desc: str('描述', { nullable: true }),
-  wait: any('等待策略', 'i: 保持本帧; d: 相对差值; 正数: 固定值', { nullable: true }),
+  wait: todo('等待策略', 'i: 保持本帧; d: 相对差值; 正数: 固定值', { nullable: true }),
   facing: int('转向', { nullable: true }),
   expression: str('判断表达式', '不满足时无法进入此帧', { nullable: true }),
   mp: int('耗MP', { nullable: true }),
@@ -120,7 +120,7 @@ export const next_frame_fields = fields<INextFrame>({
   blink_time: int('闪烁时长', { nullable: true }),
   reset_keys: int('重置按键', { nullable: true }),
   transfrom_to_another: int('变身目标', { nullable: true }),
-  __judger: any,
-  __gen_facing: any,
+  __judger: todo,
+  __gen_facing: todo,
   ...fields_map_2_fields_obj(velocity_info_fields),
 });

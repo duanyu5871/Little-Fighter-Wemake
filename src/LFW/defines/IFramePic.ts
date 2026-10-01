@@ -1,4 +1,4 @@
-import { any, fields, int, str } from "../fields";
+import { todo, fields, int, str } from "../fields";
 import { make_schema } from "../utils/schema/make_schema";
 
 export interface IFramePic {
@@ -50,8 +50,8 @@ export const frame_pic_fields = fields<IFramePic>({
   oy: int({ nullable: true }),
   cx: int({ nullable: true }),
   cy: int({ nullable: true }),
-  __cos_r: any,
-  __sin_r: any
+  __cos_r: todo,
+  __sin_r: todo
 });
 
 export const Schema_IFramePic = make_schema<IFramePic>({

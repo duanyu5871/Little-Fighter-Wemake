@@ -1,29 +1,29 @@
-export const is_num = (v: any): v is number =>
+export const is_num = (v: unknown): v is number =>
   typeof v === "number" && !is_nan(v) && is_finite(v);
 
-export const is_f_num = (v: any): v is number =>
+export const is_f_num = (v: unknown): v is number =>
   typeof v === "number" && (Number.isNaN(v) || !Number.isFinite(v));
 
-export const is_zero = (v: any): v is 0 => v === 0;
-export const is_one = (v: any): v is 1 => v === 1;
-export const is_nan = (v: any): v is number => Number.isNaN(v);
-export const is_finite = (v: any): v is number => Number.isFinite(v);
-export const is_nagtive = (v: any): v is number => is_num(v) && v < 0;
-export const is_positive = (v: any): v is number => is_num(v) && v > 0;
+export const is_zero = (v: unknown): v is 0 => v === 0;
+export const is_one = (v: unknown): v is 1 => v === 1;
+export const is_nan = (v: unknown): v is number => Number.isNaN(v);
+export const is_finite = (v: unknown): v is number => Number.isFinite(v);
+export const is_nagtive = (v: unknown): v is number => is_num(v) && v < 0;
+export const is_positive = (v: unknown): v is number => is_num(v) && v > 0;
 
-export const not_zero_num = (v: any): v is number => is_num(v) && v !== 0;
+export const not_zero_num = (v: unknown): v is number => is_num(v) && v !== 0;
 
-export const num_or = <V>(v: any, or: V) => is_num(v) ? v : or;
+export const num_or = <V>(v: unknown, or: V) => is_num(v) ? v : or;
 
 
 /** 是否为整数 */
-export const is_int = (v: any): v is number => Number.isInteger(v);
+export const is_int = (v: unknown): v is number => Number.isInteger(v);
 /** 是否为非零整数 */
-export const is_not_zero_int = (v: any): v is number => is_int(v) && v !== 0;
-export const is_positive_int = (v: any): v is number => is_int(v) && v > 0;
-export const is_non_nagative_int = (v: any): v is number => is_int(v) && v >= 0;
-export const is_non_positive_int = (v: any): v is number => is_int(v) && v <= 0;
-export const is_nagative_int = (v: any): v is number => is_int(v) && v < 0;
+export const is_not_zero_int = (v: unknown): v is number => is_int(v) && v !== 0;
+export const is_positive_int = (v: unknown): v is number => is_int(v) && v > 0;
+export const is_non_nagative_int = (v: unknown): v is number => is_int(v) && v >= 0;
+export const is_non_positive_int = (v: unknown): v is number => is_int(v) && v <= 0;
+export const is_nagative_int = (v: unknown): v is number => is_int(v) && v < 0;
 
 /**
  * 判断是否的数字数组
@@ -34,10 +34,10 @@ export const is_nagative_int = (v: any): v is number => is_int(v) && v < 0;
  * @param {*} v 任意
  * @returns {v is number[]} 
  */
-export const is_num_arr = (v: any): v is number[] => {
+export const is_num_arr = (v: unknown): v is number[] => {
   return Array.isArray(v) && !v.some(v => Number.isNaN(v))
 }
 
-export const is_undefined_or_number = (v: any): v is undefined | number => {
+export const is_undefined_or_number = (v: unknown): v is undefined | number => {
   return v == void 0 || is_num(v)
 }

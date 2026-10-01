@@ -4,7 +4,7 @@ import type { IExpression } from "./IExpression";
 import type { IQube } from "./IQube";
 import type { IQubePair } from "./IQubePair";
 import type { TAction } from "./actions/TAction";
-import { any, fields, int, str } from "../fields";
+import { todo, fields, int, str } from "../fields";
 import type { TNextFrame } from "./INextFrame";
 
 export interface IBdyInfo extends Partial<IQube> {
@@ -84,7 +84,7 @@ export const bdy_info_fields = fields<IBdyInfo>({
       { value: BdyKind.Ignore, label: "Ignore" },
     ],
   }),
-  kind_name: any,
+  kind_name: todo,
   x: int("X"),
   y: int("Y"),
   w: int("W"),
@@ -100,14 +100,14 @@ export const bdy_info_fields = fields<IBdyInfo>({
       desc: HIT_FLAG_DESC_MAP[v],
     })),
   }),
-  hit_flag_name: any,
+  hit_flag_name: todo,
   ref: str("预制信息ID"),
-  prefab_id: any,
-  actions: any,
+  prefab_id: todo,
+  actions: todo,
   test: str("测试表达式"),
   code: str("Code"),
-  on_hit_ground: any,
+  on_hit_ground: todo,
 
-  __tester: any,
-  __indicator_info: any,
+  __tester: todo,
+  __indicator_info: todo,
 })

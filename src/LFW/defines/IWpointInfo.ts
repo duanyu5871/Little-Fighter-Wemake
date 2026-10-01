@@ -1,6 +1,6 @@
 import type { IQubePair } from "./IQubePair";
 import { WpointKind, WpointKindDescriptions } from "./WpointKind";
-import { any, fields, flt, int, str } from "../fields";
+import { todo, fields, flt, int, str } from "../fields";
 
 export interface IWpointInfo {
   kind: number | WpointKind;
@@ -43,5 +43,5 @@ export const wpoint_info_fields = fields<IWpointInfo>({
   dvx: flt("初速度X"),
   dvy: flt("初速度Y"),
   dvz: flt("初速度Z"),
-  __indicator_info: any,
+  __indicator_info: todo,
 })

@@ -1,6 +1,6 @@
 import type { TNextFrame } from "./INextFrame";
 import type { IQubePair } from "./IQubePair";
-import { any, fields, int, str } from "../fields";
+import { todo, fields, int, str } from "../fields";
 
 export interface ICpoint {
   kind?: number;
@@ -45,7 +45,7 @@ export const cpoint_info_fields = fields<ICpoint>({
   x: int("X"),
   y: int("Y"),
   z: int("Z"),
-  vaction: any,
+  vaction: todo,
   injury: int("伤害值"),
   hurtable: int("可受伤", {
     options: [
@@ -62,5 +62,5 @@ export const cpoint_info_fields = fields<ICpoint>({
   backhurtact: str("背面受伤动作"),
   shaking: int("目标停顿值"),
   motionless: int(),
-  __indicator_info: any,
+  __indicator_info: todo,
 })
