@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "lfw/core/json.h"
+#include "lfw/core/js_string.h"
 #include "lfw/core/value.h"
 
 namespace lfw {
@@ -19,21 +20,11 @@ bool is_bool(const Value& v) { return std::holds_alternative<bool>(v); }
 bool is_number(const Value& v) { return std::holds_alternative<double>(v); }
 bool is_string(const Value& v) { return std::holds_alternative<std::u16string>(v); }
 
-bool is_js_whitespace(char16_t c) {
-  if (c == 0x09 || c == 0x0a || c == 0x0b || c == 0x0c || c == 0x0d || c == 0x20) return true;
-  if (c == 0xa0 || c == 0x1680 || c == 0x2028 || c == 0x2029 || c == 0x202f || c == 0x205f) {
-    return true;
-  }
-  if (c == 0x3000 || c == 0xfeff) return true;
-  if (c >= 0x2000 && c <= 0x200a) return true;
-  return false;
-}
-
 std::u16string js_trim(const std::u16string& s) {
   size_t b = 0;
   size_t e = s.size();
-  while (b < e && is_js_whitespace(s[b])) ++b;
-  while (e > b && is_js_whitespace(s[e - 1])) --e;
+  while (b < e && is_str_white_space(s[b])) ++b;
+  while (e > b && is_str_white_space(s[e - 1])) --e;
   return s.substr(b, e - b);
 }
 

@@ -777,6 +777,31 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
 
 **验证**：subject `next_frame`（83 行）+ 17 条变异全杀。
 
+### 4.19 V19 `dat_translator/ColonValueReader`
+
+形态：`native/lfw/dat_translator/colon_value_reader.{h,cpp}`。它解析 LF2 里
+`name: xxx width: 100 zboundary: 550 550` 这类文本（真实调用点只有 `make_bg_data`）。
+
+- **禁 `<regex>`** ⇒ 手写匹配。三条模式：
+  - Str：`NAME\s*:\s*(\S+)[\s|\n]*`
+  - Int：`NAME\s*:\s*(\d+)[\s|\n]*`
+  - Int_2：`NAME\s*:\s*(\d+)\s*(\d+)[\s|\n]*`
+  实现要点：`exec` 是**最左匹配** ⇒ 从每个下标试起；`\S+`/`\d+` 贪婪且后面的尾随类可为空 ⇒ 无需回溯；
+  但 Int_2 的 `\d+\s*\d+` **需要回溯**（`a: 123` → [12, 3]），所以从最长第一段往短试。
+- **`\s` 集合复用 `lfw/core/js_string.h` 的 `is_str_white_space`**（已由 `core/to_number` 验证）。
+  顺手把 `cond_maker.cpp` 里那份重复的局部 `is_js_whitespace` 删掉——同一规则只留一处
+  （见 PROTOCOL §6.9.5 的教训）。
+- **原代码里有一处手误，必须照抄**：
+  ```ts
+  rem_txt = rem_txt.slice(0, reg_res.index) + rem_txt.slice(reg_res[0].length);
+  ```
+  第二次 slice 用的是 `match[0].length` 而不是 `index + match[0].length` ⇒
+  它是从**字符串头部**删掉等长的一段，而不是删掉匹配到的那段。后果：
+  `read(i:z)` 处理 `"width: 100 z: 7"` 得到 `rem = "width: 100 h: 100 z: 7"`（**变长**）。
+  这不是我们该“修正”的地方——差分把两侧拉到一致，变异点再防止它被“修好”。
+
+**验证**：subject `colon_reader`（52 行）+ 14 条变异全杀。
+
 ---
 
 ## 5. 风险
