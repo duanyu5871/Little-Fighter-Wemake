@@ -52,6 +52,16 @@ if (badAnchors.length) {
   process.exit(2);
 }
 
+for (const m of mutations) {
+  if (!m.file.replace(/\\/g, "/").startsWith("native/lfw/")) {
+    process.stderr.write(
+      `mutation '[${m.note}]' targets ${m.file}; only native/lfw/** may be mutated ` +
+        `(the TS side is reused across the run)\n`,
+    );
+    process.exit(2);
+  }
+}
+
 function restoreAll() {
   for (const [file, text] of originals) writeFileSync(file, text);
 }
@@ -102,25 +112,29 @@ const rows = [];
 let killed = 0;
 let survived = 0;
 let compileError = 0;
+const startedAt = Date.now();
 
 for (const m of mutations) {
   const file = resolve(root, m.file);
   const text = originals.get(file);
   writeFileSync(file, text.replace(m.from, m.to));
 
-  const built = run(["build"]);
+  const t0 = Date.now();
+  const built = run(["build", subject]);
   if (built.ok) {
-    const tested = run(["test", subject]);
-    rows.push({ note: m.note, survived: tested.ok });
+    const tested = run(["test", subject, "--reuse-ts"]);
+    rows.push({ note: m.note, survived: tested.ok, ms: Date.now() - t0 });
     if (tested.ok) ++survived;
     else ++killed;
   } else {
-    rows.push({ note: m.note, survived: false, compileError: true });
+    rows.push({ note: m.note, survived: false, compileError: true, ms: Date.now() - t0 });
     ++compileError;
   }
+  process.stdout.write(`.${survived ? "|" : compileError ? "e" : ""}`);
 
   restoreAll();
 }
+process.stdout.write("\n");
 
 restoreAll();
 rmSync(backupDir(), { recursive: true, force: true });
@@ -131,8 +145,12 @@ for (const r of rows) {
   const status = r.compileError ? "compile-error" : r.survived ? "SURVIVED" : "killed";
   process.stdout.write(`${r.note.padEnd(width)}  ${status}\n`);
 }
+const totalMs = Date.now() - startedAt;
+const slowest = [...rows].sort((a, b) => (b.ms ?? 0) - (a.ms ?? 0))[0];
 process.stdout.write(
-  `\n${killed} killed, ${survived} survived, ${compileError} compile-error (of ${rows.length})\n`,
+  `\n${killed} killed, ${survived} survived, ${compileError} compile-error (of ${rows.length})\n` +
+    `total ${(totalMs / 1000).toFixed(1)}s, ${(totalMs / rows.length).toFixed(0)} ms/mutation` +
+    (slowest ? `, slowest '${slowest.note}' ${slowest.ms} ms\n` : "\n"),
 );
 
 process.exit(survived === 0 && compileError === 0 ? 0 : 1);

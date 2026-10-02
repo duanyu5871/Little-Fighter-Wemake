@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -85,8 +85,12 @@ function diff(a, b) {
 }
 
 function main() {
-  const wantedSubject = process.argv[2];
-  const wantedCase = process.argv[3];
+  const argv = process.argv.slice(2);
+  const flags = new Set(argv.filter((a) => a.startsWith("--")));
+  const rest = argv.filter((a) => !a.startsWith("--"));
+  const wantedSubject = rest[0];
+  const wantedCase = rest[1];
+  const reuseTs = flags.has("--reuse-ts");
 
   const all = discoverSubjects().filter((s) => !wantedSubject || s === wantedSubject);
   if (all.length === 0) {
@@ -115,11 +119,15 @@ function main() {
       continue;
     }
 
-    const bundle = buildTs(subject);
+    let bundle = null;
+    const bundleOnce = () => (bundle ??= buildTs(subject));
+    const subjectTs = join(SUBJECTS_DIR, `${subject}.ts`);
 
     for (const casePath of cases) {
       const caseName = basename(casePath, ".txt");
       const label = `${subject}/${caseName}`;
+      const stem = `${subject}.${caseName}`;
+      const tsCache = join(GEN, `trace.${stem}.ts.txt`);
 
       let cppOut;
       let tsOut;
@@ -130,17 +138,32 @@ function main() {
         failed++;
         continue;
       }
-      try {
-        tsOut = execFileSync(process.execPath, [bundle, casePath], { encoding: "utf8", maxBuffer: MAX });
-      } catch (e) {
-        console.error(C.red(`x ${label}: TS failed\n${e.stderr ?? e.message}`));
-        failed++;
-        continue;
+
+      const caseMtime = statSync(casePath).mtimeMs;
+      const subjectMtime = existsSync(subjectTs) ? statSync(subjectTs).mtimeMs : 0;
+      const cacheFresh =
+        reuseTs &&
+        existsSync(tsCache) &&
+        statSync(tsCache).mtimeMs >= caseMtime &&
+        statSync(tsCache).mtimeMs >= subjectMtime;
+
+      if (cacheFresh) {
+        tsOut = readFileSync(tsCache, "utf8");
+      } else {
+        try {
+          tsOut = execFileSync(process.execPath, [bundleOnce(), casePath], {
+            encoding: "utf8",
+            maxBuffer: MAX,
+          });
+        } catch (e) {
+          console.error(C.red(`x ${label}: TS failed\n${e.stderr ?? e.message}`));
+          failed++;
+          continue;
+        }
       }
 
-      const stem = `${subject}.${caseName}`;
       writeFileSync(join(GEN, `trace.${stem}.cpp.txt`), norm(cppOut));
-      writeFileSync(join(GEN, `trace.${stem}.ts.txt`), norm(tsOut));
+      if (!cacheFresh) writeFileSync(tsCache, norm(tsOut));
 
       const d = diff(cppOut, tsOut);
       if (d === null) {

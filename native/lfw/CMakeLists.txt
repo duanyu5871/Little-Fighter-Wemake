@@ -87,6 +87,8 @@ add_library(lfw_core STATIC
   utils/utf8.cpp
   utils/js_add.cpp
   utils/times.cpp
+  helper/randoming.cpp
+  state/spawn_ice_piece.cpp
 )
 
 target_include_directories(lfw_core PUBLIC

@@ -1,7 +1,7 @@
 import { Expression } from "../../../../src/LFW/base/Expression";
 import { Ditto } from "../../../../src/LFW/ditto/Instance";
 
-import { esc, parseValue, readCaseLines, splitWs, vtag } from "./trace_util";
+import { esc, parseValue, readCaseLines, renderValue, splitWs } from "./trace_util";
 
 type Ctx = number;
 
@@ -9,10 +9,14 @@ Ditto.warn = () => undefined;
 
 const table = new Map<string, unknown>();
 const exprs: Expression<Ctx>[] = [];
+const log: string[] = [];
 
 const getValGetter = (word: string) => {
   if (!table.has(word)) return undefined;
-  return () => table.get(word);
+  return (_t: unknown, w: string) => {
+    log.push(String(w));
+    return table.get(w);
+  };
 };
 
 function line(...parts: (string | number)[]): string {
@@ -28,8 +32,9 @@ function walk(e: Expression<Ctx>, depth: number, out: string[]): void {
       e.not ? "true" : "false",
       e.children.length,
       e.op === undefined ? "-" : String(e.op),
-      vtag(e.val_1),
-      vtag(e.val_2),
+      renderValue(e.val_1),
+      renderValue(e.val_2),
+      e.result === undefined ? "?" : String(e.result),
       esc(String(e.text)),
       e.err ? esc(String(e.err)) : "-",
     ),
@@ -65,10 +70,33 @@ function main(): void {
       continue;
     }
 
+    if (op === "clr") {
+      log.length = 0;
+      out.push(line(op));
+      continue;
+    }
+
+    if (op === "log") {
+      out.push(line("log", log.length, `[${log.map((w) => esc(w)).join(",")}]`));
+      continue;
+    }
+
     if (op === "b") {
       const e = new Expression<Ctx>(tok.slice(1).join(" "), getValGetter);
       exprs.push(e);
       out.push(line(op, exprs.length - 1));
+      walk(e, 0, out);
+      continue;
+    }
+
+    if (op === "d") {
+      const idx = Number(tok[1]);
+      const e = exprs[idx];
+      if (!e) {
+        process.stderr.write(`line ${lineno}: expression ${idx} out of range\n`);
+        process.exit(2);
+      }
+      out.push(line(op, idx));
       walk(e, 0, out);
       continue;
     }

@@ -90,11 +90,11 @@ int main(int argc, char** argv) {
       const bool is_take = (op == "take");
       const std::optional<double> v = is_take ? mt.take(arr) : mt.pick(arr);
 
-      Line()
-          .add(op)
-          .add_opt(v.has_value(), v.value_or(0.0))
-          .add(static_cast<unsigned long long>(arr.size()))
-          .out();
+      Line out;
+      out.add(op).add_opt(v.has_value(), v.value_or(0.0)).add(
+          static_cast<unsigned long long>(arr.size()));
+      for (double item : arr) out.add_qbits(item);
+      out.out();
 
     } else {
       std::fprintf(stderr, "line %d: unknown op '%s'\n", lineno, op.c_str());

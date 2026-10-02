@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -10,7 +10,6 @@ const NATIVE = resolve(HERE, "..");
 const BUILD_DIR = join(NATIVE, "build", "msvc-x64");
 
 const GEN_DIR = join(NATIVE, "build", "gen");
-const CMD_FILE = join(GEN_DIR, "native-cmd.cmd");
 
 const C = {
   red: (s) => `\x1b[31m${s}\x1b[0m`,
@@ -33,39 +32,84 @@ function findVs() {
   }
 }
 
+let hasOnPathMemo = new Map();
 function hasOnPath(exe) {
-  return spawnSync("where", [exe], { stdio: "ignore" }).status === 0;
+  if (!hasOnPathMemo.has(exe)) {
+    hasOnPathMemo.set(exe, spawnSync("where", [exe], { stdio: "ignore" }).status === 0);
+  }
+  return hasOnPathMemo.get(exe);
 }
 
-function runInVsEnv(cmd) {
+const VSENV_CACHE = join(GEN_DIR, "vsenv.json");
+let vsenvMemo = null;
+
+function vsTools() {
+  if (vsenvMemo && vsenvMemo.tools) return vsenvMemo.tools;
   const vs = findVs();
-  if (!vs) {
+  if (!vs) return null;
+  const vcvars = join(vs, "VC", "Auxiliary", "Build", "vcvars64.bat");
+  if (!existsSync(vcvars)) return null;
+  const cmakeBin = join(vs, "Common7", "IDE", "CommonExtensions", "Microsoft", "CMake", "CMake", "bin");
+  const ninjaBin = join(vs, "Common7", "IDE", "CommonExtensions", "Microsoft", "CMake", "Ninja");
+  const extra = [];
+  let cmakeExe = "cmake";
+  if (!hasOnPath("cmake")) {
+    cmakeExe = join(cmakeBin, "cmake.exe");
+    extra.push(cmakeBin);
+  }
+  if (!hasOnPath("ninja") && existsSync(ninjaBin)) extra.push(ninjaBin);
+  return { vcvars, cmakeExe, extra };
+}
+
+function vsEnv() {
+  if (vsenvMemo && vsenvMemo.env) return vsenvMemo.env;
+  const tools = vsTools();
+  if (!tools) return process.env;
+
+  const mtimeMs = statSync(tools.vcvars).mtimeMs;
+  if (existsSync(VSENV_CACHE)) {
+    try {
+      const cached = JSON.parse(readFileSync(VSENV_CACHE, "utf8"));
+      if (cached.vcvars === tools.vcvars && cached.mtimeMs === mtimeMs) {
+        vsenvMemo = { tools, env: applyExtra(cached.env, tools.extra) };
+        return vsenvMemo.env;
+      }
+    } catch {
+      /* regenerate below */
+    }
+  }
+
+  mkdirSync(GEN_DIR, { recursive: true });
+  const capture = join(GEN_DIR, "capture-env.cmd");
+  writeFileSync(capture, `@echo off\r\ncall "${tools.vcvars}" >nul\r\nset\r\nexit /b 0\r\n`);
+  const out = execFileSync("cmd.exe", ["/d", "/c", capture], {
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  const env = { ...process.env };
+  for (const line of out.split(/\r?\n/)) {
+    const i = line.indexOf("=");
+    if (i <= 0) continue;
+    env[line.slice(0, i)] = line.slice(i + 1);
+  }
+  writeFileSync(VSENV_CACHE, JSON.stringify({ vcvars: tools.vcvars, mtimeMs, env }));
+  vsenvMemo = { tools, env: applyExtra(env, tools.extra) };
+  return vsenvMemo.env;
+}
+
+function applyExtra(env, extra) {
+  if (!extra.length) return env;
+  const key = Object.keys(env).find((k) => k.toUpperCase() === "PATH") ?? "Path";
+  return { ...env, [key]: `${extra.join(";")};${env[key] ?? ""}` };
+}
+
+function runCmake(args) {
+  const tools = vsTools();
+  if (!tools) {
     console.error(C.red("Visual Studio not found (vswhere returned nothing)"));
     return 1;
   }
-
-  const vcvars = join(vs, "VC", "Auxiliary", "Build", "vcvars64.bat");
-  if (!existsSync(vcvars)) {
-    console.error(C.red(`missing ${vcvars}`));
-    return 1;
-  }
-
-  const lines = ["@echo off", `call "${vcvars}" >nul`];
-
-  const extra = [];
-  const cmakeBin = join(vs, "Common7", "IDE", "CommonExtensions", "Microsoft", "CMake", "CMake", "bin");
-  const ninjaBin = join(vs, "Common7", "IDE", "CommonExtensions", "Microsoft", "CMake", "Ninja");
-  if (!hasOnPath("cmake") && existsSync(cmakeBin)) extra.push(cmakeBin);
-  if (!hasOnPath("ninja") && existsSync(ninjaBin)) extra.push(ninjaBin);
-  if (extra.length) lines.push(`set "PATH=${extra.join(";")};%PATH%"`);
-
-  lines.push(cmd, "exit /b %ERRORLEVEL%");
-
-  mkdirSync(GEN_DIR, { recursive: true });
-  writeFileSync(CMD_FILE, lines.join("\r\n") + "\r\n");
-  console.log(C.dim(`  generated ${CMD_FILE}`));
-
-  return spawnSync("cmd.exe", ["/d", "/c", CMD_FILE], { stdio: "inherit" }).status ?? 1;
+  return spawnSync(tools.cmakeExe, args, { stdio: "inherit", env: vsEnv() }).status ?? 1;
 }
 
 const BIN = join(BUILD_DIR, "bin");
@@ -87,15 +131,25 @@ function cmdConfigure() {
     console.log(C.dim(`  ${BUILD_DIR} exists, skipping`));
     return 0;
   }
-  return runInVsEnv(
-    `cmake -S "${NATIVE}" -B "${BUILD_DIR}" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON`,
-  );
+  return runCmake([
+    "-S",
+    NATIVE,
+    "-B",
+    BUILD_DIR,
+    "-G",
+    "Ninja",
+    "-DCMAKE_BUILD_TYPE=Release",
+    "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON",
+  ]);
 }
 
 function cmdBuild() {
-  const code = runInVsEnv(`cmake --build "${BUILD_DIR}"`);
+  const subject = process.argv[3];
+  const args = ["--build", BUILD_DIR];
+  if (subject) args.push("--target", `lfw_trace_${subject}`);
+  const code = runCmake(args);
   if (code !== 0) return code;
-  console.log(C.dim(`  -> ${BIN}`));
+  console.log(C.dim(`  -> ${BIN}${subject ? ` (target lfw_trace_${subject})` : ""}`));
   return 0;
 }
 

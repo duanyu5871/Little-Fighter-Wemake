@@ -25,72 +25,72 @@ class Expression {
 
   Expression(const std::u16string& source, ValGetterGetter<Ctx> getter_getter) {
     _getter_getter = getter_getter;
-    std::u16string text;
-    text.reserve(source.size());
+    std::u16string src_text;
+    src_text.reserve(source.size());
     for (char16_t c : source) {
-      if (!is_str_white_space(c)) text.push_back(c);
+      if (!is_str_white_space(c)) src_text.push_back(c);
     }
 
     bool has_meta = false;
-    for (char16_t c : text) {
+    for (char16_t c : src_text) {
       if (c == u'&' || c == u'|' || c == u'(' || c == u')') {
         has_meta = true;
         break;
       }
     }
     if (!has_meta) {
-      parse(text);
+      parse(src_text);
       return;
     }
 
     size_t p = 0;
-    const size_t count = text.size() + 1;
+    const size_t count = src_text.size() + 1;
     size_t i = 0;
     char16_t letter = 0;
-    std::u16string before;
+    std::u16string pending;
     for (; i < count; ++i) {
-      letter = i < text.size() ? text[i] : u'\0';
-      if (letter == u'!' && i + 1 < text.size() && text[i + 1] == u'(') {
-        Expression child(text.substr(i + 2), getter_getter);
+      letter = i < src_text.size() ? src_text[i] : u'\0';
+      if (letter == u'!' && i + 1 < src_text.size() && src_text[i + 1] == u'(') {
+        Expression child(src_text.substr(i + 2), getter_getter);
         child.not_ = true;
-        child.before = before;
+        child.before = pending;
         i += child.text.size() + 2;
         p = i + 2;
         children.push_back(std::move(child));
       } else if (letter == u'(') {
-        Expression child(text.substr(i + 1), getter_getter);
-        child.before = before;
+        Expression child(src_text.substr(i + 1), getter_getter);
+        child.before = pending;
         i += child.text.size() + 1;
         p = i + 1;
         children.push_back(std::move(child));
       } else if (letter == u'|' || letter == u'&') {
         bool db = false;
-        if (i + 1 < text.size() && text[i + 1] == letter) {
+        if (i + 1 < src_text.size() && src_text[i + 1] == letter) {
           db = true;
           ++i;
         }
         const size_t stop = db ? i - 1 : i;
         if (p < stop) {
-          std::u16string sub = text.substr(p, stop - p);
+          std::u16string sub = src_text.substr(p, stop - p);
           while (!sub.empty() && sub.back() == u')') sub.pop_back();
           Expression child(sub, getter_getter);
-          child.before = before;
+          child.before = pending;
           children.push_back(std::move(child));
-          before = std::u16string(1, letter);
+          pending = std::u16string(1, letter);
         } else {
-          before = std::u16string(1, letter);
+          pending = std::u16string(1, letter);
         }
         p = i + 1;
       } else if (letter == u')' || letter == u'\0') {
         if (p < i) {
-          Expression child(text.substr(p, i - p), getter_getter);
-          child.before = before;
+          Expression child(src_text.substr(p, i - p), getter_getter);
+          child.before = pending;
           children.push_back(std::move(child));
         }
         break;
       }
     }
-    this->text = text.substr(0, i);
+    this->text = src_text.substr(0, i);
   }
 
   bool run(const Ctx& ctx) {

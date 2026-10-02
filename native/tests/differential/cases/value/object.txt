@@ -122,3 +122,29 @@ lt o 0 s "z"
 eq o 0 u
 eq o 0 z
 ge o 0 n 0
+# 整数键的取值 / 存在性 / 删除（Object::get 的整数分支）
+# `-` = 最近一次 hold 的句柄（别凭"第几个 hold"猜序号，hold 会打印自己的序号）
+hold o 3 0 n 10 1 n 11 2 n 12
+oprop - 0
+oprop - 1
+oprop - 2
+oprop - 3
+oprop - 01
+oprop - "1:2"
+oprop - 0.0
+ohas - 0
+ohas - 2
+ohas - 3
+odel - 0
+okeys -
+odel - 5
+odel - nokey
+odel - "1:2"
+olen -
+
+# 20 位键：长度上限去掉后会在 uint64 里溢出（2^64 -> 0）
+hold o 1 18446744073709551616 n 1
+okeys -
+ohas - 18446744073709551616
+hold o 1 99999999999999999999 n 1
+okeys -

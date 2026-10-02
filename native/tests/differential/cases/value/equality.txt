@@ -91,3 +91,20 @@ eq n nan a 1 u
 eq s "," a 2 u u
 eq s "," a 2 z z
 eq n 0 s "0"
+
+# 严格相等的 undefined / null 方向性
+seq u n 1
+seq u z
+seq u s ""
+seq u b 1
+seq n 1 u
+seq z u
+seq z n 0
+seq z s "null"
+seq s "" u
+seq a 0 z
+seq a 0 u
+seq o 0 z
+seq o 0 u
+seq b 1 u
+seq b 0 z

@@ -103,3 +103,102 @@ b hp==100
 r 42
 b hp==hp
 r 43
+# 类型混合与宽松相等
+g nu z
+g un u
+g tt b 1
+g ff b 0
+g nan n NaN
+g o1 o 1 k n 1
+g arr1 a 1 n 5
+g e s ""
+g sp s " "
+g nn a 2 n 1 n 2
+g ss a 2 s "1" s "2"
+g str s "123"
+g nn2 a 1 n 12
+g se a 1 s ""
+g lng a 2 s "9999" s "1"
+
+b nu==un
+r 44
+b nu!=un
+r 45
+b nu==0
+r 46
+b un==0
+r 47
+b tt==1
+r 48
+b ff==0
+r 49
+b tt==e
+r 50
+b ff==e
+r 51
+b e==0
+r 52
+b sp==0
+r 53
+b e==ff
+r 54
+b nan==nan
+r 55
+b nan!=nan
+r 56
+b nan<1
+r 57
+b nan>=1
+r 58
+b nan<=1
+r 59
+b nan>1
+r 60
+b o1==1
+r 61
+b arr1==5
+r 62
+b arr1==1
+r 63
+
+# 集合包含：严格相等的 indexOf
+b st{{nn
+r 64
+b nn{{st
+r 65
+b st{{ss
+r 66
+b st{{arr0
+r 67
+b arr0{{st
+r 68
+b arr1{{nn
+r 69
+b st}}nn
+r 70
+b nn}}st
+r 71
+b st}}1,2
+r 72
+b st!{nn
+r 73
+b st!}nn
+r 74
+b st!{ss
+r 75
+b st!}ss
+r 76
+
+# a 为字符串时 indexOf 走子串查找（元素会被转成字符串）
+b str{{nn
+r 77
+b str{{ss
+r 78
+b str{{nn2
+r 79
+b str{{se
+r 80
+b str{{lng
+r 81
+b str!{lng
+r 82

@@ -74,7 +74,7 @@ function main(): void {
     }
 
     if (op === "okeys" || op === "olen" || op === "ohas" || op === "oprop" || op === "oset" || op === "odel") {
-      const held = handles[Number(tok[1])];
+      const held = tok[1] === "-" ? handles[handles.length - 1] : handles[Number(tok[1])];
       const o = held !== null && typeof held === "object" && !Array.isArray(held)
         ? (held as Record<string, unknown>)
         : undefined;
@@ -90,8 +90,10 @@ function main(): void {
         if (o) o[keyOf(tok[2]!)] = parseValue(tok, [3]);
         out.push(line(op, tok[2]!));
       } else {
-        if (o) delete o[keyOf(tok[2]!)];
-        out.push(line(op, tok[2]!));
+        const key = keyOf(tok[2]!);
+        const existed = o ? Object.hasOwn(o, key) : false;
+        if (o) delete o[key];
+        out.push(line(op, tok[2]!, existed ? "true" : "false"));
       }
       continue;
     }

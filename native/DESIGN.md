@@ -1926,3 +1926,214 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
 - **`calc_stiffness` 的 itr 同名字段优先于回退**：`motionless = itr.motionless ?? 回退值`，
   `shaking = itr.shaking ?? 回退值`，且 `??` 只在 `null`/`undefined` 时穿透
   （`0` / `false` / `""` 都会保留）⇒ `or_default` 与 `field_or` 的组合语义各出一条变异。
+### 4.57 V57 步骤 4 第七块 `helper/Randoming` + `state/spawn_ice_piece`
+
+- 新增 `native/lfw/base/clock.h` / `native/lfw/helper/randoming.{h,cpp}` /
+  `native/lfw/state/spawn_ice_piece.{h,cpp}`；subject `mt_random`（op `mt` / `rn` / `ent` / `ip`）
+  **143 行全对**，变异 **55/55 全杀**。
+  `MersenneTwister` 早期就移植过（subject `mersenne_twister`，7564 行）⇒ 本轮只补它上面的
+  `Randoming` 包装与 `spawn_ice_piece` 那两个叶块。
+- **`<chrono>` 被 lint 禁止**（"host clock; use injected IClock"）⇒ 新增 `base/clock.h`：
+  `class IClock { virtual double now_ms() const; }` + `clock()` / `set_clock()` 的
+  **函数局部静态槽**（header-only，不用登记 CMake）。`Randoming::default_mt()` 用
+  `clock() != nullptr ? clock()->now_ms() : 0.0` 作种子。
+  差分里两侧都装假时钟（`1700000000000`）：C++ 侧 `set_clock(&TestClock)`，
+  TS 侧靠 `subjects/shared/patch_date.ts`（`Date.now = () => 1700000000000`）**在 import 顺序上先于**
+  `Randoming` 被求值（`Randoming.mt = new MersenneTwister(Date.now())` 是模块求值期执行的）
+  ⇒ 两边默认 mt 的种子一致，**默认通道的取值也能逐位对拍**。
+  ⚠️ `run.mjs` 只 glob `subjects/*.ts`（不递归）⇒ 共享模块必须放在子目录（本轮 `subjects/shared/`），
+  否则它会被当成一个 subject 去跑。
+- **TS 默认参数 ≠ `??`**（本轮唯一的漂移）：`create(name, src, mt = Randoming.mt, duplicate = false)`
+  与构造函数的 `duplicate = false`，传 `undefined` 要回落 `false`，传 `null` 不回落
+  ⇒ C++ 用 `duplicate_or_default()`（`monostate → Value(false)`），并且 `duplicate` 存 **`Value`**
+  而不是 `bool`（否则 `dup=z` 与 `dup=b0` 不可区分）。差分直接抓到这个：
+  `rn create c1 - … u` 输出 `dup=u`（错）vs `dup=b0`（对）。
+- **`Randoming` 要点**：`_src` 与 `cur` 是两份，`set_src` **不动 `cur`**；`get()` 按 `truthy(duplicate)`
+  分 `random_get`（从 `_src` 取，**不动 `cur`**）/`random_take`（从 `cur` 里 splice，抽空后重填）；
+  重填条件是 `_src.size() > 1`，用 `v != taken` 的**松相等**过滤（`null == undefined`）
+  ⇒ `taken` 为 `null` 时 `null`/`undefined` 元素会被一起滤掉；`_src` 为空时重填后仍空，
+  越界读要返回 `undefined`（TS 的 `array[i]` 语义）。
+  ⚠️ 「`taken` 初值 `null`」只在**首次重填**时生效，而首次重填要求 `cur` 已空 ⇒ 必然已抽过一次；
+  但 `dump` 里打印 `taken=` 就能观察到初值 ⇒ 这条变异仍可杀（不要当等价变异删掉）。
+- **`spawn_ice_piece`**：每次返回**新对象**，键序固定
+  `kind,x,y,oid,action,dvx,dvy,ghost,speedz,unimportant`，`oid` 硬编码 `OID.BrokenWeapon`(999)。
+  `ice_piece_opoints` 是 16 个模块级实例（130×3 / 120×2 / 125×4 / 135×7）。
+- **`__gen_*` 是函数对象** ⇒ 按既有「Expression 类字段」约定**不移植**，差分时 TS harness 侧
+  删掉 `__gen_dvx/__gen_dvy/__gen_x/__gen_y` 四个键。但**体内的逻辑**移植成 4 个具名纯函数
+  （`ice_piece_dvx/dvy/x/y`，把 `e.lfw.mt` 降为参数），TS 侧直接调**真实的 getter**
+  （`spawn_ice_piece("0").__gen_dvx.get({...ent, lfw:{mt}})`）⇒ 打在这些逻辑上的变异是可杀的，
+  不是死代码。
+  - `__gen_dvx`/`__gen_dvy` 的缓存是**模块级**（`dvx_randoming()`/`dvy_randoming()` 两个函数局部静态
+    `shared_ptr`，各一个槽，别合并），身份判据是 **mt 指针**（`cached->mt() != &mt`）⇒ 换 mt 会
+    重开一个 `Randoming`；而 `!is_object(e)` 的短路在**缓存之前**，所以"非实体"不会重置缓存。
+  - `__gen_x`/`__gen_y` = `round(w/2 + mt.range(-w/4, w/4))`。
+    ⚠️ `range` 在 `min == max` 时**提前返回且不消耗随机数**，`w = 0` 正好走这条
+    ⇒ 用例必须在 `w = 0` 之后**再抽一次**才能观察到"有没有消耗"。
+  - `mt.mark = ...`、`debugging`、`mt_cases` 只被调试探针读（`pure()` 在 `src/LFW` 里无调用点）
+    ⇒ 不移植（沿用既有 `MersenneTwister` 实现，它本来就没有 `mark`）。
+- **变异覆盖技巧（不放回抽样 ⇒ 一次覆盖全表）**：`random_take` 是"抽走不放回"
+  ⇒ 连抽 n 次（n = 数组长度）必然**恰好**把数组每个元素各抽到一次
+  ⇒ 打 9 次 `ip dvx` + 13 次 `ip dvy` 就足以杀死数组里任何单个元素的变异，不必逐个写条目。
+- **`round` vs `floor` 的分岔要用非整数半径**：`w/4` 是整数时（如 80）`round` 与 `floor` 同值
+  ⇒ 必须用 `w = 2 / 10 / -10` 这种 `w/4` 带 `.5` 的宽度（本轮 2 条存活之一就是这样补杀的）。
+### 4.58 V58 覆盖审计 + `base/Expression` 加固 + 构建链提速
+
+**背景（本轮查出的真问题）**：有 8 个早期 subject **从来没有过变异文件** ——
+`expression` / `value` / `json` / `math` / `mersenne_twister` / `core` / `utils` / `collections`
+（`git log --diff-filter=A -- 'native/tests/differential/mutations/*'` 里只有 44 个文件）。
+README §1.6 记的"共 48 条变异全杀"当时是**临时脚本**跑的，产物没留下 ⇒ 不可复现。
+这不影响差分（差分一直在跑），但"每条单元都要有可复现的变异全杀"这条纪律出现了 8 个缺口。
+本轮先补最关键的一个：`Expression`（条件引擎，所有 `__judger` / 帧条件都过它）。
+
+- **harness 强化**（两侧同步改）：`val_1`/`val_2` 从只打类型标签改成 `render_value` 的**位精确**输出；
+  新增 `result` 字段；**新增 getter 调用日志**（`clr` / `log`）—— 求值顺序与短路**只能**靠它观察；
+  新增 `d <idx>` 在 `run` 之后重放整棵树。
+  用例 187 行 → **928 行**（`parse` 303 / `eval` 348 / `short` 146 / `more` 131）。
+  ⚠️ 每个 `.txt` 是**独立进程**，全局符号表不跨文件共享 ⇒ 新用例文件要自己 `g` 一遍。
+- 顺手修掉 `expression.h` 里两个被静默吞掉的 `C4458`（构造函数局部 `text` / `before` 遮蔽同名成员）
+  ⇒ 改名 `src_text` / `pending`。**注意**：`native.mjs` 报的 "N clean / 0 warnings" 来自
+  `check_lfw_cpp_includes.mjs`（纯文本检查），**不统计编译器告警** —— 编译器告警要自己看构建输出。
+- `mutations/expression.mjs`：**69 条全杀**（覆盖 `expression.h` / `bin_op.h` / `predicate.cpp` 三处）。
+- **删掉 3 条已证明等价的变异**（第 6 形态：死代码 / 冗余守卫）：
+  1. `&`/`|` 分支里 `while (!sub.empty() && sub.back() == u')') sub.pop_back();` 改成 `if` / 去掉 ——
+     **死代码**。推导：扫描遇到任何 `)` 都会 `break`；而 `p` 在每次子节点分支后都已被推到已消费区之后
+     （`(` 分支 `p = i + 1`、`!(` 分支 `p = i + 2`），所以区间 `[p, stop)` 的每个下标都被扫描过，
+     **不可能藏着 `)`** ⇒ `sub` 恒不以 `)` 结尾。用例 `b (A==B))&(C==D)` 的输出也印证：
+     树只剩 `(A==B)` 一个节点、`&(C==D)` 整段被多余 `)` 提前截断（TS 原样行为，两边一致）。
+  2. `run` 里 and 组的 `if (and_set && !and_result) continue;` 去掉 —— **冗余守卫**：
+     紧随其后的 `and_result && child.run(ctx)` 本身就会在 `and_result` 为假时短路。
+     （把条件取反成 `and_result` 则会跳过本该求值的子节点，那条**被杀掉了**。）
+- **构建链提速**（`native.mjs` / `run.mjs` / `mutate.mjs`），单条变异 **~9 s → 4.1 s**：
+  1. **VS 环境缓存**：每次 `native.mjs build` 都 `cmd /c → call vcvars64.bat`，实测
+     **5400 ms/次**（与变异内容无关的纯浪费）。改成捕获一次存 `native/build/gen/vsenv.json`
+     （带 `vcvars` 路径 + mtime 校验），之后用 `spawnSync(cmakeExe, args, { env })` 直接调 cmake，
+     连 `cmd.exe` 都省掉。`where cmake` / `where ninja` / `vswhere` 结果也 memo 化。
+  2. **`native.mjs build [<subject>]`**：带 subject 时加 `--target lfw_trace_<subject>`
+     ⇒ `lfw_core.lib` 变化后**只重链被测那 1 个 exe**（原来 46 个）。
+  3. **`run.mjs --reuse-ts`**：变异只改 `native/lfw/**`，TS 侧产物**不可能变**
+     ⇒ 若 `trace.<subject>.<case>.ts.txt` 比用例文件与 subject `.ts` 都新就直接复用
+     （0.94 s → 0.34 s）。`mutate.mjs` 会**断言每条变异的 `file` 都在 `native/lfw/` 下**，
+     越界直接报错退出 —— 这是该优化成立的依据。
+  4. `mutate.mjs` 新增进度点与 `总耗时 / ms per mutation / 最慢的一条`，以后一慢就看得见。
+- 实测单条变异的构建内容（ninja 日志）：`predicate.cpp` + `labels.cpp` + `cook_frames.cpp`
+  + subject 的 `expression.cpp` 共 4 个 obj，再链 `lfw_core.lib` 与 1 个 exe，外加 cmake 的
+  `verify_globs`（测试 subject 是 GLOB 出来的，每次构建都会校验）。这部分是**必要成本**，不可省。
+### 4.59 覆盖审计（二）：`utils/math/MersenneTwister` 加固
+
+- 用例 42 行 → **71 行**（输出 7614 行），变异 **49/49 全杀**（109 s / 2.2 s 每条 —— 变异只碰
+  `mersenne_twister.cpp`，走新的单 target 快速路径）。
+- 意义：`MersenneTwister` 是**全游戏唯一的随机源**（`Randoming` / `RandomVisible` /
+  `team_randoming` / `World.random_*` 全在它上面），之前只有差分、没有变异 ⇒ 现在补上了。
+- **harness 扩展**：`pick` / `take` 现在把**操作后的剩余数组**一起打印。
+  否则"take 删了哪个下标"不可观察 —— 每次调用都在从 token 新建的数组上操作，
+  删对删错只差一个元素，而打印的 `size` 两种情况都少 1。
+- 两条存活与修法：
+  1. **`reset` 的 `_index = k_N + 1` 改成 `k_N`**：行为**完全等价**（625 与 624 都大于等于 624，
+     首次 `next_int` 都会先 `twist` 并把 `_index` 归零），只能靠 `state` 指纹抓；而原有用例的
+     `state` 都打在若干次抽取之后，那时 `_index` 早已走平 ⇒ 必须在 `seed` 之后**立刻**打一次
+     `state`。**教训：内部状态字段的指纹要在"刚好设置完"的时刻打。**
+  2. **`next_float` 的除数 2^32 → 2^32-1**：相对差 2.3e-10，被 `floor_float` 的 1/1000 量化吃掉
+     ⇒ **新等价形态：差异小于后继量化步长**（要可观察，得让 `int/2^32*1000` 落在整数下方
+     2.3e-7 以内，即 `int` 恰为 2^29 的倍数；十来个种子里抽一万次也遇不上）。
+     改成测「除数写成 2^31」，保留了"除数参与计算且量级正确"这条。
+- 顺带：`range(min, max)` 在 `min == max` 时**提前返回且不消耗随机数**，返回的是 `min`
+  ⇒ `range(-0, 0)` 必须保留 `-0` 的位模式。用例成对写：`range -0 0 1` + 紧随其后的 `int`
+  （既锁 `-0`，又锁"没消耗随机数"）。
+### 4.60 覆盖审计（三）：`utils/math/` 全家族加固
+
+- 用例 `scalar` 90 → **95 行**、`plane` 52 → **59 行**，变异 **61/61 全杀**（327 s / 5.4 s 每条，
+  最慢单条 20.8 s —— 变异目标是被大量 TU 包含的 header，必须重编译所有包含者，这部分不可省）。
+- 覆盖：`clamp` / `clamp_add` / `normalize` / `float_equal`·`equal`·`eqgt`·`eqlt` /
+  `round_float` / `floor_float` / `range` / `probability` / `normalize_plane` / `calc_plane` /
+  `line_plane_intersection` / `project_to_line`。三者（含既有的 `mersenne_twister`）合起来
+  `utils/math/` 就整块有差分 + 变异了。
+- **harness 修正**：`normalize` 之前被 harness 硬写成 `normalize(n, 1000)` ⇒ 头文件里的
+  **默认参数永远用不到**，`normalize：默认倍数写成 100` 因此存活。改成 2 个 token 时走
+  `normalize(n)`（两侧同步改）后即可观察。**教训：harness 不要替被测代码补默认值。**
+- 两条**真等价**（已删，理由写在文件头）：
+  1. `float_equal` 去掉 `abs`：`round_float(x - y) == 0` 与 `round_float(abs(x - y)) == 0` 等价 ——
+     `round_float(-0.0004)` 得到的是 **`-0`**，而 `-0 == 0` 为真 ⇒ `abs` 冗余。
+  2. `floor_float` 的默认倍数 1000 → 100：唯一调用点 `normalize` 总是显式传 `p` ⇒ 默认值不可达。
+- 三条**用例缺口**（已补）：
+  1. `line_plane` 的 `is_direction` 分支：原来两个 `is_direction=1` 的样本恰好都 `x1 == x2`
+     ⇒ `vx = x2` 改成 `vx = x1` 不可区分。补 `x1 != x2` 的样本。
+  2. `project_to_line` 的分母：原来的斜率 `m` 只取 `{1, 0, -0}`，而 `pow(1,3) == pow(1,2)`、
+     `pow(0,3) == pow(0,2)` ⇒ `pow(m,2)` 改成 `pow(m,3)` 不可区分。补 `m = 2 / 3` 的样本。
+  3. `normalize` 的默认倍数（见上）。
+  ⇒ 补样本的**通用办法**：先把变异点想成"哪一类输入才分岔"，再检查现有用例的参数取值集合
+  是否覆盖了那个分岔方向（这里是"斜率非 0/±1"与"起点≠终点"）。
+
+### 4.61 覆盖审计（四）：`base/Value` + `Object`/`Array` 加固
+
+- **覆盖面**：`native/lfw/base/value.h`、`object.h`、`array.h`、`kind_of`、`is_array_index`、
+  `equals` / `strict_equals` / `less_than`、`to_number` / `to_string`。用例 187 → 489 行
+  （`basic` 89 / `coerce` 61 / `equality` 99 / `object` 131 / `relational` 107），变异
+  **71/71 全杀**。
+- **harness 修正（第 2 例，与 §4.60 的 `normalize` 同源）**：`odel` 之前只打印被删的键名，
+  把 `Object::remove` 的**返回值吞掉了** ⇒ "删除失败却报成功"这类变异不可见。改成
+  `odel <key> <existed>`（两侧同步：C++ 取 `remove()` 的返回值，TS 用 `Object.hasOwn` 先探再删）。
+  **教训：harness 必须透明转发被测代码的每一个可观察输出，既不能替它补默认值，也不能吞返回值。**
+- **用例缺口（已补）**：
+  1. `Object::get` 的**整数键分支**完全没有样本（只有字符串键）⇒ 补 `oprop` / `ohas` 打整数键
+     `0/1/2/3`、`01`、`"1:2"`、`0.0`（非规范下标必须落到字符串键路径）。
+  2. `is_array_index` 的**长度上限**需要 uint64 溢出样本才可观察：`18446744073709551616`
+     （2^64）在"去掉长度上限"后会溢出成 `0` ⇒ 被当成整数键 0，`okeys` 从
+     `"18446744073709551616"` 变成 `"0"`。补 20 位键样本。
+  3. `strict_equals` 的**方向性**：`undefined`/`null` 与任意值的相等关系必须左右各打一遍
+     （补 15 条 `seq` 用例）；只测单侧会漏掉"少判一个分支"的变异。
+- 一条**死代码**（已删，理由写在文件头）：`strict_equals` 末尾的 `return false;` —— 上面 7 个
+  variant 分支已覆盖全部 kind，该行不可达。"等价"判定要看**可达性**，不是看语义相同。
+
+### 4.62 覆盖审计（五）：`utils/` 全家族加固
+
+- **覆盖面**：`cross_bounding.h`、`easing/`（`ease_linearity` / `ease_in_out_sine` / `ease_in_out_quint`
+  各含 `backward`）、`Times`、`utf8`，另补上此前**只有"能编译"、没有任何差分**的
+  `type_check.h` / `type_cast.h`。用例 184 → 321 行（`cross_bounding` 8 / `easing` 63 /
+  `times` 111 / `type` 98 / `utf8` 41），变异 **108/108 全杀**。
+- **harness 修正（第 3 例，与 §4.60 `normalize`、§4.61 `odel` 同源）**：`ease_*` 这 8 个函数的
+  `from`/`to` 两个默认实参此前**永远由 harness 显式填 `0` / `1`** ⇒ 头文件里写的默认值不可达。
+  改成**按实参个数分派**：C++ 侧 `ease_at(tok, f1, f2, f3)` 收 3 个 lambda，TS 侧给缺的形参传
+  `undefined` 走原生默认参数（JS 的默认值对 `undefined` 生效）。用例补 `ease_linearity 0.5 10`
+  这类"只给 2 个实参"的写法。
+  **注意 C++ 没有 `undefined`** —— 这是"用同一份用例驱动两种语言"时必须自己造的一层分派。
+- **同类问题**：`Times` 的 `ctor(min = 0, max = MAX)` / `set_lifes(v = -1)` / `add(d = 1)` 三个默认值
+  也被 harness 的兜底值掩盖 ⇒ 一并改成按实参个数分派，并在 `cases/utils/times.txt`
+  **首行**加 `times_state`，观测"默认构造出来的 `Times`"。
+- **新增观测**：`chk <name> <valueliteral>`（6 个谓词）、`tonum <v>`（TS 的 1 实参重载返回
+  `undefined`，C++ 用 `std::optional` 的 `nullopt`，两侧都渲染成 `u`）、`tonum_or <v> <n>`；
+  以及 `times_is_max` / `times_is_min`（否则这两个 getter 的 `>=` / `<=` 边界完全不可观测）。
+- 一条**死代码**：`type_check.h` 的 `is_nan_num` 在整个 `lfw/` 里**零调用点**（只有定义），
+  已记入"已知偏差"，不为其造观测。
+- 三条**真等价**（已删，理由写在文件头）：
+  1. `ease_in_out_quint.backward` 的 `ratio < 0.5` → `<= 0.5`：`ratio == 0.5` 时
+     下支 `pow(0.5/16, 0.2) = pow(1/32, 0.2) = 0.5`，上支 `1 - pow(1, 0.2)/2 = 0.5`，两值相等
+     （0.5 是这条曲线的不动点，与 `ease_in_out_quint` 正向的 `< 0.5` → `<= 0.5` 同源）。
+  2. `Times::_value` 的**类内成员初值**：构造器体里 `set_range` 立刻写 `_value` ⇒ 构造完必被覆盖，
+     是死存储（TS 侧同理）。**但 `_lifes` / `_remains` 的初值不会被 `set_range` 碰**，
+     所以它们是可观测的 —— 改初值这类变异要逐个确认"有没有人在构造期覆盖它"。
+  3. `Times::add` 的 `if (ret && _remains > 0.0)` 把 `> 0.0` 改成 `>= 0.0`：能走到这一行就说明
+     `_remains != 0`（前面已有 `if (_remains == 0.0) return false;`）⇒ 两条件等价。
+
+### 4.63 覆盖审计（六）：`core/json` 加固
+
+- **覆盖面**：`lfw/core/json.cpp` 的 `json_stringify`（`quote()` + `write()` + `number_to_string` 委派）
+  与 `json_parse`（`Parser` 的 `str/num/arr/obj/val` + `digit()` + `is_json_ws`）。
+  用例 163 → 250 行（`parse` 94→161、`stringify` 69→89），变异 **76/76 全杀**。
+- **两条用例缺口（都不是等价，是样本没打在变异点的分岔方向上）**：
+  1. **`\uXXXX` 的十六进制有 `0-9` / `a-f` / `A-F` 三段**，而原样本是 `0041`、`00e9`、
+     `d83d`、`0000` —— **一个大写字母都没出现** ⇒ "不认大写十六进制"（删掉 `A-F` 分支）存活。
+     补 `"\u00E9"`、`"\uD83D\uDE00"`、`"\u00aB"`（混大小写）、`"\uABCD"`。
+  2. **`{"a" 1}` 这条"专为冒号检查写的用例"其实没测到那条检查**：把 `!= u':'` 检查删掉后，
+     跳过空格与 `1` 会撞到 `}` 上，由**下游**的"键必须是字符串"检查兜住 ⇒ 两侧都 err。
+     要让它可分辨，必须构造"跳掉一个字符后**恰好拼得出合法文档**"的输入：
+     `{"a"9 1}` / `{"a"1 2}`。
+     ⇒ **教训：删掉某条检查后，要确认没有别的检查接着兜住它** —— 否则"报错"这个结果
+     在两侧都会出现，用例是空转的。
+- **故意不打的 5 类变异**（不是覆盖缺口，是构造上不可判别）：
+  1. `quote()` 的 `(c >> 12) & 0xf`：该分支只在 `c < 0x20` 时进入 ⇒ `c >> 12` 恒为 0，改不改都输出 `'0'`。
+  2. `Parser::str()` 的 `if (i + 4 > s.size())` 改成 `i + 3 > ...`：能过检查又"四字符都是十六进制"的
+     输入不存在（真到那一步后面一定跟着收尾引号或越界 ⇒ 两版都 fail）。
+  3. `digit()` 的 `i < s.size()` 改成 `i <= s.size()`：`s[size()]` 是 `'\0'`，不是数字，结果相同。
+  4. `write()` 末尾 `if (o == nullptr) return false;`：走到那里时 variant 只可能是 Object ⇒ 不可达。
+  5. 去掉 `arr()`/`obj()` 里的 `++i`、去掉 `str()` 的越界判断、把 `write(*p, out)` 写成 `write(v, out)`：
+     分别是死循环与越界读 —— 它们给出的是 UB/挂死而不是"漂移"，**不能作为覆盖证据**，故不打。

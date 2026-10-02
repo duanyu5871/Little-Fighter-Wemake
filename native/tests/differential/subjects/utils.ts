@@ -4,8 +4,11 @@ import { ease_in_out_sine } from "../../../../src/LFW/utils/easing/ease_in_out_s
 import { ease_linearity } from "../../../../src/LFW/utils/easing/ease_linearity";
 import { Times } from "../../../../src/LFW/utils/Times";
 import { decodeUTF8, encodeUTF8 } from "../../../../src/LFW/utils/utf8";
+import { is_int, is_num, is_positive, not_zero_num } from "../../../../src/LFW/utils/type_check/is_num";
+import { is_non_empty_str, is_str } from "../../../../src/LFW/utils/type_check/is_str";
+import { to_num } from "../../../../src/LFW/utils/type_cast/to_num";
 
-import { bitsHex, qBits, readCaseLines, splitWs } from "./trace_util";
+import { bitsHex, parseValue, qBits, readCaseLines, splitWs } from "./trace_util";
 
 function line(...parts: (string | number | boolean)[]): string {
   return parts.map((p) => String(p)).join(" ");
@@ -14,6 +17,19 @@ function line(...parts: (string | number | boolean)[]): string {
 function arg(tok: string[], i: number, fallback: number): number {
   return i < tok.length ? Number(tok[i]) : fallback;
 }
+
+function opt(tok: string[], i: number): number | undefined {
+  return i < tok.length ? Number(tok[i]) : undefined;
+}
+
+const CHECKS: Record<string, (v: unknown) => boolean> = {
+  is_num,
+  is_positive,
+  not_zero_num,
+  is_int,
+  is_str,
+  is_non_empty_str,
+};
 
 function main(): void {
   const casePath = process.argv[2];
@@ -37,27 +53,27 @@ function main(): void {
 
     switch (op) {
       case "ease_linearity":
-        out.push(line(op, bitsHex(ease_linearity(arg(tok, 1, 0), arg(tok, 2, 0), arg(tok, 3, 1)))));
+        out.push(line(op, bitsHex(ease_linearity(arg(tok, 1, 0), opt(tok, 2), opt(tok, 3)))));
         break;
 
       case "ease_linearity_backward":
-        out.push(line(op, bitsHex(ease_linearity.backward(arg(tok, 1, 0), arg(tok, 2, 0), arg(tok, 3, 1)))));
+        out.push(line(op, bitsHex(ease_linearity.backward(arg(tok, 1, 0), opt(tok, 2), opt(tok, 3)))));
         break;
 
       case "ease_in_out_sine":
-        out.push(line(op, qBits(ease_in_out_sine(arg(tok, 1, 0), arg(tok, 2, 0), arg(tok, 3, 1)))));
+        out.push(line(op, qBits(ease_in_out_sine(arg(tok, 1, 0), opt(tok, 2), opt(tok, 3)))));
         break;
 
       case "ease_in_out_sine_backward":
-        out.push(line(op, qBits(ease_in_out_sine.backward(arg(tok, 1, 0), arg(tok, 2, 0), arg(tok, 3, 1)))));
+        out.push(line(op, qBits(ease_in_out_sine.backward(arg(tok, 1, 0), opt(tok, 2), opt(tok, 3)))));
         break;
 
       case "ease_in_out_quint":
-        out.push(line(op, qBits(ease_in_out_quint(arg(tok, 1, 0), arg(tok, 2, 0), arg(tok, 3, 1)))));
+        out.push(line(op, qBits(ease_in_out_quint(arg(tok, 1, 0), opt(tok, 2), opt(tok, 3)))));
         break;
 
       case "ease_in_out_quint_backward":
-        out.push(line(op, qBits(ease_in_out_quint.backward(arg(tok, 1, 0), arg(tok, 2, 0), arg(tok, 3, 1)))));
+        out.push(line(op, qBits(ease_in_out_quint.backward(arg(tok, 1, 0), opt(tok, 2), opt(tok, 3)))));
         break;
 
       case "cross_bounding": {
@@ -85,10 +101,13 @@ function main(): void {
         break;
       }
 
-      case "times_new":
-        times = new Times(arg(tok, 1, 0), arg(tok, 2, 9007199254740991));
+      case "times_new": {
+        const a = opt(tok, 1);
+        const b = opt(tok, 2);
+        times = b !== undefined ? new Times(a, b) : a !== undefined ? new Times(a) : new Times();
         out.push(state(op));
         break;
+      }
 
       case "times_set_range":
         times.set_range(arg(tok, 1, 0), arg(tok, 2, 0));
@@ -96,7 +115,7 @@ function main(): void {
         break;
 
       case "times_set_lifes":
-        times.set_lifes(arg(tok, 1, -1));
+        times.set_lifes(opt(tok, 1));
         out.push(state(op));
         break;
 
@@ -129,9 +148,40 @@ function main(): void {
         out.push(state(op));
         break;
 
+      case "times_is_max":
+      case "times_is_min":
+        out.push(line(op, op === "times_is_max" ? times.is_max : times.is_min));
+        break;
+
       case "times_add": {
-        const r = times.add(arg(tok, 1, 1));
+        const r = times.add(opt(tok, 1));
         out.push(line(op, r, bitsHex(times.value), bitsHex(times.min), bitsHex(times.max), bitsHex(times.lifes), bitsHex(times.remains)));
+        break;
+      }
+
+      case "chk": {
+        const name = tok[1]!;
+        const f = CHECKS[name];
+        if (!f) {
+          process.stderr.write(`line ${lineno}: unknown chk '${name}'\n`);
+          process.exit(2);
+        }
+        const i = [2];
+        out.push(line(op, name, f(parseValue(tok, i))));
+        break;
+      }
+
+      case "tonum": {
+        const i = [1];
+        const r = to_num(parseValue(tok, i));
+        out.push(line(op, r === undefined ? "u" : bitsHex(r)));
+        break;
+      }
+
+      case "tonum_or": {
+        const i = [1];
+        const v = parseValue(tok, i);
+        out.push(line(op, bitsHex(to_num(v, Number(tok[i[0]])))));
         break;
       }
 

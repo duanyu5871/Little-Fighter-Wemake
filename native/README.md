@@ -28,7 +28,7 @@ Electron 桌面壳、以及将来的原生客户端上跑同一份逻辑。
 | 文件 | `<filesystem>` `<fstream>` `<cstdio>` | 注入的 `IImporter` |
 | 流 | `<iostream>` `<sstream>` | 什么都不用（核心不打印） |
 | 线程 | `<thread>` `<mutex>` `<atomic>` `<future>` | 无（核心是单线程的） |
-| 时间 | `<chrono>` `<ctime>` | 注入的 `IClock` |
+| 时间 | `<chrono>` `<ctime>` | 注入的 `IClock`（`base/clock.h`） |
 | 随机 | `<random>` | `utils/math/mersenne_twister.h` |
 | locale | `<locale>` `<regex>` | 待建的 `utils/math/string.h` |
 | 异常 | `throw` / `try` / `catch` | `std::optional` / 指针返回 `nullptr` |
@@ -118,6 +118,7 @@ native/
     defines/
       i_bounding.h                   ← defines/IBounding
     base/
+      clock.h                        注入式 IClock（禁止 <chrono>）
       graves.h                       ← base/Graves.ts（对象池）
     utils/
       math/                          ← 镜像 src/LFW/utils/math/
@@ -136,9 +137,14 @@ native/
       easing/
         ease_linearity.h  ease_in_out_sine.h  ease_in_out_quint.h
       cross_bounding.h  utf8.{h,cpp}  times.{h,cpp}
+    helper/
+      manhattan_xz.{h,cpp}           ← helper/manhattan_xz.ts
+      randoming.{h,cpp}              ← helper/Randoming.ts
+    state/
+      spawn_ice_piece.{h,cpp}        ← state/spawn_ice_piece.ts
     (待搬) utils/{container_help/traversal,get_keys,set_obj_field,take_number,assign,list_fn,
            schema,string_parser,type_check,type_cast}
-           loader/ entity/ state/ stage/ bot/ buff/ bg/ cmds/ controller/
+           loader/ entity/ stage/ bot/ buff/ bg/ cmds/ controller/
            collision/（非叶子：靠 entity/buff/World）
   tests/differential/                ★ 两侧对拍（详见 PROTOCOL.md）
   tools/
@@ -197,6 +203,22 @@ VS Code 里也已经指好（`.vscode/settings.json`）：
   （只有 `build/` 存在但缺这个文件时才补，不会每次白跑）；
 - `compileCommands` 不存在时才退到配置里的 `includePath` / `compilerPath` 兜底；
   `compilerPath` 跟着 VS 版本走，升级 VS 后可能要改（当前 14.41.34120）。
+
+### 增量构建为什么快（以及别把它弄慢）
+
+- `native.mjs build [<subject>]`：带 subject 时只构建 `lfw_core` + `lfw_trace_<subject>`
+  （不带 `--target` 时 `lfw_core.lib` 一变就要重链**全部**测试 exe，实测 46 个）。
+- **VS 环境只捕获一次**：`call vcvars64.bat` 实测 **5400 ms/次**，之前每次 `build` 都重跑一遍。
+  现在缓存到 `native/build/gen/vsenv.json`（带 `vcvars` 路径 + mtime 校验），
+  之后 `spawnSync(cmake, …)` 直接用缓存好的 env，连 `cmd.exe` 都省了。
+  删掉 `native/build/` 后会重新捕获，无需干预。
+- `native.mjs test <subject> --reuse-ts`（变异测试用）：变异只改 `native/lfw/**`
+  ⇒ TS 侧产物不可能变，直接复用 `native/build/gen/trace.<subject>.<case>.ts.txt`。
+  缓存比用例文件或 subject `.ts` 旧时会**自动回退**去真跑 TS，所以手工改用例不会读到陈旧结果。
+- `node native/tools/mutate.mjs <spec>` 现在会打印
+  `总耗时 / ms per mutation / 最慢的一条`，一慢就看得见。
+  ⚠️ 跑之前先确认 `native/build/mutate-backup/` **不存在** —— 它存在说明上一次跑被中断，
+  源文件可能还是变异体（下次启动会自动恢复）。
 
 ---
 
@@ -316,3 +338,15 @@ VS Code 里也已经指好（`.vscode/settings.json`）：
 | 4p | 步骤 4 第五块 `entity/Summary` + `SummaryMgr`（+ `js_add` / `is_independent`） | ✅ 通过（`summary_helpers/all` 146 行；变异 **57/57 全杀**） |
 
 | 4q | 步骤 4 第六块 `entity/DrinkInfo` + `collision/handle_stiffness`（`calc_stiffness`） | ✅ 通过（`drink_stiffness/all` 63 行；变异 **44/44 全杀**） |
+
+| 4r | 步骤 4 第七块 `helper/Randoming` + `state/spawn_ice_piece`（+ 注入式 `IClock`） | ✅ 通过（`mt_random/all` 143 行；变异 **55/55 全杀**） |
+
+| 4s | 覆盖审计 + `base/Expression` 加固（用例 187→928 行；+ 构建链提速） | ✅ 通过（`expression` 4 个用例 928 行；变异 **69/69 全杀**） |
+
+| 4t | 覆盖审计（二）：`utils/math/MersenneTwister` 加固（用例 42→71 行；`pick`/`take` 增打剩余数组） | ✅ 通过（`mt_basic` 7614 行；变异 **49/49 全杀**） |
+
+| 4u | 覆盖审计（三）：`utils/math/` 全家族加固（`clamp`/`clamp_add`/`normalize`/`float_equal`/`range`/`probability`/平面几何） | ✅ 通过（`math/scalar` 95 行 + `math/plane` 59 行；变异 **61/61 全杀**） |
+
+| 4v | 覆盖审计（四）：`base/Value` + `Object`/`Array` 加固（用例 187→489 行；`odel` 增打删除结果） | ✅ 通过（`value` 5 个用例 489 行；变异 **71/71 全杀**） |
+| 4w | 覆盖审计（五）：`utils/` 全家族加固（`type_check`/`type_cast` 首次纳入差分；`ease_*`/`Times` 改为按实参个数分派以暴露默认实参） | ✅ 通过（`utils` 5 个用例 321 行；变异 **108/108 全杀**） |
+| 4x | 覆盖审计（六）：`core/json` 加固（`parse` 94→161 行、`stringify` 69→89 行） | ✅ 通过（`json` 2 个用例 250 行；变异 **76/76 全杀**） |

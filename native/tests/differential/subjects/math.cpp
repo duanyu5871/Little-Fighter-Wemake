@@ -74,7 +74,9 @@ int main(int argc, char** argv) {
           .out();
 
     } else if (op == "normalize") {
-      Line().add("normalize").add_bits(lfw::normalize(arg(tok, 1, 0), arg(tok, 2, 1000.0))).out();
+      const double n = arg(tok, 1, 0);
+      const double r = tok.size() > 2 ? lfw::normalize(n, to_double(tok[2])) : lfw::normalize(n);
+      Line().add("normalize").add_bits(r).out();
 
     } else if (op == "float_equal" || op == "equal" || op == "eqgt" || op == "eqlt") {
       const double x = arg(tok, 1, 0);

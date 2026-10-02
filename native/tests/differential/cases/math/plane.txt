@@ -54,3 +54,14 @@ alias_normalize_plane 1 2 3 4  -5 -6 -7 -8
 alias_normalize_plane -1 -2 -3 -4  9 9 9 9
 alias_calc_plane 0 0 0 1 0 0 0 1 0   0 0 0 0 0 1 1 0 1
 alias_line_plane 0 1 0 0 0 0 0 0 1 0   0 1 0 -3 0 0 0 0 1 0
+
+# is_direction=true 且 x1 != x2（否则 vx = x2 与 vx = x1 不可区分）
+line_plane 0 1 0 0   1 5 0   2 1 0 1 0
+line_plane 0 1 0 0   1 5 0   3 2 0 1 0
+line_plane 0 0 1 0   1 2 7   2 3 9 1 0
+
+# 斜率 m 取非 0/±1 的值（pow(m,2) 与 pow(m,3) 才可区分）
+project_to_line 3 4 2 0
+project_to_line 3 4 2 3
+project_to_line 5 7 3 4
+project_to_line 1e-9 1e-9 2 5

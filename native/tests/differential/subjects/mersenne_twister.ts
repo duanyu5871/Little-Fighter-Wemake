@@ -98,7 +98,8 @@ function main(): void {
       case "take": {
         const arr: number[] = tok.slice(1).map(Number);
         const v = op === "take" ? mt.take(arr) : mt.pick(arr);
-        out.push(`${op} ${v === undefined ? "-" : qBits(v)} ${arr.length}`);
+        const rest = arr.map((x) => qBits(x)).join(" ");
+        out.push(`${op} ${v === undefined ? "-" : qBits(v)} ${arr.length}${rest ? " " + rest : ""}`);
         break;
       }
 

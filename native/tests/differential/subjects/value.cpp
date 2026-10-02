@@ -123,8 +123,9 @@ int main(int argc, char** argv) {
 
     } else if (op == "okeys" || op == "olen" || op == "ohas" || op == "oprop" || op == "oset" ||
                op == "odel") {
-      const size_t ih = static_cast<size_t>(to_long(tok[1]));
-      if (ih >= g_handles.size()) {
+      const size_t ih =
+          tok[1] == "-" ? g_handles.size() - 1 : static_cast<size_t>(to_long(tok[1]));
+      if (g_handles.empty() || ih >= g_handles.size()) {
         std::fprintf(stderr, "line %d: handle %zu out of range\n", lineno, ih);
         return 2;
       }
@@ -162,8 +163,9 @@ int main(int argc, char** argv) {
         }
         out.add(tok[2]);
       } else {
-        if (o != nullptr) o->remove(key_of(tok[2]));
+        const bool removed = o != nullptr && o->remove(key_of(tok[2]));
         out.add(tok[2]);
+        out.add_bool(removed);
       }
       out.out();
 

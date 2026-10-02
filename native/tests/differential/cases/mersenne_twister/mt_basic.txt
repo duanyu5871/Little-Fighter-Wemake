@@ -1,4 +1,5 @@
 seed 0
+state
 int 8
 float 8
 range 0 10 8
@@ -48,4 +49,52 @@ state
 
 seed -0
 int 4
+state
+
+# min == max 的提前返回：不消耗随机数，且 min 是 -0 时保留 -0
+seed 7
+range -0 0 1
+range 0 -0 1
+range -0 0 1
+int 2
+range 5 5 1
+int 2
+range 3 3 1
+range 4 4 1
+int 4
+state
+
+# pick / take 的边界：空数组、单元素、重复元素
+pick
+pick 7
+take
+take 7
+take 7 7 7
+pick 1 2
+take 1 2 3 4
+state
+pick 10 20 30
+pick 10 20 30
+pick 10 20 30
+pick 10 20 30
+pick 10 20 30
+pick 10 20 30
+pick 10 20 30
+pick 10 20 30
+pick 10 20 30
+pick 10 20 30
+pick 10 20 30
+pick 10 20 30
+take 10 20 30
+take 10 20 30
+take 10 20 30
+take 10 20 30
+take 10 20 30
+take 10 20 30
+take 10 20 30
+take 10 20 30
+take 10 20 30
+take 10 20 30
+take 10 20 30
+take 10 20 30
 state

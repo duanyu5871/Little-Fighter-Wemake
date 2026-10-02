@@ -48,9 +48,12 @@ function main(): void {
         out.push(line("clamp_add", bitsHex(clamp_add(arg(tok, 1, 0), arg(tok, 2, 0), arg(tok, 3, 0), arg(tok, 4, 0)))));
         break;
 
-      case "normalize":
-        out.push(line("normalize", bitsHex(normalize(arg(tok, 1, 0), arg(tok, 2, 1000)))));
+      case "normalize": {
+        const n = arg(tok, 1, 0);
+        const r = tok.length > 2 ? normalize(n, arg(tok, 2, 1000)) : normalize(n);
+        out.push(line("normalize", bitsHex(r)));
         break;
+      }
 
       case "float_equal":
         out.push(line(op, float_equal(arg(tok, 1, 0), arg(tok, 2, 0))));

@@ -1320,3 +1320,171 @@ P.S. TS 侧那个 `Times.lifes` 的无限递归（`return this.lifes`）就是�
 - `handle_stiffness` 的 `shaking` 回退**只**读 `attacker.world.dataset.itr_shaking`
   （不走 `entity_dataset`），而 `motionless` 走四级回退 ⇒ 实体样例要能区分"只有 world 级有值"
   （`shk`）与"连 world 级都没有"（`nsw`，期望 `undefined` 而非继续外扩）。
+
+### 6.9.46 `mt_random`（差分 143 行，变异 55/55 全杀）
+
+- op：`mt new <name> <seedLiteral>`（注册一个 `MersenneTwister`）/ `ent put|del` /
+  `rn new|create <name> <mtToken> <srcLiteral> [<dupLiteral>]` /
+  `rn src|get|dump <name>` / `ip spawn <name> <idLiteral>` / `ip table` /
+  `ip dvx|dvy|x|y <mtToken> <entName>`。
+  `<mtToken>` 是**裸 token**：`-` 表示 `undefined`（⇒ 用静态默认 mt）。
+- **`ip table` 只有 2 个 token** ⇒ 必须在通用 `<sub> <name>` 解析**之前**把整个 `ip` 分流
+  （铁律第 5 次）。`mt`/`rn`/`ent` 的 token 形状与通用解析一致，不用分流。
+- **共享模块不能放 `subjects/` 顶层**：`run.mjs` 的 `readdirSync(SUBJECTS_DIR).filter(f => f.endsWith(".ts"))`
+  不递归但会把顶层的每个 `.ts` 都当成 subject ⇒ 放 `subjects/shared/`。
+- **要改 `Date.now()` 必须在 `Randoming` 之前求值**：`Randoming.mt = new MersenneTwister(Date.now())`
+  是**模块求值期**执行的，所以 patch 模块要在 import 列表里排第一
+  （`import "./shared/patch_date"` 在 `import { Randoming } …` 之前，ESM 依赖按 import 顺序求值）。
+  这样两侧的默认 mt 种子一致 ⇒ 连"默认通道"的取值也能逐位对拍。
+- **不放回抽样 ⇒ n 次覆盖全表**：`Randoming` 的非 duplicate 分支是 `cur.splice(idx,1)`
+  ⇒ 连抽 n 次（n = 源数组长度）必然恰好覆盖每个元素一次
+  ⇒ 只要在用例里打 9 次 `ip dvx` + 13 次 `ip dvy`，数组里任何单个元素的变异都被杀，
+  不必逐条目写用例。
+- **`round` vs `floor` 要用非整数半径**：`w/4` 为整数时两者同值
+  ⇒ 用 `w = 2 / 10 / -10`（`ip x m1 e4 → n1`，floor 会给 0）。
+- **`range(min, max)` 在 `min == max` 时不消耗随机数** ⇒ `ip x`（`w = 0`）之后必须**再抽一次**，
+  否则"是否消耗"不可观察。
+- **`A || B` 之外的第二类"短路掩盖"**：`if (!is_object(e)) return 0;` 在**缓存赋值之前**
+  ⇒ "非实体"不重置模块级缓存 ⇒ 用例要在两次同 mt 的调用**之间**插一次非实体调用，
+  才区分得开"短路在前"与"短路在后"（本轮 `ice_piece_dvy` 的守卫就是这样补杀的）。
+
+### 6.9.47 `expression` 加固（差分 928 行，变异 69/69 全杀）
+
+- op：`g <name> <literal>` / `x <name>`（全局取值表）/ `b <源码…>`（构造 + 打印整棵树）/
+  `d <idx>`（重放整棵树）/ `r <idx>`（`run(0)`）/ `clr` + `log`（**getter 调用日志**）。
+- **求值顺序与短路必须用「getter 调用日志」观察**：只打 `run` 的结果看不出短路有没有生效
+  （结果常常一样），而日志能精确给出「哪几个操作数被求值、按什么顺序」。
+  `r 0` 只记 `["a"]` 就证明 `a==9&b==2&c==3` 的 and 组短路真的跳过了后两个操作数。
+- **每个 `.txt` 是独立进程**：全局表不跨文件共享 ⇒ 新增用例文件要自己把 `g` 再来一遍。
+- **节点字段要位精确渲染**：`val_1`/`val_2` 只打类型标签（`vtag`）时，
+  「值取错」类变异（取 `word_2` 而不是 `word_1`）只有在类型恰好不同的输入上才被杀
+  ⇒ 换成 `render_value`（带 `n<最短串>:<位模式>`）。
+- **第 6 形态的等价变异：死代码**。`&`/`|` 分支里去尾 `)` 的 `while` 循环不可达
+  （见 `DESIGN.md §4.58` 的推导）⇒ 打在它上面的两条变异永远杀不掉，已删并留下推导。
+  判等价不能只看「它有没有语义」，要看**可达性**。
+- **冗余守卫**：`if (x === false) continue; x = x && f();` 里那个 `continue` 是多余的
+  （`&&` 已经短路）⇒ 删掉它是等价变异；但把条件**取反**是可观察的。
+- **TS 构造器遇到多余 `)` 会静默丢弃剩余操作数**（`(A==B))&(C==D)` 只剩 `(A==B)`），
+  这是原样行为，C++ 照抄 ⇒ 用例要把它钉住。
+- **构建链提速**（`mutate.mjs` 现在会打印 `总耗时 / ms per mutation / 最慢的一条`）：
+  - 单条变异 ~9 s → 4.1 s（69 条约 4.6 分钟）。三个固定开销：`vcvars64.bat` 5400 ms/次、
+    46 个 exe 全量重链、每条都重跑 TS 打包与 node。
+  - `native.mjs build <subject>` ⇒ `--target lfw_trace_<subject>`；
+    `native.mjs test <subject> --reuse-ts` ⇒ 复用 `trace.*.ts.txt`（前提：变异只改 `native/lfw/**`，
+    `mutate.mjs` 会断言）。
+  - 断言失败时先查「有没有残留的 `native/build/mutate-backup/`」—— 有就说明上一次跑被中断了，
+    源文件可能还是变异体。
+- **`native.mjs` 报的 "N clean / 0 warnings" 不是编译器告警**（那是 `check_lfw_cpp_includes.mjs`
+  的纯文本检查）⇒ 编译器告警要自己看构建输出，否则会漏掉 `C4458` 这类。
+
+### 6.9.48 `mersenne_twister` 加固（差分 7614 行，变异 49/49 全杀）
+
+- op：`seed <n>` / `state` / `int <count>` / `float <count>` / `range <min> <max> <count>` /
+  `pick <…>` / `take <…>`。
+- **`state` 是内部状态的 FNV-1a 64 指纹**（两侧各一份手写实现，逐字段喂字节）：
+  `_matrix` / `_upper_mask` / `_lower_mask` / `_index` / `_seed` / `_times` / `_mt[0..623]`。
+  它能把"行为等价但内部状态不同"的点位（比如 `_index` 初值 625 vs 624）抓出来。
+  ⚠️ 但**打指纹的时机很关键**：要在"刚好设置完"的时刻打 —— 见下条。
+- **内部状态字段的指纹要在其刚被设置时打**：`_index` 初值的差异只在**首次抽取之前**可观察
+  （首次 `int` 就会 `twist` 并把 `_index` 归零，之后两边完全一致）。
+  原用例的 `state` 全打在若干次抽取之后 ⇒ `reset：初始 index 少 1` 存活。
+  修法：`seed` 之后**立刻**打一次 `state`。
+- **`pick` / `take` 要打印操作后的剩余数组**，否则"删错了哪个下标"不可观察：
+  每次调用都在从 token 新建的数组上操作，删对删错只差一个元素，而打印的 `size` 都是少 1。
+  顺带要覆盖：空数组（`pick` / `take` 不带参数）、单元素、重复元素。
+- **`range(min, max)` 在 `min == max` 时提前返回且不消耗随机数**，返回 `min`
+  ⇒ `range(-0, 0)` 的 `-0` 位模式要锁住。用例成对写：`range -0 0 1` + 紧随其后的 `int`
+  （同时锁"返回的是 min"与"没有消耗随机数"）。
+- **新等价形态：差异小于后继量化步长**。`next_float` 的除数 `2^32` 改成 `2^32-1` 相对差 2.3e-10，
+  而 `floor_float` 把结果量化到 1/1000 ⇒ 要可观察得让 `int/2^32*1000` 落在整数下方 2.3e-7 以内
+  （即 `int` 恰为 2^29 的倍数）。十来个种子里抽一万次也遇不上 ⇒ 判为不可观察，
+  改成测「除数写成 2^31」。
+- 「少哈希一个槽」（`for (i < k_N - 1)`）是**证明用例对 `_mt[623]` 敏感**的好变异，值得每种指纹都加一条。
+- 快速路径效果：本 subject 的变异只碰一个 `.cpp` ⇒ **2.2 s/条**（49 条 109 s）。
+
+### 6.9.49 `math` 加固（差分 154 行，变异 61/61 全杀）
+
+- op：`clamp` / `clamp_add` / `normalize` / `float_equal`·`equal`·`eqgt`·`eqlt` / `range` /
+  `probability` / `normalize_plane` / `calc_plane` / `line_plane` / `project_to_line` /
+  `alias_normalize_plane`·`alias_calc_plane`·`alias_line_plane`。
+- **`alias_*` 三个 op 是查"共享返回对象"的**：TS 与 C++ 都用**模块级共享 `result`**
+  （`normalize_plane` 返回 `Readonly<Result>`、`calc_plane`/`line_plane_intersection` 返回指针，
+  都是同一个对象）。连着用两组不同参数调用再一起打印，才能证明"第二次调用把第一次的结果
+  覆盖掉了"这种共享语义被照抄了。
+- **harness 不要替被测代码补默认值**：`normalize` 原先写死 `normalize(n, 1000)`，让头文件里的
+  默认参数永远用不到 ⇒ "默认值写错"的变异存活。改成 2 token 走默认、3 token 显式传。
+- **补样本要按"变异点的分岔方向"选参数取值**：
+  - `pow(m, 2)` → `pow(m, 3)` 只在 `m ∉ {0, 1}` 时可区分（`pow(1,3)==pow(1,2)`）⇒ 补 `m = 2/3`。
+  - `vx = x2` → `vx = x1` 只在 `x1 != x2` 时可区分 ⇒ 补起点≠终点的 `is_direction` 样本。
+- **`round_float` 与 `== 0` 的组合会让 `abs` 变冗余**：`round_float(-0.0004)` 是 `-0`，
+  `-0 == 0` 为真 ⇒ `round_float(abs(x-y)) == 0` 与 `round_float(x-y) == 0` 等价。
+  这类"看起来该有区别"的变异要先算一遍 ±0/NaN 的边界再判等价。
+- header 变异（`clamp.h` / `round_float.h` …）会让所有包含者重编译 ⇒ 单条可达 20 s；
+  这是正确性换算力，不可省。`.cpp` 变异只要 2 s（单 target 快速路径）。
+
+### 6.9.50 `value` 加固（差分 489 行，变异 71/71 全杀）
+
+- op：`lit` / `arr` / `obj` / `hold` / `get`·`idx` / `elem` / `set`·`str` / `oset`·`oprop` /
+  `ohas` / `odel` / `okeys` / `olen` / `eq`·`seq` / `ton` / `tos` / `lt`·`gt`·`le`·`ge`。
+- **`hold <value>` 返回一个自增句柄号，且会把它打印出来**。句柄序号是**从文件开头累计**的，
+  不是"块内第几个"。我一开始按"块内第 0/1/2"写 `oprop 0 0` …，结果全打到了前面某个空对象上
+  （trace 里是一片 `oprop - -` / `ohas false` / `okeys ""`），两个变异因此存活。
+  ⇒ **harness 现在支持 `-` 表示"最近一次 `hold`"**（两侧同步），新用例一律用 `-`；
+  需要引用更早的句柄时才读 trace 里打印出来的真实序号。
+- **`strtol` 在 Windows 上是 32 位 `long`**：20 位的句柄号会饱和到 `INT_MAX` ⇒ 报
+  `handle 2147483647 out of range`。句柄是索引，不是数据；数据里的 20 位数字要走字符串 token。
+- **想要"同一个值被读两次"的观测**：`okeys`（升序整数键在前、字符串键按插入序）用于钉住键序，
+  `olen` 钉住数量，`oprop` / `ohas` 钉住取值与存在性，`odel` 钉住删除结果 —— 这四者缺一不可，
+  否则"少删一个键""查错下标"这类变异会被别的输出掩盖。
+- 20 位键样本同时钉住 `is_array_index` 的**长度上限**：去掉上限后 `2^64` 溢出成 `0`，
+  `okeys` 的表现从 `"18446744073709551616"` 变成 `"0"`。
+- `strict_equals` 的 `undefined`/`null` 关系要**左右各测一遍**（`seq u X` 与 `seq X u`），
+  否则"只判了一侧"的变异存活。
+
+### 6.9.51 `utils` 加固（差分 321 行，变异 108/108 全杀）
+
+- op：`ease_linearity` / `ease_linearity_backward` / `ease_in_out_sine` / `ease_in_out_sine_backward` /
+  `ease_in_out_quint` / `ease_in_out_quint_backward` / `cross_bounding` / `times_*` /
+  `utf8_encode` / `utf8_decode` / `chk` / `tonum` / `tonum_or`。
+- **⚠ 默认实参必须能在 C++ 侧"用不到"**：`ease_*` 的 `from` / `to` 有默认值，而 harness 原先
+  无条件填 `0` / `1`（正好等于默认值）⇒ 头文件里的默认值**永远走不到**，"默认值写错"的变异必存活。
+  修法：**按实参个数分派** —— C++ 侧
+  `ease_at(tok, [](double a){...;}, [](double a,double b){...;}, [](double a,double b,double c){...;})`
+  （用 3 个 lambda 分别绑定 1/2/3 实参重载），TS 侧给缺的形参传 `undefined`（JS 默认值对
+  `undefined` 生效，所以 TS 不需要分派层）。**C++ 没有 `undefined`**，这层分派是跨语言共用一份
+  用例时必须自己造的。
+  - 同一坑的另一处：`Times` 的 `ctor(0, MAX)` / `set_lifes(-1)` / `add(1)` 三个默认值。
+  - 用例写法：`ease_linearity 0.5 10`（2 实参）⇒ `to` 用默认值 1 ⇒ 结果 5.5 而不是 0.5。
+- **`type_check` / `type_cast` 的观测形状**：
+  - `chk <name> <valueliteral>`（name ∈ `is_num` / `is_positive` / `not_zero_num` / `is_int` /
+    `is_str` / `is_non_empty_str`）⇒ `chk <name> true|false`。TS 侧一张 `Record<string, fn>` 表，
+    C++ 侧 `if/else if` 链，两边都**在名字未知时报错退出**（别默默返回 false）。
+  - `tonum <valueliteral>`：TS 走**1 实参重载**返回 `number | undefined`，C++ 走
+    `std::optional<double>` ⇒ 有值时打位模式、无值时打 `u`。
+  - `tonum_or <valueliteral> <n>`：显式给回落值，专门钉"回落值写错 / 判断的是原值而不是转换结果"。
+- 三条**真等价**（已删，理由写在文件头）：
+  1. `ease_in_out_quint.backward` 的 `ratio < 0.5` → `<= 0.5`（0.5 处上下两支同值 0.5）。
+  2. `Times::_value` 的类内成员初值（构造器里的 `set_range` 会覆盖它，死存储）——
+     但 `_lifes` / `_remains` 的初值**不会**被覆盖，是可观测的。
+  3. `Times::add` 的 `_remains > 0.0` → `>= 0.0`（能到这行就说明 `!= 0`）。
+- **判"某个字段有没有差分覆盖"时先看 harness 有没有读过它**：`Times::is_max` / `is_min` 原先
+  从没被任何 op 读过 ⇒ 加 `times_is_max` / `times_is_min` 才可观测。
+
+### 6.9.52 `json` 加固（差分 250 行，变异 76/76 全杀）
+
+- op：`jstr <valueliteral>`（`JSON.stringify`，`undefined` 渲染成 `-`）、
+  `jparse "<JSON文本>"`（先打 `ok`/`err`，ok 时再逐层 dump）。
+- **`jparse` 的输出行数随内容变**，所以不能再用"用例行数 == 输出行数"来自检空转；
+  这里靠"每个语义分支都至少有一条能翻盘的用例"来保证。
+- **两条踩到的用例缺口（补样本要沿变异点的分岔方向）**：
+  1. **`\uXXXX` 的十六进制有 `0-9` / `a-f` / `A-F` 三段** —— 样本里全是小写与数字时，
+     "删掉大写分支"完全不可见。补 `"\u00E9"` / `"\uD83D\uDE00"` / `"\u00aB"` / `"\uABCD"`。
+  2. **删除某条检查后别让下游检查兜住它**：`{"a" 1}` 看似是"为冒号检查写的用例"，
+     把 `!= u':'` 删掉后它依然 err（跳过空格与 `1` 会撞上 `}`，由"键必须是字符串"兜住）⇒ 空转。
+     要构造**跳掉一个字符后恰好拼得出合法文档**的输入：`{"a"9 1}` / `{"a"1 2}`。
+- **故意不打的 5 类（构造上不可判别，别浪费跑批时间）**：
+  1. `quote()` 的 `(c >> 12) & 0xf` —— 该分支只处理 `c < 0x20`，`c >> 12` 恒为 0。
+  2. `str()` 的 `i + 4 > s.size()` → `i + 3 > ...` —— 能过检查又四字符全十六进制的输入不存在。
+  3. `digit()` 的 `i < s.size()` → `i <= s.size()` —— `s[size()]` 是 `'\0'`。
+  4. `write()` 末行 `if (o == nullptr) return false;` —— 不可达。
+  5. 去掉 `++i` / 去掉越界判断 / 递归自调用 —— 死循环或越界读（UB），不是"漂移"。

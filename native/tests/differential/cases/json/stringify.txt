@@ -67,3 +67,19 @@ jstr o 1 "" n 1
 jstr o 1 a o 1 b a 1 z
 jstr o 1 a a 3 n 1 u s ""
 jstr o 2 "\u0000" n 1 "\u00e9" n 2
+
+# 补形态
+jstr a 1 u
+jstr a 2 u u
+jstr a 1 z
+jstr a 1 o 0
+jstr a 2 a 1 u o 1 k u
+jstr o 1 a a 0
+jstr o 2 a z z n 1
+jstr s "\u0010"
+jstr s "\u000f"
+jstr s "}"
+jstr s "{"
+jstr s ":"
+jstr s ","
+jstr a 1 n 1

@@ -2,6 +2,8 @@
 #include <cstdlib>
 #include <cstdio>
 #include <fstream>
+#include <limits>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -10,6 +12,8 @@
 #include "lfw/utils/easing/ease_in_out_sine.h"
 #include "lfw/utils/easing/ease_linearity.h"
 #include "lfw/utils/times.h"
+#include "lfw/utils/type_cast.h"
+#include "lfw/utils/type_check.h"
 #include "lfw/utils/utf8.h"
 
 #include "trace_util.h"
@@ -22,6 +26,16 @@ namespace {
 
 double arg(const std::vector<std::string>& tok, size_t i, double fallback) {
   return i < tok.size() ? to_double(tok[i]) : fallback;
+}
+
+bool has(const std::vector<std::string>& tok, size_t i) { return i < tok.size(); }
+
+template <typename F1, typename F2, typename F3>
+double ease_at(const std::vector<std::string>& tok, F1 f1, F2 f2, F3 f3) {
+  const size_t n = tok.size() > 0 ? tok.size() - 1 : 0;
+  if (n <= 1) return f1(arg(tok, 1, 0));
+  if (n == 2) return f2(arg(tok, 1, 0), arg(tok, 2, 0));
+  return f3(arg(tok, 1, 0), arg(tok, 2, 0), arg(tok, 3, 1));
 }
 
 uint32_t hex_arg(const std::string& t) {
@@ -66,22 +80,40 @@ int main(int argc, char** argv) {
     const std::string& op = tok[0];
 
     if (op == "ease_linearity") {
-      Line().add(op).add_bits(lfw::ease_linearity(arg(tok, 1, 0), arg(tok, 2, 0), arg(tok, 3, 1))).out();
+      Line().add(op).add_bits(ease_at(tok,
+          [](double a) { return lfw::ease_linearity(a); },
+          [](double a, double b) { return lfw::ease_linearity(a, b); },
+          [](double a, double b, double c) { return lfw::ease_linearity(a, b, c); })).out();
 
     } else if (op == "ease_linearity_backward") {
-      Line().add(op).add_bits(lfw::ease_linearity_backward(arg(tok, 1, 0), arg(tok, 2, 0), arg(tok, 3, 1))).out();
+      Line().add(op).add_bits(ease_at(tok,
+          [](double a) { return lfw::ease_linearity_backward(a); },
+          [](double a, double b) { return lfw::ease_linearity_backward(a, b); },
+          [](double a, double b, double c) { return lfw::ease_linearity_backward(a, b, c); })).out();
 
     } else if (op == "ease_in_out_sine") {
-      Line().add(op).add_qbits(lfw::ease_in_out_sine(arg(tok, 1, 0), arg(tok, 2, 0), arg(tok, 3, 1))).out();
+      Line().add(op).add_qbits(ease_at(tok,
+          [](double a) { return lfw::ease_in_out_sine(a); },
+          [](double a, double b) { return lfw::ease_in_out_sine(a, b); },
+          [](double a, double b, double c) { return lfw::ease_in_out_sine(a, b, c); })).out();
 
     } else if (op == "ease_in_out_sine_backward") {
-      Line().add(op).add_qbits(lfw::ease_in_out_sine_backward(arg(tok, 1, 0), arg(tok, 2, 0), arg(tok, 3, 1))).out();
+      Line().add(op).add_qbits(ease_at(tok,
+          [](double a) { return lfw::ease_in_out_sine_backward(a); },
+          [](double a, double b) { return lfw::ease_in_out_sine_backward(a, b); },
+          [](double a, double b, double c) { return lfw::ease_in_out_sine_backward(a, b, c); })).out();
 
     } else if (op == "ease_in_out_quint") {
-      Line().add(op).add_qbits(lfw::ease_in_out_quint(arg(tok, 1, 0), arg(tok, 2, 0), arg(tok, 3, 1))).out();
+      Line().add(op).add_qbits(ease_at(tok,
+          [](double a) { return lfw::ease_in_out_quint(a); },
+          [](double a, double b) { return lfw::ease_in_out_quint(a, b); },
+          [](double a, double b, double c) { return lfw::ease_in_out_quint(a, b, c); })).out();
 
     } else if (op == "ease_in_out_quint_backward") {
-      Line().add(op).add_qbits(lfw::ease_in_out_quint_backward(arg(tok, 1, 0), arg(tok, 2, 0), arg(tok, 3, 1))).out();
+      Line().add(op).add_qbits(ease_at(tok,
+          [](double a) { return lfw::ease_in_out_quint_backward(a); },
+          [](double a, double b) { return lfw::ease_in_out_quint_backward(a, b); },
+          [](double a, double b, double c) { return lfw::ease_in_out_quint_backward(a, b, c); })).out();
 
     } else if (op == "cross_bounding") {
       lfw::Bounding a{arg(tok, 1, 0), arg(tok, 2, 0), arg(tok, 3, 0), arg(tok, 4, 0), arg(tok, 5, 0), arg(tok, 6, 0)};
@@ -109,7 +141,9 @@ int main(int argc, char** argv) {
       L.out();
 
     } else if (op == "times_new") {
-      times = lfw::Times(arg(tok, 1, 0), arg(tok, 2, 9007199254740991.0));
+      if (has(tok, 2)) times = lfw::Times(arg(tok, 1, 0), arg(tok, 2, 0));
+      else if (has(tok, 1)) times = lfw::Times(arg(tok, 1, 0));
+      else times = lfw::Times();
       emit_times(op.c_str(), times);
 
     } else if (op == "times_set_range") {
@@ -117,7 +151,8 @@ int main(int argc, char** argv) {
       emit_times(op.c_str(), times);
 
     } else if (op == "times_set_lifes") {
-      times.set_lifes(arg(tok, 1, -1));
+      if (has(tok, 1)) times.set_lifes(arg(tok, 1, 0));
+      else times.set_lifes();
       emit_times(op.c_str(), times);
 
     } else if (op == "times_set_min") {
@@ -143,11 +178,48 @@ int main(int argc, char** argv) {
     } else if (op == "times_state") {
       emit_times(op.c_str(), times);
 
+    } else if (op == "times_is_max" || op == "times_is_min") {
+      const bool r = op == "times_is_max" ? times.is_max() : times.is_min();
+      Line().add(op).add_bool(r).out();
+
     } else if (op == "times_add") {
-      const bool r = times.add(arg(tok, 1, 1.0));
+      const bool r = has(tok, 1) ? times.add(arg(tok, 1, 0)) : times.add();
       Line().add(op).add_bool(r)
           .add_bits(times.value()).add_bits(times.min()).add_bits(times.max())
           .add_bits(times.lifes()).add_bits(times.remains()).out();
+
+    } else if (op == "chk") {
+      size_t i = 2;
+      const lfw::Value v = trace::parse_value(tok, i);
+      const std::string& name = tok[1];
+      bool r = false;
+      if (name == "is_num") r = lfw::is_num(v);
+      else if (name == "is_positive") r = lfw::is_positive(v);
+      else if (name == "not_zero_num") r = lfw::not_zero_num(v);
+      else if (name == "is_int") r = lfw::is_int(v);
+      else if (name == "is_str") r = lfw::is_str(v);
+      else if (name == "is_non_empty_str") r = lfw::is_non_empty_str(v);
+      else {
+        std::fprintf(stderr, "line %d: unknown chk '%s'\n", lineno, name.c_str());
+        return 2;
+      }
+      Line().add(op).add(name).add_bool(r).out();
+
+    } else if (op == "tonum") {
+      size_t i = 1;
+      const lfw::Value v = trace::parse_value(tok, i);
+      const std::optional<double> r = lfw::to_num(v);
+      Line L;
+      L.add(op);
+      if (r.has_value()) L.add_bits(*r);
+      else L.add(std::string_view("u"));
+      L.out();
+
+    } else if (op == "tonum_or") {
+      size_t i = 1;
+      const lfw::Value v = trace::parse_value(tok, i);
+      const double or_value = i < tok.size() ? to_double(tok[i]) : std::numeric_limits<double>::quiet_NaN();
+      Line().add(op).add_bits(lfw::to_num(v, or_value)).out();
 
     } else if (op == "times_write_nums") {
       std::vector<double> nums(5, 0.0);
