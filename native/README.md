@@ -274,3 +274,4 @@ VS Code 里也已经指好（`.vscode/settings.json`）：
 | 4b | `loader/preprocess_ball_frame` + `loader/preprocess_bg_data` + `loader/resolve_prefab` | ✅ 通过（`loader_more/all` 25 行；变异 **29/29 全杀**） |
 | 4c | `dat_translator/cook_frame_indicator_info` | ✅ 通过（`indicator_info/all` 16 行；变异 **22/22 全杀**） |
 | 4d | `loader/preprocess_action` + `loader/preprocess_bot_data` + `loader/preprocess_next_frame` | ✅ 通过（`loader_actions/all` 68 行；变异 **33/33 全杀**） |
+| 4e | `dat_translator/bots` 动作构建层（`constants` / `frames` / `bot_actions` 14 个构建器） | ✅ 通过（`bots_build/all` 53 行；变异 **50/50 全杀**） |

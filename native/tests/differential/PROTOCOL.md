@@ -1075,3 +1075,24 @@ P.S. TS 侧那个 `Times.lifes` 的无限递归（`return this.lifes`）就是�
 - **两条等价项没写成变异**：① `sound_path_iterable` 里的 `is_nullish(data)` 是冗余的
   （`field_of` 对 nullish 已经返回 `undefined` ⇒ 后续 `is_str`/`as_array` 同样为假）；
   ② `[...v]` 的"浅拷贝 vs 直接引用"不可观察（`Value` 渲染按值递归）。
+### 6.9.33 `bots_build`（50/50；无等价变异）
+
+- subject `bots_build`（op `fr` / `ba <name> [args]` / `bae <name> [args]`）**53 行全对**，
+  变异 **50/50 全杀**。
+- **写变异能反推出真实移植错**（本轮两条）：① `override_z` 一开始收 `double`，把
+  `{...ray_1, z: zable}` 写成了取负后的数字 —— `zable` 是字符串 `"3"` 时 JS 的第二个 ray 里
+  `z` 是**字符串**；② `cond.add(EntityVal.MP, '>=', mp)` 的右操作数被写成了 `to_number`
+  之后的数字。两条都只在"参数不是数字"时可见 ⇒ 用例里放了 `s "3"` / `s "0"` / `s "5"`。
+- **`if (mp > 0) cond.add(...)` 的变异必须配 `bae` 用例**：`expression` 是用
+  `mp > 0 ? cond.done() : void 0` 算的，所以"把 `>` 改成 `>=`"在 `ba` 下**不可观察**
+  （`cond` 的内容没进输出）；只有 `bae` 的 edit 回调读 `cond.done()` 才看得见 ⇒
+  `bae ... n 0` 这类用例是必需的。
+- **`min_mp` 缺省值的变异**要用"参数真正缺省"的用例（`ba bot_chasing_action s "q" a 0 u u`），
+  只给显式实参的用例杀不掉。
+- `zable` 的三个方向：`truthy(zable) && z > 0` → `truthy(zable) && z >= 0` 需要
+  **truthy 但数值为 0** 的输入（`s "0"`）；→ `z >= 0`（去掉 truthy）需要 **zable 缺省**。
+- `frames` 既要"元素个数"变异也要"键序互换"变异；`range` 是闭区间（`v > to` 才 break），
+  "少一个"的变异正好卡在这个坑上。
+- **harness 侧**：TS 的 rest 参数必须真展开（`...spreadArg(args, n)`），且
+  `IEditBotActionFunc` 要**显式调用并传入 edit 回调** —— 否则 `bae` 与 `ba` 输出相同，
+  一整批 edit 相关变异会假活。

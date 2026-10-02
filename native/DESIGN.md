@@ -1525,3 +1525,30 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
     （数字/字符串/数组）时 `data.actions` 只是 `undefined` ⇒ 不抛、原样返回。
 - `preprocess_opoint`（26 行）**没有任何数据可见行为**（只写 `__gen_*` 的 `ValExpression`）
   ⇒ 不建文件，与 `make_buring_smoke.action.__gen_facing` 同类处理。
+---
+
+### 4.44 V44 `dat_translator/bots` 的动作构建层
+
+- 文件：`native/lfw/dat_translator/bots/{bots_types.h, constants.h, frames.{h,cpp}, bot_actions.{h,cpp}}`。
+- **两种可调用类型**（对齐 TS 的 `IEditBotAction` / `IEditBotActionFunc`）：
+  `EditBotAction = std::function<Value(Value&, CondMaker&)>`、
+  `EditBotActionFunc = std::function<Value(const EditBotAction*)>`。
+  返回 `EditBotActionFunc` 的构建器在 C++ 里靠 `apply_edit(fn, ret, cond)` 收口：
+  `fn == nullptr` 就直接返回 `ret`，否则调 `fn(ret, cond)` 并返回**它的返回值**
+  （edit 返回 `undefined` 时整体就是 `undefined`，与 JS 一致）。
+- **JS 默认参数只对 `undefined` 生效** ⇒ C++ 端每个默认值敏感的数值参数都收 `Value`，
+  用 `num_or(v, 默认值)` 还原；**不能**直接 `to_number(v)`（那会把缺失参数变成 NaN）。
+- `bot_uppercut_dua` / `bot_uppercut_duj` 返回的是 **`IBotAction` 本体**（不是函数），
+  `bot_uppercut_dva` 返回的才是函数；`set_actions` 两种都吃。另外 `bot_uppercut_duj`
+  **没有** `max_d` 参数（与 `dua`/`dva` 不同），ray 里也没有 `max_d` 键。
+- `bot_front_test` 的 `zable` 展开：`if (zable && zable > 0) rays.push({...ray_1, z: -zable},
+  {...ray_1, z: zable})` —— **第二个 ray 的 `z` 是原值**（`zable` 是字符串时 `z` 就是字符串），
+  只有第一个是数值取负。`{...ray_1, z: …}` 是**覆盖保持位置** ⇒ 键序仍是 `x,z,min_x,max_x`。
+- `pow(z_len, 2)`：已用 3.7 / 0.1 / 1e10 / 1e-3 / 1.7 做探针，`std::pow(x, 2.0)` 与
+  V8 `Math.pow(x, 2)` 逐位一致 ⇒ `lfw::pow` 可直接用。
+- `frames`：`range(0,5,1)` 是**闭区间**（`v > to` 才 break）⇒ `walkings` 有 6 个元素、
+  `standings` 4 个、`punchs` 是 60..69 十个。C++ `frames_object()` 每次返回**新建**对象
+  （TS 是模块级常量；只读使用，无可观察差异）。
+- `bot_ball_cancelling` 的返回对象里**没有** `expression` 键（它的 `cond` 是空的），
+  其余构建器都有（值可能是 `undefined`）⇒ 构建对象字面量时不能"顺手补齐"。
+- `constants.h` 的 12 个 `DESIRE_RATIO*` 是普通十进制字面量 ⇒ C++ `constexpr double` 逐位相同。

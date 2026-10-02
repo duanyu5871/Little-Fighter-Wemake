@@ -38,6 +38,8 @@ add_library(lfw_core STATIC
   dat_translator/obj_dat_to_json.cpp
   dat_translator/cook_frame_indicator_info.cpp
   dat_translator/make_buring_smoke.cpp
+  dat_translator/bots/frames.cpp
+  dat_translator/bots/bot_actions.cpp
   loader/preprocess_pic.cpp
   loader/preprocess_stage.cpp
   loader/preprocess_ball_frame.cpp
