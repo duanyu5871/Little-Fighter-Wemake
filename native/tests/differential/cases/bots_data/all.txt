@@ -51,3 +51,8 @@ mbf mark
 mb sorcerer
 mba sorcerer
 mbf sorcerer
+
+# 注册表（用例里显式列出已实现的 oid，避开 TS 侧 22 vs C++ 侧 11 的差异）
+reg 38 11 31 33 36 39 37 6 32 35 34
+reg 38 99
+reg 34 32

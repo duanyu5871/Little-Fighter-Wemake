@@ -68,6 +68,36 @@ int main(int argc, char** argv) {
     if (t.empty()) continue;
     const std::string& op = t[0];
 
+    if (op == "reg") {
+      const std::vector<std::pair<std::u16string, bots::BotMakerFactory>>& makers =
+          bots::BotMaker::makers();
+      std::string order;
+      for (const std::pair<std::u16string, bots::BotMakerFactory>& e : makers) {
+        bool listed = false;
+        for (size_t k = 1; k < t.size(); ++k) {
+          if (to_ascii(e.first) == t[k]) listed = true;
+        }
+        if (!listed) continue;
+        if (!order.empty()) order += ",";
+        order += to_ascii(e.first);
+      }
+      std::string line = "reg order=" + order;
+      for (size_t k = 1; k < t.size(); ++k) {
+        const std::string oid = t[k];
+        bots::BotMakerFactory fn = nullptr;
+        for (const std::pair<std::u16string, bots::BotMakerFactory>& e : makers) {
+          if (to_ascii(e.first) == oid) fn = e.second;
+        }
+        if (fn == nullptr) {
+          line += " " + oid + "=missing";
+        } else {
+          line += " " + oid + "=" + render(field_of(fn().bot(), u"id"));
+        }
+      }
+      emit(line);
+      continue;
+    }
+
     if (t.size() < 2) {
       std::fprintf(stderr, "missing bot name at line %d\n", lineno);
       return 2;

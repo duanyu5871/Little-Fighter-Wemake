@@ -1579,3 +1579,27 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
 - **写角色文件时又抓到一个真 bug**：`bot_ball_dfa` / `bot_ball_dfj` 的 `min_x` 默认值是
   **120**（`bot_front_test` 的是 **0**），原来把 `min_x` 原样透传 ⇒ 缺省时会被下游的 0 覆盖。
   现在在 `bot_ball_dfa`/`dfj` 里先 `num_or(min_x, 120.0)` 再传下去。
+
+---
+
+### 4.46 V46 `dat_translator/bots` 角色数据（第二批 6 个：davis / jack / justin / louis / mark / sorcerer）
+
+- 累计 11/22 个角色（bat / davis / hunter / jack / jan / justin / knight / louis / mark / monk /
+  sorcerer），仍在 `bots/make_bot_data.{h,cpp}` 里。
+- `bot_actions.h` 新增 4 个命名常量，对应 TS 里挂在**构建器函数对象上的静态属性**
+  （`bot_uppercut_dua.MIN_X` 等）：`kUppercutDuaMinX/MaxX`、`kUppercutDvaMinX/MaxX`；
+  `bot_actions.cpp` 的默认值改成引用它们，角色文件里就能照样写 `num(kUppercutDuaMinX)`。
+- **9 个 edit 回调**（`EditBotAction`）全部落到 C++：`edit_davis_dva_j/dj/dj_a`、
+  `edit_louis_dja`、`edit_sorcerer_status`、`edit_mark_rays_max_d/dfj/cancel`。
+  两个助手：`ray_with_z`（`{...ray, z}` 覆盖保持位置）、`set_rays_max_d`（对应
+  `foreach(a.e_ray, r => r.max_d = …)`，**给不存在的键是追加**）。
+- `mark` 的第三个 edit 最麻烦：先就地改 `e_ray[0].reverse`，再 `push({...ray, z: 0.2},
+  {...ray, z: -0.2})` —— 展开的是**已经改过 reverse 的那个 ray**，所以两个新 ray 也带
+  `reverse`；`Array::push_back` 可能重分配 ⇒ 先把 `rays->at(0)` **拷一份**再 push。
+- `davis` 的 `set_frames` 混用两类键：`['87']` / `[282]` / `[39]` ⇒ **整数键**（`39 < 87 < 282`），
+  `[...standings,...walkings,...runnings]` / `frames.punchs` / `range(...)` ⇒ 字符串键；
+  渲染出来就是"整数键升序在前、字符串键按插入序"。这一条被测到了。
+- `sorcerer` 的 `c.and(...).and(...)` ⇒ `cond.and_(v1, op, v2)` **连续调用两次**；
+  注意 `bot_idle_action` 只在 `min_mp > 0` 时才 `add`，所以 `and_` 之前 cond 里已有条件。
+- `entity_val::kHP_P` / `kHpRecoverable`、`bot_val::kSafe` / `kEnemyY` / `kEnemyOutOfRange` /
+  `kEnemyDiffX`、`bot_state_enum::kIdle/kChasing/kAvoiding` —— 名字都在 `native/lfw/defines/` 里核对过。

@@ -9,6 +9,7 @@ import { make_bot_data_louis } from "../../../../src/LFW/dat_translator/bots/mak
 import { make_bot_data_mark } from "../../../../src/LFW/dat_translator/bots/make_bot_data_mark";
 import { make_bot_data_monk } from "../../../../src/LFW/dat_translator/bots/make_bot_data_monk";
 import { make_bot_data_sorcerer } from "../../../../src/LFW/dat_translator/bots/make_bot_data_sorcerer";
+import { BotMaker } from "../../../../src/LFW/dat_translator/bots/BotMaker";
 
 import { readCaseLines, renderValue, splitWs } from "./trace_util";
 
@@ -56,6 +57,23 @@ function main(): void {
     const t = splitWs(raw);
     if (t.length === 0) continue;
     const op = t[0]!;
+    if (op === "reg") {
+      const oids = t.slice(1);
+      const all = Array.from(BotMaker.makers.keys());
+      const order = all.filter((k) => oids.includes(k)).join(",");
+      let line = `reg order=${order}`;
+      for (const oid of oids) {
+        const fn = BotMaker.makers.get(oid);
+        if (!fn) {
+          line += ` ${oid}=missing`;
+          continue;
+        }
+        line += ` ${oid}=${renderValue(fn().bot.id)}`;
+      }
+      out.push(line);
+      continue;
+    }
+
     const name = t[1];
     if (!name) {
       process.stderr.write("missing bot name\n");

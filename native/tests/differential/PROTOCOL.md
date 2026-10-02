@@ -1115,3 +1115,24 @@ P.S. TS 侧那个 `Times.lifes` 的无限递归（`return this.lifes`）就是�
   也留着 `ba bot_ball_dfa n 25 u n 80` 之外的"只传必需参数"形态。
 - 当前 5 个角色里 `jan` 的 edit 是 `(a, c) => { return a }`（恒等）⇒ 这条 edit 路径
   **不可观察**（等价），而 `monk` 的 edit 会改写 `keys` ⇒ 可观察。写变异时要挑对角色。
+
+### 6.9.35 `bots_data` 第二批（87/87；一条真等价变异已换掉）
+
+- 差分从 20 行扩到 **42 行**（新增 davis / jack / justin / louis / mark / sorcerer +
+  3 条 `reg`），变异从 37 扩到 **87 条全杀**。
+- **注册表要用"显式列 oid"的 op**：`reg 38 11 31 33 36 39 37 6 32 35 34` —— 从用例里读 oid
+  列表，两侧各自在**自己的**注册表里查（输出 registry 序过滤后 + 每个 oid 的 `bot.id`）。
+  这样绕开了"TS 侧 22 个 vs C++ 侧 11 个角色"的必然差异，又能杀掉"工厂注册到错 oid"
+  这类变异（`register_maker(oid::kMark, make_bot_data_davis)` 就靠它杀）。
+- **一条真等价变异（已换）**：把 `set_frames(arr({num(39)}))`（整数键）与
+  `set_frames(range_array(270,289))`（字符串键）互换 —— `Object.keys` **总是**把整数键排在
+  字符串键之前，插入序不影响输出 ⇒ 渲染完全一致。要测"插入序可变"必须换**两条字符串键**的
+  `set_frames`（改成了 `frames.punchs` ↔ `range(240,269)`）。
+- **"就地改 + 展开"的组合**（`mark` 的 `cancel_d>j`）要注意展开的是**改过之后**的那个对象；
+  且 `Array::push_back` 可能让 `at(0)` 失效 ⇒ 先拷一份再 push。
+- 数值字面量一律用 `num(...)` 包一层：`Value(39)` 这种写法在 `int` → `double`/`bool`
+  两条转换路径上**歧义**，编译不过。
+- 三个新 include 是编译期报错逼出来的：`cond_maker.h`（`CondMaker` 不完整类型）、
+  `constants.h`（`DESIRE_RATIO_X_4`）、`defines_data.h`（`defines::num`）。
+- anchor 写反的教训又来一次：3 条变异的 `from` 写成了"变异后"的样子 ⇒ 报 `anchor occurs 0 times`；
+  改 `from`/`to` 时顺手不要把**同一个文件里另一条变异的 to** 当成 from（`num(101)` 那次就是这么错的）。

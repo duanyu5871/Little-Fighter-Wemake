@@ -294,3 +294,5 @@ VS Code 里也已经指好（`.vscode/settings.json`）：
 | 4e | `dat_translator/bots` 动作构建层（`constants` / `frames` / `bot_actions` 14 个构建器） | ✅ 通过（`bots_build/all` 53 行；变异 **50/50 全杀**） |
 
 | 4f | `dat_translator/bots/BotMaker` + 前 5 个 `make_bot_data_*`（bat/hunter/jan/knight/monk） | ✅ 通过（`bots_data/all` 20 行；变异 **37/37 全杀**） |
+
+| 4g | `dat_translator/bots` 角色数据第二批（davis/jack/justin/louis/mark/sorcerer，累计 11/22） | ✅ 通过（`bots_data/all` 42 行；变异 **87/87 全杀**） |

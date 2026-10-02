@@ -405,12 +405,12 @@ export default {
       to: `  m.set_frames(arr({num(283)}), arr({sv(u"dva+run")}));`,
     },
     {
-      note: "davis 的后两次 set_frames 顺序互换",
+      note: "davis 的两条字符串键 set_frames 顺序互换",
       file: "native/lfw/dat_translator/bots/make_bot_data.cpp",
-      from: `  m.set_frames(range_array(270.0, 289.0), arr({sv(u"dva+j"), sv(u"d^a")}));
-  m.set_frames(arr({num(39)}), arr({sv(u"dva+j"), sv(u"d^a")}));`,
-      to: `  m.set_frames(arr({num(39)}), arr({sv(u"dva+j"), sv(u"d^a")}));
-  m.set_frames(range_array(270.0, 289.0), arr({sv(u"dva+j"), sv(u"d^a")}));`,
+      from: `  m.set_frames(frames_field(u"punchs"), arr({sv(u"dva"), sv(u"d^a")}));
+  m.set_frames(range_array(240.0, 269.0), arr({sv(u"d>a+a")}));`,
+      to: `  m.set_frames(range_array(240.0, 269.0), arr({sv(u"dva"), sv(u"d^a")}));
+  m.set_frames(frames_field(u"punchs"), arr({sv(u"d>a+a")}));`,
     },
     {
       note: "davis 的手写动作键序变了",
