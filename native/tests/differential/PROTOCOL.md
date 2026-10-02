@@ -1299,3 +1299,24 @@ P.S. TS 侧那个 `Times.lifes` 的无限递归（`return this.lifes`）就是�
   ⇒ 必须再加 `sg get <id>`；否则 `apply_damage` 的三条分支变异全部存活。
 - 结构性怪癖（TS 原样，不是 bug）：`apply_damage` 把击杀记到**单例**上，而伤害记在 `this` 上；
   只有把「命名 manager 的视图」和「单例视图」分别打出来才锁得住。
+
+### 6.9.45 `drink_stiffness`（差分 63 行，变异 44/44 全杀）
+
+- op：`di new|set|load|snap|empty <name|id> ...`（`DrinkInfo` 构造 / 逐字段 setter /
+  `from_snapshot` / `to_snapshot` / 三个 `*_empty`）/ `stf <entity> <itr 字面量>`
+  （`handle_stiffness`）/ `ent put|del`（实体注册表）。
+- **`stf` 的操作数形态是 `stf <entity> <literal>`（2 个）**，与通用 `<sub> <name>` 不同
+  ⇒ 必须在通用解析**之前**分流。终于是第四次；`di` 的 `new|load` 后面是**不定长**字段列表，
+  但前两个 token 形态与通用解析一致（`di new d1 …`），所以 `di` 可以走通用解析。
+- **TS 类字段初始值要逐字搬**：`hp_h_value: number = 0` 等 9 个字段在 C++ 侧必须是
+  `Value _x = Value(0.0);`（成员初始化式）而不是 `Value()`（variant 默认是 `monostate`）
+  ⇒ 否则 `snap` 少 9 个 `0`。
+- **TS 默认参数 ≠ `??`**：`new Times(0, info.hp_h_ticks)` 对 `undefined` 吃默认
+  `Times.MAX`，对 `null` 走 `Number(null) = 0`。用例里要同时有 `z`（`null`）与
+  省略该键（`undefined`）两种输入，才锁得住 `ticks_bound`。
+- **`A || B` 的变异需要两侧都"可单独决定结果"**：`mp_h_empty` 的 `>=` 被第二个
+  `||` 项掩盖 ⇒ 必须给一条 `mp_h_value` 为**真值**且 `mp_h` 落在
+  `hp_h_total` 与 `mp_h_total` **之间**的用例。
+- `handle_stiffness` 的 `shaking` 回退**只**读 `attacker.world.dataset.itr_shaking`
+  （不走 `entity_dataset`），而 `motionless` 走四级回退 ⇒ 实体样例要能区分"只有 world 级有值"
+  （`shk`）与"连 world 级都没有"（`nsw`，期望 `undefined` 而非继续外扩）。

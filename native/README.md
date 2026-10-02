@@ -314,3 +314,5 @@ VS Code 里也已经指好（`.vscode/settings.json`）：
 | 4o | 步骤 4 第四块 `collision/` 纯助手（`is_fall`/`is_armor_work`/`calc_itr_velocity`）+ 补 `Entity.dataset` | ✅ 通过（`collision_helpers/all` 243 行；变异 **99/99 全杀**） |
 
 | 4p | 步骤 4 第五块 `entity/Summary` + `SummaryMgr`（+ `js_add` / `is_independent`） | ✅ 通过（`summary_helpers/all` 146 行；变异 **57/57 全杀**） |
+
+| 4q | 步骤 4 第六块 `entity/DrinkInfo` + `collision/handle_stiffness`（`calc_stiffness`） | ✅ 通过（`drink_stiffness/all` 63 行；变异 **44/44 全杀**） |

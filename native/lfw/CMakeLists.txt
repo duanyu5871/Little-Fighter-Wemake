@@ -54,7 +54,9 @@ add_library(lfw_core STATIC
   entity/entity_dataset.cpp
   entity/summary.cpp
   entity/summary_mgr.cpp
+  entity/drink_info.cpp
   collision/is_fall.cpp
+  collision/stiffness.cpp
   collision/is_armor_work.cpp
   collision/calc_itr_velocity.cpp
   controller/double_click.cpp

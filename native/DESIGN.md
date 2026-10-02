@@ -1892,3 +1892,37 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
   "`prev_hp > 0` 用 `>=`" 三条存活；补 `sg get <id>` 后一次性全杀。
 - **第 3 个回调参数 `target: Summary` 未移植**：只有监听方（运行时/UI）会读它，
   C++ 传 `undefined`，差分 harness 也不渲染它 ⇒ 记为已知差异（与 `Expression` 同类）。
+
+### 4.56 V56 步骤 4 第六块 `entity/DrinkInfo` + `collision/handle_stiffness`
+
+- 新增 `native/lfw/entity/drink_info.{h,cpp}` / `native/lfw/collision/stiffness.{h,cpp}`，
+  subject `drink_stiffness`（op `di` / `stf` / `ent`）**63 行全对**，变异 **44/44 全杀**。
+  这是步骤 4 里两个"小而独立"的叶子：`DrinkInfo` 只依赖 `Times` 与 `is_num`，
+  `handle_stiffness` 只依赖 `entity_dataset`（上一轮已移植）。
+- **TS 类字段初始值必须逐字搬到 C++ 成员初始化式**。`DrinkInfo` 的
+  `hp_h_value: number = 0` / `hp_h_total: number = 9999999` / `hp_h: number = 0` …（3 组 × 3）
+  若只在构造里赋 `Value()`，`null` 输入（`??` 不穿透 `null`… 实为 `undefined`）的
+  快照就会少掉 9 个 `0` ⇒ `di snap` 全线漂移。C++ 侧写成
+  `Value _hp_h_value = Value(0.0);`（**不是** `Value()`）。
+- **TS 默认参数对 `undefined` 生效，对 `null` 不生效**。`new Times(0, info.hp_h_ticks)` 里
+  `hp_h_ticks` 为 `undefined` 时 `_max = Times.MAX`（`Number.MAX_SAFE_INTEGER`），
+  而不是 `Number(undefined) = NaN`。因此 `di new d5 o 2 hp_h_ticks z hp_h_value z`
+  得到的是 `_min = 0, _max = MAX`。C++ 抽成 `ticks_bound(info, key)`
+  （`undefined` → `Times::MAX`，其余 `to_number`）。⚠️ 早先猜成"`null`/`undefined` 都吃默认值"
+  导致 `_min` 算错：`Math.min(0, NaN)` 是 `NaN`，`Math.min(0, MAX)` 才是 `0`，
+  而快照里 `_min` 恒为 `0`（TS 端 `set_range(0, ...)` 的第一参数就是字面量 0）。
+- **`*_empty()` 的三段判定不可互替**：`hp_h_empty() = ge(_hp_h, _hp_h_total) || !truthy(_hp_h_value)`，
+  `hp_r_empty()` / `mp_h_empty()` 同构但各读自己的字段。
+  ⚠️ "`mp_h_empty` 读成 `hp_h_total`" 一度存活：所有用例的 `mp_h_value` 都是假值，
+  第二个 `||` 项恒真，把 `>=` 的结果整个吞掉了。补一条 `mp_h_value n 1` + `mp_h n 5`
+  落在 `hp_h_total(0) < 5 < mp_h_total(9999999)` 之间的用例后即可杀死。
+  ⇒ **教训：`A || B` 的变异要被杀，必须让两侧都出现"只由该侧决定"的输入。**
+- **`handle_stiffness` 两条回退链长度不同**：
+  `motionless` 走 `entity_dataset`（可穿透 `data.base` / `world.bg.data.dataset` / `world.dataset` 四级，
+  且按 `data.type === EntityEnum.Ball` 选 `ball_itr_motionless` 还是 `itr_motionless`）；
+  `shaking` **只**读 `attacker.world.dataset.itr_shaking`（不走 `entity_dataset`）。
+  用例里 `shk`（frame 3 / bg 4 / world 7）验证 `shaking = 7`（只有 world 级有值），
+  `nsw`（无 `world.dataset.itr_shaking`）验证得到 `undefined`（而不是继续往下找）。
+- **`calc_stiffness` 的 itr 同名字段优先于回退**：`motionless = itr.motionless ?? 回退值`，
+  `shaking = itr.shaking ?? 回退值`，且 `??` 只在 `null`/`undefined` 时穿透
+  （`0` / `false` / `""` 都会保留）⇒ `or_default` 与 `field_or` 的组合语义各出一条变异。
