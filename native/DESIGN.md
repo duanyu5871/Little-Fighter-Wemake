@@ -1625,3 +1625,24 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
 - `julian` 的 `bot_uppercut_dua(0, void 0)` ⇒ `bot_uppercut_dua(num(0))`（尾参默认值全开）。
 - `woody` 的 `d>a` 是"**先就地改** `ray[0].z = 0.1`，再 push 一个 `{...ray, z: -ray.z}`"
   ⇒ C++ 必须 `set_ray0_z(action, 0.1)` 后再 `push_ray_with_z(action, -0.1)`（字面量）。
+
+---
+
+### 4.48 V48 `dat_translator/bots` 角色数据（第四批 5 个：deep / dennis / freeze / john / rudolf）
+
+- **22/22 个角色全部完成**，`bots` 子模块的数据层收口。
+- **注册表顺序是真信号，必须由真实模块图定义**：C++ `register_all_bots()` 的顺序 vs TS
+  的 `BotMaker.register()` 调用顺序（在**模块求值期**执行）。TS 侧顺序由
+  `bots/index.ts` 的 `export *` 顺序决定（`rudolf` 在 `sorcerer` 前）。
+  差分 harness 一开始逐文件 `import`，顺序跟着 harness 写序走 ⇒ 只有 `reg` 行报漂移
+  （`5,34` vs `34,5`，所有逐 oid 的值都对）。
+  **修法：harness 改成从 barrel（`../../../../src/LFW/dat_translator/bots`）导入**，
+  让真实求值顺序生效，而不是在 harness 里手摆顺序。
+- `make_bot_data.*` 又新增 5 个角色函数 + 20 个 `EditBotAction` 回调 + 5 个射线助手。
+  `push_ray_with_z` 的参数是 `Array*`（非 `const`）——`rays_of` 返回 `const_cast` 后的指针，
+  `Object::get` 是 `const` 成员因而返回 `const Value*`，写回时必须显式去 const。
+- `dennis` 的 `cancel_d>j` 与 `firen` / `mark` **完全同构** ⇒ 继续复用 `edit_mark_cancel()`。
+- `dennis` 的 `run_atk` 帧段是 `arr([88, 89])`（整数键）——**整数键在 `Object.keys` 里永远排在
+  字符串键之前**，所以"交换整数键与字符串键的插入顺序"是**等价变异**（不可观测），
+  写变异时要避开这类组合。
+- 变异 130 → **174 条全杀**；差分 64 → **82 行**。

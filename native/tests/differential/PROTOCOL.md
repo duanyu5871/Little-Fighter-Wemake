@@ -1152,3 +1152,18 @@ P.S. TS 侧那个 `Times.lifes` 的无限递归（`return this.lifes`）就是�
   `register_all_bots`。**大段替换后务必 `Select-String '^BotMaker make_bot_data_'` 核一遍**。
 - `select-string` 核完还要注意：CMake 不会拦"声明了没定义"（只在链接期报 `LNK2019`）——
   subject 里引用了还没实现的 `make_bot_data_john` 就会链接失败。
+
+### 6.9.37 `bots_data` 第四批（174/174）
+
+- 差分 64 → **82 行**，变异 130 → **174 条全杀**；**22/22 个角色完成**。
+- **`reg` 行只在"顺序"上报漂移，是所有逐 oid 值都对时的典型形态**。不要急着改 C++ 注册顺序，
+  先问"TS 侧的注册顺序由谁决定"：`BotMaker.register` 在**模块求值期**跑，故顺序 = `index.ts`
+  里 `export *` 的书写顺序（即文件名排序，`rudolf` < `sorcerer`）。
+  差分 harness 逐文件 `import` 会把自己的写序强加给 TS ⇒ **必须从 barrel 导入**，
+  否则测的是 harness 而不是产品代码。
+- `rays_of` 返回 `const_cast` 出来的 `Array*`，`push_ray_with_z(Array*, double)` 因此是非 const 形参；
+  写成 `const Array*` 会在编译期报 `C2440`（`const Object*` → `Object*`）。
+- `edit_mark_cancel()` 被 `mark` / `firen` / `dennis` **三方共用**，改动它等于同时改三个角色——
+  写变异时若锚点落在这里，要确认三者的期望漂移是一起出现的。
+- 新角色继续大量复用旧句子（`cond.and_(sv(bot_val::kEnemyOutOfRange), u"!=", Value(1.0));` 等），
+  本轮又出现 6 条 `anchor occurs 2/3 times`，同样只能补 1~3 行上下文消歧。

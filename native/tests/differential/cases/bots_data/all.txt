@@ -52,10 +52,33 @@ mb sorcerer
 mba sorcerer
 mbf sorcerer
 
-# 注册表（用例里显式列出已实现的 oid，避开 TS 侧 22 vs C++ 侧 17 的差异）
-reg 38 11 7 51 4 31 33 36 2 52 39 37 6 50 32 35 34 10
+# 注册表：现在 22 个角色齐了，列出全部 oid（顺序 = index.ts 的字母序）
+reg 38 11 1 9 7 51 8 4 31 33 36 2 52 39 37 6 50 32 35 5 34 10
 reg 38 99
 reg 34 32
+
+mb deep
+mba deep
+mbf deep
+mbs deep
+
+mb dennis
+mba dennis
+mbf dennis
+mbs dennis
+
+mb freeze
+mba freeze
+mbf freeze
+
+mb john
+mba john
+mbf john
+
+mb rudolf
+mba rudolf
+mbf rudolf
+mbd rudolf
 
 mb firen
 mba firen

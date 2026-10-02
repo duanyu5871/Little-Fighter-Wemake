@@ -45,14 +45,6 @@ std::u16string victim_chasing_text() {
   return cm.done();
 }
 
-std::pair<Value, Value> hit_flag_pair(const Value& value) {
-  Object tmp;
-  set_hit_flag(tmp, value);
-  const Value* flag = tmp.get(u"hit_flag");
-  const Value* name = tmp.get(u"hit_flag_name");
-  return {flag != nullptr ? *flag : Value(), name != nullptr ? *name : Value()};
-}
-
 double sub(const Value& v, double d) { return to_number(v) - d; }
 
 double add(const Value& v, double d) { return to_number(v) + d; }

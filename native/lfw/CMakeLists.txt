@@ -42,6 +42,8 @@ add_library(lfw_core STATIC
   dat_translator/bots/bot_actions.cpp
   dat_translator/bots/bot_maker.cpp
   dat_translator/bots/make_bot_data.cpp
+  dat_translator/fighters/fighters.cpp
+  dat_translator/make_fighter_special.cpp
   loader/preprocess_pic.cpp
   loader/preprocess_stage.cpp
   loader/preprocess_ball_frame.cpp

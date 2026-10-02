@@ -138,6 +138,14 @@ Object& set_bdy_kind(Object& bdy, const Value& kind) {
   return bdy;
 }
 
+std::pair<Value, Value> hit_flag_pair(const Value& value) {
+  Object tmp;
+  set_hit_flag(tmp, value);
+  const Value* flag = tmp.get(u"hit_flag");
+  const Value* name = tmp.get(u"hit_flag_name");
+  return {flag != nullptr ? *flag : Value(), name != nullptr ? *name : Value()};
+}
+
 Value& delete_undefined(Value& o) {
   Object* p = as_object(o);
   if (p == nullptr) return o;

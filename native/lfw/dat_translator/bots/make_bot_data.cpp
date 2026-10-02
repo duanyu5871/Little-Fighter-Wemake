@@ -385,6 +385,238 @@ const EditBotAction* edit_woody_skill() {
   return &e;
 }
 
+const EditBotAction* edit_push_rays_0_3() {
+  static const EditBotAction e = [](Value& action, CondMaker& cond) -> Value {
+    (void)cond;
+    push_ray_with_z(action, 0.3);
+    push_ray_with_z(action, -0.3);
+    return action;
+  };
+  return &e;
+}
+
+const EditBotAction* edit_push_rays_0_2() {
+  static const EditBotAction e = [](Value& action, CondMaker& cond) -> Value {
+    (void)cond;
+    push_ray_with_z(action, 0.2);
+    push_ray_with_z(action, -0.2);
+    return action;
+  };
+  return &e;
+}
+
+const EditBotAction* edit_freeze_dvj() {
+  static const EditBotAction e = [](Value& action, CondMaker& cond) -> Value {
+    cond.and_(sv(entity_val::kHoldingHeavy), u"!=", Value(1.0));
+    cond.and_(sv(entity_val::kHoldingOID), u"!=", sv(oid::kWeapon_IceSword));
+    Object* o = as_object(action);
+    if (o != nullptr) o->set(u"expression", Value(cond.done()));
+    return action;
+  };
+  return &e;
+}
+
+const EditBotAction* edit_john_idle() {
+  static const EditBotAction e = [](Value& action, CondMaker& cond) -> Value {
+    Object* o = as_object(action);
+    if (o != nullptr) {
+      o->set(u"status", arr({sv(bot_state_enum::kIdle), sv(bot_state_enum::kChasing),
+                              sv(bot_state_enum::kAvoiding)}));
+    }
+    cond.and_(sv(entity_val::kHpRecoverable), u">=", Value(100.0));
+    cond.and_(sv(bot_val::kSafe), u"==", Value(1.0));
+    if (o != nullptr) o->set(u"expression", Value(cond.done()));
+    return action;
+  };
+  return &e;
+}
+
+const EditBotAction* edit_john_falling() {
+  static const EditBotAction e = [](Value& action, CondMaker& cond) -> Value {
+    cond.and_(sv(bot_val::kEnemyState), u"==",
+              Value(static_cast<double>(StateEnum::Falling)));
+    Object* o = as_object(action);
+    if (o != nullptr) o->set(u"expression", Value(cond.done()));
+    return action;
+  };
+  return &e;
+}
+
+const EditBotAction* edit_john_broken() {
+  static const EditBotAction e = [](Value& action, CondMaker& cond) -> Value {
+    cond.and_(sv(bot_val::kEnemyState), u"==",
+              Value(static_cast<double>(StateEnum::BrokenDefend)));
+    Object* o = as_object(action);
+    if (o != nullptr) o->set(u"expression", Value(cond.done()));
+    return action;
+  };
+  return &e;
+}
+
+const EditBotAction* edit_rudolf_da_1() {
+  static const EditBotAction e = [](Value& action, CondMaker& cond) -> Value {
+    (void)cond;
+    Object* o = as_object(action);
+    if (o != nullptr) o->set(u"action_id", sv(u"d>a_1"));
+    set_ray0_max_d(action, 40000.0);
+    return action;
+  };
+  return &e;
+}
+
+const EditBotAction* edit_rudolf_da_2() {
+  static const EditBotAction e = [](Value& action, CondMaker& cond) -> Value {
+    (void)cond;
+    Object* o = as_object(action);
+    if (o != nullptr) o->set(u"action_id", sv(u"d>a_2"));
+    set_ray0_max_d(action, 160000.0);
+    return action;
+  };
+  return &e;
+}
+
+const EditBotAction* edit_rudolf_rev_dj_1() {
+  static const EditBotAction e = [](Value& action, CondMaker& cond) -> Value {
+    (void)cond;
+    Object* o = as_object(action);
+    if (o != nullptr) o->set(u"action_id", sv(u"d^j_1"));
+    set_rays_reverse(action);
+    return action;
+  };
+  return &e;
+}
+
+const EditBotAction* edit_rudolf_rev_dj_2() {
+  static const EditBotAction e = [](Value& action, CondMaker& cond) -> Value {
+    (void)cond;
+    Object* o = as_object(action);
+    if (o != nullptr) o->set(u"action_id", sv(u"d^j_2"));
+    set_rays_reverse(action);
+    return action;
+  };
+  return &e;
+}
+
+const EditBotAction* edit_rudolf_dvj_1() {
+  static const EditBotAction e = [](Value& action, CondMaker& cond) -> Value {
+    (void)cond;
+    Object* o = as_object(action);
+    if (o != nullptr) o->set(u"action_id", sv(u"dvj_1"));
+    if (o != nullptr) {
+      o->set(u"keys", arr({sv(gk::kDefend), sv(gk::kDown), sv(gk::kJump)}));
+    }
+    set_rays_reverse(action);
+    return action;
+  };
+  return &e;
+}
+
+const EditBotAction* edit_rudolf_dvj_2() {
+  static const EditBotAction e = [](Value& action, CondMaker& cond) -> Value {
+    (void)cond;
+    Object* o = as_object(action);
+    if (o != nullptr) o->set(u"action_id", sv(u"dvj_2"));
+    if (o != nullptr) {
+      o->set(u"keys", arr({sv(gk::kDefend), sv(gk::kDown), sv(gk::kJump)}));
+    }
+    set_rays_reverse(action);
+    return action;
+  };
+  return &e;
+}
+
+const EditBotAction* edit_dennis_dfj() {
+  static const EditBotAction e = [](Value& action, CondMaker& cond) -> Value {
+    push_ray_with_z(action, 0.3);
+    push_ray_with_z(action, -0.3);
+    cond.and_(sv(bot_val::kEnemyOutOfRange), u"!=", Value(1.0));
+    Object* o = as_object(action);
+    if (o != nullptr) o->set(u"expression", Value(cond.done()));
+    return action;
+  };
+  return &e;
+}
+
+const EditBotAction* edit_dennis_run_dva() {
+  static const EditBotAction e = [](Value& action, CondMaker& cond) -> Value {
+    (void)cond;
+    Object* o = as_object(action);
+    if (o != nullptr) o->set(u"action_id", sv(u"run_atk+dva"));
+    return action;
+  };
+  return &e;
+}
+
+const EditBotAction* edit_dennis_run_dfj() {
+  static const EditBotAction e = [](Value& action, CondMaker& cond) -> Value {
+    (void)cond;
+    Object* o = as_object(action);
+    if (o != nullptr) o->set(u"action_id", sv(u"run_atk+d>j"));
+    push_ray_with_z(action, 0.3);
+    push_ray_with_z(action, -0.3);
+    return action;
+  };
+  return &e;
+}
+
+const EditBotAction* edit_deep_dfj() {
+  static const EditBotAction e = [](Value& action, CondMaker& cond) -> Value {
+    cond.and_(sv(bot_val::kEnemyOutOfRange), u"!=", Value(1.0));
+    Object* o = as_object(action);
+    if (o != nullptr) o->set(u"expression", Value(cond.done()));
+    return action;
+  };
+  return &e;
+}
+
+const EditBotAction* edit_deep_dva_a() {
+  static const EditBotAction e = [](Value& action, CondMaker& cond) -> Value {
+    Object* o = as_object(action);
+    if (o != nullptr) o->set(u"action_id", sv(u"dva+a"));
+    cond.and_(sv(bot_val::kEnemyY), u"<=", Value(0.0));
+    if (o != nullptr) o->set(u"expression", Value(cond.done()));
+    if (o != nullptr) o->set(u"keys", arr({sv(gk::ka)}));
+    return action;
+  };
+  return &e;
+}
+
+const EditBotAction* edit_deep_dva_j() {
+  static const EditBotAction e = [](Value& action, CondMaker& cond) -> Value {
+    Object* o = as_object(action);
+    if (o != nullptr) o->set(u"action_id", sv(u"dva+j"));
+    if (o != nullptr) o->set(u"keys", arr({sv(gk::kj)}));
+    cond.and_(sv(bot_val::kEnemyY), u">", Value(0.0));
+    if (o != nullptr) o->set(u"expression", Value(cond.done()));
+    return action;
+  };
+  return &e;
+}
+
+const EditBotAction* edit_deep_dj() {
+  static const EditBotAction e = [](Value& action, CondMaker& cond) -> Value {
+    (void)cond;
+    Object* o = as_object(action);
+    if (o != nullptr) o->set(u"action_id", sv(u"d^j"));
+    if (o != nullptr) {
+      o->set(u"keys", arr({sv(gk::kd), sv(gk::kU), sv(gk::kj)}));
+    }
+    return action;
+  };
+  return &e;
+}
+
+const EditBotAction* edit_deep_dj_a() {
+  static const EditBotAction e = [](Value& action, CondMaker& cond) -> Value {
+    (void)cond;
+    Object* o = as_object(action);
+    if (o != nullptr) o->set(u"action_id", sv(u"d^j+a"));
+    if (o != nullptr) o->set(u"keys", arr({sv(gk::ka)}));
+    return action;
+  };
+  return &e;
+}
+
 }
 
 BotMaker make_bot_data_firen() {
@@ -519,15 +751,146 @@ BotMaker make_bot_data_woody() {
   return m;
 }
 
+BotMaker make_bot_data_deep() {
+  BotMaker m(oid::kDeep);
+  m.set_actions({
+      as_action(bot_ball_dfa(num(75), Value(), num(50), num(200))),
+      as_action(bot_ball_continuation(u"d>a+a", num(0.5), num(75))),
+      as_action(bot_ball_dfj(num(150), Value(), num(50), num(200))(edit_deep_dfj())),
+      as_action(bot_chasing_skill_action(u"d>j", sv(u"catching_d>j"), num(150))),
+      as_action(bot_uppercut_dva(num(75), Value(), num(kUppercutDvaMinX),
+                                 num(kUppercutDvaMaxX))),
+      as_action(bot_uppercut_dva(num(75), num(1.0), num(kUppercutDvaMinX),
+                                 num(kUppercutDvaMaxX))(edit_deep_dva_a())),
+      as_action(bot_uppercut_dva(num(150), num(probability(4.0, 0.5)), num(0.5),
+                                 num(kUppercutDvaMaxX))(edit_deep_dva_j())),
+      as_action(bot_uppercut_dva(num(0), Value(), num(kUppercutDvaMaxX),
+                                 num(kUppercutDvaMinX + kUppercutDvaMaxX))(edit_deep_dj())),
+      as_action(bot_uppercut_dva(num(150), num(1.0), num(kUppercutDvaMinX),
+                                 num(kUppercutDvaMaxX))(edit_deep_dj_a())),
+  });
+  m.set_states(arr({num(static_cast<double>(StateEnum::Rowing))}), arr({sv(kBallDfjId)}));
+  m.set_states(arr({num(static_cast<double>(StateEnum::Catching))}), arr({sv(u"catching_d>j")}));
+  m.set_frames(concat({frames_field(u"standings"), frames_field(u"walkings"),
+                       frames_field(u"runnings")}),
+               arr({sv(u"d^j"), sv(kBallDfjId), sv(kBallDfaId), sv(kUppercutDvaId)}));
+  m.set_frames(concat({frames_field(u"punchs")}), arr({sv(kUppercutDvaId)}));
+  m.set_frames(range_array(235.0, 250.0), arr({sv(u"d>a+a")}));
+  m.set_frames(concat({range_array(260.0, 265.0), range_array(277.0, 282.0)}),
+               arr({sv(u"dva+a"), sv(u"dva+j")}));
+  m.set_frames(range_array(266.0, 267.0), arr({sv(u"d^j+a")}));
+  return m;
+}
+
+BotMaker make_bot_data_dennis() {
+  BotMaker m(oid::kDennis);
+  m.set_actions({
+      as_action(bot_ball_dfa(num(40), Value(), num(50))),
+      as_action(bot_ball_continuation(u"d>a+a", num(0.8), num(40))),
+      as_action(bot_uppercut_dva(num(75), num(1.0 / 60.0), num(kUppercutDvaMinX),
+                                 num(kUppercutDvaMaxX))),
+      as_action(bot_ball_dfj(num(75), num(1.0 / 60.0), num(50), num(300))(edit_dennis_dfj())),
+      as_action(bot_uppercut_dva(num(75), num(probability(6.0, 0.2)), num(kUppercutDvaMinX),
+                                 num(kUppercutDvaMaxX))(edit_dennis_run_dva())),
+      as_action(bot_ball_dfj(num(75), num(probability(6.0, 0.2)), num(10),
+                             num(100))(edit_dennis_run_dfj())),
+      as_action(bot_ball_dfj(num(0), Value(), num(0), num(1000))(edit_mark_cancel())),
+      as_action(bot_explosion_dua(num(100), num(1.0 / 60.0), num(kExplosionDuaMaxX), num(2000),
+                                  num(1000))),
+      as_action(bot_chasing_skill_action(u"d>j", sv(u"catching_d>j"), num(75))),
+      as_action(bot_chasing_skill_action(u"dva", sv(u"catching_dva"), num(75))),
+  });
+  m.set_states(arr({num(static_cast<double>(StateEnum::Catching))}),
+               arr({sv(u"catching_d>j"), sv(u"catching_dva"), sv(u"d^a")}));
+  m.set_frames(concat({frames_field(u"standings"), frames_field(u"walkings")}),
+               arr({sv(u"d>a"), sv(u"d^a"), sv(u"dva"), sv(u"d>j")}));
+  m.set_frames(concat({frames_field(u"punchs")}), arr({sv(u"dva"), sv(u"d>j")}));
+  m.set_frames(arr({num(88), num(89)}), arr({sv(u"run_atk+dva"), sv(u"run_atk+d>j")}));
+  m.set_frames(range_array(235.0, 262.0), arr({sv(u"d>a+a")}));
+  m.set_frames(range_array(280.0, 290.0), arr({sv(u"cancel_d>j")}));
+  return m;
+}
+
+BotMaker make_bot_data_freeze() {
+  BotMaker m(oid::kFreeze);
+  m.set_actions({
+      as_action(bot_ball_dfa(num(100), Value(), num(50))(edit_push_rays_0_3())),
+      as_action(bot_ball_dfj(num(150), Value(), num(50), num(300))(edit_push_rays_0_2())),
+      as_action(bot_chasing_skill_action(u"dvj", Value(), num(150),
+                                         num(1.0 / 180.0))(edit_freeze_dvj())),
+      as_action(bot_explosion_duj(num(300), num(DESIRE_RATIO_X_3), num(-110), num(150),
+                                  num(1600))),
+  });
+  m.set_frames(concat({frames_field(u"standings"), frames_field(u"walkings")}),
+               arr({sv(u"d>a"), sv(u"d>j"), sv(u"d^j"), sv(u"dvj")}));
+  return m;
+}
+
+BotMaker make_bot_data_john() {
+  BotMaker m(oid::kJohn);
+  m.set_actions({
+      as_action(bot_ball_dfa(num(75), Value(), num(100), num(10000))),
+      as_action(bot_ball_dfj(num(100), Value(), num(100), num(10000))),
+      as_action(bot_chasing_action(u"d^a", arr({sv(gk::kDefend), sv(gk::kUp), sv(gk::kAttack)}),
+                                   num(250))),
+      as_action(bot_idle_action(u"dvj", arr({sv(gk::kDefend), sv(gk::kDown), sv(gk::kJump)}),
+                                num(350))(edit_john_idle())),
+      as_action(bot_idle_action(u"d^j", arr({sv(gk::kDefend), sv(gk::kUp), sv(gk::kJump)}),
+                                num(350))(edit_john_idle())),
+      as_action(bot_chasing_action(u"s_punch+j", arr({sv(gk::kJump)}))(edit_john_falling())),
+      as_action(bot_chasing_action(u"s_punch+d>a",
+                                   arr({sv(gk::kDefend), sv(u"F"), sv(gk::kAttack)}),
+                                   num(100))(edit_john_falling())),
+      as_action(bot_chasing_action(u"s_punch+d>j",
+                                   arr({sv(gk::kDefend), sv(u"F"), sv(gk::kJump)}),
+                                   num(100))(edit_john_broken())),
+  });
+  m.set_frames(concat({frames_field(u"standings"), frames_field(u"walkings")}),
+               arr({sv(u"d>a"), sv(u"d>j"), sv(u"d^a"), sv(u"d^j"), sv(u"dvj")}));
+  m.set_frames(frames_field(u"super_punch"),
+               arr({sv(u"s_punch+j"), sv(u"s_punch+d>a"), sv(u"s_punch+d>j")}));
+  return m;
+}
+
+BotMaker make_bot_data_rudolf() {
+  BotMaker m(oid::kRudolf);
+  m.set_dataset(obj({{u"w_atk_m_x", num(20)},
+                     {u"w_atk_r_x", num(150)},
+                     {u"w_atk_x", num(300)},
+                     {u"r_desire_min", num(500)},
+                     {u"r_desire_max", num(3000)}}));
+  m.set_actions({
+      as_action(bot_ball_dfa(num(100), Value(), num(120), num(300))(edit_rudolf_da_1())),
+      as_action(bot_ball_dfa(num(100), Value(), num(300), num(500))(edit_rudolf_da_2())),
+      as_action(bot_ball_dfj(num(0), Value(), num(79), num(120))),
+      as_action(bot_explosion_duj(num(350), num(0.05), num(-300), num(300),
+                                  num(500))(edit_rudolf_rev_dj_1())),
+      as_action(bot_explosion_duj(num(350), num(0.005), num(-150), num(150),
+                                  num(500))(edit_rudolf_rev_dj_2())),
+      as_action(bot_explosion_duj(num(350), num(0.05), num(-300), num(300),
+                                  num(500))(edit_rudolf_dvj_1())),
+      as_action(bot_explosion_duj(num(350), num(0.005), num(-150), num(150),
+                                  num(500))(edit_rudolf_dvj_2())),
+  });
+  m.set_frames(concat({frames_field(u"standings"), frames_field(u"walkings")}),
+               arr({sv(u"d>a_1"), sv(u"d>a_2"), sv(u"d>j"), sv(u"d^j_1"), sv(u"dvj_1"),
+                    sv(u"d^j_2"), sv(u"dvj_2")}));
+  return m;
+}
+
 void register_all_bots() {
   BotMaker::register_maker(oid::kBat, make_bot_data_bat);
   BotMaker::register_maker(oid::kDavis, make_bot_data_davis);
+  BotMaker::register_maker(oid::kDeep, make_bot_data_deep);
+  BotMaker::register_maker(oid::kDennis, make_bot_data_dennis);
   BotMaker::register_maker(oid::kFiren, make_bot_data_firen);
   BotMaker::register_maker(oid::kFirzen, make_bot_data_firzen);
+  BotMaker::register_maker(oid::kFreeze, make_bot_data_freeze);
   BotMaker::register_maker(oid::kHenry, make_bot_data_henry);
   BotMaker::register_maker(oid::kHunter, make_bot_data_hunter);
   BotMaker::register_maker(oid::kJack, make_bot_data_jack);
   BotMaker::register_maker(oid::kJan, make_bot_data_jan);
+  BotMaker::register_maker(oid::kJohn, make_bot_data_john);
   BotMaker::register_maker(oid::kJulian, make_bot_data_julian);
   BotMaker::register_maker(oid::kJustin, make_bot_data_justin);
   BotMaker::register_maker(oid::kKnight, make_bot_data_knight);
@@ -535,6 +898,7 @@ void register_all_bots() {
   BotMaker::register_maker(oid::kLouisEX, make_bot_data_louisex);
   BotMaker::register_maker(oid::kMark, make_bot_data_mark);
   BotMaker::register_maker(oid::kMonk, make_bot_data_monk);
+  BotMaker::register_maker(oid::kRudolf, make_bot_data_rudolf);
   BotMaker::register_maker(oid::kSorcerer, make_bot_data_sorcerer);
   BotMaker::register_maker(oid::kWoody, make_bot_data_woody);
 }

@@ -1,21 +1,28 @@
-import { make_bot_data_bat } from "../../../../src/LFW/dat_translator/bots/make_bot_data_bat";
-import { make_bot_data_davis } from "../../../../src/LFW/dat_translator/bots/make_bot_data_davis";
-import { make_bot_data_firen } from "../../../../src/LFW/dat_translator/bots/make_bot_data_firen";
-import { make_bot_data_firzen } from "../../../../src/LFW/dat_translator/bots/make_bot_data_firzen";
-import { make_bot_data_henry } from "../../../../src/LFW/dat_translator/bots/make_bot_data_henry";
-import { make_bot_data_hunter } from "../../../../src/LFW/dat_translator/bots/make_bot_data_hunter";
-import { make_bot_data_jack } from "../../../../src/LFW/dat_translator/bots/make_bot_data_jack";
-import { make_bot_data_jan } from "../../../../src/LFW/dat_translator/bots/make_bot_data_jan";
-import { make_bot_data_julian } from "../../../../src/LFW/dat_translator/bots/make_bot_data_julian";
-import { make_bot_data_justin } from "../../../../src/LFW/dat_translator/bots/make_bot_data_justin";
-import { make_bot_data_knight } from "../../../../src/LFW/dat_translator/bots/make_bot_data_knight";
-import { make_bot_data_louis } from "../../../../src/LFW/dat_translator/bots/make_bot_data_louis";
-import { make_bot_data_louisex } from "../../../../src/LFW/dat_translator/bots/make_bot_data_louisex";
-import { make_bot_data_mark } from "../../../../src/LFW/dat_translator/bots/make_bot_data_mark";
-import { make_bot_data_monk } from "../../../../src/LFW/dat_translator/bots/make_bot_data_monk";
-import { make_bot_data_sorcerer } from "../../../../src/LFW/dat_translator/bots/make_bot_data_sorcerer";
-import { make_bot_data_woody } from "../../../../src/LFW/dat_translator/bots/make_bot_data_woody";
-import { BotMaker } from "../../../../src/LFW/dat_translator/bots/BotMaker";
+import {
+  make_bot_data_bat,
+  make_bot_data_davis,
+  make_bot_data_deep,
+  make_bot_data_dennis,
+  make_bot_data_firen,
+  make_bot_data_firzen,
+  make_bot_data_freeze,
+  make_bot_data_henry,
+  make_bot_data_hunter,
+  make_bot_data_jack,
+  make_bot_data_jan,
+  make_bot_data_john,
+  make_bot_data_julian,
+  make_bot_data_justin,
+  make_bot_data_knight,
+  make_bot_data_louis,
+  make_bot_data_louisex,
+  make_bot_data_mark,
+  make_bot_data_monk,
+  make_bot_data_rudolf,
+  make_bot_data_sorcerer,
+  make_bot_data_woody,
+  BotMaker,
+} from "../../../../src/LFW/dat_translator/bots";
 
 import { readCaseLines, renderValue, splitWs } from "./trace_util";
 
@@ -29,10 +36,16 @@ function makeBot(name: string): Maker | undefined {
       return make_bot_data_bat() as never;
     case "davis":
       return make_bot_data_davis() as never;
+    case "deep":
+      return make_bot_data_deep() as never;
+    case "dennis":
+      return make_bot_data_dennis() as never;
     case "firen":
       return make_bot_data_firen() as never;
     case "firzen":
       return make_bot_data_firzen() as never;
+    case "freeze":
+      return make_bot_data_freeze() as never;
     case "henry":
       return make_bot_data_henry() as never;
     case "hunter":
@@ -41,6 +54,8 @@ function makeBot(name: string): Maker | undefined {
       return make_bot_data_jack() as never;
     case "jan":
       return make_bot_data_jan() as never;
+    case "john":
+      return make_bot_data_john() as never;
     case "julian":
       return make_bot_data_julian() as never;
     case "justin":
@@ -55,6 +70,8 @@ function makeBot(name: string): Maker | undefined {
       return make_bot_data_mark() as never;
     case "monk":
       return make_bot_data_monk() as never;
+    case "rudolf":
+      return make_bot_data_rudolf() as never;
     case "sorcerer":
       return make_bot_data_sorcerer() as never;
     case "woody":

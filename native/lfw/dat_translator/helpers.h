@@ -26,6 +26,7 @@ Value take_number(Object& any, const std::u16string& key, const Value& or_value)
 
 Object& set_hit_flag(Object& info, const Value& value);
 Object& set_bdy_kind(Object& bdy, const Value& kind);
+std::pair<Value, Value> hit_flag_pair(const Value& value);
 
 double fixed_float(double n, double digits = 1);
 std::pair<bool, std::u16string> find_float(const Value& v, const std::u16string& path = std::u16string());
