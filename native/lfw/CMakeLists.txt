@@ -51,6 +51,10 @@ add_library(lfw_core STATIC
   entity/entity_type_check.cpp
   entity/face_helper.cpp
   entity/find_frame_direction.cpp
+  controller/double_click.cpp
+  controller/seq_keys.cpp
+  controller/key_status.cpp
+  controller/controller_double_clicks.cpp
   loader/preprocess_pic.cpp
   loader/preprocess_stage.cpp
   loader/preprocess_ball_frame.cpp
