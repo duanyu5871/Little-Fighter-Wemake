@@ -310,3 +310,5 @@ VS Code 里也已经指好（`.vscode/settings.json`）：
 | 4m | 步骤 4 第二块 `controller/` 纯助手（`DoubleClick`/`SeqKeys`/`KeyStatus`/`ControllerDoubleClicks`） | ✅ 通过（`controller_helpers/all` 102 行；变异 **55/55 全杀**） |
 
 | 4n | 步骤 4 第三块 `bot/` 纯助手（`closest`/`is_ray_hit`/`DummyEnum`/`NearestTargets`）+ 补 `helper/manhattan_xz` | ✅ 通过（`bot_helpers/all` 201 行；变异 **99/99 全杀**） |
+
+| 4o | 步骤 4 第四块 `collision/` 纯助手（`is_fall`/`is_armor_work`/`calc_itr_velocity`）+ 补 `Entity.dataset` | ✅ 通过（`collision_helpers/all` 243 行；变异 **99/99 全杀**） |

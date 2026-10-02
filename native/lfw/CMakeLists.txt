@@ -51,6 +51,10 @@ add_library(lfw_core STATIC
   entity/entity_type_check.cpp
   entity/face_helper.cpp
   entity/find_frame_direction.cpp
+  entity/entity_dataset.cpp
+  collision/is_fall.cpp
+  collision/is_armor_work.cpp
+  collision/calc_itr_velocity.cpp
   controller/double_click.cpp
   controller/seq_keys.cpp
   controller/key_status.cpp

@@ -1263,3 +1263,24 @@ P.S. TS 侧那个 `Times.lifes` 的无限递归（`return this.lifes`）就是�
 - ⚠️ **`mutate.mjs` 的 baseline 检查能立刻暴露"二进制与源码不一致"**：手工恢复源码后忘了
   rebuild，会以 `baseline already failing`（exit 1、无明细）失败 —— 见到这个报错先想
   "是不是刚手工改过源码/mtime"。
+
+### 6.9.43 `collision_helpers`（差分 243 行，变异 99/99 全杀）
+
+- op：`ent put|del`（实体注册表）/ `col mk|del`（用已注册实体拼 collision：attacker/victim
+  + itr/bframe/aframe 三个字面量）/ `ds <entity> <key>`（`Entity.dataset`）/
+  `ifall` / `armor` / `civ` `<collision>`。
+- **无 sub 的 op 必须提前分流**：`ds`/`ifall`/`armor`/`civ` 的操作数个数与 `ent`/`col` 不同，
+  按 `<sub> <name>` 读会读到越界 token；C++ 侧越界 `std::string` 构造会直接 AV（no output），
+  比报错更难查。**这条规则上轮已写过一次，本轮又踩 ⇒ 新 harness 一律先在 `op` 上分流。**
+- **TS stub 要复用产品里的真规则**，不要手抄：`Entity.prototype.dataset` 用
+  `Object.getOwnPropertyDescriptor` 取出后 `.call(this, name)`；`weight` / `state` 这两个
+  "有逻辑的 getter" 同样挂到 stub 上（其余 `position`/`facing`/`armor`/`hp`/`fall_value`
+  是普通字段或直通 getter，直接放字面量即等价）。这样对拍的是**产品实现**而不是 harness 的复述。
+- **越界输入要主动排除**：`Entity.dataset` 的链里 `frame`、`world.bg.data`、`world.dataset`
+  不是可选链，缺一个 TS 就抛 ⇒ 用例必须给全路径；"TS 抛、C++ 不抛"的输入记为契约外差异。
+- **回看输出值确认分支**：本轮 5 条存活全部来自"样本 `position.x` 写成 0"⇒ `diff_x > 0`
+  这条分支从未执行。写完用例必须抽查输出（`native/build/gen/trace.<subject>.<case>.ts.txt`），
+  确认落在预期分支上。
+- 注意 TS 侧 `is_fall` / `is_armor_work` / `calc_itr_velocity` 取的是 `collision` 对象，
+  harness 里用 `{ attacker, victim, itr, bframe, aframe }` 一一对上，缺一个 key 就会
+  "TS 抛异常" —— 与上面"越界输入"同一条。

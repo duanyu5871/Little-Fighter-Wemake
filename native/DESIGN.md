@@ -1818,3 +1818,44 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
 - **变异体必须能编译**：`closest.cpp` 只 include 了 `base.h`，"`round` → `round_float`"的变异
   直接 `C3861`（`round_float` 未声明）⇒ 那测的是"符号在不在这个头文件里"，不是语义。
   改成同样意图、但能编译的"完全不做四舍五入"，照样被 `3.3335`/`3.3334` 那条用例杀掉。
+
+---
+
+### 4.54 V54 步骤 4 第四块 `collision/` 纯助手（含 `Entity.dataset`）
+
+- 新增 `native/lfw/collision/`：`is_fall.{h,cpp}` / `is_armor_work.{h,cpp}` /
+  `calc_itr_velocity.{h,cpp}`；并补上 `native/lfw/entity/entity_dataset.{h,cpp}`
+  （TS `Entity.dataset`，`calc_itr_velocity` 的必需依赖）。subject `collision_helpers`
+  （op `ent` / `col` / `ds` / `ifall` / `armor` / `civ`）**243 行全对**，变异 **99/99 全杀**。
+- **`Entity.dataset(name)` 是四级 `??` 链**：
+  `frame.dataset?.[name] ?? data.base[name] ?? world.bg.data.dataset?.[name] ?? world.dataset[name]`。
+  `??` 只在 `null`/`undefined` 时下探 ⇒ `0` / `false` / `""` 会**截断**链条（写成 `||` 会穿透）。
+  用例 `e_zero` / `e_false` / `e_empty` 各锁一条；四个层级各有一条"只在这一级命中"的用例。
+  ⚠️ 链条里 **`frame`、`world.bg.data`、`world.dataset` 都不是可选链**（只有 `.dataset?.[k]`
+  那一处有 `?.`）⇒ 缺 `frame` 或 `world.bg` 时 TS 直接抛异常。这类输入**不属于契约**，
+  用例一律给全路径（记为差异）。
+- **`victim.state` / `attacker.state` 是 getter（= `frame.state`）**，不是实体自有字段
+  ⇒ C++ 必须读 `frame.state`。而 `collision.bframe.state` / `aframe.state` 里的 `bframe`/`aframe`
+  是**帧对象**，其 `state` 是普通字段 ⇒ 两者读法不同，用例 `frozen_s` 与 `bframe state n 13`
+  分别锁住。`position` / `facing` / `armor` / `is_on_ground` / `hp` / `fall_value` 都是普通字段
+  或直通 getter ⇒ 直接读字段等价；只有 `weight`（`data.base.weight ?? 1`）与 `state` 要走规则。
+- **`is_armor_work` 的三处严/松相等**：`armor?.fulltime === false`（严 ⇒ `0` 不算 `false`，
+  用例 `cc_atk` + `cd_ff0` 锁住）、`bframe.state === ...` 与 `itr.effect === ...` 逐项严相等；
+  而 `bdefend >= 200` 是关系运算（`"200"` 数值强转后仍触发破防）。
+  `const { bdefend = 0 } = itr;` 这个默认值在 `>=` 里**不可观察**（`undefined >= 200` 与
+  `0 >= 200` 同为 false）⇒ C++ 直接比较，并在此写明这条等价（不写对应变异）。
+- **`calc_itr_velocity` 混用松/严相等**：`itr.effect == IE.FireExplosion/Explosion` 是**松**相等
+  （`effect s "22"` 也算命中 ⇒ 用例 `cv_effstrr`），而 `attacker.state ===
+  StateEnum.HeavyWeapon_InTheSky` 是**严**相等（`state s "2000"` 不命中 ⇒ 用例 `cv_hws_sr`）。
+- **返回四元组里的 `x_direction` 保留原值**（`attacker.facing` 可能是字符串）⇒ C++ 用 `Value`
+  而不是 `double`，只在参与乘法时 `to_number`。用例 `cv_fs`（`facing s "1"`）把第 4 位渲染成
+  `s"1"`，`cv_nof`（无 facing）渲染成 `u` 且 `x` 变 NaN。
+- ⚠️ **"我写了这个用例"≠"这条分支被执行到了"（本轮 5 连杀）**：`civ` 的 `position_based`
+  分支要 `diff_x > 0` 才走到 `x_direction = -1`，而我给 `vf` 写的 `position.x` 是 `0`
+  （本意是 25）⇒ 所有 position_based 用例都只落到 `diff_x < 0` ⇒
+  "`effect == FireExplosion` 用严相等"、"`state === 2000` 用松相等"、"2000 写成 2001"、
+  "attacker 状态读成顶层字段"、"`diff_x > 0` 分支方向写错"这 **5 条全部存活**；
+  补 `vright`(x=25) 后一次性全杀。⇒ 写完用例要**回看输出值**确认落在预期分支。
+- ⚠️ **同一"形状"的 op 要一起设计**：`ent`/`col` 带 sub，`ds`/`ifall`/`armor`/`civ` **不带**
+  ⇒ 后者必须在通用 `<sub> <name>` 解析**之前**分流（本轮又踩一次；C++ 侧越界 token 会直接 AV，
+  比报错更难查）。
