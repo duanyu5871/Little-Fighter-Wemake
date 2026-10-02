@@ -1284,3 +1284,18 @@ P.S. TS 侧那个 `Times.lifes` 的无限递归（`return this.lifes`）就是�
 - 注意 TS 侧 `is_fall` / `is_armor_work` / `calc_itr_velocity` 取的是 `collision` 对象，
   harness 里用 `{ attacker, victim, itr, bframe, aframe }` 一一对上，缺一个 key 就会
   "TS 抛异常" —— 与上面"越界输入"同一条。
+
+### 6.9.44 `summary_helpers`（差分 146 行，变异 57/57 全杀）
+
+- op：`ent put|del`（实体注册表）/ `sm <sub> <mgr> ...`（`new`/`get`/`items`/`release`/`clear`/
+  `dmg`/`kill`/`apply`）/ `sg items|get <id>`（模块级单例）/ `su <sub> <mgr> <id> ...`
+  （`on`/`set`/`reset`/`rel`/`snap`）。
+- **`su` 是"两个名字"的 op**：`su <sub> <mgr> <id>` 的操作数与 `sm`/`ent` 都不同
+  ⇒ 必须在通用 `<sub> <name>` 解析**之前**分流（这条本轮第三次踩，已上升为铁律）。
+  另外 `su snap|reset|rel` 只有 4 个 token、`su set|on` 有 5+ ⇒ 入口守卫要用 `< 4`。
+- **回调要"五类事件各注册一个监听器"**：漏掉哪类，那类 setter 的"缺守卫 / 守卫取反 /
+  守卫用严相等"变异就会存活（重复设同值是可观察的唯一方式）。
+- **模块级单例要给"数值视图"**：`sg items` 只列 id，看不到 `kill`/`dmg` 的增减
+  ⇒ 必须再加 `sg get <id>`；否则 `apply_damage` 的三条分支变异全部存活。
+- 结构性怪癖（TS 原样，不是 bug）：`apply_damage` 把击杀记到**单例**上，而伤害记在 `this` 上；
+  只有把「命名 manager 的视图」和「单例视图」分别打出来才锁得住。

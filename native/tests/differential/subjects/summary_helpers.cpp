@@ -105,12 +105,17 @@ int main(int argc, char** argv) {
     const std::string& op = t[0];
 
     if (op == "sg") {
-      if (t.size() != 2 || t[1] != "items") {
-        std::fprintf(stderr, "sg takes only 'items' at line %d\n", lineno);
-        return 2;
+      if (t.size() == 2 && t[1] == "items") {
+        emit(items_of("sg", lfw::summary_mgr()));
+        continue;
       }
-      emit(items_of("sg", lfw::summary_mgr()));
-      continue;
+      if (t.size() == 3 && t[1] == "get") {
+        const std::u16string id = trace::parse_js_string_literal(t[2]);
+        emit("sg get " + to_ascii(id) + " " + snap(*lfw::summary_mgr().get(id)));
+        continue;
+      }
+      std::fprintf(stderr, "unknown sg operands at line %d\n", lineno);
+      return 2;
     }
 
     if (op == "su") {

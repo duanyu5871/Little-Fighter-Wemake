@@ -58,12 +58,17 @@ function main(): void {
     const op = t[0]!;
 
     if (op === "sg") {
-      if (t.length !== 2 || t[1] !== "items") {
-        process.stderr.write(`sg takes only 'items': ${raw}\n`);
-        process.exit(2);
+      if (t.length === 2 && t[1] === "items") {
+        out.push(itemsOf("sg", summary_mgr));
+        continue;
       }
-      out.push(itemsOf("sg", summary_mgr));
-      continue;
+      if (t.length === 3 && t[1] === "get") {
+        const id = parseJsStringLiteral(t[2]!);
+        out.push(`sg get ${id} ${snap(summary_mgr.get(id))}`);
+        continue;
+      }
+      process.stderr.write(`unknown sg operands: ${raw}\n`);
+      process.exit(2);
     }
 
     if (op === "su") {

@@ -12,6 +12,10 @@ ent put v6 o 3 data o 1 type n 8 emitters a 0 id s "v6"
 sm new m1
 sm get m1 s1
 su on m1 s1 on_damage_sum_changed
+su on m1 s1 on_kill_sum_changed
+su on m1 s1 on_picking_sum_changed
+su on m1 s1 on_hp_lost_changed
+su on m1 s1 on_mp_usage_changed
 su set m1 s1 damage_sum n 5
 su set m1 s1 damage_sum n 5
 su set m1 s1 damage_sum n 5.0
@@ -85,26 +89,42 @@ sm items m3
 sm new m5
 sm dmg m5 a4 o 0
 su snap m5 a4
+su set m5 a4 damage_sum o 0
+sm dmg m5 a4 n 1
+su snap m5 a4
 sm new m6
 sm dmg m6 a4 a 0
 su snap m6 a4
 sm new m4
 su on m4 a1 on_damage_sum_changed
 sm apply m4 a1 n 5 v1 n 10
+sg get a1
 sm get m4 a1
 sg items
 sm apply m4 a1 n 5 v2 n 10
+sg get a1
 sm apply m4 a1 n 5 v3 n 10
+sg get a1
 sm apply m4 a1 n 5 v1 n 0
+sg get a1
 sm apply m4 a1 n 5 v1 n -1
+sg get a1
 sm apply m4 a1 n 5 v1 s "10"
+sg get a1
 sm apply m4 a1 n 5 v4 n 10
+sg get a1
 sm apply m4 a1 n 5 v5 n 10
+sg get a1
 sm apply m4 a1 n 5 v6 n 10
+sg get a1
 sm apply m4 a1 n 0 v1 n 10
+sg get a1
 sm get m4 a1
 sg items
 sm apply m4 a2 n 4 v1 n 10
+sg get a1
+sg get a2
+sg get ""
 sm get m4 a2
 sm get m4 ""
 sg items

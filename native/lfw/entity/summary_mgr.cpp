@@ -63,6 +63,7 @@ void SummaryMgr::release(const std::u16string& id) {
   std::shared_ptr<Summary> item = *found;
   item->release();
   del_item(id);
+  _graves.push_back(item);
 }
 
 std::shared_ptr<Summary> SummaryMgr::acquire(const std::u16string& id) {

@@ -1859,3 +1859,36 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
 - ⚠️ **同一"形状"的 op 要一起设计**：`ent`/`col` 带 sub，`ds`/`ifall`/`armor`/`civ` **不带**
   ⇒ 后者必须在通用 `<sub> <name>` 解析**之前**分流（本轮又踩一次；C++ 侧越界 token 会直接 AV，
   比报错更难查）。
+
+---
+
+### 4.55 V55 步骤 4 第五块 `entity/Summary` + `SummaryMgr`（含 `js_add`）
+
+- 新增 `native/lfw/entity/summary.{h,cpp}` / `summary_mgr.{h,cpp}` / `native/lfw/utils/js_add.{h,cpp}`，
+  并在 `defines/team_enum.h` 补上 `is_independent`（TS `defines/TeamEnum.ts`）。
+  subject `summary_helpers`（op `ent` / `sm` / `sg` / `su`）**146 行全对**，变异 **57/57 全杀**。
+  （`buff/grant_buff.ts` 依赖 `Entity`/`World`/`factory.create_buff` ⇒ 仍留在整块移植里；
+  本轮把它前面的这块缝隙补完。）
+- **`Summary` 的五个 setter 都用松相等守卫**（`if (o == v) return;`）⇒ `5` 与 `"5"` 视为相同
+  （不触发回调、不改值），而 `null == undefined` 为真、`undefined == false` 为假。
+  用例把这三条都锁住；写成 `===` 或 `Object.is` 都会被杀。
+  ⚠️ 只在**同一事件**上重复设值才可观察 ⇒ 五个事件必须**各注册一个监听器**，
+  否则"漏掉守卫"的变异在四个字段上全部存活（本轮 8 条存活里有 4 条是这个原因）。
+- **`sum += value` 必须走 JS 的 `+`**：`SummaryMgr.add_*_sum` 用的是 `+=`，
+  所以字段是字符串时会**拼接**（`"6" + 1 = "61"`），对象/数组会先 ToPrimitive
+  （`0 + {} = "0[object Object]"`、`0 + [] = "0"`）⇒ 新增 `js_add`
+  （ToPrimitive → 任一为字符串则拼接，否则数值相加），**不能**直接用 `to_number` 相加。
+  ⚠️ 只测"b 是对象"不够：`js_add` 的 `a` 侧 ToPrimitive 需要有"字段本身是对象"的用例。
+- **`SummaryMgr._items` 是 `Map`，必须保插入序**（新条目追加在末尾、`release` 删除、
+  复用墓碑后重新追加到末尾）⇒ C++ 用 `std::vector<std::pair<...>>` 而不是 `std::map`。
+  `clear()` 先 `Array.from(keys)` 快照再逐个 `release`（否则边遍历边删），C++ 照抄这条。
+  `_graves` 是 LIFO 池，但"复用哪一个对象"不可观察（复用前会 `reset(id)`）；
+  可观察的是**墓碑数量**与"复用后旧回调已被清"。`Summary` 内嵌不可拷贝的 `Callbacks`
+  ⇒ `_items`/`_graves` 存 `shared_ptr<Summary>`。
+- **`SummaryMgr.apply_damage` 的击杀走模块级单例 `summary_mgr`，不是 `this`**（TS 源码原样）
+  ⇒ 对非单例实例调用时，伤害记在自己身上、击杀记到单例上。这是可观察的怪癖，
+  harness 用 `sm <mgr> items` 与 `sg items` / `sg get <id>` 两个视图分别对拍。
+  ⚠️ 一开始 `sg` 只输出**条目 id**，看不到数值 ⇒ "不判 fighter"/"fighter 判定用 `||`"/
+  "`prev_hp > 0` 用 `>=`" 三条存活；补 `sg get <id>` 后一次性全杀。
+- **第 3 个回调参数 `target: Summary` 未移植**：只有监听方（运行时/UI）会读它，
+  C++ 传 `undefined`，差分 harness 也不渲染它 ⇒ 记为已知差异（与 `Expression` 同类）。
