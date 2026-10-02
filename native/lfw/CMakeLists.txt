@@ -55,6 +55,11 @@ add_library(lfw_core STATIC
   controller/seq_keys.cpp
   controller/key_status.cpp
   controller/controller_double_clicks.cpp
+  helper/manhattan_xz.cpp
+  bot/closest.cpp
+  bot/is_ray_hit.cpp
+  bot/dummy_enum.cpp
+  bot/nearest_targets.cpp
   loader/preprocess_pic.cpp
   loader/preprocess_stage.cpp
   loader/preprocess_ball_frame.cpp

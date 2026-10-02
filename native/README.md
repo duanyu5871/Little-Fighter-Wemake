@@ -306,3 +306,7 @@ VS Code 里也已经指好（`.vscode/settings.json`）：
 | 4k | `dat_translator` 收尾（`float_scaling_entity` / `decode_lf2_dat` / `edit_info`） | ✅ 通过（`translator_tail/all` 63 行；变异 **35/35 全杀**） |
 
 | 4l | 步骤 4 第一块 `entity/` 纯助手（`calc_v`/`find_direction`/`face_helper`/`type_check`/`EntitySnapshot`） | ✅ 通过（`entity_helpers/all` 153 行；变异 **62/62 全杀**） |
+
+| 4m | 步骤 4 第二块 `controller/` 纯助手（`DoubleClick`/`SeqKeys`/`KeyStatus`/`ControllerDoubleClicks`） | ✅ 通过（`controller_helpers/all` 102 行；变异 **55/55 全杀**） |
+
+| 4n | 步骤 4 第三块 `bot/` 纯助手（`closest`/`is_ray_hit`/`DummyEnum`/`NearestTargets`）+ 补 `helper/manhattan_xz` | ✅ 通过（`bot_helpers/all` 201 行；变异 **99/99 全杀**） |

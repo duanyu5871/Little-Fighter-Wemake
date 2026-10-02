@@ -1740,3 +1740,81 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
 - ⚠️ **`o N` 又一次在"多层级对象"上写错**：`tc boss o 2 data o 2 ...` 里顶层其实只有 `data`
   一个键（`o 1`），我却写了 `o 2` —— 内层把 `base ...` 一并吃掉，于是顶层少一对。
   **写出嵌套字面量后要按层级各数一遍**。
+
+---
+
+### 4.52 V52 步骤 4 第二块 `controller/` 纯助手
+
+- 新增 `native/lfw/controller/`：`double_click.{h,cpp}` / `seq_keys.{h,cpp}` /
+  `key_status.{h,cpp}` / `controller_double_clicks.{h,cpp}`；subject `controller_helpers`
+  （op `dc`/`sk`/`ks`/`cdc`，参数序 `<sub> <name> ...`）**102 行全对**，变异 **55/55 全杀**。
+- **`KeyStatus` 的 `ctrl.time` / `world.dataset.key_hit_duration` 降为方法参数**
+  （`is_hit(time, duration)` / `hit(t, time)` / `end(time)`）：类只是**按需读取**这两个值、
+  从不缓存，所以参数化后就不需要 `BaseController`/`World` 了。TS harness 侧搭
+  `{ time, world: { dataset: { key_hit_duration } } }` 桩，调用前写入 ⇒ 两侧同语义。
+- **`ControllerDoubleClicks` 虽持有 `owner: BaseController` 但从不调用它**（只把按键名字符串
+  传给 `DoubleClick`）⇒ 整个类是纯的；那 7 个名字的映射（`L`→`"d"`/`R`→`"a"`/`U`→`"j"`/
+  `D`→`"L"`/`d`→`"R"`/`j`→`"U"`/`a`→`"D"`，看着像错位但确实是原样）成了可对拍的常量表。
+- `ControllerResult` **本轮未做**：它唯一的逻辑 `fire()` 要调 `owner.entity.get_next_frame(nf)`，
+  依赖 `Entity` ⇒ 留到整块移植时一起。
+- **`SeqKeys.press` 的匹配是"消耗式多重集匹配"**：`idx` 推进 + `arr.splice(j,1)`；失配清 `idx`/`hit`
+  并返回，`idx == len-1` 时置 `hit=1` 且 `idx` 归零。⚠️ **`indexOf` 取首匹配还是末匹配不可观察**
+  —— 删掉一个匹配项后多重集相同，后续匹配结果不变（本轮唯一的等价变异，已删）。
+- **快照数值字段的前提条件**：`from_snapshot` 的字段必须是声明的类型。TS 不校验，`undefined`
+  会流进数值字段（`+` 甚至可能变成字符串拼接）；C++ 用 `to_number` 归一化。
+  真实快照恒由 `to_snapshot` 产出 ⇒ 属于不可达差异，用例只用良构快照。
+- ⚠️ **常量表要"逐个条目都摸一遍"**：`ControllerDoubleClicks` 的 7 槽映射我只按了 3 个槽
+  ⇒ "`slot` 把 `j` 指到 `U`"的变异不可达而存活。与上轮 `is_object_data` 漏掉 Ball 分支同类。
+
+---
+
+### 4.53 V53 步骤 4 第三块 `bot/` 纯助手（含 `helper/manhattan_xz`）
+
+- 新增 `native/lfw/bot/`：`closest.{h,cpp}` / `is_ray_hit.{h,cpp}` / `dummy_enum.{h,cpp}` /
+  `nearest_targets.{h,cpp}`，并补上 `native/lfw/helper/manhattan_xz.{h,cpp}`
+  （TS `helper/manhattan_xz.ts`，此前一直没实现，本轮 `NearestTargets` 需要它）。
+  subject `bot_helpers`（op `de` / `ent` / `dxz` / `ray` / `cl` / `nt`）**201 行全对**，
+  变异 **99/99 全杀**。
+- **`is_ray_hit` 的前两个提前返回返回的是 `reverse` 本身（不是 `bool`）** ⇒ C++ 必须返回 `Value`。
+  `reverse = false` 是**默认参数**，只在 `undefined` 时生效 ⇒ 用例 `min_x n 5`（不给 reverse）
+  必须渲染出 `b0` 而不是 `u`；用例 `min_x n 5 reverse n 7` 必须渲染出 `n7:...`。
+  `reverse` 的真值判定与"取反命中"是**两步**（`reverse ? !hit : hit`），
+  用例 `reverse n 0.5` + `d_sq == 0` 锁"提前返回原值"，`reverse b 1` + `max_d` 使命中为假 才锁"取反"。
+- **`closest` 用的是 `round`，不是 `round_float`**（而且把曼哈顿公式内联，没调 `manhattan_xz`），
+  与 `manhattan_xz`/`NearestTargets` 的 `round_float` 是**两条规则** ⇒ 故意不合并。
+  选值 `3.3335` / `3.3334`：`round` 后都是 3（平手 → 先到者胜），`round_float` 后是 3.334 / 3.333
+  ⇒ 一条用例同时锁住"用 `round`"与"严格 `<`（平手保留先到者）"。
+- **`NearestTargets.entities` 是 `Set<Entity>`，身份判定用 `strict_equals`**（对象即指针相等）。
+  与 `Set` 的 SameValueZero 只在 `NaN` 上不同（`NaN` 不是合法实体）⇒ 记为差异，
+  不为此另造一套相等。`targets`/`entities` 都按**插入序**对拍（JS `Map`/`Set` 语义）
+  ⇒ C++ 侧**不能**顺手用 `std::map`（按名字排序），必须 `std::vector` + 线性查找。
+- **`sort` 的定序要照抄 `Array.prototype.sort`**：`d = a.distance - b.distance`，`d !== 0` 时返回 `d`；
+  但 `NaN !== 0` 为真 ⇒ 规范里 `SortCompare` 把 `NaN` 当 `+0` ⇒ C++ 里 `isnan(d)` 必须
+  `return false`（等价"平手"，保住稳定序），**不能**把 `NaN` 当成排序键。
+  平手用 `a.entity.id < b.entity.id`（JS `<`，混类型走 ToPrimitive）⇒ 用 `lfw::lt/gt`，
+  不是字符串比较。稳定序 ⇒ `std::stable_sort`。
+- **`look` 的满员分支是"插入 + 挤掉末位 + 截断"三步**：`splice(i,0,x)` → `entities.add(x)` →
+  取 `targets[max]` 的 entity 从集合里删掉 → `targets.length = max`。
+  C++ 里 `targets_.resize()` 会因为 `BotTarget` 不能默认构造而编译失败 ⇒ 用
+  `erase(begin()+max, end())` 截断。
+- **`defendable` 原样存储而不是转成 `double`**：TS 里它就是"传进来什么存什么"，
+  只有 `undefined` 才吃默认 0 ⇒ C++ 存 `Value`，用 `holds_alternative<monostate>` 判默认。
+- **`DummyEnum` 有两个成员同值**（`LockAtMid_dDj_auto = "18"` 与 `LockAtMid_dLa_auto = "18"`，
+  原样如此）。字符串枚举没有反向映射，所以 `Object.keys` 仍是 24 项且**声明序即遍历序**
+  ⇒ C++ 表按声明序逐项对拍（`de <i> "<name>" "<value>"`），任何重排/改名/改值立刻可见。
+  `dummy_updaters` 的**键集**（`""` + `"1"`..`"22"`，`_auto` 系列值为 `undefined`）是可观察的，
+  但它的键序是 **JS 对象的整数键优先** ⇒ C++ 侧先用声明序建一个 `Object` 再走
+  `object_keys()`，复用已验证的排序规则，**不**手工再排一遍。
+  闭包体（`self.key_down(...)`）要等 `BotController` ⇒ 本轮不做，
+  也**不**把不同形状的 updater 塞进一张带标志位的表（`make_ball_special` 的教训）。
+- `DummyEnum.ts` 的 `import { BotController }` 是**值导入**（虽然只当类型用），
+  esbuild 打包会连带 `Entity` 链；实测可打包运行（`bot` 链不碰 `three`/DOM）
+  ⇒ 枚举表可以直接从产品模块 import，不必手抄"影子表"。
+- ⚠️ **`o N` 又错了两次**（本轮的 `o 3` 以为有两对、`o 4` 实际有五对），
+  都被 harness 的"解析完 `idx != t.length` 即报错"自检当场抓住 ⇒ 这条自检是必需的。- ⚠️ **中断 `mutate.mjs` 后手工恢复源码必须刷新时间戳**：`Copy-Item` 会保留备份文件的旧 mtime
+  ⇒ ninja 认为 `.obj` 比源码新、**跳过重编译** ⇒ 随后 `native.mjs test` 用的是"最后一次变异"
+  的二进制，表现为莫名其妙的漂移（本轮误报过一次 `is_ray_hit` 漂移）。
+  `mutate.mjs` 自带 `recoverFromInterruptedRun()`，能让它自己恢复就别手工抄。
+- **变异体必须能编译**：`closest.cpp` 只 include 了 `base.h`，"`round` → `round_float`"的变异
+  直接 `C3861`（`round_float` 未声明）⇒ 那测的是"符号在不在这个头文件里"，不是语义。
+  改成同样意图、但能编译的"完全不做四舍五入"，照样被 `3.3335`/`3.3334` 那条用例杀掉。
