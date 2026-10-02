@@ -477,8 +477,10 @@ export default {
     {
       note: "louis 的 d>a 最大 x 写错",
       file: "native/lfw/dat_translator/bots/make_bot_data.cpp",
-      from: `      as_action(bot_ball_dfa(num(150), Value(), num(120), num(800))),`,
-      to: `      as_action(bot_ball_dfa(num(150), Value(), num(120), num(801))),`,
+      from: `      as_action(bot_ball_dfa(num(150), Value(), num(120), num(800))),
+      as_action(bot_ball_dfj(num(50), Value(), num(120), num(250))),`,
+      to: `      as_action(bot_ball_dfa(num(150), Value(), num(120), num(801))),
+      as_action(bot_ball_dfj(num(50), Value(), num(120), num(250))),`,
     },
     {
       note: "louis 的 d^j 最大 x 写错",
@@ -517,14 +519,50 @@ export default {
     {
       note: "mark 的 d>j 条件左值写错",
       file: "native/lfw/dat_translator/bots/make_bot_data.cpp",
-      from: `    cond.and_(sv(bot_val::kEnemyOutOfRange), u"!=", Value(1.0));`,
-      to: `    cond.and_(sv(bot_val::kEnemyDiffX), u"!=", Value(1.0));`,
+      from: `    set_rays_max_d(action, 1600.0);
+    cond.and_(sv(bot_val::kEnemyOutOfRange), u"!=", Value(1.0));
+    Object* o = as_object(action);
+    if (o != nullptr) o->set(u"expression", Value(cond.done()));
+    return action;
+  };
+  return &e;
+}
+
+const EditBotAction* edit_mark_cancel() {`,
+      to: `    set_rays_max_d(action, 1600.0);
+    cond.and_(sv(bot_val::kEnemyDiffX), u"!=", Value(1.0));
+    Object* o = as_object(action);
+    if (o != nullptr) o->set(u"expression", Value(cond.done()));
+    return action;
+  };
+  return &e;
+}
+
+const EditBotAction* edit_mark_cancel() {`,
     },
     {
       note: "mark 的 d>j 比较符写错",
       file: "native/lfw/dat_translator/bots/make_bot_data.cpp",
-      from: `    cond.and_(sv(bot_val::kEnemyOutOfRange), u"!=", Value(1.0));`,
-      to: `    cond.and_(sv(bot_val::kEnemyOutOfRange), u"==", Value(1.0));`,
+      from: `    set_rays_max_d(action, 1600.0);
+    cond.and_(sv(bot_val::kEnemyOutOfRange), u"!=", Value(1.0));
+    Object* o = as_object(action);
+    if (o != nullptr) o->set(u"expression", Value(cond.done()));
+    return action;
+  };
+  return &e;
+}
+
+const EditBotAction* edit_mark_cancel() {`,
+      to: `    set_rays_max_d(action, 1600.0);
+    cond.and_(sv(bot_val::kEnemyOutOfRange), u"==", Value(1.0));
+    Object* o = as_object(action);
+    if (o != nullptr) o->set(u"expression", Value(cond.done()));
+    return action;
+  };
+  return &e;
+}
+
+const EditBotAction* edit_mark_cancel() {`,
     },
     {
       note: "mark 的 cancel_d>j 第二个 ray 的 z 写错",
@@ -615,8 +653,18 @@ export default {
     {
       note: "sorcerer 的 frames 动作顺序互换",
       file: "native/lfw/dat_translator/bots/make_bot_data.cpp",
-      from: `               arr({sv(u"d>a"), sv(u"d>j"), sv(u"d^j"), sv(u"dvj")}));`,
-      to: `               arr({sv(u"d>a"), sv(u"d>j"), sv(u"dvj"), sv(u"d^j")}));`,
+      from: `               arr({sv(u"d>a"), sv(u"d>j"), sv(u"d^j"), sv(u"dvj")}));
+  return m;
+}
+
+}
+}`,
+      to: `               arr({sv(u"d>a"), sv(u"d>j"), sv(u"dvj"), sv(u"d^j")}));
+  return m;
+}
+
+}
+}`,
     },
     {
       note: "sorcerer 的 d>j 最大 x 写错",
@@ -629,6 +677,321 @@ export default {
       file: "native/lfw/dat_translator/bots/make_bot_data.cpp",
       from: `  BotMaker::register_maker(oid::kDavis, make_bot_data_davis);`,
       to: `  BotMaker::register_maker(oid::kMark, make_bot_data_davis);`,
+    },
+
+    {
+      note: "firen 的 d>a+a 欲望值写错",
+      file: "native/lfw/dat_translator/bots/make_bot_data.cpp",
+      from: `      as_action(bot_ball_continuation(u"d>a+a", num(0.8), num(75))),`,
+      to: `      as_action(bot_ball_continuation(u"d>a+a", num(0.9), num(75))),`,
+    },
+    {
+      note: "firen 的 d>j 第二个 ray 的 z 写错",
+      file: "native/lfw/dat_translator/bots/make_bot_data.cpp",
+      from: `    push_ray_with_z(action, 0.2);
+    push_ray_with_z(action, -0.2);
+    cond.and_(sv(bot_val::kEnemyOutOfRange), u"!=", Value(1.0));
+    Object* o = as_object(action);
+    if (o != nullptr) o->set(u"expression", Value(cond.done()));
+    return action;
+  };
+  return &e;
+}
+
+const EditBotAction* edit_firen_dvj() {`,
+      to: `    push_ray_with_z(action, 0.2);
+    push_ray_with_z(action, -0.3);
+    cond.and_(sv(bot_val::kEnemyOutOfRange), u"!=", Value(1.0));
+    Object* o = as_object(action);
+    if (o != nullptr) o->set(u"expression", Value(cond.done()));
+    return action;
+  };
+  return &e;
+}
+
+const EditBotAction* edit_firen_dvj() {`,
+    },
+    {
+      note: "firen 的 dvj 动作 id 写错",
+      file: "native/lfw/dat_translator/bots/make_bot_data.cpp",
+      from: `    if (o != nullptr) o->set(u"action_id", sv(u"dvj"));`,
+      to: `    if (o != nullptr) o->set(u"action_id", sv(u"dvj2"));`,
+    },
+    {
+      note: "firen 的 dvj 第一个 ray 的 z 写错",
+      file: "native/lfw/dat_translator/bots/make_bot_data.cpp",
+      from: `    push_ray_with_z(action, 0.05);
+    push_ray_with_z(action, -0.1);`,
+      to: `    push_ray_with_z(action, 0.06);
+    push_ray_with_z(action, -0.1);`,
+    },
+    {
+      note: "firen 的 dvj 按键写错",
+      file: "native/lfw/dat_translator/bots/make_bot_data.cpp",
+      from: `      o->set(u"keys", arr({sv(gk::kDefend), sv(gk::kDown), sv(gk::kJump)}));`,
+      to: `      o->set(u"keys", arr({sv(gk::kDefend), sv(gk::kUp), sv(gk::kJump)}));`,
+    },
+    {
+      note: "firen 的 cancel_dvj 第二个 ray 的 z 写错",
+      file: "native/lfw/dat_translator/bots/make_bot_data.cpp",
+      from: `    push_ray_with_z(action, 0.05);
+    push_ray_with_z(action, -0.05);`,
+      to: `    push_ray_with_z(action, 0.05);
+    push_ray_with_z(action, -0.06);`,
+    },
+    {
+      note: "firen 的 range(255,261) 上限写小",
+      file: "native/lfw/dat_translator/bots/make_bot_data.cpp",
+      from: `  m.set_frames(range_array(255.0, 261.0), arr({sv(u"cancel_d>j")}));`,
+      to: `  m.set_frames(range_array(255.0, 260.0), arr({sv(u"cancel_d>j")}));`,
+    },
+    {
+      note: "firen 的 range(267,275) 上限写小",
+      file: "native/lfw/dat_translator/bots/make_bot_data.cpp",
+      from: `  m.set_frames(range_array(267.0, 275.0), arr({sv(u"cancel_dvj")}));`,
+      to: `  m.set_frames(range_array(267.0, 274.0), arr({sv(u"cancel_dvj")}));`,
+    },
+    {
+      note: "firen 的 range(235,252) 上限写小",
+      file: "native/lfw/dat_translator/bots/make_bot_data.cpp",
+      from: `  m.set_frames(range_array(235.0, 252.0), arr({sv(u"d>a+a")}));`,
+      to: `  m.set_frames(range_array(235.0, 251.0), arr({sv(u"d>a+a")}));`,
+    },
+    {
+      note: "firen 的 1/60 写错",
+      file: "native/lfw/dat_translator/bots/make_bot_data.cpp",
+      from: `      as_action(bot_explosion_duj(num(300), num(1.0 / 60.0), num(-110), num(110), num(900))),`,
+      to: `      as_action(bot_explosion_duj(num(300), num(1.0 / 61.0), num(-110), num(110), num(900))),`,
+    },
+    {
+      note: "firzen 的 d>j 最小 x 写错",
+      file: "native/lfw/dat_translator/bots/make_bot_data.cpp",
+      from: `      as_action(bot_ball_dfj(num(50))),`,
+      to: `      as_action(bot_ball_dfj(num(60))),`,
+    },
+    {
+      note: "firzen 的 cancel_d>j 动作 id 写错",
+      file: "native/lfw/dat_translator/bots/make_bot_data.cpp",
+      from: `      as_action(bot_ball_cancelling(u"cancel_d>j")),`,
+      to: `      as_action(bot_ball_cancelling(u"cancel_d^j")),`,
+    },
+    {
+      note: "firzen 的 frames 少一个 id",
+      file: "native/lfw/dat_translator/bots/make_bot_data.cpp",
+      from: `               arr({sv(u"d^j"), sv(u"d^j_2"), sv(u"d^a"), sv(u"d>j")}));`,
+      to: `               arr({sv(u"d^j"), sv(u"d^j_2"), sv(u"d^a")}));`,
+    },
+    {
+      note: "firzen 的 d^j_2 动作 id 写错",
+      file: "native/lfw/dat_translator/bots/make_bot_data.cpp",
+      from: `    if (o != nullptr) o->set(u"action_id", sv(u"d^j_2"));`,
+      to: `    if (o != nullptr) o->set(u"action_id", sv(u"d^j_3"));`,
+    },
+    {
+      note: "firzen 的 disaster 概率写错",
+      file: "native/lfw/dat_translator/bots/make_bot_data.cpp",
+      from: `      as_action(bot_chasing_action(u"d^a+a", arr({sv(u"a")}), Value(),
+                                   num(probability(2.0, 0.1)))),`,
+      to: `      as_action(bot_chasing_action(u"d^a+a", arr({sv(u"a")}), Value(),
+                                   num(probability(2.0, 0.2)))),`,
+    },
+    {
+      note: "henry 的 d^j z_len 写错",
+      file: "native/lfw/dat_translator/bots/make_bot_data.cpp",
+      from: `      as_action(bot_explosion_duj(num(350), Value(), num(-250), num(250), num(90000))),`,
+      to: `      as_action(bot_explosion_duj(num(350), Value(), num(-250), num(250), num(90001))),`,
+    },
+    {
+      note: "henry 的 dataset w_atk_x 写错",
+      file: "native/lfw/dat_translator/bots/make_bot_data.cpp",
+      from: `                     {u"w_atk_x", num(350)}}));`,
+      to: `                     {u"w_atk_x", num(351)}}));`,
+    },
+    {
+      note: "henry 的 dja_1 max_d 写错",
+      file: "native/lfw/dat_translator/bots/make_bot_data.cpp",
+      from: `    set_ray0_max_d(action, 40000.0);`,
+      to: `    set_ray0_max_d(action, 40001.0);`,
+    },
+    {
+      note: "henry 的 dja_2 max_d 写错",
+      file: "native/lfw/dat_translator/bots/make_bot_data.cpp",
+      from: `    set_ray0_max_d(action, 160000.0);`,
+      to: `    set_ray0_max_d(action, 160001.0);`,
+    },
+    {
+      note: "henry 的 dja 按键写错",
+      file: "native/lfw/dat_translator/bots/make_bot_data.cpp",
+      from: `      o->set(u"keys", arr({sv(gk::kd), sv(gk::kj), sv(gk::ka)}));
+    }
+    set_ray0_max_d(action, 40000.0);`,
+      to: `      o->set(u"keys", arr({sv(gk::kd), sv(gk::kj), sv(gk::ka), sv(gk::kU)}));
+    }
+    set_ray0_max_d(action, 40000.0);`,
+    },
+    {
+      note: "henry 的 d>j zable 写错",
+      file: "native/lfw/dat_translator/bots/make_bot_data.cpp",
+      from: `      as_action(bot_ball_dfj(num(200), Value(), num(120), num(1000), num(0.3))),`,
+      to: `      as_action(bot_ball_dfj(num(200), Value(), num(120), num(1000), num(0.4))),`,
+    },
+    {
+      note: "julian 的 injured_dja 血量阈值写错",
+      file: "native/lfw/dat_translator/bots/make_bot_data.cpp",
+      from: `  c1.add(sv(entity_val::kMP), u">", Value(25.0));`,
+      to: `  c1.add(sv(entity_val::kMP), u">", Value(26.0));`,
+    },
+    {
+      note: "julian 的 shaking_dja 抖动阈值写错",
+      file: "native/lfw/dat_translator/bots/make_bot_data.cpp",
+      from: `  c2.and_(sv(entity_val::kShaking), u">", Value(0.0));`,
+      to: `  c2.and_(sv(entity_val::kShaking), u">", Value(1.0));`,
+    },
+    {
+      note: "julian 的 desire 写错",
+      file: "native/lfw/dat_translator/bots/make_bot_data.cpp",
+      from: `                     {u"desire", Value(defines::desire(0.08))},
+                     {u"expression", Value(c1.done())},`,
+      to: `                     {u"desire", Value(defines::desire(0.09))},
+                     {u"expression", Value(c1.done())},`,
+    },
+    {
+      note: "julian 的 injured_dja 动作 id 写错",
+      file: "native/lfw/dat_translator/bots/make_bot_data.cpp",
+      from: `      as_action(obj({{u"action_id", sv(u"injured_dja")},`,
+      to: `      as_action(obj({{u"action_id", sv(u"injured_dja2")},`,
+    },
+    {
+      note: "julian 的 states 用错状态",
+      file: "native/lfw/dat_translator/bots/make_bot_data.cpp",
+      from: `  m.set_states(arr({num(static_cast<double>(StateEnum::Attacking))}),
+               arr({sv(u"shaking_dja"), sv(u"d>a+a")}));`,
+      to: `  m.set_states(arr({num(static_cast<double>(StateEnum::Rowing))}),
+               arr({sv(u"shaking_dja"), sv(u"d>a+a")}));`,
+    },
+    {
+      note: "julian 的 dva 最少 mp 写错",
+      file: "native/lfw/dat_translator/bots/make_bot_data.cpp",
+      from: `      as_action(bot_uppercut_dua(num(0))),`,
+      to: `      as_action(bot_uppercut_dua(num(1))),`,
+    },
+    {
+      note: "julian 的 d>j 最小 x 写错",
+      file: "native/lfw/dat_translator/bots/make_bot_data.cpp",
+      from: `      as_action(bot_ball_dfj(num(125))),`,
+      to: `      as_action(bot_ball_dfj(num(126))),`,
+    },
+    {
+      note: "louisex 的 d>a 最大 x 写错",
+      file: "native/lfw/dat_translator/bots/make_bot_data.cpp",
+      from: `      as_action(bot_ball_dfa(num(100), Value(), num(150), num(400))),
+      as_action(bot_ball_continuation(u"d>a+a", num(0.5), num(100))),`,
+      to: `      as_action(bot_ball_dfa(num(100), Value(), num(150), num(401))),
+      as_action(bot_ball_continuation(u"d>a+a", num(0.5), num(100))),`,
+    },
+    {
+      note: "louisex 的 d>a+a 欲望值写错",
+      file: "native/lfw/dat_translator/bots/make_bot_data.cpp",
+      from: `      as_action(bot_ball_continuation(u"d>a+a", num(0.5), num(100))),`,
+      to: `      as_action(bot_ball_continuation(u"d>a+a", num(0.6), num(100))),`,
+    },
+    {
+      note: "louisex 的 r_atk_x 写错",
+      file: "native/lfw/dat_translator/bots/make_bot_data.cpp",
+      from: `                     {u"r_atk_x", num(200)}}));`,
+      to: `                     {u"r_atk_x", num(201)}}));`,
+    },
+    {
+      note: "louisex 的 range 上限写小",
+      file: "native/lfw/dat_translator/bots/make_bot_data.cpp",
+      from: `  m.set_frames(range_array(260.0, 269.0), arr({sv(u"d>a+a")}));`,
+      to: `  m.set_frames(range_array(260.0, 268.0), arr({sv(u"d>a+a")}));`,
+    },
+    {
+      note: "woody 的 d>a 改写 ray0 的 z 写错",
+      file: "native/lfw/dat_translator/bots/make_bot_data.cpp",
+      from: `    set_ray0_z(action, 0.1);
+    push_ray_with_z(action, -0.1);`,
+      to: `    set_ray0_z(action, 0.2);
+    push_ray_with_z(action, -0.1);`,
+    },
+    {
+      note: "woody 的 d>a 追加 ray 的 z 写错",
+      file: "native/lfw/dat_translator/bots/make_bot_data.cpp",
+      from: `    set_ray0_z(action, 0.1);
+    push_ray_with_z(action, -0.1);`,
+      to: `    set_ray0_z(action, 0.1);
+    push_ray_with_z(action, -0.2);`,
+    },
+    {
+      note: "woody 的 c_d>j 动作 id 写错",
+      file: "native/lfw/dat_translator/bots/make_bot_data.cpp",
+      from: `    if (o != nullptr) o->set(u"action_id", sv(u"c_d>j"));`,
+      to: `    if (o != nullptr) o->set(u"action_id", sv(u"c_d>j2"));`,
+    },
+    {
+      note: "woody 的 dva 最大 x 写成 min",
+      file: "native/lfw/dat_translator/bots/make_bot_data.cpp",
+      from: `      as_action(bot_uppercut_dva(num(0), Value(), num(80), num(kUppercutDuaMaxX))),`,
+      to: `      as_action(bot_uppercut_dva(num(0), Value(), num(80), num(kUppercutDuaMinX))),`,
+    },
+    {
+      note: "woody 的第二个 states 用错状态",
+      file: "native/lfw/dat_translator/bots/make_bot_data.cpp",
+      from: `  m.set_states(arr({num(static_cast<double>(StateEnum::Jump))}), arr({sv(u"d^j"), sv(u"dvj")}));`,
+      to: `  m.set_states(arr({num(static_cast<double>(StateEnum::Catching))}), arr({sv(u"d^j"), sv(u"dvj")}));`,
+    },
+    {
+      note: "woody 的 215/219 少一个",
+      file: "native/lfw/dat_translator/bots/make_bot_data.cpp",
+      from: `  m.set_frames(arr({num(215), num(219)}), arr({sv(u"c_d>j"), sv(u"d^a")}));`,
+      to: `  m.set_frames(arr({num(215)}), arr({sv(u"c_d>j"), sv(u"d^a")}));`,
+    },
+    {
+      note: "woody 的 d^j 欲望值用错常量",
+      file: "native/lfw/dat_translator/bots/make_bot_data.cpp",
+      from: `      as_action(bot_chasing_skill_action(u"d^j", Value(), num(50),
+                                         num(DESIRE_RATIO_D_4))(edit_woody_skill())),`,
+      to: `      as_action(bot_chasing_skill_action(u"d^j", Value(), num(50),
+                                         num(DESIRE_RATIO_D_3))(edit_woody_skill())),`,
+    },
+    {
+      note: "push_ray_with_z 不再覆盖 z",
+      file: "native/lfw/dat_translator/bots/make_bot_data.cpp",
+      from: `  const Value first = rays->at(0);
+  rays->push_back(ray_with_z(first, z));`,
+      to: `  const Value first = rays->at(0);
+  rays->push_back(first);`,
+    },
+    {
+      note: "set_ray0_max_d 的键名写错",
+      file: "native/lfw/dat_translator/bots/make_bot_data.cpp",
+      from: `  Object* r = as_object(rays->at(0));
+  if (r != nullptr) r->set(u"max_d", Value(v));`,
+      to: `  Object* r = as_object(rays->at(0));
+  if (r != nullptr) r->set(u"max_dd", Value(v));`,
+    },
+    {
+      note: "set_ray0_z 写死 0",
+      file: "native/lfw/dat_translator/bots/make_bot_data.cpp",
+      from: `  Object* r = as_object(rays->at(0));
+  if (r != nullptr) r->set(u"z", Value(z));`,
+      to: `  Object* r = as_object(rays->at(0));
+  if (r != nullptr) r->set(u"z", Value(0.0));`,
+    },
+    {
+      note: "rays_of 读的键名写错",
+      file: "native/lfw/dat_translator/bots/make_bot_data.cpp",
+      from: `  const Value* rays_v = o->get(u"e_ray");
+  return rays_v != nullptr ? const_cast<Array*>(as_array(*rays_v)) : nullptr;
+}
+
+void push_ray_with_z`,
+      to: `  const Value* rays_v = o->get(u"e_rays");
+  return rays_v != nullptr ? const_cast<Array*>(as_array(*rays_v)) : nullptr;
+}
+
+void push_ray_with_z`,
     },
   ],
 };

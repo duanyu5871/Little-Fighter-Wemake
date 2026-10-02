@@ -218,6 +218,325 @@ const EditBotAction* edit_mark_cancel() {
   return &e;
 }
 
+Array* rays_of(Value& action) {
+  Object* o = as_object(action);
+  if (o == nullptr) return nullptr;
+  const Value* rays_v = o->get(u"e_ray");
+  return rays_v != nullptr ? const_cast<Array*>(as_array(*rays_v)) : nullptr;
+}
+
+void push_ray_with_z(Value& action, double z) {
+  Array* rays = rays_of(action);
+  if (rays == nullptr || rays->size() == 0) return;
+  const Value first = rays->at(0);
+  rays->push_back(ray_with_z(first, z));
+}
+
+void set_ray0_max_d(Value& action, double v) {
+  Array* rays = rays_of(action);
+  if (rays == nullptr || rays->size() == 0) return;
+  Object* r = as_object(rays->at(0));
+  if (r != nullptr) r->set(u"max_d", Value(v));
+}
+
+void set_rays_reverse(Value& action) {
+  Array* rays = rays_of(action);
+  if (rays == nullptr) return;
+  for (size_t i = 0; i < rays->size(); ++i) {
+    Object* r = as_object(rays->at(i));
+    if (r != nullptr) r->set(u"reverse", Value(true));
+  }
+}
+
+void set_ray0_z(Value& action, double z) {
+  Array* rays = rays_of(action);
+  if (rays == nullptr || rays->size() == 0) return;
+  Object* r = as_object(rays->at(0));
+  if (r != nullptr) r->set(u"z", Value(z));
+}
+
+void set_rays_reverse_and_keys(Value& action, const Value& keys) {
+  set_rays_reverse(action);
+  Object* o = as_object(action);
+  if (o != nullptr) o->set(u"keys", keys);
+}
+
+const EditBotAction* edit_henry_dja(int index) {
+  static const EditBotAction e1 = [](Value& action, CondMaker& cond) -> Value {
+    (void)cond;
+    Object* o = as_object(action);
+    if (o != nullptr) {
+      o->set(u"action_id", sv(u"dja_1"));
+      o->set(u"keys", arr({sv(gk::kd), sv(gk::kj), sv(gk::ka)}));
+    }
+    set_ray0_max_d(action, 40000.0);
+    return action;
+  };
+  static const EditBotAction e2 = [](Value& action, CondMaker& cond) -> Value {
+    (void)cond;
+    Object* o = as_object(action);
+    if (o != nullptr) {
+      o->set(u"action_id", sv(u"dja_2"));
+      o->set(u"keys", arr({sv(gk::kd), sv(gk::kj), sv(gk::ka)}));
+    }
+    set_ray0_max_d(action, 160000.0);
+    return action;
+  };
+  return index == 1 ? &e1 : &e2;
+}
+
+const EditBotAction* edit_firzen_dj2() {
+  static const EditBotAction e = [](Value& action, CondMaker& cond) -> Value {
+    (void)cond;
+    Object* o = as_object(action);
+    if (o != nullptr) o->set(u"action_id", sv(u"d^j_2"));
+    return action;
+  };
+  return &e;
+}
+
+const EditBotAction* edit_firen_dfj() {
+  static const EditBotAction e = [](Value& action, CondMaker& cond) -> Value {
+    push_ray_with_z(action, 0.2);
+    push_ray_with_z(action, -0.2);
+    cond.and_(sv(bot_val::kEnemyOutOfRange), u"!=", Value(1.0));
+    Object* o = as_object(action);
+    if (o != nullptr) o->set(u"expression", Value(cond.done()));
+    return action;
+  };
+  return &e;
+}
+
+const EditBotAction* edit_firen_dvj() {
+  static const EditBotAction e = [](Value& action, CondMaker& cond) -> Value {
+    (void)cond;
+    Object* o = as_object(action);
+    if (o != nullptr) o->set(u"action_id", sv(u"dvj"));
+    push_ray_with_z(action, 0.05);
+    push_ray_with_z(action, -0.1);
+    if (o != nullptr) {
+      o->set(u"keys", arr({sv(gk::kDefend), sv(gk::kDown), sv(gk::kJump)}));
+    }
+    return action;
+  };
+  return &e;
+}
+
+const EditBotAction* edit_firen_cancel_dvj() {
+  static const EditBotAction e = [](Value& action, CondMaker& cond) -> Value {
+    (void)cond;
+    Object* o = as_object(action);
+    if (o != nullptr) o->set(u"action_id", sv(u"cancel_dvj"));
+    Array* rays = rays_of(action);
+    if (rays != nullptr && rays->size() > 0) {
+      Object* r = as_object(rays->at(0));
+      if (r != nullptr) r->set(u"reverse", Value(true));
+    }
+    push_ray_with_z(action, 0.05);
+    push_ray_with_z(action, -0.05);
+    if (o != nullptr) o->set(u"keys", arr({sv(gk::kJump)}));
+    return action;
+  };
+  return &e;
+}
+
+const EditBotAction* edit_woody_dfa() {
+  static const EditBotAction e = [](Value& action, CondMaker& cond) -> Value {
+    (void)cond;
+    set_ray0_z(action, 0.1);
+    push_ray_with_z(action, -0.1);
+    return action;
+  };
+  return &e;
+}
+
+const EditBotAction* edit_woody_dfj() {
+  static const EditBotAction e = [](Value& action, CondMaker& cond) -> Value {
+    push_ray_with_z(action, 0.2);
+    push_ray_with_z(action, -0.2);
+    cond.and_(sv(bot_val::kEnemyOutOfRange), u"!=", Value(1.0));
+    Object* o = as_object(action);
+    if (o != nullptr) o->set(u"expression", Value(cond.done()));
+    return action;
+  };
+  return &e;
+}
+
+const EditBotAction* edit_woody_c_dj() {
+  static const EditBotAction e = [](Value& action, CondMaker& cond) -> Value {
+    Object* o = as_object(action);
+    if (o != nullptr) o->set(u"action_id", sv(u"c_d>j"));
+    push_ray_with_z(action, 0.2);
+    push_ray_with_z(action, -0.2);
+    cond.and_(sv(bot_val::kEnemyOutOfRange), u"!=", Value(1.0));
+    if (o != nullptr) o->set(u"expression", Value(cond.done()));
+    return action;
+  };
+  return &e;
+}
+
+const EditBotAction* edit_woody_skill() {
+  static const EditBotAction e = [](Value& action, CondMaker& cond) -> Value {
+    cond.and_(sv(bot_val::kEnemyOutOfRange), u"!=", Value(1.0));
+    Object* o = as_object(action);
+    if (o != nullptr) o->set(u"expression", Value(cond.done()));
+    return action;
+  };
+  return &e;
+}
+
+}
+
+BotMaker make_bot_data_firen() {
+  BotMaker m(oid::kFiren);
+  m.set_actions({
+      as_action(bot_ball_dfa(num(75), Value(), num(50))),
+      as_action(bot_ball_continuation(u"d>a+a", num(0.8), num(75))),
+      as_action(bot_ball_dfj(num(75), Value(), num(50), num(1000))(edit_firen_dfj())),
+      as_action(bot_ball_dfj(num(0), Value(), num(0), num(1000))(edit_mark_cancel())),
+      as_action(bot_ball_dfj(num(75), Value(), num(50), num(200))(edit_firen_dvj())),
+      as_action(bot_ball_dfj(num(0), Value(), num(50), num(200))(edit_firen_cancel_dvj())),
+      as_action(bot_explosion_duj(num(300), num(1.0 / 60.0), num(-110), num(110), num(900))),
+  });
+  m.set_frames(concat({frames_field(u"standings"), frames_field(u"walkings")}),
+               arr({sv(u"d>a"), sv(u"d>j"), sv(u"d^j"), sv(u"dvj")}));
+  m.set_frames(range_array(255.0, 261.0), arr({sv(u"cancel_d>j")}));
+  m.set_frames(range_array(267.0, 275.0), arr({sv(u"cancel_dvj")}));
+  m.set_frames(range_array(235.0, 252.0), arr({sv(u"d>a+a")}));
+  return m;
+}
+
+BotMaker make_bot_data_firzen() {
+  BotMaker m(oid::kFirzen);
+  m.set_actions({
+      as_action(bot_ball_dfj(num(50))),
+      as_action(bot_explosion_duj(num(250), Value(), num(-500), num(500), num(500))),
+      as_action(bot_explosion_duj(num(250), Value(), num(-250), num(250), num(250))(
+          edit_firzen_dj2())),
+      as_action(bot_ball_cancelling(u"cancel_d>j")),
+      as_action(bot_explosion_dua(num(100), Value(), num(-700), num(700), num(500))),
+      as_action(bot_chasing_action(u"d^a+a", arr({sv(u"a")}), Value(),
+                                   num(probability(2.0, 0.1)))),
+  });
+  m.set_frames(arr({sv(u"270"), sv(u"271"), sv(u"272"), sv(u"273")}),
+               arr({sv(u"cancel_d>j")}));
+  m.set_frames(arr({sv(u"243"), sv(u"244"), sv(u"246")}), arr({sv(u"d^a+a")}));
+  m.set_frames(concat({frames_field(u"standings"), frames_field(u"walkings"),
+                       frames_field(u"defends")}),
+               arr({sv(u"d^j"), sv(u"d^j_2"), sv(u"d^a"), sv(u"d>j")}));
+  return m;
+}
+
+BotMaker make_bot_data_henry() {
+  BotMaker m(oid::kHenry);
+  m.set_dataset(obj({{u"w_atk_m_x", num(120)},
+                     {u"w_atk_r_x", num(250)},
+                     {u"w_atk_x", num(350)}}));
+  m.set_actions({
+      as_action(bot_ball_dfa(num(150), Value(), num(120), num(800))),
+      as_action(bot_ball_dfj(num(200), Value(), num(120), num(1000), num(0.3))),
+      as_action(bot_ball_dfj(num(150), Value(), num(120), num(300))(edit_henry_dja(1))),
+      as_action(bot_ball_dfj(num(150), Value(), num(300), num(500))(edit_henry_dja(2))),
+      as_action(bot_explosion_duj(num(350), Value(), num(-250), num(250), num(90000))),
+  });
+  m.set_frames(concat({frames_field(u"standings"), frames_field(u"walkings")}),
+               arr({sv(u"d>a"), sv(u"d>j"), sv(u"dja_1"), sv(u"dja_2"), sv(u"d^j")}));
+  return m;
+}
+
+BotMaker make_bot_data_julian() {
+  BotMaker m(oid::kJulian);
+  CondMaker c1;
+  c1.add(sv(entity_val::kMP), u">", Value(25.0));
+  CondMaker c2;
+  c2.add(sv(entity_val::kMP), u">", Value(25.0));
+  c2.and_(sv(entity_val::kShaking), u">", Value(0.0));
+  m.set_actions({
+      as_action(bot_chasing_skill_action(u"d>a", Value(), num(25), num(1.0 / 60.0))),
+      as_action(bot_chasing_action(u"d>a+a", arr({sv(u"a")}), Value(), num(0.15))),
+      as_action(bot_ball_dfj(num(125))),
+      as_action(bot_explosion_duj(num(100), num(DESIRE_RATIO_X_3), num(-120), num(120), num(100))),
+      as_action(bot_uppercut_dua(num(0))),
+      as_action(obj({{u"action_id", sv(u"injured_dja")},
+                     {u"desire", Value(defines::desire(0.08))},
+                     {u"expression", Value(c1.done())},
+                     {u"keys", arr({sv(gk::kd), sv(gk::kj), sv(gk::ka)})}})),
+      as_action(obj({{u"action_id", sv(u"shaking_dja")},
+                     {u"desire", Value(defines::desire(0.08))},
+                     {u"expression", Value(c2.done())},
+                     {u"keys", arr({sv(gk::kd), sv(gk::kj), sv(gk::ka)})}})),
+  });
+  m.set_frames(concat({frames_field(u"standings"), frames_field(u"walkings"),
+                       frames_field(u"runnings")}),
+               arr({sv(u"shaking_dja"), sv(u"d^a"), sv(u"d^j"), sv(u"d>j"), sv(u"d>a")}));
+  m.set_frames(concat({frames_field(u"punchs")}), arr({sv(u"d^a"), sv(u"shaking_dja")}));
+  m.set_states(arr({num(static_cast<double>(StateEnum::Attacking))}),
+               arr({sv(u"shaking_dja"), sv(u"d>a+a")}));
+  return m;
+}
+
+BotMaker make_bot_data_louisex() {
+  BotMaker m(oid::kLouisEX);
+  m.set_actions({
+      as_action(bot_ball_dfa(num(100), Value(), num(150), num(400))),
+      as_action(bot_ball_continuation(u"d>a+a", num(0.5), num(100))),
+      as_action(bot_uppercut_dva(num(0), Value(), num(-10), num(120))),
+  });
+  m.set_frames(concat({frames_field(u"standings"), frames_field(u"walkings")}),
+               arr({sv(u"d>a"), sv(u"dva")}));
+  m.set_frames(concat({frames_field(u"punchs")}), arr({sv(u"dva")}));
+  m.set_frames(range_array(260.0, 269.0), arr({sv(u"d>a+a")}));
+  m.set_dataset(obj({{u"w_atk_x", num(90)},
+                     {u"j_atk_x", num(90)},
+                     {u"d_atk_max_x", num(200)},
+                     {u"r_atk_x", num(200)}}));
+  return m;
+}
+
+BotMaker make_bot_data_woody() {
+  BotMaker m(oid::kWoody);
+  m.set_actions({
+      as_action(bot_ball_dfa(num(125), Value(), num(50))(edit_woody_dfa())),
+      as_action(bot_ball_dfj(num(200), Value(), num(50), num(200))(edit_woody_dfj())),
+      as_action(bot_ball_dfj(num(200), num(DESIRE_RATIO_X_4), num(50), num(200))(
+          edit_woody_c_dj())),
+      as_action(bot_uppercut_dua(num(0), num(DESIRE_RATIO_X_4))),
+      as_action(bot_chasing_skill_action(u"d^j", Value(), num(50),
+                                         num(DESIRE_RATIO_D_4))(edit_woody_skill())),
+      as_action(bot_chasing_skill_action(u"dvj", Value(), num(50), num(DESIRE_RATIO_D_4))),
+      as_action(bot_chasing_skill_action(u"d^a", sv(u"catching_d^a"), num(0),
+                                         num(DESIRE_RATIO_X_4))),
+      as_action(bot_uppercut_dva(num(0), Value(), num(80), num(kUppercutDuaMaxX))),
+  });
+  m.set_states(arr({num(static_cast<double>(StateEnum::Catching))}), arr({sv(u"catching_d^a")}));
+  m.set_frames(concat({frames_field(u"standings"), frames_field(u"walkings")}),
+               arr({sv(u"d>a"), sv(u"d^a"), sv(u"dva"), sv(u"d>j"), sv(u"d^j"), sv(u"dvj")}));
+  m.set_states(arr({num(static_cast<double>(StateEnum::Jump))}), arr({sv(u"d^j"), sv(u"dvj")}));
+  m.set_frames(concat({frames_field(u"rowings")}), arr({sv(u"dva")}));
+  m.set_frames(arr({num(286), num(287), num(288), num(301), num(302), num(303), num(271)}),
+               arr({sv(u"c_d>j"), sv(u"d^a")}));
+  m.set_frames(arr({num(215), num(219)}), arr({sv(u"c_d>j"), sv(u"d^a")}));
+  return m;
+}
+
+void register_all_bots() {
+  BotMaker::register_maker(oid::kBat, make_bot_data_bat);
+  BotMaker::register_maker(oid::kDavis, make_bot_data_davis);
+  BotMaker::register_maker(oid::kFiren, make_bot_data_firen);
+  BotMaker::register_maker(oid::kFirzen, make_bot_data_firzen);
+  BotMaker::register_maker(oid::kHenry, make_bot_data_henry);
+  BotMaker::register_maker(oid::kHunter, make_bot_data_hunter);
+  BotMaker::register_maker(oid::kJack, make_bot_data_jack);
+  BotMaker::register_maker(oid::kJan, make_bot_data_jan);
+  BotMaker::register_maker(oid::kJulian, make_bot_data_julian);
+  BotMaker::register_maker(oid::kJustin, make_bot_data_justin);
+  BotMaker::register_maker(oid::kKnight, make_bot_data_knight);
+  BotMaker::register_maker(oid::kLouis, make_bot_data_louis);
+  BotMaker::register_maker(oid::kLouisEX, make_bot_data_louisex);
+  BotMaker::register_maker(oid::kMark, make_bot_data_mark);
+  BotMaker::register_maker(oid::kMonk, make_bot_data_monk);
+  BotMaker::register_maker(oid::kSorcerer, make_bot_data_sorcerer);
+  BotMaker::register_maker(oid::kWoody, make_bot_data_woody);
 }
 
 BotMaker make_bot_data_bat() {
@@ -391,20 +710,6 @@ BotMaker make_bot_data_sorcerer() {
   m.set_frames(concat({frames_field(u"standings"), frames_field(u"walkings")}),
                arr({sv(u"d>a"), sv(u"d>j"), sv(u"d^j"), sv(u"dvj")}));
   return m;
-}
-
-void register_all_bots() {
-  BotMaker::register_maker(oid::kBat, make_bot_data_bat);
-  BotMaker::register_maker(oid::kDavis, make_bot_data_davis);
-  BotMaker::register_maker(oid::kHunter, make_bot_data_hunter);
-  BotMaker::register_maker(oid::kJack, make_bot_data_jack);
-  BotMaker::register_maker(oid::kJan, make_bot_data_jan);
-  BotMaker::register_maker(oid::kJustin, make_bot_data_justin);
-  BotMaker::register_maker(oid::kKnight, make_bot_data_knight);
-  BotMaker::register_maker(oid::kLouis, make_bot_data_louis);
-  BotMaker::register_maker(oid::kMark, make_bot_data_mark);
-  BotMaker::register_maker(oid::kMonk, make_bot_data_monk);
-  BotMaker::register_maker(oid::kSorcerer, make_bot_data_sorcerer);
 }
 
 }

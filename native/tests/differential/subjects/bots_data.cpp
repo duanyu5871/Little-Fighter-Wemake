@@ -25,15 +25,21 @@ void emit(const std::string& line) { std::printf("%s\n", line.c_str()); }
 std::optional<bots::BotMaker> make_bot(const std::string& name) {
   if (name == "bat") return bots::make_bot_data_bat();
   if (name == "davis") return bots::make_bot_data_davis();
+  if (name == "firen") return bots::make_bot_data_firen();
+  if (name == "firzen") return bots::make_bot_data_firzen();
+  if (name == "henry") return bots::make_bot_data_henry();
   if (name == "hunter") return bots::make_bot_data_hunter();
   if (name == "jack") return bots::make_bot_data_jack();
   if (name == "jan") return bots::make_bot_data_jan();
+  if (name == "julian") return bots::make_bot_data_julian();
   if (name == "justin") return bots::make_bot_data_justin();
   if (name == "knight") return bots::make_bot_data_knight();
   if (name == "louis") return bots::make_bot_data_louis();
+  if (name == "louisex") return bots::make_bot_data_louisex();
   if (name == "mark") return bots::make_bot_data_mark();
   if (name == "monk") return bots::make_bot_data_monk();
   if (name == "sorcerer") return bots::make_bot_data_sorcerer();
+  if (name == "woody") return bots::make_bot_data_woody();
   return std::nullopt;
 }
 

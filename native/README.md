@@ -296,3 +296,5 @@ VS Code 里也已经指好（`.vscode/settings.json`）：
 | 4f | `dat_translator/bots/BotMaker` + 前 5 个 `make_bot_data_*`（bat/hunter/jan/knight/monk） | ✅ 通过（`bots_data/all` 20 行；变异 **37/37 全杀**） |
 
 | 4g | `dat_translator/bots` 角色数据第二批（davis/jack/justin/louis/mark/sorcerer，累计 11/22） | ✅ 通过（`bots_data/all` 42 行；变异 **87/87 全杀**） |
+
+| 4h | `dat_translator/bots` 角色数据第三批（firen/firzen/henry/julian/louisex/woody，累计 17/22） | ✅ 通过（`bots_data/all` 64 行；变异 **130/130 全杀**） |

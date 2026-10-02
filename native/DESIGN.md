@@ -1603,3 +1603,25 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
   注意 `bot_idle_action` 只在 `min_mp > 0` 时才 `add`，所以 `and_` 之前 cond 里已有条件。
 - `entity_val::kHP_P` / `kHpRecoverable`、`bot_val::kSafe` / `kEnemyY` / `kEnemyOutOfRange` /
   `kEnemyDiffX`、`bot_state_enum::kIdle/kChasing/kAvoiding` —— 名字都在 `native/lfw/defines/` 里核对过。
+
+---
+
+### 4.47 V47 `dat_translator/bots` 角色数据（第三批 6 个：firen / firzen / henry / julian / louisex / woody）
+
+- 累计 **17/22** 个角色；剩 deep / dennis / freeze / john / rudolf。
+- `bot_actions.h` 又补了一批"构建器函数对象上的静态属性"：`kBallDfaId` / `kBallDfjId` /
+  `kUppercutDvaId` / `kExplosionDua{Id,MinX,MaxX,ZLen}` / `kExplosionDuj{...}`
+  （`deep` 会写 `bot_ball_dfj.ID`、`bot_uppercut_dva.ID`，`dennis` 会写 `bot_explosion_dua.MAX_X`）；
+  `bot_actions.cpp` 内部全部改成引用这些常量。
+- **5 个射线助手**收掉了新出现的所有写法：
+  `rays_of`（取 `e_ray` 数组）、`push_ray_with_z`（`e_ray.push({...e_ray[0], z})`）、
+  `set_ray0_max_d`（`e_ray[0].max_d = v`）、`set_ray0_z`（`e_ray[0].z = v`）、
+  `set_rays_reverse`（`e_ray.forEach(v => v.reverse = true)`）。
+  **`push_ray_with_z` 一定先拷 `at(0)` 再 push**（push 可能重分配）。
+- `firen` 的 `cancel_d>j` 与 `mark` 的**完全同构** ⇒ 直接复用 `edit_mark_cancel()`（在注释里记明）。
+- `julian` 的两个动作是**内联对象字面量**，`expression` 在构建时就算好
+  （`new CondMaker().add(...).done()`）⇒ C++ 里先建 `CondMaker c1/c2` 再 `obj({...})`，
+  注意 `CondMaker` 不可拷贝，要放在 `set_actions` 之前的同一作用域里。
+- `julian` 的 `bot_uppercut_dua(0, void 0)` ⇒ `bot_uppercut_dua(num(0))`（尾参默认值全开）。
+- `woody` 的 `d>a` 是"**先就地改** `ray[0].z = 0.1`，再 push 一个 `{...ray, z: -ray.z}`"
+  ⇒ C++ 必须 `set_ray0_z(action, 0.1)` 后再 `push_ray_with_z(action, -0.1)`（字面量）。

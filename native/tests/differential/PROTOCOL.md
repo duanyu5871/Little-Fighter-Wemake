@@ -1136,3 +1136,19 @@ P.S. TS 侧那个 `Times.lifes` 的无限递归（`return this.lifes`）就是�
   `constants.h`（`DESIRE_RATIO_X_4`）、`defines_data.h`（`defines::num`）。
 - anchor 写反的教训又来一次：3 条变异的 `from` 写成了"变异后"的样子 ⇒ 报 `anchor occurs 0 times`；
   改 `from`/`to` 时顺手不要把**同一个文件里另一条变异的 to** 当成 from（`num(101)` 那次就是这么错的）。
+
+### 6.9.36 `bots_data` 第三批（130/130）
+
+- 差分 42 → **64 行**，变异 87 → **130 条全杀**（累计 17/22 个角色）。
+- **anchor 会因新函数而"撞车"**：新角色大量复用同一句
+  `cond.and_(sv(bot_val::kEnemyOutOfRange), u"!=", Value(1.0));`、
+  `as_action(bot_ball_dfa(num(150), Value(), num(120), num(800)))`、
+  `arr({sv(u"d>a"), sv(u"d>j"), sv(u"d^j"), sv(u"dvj")}))` ⇒ 4 条老变异变成
+  `anchor occurs N times`。**只能补上下文消歧**（往前或往后带 1~3 行）。
+  其中"往后带"时要注意目标函数是不是文件里**最后一个**（`sorcerer` 就是），
+  否则上下文对不上（那次写成 `BotMaker make_bot_data_woody() {` 结果 0 次匹配）。
+- 改 `make_bot_data.cpp` 时踩了个自己的坑：`oldString` 里带了
+  `BotMaker make_bot_data_bat() {` 但 `newString` 里漏了 ⇒ 函数头被吃掉、并且出现两个
+  `register_all_bots`。**大段替换后务必 `Select-String '^BotMaker make_bot_data_'` 核一遍**。
+- `select-string` 核完还要注意：CMake 不会拦"声明了没定义"（只在链接期报 `LNK2019`）——
+  subject 里引用了还没实现的 `make_bot_data_john` 就会链接失败。

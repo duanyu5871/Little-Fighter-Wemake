@@ -52,7 +52,35 @@ mb sorcerer
 mba sorcerer
 mbf sorcerer
 
-# 注册表（用例里显式列出已实现的 oid，避开 TS 侧 22 vs C++ 侧 11 的差异）
-reg 38 11 31 33 36 39 37 6 32 35 34
+# 注册表（用例里显式列出已实现的 oid，避开 TS 侧 22 vs C++ 侧 17 的差异）
+reg 38 11 7 51 4 31 33 36 2 52 39 37 6 50 32 35 34 10
 reg 38 99
 reg 34 32
+
+mb firen
+mba firen
+mbf firen
+
+mb firzen
+mba firzen
+mbf firzen
+
+mb henry
+mba henry
+mbf henry
+mbd henry
+
+mb julian
+mba julian
+mbf julian
+mbs julian
+
+mb louisex
+mba louisex
+mbf louisex
+mbd louisex
+
+mb woody
+mba woody
+mbf woody
+mbs woody

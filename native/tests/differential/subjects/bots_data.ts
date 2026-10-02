@@ -1,14 +1,20 @@
 import { make_bot_data_bat } from "../../../../src/LFW/dat_translator/bots/make_bot_data_bat";
 import { make_bot_data_davis } from "../../../../src/LFW/dat_translator/bots/make_bot_data_davis";
+import { make_bot_data_firen } from "../../../../src/LFW/dat_translator/bots/make_bot_data_firen";
+import { make_bot_data_firzen } from "../../../../src/LFW/dat_translator/bots/make_bot_data_firzen";
+import { make_bot_data_henry } from "../../../../src/LFW/dat_translator/bots/make_bot_data_henry";
 import { make_bot_data_hunter } from "../../../../src/LFW/dat_translator/bots/make_bot_data_hunter";
 import { make_bot_data_jack } from "../../../../src/LFW/dat_translator/bots/make_bot_data_jack";
 import { make_bot_data_jan } from "../../../../src/LFW/dat_translator/bots/make_bot_data_jan";
+import { make_bot_data_julian } from "../../../../src/LFW/dat_translator/bots/make_bot_data_julian";
 import { make_bot_data_justin } from "../../../../src/LFW/dat_translator/bots/make_bot_data_justin";
 import { make_bot_data_knight } from "../../../../src/LFW/dat_translator/bots/make_bot_data_knight";
 import { make_bot_data_louis } from "../../../../src/LFW/dat_translator/bots/make_bot_data_louis";
+import { make_bot_data_louisex } from "../../../../src/LFW/dat_translator/bots/make_bot_data_louisex";
 import { make_bot_data_mark } from "../../../../src/LFW/dat_translator/bots/make_bot_data_mark";
 import { make_bot_data_monk } from "../../../../src/LFW/dat_translator/bots/make_bot_data_monk";
 import { make_bot_data_sorcerer } from "../../../../src/LFW/dat_translator/bots/make_bot_data_sorcerer";
+import { make_bot_data_woody } from "../../../../src/LFW/dat_translator/bots/make_bot_data_woody";
 import { BotMaker } from "../../../../src/LFW/dat_translator/bots/BotMaker";
 
 import { readCaseLines, renderValue, splitWs } from "./trace_util";
@@ -23,24 +29,36 @@ function makeBot(name: string): Maker | undefined {
       return make_bot_data_bat() as never;
     case "davis":
       return make_bot_data_davis() as never;
+    case "firen":
+      return make_bot_data_firen() as never;
+    case "firzen":
+      return make_bot_data_firzen() as never;
+    case "henry":
+      return make_bot_data_henry() as never;
     case "hunter":
       return make_bot_data_hunter() as never;
     case "jack":
       return make_bot_data_jack() as never;
     case "jan":
       return make_bot_data_jan() as never;
+    case "julian":
+      return make_bot_data_julian() as never;
     case "justin":
       return make_bot_data_justin() as never;
     case "knight":
       return make_bot_data_knight() as never;
     case "louis":
       return make_bot_data_louis() as never;
+    case "louisex":
+      return make_bot_data_louisex() as never;
     case "mark":
       return make_bot_data_mark() as never;
     case "monk":
       return make_bot_data_monk() as never;
     case "sorcerer":
       return make_bot_data_sorcerer() as never;
+    case "woody":
+      return make_bot_data_woody() as never;
     default:
       return undefined;
   }

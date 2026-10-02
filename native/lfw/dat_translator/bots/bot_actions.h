@@ -10,10 +10,24 @@ namespace lfw {
 namespace dat_translator {
 namespace bots {
 
+inline constexpr const char16_t* kBallDfaId = u"d>a";
+inline constexpr const char16_t* kBallDfjId = u"d>j";
+inline constexpr const char16_t* kUppercutDuaId = u"d^a";
+inline constexpr const char16_t* kUppercutDujId = u"d^j";
+inline constexpr const char16_t* kUppercutDvaId = u"dva";
+inline constexpr const char16_t* kExplosionDuaId = u"d^a";
+inline constexpr const char16_t* kExplosionDujId = u"d^j";
+
 inline constexpr double kUppercutDuaMinX = -10.0;
 inline constexpr double kUppercutDuaMaxX = 120.0;
 inline constexpr double kUppercutDvaMinX = -10.0;
 inline constexpr double kUppercutDvaMaxX = 120.0;
+inline constexpr double kExplosionDuaMinX = -120.0;
+inline constexpr double kExplosionDuaMaxX = 120.0;
+inline constexpr double kExplosionDuaZLen = 120.0;
+inline constexpr double kExplosionDujMinX = -120.0;
+inline constexpr double kExplosionDujMaxX = 120.0;
+inline constexpr double kExplosionDujZLen = 120.0;
 
 EditBotActionFunc bot_ball_cancelling(const std::u16string& action_id, const Value& desire = Value(),
                                       const Value& keys = Value());

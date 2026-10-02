@@ -182,14 +182,14 @@ EditBotActionFunc bot_front_test(const std::u16string& action_id, const Value& k
 
 EditBotActionFunc bot_ball_dfa(const Value& min_mp, const Value& desire, const Value& min_x,
                                const Value& max_x, const Value& zable) {
-  return bot_front_test(u"d>a", arr({sv(gk::kd), sv(u"F"), sv(gk::ka)}), min_mp,
+  return bot_front_test(kBallDfaId, arr({sv(gk::kd), sv(u"F"), sv(gk::ka)}), min_mp,
                         Value(num_or(desire, DESIRE_RATIO_X_2)), Value(num_or(min_x, 120.0)), max_x,
                         zable);
 }
 
 EditBotActionFunc bot_ball_dfj(const Value& min_mp, const Value& desire, const Value& min_x,
                                const Value& max_x, const Value& zable) {
-  return bot_front_test(u"d>j", arr({sv(gk::kd), sv(u"F"), sv(gk::kj)}), min_mp,
+  return bot_front_test(kBallDfjId, arr({sv(gk::kd), sv(u"F"), sv(gk::kj)}), min_mp,
                         Value(num_or(desire, DESIRE_RATIO_X_2)), Value(num_or(min_x, 120.0)), max_x,
                         zable);
 }
@@ -200,12 +200,13 @@ EditBotActionFunc bot_explosion_dua(const Value& min_mp, const Value& desire, co
     CondMaker cond;
     const double mp_n = num_or(min_mp, 0.0);
     if (mp_n > 0) cond.add(sv(entity_val::kMP), u">=", Value(mp_n));
-    const double d = lfw::pow(num_or(z_len, 120.0), 2.0);
+    const double d = lfw::pow(num_or(z_len, kExplosionDuaZLen), 2.0);
     const Value ret = obj(
-        {{u"action_id", Value(u"d^a")},
+        {{u"action_id", sv(kExplosionDuaId)},
          {u"desire", Value(defines::desire(num_or(desire, DESIRE_RATIO)))},
          {u"status", arr({sv(bot_state_enum::kChasing)})},
-         {u"e_ray", arr({ray_with(num_or(min_x, -120.0), Value(num_or(max_x, 120.0)), Value(d), true)})},
+         {u"e_ray", arr({ray_with(num_or(min_x, kExplosionDuaMinX),
+                                    Value(num_or(max_x, kExplosionDuaMaxX)), Value(d), true)})},
          {u"expression", mp_n > 0 ? Value(cond.done()) : Value()},
          {u"keys", arr({sv(gk::kd), sv(gk::kU), sv(gk::ka)})}});
     return apply_edit(fn, ret, cond);
@@ -218,12 +219,13 @@ EditBotActionFunc bot_explosion_duj(const Value& min_mp, const Value& desire, co
     CondMaker cond;
     const double mp_n = num_or(min_mp, 0.0);
     if (mp_n > 0) cond.add(sv(entity_val::kMP), u">=", Value(mp_n));
-    const double d = lfw::pow(num_or(z_len, 120.0), 2.0);
+    const double d = lfw::pow(num_or(z_len, kExplosionDujZLen), 2.0);
     const Value ret = obj(
-        {{u"action_id", Value(u"d^j")},
+        {{u"action_id", sv(kExplosionDujId)},
          {u"desire", Value(defines::desire(num_or(desire, DESIRE_RATIO)))},
          {u"status", arr({sv(bot_state_enum::kChasing)})},
-         {u"e_ray", arr({ray_with(num_or(min_x, -120.0), Value(num_or(max_x, 120.0)), Value(d), true)})},
+         {u"e_ray", arr({ray_with(num_or(min_x, kExplosionDujMinX),
+                                    Value(num_or(max_x, kExplosionDujMaxX)), Value(d), true)})},
          {u"expression", mp_n > 0 ? Value(cond.done()) : Value()},
          {u"keys", arr({sv(gk::kd), sv(gk::kU), sv(gk::kj)})}});
     return apply_edit(fn, ret, cond);
@@ -251,7 +253,7 @@ Value bot_uppercut_dua(const Value& min_mp, const Value& desire, const Value& mi
   CondMaker cond;
   cond.add(sv(entity_val::kMP), u">=", min_mp);
   const double d = num_or(max_d, 30.0);
-  return obj({{u"action_id", Value(u"d^a")},
+  return obj({{u"action_id", sv(kUppercutDuaId)},
               {u"desire", Value(defines::desire(num_or(desire, DESIRE_RATIO_X_3)))},
               {u"status", arr({sv(bot_state_enum::kChasing)})},
               {u"e_ray", arr({ray_with(num_or(min_x, kUppercutDuaMinX),
@@ -266,7 +268,7 @@ Value bot_uppercut_duj(const Value& min_mp, const Value& desire, const Value& mi
   const double mp_n = num_or(min_mp, 0.0);
   CondMaker cond;
   cond.add(sv(entity_val::kMP), u">=", min_mp);
-  return obj({{u"action_id", Value(u"d^j")},
+  return obj({{u"action_id", sv(kUppercutDujId)},
               {u"desire", Value(defines::desire(num_or(desire, DESIRE_RATIO_X_3)))},
               {u"status", arr({sv(bot_state_enum::kChasing)})},
               {u"e_ray", arr({ray_with(num_or(min_x, -10.0), Value(num_or(max_x, 120.0)),
@@ -283,7 +285,7 @@ EditBotActionFunc bot_uppercut_dva(const Value& min_mp, const Value& desire, con
     cond.add(sv(entity_val::kMP), u">=", min_mp);
     const double d = num_or(max_d, 30.0);
     const Value ret = obj(
-        {{u"action_id", Value(u"dva")},
+        {{u"action_id", sv(kUppercutDvaId)},
          {u"desire", Value(defines::desire(num_or(desire, DESIRE_RATIO_X_3)))},
          {u"status", arr({sv(bot_state_enum::kChasing)})},
          {u"e_ray", arr({ray_with(num_or(min_x, kUppercutDvaMinX),
