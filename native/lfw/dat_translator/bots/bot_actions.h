@@ -10,6 +10,11 @@ namespace lfw {
 namespace dat_translator {
 namespace bots {
 
+inline constexpr double kUppercutDuaMinX = -10.0;
+inline constexpr double kUppercutDuaMaxX = 120.0;
+inline constexpr double kUppercutDvaMinX = -10.0;
+inline constexpr double kUppercutDvaMaxX = 120.0;
+
 EditBotActionFunc bot_ball_cancelling(const std::u16string& action_id, const Value& desire = Value(),
                                       const Value& keys = Value());
 

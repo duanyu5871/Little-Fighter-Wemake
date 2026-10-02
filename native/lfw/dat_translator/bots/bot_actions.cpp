@@ -254,7 +254,8 @@ Value bot_uppercut_dua(const Value& min_mp, const Value& desire, const Value& mi
   return obj({{u"action_id", Value(u"d^a")},
               {u"desire", Value(defines::desire(num_or(desire, DESIRE_RATIO_X_3)))},
               {u"status", arr({sv(bot_state_enum::kChasing)})},
-              {u"e_ray", arr({ray_with(num_or(min_x, -10.0), Value(num_or(max_x, 120.0)),
+              {u"e_ray", arr({ray_with(num_or(min_x, kUppercutDuaMinX),
+                                         Value(num_or(max_x, kUppercutDuaMaxX)),
                                          Value(d * d), true)})},
               {u"expression", mp_n > 0 ? Value(cond.done()) : Value()},
               {u"keys", arr({sv(gk::kd), sv(gk::kU), sv(gk::ka)})}});
@@ -285,7 +286,8 @@ EditBotActionFunc bot_uppercut_dva(const Value& min_mp, const Value& desire, con
         {{u"action_id", Value(u"dva")},
          {u"desire", Value(defines::desire(num_or(desire, DESIRE_RATIO_X_3)))},
          {u"status", arr({sv(bot_state_enum::kChasing)})},
-         {u"e_ray", arr({ray_with(num_or(min_x, -10.0), Value(num_or(max_x, 120.0)),
+         {u"e_ray", arr({ray_with(num_or(min_x, kUppercutDvaMinX),
+                                    Value(num_or(max_x, kUppercutDvaMaxX)),
                                     Value(d * d), true)})},
          {u"expression", Value(cond.done())},
          {u"keys", arr({sv(gk::kd), sv(gk::kD), sv(gk::ka)})}});

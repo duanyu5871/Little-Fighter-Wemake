@@ -26,3 +26,28 @@ mba monk
 mbf monk
 mbs monk
 mbd monk
+
+mb davis
+mba davis
+mbf davis
+
+mb jack
+mba jack
+mbs jack
+mbf jack
+
+mb justin
+mba justin
+mbf justin
+
+mb louis
+mba louis
+mbf louis
+
+mb mark
+mba mark
+mbf mark
+
+mb sorcerer
+mba sorcerer
+mbf sorcerer
