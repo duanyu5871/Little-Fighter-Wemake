@@ -302,3 +302,5 @@ VS Code 里也已经指好（`.vscode/settings.json`）：
 | 4i | `dat_translator/bots` 角色数据第四批（deep/dennis/freeze/john/rudolf，**22/22 完成**） | ✅ 通过（`bots_data/all` 82 行；变异 **174/174 全杀**） |
 
 | 4j | `dat_translator/fighters` 角色装配（23 个 + `make_fighter_special`） | ✅ 通过（`fighters_special/all` 93 行；变异 **133/133 全杀**） |
+
+| 4k | `dat_translator` 收尾（`float_scaling_entity` / `decode_lf2_dat` / `edit_info`） | ✅ 通过（`translator_tail/all` 63 行；变异 **35/35 全杀**） |

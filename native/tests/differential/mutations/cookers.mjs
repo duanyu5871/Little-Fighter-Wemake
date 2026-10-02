@@ -97,12 +97,6 @@ export default {
   if (is_str(catchingact)) {`,
     },
     {
-      note: "float_scaling_itr 用 round 而不是 floor",
-      file: "native/lfw/dat_translator/cookers.cpp",
-      from: `      o->set(std::u16string(k), Value(js_floor(10000 * std::get<double>(*x))));`,
-      to: `      o->set(std::u16string(k), Value(js_round(10000 * std::get<double>(*x))));`,
-    },
-    {
       note: "float_scaling_itr 漏掉 dvz",
       file: "native/lfw/dat_translator/cookers.cpp",
       from: `  static const char16_t* const kKeys[] = {u"dvx", u"dvy", u"dvz"};`,

@@ -10,6 +10,7 @@
 #include "lfw/core/js_num.h"
 #include "lfw/core/js_string.h"
 #include "lfw/core/value.h"
+#include "lfw/dat_translator/float_scaling_entity.h"
 #include "lfw/dat_translator/helpers.h"
 #include "lfw/dat_translator/next_frame.h"
 #include "lfw/defines/c_point_kind.h"
@@ -196,12 +197,7 @@ void float_scaling_itr(Value& v) {
   Object* o = as_object(v);
   if (o == nullptr) return;
   static const char16_t* const kKeys[] = {u"dvx", u"dvy", u"dvz"};
-  for (const char16_t* k : kKeys) {
-    const Value* x = o->get(std::u16string(k));
-    if (x != nullptr && is_num(*x)) {
-      o->set(std::u16string(k), Value(js_floor(10000 * std::get<double>(*x))));
-    }
-  }
+  for (const char16_t* k : kKeys) scale_num_field(*o, k);
 }
 
 void cook_opoint(Value& opoint, const Value& frame) {

@@ -1181,3 +1181,19 @@ P.S. TS 侧那个 `Times.lifes` 的无限递归（`return this.lifes`）就是�
   沿用 `cook_frames`/`make_stage_info_list` 的经验，凡是"两个字段同值"就顺手写一例。
 - **等价变异（已记录不写）**：`filter(Boolean)` 的 truthy 判定与紧随的 `as_object == nullptr`
   检查结果重合（任何 falsy 值两条路都跳过）⇒ 对那句写变异必然存活，属于测试面缺口而非代码缺口。
+
+### 6.9.39 `translator_tail`（35/35）
+
+- 差分 **63 行全对**，变异 **35 条全杀**；`dat_translator` 顶层**只剩 `xml` 之外的收尾**。
+- **重构会打掉变异锚点**：把 `float_scaling_itr` 的函数体提升成共享的 `scale_num_field` 后，
+  `cookers.mjs` 里那条打在旧函数体上的变异立刻变成 `bad anchor`。**收口"同一规则两处写"
+  时必须同步迁移变异**，否则下一轮跑 `cookers` 会直接失败。迁移后要确认新锚点所在文件
+  已被某个 subject 覆盖（这里是 `translator_tail`），否则变异会"合法但永远存活"。
+- **等价变异（已记录不写）**：① `decode_lf2_dat` 的 `if (buf.size() <= 123) return;`
+  —— 循环从 123 开始，越界自然不迭代 ⇒ 守卫与循环上界冗余；
+  ② 给帧上**不存在的键**调 `round_truthy_field`（`cur == nullptr` 直接返回）是空操作。
+- **"字段存在"≠"能观察到该字段被处理"**：`ctrl_z n 7` 经 `round_float` 后仍是 `7` ⇒
+  "漏掉 ctrl_z"的变异存活。要用 `7.0004` 这类**取整后确实改变**的值，
+  与 `cook_frames` 轮"选值要瞄准算子分岔方向"是同一条教训。
+- `edit_info` 的数组源分支必须有用例（`a 2 s "x" s "y"` ⇒ 写成整数键 `0`/`1`，
+  按 `Object.keys` 排在字符串键之前）。

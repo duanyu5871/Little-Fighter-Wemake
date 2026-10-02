@@ -1680,3 +1680,35 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
   C++ 会转成新数组 ⇒ 有意差异（生产中 `group`/`itr`/`bdy` 只可能是数组或缺失）。
 - `fighters/index.ts` 的自动导出列表**不含** `make_fighter_data_template`（TS 生产代码也是
   直接 import 该文件）⇒ harness 必须同样直接 import，barrel 取不到。
+
+---
+
+### 4.50 V50 `dat_translator` 收尾三件（`float_scaling_entity` / `decode_lf2_dat` / `edit_info`）
+
+- `new` `float_scaling_entity.{h,cpp}`（82 行）+ `decode_lf2_dat.{h,cpp}`（14 行）；
+  `edit_bdy_info` / `edit_itr_info` 合成 `helpers` 的 `edit_info`（两者函数体**完全相同**，
+  都是 `Object.assign(src, ...edit)`）；subject `translator_tail`（op `ei`/`fse`/`dlf2`）
+  **63 行全对**，变异 **35/35 全杀**。
+- **范围核验**：`edit_itr_info`、`float_scaling_entity` 在 `src/**` 里**零调用点**（仅由
+  `dat_translator/index.ts` 再导出）；`edit_bdy_info` 唯一的生产调用点在
+  `cook_ball_bdy_get_hit_to_frame_20/30`（我们已移植，原先内联了同一逻辑）；
+  `decode_lf2_dat` 由 **`src/pages/dat_viewer/DatViewer.tsx`** 调用（真实功能）。
+- **两处"同一规则写两处"已收口**：
+  ① `cookers.cpp` 的 `float_scaling_itr` 与新代码的 `scale_field` 是同一条规则
+  （`is_num` 判定 + `floor(10000*x)` 写回）⇒ 提升为 `float_scaling_entity.h` 的公开
+  `scale_num_field`，`float_scaling_itr` 改为调用它（`cookers` 差分/70 条变异复验仍全绿）；
+  ② `ball_bdy.cpp` 的局部 `assign_fields` 就是 `Object.assign` ⇒ 改用 `edit_info`
+  （`ball_bdy` 差分/14 条变异复验仍全绿）。
+  代价：`cookers.mjs` 里打在 `float_scaling_itr` 函数体上的那条变异**失锚**，已搬到
+  `translator_tail.mjs` 并改锚到 `scale_num_field`。
+- **`decode_lf2_dat` 的边界是"空操作"**：`if (buf.size() <= 123) return;` 与循环上界
+  `i = 123` 的配合意味着越界时循环自然不迭代 ⇒ 该守卫删掉、`<=` 改 `<` 都**不可观察**
+  （等价变异，不写）。真正可观察的是 `kPwd` 长度（`sizeof-1` 去掉结尾 NUL）、
+  `i % pwd_len`、减号、以及 `uint8_t` 的 mod-256 回绕。
+- **TS 用 `String.fromCharCode(...arr)` 展开**：解码结果过长时 V8 会
+  `RangeError: Maximum call stack size exceeded`；C++ 无此限制 ⇒ 有意差异，用例保持小尺寸。
+- `edit_info` 的支持面：对象源（含 `undefined` 值）与**数组源**（按下标写键，`length` 不可枚举
+  因而不复制）；其他原始值源 TS 侧也复制不了自有可枚举属性 ⇒ 忽略。字符串源的索引属性未复制，
+  属未达差异（真实调用点只传对象）。
+- ⚠️ 又一次踩 `o N` 计数：本轮 5 处（`o 2` 实际只有 1 对）⇒ 症状是 `value literal truncated`
+  或"该有的键没有、TS 报 undefined"。**harness 的「剩余 token 即报错」自检必须与新用例同时上线**。

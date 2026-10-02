@@ -9,6 +9,7 @@
 #include "lfw/core/json.h"
 #include "lfw/core/value.h"
 #include "lfw/dat_translator/cond_maker.h"
+#include "lfw/dat_translator/helpers.h"
 #include "lfw/dat_translator/value_builder.h"
 #include "lfw/defines/action_type.h"
 #include "lfw/defines/collision_val.h"
@@ -55,16 +56,6 @@ Value& edit_bdy_deco(Value& raw) {
   return raw;
 }
 
-void assign_fields(Object& raw, const Value& fields) {
-  const Object* fo = as_object(fields);
-  if (fo == nullptr) return;
-  const std::vector<std::u16string> keys = fo->keys();
-  for (const std::u16string& k : keys) {
-    const Value* v = fo->get(k);
-    raw.set(k, v != nullptr ? *v : Value());
-  }
-}
-
 double state_num(StateEnum s) { return static_cast<double>(s); }
 
 double itr_num(ItrKind k) { return static_cast<double>(k); }
@@ -76,14 +67,14 @@ double ent_num(EntityEnum e) { return static_cast<double>(e); }
 Value edit_bdy_edit(Value& bdy, const Value& fields) {
   Object* o = as_object(bdy);
   if (o == nullptr) return bdy;
-  assign_fields(*o, fields);
+  edit_info(*o, {fields});
   return edit_bdy_deco(bdy);
 }
 
 Value edit_bdy_clone(Value& bdy, const Value& fields) {
   Value copy = deep_copy(bdy);
   Object* o = as_object(copy);
-  if (o != nullptr) assign_fields(*o, fields);
+  if (o != nullptr) edit_info(*o, {fields});
   edit_bdy_deco(copy);
   return copy;
 }

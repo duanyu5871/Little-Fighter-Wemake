@@ -7,6 +7,7 @@
 #include <string>
 #include <utility>
 #include <variant>
+#include <vector>
 
 #include "lfw/core/js_num.h"
 #include "lfw/core/js_string.h"
@@ -144,6 +145,25 @@ std::pair<Value, Value> hit_flag_pair(const Value& value) {
   const Value* flag = tmp.get(u"hit_flag");
   const Value* name = tmp.get(u"hit_flag_name");
   return {flag != nullptr ? *flag : Value(), name != nullptr ? *name : Value()};
+}
+
+Object& edit_info(Object& src, const std::vector<Value>& edits) {
+  for (const Value& edit : edits) {
+    if (const Object* from = as_object(edit)) {
+      const std::vector<std::u16string> keys = from->keys();
+      for (const std::u16string& k : keys) {
+        const Value* v = from->get(k);
+        if (v != nullptr) src.set(k, *v);
+      }
+      continue;
+    }
+    if (const Array* from = as_array(edit)) {
+      for (size_t i = 0; i < from->size(); ++i) {
+        src.set(number_to_string(static_cast<double>(i)), from->at(i));
+      }
+    }
+  }
+  return src;
 }
 
 Value& delete_undefined(Value& o) {
