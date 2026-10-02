@@ -153,6 +153,15 @@ int main(int argc, char** argv) {
       else L.add("-");
       L.out();
 
+    } else if (op == "fisrt_any" || op == "last_any") {
+      const std::vector<double> a = items(tok, 1, tok.size());
+      const std::optional<double> r = op == "fisrt_any" ? lfw::fisrt(a) : lfw::last(a);
+      Line L;
+      L.add(op);
+      if (r.has_value()) L.add_bits(*r);
+      else L.add("-");
+      L.out();
+
     } else if (op == "map_no_void_gt") {
       const double t = arg(tok, 1, 0);
       const std::vector<double> a = items(tok, 2, tok.size());
@@ -166,6 +175,12 @@ int main(int argc, char** argv) {
       const std::vector<double> b = items(tok, bar + 1, tok.size());
       emit_list(op.c_str(), lfw::intersection(a, b));
 
+    } else if (op == "intersection_lt") {
+      const size_t bar = bar_index(tok);
+      const std::vector<double> a = items(tok, 1, bar);
+      const std::vector<double> b = items(tok, bar + 1, tok.size());
+      emit_list(op.c_str(), lfw::intersection(a, b, std::less<double>{}));
+
     } else if (op == "ensure") {
       const size_t bar = bar_index(tok);
       const std::vector<double> existing = items(tok, 1, bar);
@@ -173,6 +188,23 @@ int main(int argc, char** argv) {
       std::optional<std::vector<double>> out =
           existing.empty() ? std::nullopt : std::optional<std::vector<double>>(existing);
       emit_list(op.c_str(), lfw::ensure(out, fresh));
+
+    } else if (op == "ensure_val") {
+      const size_t bar = bar_index(tok);
+      size_t i = 1;
+      lfw::Value target = trace::parse_value(tok, i);
+      std::vector<lfw::Value> vals;
+      while (i < bar) vals.push_back(trace::parse_value(tok, i));
+      size_t j = bar + 1;
+      while (j < tok.size()) vals.push_back(trace::parse_value(tok, j));
+      if (vals.empty()) {
+        std::fprintf(stderr, "line %d: ensure_val needs at least one item\n", lineno);
+        return 2;
+      }
+      const lfw::Value r = vals.size() == 1 ? lfw::ensure(target, vals[0]) : lfw::ensure(target, vals);
+      Line L;
+      L.add(op).add(trace::to_ascii(trace::render_value(r)));
+      L.out();
 
     } else if (op == "loop_offset") {
       const double current = arg(tok, 1, 0);
@@ -192,16 +224,31 @@ int main(int argc, char** argv) {
     } else if (op == "map_arr_mul") {
       const double k = arg(tok, 1, 0);
       const std::vector<double> a = items(tok, 2, tok.size());
-      emit_list(op.c_str(), lfw::map_arr(a, [k](double v, auto, const std::vector<double>&) { return v * k; }));
+      emit_list(op.c_str(), lfw::map_arr(a, [k](double v, auto i, const std::vector<double>& arr) {
+        return v * k + static_cast<double>(i) * 10.0 + static_cast<double>(arr.size());
+      }));
 
     } else if (op == "map_arr_scalar") {
       const double k = arg(tok, 1, 0);
       const double v = arg(tok, 2, 0);
-      emit_list(op.c_str(), lfw::map_arr(v, [k](double x, auto, const std::vector<double>&) { return x * k; }));
+      emit_list(op.c_str(), lfw::map_arr(v, [k](double x, auto i, const std::vector<double>& arr) {
+        return x * k + static_cast<double>(i) * 10.0 + static_cast<double>(arr.size());
+      }));
+
+    } else if (op == "map_arr_nil") {
+      const double k = arg(tok, 1, 0);
+      emit_list(op.c_str(),
+                lfw::map_arr(std::optional<std::vector<double>>{},
+                             [k](double v, auto i, const std::vector<double>& arr) {
+                               return v * k + static_cast<double>(i) * 10.0 +
+                                      static_cast<double>(arr.size());
+                             }));
 
     } else if (op == "loop_arr_idx" || op == "loop_arr_scalar") {
       std::vector<double> idxs;
-      auto fn = [&idxs](double, auto idx, const std::vector<double>&) { idxs.push_back(static_cast<double>(idx)); };
+      auto fn = [&idxs](double, auto idx, const std::vector<double>& arr) {
+        idxs.push_back(static_cast<double>(idx) * 10.0 + static_cast<double>(arr.size()));
+      };
       if (op == "loop_arr_idx") lfw::loop_arr(items(tok, 1, tok.size()), fn);
       else lfw::loop_arr(arg(tok, 1, 0), fn);
       Line L;

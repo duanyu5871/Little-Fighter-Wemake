@@ -10,8 +10,9 @@ import { loop_offset } from "../../../../src/LFW/utils/container_help/loop_offse
 import { map_no_void } from "../../../../src/LFW/utils/container_help/map_no_void";
 import { NestedMap } from "../../../../src/LFW/utils/container_help/nested_map";
 import { NestedMultiMap } from "../../../../src/LFW/utils/container_help/nested_multi_map";
+import type { Unsafe } from "../../../../src/LFW/utils/type_check/Unsafe";
 
-import { bitsHex, readCaseLines, splitWs } from "./trace_util";
+import { bitsHex, parseValue, readCaseLines, renderValue, splitWs } from "./trace_util";
 
 function line(...parts: (string | number | boolean)[]): string {
   return parts.map((p) => String(p)).join(" ");
@@ -108,6 +109,13 @@ function main(): void {
         break;
       }
 
+      case "fisrt_any":
+      case "last_any": {
+        const a = items(tok, 1, tok.length);
+        out.push(line(op, opt(op === "fisrt_any" ? fisrt(a) : last(a))));
+        break;
+      }
+
       case "map_no_void_gt": {
         const t = arg(tok, 1, 0);
         out.push(emitList(op, map_no_void(items(tok, 2, tok.length), (v) => (v > t ? v * 2 : undefined))));
@@ -120,6 +128,12 @@ function main(): void {
         break;
       }
 
+      case "intersection_lt": {
+        const b = barIndex(tok);
+        out.push(emitList(op, intersection(items(tok, 1, b), items(tok, b + 1, tok.length), (x, y) => x < y)));
+        break;
+      }
+
       case "ensure": {
         const b = barIndex(tok);
         const existing = items(tok, 1, b);
@@ -127,6 +141,23 @@ function main(): void {
         const target = existing.length ? existing : undefined;
         const r = ensure(target, fresh[0]!, ...fresh.slice(1));
         out.push(emitList(op, r));
+        break;
+      }
+
+      case "ensure_val": {
+        const b = barIndex(tok);
+        const i1 = [1];
+        const target = parseValue(tok, i1);
+        const vals: unknown[] = [];
+        while (i1[0]! < b) vals.push(parseValue(tok, i1));
+        const i2 = [b + 1];
+        while (i2[0]! < tok.length) vals.push(parseValue(tok, i2));
+        if (vals.length === 0) {
+          process.stderr.write("ensure_val needs at least one item\n");
+          process.exit(2);
+        }
+        const r = ensure(target as Unsafe<unknown[]>, vals[0], ...vals.slice(1));
+        out.push(line(op, renderValue(r)));
         break;
       }
 
@@ -143,21 +174,27 @@ function main(): void {
 
       case "map_arr_mul": {
         const k = arg(tok, 1, 0);
-        out.push(emitList(op, map_arr(items(tok, 2, tok.length), (v) => v * k)));
+        out.push(emitList(op, map_arr(items(tok, 2, tok.length), (v, i, arr) => v * k + i * 10 + arr.length)));
         break;
       }
 
       case "map_arr_scalar": {
         const k = arg(tok, 1, 0);
-        out.push(emitList(op, map_arr(arg(tok, 2, 0), (v) => v * k)));
+        out.push(emitList(op, map_arr(arg(tok, 2, 0), (v, i, arr) => v * k + i * 10 + arr.length)));
+        break;
+      }
+
+      case "map_arr_nil": {
+        const k = arg(tok, 1, 0);
+        out.push(emitList(op, map_arr(null, (v: number, i: number, arr: number[]) => v * k + i * 10 + arr.length)));
         break;
       }
 
       case "loop_arr_idx":
       case "loop_arr_scalar": {
         const idxs: number[] = [];
-        const fn = (_v: number, i: number) => {
-          idxs.push(i);
+        const fn = (_v: number, i: number, arr: number[]) => {
+          idxs.push(i * 10 + arr.length);
         };
         if (op === "loop_arr_idx") loop_arr(items(tok, 1, tok.length), fn);
         else loop_arr(arg(tok, 1, 0), fn);

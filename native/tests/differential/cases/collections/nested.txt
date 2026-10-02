@@ -55,3 +55,31 @@ nested_multi_clear
 nested_multi_has 1 1
 nested_multi_has 2 5
 nested_multi_collect 2 5
+nested_set 3 4 34
+nested_clear
+nested_set 8 9 89
+nested_get 8 9
+nested_get 8 4
+nested_has 8 4
+nested_del 8 9
+nested_get 8 9
+nested_del 8 9
+nested_multi_add 4 4 1
+nested_multi_add 4 4 2
+nested_multi_first 4 4
+nested_multi_collect 4 4
+nested_multi_del 4 4
+nested_multi_collect 4 4
+nested_multi_has 4 4
+nested_set 6 1 61
+nested_set 6 2 62
+nested_del 6 2
+nested_get 6 1
+nested_get 6 2
+nested_del 6 1
+nested_multi_add 2 5 99
+nested_multi_has 2 5
+nested_multi_first 2 5
+nested_multi_del 2 5
+nested_multi_has 2 5
+nested_multi_collect 2 5

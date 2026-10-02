@@ -1488,3 +1488,28 @@ P.S. TS 侧那个 `Times.lifes` 的无限递归（`return this.lifes`）就是�
   3. `digit()` 的 `i < s.size()` → `i <= s.size()` —— `s[size()]` 是 `'\0'`。
   4. `write()` 末行 `if (o == nullptr) return false;` —— 不可达。
   5. 去掉 `++i` / 去掉越界判断 / 递归自调用 —— 死循环或越界读（UB），不是"漂移"。
+
+
+### 6.9.53 `collections` 加固（差分 194 行，变异 68/68 全杀）
+
+- op 新增：`fisrt_any` / `last_any`（1 实参重载）、`intersection_lt`（显式 `std::less<double>`）、
+  `map_arr_nil`（空 / `null` 输入）、`ensure_val <valueliteral> | <valueliteral…>`
+  （`Value&` 重载，按项数分派 1 项 / 多项）。
+- **四处"harness 没把实参用上 ⇒ 变异不可见"**：
+  1. 1 实参的 `fisrt()` / `last()` 此前**没有任何 op**（只有 2 实参版）⇒ `fisrt_any` / `last_any`。
+  2. `map_arr` / `loop_arr` 的回调此前只用了第一个实参
+     （`[k](double v, auto, const std::vector<double>&) { return v * k; }`）⇒
+     **下标写错 / 第三参传空 vector 全部不可见**。改成 `v * k + i * 10 + arr.size()`（两侧同式）。
+     注意 `loop_arr` 一直可观测（它本来就把收到的下标打出来），同族两个函数"一个测到一个没测"。
+  3. `ensure.h` 的 `Value&` 重载从未被任何 subject 观测（哪怕生产调用点全在它上面）⇒ `ensure_val`。
+  4. `intersection` 默认谓词是 `equal_to`，`push_back(c1)` ↔ `push_back(c2)` 在匹配点恒等
+     ⇒ 必须显式换谓词（`intersection_lt`）才可分辨。
+- **一条真等价**：`nested_map::clear()` 末尾 `_map.clear();` 删掉 —— 内层 map 已被逐个清空，
+  残留的空内层 map 让 `get`/`has`/`remove` 一律未命中（与"外层键不存在"同观），
+  之后的 `set` 走新建分支还是"已有 k1"分支结果一致，差别只有私有对象池里空 map 的条数 ⇒ 不可观测。
+- **不值得打的（构造不可判别 / UB）**：graves 的 `_l[_i--]`、让 `_i` 越界回绕的三种改法、
+  `ensure` 模板版守卫取反、`map_arr` 的 `!list.has_value()` 守卫、`loop_offset` 不可达的
+  `idx >= len`、对象池回收与 `if (_map.empty()) return;` 的删除 —— 逐条理由见
+  `mutations/collections.mjs` 头部第 1–12 条。
+- 本 subject 最慢的一批是**头文件**变异（每条都要全量重编译）：6.9 s/变异量级；
+  作为对照，`value` 那轮 2.6 s/变异（多为 `.cpp`）。

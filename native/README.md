@@ -350,3 +350,5 @@ VS Code 里也已经指好（`.vscode/settings.json`）：
 | 4v | 覆盖审计（四）：`base/Value` + `Object`/`Array` 加固（用例 187→489 行；`odel` 增打删除结果） | ✅ 通过（`value` 5 个用例 489 行；变异 **71/71 全杀**） |
 | 4w | 覆盖审计（五）：`utils/` 全家族加固（`type_check`/`type_cast` 首次纳入差分；`ease_*`/`Times` 改为按实参个数分派以暴露默认实参） | ✅ 通过（`utils` 5 个用例 321 行；变异 **108/108 全杀**） |
 | 4x | 覆盖审计（六）：`core/json` 加固（`parse` 94→161 行、`stringify` 69→89 行） | ✅ 通过（`json` 2 个用例 250 行；变异 **76/76 全杀**） |
+
+| 4y | 覆盖审计（七）：`collections` 全家族加固（`graves` / `array/*` / `container_help/*`；1 实参 `fisrt`/`last` 首次纳入、`map_arr`/`loop_arr` 回调补下标与数组实参、新增 `ensure` 的 `Value` 重载覆盖） | ✅ 通过（`collections` 2 个用例 194 行；变异 **68/68 全杀**） |

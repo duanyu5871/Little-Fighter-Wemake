@@ -2137,3 +2137,49 @@ README §1.6 记的"共 48 条变异全杀"当时是**临时脚本**跑的，产
   4. `write()` 末尾 `if (o == nullptr) return false;`：走到那里时 variant 只可能是 Object ⇒ 不可达。
   5. 去掉 `arr()`/`obj()` 里的 `++i`、去掉 `str()` 的越界判断、把 `write(*p, out)` 写成 `write(v, out)`：
      分别是死循环与越界读 —— 它们给出的是 UB/挂死而不是"漂移"，**不能作为覆盖证据**，故不打。
+
+
+### 4.64 覆盖审计（七）：`collections` 全家族加固
+
+- **覆盖面**：`base/graves.h`（`add`/`take`/`l`）、`utils/array/{loop_arr,make_arr,map_arr}.h`、
+  `utils/container_help/{filter,find,fisrt,ensure,loop_offset,map_no_void,nested_map,nested_multi_map}.h`。
+  用例 144 → 194 行（`basic` 87→109、`nested` 57→85），变异 **68/68 全杀**（6.9 s/变异，总计 471.6 s）。
+- **四处观测盲区（都在 harness 侧补齐，不用改被测代码）**：
+  1. **1 实参的 `fisrt()` / `last()` 一条用例都没有**（此前只有 `fisrt_gt`/`last_gt` 这两个 2 实参版）
+     ⇒ 新增 `fisrt_any` / `last_any`；它们的 `return std::nullopt;` / `ret = item;` 也才第一次有观测。
+  2. **`map_arr` / `loop_arr` 回调的后两个实参被 harness 的 lambda 忽略**
+     （原式 `[k](double v, auto, const std::vector<double>&) { return v * k; }`）⇒
+     "下标写错"与"第三参传空 vector"这两类变异全部不可见。改成
+     `v * k + i * 10 + arr.size()`（两侧同式），下标与数组长度同时进入输出。
+  3. **`ensure` 只有模板重载被覆盖**，`Value&` 版（含单元素转发重载）从没被任何 subject 观测过
+     （而 `ensure.h` 的生产调用点全在它上面）⇒ 新增
+     `ensure_val <valueliteral> | <valueliteral…>`，复用 `trace_util` 的
+     `parse_value`/`render_value`，并按**项数**分派 1 项重载与多项重载。
+  4. **`intersection` 的默认谓词是 `equal_to`**，于是 `ret.push_back(c1)` 换成 `push_back(c2)`
+     在"能匹配上"处恒等（c1 == c2）⇒ 新增 `intersection_lt`（显式传 `std::less<double>`）
+     才可分辨，顺带第一次真正走到第三个参数 `F fn` 上。
+- **一条真等价（已删，理由写进规格头部）**：`nested_map::clear()` 末尾的 `_map.clear();` 删掉恒等 ——
+  循环里每个内层 map 都已被 `kv.second.clear()` 清空，残留的空内层 map 让
+  `get`/`has`/`remove` 一律"未命中"，与"外层键不存在"完全同观；之后 `set(k1,k2,v)` 走
+  `ref()` 的新建分支（从对象池取一个空 map）还是"已有 k1"分支（就地写那个空 map）结果一样；
+  唯一差别只有私有对象池里空 map 的条数（只影响性能）⇒ 不可观测。
+- **七类不打（构造上不可判别或会引入 UB，写进规格头部第 1–12 条）**：
+  1. `graves.add` 的 `_l[--_i] = t;` → `_l[_i--] = t;`：`_i == _l.size()` 时（`basic` 里
+     `graves_add 3` 紧跟最后两次 `take`）会越界写 ⇒ UB。
+  2. `take` 的 `_i >= _l.size()` → `>`、`add` 的 `_i == 0` → `_i != 0`、`size_t _i = 0;` → `1`：
+     三者都让 `_i` 在越界状态下继续被 `_l[_i]` / `_l[--_i]`（回绕成 SIZE_MAX）使用 ⇒ UB。
+  3. `ensure` 模板版 `if (!output.has_value()) return items;` 取反：`ensure | 1 2 3` 这类
+     "目标为空"的用例会走进 `output->insert`（对 nullopt 解引用）⇒ UB。
+  4. `map_arr` 的 `if (!list.has_value()) return ret;`：取反或删除后紧跟 `*list` ⇒ UB。
+     空输入的**正方向**改由新 op `map_arr_nil` 用**差分**覆盖（两侧都返回空数组，
+     与"空 vector"在输出上无法区分，因此这条守卫注定打不出变异）。
+  5. `loop_offset` 的 `if (idx >= static_cast<double>(len))`：`idx` 来自 `fmod(x, len)` 恒 `< len`，
+     NaN 已被上一行 `!(idx >= 0.0)` 拦下 ⇒ 不可达，`>=` 改 `>` 恒等。
+  6. `nested_map::clear()` 里往对象池塞回收 map 的 `_graves.add(kv.second);` 删掉、
+     `ref()` 里不复用池只取 `Inner{}`、`clear()` 开头的 `if (_map.empty()) return;` 删掉：
+     池只影响性能（回收对象已被清空），早退只是跳过空循环 ⇒ 恒等。
+  7. `find.h` 的 `find_value_index`（`const Array*` 版）不属于本 subject 的输入种类，
+     由 `make_ball_special` subject 覆盖。
+- **教训**：**harness 的回调要把每个实参都用上**。`loop_arr` 因为"顺手把收到的下标打出来"
+  一直是可观测的，同族的 `map_arr` 因为 lambda 只用了第一个实参，四条相关变异全部不可见 ——
+  同族函数之间这种"一个测到一个没测"的差异，最容易在写变异规格时被整体漏掉。
