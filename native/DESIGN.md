@@ -1646,3 +1646,37 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
   字符串键之前**，所以"交换整数键与字符串键的插入顺序"是**等价变异**（不可观测），
   写变异时要避开这类组合。
 - 变异 130 → **174 条全杀**；差分 64 → **82 行**。
+
+---
+
+### 4.49 V49 `dat_translator/fighters` 角色装配（23 个 `make_fighter_data_*` + `make_fighter_special`）
+
+- `native/lfw/dat_translator/fighters/fighters.{h,cpp}`（23 个角色函数）+
+  `make_fighter_special.{h,cpp}`（OID 分发器）；subject `fighters_special`（op `fd`/`fs`）
+  **93 行全对**，变异 **133/133 全杀**。
+- TS 的分发是 `switch ((data.alias_id ?? data.id) as OID)` ⇒ **严格字符串匹配**：
+  `id` 是数字（`n 38`）时区间判断照做、但 switch 不命中。C++ 用 `std::get_if<std::u16string>`
+  保住这个语义（有一条例变专门把它放宽成 `to_string(selected)`）。
+- `alias_id ?? id` 是 **nullish**：`alias_id: ""` 不回落（用例 `alias_id s ""` 专门锁住）。
+- `ensure(data.base.group, X)` 的 C++ 版本必须**先取局部副本再写回**：`ensure` 在非数组分支会
+  给 `output` 赋值，只把副本写回对象才会生效。已收口为 `ensure_base_group`（fighters 与
+  分发器共用，避免两处写同一条规则）。
+- **`hit_flag_pair` 移入 `helpers.{h,cpp}`**：原先 `frame_behavior.cpp` 里有一份局部副本
+  （"同一规则写两处"）⇒ 已统一，`cookers` 差分复验仍绿。
+- `julian` / `rudolf` 的 `opoint.hp = opoint.max_hp = 20` 是**链式赋值（右到左）**⇒
+  新键插入序是 `max_hp, hp, max_mp, mp`；已有键则保位。
+- `henter` 的 `data.frames[3].opoint = void 0` 是**写 undefined 而不是删键**
+  （键仍在、值为 undefined，`render` 可见）⇒ C++ 用 `Object::set(..., Value())`。
+- `rudolf` 的 `frame.seqs = frame.seqs || {}` 是 **falsy** 判定（`z`/`""`/`0` 都新建）；
+  `state === Standing/Walking/Defend` 是**严格**数值比较。
+- `firen` / `freeze` 的 `[frames["running_0"]..["running_3"]].filter(Boolean)`：
+  `!truthy` 那句与紧随的 `as_object == nullptr` 检查**结果重合** ⇒ 对它写变异是等价变异
+  （已记录，不写）。而 `running_*` 是**真值非对象**时 TS 会抛（严格模式给原始值加属性），
+  C++ 跳过 ⇒ 有意差异，用例避开。
+- ⚠️ **`o N` 写小会静默吞掉多余 token**（两侧同源 ⇒ 同时被吞 ⇒ 差分"通过"但是假的）。
+  本轮为此踩了 6 次（症状：TS 报 `Cannot read properties of undefined`、C++ 静默返回）。
+  **已给 `fd`/`fs` 两个 harness 都加「剩余 token 非空即报错」自检**（此后计数写错立刻硬失败）。
+- ⚠️ **`ensure` 对「非数组真值」在 TS 侧抛**（`output.push is not a function`），
+  C++ 会转成新数组 ⇒ 有意差异（生产中 `group`/`itr`/`bdy` 只可能是数组或缺失）。
+- `fighters/index.ts` 的自动导出列表**不含** `make_fighter_data_template`（TS 生产代码也是
+  直接 import 该文件）⇒ harness 必须同样直接 import，barrel 取不到。

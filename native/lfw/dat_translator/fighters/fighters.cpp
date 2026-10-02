@@ -335,7 +335,7 @@ Value make_fighter_data_henter(Value& data) {
   if (frame == nullptr) return data;
   Object* f = as_object(*frame);
   if (f == nullptr) return data;
-  f->set(u"opiont", Value());
+  f->set(u"opoint", Value());
   return data;
 }
 

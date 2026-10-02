@@ -1167,3 +1167,17 @@ P.S. TS 侧那个 `Times.lifes` 的无限递归（`return this.lifes`）就是�
   写变异时若锚点落在这里，要确认三者的期望漂移是一起出现的。
 - 新角色继续大量复用旧句子（`cond.and_(sv(bot_val::kEnemyOutOfRange), u"!=", Value(1.0));` 等），
   本轮又出现 6 条 `anchor occurs 2/3 times`，同样只能补 1~3 行上下文消歧。
+
+### 6.9.38 `fighters_special`（133/133）
+
+- 差分 **93 行全对**，变异 **133 条全杀**（23 个 `make_fighter_data_*` + 分发器）。
+- ⚠️ **`o N` 写小的危害比"崩溃"更隐蔽**：两侧 `parse_value` 都只读 N 对、**静默忽略**剩余 token
+  ⇒ 数据没被构造出来，TS 于是抛 `Cannot read properties of undefined`，C++ 静默返回原值，
+  差分报出来的是一条看不懂的崩溃行。**给 harness 加「`idx != t.length` 即报错」是必需的自检**，
+  否则每写一个用例都要人工逐字核对计数。
+- **分发器必须保住"严格字符串"这一点**：`switch (alias_id ?? id)` 里若把非字符串 `to_string()` 化，
+  数字 id（`n 38`）会开始命中 —— 用例里 `id n 38` 与 `id s "38"` **成对**写才锁得住。
+- **链式赋值 `a = b = c` 的键序**又一次生效（`max_hp, hp, max_mp, mp`）；
+  沿用 `cook_frames`/`make_stage_info_list` 的经验，凡是"两个字段同值"就顺手写一例。
+- **等价变异（已记录不写）**：`filter(Boolean)` 的 truthy 判定与紧随的 `as_object == nullptr`
+  检查结果重合（任何 falsy 值两条路都跳过）⇒ 对那句写变异必然存活，属于测试面缺口而非代码缺口。
