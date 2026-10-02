@@ -183,13 +183,15 @@ EditBotActionFunc bot_front_test(const std::u16string& action_id, const Value& k
 EditBotActionFunc bot_ball_dfa(const Value& min_mp, const Value& desire, const Value& min_x,
                                const Value& max_x, const Value& zable) {
   return bot_front_test(u"d>a", arr({sv(gk::kd), sv(u"F"), sv(gk::ka)}), min_mp,
-                        num_or(desire, DESIRE_RATIO_X_2), min_x, max_x, zable);
+                        Value(num_or(desire, DESIRE_RATIO_X_2)), Value(num_or(min_x, 120.0)), max_x,
+                        zable);
 }
 
 EditBotActionFunc bot_ball_dfj(const Value& min_mp, const Value& desire, const Value& min_x,
                                const Value& max_x, const Value& zable) {
   return bot_front_test(u"d>j", arr({sv(gk::kd), sv(u"F"), sv(gk::kj)}), min_mp,
-                        num_or(desire, DESIRE_RATIO_X_2), min_x, max_x, zable);
+                        Value(num_or(desire, DESIRE_RATIO_X_2)), Value(num_or(min_x, 120.0)), max_x,
+                        zable);
 }
 
 EditBotActionFunc bot_explosion_dua(const Value& min_mp, const Value& desire, const Value& min_x,

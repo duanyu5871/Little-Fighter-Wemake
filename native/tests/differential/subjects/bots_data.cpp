@@ -1,0 +1,94 @@
+#include <cstdio>
+#include <fstream>
+#include <optional>
+#include <string>
+#include <vector>
+
+#include "lfw/core/value.h"
+#include "lfw/dat_translator/bots/bot_maker.h"
+#include "lfw/dat_translator/bots/make_bot_data.h"
+
+#include "trace_util.h"
+
+namespace {
+
+using trace::render_value;
+using trace::split_ws;
+using trace::to_ascii;
+
+namespace bots = lfw::dat_translator::bots;
+
+std::string render(const lfw::Value& v) { return to_ascii(render_value(v)); }
+
+void emit(const std::string& line) { std::printf("%s\n", line.c_str()); }
+
+std::optional<bots::BotMaker> make_bot(const std::string& name) {
+  if (name == "bat") return bots::make_bot_data_bat();
+  if (name == "hunter") return bots::make_bot_data_hunter();
+  if (name == "jan") return bots::make_bot_data_jan();
+  if (name == "knight") return bots::make_bot_data_knight();
+  if (name == "monk") return bots::make_bot_data_monk();
+  return std::nullopt;
+}
+
+lfw::Value field_of(const lfw::Value& v, const char16_t* key) {
+  const lfw::Object* o = lfw::as_object(v);
+  const lfw::Value* p = o != nullptr ? o->get(std::u16string(key)) : nullptr;
+  return p != nullptr ? *p : lfw::Value();
+}
+
+}
+
+int main(int argc, char** argv) {
+  if (argc < 2) {
+    std::fprintf(stderr, "usage: lfw_trace_bots_data <case-file>\n");
+    return 2;
+  }
+
+  bots::register_all_bots();
+
+  std::ifstream in(argv[1]);
+  if (!in) {
+    std::fprintf(stderr, "cannot open case file: %s\n", argv[1]);
+    return 2;
+  }
+
+  std::string raw;
+  int lineno = 0;
+  while (std::getline(in, raw)) {
+    ++lineno;
+    const std::string line = trace::strip_comment(raw);
+    const std::vector<std::string> t = split_ws(line);
+    if (t.empty()) continue;
+    const std::string& op = t[0];
+
+    if (t.size() < 2) {
+      std::fprintf(stderr, "missing bot name at line %d\n", lineno);
+      return 2;
+    }
+    const std::string name = t[1];
+    std::optional<bots::BotMaker> m = make_bot(name);
+    if (!m.has_value()) {
+      std::fprintf(stderr, "unknown bot '%s' at line %d\n", name.c_str(), lineno);
+      return 2;
+    }
+
+    if (op == "mb") {
+      emit("mb " + name + " " + render(m->bot()));
+    } else if (op == "mbf") {
+      m->frames();
+      emit("mbf " + name + " " + render(m->bot()));
+    } else if (op == "mbs") {
+      m->states();
+      emit("mbs " + name + " " + render(m->bot()));
+    } else if (op == "mbd") {
+      emit("mbd " + name + " " + render(field_of(m->bot(), u"dataset")));
+    } else if (op == "mba") {
+      emit("mba " + name + " " + render(field_of(m->bot(), u"actions")));
+    } else {
+      std::fprintf(stderr, "unknown op '%s' at line %d\n", op.c_str(), lineno);
+      return 2;
+    }
+  }
+  return 0;
+}

@@ -1552,3 +1552,30 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
 - `bot_ball_cancelling` 的返回对象里**没有** `expression` 键（它的 `cond` 是空的），
   其余构建器都有（值可能是 `undefined`）⇒ 构建对象字面量时不能"顺手补齐"。
 - `constants.h` 的 12 个 `DESIRE_RATIO*` 是普通十进制字面量 ⇒ C++ `constexpr double` 逐位相同。
+
+---
+
+### 4.45 V45 `dat_translator/bots` 的 `BotMaker` 与角色数据（前 5 个）
+
+- 文件：`native/lfw/dat_translator/bots/bot_maker.{h,cpp}`、`bots/make_bot_data.{h,cpp}`
+  （已实现 `bat` / `hunter` / `jan` / `knight` / `monk`，其余 18 个待补），
+  公共 `utils/container_help/spread_assign.h`（从 `loader/resolve_prefab.cpp` 提出来复用）。
+- `BotMaker` 的 `_bot` 是 `id, oid, actions` 三键对象；`frames()` / `states()` 取值器
+  在字段**缺失或 falsy** 时补一个 `{}`（`if (!frames) frames = bot.frames = {}`）
+  ⇒ 即使 `set_frames` 没调用过，读一次取值器也会**多出一个键**（差分里 `mbf hunter` 就是这条）。
+- `set_actions` 收 `std::initializer_list<Value>`：TS 的"对象或函数"两种实参在 C++ 里由
+  `as_action` 收口 —— `as_action(Value)` 原样返回，`as_action(EditBotActionFunc)` 调 `f(nullptr)`。
+  C++ 角色函数因此写成 `as_action(bot_ball_dfa(...))` / `as_action(bot_uppercut_dua(...))`，
+  与 TS 的 `set_actions(bot_ball_dfa(...), bot_uppercut_dua(...))` 一一对应。
+- `set_frames(frame_ids, ...)` / `set_states(...)` 的键是 `'' + ids`：数组会 `join(',')`；
+  **单元素数组会退化成整数键**（`[StateEnum.Catching]` → `"9"`），按 `Object.keys`
+  规则排到所有字符串键之前。`states` 的分组键是 `"9"` / `frames` 的是 `"0,1,2,3,walking_0,…"`。
+- `set_dataset` 是 `{...bot.dataset, ...dataset}`（已有的键保持位置、新键追加）；
+  当前 5 个角色都只调用一次 ⇒ 覆盖顺序暂时不可观察（变异里没写）。
+- `register_maker` 对齐 `Map.set`：同 oid **覆盖且保持位置**。TS 的注册发生在模块求值期，
+  顺序 = `bots/index.ts` 的 `export *` 顺序（字母序）；C++ 改成显式 `register_all_bots()`
+  （**不能**用静态初始化，跨 TU 顺序未定义），由 harness 调一次。
+- `check(entity)` 只 `BotMaker.warn` 不改数据 ⇒ 不移植。
+- **写角色文件时又抓到一个真 bug**：`bot_ball_dfa` / `bot_ball_dfj` 的 `min_x` 默认值是
+  **120**（`bot_front_test` 的是 **0**），原来把 `min_x` 原样透传 ⇒ 缺省时会被下游的 0 覆盖。
+  现在在 `bot_ball_dfa`/`dfj` 里先 `num_or(min_x, 120.0)` 再传下去。

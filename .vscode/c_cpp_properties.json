@@ -1,0 +1,25 @@
+{
+  "version": 4,
+  "configurations": [
+    {
+      "name": "native-msvc-x64",
+      // `native/` 是 include 根（源码里一律写 `lfw/xxx.h`）。
+      // 首选 compileCommands：它带上了真实构建的全部宏与 include 路径，
+      // 由 `node native/tools/native.mjs configure` 生成（native/.gitignore 忽略了 build/）。
+      "compileCommands": "${workspaceFolder}/native/build/msvc-x64/compile_commands.json",
+      // 兜底：刚克隆、还没 configure 时用（不完整，跑一次 configure 即可修复）。
+      "includePath": [
+        "${workspaceFolder}/native"
+      ],
+      "defines": [
+        "_CRT_SECURE_NO_WARNINGS",
+        "_HAS_EXCEPTIONS=0"
+      ],
+      // 跟随 VS 升级可能需要更新（当前 14.41.34120，VS 2022 Community）。
+      "compilerPath": "D:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.41.34120/bin/Hostx64/x64/cl.exe",
+      "cStandard": "c17",
+      "cppStandard": "c++20",
+      "intelliSenseMode": "windows-msvc-x64"
+    }
+  ]
+}

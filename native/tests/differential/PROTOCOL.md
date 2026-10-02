@@ -1096,3 +1096,22 @@ P.S. TS 侧那个 `Times.lifes` 的无限递归（`return this.lifes`）就是�
 - **harness 侧**：TS 的 rest 参数必须真展开（`...spreadArg(args, n)`），且
   `IEditBotActionFunc` 要**显式调用并传入 edit 回调** —— 否则 `bae` 与 `ba` 输出相同，
   一整批 edit 相关变异会假活。
+
+### 6.9.34 `bots_data`（37/37；无等价变异）
+
+- subject `bots_data`（op `mb` / `mbf` / `mbs` / `mbd` / `mba`：渲染 `bot` / 先读
+  `frames`/`states` 取值器 / `bot.dataset` / `bot.actions`）**20 行全对**，变异 **37/37 全杀**。
+- **取值器本身要有用例**：`frames`/`states` 取值器会在字段缺失时**补一个键**，
+  只用 `set_frames` 过的角色测不出来 ⇒ 专门给 `hunter`（只调 `set_dataset`）来一条
+  `mbf hunter`，`child_object` 的键名变异才杀得掉。
+- **整数键**：`set_states([StateEnum.Catching], …)` 的键是 `'' + [9]` = `"9"` ⇒ 整数键，
+  按 `Object.keys` 排到字符串键前；`set_frames([...])` 则是 `"0,1,2,3,walking_0,…"` 字符串键。
+- **TS 的"对象或函数"两种实参**：C++ 用 `as_action` 重载收口（`Value` 原样 /
+  `EditBotActionFunc` 调 `f(nullptr)`），两个方向的变异都要有（丢值 / 不调用）。
+- **harness 侧**：TS 的 `m.frames` / `m.states` 要用 `void m.frames` **真的读一次**，
+  否则取值器不执行、补键的差异看不见。
+- **写角色文件反推出真 bug**：`bot_ball_dfa` 的 `min_x` 默认 120 被 `bot_front_test` 的 0
+  覆盖 ⇒ 补 `ba bot_ball_dfa n 25`（只给一个实参）这种用例才暴露；现在构建层的用例里
+  也留着 `ba bot_ball_dfa n 25 u n 80` 之外的"只传必需参数"形态。
+- 当前 5 个角色里 `jan` 的 edit 是 `(a, c) => { return a }`（恒等）⇒ 这条 edit 路径
+  **不可观察**（等价），而 `monk` 的 edit 会改写 `keys` ⇒ 可观察。写变异时要挑对角色。

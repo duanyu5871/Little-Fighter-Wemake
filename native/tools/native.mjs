@@ -82,11 +82,14 @@ function step(name, fn) {
 }
 
 function cmdConfigure() {
-  if (existsSync(BUILD_DIR)) {
+  const stamp = join(BUILD_DIR, "compile_commands.json");
+  if (existsSync(BUILD_DIR) && existsSync(stamp)) {
     console.log(C.dim(`  ${BUILD_DIR} exists, skipping`));
     return 0;
   }
-  return runInVsEnv(`cmake -S "${NATIVE}" -B "${BUILD_DIR}" -G Ninja -DCMAKE_BUILD_TYPE=Release`);
+  return runInVsEnv(
+    `cmake -S "${NATIVE}" -B "${BUILD_DIR}" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON`,
+  );
 }
 
 function cmdBuild() {

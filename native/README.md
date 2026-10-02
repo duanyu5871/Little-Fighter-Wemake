@@ -181,6 +181,23 @@ VS Code 里也已经指好（`.vscode/settings.json`）：
 第二行是必须的 —— `cmake.buildDirectory` 的默认值 `${workspaceFolder}/build`
 会撞上仓库根的 **Vite 网页构建输出目录**。
 
+### IntelliSense
+
+`.vscode/c_cpp_properties.json` 把 C++ 扩展指向 **CMake 导出的编译数据库**：
+
+```jsonc
+"compileCommands": "${workspaceFolder}/native/build/msvc-x64/compile_commands.json"
+```
+
+⇒ **先跑一次 `npm run native configure`**（或 `all`）。没这一步时编辑器会报
+`cannot open source file "memory"` / `"vector"` 这类标准库缺失的错（不是代码问题）。
+
+- `native/CMakePresets.json` 的 `msvc-x64` / `wasm` 预设都带 `CMAKE_EXPORT_COMPILE_COMMANDS=ON`；
+- `native/tools/native.mjs configure` 在 `compile_commands.json` 缺失时会**重跑** configure
+  （只有 `build/` 存在但缺这个文件时才补，不会每次白跑）；
+- `compileCommands` 不存在时才退到配置里的 `includePath` / `compilerPath` 兜底；
+  `compilerPath` 跟着 VS 版本走，升级 VS 后可能要改（当前 14.41.34120）。
+
 ---
 
 ## 移植进度
@@ -275,3 +292,5 @@ VS Code 里也已经指好（`.vscode/settings.json`）：
 | 4c | `dat_translator/cook_frame_indicator_info` | ✅ 通过（`indicator_info/all` 16 行；变异 **22/22 全杀**） |
 | 4d | `loader/preprocess_action` + `loader/preprocess_bot_data` + `loader/preprocess_next_frame` | ✅ 通过（`loader_actions/all` 68 行；变异 **33/33 全杀**） |
 | 4e | `dat_translator/bots` 动作构建层（`constants` / `frames` / `bot_actions` 14 个构建器） | ✅ 通过（`bots_build/all` 53 行；变异 **50/50 全杀**） |
+
+| 4f | `dat_translator/bots/BotMaker` + 前 5 个 `make_bot_data_*`（bat/hunter/jan/knight/monk） | ✅ 通过（`bots_data/all` 20 行；变异 **37/37 全杀**） |
