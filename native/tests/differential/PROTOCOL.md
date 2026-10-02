@@ -1197,3 +1197,20 @@ P.S. TS 侧那个 `Times.lifes` 的无限递归（`return this.lifes`）就是�
   与 `cook_frames` 轮"选值要瞄准算子分岔方向"是同一条教训。
 - `edit_info` 的数组源分支必须有用例（`a 2 s "x" s "y"` ⇒ 写成整数键 `0`/`1`，
   按 `Object.keys` 排在字符串键之前）。
+
+### 6.9.40 `entity_helpers`（62/62）
+
+- 差分 **153 行全对**（含 `NSlot` 105 项 / `SSlot` 18 项全表），变异 **62 条全杀**。
+- **"我写了这个用例"≠"这个分支被执行到了"**（本轮 5 条存活里最典型的一条）：
+  "数组匹配用严相等"杀不掉，是因为**前一句的松相等先短路了** —— `[5] == "5"` 经 ToPrimitive
+  本来就成立，`array_contains` 根本进不去。要逼出数组分支，`a` 必须**松相等也不等于** `id`
+  （`a 2 n 7 n 5` 的 ToPrimitive 是 `"7,5"`）。
+  与 `make_entity_data` 轮"样本里放了目标字符 ≠ 测到了那条分支"同类。
+- 其余 4 条存活的归因都是"缺边界值"：`FixedLf2` 需要**非默认 direction** 才与 `value` 区分；
+  `AccTo` 的 `<=`/`<` 需要 `current == target`；`is_object_data` 要逐个枚举分支都测；
+  `is_bg_data` 的松/紧相等需要**非字符串**的值（`["background"]`）。
+- **`calc_v` 的 `acc`/`direction` 默认值只对 `undefined` 生效**：`null` 与 `undefined` 结果不同
+  （`direction: null` 会让 `value *= null` 得 0；`undefined` 才取默认 1）。C++ 必须用
+  `holds_alternative<monostate>` 而不是 `is_nullish`。
+- **枚举表要"整表对拍"**：槽位布局这类常量表，只测几个点会漏掉重排/漏项；把
+  `NAME=value` 全表打出来对拍，才让"顺序即语义"真正进入测试面。

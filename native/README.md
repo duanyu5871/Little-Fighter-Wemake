@@ -304,3 +304,5 @@ VS Code 里也已经指好（`.vscode/settings.json`）：
 | 4j | `dat_translator/fighters` 角色装配（23 个 + `make_fighter_special`） | ✅ 通过（`fighters_special/all` 93 行；变异 **133/133 全杀**） |
 
 | 4k | `dat_translator` 收尾（`float_scaling_entity` / `decode_lf2_dat` / `edit_info`） | ✅ 通过（`translator_tail/all` 63 行；变异 **35/35 全杀**） |
+
+| 4l | 步骤 4 第一块 `entity/` 纯助手（`calc_v`/`find_direction`/`face_helper`/`type_check`/`EntitySnapshot`） | ✅ 通过（`entity_helpers/all` 153 行；变异 **62/62 全杀**） |

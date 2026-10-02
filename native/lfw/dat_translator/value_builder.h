@@ -6,6 +6,7 @@
 #include <utility>
 
 #include "lfw/core/value.h"
+#include "lfw/utils/container_help/field_or.h"
 
 namespace lfw {
 namespace dat_translator {
@@ -28,13 +29,6 @@ inline Value make_arr(std::initializer_list<Value> items) {
   Array a;
   for (const Value& v : items) a.push_back(v);
   return Value(std::make_shared<Array>(a));
-}
-
-inline Value field_or(const Value& frame, const char16_t* key) {
-  const Object* o = as_object(frame);
-  if (o == nullptr) return Value();
-  const Value* v = o->get(std::u16string(key));
-  return v != nullptr ? *v : Value();
 }
 
 inline Object* frame_obj(Value& frame) { return as_object(frame); }

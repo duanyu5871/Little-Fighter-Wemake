@@ -1712,3 +1712,31 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
   属未达差异（真实调用点只传对象）。
 - ⚠️ 又一次踩 `o N` 计数：本轮 5 处（`o 2` 实际只有 1 对）⇒ 症状是 `value literal truncated`
   或"该有的键没有、TS 报 undefined"。**harness 的「剩余 token 即报错」自检必须与新用例同时上线**。
+
+---
+
+### 4.51 V51 步骤 4 第一块 `entity/` 纯助手层
+
+- 新增 `native/lfw/entity/`：`calc_v.{h,cpp}` / `find_frame_direction.{h,cpp}` /
+  `face_helper.{h,cpp}` / `entity_type_check.{h,cpp}` / `entity_snapshot.{h,cpp}`；
+  subject `entity_helpers`（op `cv`/`fd`/`sf`/`tf`/`tc`/`non`/`tri`/`ftri`/`ns`/`ss`/`nslots`/`sslots`）
+  **153 行全对**，变异 **62/62 全杀**。
+- **范围核验（本轮主要产出）**：`entity`/`buff`/`collision`/`state`/`controller`/`bot` 六个目录
+  **完全不依赖 `three`/DOM**（渲染相关都在 `animation`/`bg`/`ui`/`stage`/`Camera`/`Ground`）。
+  但 `entity/Entity.ts`（2717 行 / 29 import）依赖 `Factory`/`Ground`/`World`/`Ditto`/`States`
+  ⇒ 「必须整块移植」的判断仍成立，**不能**把 `Entity` 拆成纯函数。本轮只做它周围可独立验证的缝隙。
+- **`calc_v` 的 `switch (mode)` 是严格 `===`**：`mode` 为字符串/`null`/小数时**不命中任何 case**，
+  落到 `default`。C++ 用 `std::get_if<double>` 取模值，非数字一律走 default；
+  用例 `mode s "3"` / `mode z` / `mode n 1.5` 专门锁这条。
+  另外 `acc`/`direction` 的默认值只在传 `undefined` 时生效（JS 默认参数语义）⇒ C++ 用
+  `holds_alternative<monostate>` 判定，不能用 `is_nullish`（`null` 与 `undefined` 结果不同）。
+- **`is_boss` 的 `_bossing` 是松相等**（`v == "Boss"`）：`group` 元素可以是数组，
+  而 `["Boss"] == "Boss"` 经 ToPrimitive 后为真 ⇒ 用例 `group a 1 a 1 s "Boss"` 锁住。
+- **`NSlot`/`SSlot` 的顺序即语义**（槽位下标）：C++ 用 `enum class` 按 TS 原序声明 +
+  `nslot_entries()`/`sslot_entries()`（每项 `static_cast<double>(NSlot::X)`，**不重复字面量**），
+  差分把整表 `NAME=value` 打出来对拍 ⇒ 任何重排/漏项立刻可见。
+- **`field_or` 三重复制收口**：原先 `dat_translator/value_builder.h` 一份、新写的两个 entity 文件
+  各一份 ⇒ 统一到 `utils/container_help/field_or.h`，三处共用（`value_builder.h` 删掉本地副本）。
+- ⚠️ **`o N` 又一次在"多层级对象"上写错**：`tc boss o 2 data o 2 ...` 里顶层其实只有 `data`
+  一个键（`o 1`），我却写了 `o 2` —— 内层把 `base ...` 一并吃掉，于是顶层少一对。
+  **写出嵌套字面量后要按层级各数一遍**。
