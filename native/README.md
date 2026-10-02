@@ -352,3 +352,9 @@ VS Code 里也已经指好（`.vscode/settings.json`）：
 | 4x | 覆盖审计（六）：`core/json` 加固（`parse` 94→161 行、`stringify` 69→89 行） | ✅ 通过（`json` 2 个用例 250 行；变异 **76/76 全杀**） |
 
 | 4y | 覆盖审计（七）：`collections` 全家族加固（`graves` / `array/*` / `container_help/*`；1 实参 `fisrt`/`last` 首次纳入、`map_arr`/`loop_arr` 回调补下标与数组实参、新增 `ensure` 的 `Value` 重载覆盖） | ✅ 通过（`collections` 2 个用例 194 行；变异 **68/68 全杀**） |
+
+| 4z | 覆盖审计（八）：`core` 加固（`js_num` / `js_string`；空白常量表补 `\v`/`\f`、`Math.round` 大奇数修正、`parse_radix` 的 >64 位舍入路径） | ✅ 通过（`core` 4 个用例 10969 行；变异 **112/112 全杀**） |
+
+| 5a | 步骤 5 第一片 `Transform`（位置/缩放/旋转补间；新增 `native/tools/ts_scope.mjs` 用于定切片顺序） | ✅ 通过（`transform` 4 个用例 339 行；变异 **45/45 全杀**） |
+
+| 5b | 步骤 5 第二片 `Ground`（地形高度/阻挡/地面碰撞几何；顺带落地 `ITerrainInfo`） | ✅ 通过（`ground` 3 个用例 310 行；变异 **58/58 全杀**） |

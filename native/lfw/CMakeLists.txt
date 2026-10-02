@@ -7,6 +7,8 @@ add_library(lfw_core STATIC
   core/state_hash.cpp
   core/value.cpp
   fields.cpp
+  ground.cpp
+  transform.cpp
   defines/defines.cpp
   defines/labels.cpp
   defines/runtime_gen.cpp

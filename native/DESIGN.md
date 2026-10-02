@@ -2183,3 +2183,124 @@ README §1.6 记的"共 48 条变异全杀"当时是**临时脚本**跑的，产
 - **教训**：**harness 的回调要把每个实参都用上**。`loop_arr` 因为"顺手把收到的下标打出来"
   一直是可观测的，同族的 `map_arr` 因为 lambda 只用了第一个实参，四条相关变异全部不可见 ——
   同族函数之间这种"一个测到一个没测"的差异，最容易在写变异规格时被整体漏掉。
+
+
+### 4.65 覆盖审计（八）：`core` 加固（`js_num` / `js_string`）
+
+- **覆盖面**：`lfw/core/js_num.cpp`（`js_round`/`js_floor`/`js_ceil`/`js_abs`/`js_to_uint32`/`js_to_int32`/
+  `f64_bits`/`f64_from_bits`）与 `lfw/core/js_string.cpp`（`is_str_white_space`/`digit_value`/
+  `parse_radix`/`scan_decimal`/`string_to_number`/`shortest_digits`/`number_to_string`）。
+  用例 10893 → 10969 行（`js_num` 85→116、`to_number` 152→197），变异 **112/112 全杀**
+  （2.4 s/变异，268.4 s）。这是早期 subject 里最后一块覆盖缺口。
+- **三处补样本，都是"分支的常量表/边界"**：
+  1. **空白常量表缺两项**：`is_str_white_space` 的 switch 有 14 个码点，而 `to_number` 用例只覆盖了
+     `\t \n \r \s`、NBSP、`\u3000`、`\ufeff`、`\u2028/\u2029/\u202f/\u205f/\u1680/\u2000/\u200a` ——
+     **`\v`(0x000b) 与 `\f`(0x000c) 一条都没有** ⇒ 这两条"码点写错"的变异原本不可见。补
+     `"\u000b1"`、`"1\u000c"` 等 9 条后 14 条码点变异全部可杀（按"常量表逐项打"的规矩一次打齐）。
+  2. **`Math.round` 的"x + 0.5 进位到偶数"修正只在 ≥ 2^52 的奇数上生效**：`if (r - x > 0.5) r -= 1.0;`
+     要 `floor(x + 0.5)` 真的跳到偶数上才会触发（4503599627370497 → 4503599627370498 → 减回），
+     原用例只有 `4503599627370495.5` 与 `.4` ⇒ 补 `round 4503599627370497/…499`、`-…497/-…499`
+     以及 7 条 `nan` 传播样本。
+  3. **`parse_radix` 的舍入路径（`keep/rest/half/sticky`）只在输入 > 64 位时才走**：小于 64 位时
+     `shifted == 0` 直接精确返回 ⇒ 之前所有"看着像 tie"的样本（如 `0x40000000000004`，60 位）
+     其实都没走到舍入，5 条舍入变异存活。补 >64 位样本后全杀：
+     `0x10000000000000800`（`drop=8`、`rest==half`、keep 偶、sticky 假 ⇒ round-half-even 不进位）、
+     `0x10000000000000810`（同前但 sticky 真 ⇒ 进位到 `2^64+4096`）、`0xbc1fb2f56a0dbea88c0` 等。
+- **两条踩坑（"样本看似命中、其实没打到分岔点"）**：
+  1. 60 位的"tie"走的是 `shifted == 0` 的精确返回 ⇒ **样本必须落在变异点真正经过的那条路径上**：
+     先确认 `shifted > 0` / `drop > 0`，再谈 `rest == half`。
+  2. **自查工具本身要先对拍**：我写的第一版 `parse_radix` 模拟器在**不带 `0x` 前缀**的字符串上用
+     `from = 2`（等于丢掉前两位十六进制），据此"搜到"的样本根本不是被检验的那个数 ⇒ 两句无效样本、
+     2 条变异假幸存。改成"模拟器 vs 真实 exe 逐条比位模式"后才定位（顺带发现探针里
+     `execFileSync` 的 `\r` 会制造假 MISMATCH）。**凡自己写的判据搜索器，先拿真实实现校准再用它下结论。**
+- **首轮 3 个幸存者里 2 个是真等价（已删，理由写进规格头部）**：
+  1. `js_to_int32` 的 `u < 0x80000000u` → `u < 0x7fffffffu`：只有 `u == 0x7fffffff` 会从正支掉到负支，
+     而 `(int32_t)(2147483647 - 4294967296)` 在 MSVC 上是"截低 32 位" ⇒ 仍得 2147483647，两支恒等。
+  2. `parse_radix` 的 `acc >> (64 - log2base)` → `>> (63 - log2base)`：只改"什么时候把满位半字节
+     移出去"，多移一次等价于 `acc >>= 4; shifted += 4;`，指数 `drop + shifted` 与尾数 `keep` 都不变，
+     移出窗口的低位变成 `sticky`（正是舍入判决需要的全部信息）⇒ 判决不变。已在 20 万条 68~160 位
+     随机 hex 上验证零差异。
+  3. `number_to_string` 的 `const double a = neg ? -v : v;` 改成反号：`shortest_digits` 一开头就把
+     `to_chars` 输出里的 `'-'` 跳掉，符号由后面 `if (neg) out.push_back(u'-')` 统一给出 ⇒ 同果。
+- **不值得打的**（构造不可判别或 UB，逐条写在 `mutations/core.mjs` 头部第 1–12 条）：`js_round` 的
+  `isnan/isinf` 早退（NaN/inf 走主公式同值）、`js_to_uint32` 的 `isfinite` / `x == 0.0` 守卫
+  （去掉即 UB 或恒等）、`f64_bits`/`f64_from_bits`（`bit_cast` 无可注入漂移）、`shifted > 1100`
+  快速路径（数值至少 2^1101，`ldexp` 反正溢出成 inf）、`scan_decimal` 的 `e < 1000000`
+  （有符号溢出保护）、`e10 == 0`（不可达）等。
+
+
+### 4.66 V59 步骤 5 第一片 `Transform`（Entity/World 整块的入口）
+
+- **为什么从它开始（先量再做）**：新增工具 `native/tools/ts_scope.mjs`，把 `entity/Entity.ts` + `World.ts`
+  的依赖拆成"值可达 / 仅类型可达"两类来量。结果：值闭包 **319 文件 / 24773 行**，其中 `defines`(7145)、
+  `dat_translator`(3464)、`loader`(1905)、`collision`(1567)、`bot`(1500)、`state`(1394)、`controller`(1068)、
+  `utils`(897)、`base`(800)、`entity`(807) 已有对应目录（部分是缝隙级），**真正全新**的是
+  `stage`(724) / `buff`(379) / `ui`(127) / `bg`(116) / `ditto`(110) 以及顶层 `World.ts`/`LFW.ts`/
+  `Factory.ts`/`Ground.ts`。
+- **两个"先量再做"纠正掉的误判**：
+  1. `ditto/`（55 文件 / 约 1370 行）**跨目录值依赖 0 个**，全是被引擎反向调用的服务接口
+     （`ISounds`/`IXMLElement`/`IImageMgr`/`IKeyboard`/`IZip`…）⇒ 它是**依赖注入缝**，不是要整块搬的代码；
+     按 `IClock` 的先例**按需注入**即可。反过来 `buff/`（12 文件 / 602 行）跨目录**值依赖 315 文件 /
+     28157 行**（依赖 `entity`/`World`/`LFW`）⇒ 必须排在 `Entity` **之后**，不能当叶子先做。
+  2. `Entity.ts` 的值导入只有 24 个，其中 `defines`/`utils`/`entity/*` 已移植；真正是新的：
+     `Factory`/`Ground`/`World`/`base`/`buff/Buff`/`collision/Collision`/`controller/BaseController`。
+- **本片**：`native/lfw/transform.{h,cpp}`（TS `src/LFW/Transform.ts`，147 行）——位置/缩放/旋转的平滑补间。
+  依赖只有已移植的 `pow` 与 `round_float`，是干净叶子。用例 `cases/transform/*.txt` 4 个共 **339 行**，
+  差分 4/4 通过，变异 **45/45 全杀**（2.87 s/变异，129.3 s）。
+- **接口简化（已记录，语义等价）**：
+  1. TS `move_to(x, y, z, opts: ITransformTweenOpts = {})` 里 `opts.rate ?? 0.1` ⇒ C++
+     `std::optional<double> rate` + `rate.value_or(0.1)`。
+     ⚠️ **harness 必须做翻译**：把裸 rate 直接当 `opts` 传给 TS，`opts.rate` 会是 `undefined` 而静默回落
+     0.1 —— 本轮第一次 drift 正是这么来的（`move 10 0 0 0.5` 之后 C++ 走 0.5、TS 走 0.1）。
+  2. TS 可以同时有属性 accessor `set rotation(v)` 与同名方法 `set_rotation(...)`；C++ 不能重载 get/set
+     ⇒ 属性 setter 记为 `set_x/y/z`、`set_scale_x/y/z`、`set_rotation_value`，方法保持原名。
+     两者的语义差别被完整保留：**属性 setter 不动 `_smoothing`，方法会清**（用例专门锁这条）。
+  3. TS 模块私有的 `wrap_angle` ⇒ C++ 私有静态 `Transform::wrap`；harness 只经 `rx`（属性）与
+     `rot`（方法）两个入口间接观测，不去造 TS 侧取不到的入口。
+- **NaN 观测口径**：状态打印用 `num_hex`（NaN 统一成 `"nan"`，其余打位模式）——避免两侧 NaN 载荷不同
+  造成假差异，同时保留 `-0`/次正规的可分辨性。
+- **两条踩到的用例缺口（都属"到达吸附"这一类）**：
+  1. **"到达即吸附到目标值"要"差值 < eps 但量化后不等于目标"的样本才有分辨力**：
+     `move 0.005 0 0 0.5` 后一次 `update`（`round_float(0.0025, 100)` 把值量化成 0，不吸附就停在 0）。
+     原先只有 `move 10 …` 反复 `update` 的用例，压根没走到"到达"⇒ 该变异存活。
+  2. **`set_position`/`set_scale`/`set_rotation` 清 `_smoothing` 要"`move` 之后再调 setter"的样本**；
+     原先只在 `move` 之后调了**属性** setter（它本来就不清）⇒ 三条"不清 smoothing"的变异存活。
+
+
+### 4.67 V60 步骤 5 第二片 `Ground`（地形高度 / 阻挡 / 地面碰撞几何）
+
+- **本片**：`native/lfw/ground.{h,cpp}`（TS `src/LFW/Ground.ts`，467 行），并顺带补上它需要的
+  `defines/i_terrain_info.h` 的 `ITerrainInfo`。依赖只有已移植的 `clamp`/`abs`/`line_plane_intersection`，
+  是 `Entity.ts` 的直接值依赖（`Ground.ts` 自己的值闭包只剩 `fields`/`defines`/`utils`）。
+  用例 `cases/ground/*.txt` 3 个共 **310 行**（terrain 129 / edge 100 / edge2 81），差分 3/3，
+  变异 **58/58 全杀**（2.33 s/变异）。
+- **接口简化（语义等价，逐条记录）**：
+  1. TS 构造时吃 `World`、每次调用现读 `world.bg.data.terrain` ⇒ C++ 改成
+     `set_terrain(const std::vector<ITerrainInfo>*)` 注入指针，**方法内每次现读**（保留"地形可被整体替换"
+     的语义）；harness 侧 TS 用 `{ bg: { data: { terrain } } }` 桩对象、C++ 用同一个 vector 的地址。
+  2. `block()`/`intersect()` 在 TS 里返回**复用**的 `_ret`/`_intersectResult` ⇒ C++ 同样复用成员
+     （返回 `const&`），不是每次新建。
+  3. `enterable(): number | null` ⇒ `std::optional<double>`；`intersect_wall(): {x,z} | null` ⇒
+     `std::optional<BlockPoint>`。
+  4. `ITerrainInfo` 的 `id?`/`name?`（可缺）⇒ `std::u16string`（缺省空串），**打印时两侧都映射成 `-`**，
+     否则"缺省"与"空串"在输出上分不开。
+- **"数据形状不单独立片"这条决策在本片落实**：`ITerrainInfo` 是纯数据、没有逻辑 ⇒ 变异无处可打，
+  硬开一轮只会重复覆盖默认值与枚举表。**做法是让形状跟着第一个真实消费者一起落地**
+  （`IQube`/`IQubePair`/`IBdyInfo` 一族同理，将在 dat 侧或 Entity 的 bdy 判定路径里带出来），
+  靠消费者的 subject 去差分验证它。同理暂缓了 `Ticker.ts`：它只有 104 行，但逻辑全在
+  `Ditto.Clock`/`Timeout` 的异步调度上，移植它等于先定下整个运行时调度模型（harness 要模拟事件循环），
+  性价比远低于先啃 `Ground` 这种纯逻辑依赖。
+- **首轮 11 个幸存者：1 条真等价 + 10 条用例缺口**。真等价（已删，证明写进规格头部）：
+  `intersect_wall` 的快速跳过 `if (max_h - min_y <= _step) continue;` 改成 `<` —— 能走到那里时若
+  `max_h - min_y == _step`，则任意交点都有 `ty <= max_h`（高度函数把 t 夹在 [0,1]，值必落在 [h1,h2] 内）
+  且 `iy >= min_y`（交点是两端凸组合）⇒ `ty - iy <= _step` ⇒ 后面四条墙面的 `ty - iy > _step`
+  都不可能成立 ⇒ 跳不跳过同值。
+- **10 条缺口的根因是同一类：边界样本没有分辨力。**三种典型：
+  1. **被跳过的对象必须能改变赢家**：`segment` 的 x 边界样本里，内外两段**同高**（都是 4）⇒ 把内层段
+     跳过之后赢家还是外层段，结果不变。改成"内层段更高（8）"立刻可分辨。
+  2. **镜像几何会命中另一分支**：想打"右墙（`seg.x2`）分支"，却把 `seg` 的 `x1`/`x2` 对调成镜像 ⇒
+     实际命中的是代码里的 `x1` 分支（它按字面用 `seg.x1`），变异打在 `x2` 分支上自然无声。
+     正解是保持 `x1 < x2`、让**右端更高**、射线自 `+x` 方向来。
+  3. **阈值类要构造"恰好等于"和"恰好跨过"两种几何**：`ty - iy > _step` 需要墙比射线高 10 以上
+     （否则顶面命中先落地、墙面分支根本不执行）；`seg_y - y1 <= _step` 需要"表面恰好高出 y1 十"的射线
+     （`intersect 0 10 0 0 50 0`：向上穿过 h=20 的平地）。

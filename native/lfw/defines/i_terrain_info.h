@@ -1,5 +1,6 @@
 #pragma once
 
+#include <string>
 #include <vector>
 
 #include "lfw/defines/enum_entries.h"
@@ -11,6 +12,20 @@ enum class TerrainEnum : int {
   SlopeH = 1,
   SlopeV = 2,
 };
+
+struct ITerrainInfo {
+  std::u16string id;
+  std::u16string name;
+  int type = 0;
+  double x1 = 0.0;
+  double x2 = 0.0;
+  double z1 = 0.0;
+  double z2 = 0.0;
+  double h1 = 0.0;
+  double h2 = 0.0;
+};
+
+inline ITerrainInfo terrain_info_new() { return ITerrainInfo{}; }
 
 inline const std::vector<EnumNumberEntry>& terrain_enum_entries() {
   static const std::vector<EnumNumberEntry> e = {

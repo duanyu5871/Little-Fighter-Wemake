@@ -1513,3 +1513,53 @@ P.S. TS 侧那个 `Times.lifes` 的无限递归（`return this.lifes`）就是�
   `mutations/collections.mjs` 头部第 1–12 条。
 - 本 subject 最慢的一批是**头文件**变异（每条都要全量重编译）：6.9 s/变异量级；
   作为对照，`value` 那轮 2.6 s/变异（多为 `.cpp`）。
+
+
+### 6.9.54 `core` 加固（差分 10969 行，变异 112/112 全杀）
+
+- 用例：`core/js_num` 85→116、`core/to_number` 152→197（`number_to_string` 98 与 fuzz 10558 不动）。
+- **三条补样本的通用形态**：
+  1. **常量表缺项**：`is_str_white_space` 的 14 个码点里 `\v`(0x000b) / `\f`(0x000c) 从没被用过 ⇒
+     补 `"\u000b1"` / `"1\u000c"` 一类样本后 14 条码点变异全杀。
+  2. **修正分支只在极窄域生效**：`Math.round` 的 `r - x > 0.5` 要 ≥2^52 的**奇数**才会触发。
+  3. **路径门槛**：`parse_radix` 的舍入（`keep/rest/half/sticky`）只在输入 >64 位（`shifted > 0`）时
+     才走 ⇒ 60 位的"tie"（`0x40000000000004`）是空转。补 `0x10000000000000800`（half-even 不进位）与
+     `0x10000000000000810`（sticky 真 ⇒ 进位到 `2^64+4096`）后 5 条舍入变异全杀。
+- **自查工具必须先对拍**：自己写的 `parse_radix` 模拟器在**无 `0x` 前缀**的字符串上用 `from = 2`，
+  等于丢了前两位十六进制，据此"搜到"的样本是别的数 ⇒ 两句无效样本、2 条变异假幸存。
+  改成"模拟器 vs 真实 exe 逐条比位模式"才发现（注意 `execFileSync` 捕获的 `\r` 会造成假 MISMATCH）。
+- **两条真等价**（已删）：`js_to_int32` 的分界 `0x80000000u → 0x7fffffffu`（MSVC 的窄化就是截低 32 位，
+  两支恒等）；`parse_radix` 的满位阈值 `64 → 63`（只改移位时机，指数/尾数不变、低位进 sticky ⇒
+  判决不变，20 万条随机长输入零差异）。
+- 速度：本 subject 全是 `.cpp`，2.4 s/变异（每条都要跑一遍 10558 行 fuzz）。
+
+
+### 6.9.55 `transform` 加固（差分 339 行，变异 45/45 全杀）
+
+- **新工具 `native/tools/ts_scope.mjs <root.ts>…`**：按"值可达 / 仅类型可达"两类量依赖闭包，按目录汇总，
+  并标注 `native/lfw` 是否已有同目录。判断切片顺序、区分"DI 缝（interface-only）"与"真要搬的值代码"
+  全靠它 —— 本轮据此把 `ditto/`（值依赖 0）判为按需注入、把 `buff/`（值依赖 315 文件）排到 Entity 之后。
+- ops：`new` / `pos` / `scale` / `rot` / `sx|sy|sz|rx|ssx|ssy|ssz`（属性入口）/ `move` / `scale_to` /
+  `rotate_to` / `update` / `arrived` / `snap`（打主值 + 目标值 + smoothing）。缺参一律传"未给"
+  （C++ `std::nullopt` / TS `undefined`）⇒ 默认值留在被测代码里，可被变异打到。
+- 每条 op 的实参个数都过 `check(lo, hi)` 硬校验（多给/少给立刻 exit 2），防止 arg 计数写错静默吞 token。
+- **第一次 drift**：`move_to` 的第 4 参在 TS 是对象 `{rate}`、在 C++ 是 `std::optional<double>`，
+  harness 起初把裸数字传给 TS ⇒ TS 静默用默认 0.1。此类"两侧形参形状不同"的接口必须在 harness 里显式翻译。
+- 两条用例缺口（到达吸附、setter 清 smoothing）见 DESIGN §4.66。
+
+
+### 6.9.56 `ground` 加固（差分 310 行，变异 58/58 全杀）
+
+- ops：`clear` / `seg <type> <x1> <x2> <z1> <z2> <h1> <h2> [id]` / `base` / `abyss` / `step` /
+  `y <idx> <x> <z>` / `segment <x> <z>` / `enterable <idx> <x> <y> <z>` /
+  `block <idx> <x> <y> <z> [px] [py] [pz]` / `intersect <6>` / `wall <6>`。
+  地形用一个可变 `vector`（C++）与同一个数组对象（TS 桩 `{bg:{data:{terrain}}}`）承载，
+  索引越界/多给少给 token 一律 exit 2。
+- **三条补样本的通用形态**（本轮 10 个幸存者全部由此消灭）：
+  1. **被跳过的对象必须能改变赢家**（同高段的边界样本是空转）。
+  2. **镜像几何会命中另一分支**（`x1>x2` 的段上，"左墙"实际走的是 `seg.x1` 分支）。
+  3. **阈值要构造"恰好等于"与"恰好跨过"**（`> _step` 需要墙比射线高 >10；`<= _step` 需要表面恰好高出 y1）。
+- 一条**真等价**：`intersect_wall` 的 `max_h - min_y <= _step` → `<`。证明见 DESIGN §4.67。
+- 观测口径：所有数值走 `num_hex`（NaN → "nan"，其余位模式）；可缺的字符串字段打印成 `-`。
+- 顺带记录 `--rank`：`native/tools/ts_scope.mjs --rank <dir>` 按"未移植值闭包行数"排序，
+  用它纠正了三处切片误判（`ditto` 是 DI 缝、`buff` 依赖 Entity、`WorldDataset` 并非叶子）。
