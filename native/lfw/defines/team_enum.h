@@ -1,5 +1,6 @@
 #pragma once
 
+#include <string>
 #include <vector>
 
 #include "lfw/defines/enum_entries.h"
@@ -20,6 +21,8 @@ inline constexpr const char16_t* kTeam_8 = u"8";
 inline constexpr const char16_t* kMax = u"8";
 
 }
+
+inline bool is_independent(const std::u16string& team) { return team.size() != 1; }
 
 inline const std::vector<EnumTextEntry>& team_enum_entries() {
   static const std::vector<EnumTextEntry> e = {

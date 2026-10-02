@@ -52,6 +52,8 @@ add_library(lfw_core STATIC
   entity/face_helper.cpp
   entity/find_frame_direction.cpp
   entity/entity_dataset.cpp
+  entity/summary.cpp
+  entity/summary_mgr.cpp
   collision/is_fall.cpp
   collision/is_armor_work.cpp
   collision/calc_itr_velocity.cpp
@@ -81,6 +83,7 @@ add_library(lfw_core STATIC
   utils/math/probability.cpp
   utils/math/project_to_line.cpp
   utils/utf8.cpp
+  utils/js_add.cpp
   utils/times.cpp
 )
 
