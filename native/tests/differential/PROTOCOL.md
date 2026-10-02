@@ -1563,3 +1563,81 @@ P.S. TS 侧那个 `Times.lifes` 的无限递归（`return this.lifes`）就是�
 - 观测口径：所有数值走 `num_hex`（NaN → "nan"，其余位模式）；可缺的字符串字段打印成 `-`。
 - 顺带记录 `--rank`：`native/tools/ts_scope.mjs --rank <dir>` 按"未移植值闭包行数"排序，
   用它纠正了三处切片误判（`ditto` 是 DI 缝、`buff` 依赖 Entity、`WorldDataset` 并非叶子）。
+
+### 6.9.57 `controller_input` 加固（差分 104 行，变异 72/72 全杀）
+
+新增 subject `controller_input`，观测量来自三族 op：
+
+- `ks <sub>`：`new` / `hit <name> <key> <值|-> <time>` / `end` / `use` / `reset` / `load` / `snap` / `slot` / `flags` / `raw`
+- `res <sub>`：`new` / `fire <nf> <time> <keys> <kind>` / `fire2` / `clear` / `snap`
+- `gktable <labels|label|agk|conflicts|conflict>`
+
+值字面量一律用带标签写法：`n 5` / `s "x"` / `a 3 …` / `o 2 k v k v` / `u` / `z` / `b 1`。
+**`o N` / `a N` 的计数必须与实际元素数一致**，否则解析器会越界读；已在 `trace_util.h` 的 `o` 循环
+补边界断言，错误改为显式报错退出。
+
+差分记录：`ControllerResult::fire` 的守卫改为 JS 真值判定（`fire(nf = 0)` 必须失败）。
+
+### 6.9.58 `base_controller` 加固（差分 866 行，变异 133/133 全杀）
+
+harness op：
+
+- `env <sub>`：`hit_dur` / `dbl_int` / `facing` / `alive` / `human` / `bot` / `team` / `pos` / `fstate`，
+  以及映射位 `kd` / `ku` / `hf` / `hl` / `pre` / `post` / `seq` / `tpre` / `tpost` / `dpre` / `dpost`
+- `ctl <sub>`：`new` / `reset` / 队列 `start` `hold` `end` `db_hit` `click` `dbl_click` `kd` `ku` `ck` /
+  `update` / `tst` / `flags` / `dbhit` / `lr|rl|ud|du|jd|dj` / `keys` / `dbs` / `kraw` / `seqtest` /
+  `sametest` / `log` / `q` / `envdump`
+
+写用例时必须留意的三件事（都因变异存活才暴露出来）：
+
+1. **判空顺序**：环境里每个映射位都要显式设置；`ctl new` 之后若紧接着发 `env bot 0`，
+   「默认非机器人」这条就再也观测不到。
+2. **门的独立性**：同拍门（`keys.d.is_hit()`）与顺序门（`_key_list` 长度 ≥ 3）会在同一次 update 里互相吃掉。
+   要单测顺序门，必须在映射**尚未挂载**时先建出 `_key_list`，等命中窗口全部过期，再挂映射。
+3. **等价类**：`d0.facing != -1 || d1.facing != -1` 这类「双操作数同向」的判定，
+   只有**混合朝向**才能让单侧改值产生差异；单侧朝向时两个操作数互相兜住，等于等价。
+
+harness 教训：**会改状态的调用与状态快照不可同处一个表达式**。
+`emit("… " + flag(ctl.is_db_hit(k)) + " " + render(ctl.dbc.to_snapshot()))` 在 MSVC 下会先算快照，
+把 `step()`（`time = -time`、`data[0] ← data[1]`）的效果吃掉，制造假漂移。必须先取值、再格式化。
+
+### 6.9.59 `collision_handlers` 加固（差分 60 行，变异 30/30 全杀）
+
+harness op：
+
+- `env aid "A"` / `env vid "V"` / `env rest <n>` / `env create_ok <0|1>`
+- `env itr <值>` / `env dataset <值>` / `env itr_motionless <值>`
+- `run <super|picked|stiff|goto|rest|flute>`
+
+输出为「调用序列 + 落地值」：
+
+```
+run flute set_arest:n0 buff_get:magic_flute_to_V:b0 create:magic_flute:magic_flute_to_V:b1 \
+  set_attacker:magic_flute_to_V:A set_victim:magic_flute_to_V:V mount:magic_flute_to_V \
+  | motionless=b1 shaking=u arest=n0 buffs=n1
+```
+
+TS 侧要用**带 setter 的假 Buff**并在 `create_buff` 时把同一个对象放进 `buffs`，
+否则第二次取回的是朴素对象，`buf.lifetime = 0` 不会进日志，两侧就对不齐。
+
+### 6.9.60 `buff` 加固（差分 139 行，变异 61/61 全杀）
+
+harness op：
+
+- `env entity <id|@> <0|1>` / `env pos <id> x y z` / `env frame <id> centery height pic_h`
+- `env data <值>` / `env create_entity_ok <0|1>` / `env create_buff_ok <0|1>`
+- `buff new <id> <kind值>` / `buff use <id>`（切到 grant 出来的 buff，**别名**语义）
+- `buff hook <none|update|tick|end>` / `buff oid <s>` / `buff fid <s>`
+- `buff level|lifetime|duration|ticks <n>` / `buff attacker_id <s>` / `buff attacker_entity <s>`
+- `buff victim|add_victim|del_victim <id>` / `buff del_id <id>` / `buff reset <id>`
+- `buff mount|unmount|update <d>` / `buff place_center|show|del_fx <id>` / `buff clear|upd_fx`
+- `buff read <快照值>` / `buff snap` / `buff log`
+- `grant <kind> <攻击者id> <受害者id> <duration>`
+
+输出 = 「状态字段 + 调用序列」，状态含 `id/lvl/mounted/lifetime/duration/ticks/dead/aid/atk/nfx/victims`。
+
+写用例时的两个陷阱：
+1. `update_effects()` 会**先清过期再重建**，所以想打 `show_effect` 的「不校验存活」必须直接调 `show`，
+   走 `upd_fx` 会被前面的清理掩盖。
+2. `Times.add(d)` 的差异要在**全新 buff**（`_value` 为 0）上打，否则 `add(1)` 也可能正好触顶，
+   两侧都触发 hook 而看不出差别。

@@ -61,10 +61,16 @@ add_library(lfw_core STATIC
   collision/stiffness.cpp
   collision/is_armor_work.cpp
   collision/calc_itr_velocity.cpp
+  collision/handlers.cpp
+  collision/collision.cpp
+  buff/buff.cpp
   controller/double_click.cpp
   controller/seq_keys.cpp
   controller/key_status.cpp
   controller/controller_double_clicks.cpp
+  controller/controller_key_status.cpp
+  controller/controller_result.cpp
+  controller/base_controller.cpp
   helper/manhattan_xz.cpp
   bot/closest.cpp
   bot/is_ray_hit.cpp

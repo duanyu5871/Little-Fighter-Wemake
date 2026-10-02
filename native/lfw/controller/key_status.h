@@ -19,6 +19,11 @@ class KeyStatus {
   void end(double time);
   void reset();
 
+  const Value& key() const { return _key; }
+  double time() const { return _d_time; }
+  double u_time() const { return _u_time; }
+  double used() const { return _used; }
+
   Value to_snapshot() const;
   void from_snapshot(const Value& s);
 

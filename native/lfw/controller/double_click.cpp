@@ -67,5 +67,9 @@ void DoubleClick::from_snapshot(const Value& s) {
   _name = field_or(s, u"name");
 }
 
+bool DoubleClick::fired() const { return truthy(_fired); }
+
+void DoubleClick::set_fired(bool v) { _fired = Value(v); }
+
 }
 }

@@ -358,3 +358,10 @@ VS Code 里也已经指好（`.vscode/settings.json`）：
 | 5a | 步骤 5 第一片 `Transform`（位置/缩放/旋转补间；新增 `native/tools/ts_scope.mjs` 用于定切片顺序） | ✅ 通过（`transform` 4 个用例 339 行；变异 **45/45 全杀**） |
 
 | 5b | 步骤 5 第二片 `Ground`（地形高度/阻挡/地面碰撞几何；顺带落地 `ITerrainInfo`） | ✅ 通过（`ground` 3 个用例 310 行；变异 **58/58 全杀**） |
+
+| 5c | 步骤 5 第三片之一：`ControllerKeyStatus` / `ControllerResult` + `GameKey` 三张表（`GKLabels`/`AGK`/`CONFLICTS_KEY_MAP`；`fire` 守卫改为 JS 真值判定） | ✅ 通过（`controller_input` 104 行；变异 **72/72 全杀**） |
+| 5d | 步骤 5 第三片之二：`BaseController` 主控全链（相对方向 / 单击 / 双击 / 顺序与同拍 / 世界动作；`CtrlEnv` 输入缝；`RL/DU/dj` 保留负零） | ✅ 通过（`base_controller` 866 行；变异 **133/133 全杀**） |
+
+| 6a | 步骤 6 之叶子：`collision` 处理器（`stiffness` / `body_goto` / `super_punch_me` / `weapon_picked` / `rest` / `itr_kind_magic_flute`；`HandlersEnv` 行为缝 + 调用序列差分；保住 `??` 与 `\|\|` 的惰性） | ✅ 通过（`collision_handlers` 60 行；变异 **30/30 全杀**） |
+
+| 4a | 步骤 4 主体：`Buff` 基类 + `grant_buff`（`Times` 三重计时 / 受害者表压缩 / 特效实体跟随 / 快照往返；`IBuffEntity`+`BuffEnv` 行为缝；修 `show_effect` 同键覆盖 bug） | ✅ 通过（`buff` 139 行；变异 **61/61 全杀**） |

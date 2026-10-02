@@ -196,6 +196,12 @@ inline lfw::Value parse_value(const std::vector<std::string>& t, size_t& i) {
     const size_t n = static_cast<size_t>(to_long(t[i++]));
     auto obj = std::make_shared<lfw::Object>();
     for (size_t j = 0; j < n; ++j) {
+      if (i >= t.size()) {
+        std::fprintf(stderr, "value literal truncated in object at token %zu of %zu:\n", i,
+                     t.size());
+        for (const std::string& s : t) std::fprintf(stderr, "  %s\n", s.c_str());
+        std::exit(2);
+      }
       const std::u16string key = key_of(t[i++]);
       obj->set(key, parse_value(t, i));
     }

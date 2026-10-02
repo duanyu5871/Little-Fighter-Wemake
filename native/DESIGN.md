@@ -2304,3 +2304,128 @@ README §1.6 记的"共 48 条变异全杀"当时是**临时脚本**跑的，产
   3. **阈值类要构造"恰好等于"和"恰好跨过"两种几何**：`ty - iy > _step` 需要墙比射线高 10 以上
      （否则顶面命中先落地、墙面分支根本不执行）；`seg_y - y1 <= _step` 需要"表面恰好高出 y1 十"的射线
      （`intersect 0 10 0 0 50 0`：向上穿过 h=20 的平地）。
+
+## 6. 控制器中枢（步骤 5 第三片）
+
+TS `controller/` 里与输入判定相关的部分已移植完毕，落点如下。
+
+### 6.1 常量与查表
+
+`native/lfw/defines/game_key.h` 补齐 `GKLabels` / `AGK` / `CONFLICTS_KEY_MAP` 三张表，以
+`gk_label_table()` / `all_game_keys()` / `conflicts_key_table()` 暴露；查表用 `gk_label_of(key)`
+（未知键返回空串）与 `conflicts_key_of(key)`（未知键返回 `nullptr`）。
+
+`AGK` 的**顺序是语义的一部分**：`BaseController::update()` 的按键扫描按该顺序判定，先命中者生效。
+
+### 6.2 `ControllerKeyStatus`
+
+`native/lfw/controller/controller_key_status.{h,cpp}`：7 个 `KeyStatus` 槽（L R U D d j a）。
+与 TS 的唯一差异是把 `owner` 引用去掉，时间与 `key_hit_duration` 作为实参传入，于是
+`is_hit(time, dur)` 可以脱离控制器单独差分。
+
+TS 的快照是 `number[][]`，喂短数组会直接抛错；C++ 侧对越界做了守卫，所以**短快照属于不可差分观测**，
+只测完整 7×3。
+
+### 6.3 `ControllerResult`
+
+`clear` / `fire` / `fire2`。`fire` 里 `owner.entity.get_next_frame(nf)` 换成 `set_resolver` 注入的
+`std::function`。
+
+⚠️ 守卫必须是 **JS 真值判定**：`if (!truthy(result)) return false;`。TS 写的是 `if (!result)`，
+于是 `fire(nf = 0)` 必须失败；只查 `monostate` 会漂移（本轮由差分抓到并修正）。
+
+### 6.4 `BaseController`
+
+`native/lfw/controller/base_controller.{h,cpp}` 是主控全链。实体/世界读面用 `CtrlEnv` 注入：
+`facing` / `hp`→`alive` / `team` / `position` / `frame.state` /
+`frame.{hold,hit,key_down,key_up,__seq_map}` / `data.{pre_hitkeys,post_hitkeys,__*_hitkeys_map}` /
+`transforms[0].__*_hitkeys_map`；动作面注入 `get_next_frame` / `world_etc` / `team_come` /
+`team_stay` / `team_move` / `team_follow`。
+
+`is_human_ctrl` / `is_bot_ctrl` 按 TS 语义落成 `set_kind(human, bot)`，**默认都是 false**
+（TS 要求 `__is_*_ctrl__ === true`）。
+
+`update()` 的判定顺序严格照抄：
+
+1. 队列（UP / DOWN / HOLD；DOWN 只在 `is_end` 时受理，并顺手清冲突键的 `dbc`）
+2. 相对方向 `kd` / `ku`
+3. `pre_hitkeys` / `hit` / `post_hitkeys` 的单击（F / B）
+4. 同三张表的双击（FF / BB，**不受** `ret.time` 保护）
+5. `hld`（F / B）
+6. 按 `AGK` 顺序的单键 `check_key_act`（kd / ku / pre / hit / post / hld）
+7. 三张 seq 表：`transforms[0].__pre ?? data.__pre`、`frame.__seq_map`、`transforms[0].__post ?? data.__post`
+8. 按键链长度 ≥ 10 时清空
+
+必须保留的两个 TS 怪癖：`??` 是 **nullish** 合并（空对象也算「有值」）；`is_db_hit` 的站立判定
+两侧都写 `d0`（不是 `d1`）。
+
+`LR` / `UD` / `jd` 返回 `int`，而取负的 `RL` / `DU` / `dj` 返回 `double`：
+JS 的 `-0` 与 `0` 在 `num_hex` 下可区分，用整数取负会把负零丢掉。
+
+## 7. 步骤 6 的叶子单元：碰撞处理器
+
+`src/LFW/collision/` 目录里，核心的两个文件（`Collision.ts` 312 行、`CollisionKeeper.ts` 320 行）
+以及绝大多数 `handle_*` 处理器都要读写 `Entity` / `World` / `LFW` 的运行状态；
+用 `native/tools/ts_scope.mjs --rank` 量过三处闭包：
+
+| 目录 | 代表文件 | 未移植值闭包 |
+|---|---|---|
+| `src/LFW/collision` | `Collision.ts` / `CollisionKeeper.ts` | 需 Entity 缝（本次只取闭包为 0–31 行的叶子） |
+| `src/LFW/state` | `State_Base.ts` | 1348 行 |
+| `src/LFW/buff` | `Buff.ts` | 932 行 |
+
+结论：步骤 4/5/6 的**核心**不是可以像 `Transform` / `Ground` 那样窄缝隔离的单元，
+它们要么等 `Entity` / `World`（步骤 7/8）落地后再做，要么用一层很厚的缝硬包
+——后者会把「被测逻辑」和「被注入的行为」搅在一起，反而降低差分与变异的意义。
+
+本次先把闭包最干净的一批叶子处理完整落地，作为步骤 6 的先头单元：
+
+- `native/lfw/collision/handlers.{h,cpp}`：`handle_stiffness` / `handle_body_goto` /
+  `handle_super_punch_me` / `handle_weapon_picked` / `handle_rest` / `handle_itr_kind_magic_flute`
+- 实体/世界动作面用 `HandlersEnv` 回调注入（与 `BaseController` 的 `CtrlEnv` 同型），
+  harness 记录**调用序列 + 落地值**。差分校验的是处理器的判定逻辑与调用顺序，
+  `add_v_rest` / `pick` / `Buff` 的内部实现留给后续切片。
+
+### 7.1 必须保留的惰性
+
+TS 里 `itr.motionless ?? attacker.itr_motionless` 与 `itr.arest || world.dataset.itr_arest`
+都要求**惰性**：右侧只在左侧缺失/为假时才求值。C++ 侧若写成 `coalesce(a, b)` 这类
+「先求值再选」的辅助函数，回落回调会被无条件调用 —— 差分直接抓到
+（harness 的日志里多出一次 `get_itr_motionless`）。必须写成显式分支。
+
+另外注意 `??`（nullish：`undefined` / `null` 才回落）与 `||`（falsy：`0` / `""` 也回落）
+在同一个文件里混用：`handle_stiffness` 用 `??`，`handle_rest` 用 `||`。
+
+## 8. `Buff` 基类（步骤 4 主体）
+
+`native/lfw/buff/buff.{h,cpp}` 落地了 TS `buff/Buff.ts` 的全部状态机：
+
+- 生命周期：`_ticker`（每帧 `add(d)`）与 `_lifetime`（`Times(0,1).set_lifes(1)`）两个计时器，
+  `update(d)` 按 TS 顺序执行 `on_update` → `on_tick`（`add(d)` 为真时）→ `on_end`（`add()` 为真时）→ `update_effects()`。
+  施放者只在**第一次**需要时解析（`attacter()`），三个 hook 共享同一次解析结果。
+- 受害者表：`set_victim` / `add_victim` / `del_victim`，以及 `_del` 的快/慢指针原地压缩
+  （保留 TS 的 `slow < fast` 搬移写法）。
+- 特效实体：`show_effect` / `update_effects` / `place_effect(_center)` / `del_effect` / `clear_effects`，
+  特效帧用 `defines/gone_frame_info.h` 的 `gone_frame_info()`（与 TS 的 `GONE_FRAME_INFO` 逐字段一致）。
+- 快照：`to_snapshot` / `read_snapshot`，其中两个 `Times` 以 `{nums:[5]}` 包装（TS 的 `ITimesSnapshot`）。
+- `grant_buff`：`world.buffs.get(id) ?? factory.create_buff(kind, lfw, id)`，再复位寿命、设时长、加等级、
+  绑施放者/受害者并 `mount()`。
+
+单元边界：`IBuffEntity`（受害者的读面 + 动作，含特效实体的 `outline_*`/`enter_frame_by_id`/`attach`）
+与 `BuffEnv`（`find_entity` / `create_entity` / `find_data` / `world_buffs_set/get` / `create_buff`）。
+
+### 8.1 本单元抓到的两个真实端口 bug
+
+1. **覆盖语义**：TS `show_effect` 用 `this._effects.set(victim.id, effect)`，是**同键覆盖**；
+   C++ 侧写成 `emplace_back`（追加），同一受害者会留两条记录。差分直接在 `nfx` 上暴露（2 vs 1）。
+   已改为「同键替换、否则追加」，并补了针对它的变异。
+2. `_effects` 用 vector 承载，覆盖语义必须手写 —— 不能指望容器帮忙。
+
+### 8.2 harness 教训：别名 vs 拷贝
+
+TS 的 `Map.get` 返回**同一个对象**。C++ harness 若写 `g_buff = *it->second`（拷贝），
+会出现「改了副本、容器里没变」的假漂移（第二次 `grant` 后 `dead` 不一致）。
+正确做法是保留 `TestBuff* g_sync`，每次操作结束把 `g_buff` 回写到 `*g_sync`。
+
+另外：特效实体 id 是运行时生成的（`E1/E2/…`），静态用例拿不到，故 harness 约定 `env entity "@"`
+表示「最近创建的实体」。

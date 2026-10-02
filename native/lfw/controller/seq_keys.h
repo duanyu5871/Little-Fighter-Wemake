@@ -14,6 +14,9 @@ class SeqKeys {
   void press(const std::u16string& keys);
   void reset();
 
+  double hit() const { return _hit; }
+  const Value& data() const { return _data; }
+
   Value to_snapshot() const;
   void from_snapshot(const Value& s);
 
