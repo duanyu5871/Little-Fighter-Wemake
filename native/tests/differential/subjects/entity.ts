@@ -63,16 +63,17 @@ const lfwStub = {
 
 // `Entity` builds its vectors through the host.
 Ditto.vec3 = (x = 0, y = 0, z = 0) => {
-  const v = {
-    x,
-    y,
-    z,
-    set(nx: number, ny: number, nz: number): void {
+  const v = { x, y, z } as { x: number; y: number; z: number; set: unknown };
+  // The real `IVector3` keeps `set` off the own-key list; `Object.keys` (and so
+  // `renderValue`) must only see x/y/z.
+  Object.defineProperty(v, "set", {
+    enumerable: false,
+    value: (nx: number, ny: number, nz: number): void => {
       v.x = nx;
       v.y = ny;
       v.z = nz;
     },
-  };
+  });
   return v as never;
 };
 
@@ -216,13 +217,15 @@ const NUMERIC_FIELDS = new Set([
   "facing", "motionless", "shaking", "fallinjury", "throwinjury", "name_visible",
   "wakeup_invuln", "dead_gone", "ctrl_visible", "puppet", "is_on_ground",
   "jumping.x", "jumping.y", "jumping.z", "jumping.t", "aabb_min_x", "aabb_max_x",
-  "l_len", "r_len",
+  "l_len", "r_len", "atom_time",
 ]);
 
 const VALUE_FIELDS = new Set([
   "outline_color", "mix_color", "outline_enabled", "name", "team", "origin_data_id",
   "group", "bot_ignore", "state", "armor", "dead_join", "transforms", "itr", "bdy",
   "frame", "prev_frame", "data", "emitter", "src_emitter", "drink", "ref", "ctrl", "id",
+  "velocity", "prev_velocity", "position", "prev_position", "dvx", "dvy", "dvz",
+  "landing_frame",
 ]);
 
 const getNum = (e: Entity, name: string): number => {
@@ -346,6 +349,8 @@ const getNum = (e: Entity, name: string): number => {
       return e.l_len;
     case "r_len":
       return e.r_len;
+    case "atom_time":
+      return (e as unknown as { _atom_time: number })._atom_time;
     default:
       void p;
       return undefined;
@@ -398,6 +403,22 @@ const getValue = (e: Entity, name: string): unknown => {
       return e.id;
     case "ref":
       return { id: e.id };
+    case "velocity":
+      return e.velocity;
+    case "prev_velocity":
+      return e.prev_velocity;
+    case "position":
+      return e.position;
+    case "prev_position":
+      return e.prev_position;
+    case "dvx":
+      return e.dvx;
+    case "dvy":
+      return e.dvy;
+    case "dvz":
+      return e.dvz;
+    case "landing_frame":
+      return (e as unknown as { _landing_frame: unknown })._landing_frame;
     case "ctrl":
       return e.ctrl ? ctrlMark(e.ctrl) : undefined;
     default:
@@ -678,6 +699,95 @@ function main(): void {
       } else if (what === "frame") {
         ent!.frame = parseValue(t, [i]) as never;
         out.push(`run frame ${r(ent!.frame)} || ${log.join(",")} | v=${r(ent!.frame)}`);
+      } else if (what === "pos") {
+        const idx = [i];
+        const x = Number(parseValue(t, idx));
+        const y = Number(parseValue(t, idx));
+        const z = Number(parseValue(t, idx));
+        ent!.position.set(x, y, z);
+        out.push(`run pos ${r(x)} ${r(y)} ${r(z)} || ${log.join(",")} | p=${r(ent!.position)}`);
+      } else if (what === "ground") {
+        const y = Number(parseValue(t, [i]));
+        (ent as unknown as { _ground_y: number })._ground_y = y;
+        out.push(`run ground ${r(y)} || ${log.join(",")} | g=${r(ent!.ground_y)}`);
+      } else if (what === "link") {
+        const field = t[i++]!;
+        const to = t[i++]!;
+        const v = to === "self" ? (ent as unknown) : null;
+        if (field === "bearer") ent!.bearer = v as never;
+        else if (field === "catcher") ent!.catcher = v as never;
+        else if (field === "holding") ent!.holding = v as never;
+        else if (field === "catching") ent!.catching = v as never;
+        else {
+          process.stderr.write(`unknown link '${field}'\n`);
+          process.exit(2);
+        }
+        out.push(
+          `run link ${field} ${to} || ${log.join(",")} | b=${r(!!ent!.bearer)} c=${r(!!ent!.catcher)}`,
+        );
+      } else if (what === "setvel") {
+        const idx = [i];
+        const x = parseValue(t, idx);
+        const y = parseValue(t, idx);
+        const z = parseValue(t, idx);
+        ent!.set_velocity(x as never, y as never, z as never);
+        out.push(
+          `run setvel ${r(x)} ${r(y)} ${r(z)} || ${log.join(",")} | v=${r(ent!.velocity)} pv=${r(ent!.prev_velocity)} g=${r(ent!.is_on_ground)}`,
+        );
+      } else if (what === "leaveground") {
+        ent!.leave_ground();
+        out.push(
+          `run leaveground || ${log.join(",")} | p=${r(ent!.position)} g=${r(ent!.is_on_ground)}`,
+        );
+      } else if (what === "gravity") {
+        ent!.handle_gravity();
+        out.push(`run gravity || ${log.join(",")} | v=${r(ent!.velocity)}`);
+      } else if (what === "gdecay") {
+        const factor = parseValue(t, [i]);
+        if (factor === undefined) ent!.handle_ground_velocity_decay();
+        else ent!.handle_ground_velocity_decay(Number(factor));
+        out.push(
+          `run gdecay ${r(factor)} || ${log.join(",")} | v=${r(ent!.velocity)} pv=${r(ent!.prev_velocity)}`,
+        );
+      } else if (what === "vdecay") {
+        const idx = [i];
+        const accx = parseValue(t, idx);
+        const accz = parseValue(t, idx);
+        const factor = parseValue(t, idx);
+        ent!.handle_velocity_decay(accx as never, accz as never, factor as never);
+        out.push(
+          `run vdecay ${r(accx)} ${r(accz)} ${r(factor)} || ${log.join(",")} | v=${r(ent!.velocity)} pv=${r(ent!.prev_velocity)}`,
+        );
+      } else if (what === "velocity") {
+        const vinfo = parseValue(t, [i]);
+        ent!.update_velocity(vinfo as never);
+        out.push(
+          `run velocity ${r(vinfo)} || ${log.join(",")} | v=${r(ent!.velocity)} pv=${r(ent!.prev_velocity)} g=${r(ent!.is_on_ground)}`,
+        );
+      } else if (what === "land") {
+        const self = t[i] === "self";
+        const v = self ? ent!.frame : parseValue(t, [i]);
+        (ent as unknown as { _landing_frame: unknown })._landing_frame = v;
+        out.push(
+          `run land ${self ? "self" : r(v)} || ${log.join(",")} | v=${r((ent as unknown as { _landing_frame: unknown })._landing_frame)}`,
+        );
+      } else if (what === "keys") {
+        const lr = Number(t[i++]);
+        const ud = Number(t[i++]);
+        const jd = Number(t[i++]);
+        const c = makeCtrl("base")!;
+        const keys = (c as unknown as { keys: Record<string, { hit: (t?: number) => void }> })
+          .keys;
+        if (lr > 0) keys.R!.hit(1);
+        else if (lr < 0) keys.L!.hit(1);
+        if (ud > 0) keys.D!.hit(1);
+        else if (ud < 0) keys.U!.hit(1);
+        if (jd > 0) keys.j!.hit(1);
+        else if (jd < 0) keys.d!.hit(1);
+        ent!.ctrl = c;
+        out.push(
+          `run keys ${r(lr)} ${r(ud)} ${r(jd)} || ${log.join(",")} | lr=${c.LR} ud=${c.UD} jd=${c.jd}`,
+        );
       } else if (what === "summaries") {
         const m = summary_mgr as unknown as {
           _items: Map<string, { hp_lost: number; mp_usage: number }>;

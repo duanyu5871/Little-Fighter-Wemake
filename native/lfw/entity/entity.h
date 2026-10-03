@@ -249,6 +249,22 @@ class Entity {
   double base_type() const;
   Value state() const;
 
+  // --- physics: velocity / friction / gravity --------------------------------
+  // `get dvx()` / `get dvy()` / `get dvz()`; a frame without the key yields
+  // `undefined`, a falsy one is returned as-is.
+  Value dvx() const;
+  Value dvy() const;
+  Value dvz() const;
+  // TS `set_velocity(x?, y?, z?)` — `undefined` / `null` skip the axis.
+  void set_velocity(const Value& x, const Value& y, const Value& z);
+  void leave_ground();
+  void handle_ground_velocity_decay(double factor = 1);
+  void handle_velocity_decay(const Value& accx,
+                             std::optional<Value> accz = std::nullopt,
+                             double factor = 1);
+  void handle_gravity();
+  void update_velocity(const Value& vinfo);
+
   // --- stat helpers ----------------------------------------------------------
   void reset_armor();
   Entity& set_catching(Entity* v);
@@ -260,7 +276,9 @@ class Entity {
   // --- harness / platform peek -------------------------------------------------
   // TS keeps these slots private (`_catch_time`, `_toughness_r_value`, the recovery
   // ticks and their ranges); the differential harness reads them through here, and so
-  // will the host once it renders stat bars.
+  // will the host once it renders stat bars.  The physics peek adds `atom_time` and
+  // the `landing_frame` / `_ground_y` writers, because `set_position` / `set_frame`
+  // (which would own those two) arrive with later slices.
   double catch_time() const { return _catch_time; }
   double toughness_r_value() const { return _toughness_r_value; }
   double fall_r_value() const { return _fall_r_value; }
@@ -270,6 +288,10 @@ class Entity {
   double mp_r_tick_max() const { return _mp_r_tick.max(); }
   double fall_r_tick_max() const { return _fall_r_tick.max(); }
   double defend_r_tick_max() const { return _defend_r_tick.max(); }
+  double atom_time() const { return _atom_time; }
+  Value landing_frame() const { return _landing_frame; }
+  void set_landing_frame(const Value& v) { _landing_frame = v; }
+  void set_ground_y(double v) { _ground_y = v; }
 
   // `_state` is a `state::State_Base*` in the full port; the stat layer only reaches
   // the two optional hooks below, so they are injected until the state wiring slice

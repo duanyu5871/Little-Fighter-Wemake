@@ -351,3 +351,473 @@ run get ref
 run get emitter
 run get src_emitter
 run summaries
+
+# ==================== slice 9b: velocity / gravity / friction ====================
+
+# --- atom_time is frozen at construction, the raw vectors start clean
+env dataset s "atom_time" n 1
+run make o 4 id s "p1" type n 1 name s "P" base o 3 name s "P" gravity n 2 gravity_d n 3
+run get atom_time
+run get dvx
+run get dvy
+run get dvz
+run get velocity
+run get prev_velocity
+run get position
+run get prev_position
+run get is_on_ground
+
+# --- set_velocity: per-axis skips, prev_velocity mirror, the y>0 leave_ground hook
+run setvel n 1 n 2 n 3
+run get velocity
+run get prev_velocity
+run get position
+run get is_on_ground
+run setvel u z u
+run get velocity
+run get prev_velocity
+run get position
+run setvel n -4 u n 5
+run get velocity
+run get prev_velocity
+run setvel u u u
+run get velocity
+
+# --- set_velocity: the y>0 hook is strict, a rounded write and `u`/`z` skips
+run pos n 0 n 0 n 0
+run ground n 0
+run set is_on_ground n 1
+run setvel n 1 n 0 u
+run get velocity
+run get is_on_ground
+run setvel n 0.1235 u u
+run get velocity
+
+# --- leave_ground: snapping to ground_y + 0.1, the `eqlt` window and the flag
+run pos n 0 n 5 n 0
+run ground n 5
+run set is_on_ground n 1
+run leaveground
+run get position
+run get is_on_ground
+run pos n 0 n 7 n 0
+run set is_on_ground n 1
+run leaveground
+run get position
+run get is_on_ground
+run pos n 0 n 5.1 n 0
+run set is_on_ground n 1
+run leaveground
+run get position
+
+# --- dvx/dvy/dvz: falsy passthrough, the fvx_f/fvy_f/fvz_f factors, NaN and layers
+run frame o 1 dvx n 0
+run get dvx
+run frame o 1 dvx n 4
+run get dvx
+env dataset s "fvx_f" n 0.5
+run get dvx
+env bg s "fvy_f" n 2
+run frame o 3 dvx s "3" dvy n 6 dvz z
+run get dvx
+run get dvy
+run get dvz
+env dataset s "fvz_f" n 0.25
+run frame o 2 id s "dz" dvz n 8
+run get dvz
+run frame o 1 dvx u
+run get dvx
+run frame o 1 dvx s "abc"
+run get dvx
+
+# --- handle_gravity: the four guards, gravity vs gravity_d and the enabled tri-state
+run make o 4 id s "p2" type n 1 name s "G" base o 3 name s "G" gravity n 2 gravity_d n 3
+run pos n 0 n 10 n 0
+run gravity
+run get velocity
+run pos n 0 n 0 n 0
+run gravity
+run get velocity
+run pos n 0 n 0.05 n 0
+run gravity
+run get velocity
+run pos n 0 n 10 n 0
+run set motionless n 1
+run gravity
+run get velocity
+run set motionless n 0
+run link bearer self
+run gravity
+run get velocity
+run link bearer none
+run link catcher self
+run gravity
+run get velocity
+run link catcher none
+run set shaking n 1
+run gravity
+run get velocity
+run set shaking n 0
+run gravity
+run get velocity
+run pos n 0 n -1 n 0
+run gravity
+run get velocity
+run pos n 0 n 10 n 0
+run frame o 2 id s "g0" gravity_enabled b 0
+run gravity
+run get velocity
+run frame o 2 id s "g1" gravity_enabled z
+run gravity
+run get velocity
+run frame o 1 id s "g2"
+run gravity
+run get velocity
+run keys 0 0 -1
+run gravity
+run get velocity
+run keys 0 0 0
+run gravity
+run get velocity
+
+# --- handle_ground_velocity_decay: landing frame identity, the two dataset triples
+run make o 4 id s "p3" type n 1 name s "D" base o 6 friction_factor n 0.5 friction_x n 1 friction_z n 2 land_friction_factor n 0.25 land_friction_x n 3 land_friction_z n 4
+run pos n 0 n 0 n 0
+run frame o 1 id s "fr"
+run land o 1 id s "x"
+run setvel n 10 n 0 n 20
+run gdecay u
+run get velocity
+run get prev_velocity
+run land self
+run setvel n 10 n 0 n 20
+run gdecay n 2
+run get velocity
+run get prev_velocity
+run setvel n 10 n 0 n 20
+run gdecay n 0.5
+run get velocity
+run land u
+run setvel n 10 n 0 n 20
+run gdecay n 0
+run get velocity
+run setvel n 10 n 0 n 20
+run pos n 0 n 1 n 0
+run gdecay u
+run get velocity
+run pos n 0 n 0 n 0
+run set shaking n 1
+run setvel n 10 n 0 n 20
+run gdecay u
+run get velocity
+run set shaking n 0
+run set motionless n 1
+run setvel n 10 n 0 n 20
+run gdecay u
+run get velocity
+run set motionless n 0
+
+# --- handle_velocity_decay: clamping, the ctrl_x/ctrl_z zeroing and the `null` quirk
+env dataset s "fvx_f" n 0.5
+run make o 4 id s "p4" type n 1 name s "V" base o 1 gravity n 1
+run frame o 5 id s "v1" dvx n 6 dvz n -40 ctrl_x n 1 ctrl_z n 1
+run keys 0 0 0
+run setvel n 10 n 0 n -20
+run vdecay n 2 n 3 n 1
+run get velocity
+run get prev_velocity
+run keys 1 0 1
+run setvel n 10 n 0 n -20
+run vdecay n 12 n 500 n 1
+run get velocity
+run keys 0 1 0
+run setvel n 10 n 0 n -20
+run vdecay n 12 n 500 n 1
+run get velocity
+run keys -1 0 0
+run setvel n -10 n 0 n 0
+run vdecay n 3 n 3 n 1
+run get velocity
+run keys 0 0 0
+run frame o 5 id s "v1" dvx n 6 dvz n -40 ctrl_x n 1 ctrl_z n 1
+run setvel n 10 n 0 n 0
+run vdecay n 12 n 2 n 1
+run get velocity
+run keys 1 0 0
+run setvel n -10 n 0 n 0
+run vdecay n 500 n 1 n 1
+run get velocity
+run keys 0 0 0
+run frame o 2 id s "v6" dvx n 6
+run setvel n 10 n 0 n 0
+run vdecay n 12 n 2 n 1
+run get velocity
+run setvel n 1 n 0 n 0
+run vdecay n 2 n 2 n 1
+run get velocity
+run setvel n 3 n 0 n 0
+run vdecay u n 1 n 1
+run get velocity
+run frame o 1 id s "v7"
+run setvel n 10 n 0 n 0
+run vdecay n 1 n 1 n 1
+run get velocity
+run setvel n 10 n 0 n 0
+run vdecay n 0.1235 n 1 n 1
+run get velocity
+run frame o 2 id s "v8" dvz n 8
+run setvel n 0 n 0 n 1
+run vdecay n 0 n 3 n 1
+run get velocity
+run frame o 3 id s "v2" dvx z ctrl_z n 3
+run setvel n 5 n 0 n 5
+run vdecay n 10 n 1 n 1
+run get velocity
+run frame o 3 id s "v3" dvz z ctrl_x n 3
+run setvel n 5 n 0 n 5
+run vdecay n 1 n 10 n 1
+run get velocity
+run frame o 1 id s "v4"
+run setvel n 10 n 0 n 20
+run vdecay u u u
+run get velocity
+run get prev_velocity
+run frame o 1 id s "v5"
+run setvel n 0 n 5 n 0
+run pos n 0 n 3 n 0
+run ground n 3
+run set is_on_ground n 1
+run vdecay u u u
+run get is_on_ground
+run get position
+
+# --- update_velocity: every SpeedMode, the ctrl dispatch per axis and the guards
+env dataset s "atom_time" n 1
+run make o 4 id s "p5" type n 1 name s "U" base o 1 gravity n 1
+run keys 0 0 0
+run setvel n 0 n 0 n 0
+run velocity o 2 dvx n 5 vxm n 0
+run get velocity
+run get prev_velocity
+run get is_on_ground
+run setvel n 0 n 0 n 0
+run velocity o 2 dvx n -5 vxm n 0
+run get velocity
+run setvel n 0 n 0 n 0
+run velocity o 2 dvx n 5 vxm n 5
+run get velocity
+run setvel n 0 n 0 n 0
+run velocity o 2 dvx n 5 vxm n 6
+run get velocity
+run setvel n 0 n 0 n 0
+run velocity o 2 dvx n 5 vxm n 3
+run get velocity
+run setvel n 0 n 0 n 0
+run velocity o 3 dvx n 5 vxm n 1 acc_x n 2
+run get velocity
+run setvel n 0 n 0 n 0
+run velocity o 3 dvx n 5 vxm n 2 acc_x n 9
+run get velocity
+run setvel n 10 n 0 n 0
+run velocity o 3 dvx n 5 vxm n 4 acc_x n 2
+run get velocity
+run setvel n 0 n 0 n 0
+run velocity o 3 dvx n 5 vxm n 7 acc_x n 2
+run get velocity
+run setvel n 0 n 0 n 0
+run velocity o 2 dvx n 5 vxm n 4
+run get velocity
+run setvel n 0 n 0 n 0
+run velocity o 3 dvx n 5 vxm n 4 acc_x z
+run get velocity
+run setvel n 0 n 0 n 0
+run velocity o 3 dvx n 5 vxm n 4 acc_x n 0
+run get velocity
+run setvel n 0 n 0 n 0
+run velocity o 2 dvx n 5 vxm s "4"
+run get velocity
+run setvel n -20 n 0 n 0
+run velocity o 2 dvx n 5 vxm s "4"
+run get velocity
+run setvel n 0 n 0 n 0
+run velocity o 1 dvx n 0
+run get velocity
+run setvel n 0 n -20 n 0
+run velocity o 1 dvy n 4
+run get velocity
+run setvel n 10 n 0 n 0
+run velocity o 3 dvx z vxm n 6 ctrl_x n 0
+run get velocity
+run setvel n 10 n 0 n 0
+run velocity o 4 dvx n 5 vxm n 6 acc_x n 9 ctrl_x n 1
+run get velocity
+run setvel n 0.1 n 0 n 0
+run velocity o 3 dvx n 0.4 vxm n 1 acc_x n 0
+run get velocity
+run setvel n 0 n 0 n 0
+run velocity o 2 dvy n 4 acc_y z
+run get velocity
+run setvel n 0 n 0 n 0
+run velocity o 3 dvz n 4 vzm n 4 acc_z z
+run get velocity
+run setvel n 0 n 0 n 0
+run velocity o 1 dvx n 5
+run get velocity
+run setvel n -20 n 0 n 0
+run velocity o 1 dvx n 5
+run get velocity
+run setvel n 0 n 0 n -20
+run velocity o 1 dvz n 4
+run get velocity
+run velocity o 3 dvy n 4 vym n 6 ctrl_y n 1
+run get velocity
+run setvel n 0 n 0 n -50
+run velocity o 3 dvz n 4 vzm n 6 ctrl_z n 1
+run get velocity
+run setvel n 0 n 0 n 0
+run velocity o 1 dvx s "abc"
+run get velocity
+run setvel n 0 n 0 n 0
+run velocity o 2 dvx n 0.2515 vxm n 6
+run get velocity
+run setvel n 0 n 0 n 0
+run set facing n -1
+run velocity o 3 dvx n 5 vxm n 7 acc_x n 2
+run get velocity
+run setvel n 0 n 0 n 0
+run velocity o 3 dvx n 5 vxm n 4 acc_x n 2
+run get velocity
+run set facing n 1
+run setvel n 10 n 0 n 0
+run keys 1 0 0
+run velocity o 4 dvx n 5 vxm n 1 acc_x n 2 ctrl_x s "1"
+run get velocity
+run setvel n 10 n 0 n 0
+run keys -1 0 0
+run velocity o 4 dvx n 5 vxm n 1 acc_x n 2 ctrl_x n 1
+run get velocity
+run setvel n 10 n 0 n 0
+run velocity o 4 dvx n 5 vxm n 1 acc_x n 2 ctrl_x n 2
+run get velocity
+run setvel n 10 n 0 n 0
+run keys 0 0 0
+run velocity o 4 dvx n 5 vxm n 1 acc_x n 2 ctrl_x n 3
+run get velocity
+run setvel n 10 n 0 n 0
+run velocity o 4 dvx n 5 vxm n 1 acc_x n 2 ctrl_x n 1
+run get velocity
+run setvel n 10 n 0 n 0
+run keys 1 0 0
+run velocity o 4 dvx n 5 vxm n 1 acc_x n 2 ctrl_x n 3
+run get velocity
+run setvel n 10 n 0 n 0
+run velocity o 4 dvx n 5 vxm n 1 acc_x n 2 ctrl_x n 0
+run get velocity
+run setvel n 10 n 0 n 0
+run set facing n -1
+run velocity o 4 dvx n 5 vxm n 1 acc_x n 2 ctrl_x n 0
+run get velocity
+run set facing n 1
+run setvel n 0 n 0 n 0
+run keys 0 0 0
+run velocity o 1 dvy n 4
+run get velocity
+run setvel n 0 n 0 n 0
+run keys 0 0 1
+run velocity o 4 dvy n 4 vym n 1 acc_y n 2 ctrl_y n 1
+run get velocity
+run setvel n 0 n 0 n 0
+run keys 0 0 -1
+run velocity o 4 dvy n 4 vym n 1 acc_y n 2 ctrl_y n 1
+run get velocity
+run setvel n 0 n 0 n 0
+run velocity o 4 dvy n 4 vym n 1 acc_y n 2 ctrl_y n 2
+run get velocity
+run setvel n 0 n 0 n 0
+run keys 0 0 0
+run velocity o 4 dvy n 4 vym n 1 acc_y n 2 ctrl_y n 3
+run get velocity
+run setvel n 0 n 0 n 0
+run velocity o 4 dvy n 4 vym n 1 acc_y n 2 ctrl_y n 1
+run get velocity
+env dataset s "fvz_f" n 0.25
+run setvel n 0 n 0 n 0
+run keys 0 1 0
+run velocity o 4 dvz n 4 vzm n 1 acc_z n 2 ctrl_z n 1
+run get velocity
+run setvel n 0 n 0 n 0
+run keys 0 -1 0
+run velocity o 4 dvz n 4 vzm n 1 acc_z n 2 ctrl_z n 1
+run get velocity
+run setvel n 0 n 0 n 0
+run keys 0 1 0
+run velocity o 4 dvz n 4 vzm n 1 acc_z n 2 ctrl_z n 2
+run get velocity
+run setvel n 0 n 0 n 0
+run keys 0 -1 0
+run velocity o 4 dvz n 4 vzm n 1 acc_z n 2 ctrl_z n 2
+run get velocity
+run setvel n 0 n 0 n 0
+run keys 0 0 0
+run velocity o 4 dvz n 4 vzm n 1 acc_z n 2 ctrl_z n 3
+run get velocity
+run setvel n 0 n 0 n 0
+run keys 0 1 0
+run velocity o 4 dvz n 4 vzm n 1 acc_z n 2 ctrl_z n 3
+run get velocity
+run setvel n 0 n 0 n 0
+run keys 0 0 0
+run velocity o 1 dvz n 4
+run get velocity
+
+# --- update_velocity: the four guards
+run set motionless n 1
+run setvel n 0 n 0 n 0
+run velocity o 2 dvx n 5 vxm n 6
+run get velocity
+run set motionless n 0
+run link bearer self
+run velocity o 2 dvx n 5 vxm n 6
+run get velocity
+run link bearer none
+run link catcher self
+run velocity o 2 dvx n 5 vxm n 6
+run get velocity
+run link catcher none
+run set shaking n 1
+run velocity o 2 dvx n 5 vxm n 6
+run get velocity
+run set shaking n 0
+
+# --- update_velocity writes the axes directly: y > 0 must not leave the ground
+run set is_on_ground n 1
+run setvel n 0 n 0 n 0
+run velocity o 1 dvy n 4
+run get velocity
+run get is_on_ground
+
+# --- atom_time scales gravity, the decay exponent and the accelerations
+env dataset s "atom_time" n 2
+run make o 4 id s "p6" type n 1 name s "T2" base o 2 name s "T2" gravity n 2
+run get atom_time
+run pos n 0 n 10 n 0
+run gravity
+run get velocity
+run pos n 0 n 0 n 0
+run setvel n 10 n 0 n 20
+run gdecay n 0.5
+run get velocity
+run frame o 2 id s "t2" dvx n 4
+run setvel n 10 n 0 n 20
+run vdecay n 1 n 1 n 1
+run get velocity
+run keys 0 0 0
+run setvel n 0 n 0 n 0
+run velocity o 3 dvx n 5 vxm n 4 acc_x n 2
+run get velocity
+run setvel n 0 n 0 n 0
+run velocity o 3 dvy n 4 vym n 4 acc_y n 2
+run get velocity
+run setvel n 0 n 0 n 0
+run velocity o 3 dvz n 4 vzm n 4 acc_z n 2
+run get velocity

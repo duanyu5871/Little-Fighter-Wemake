@@ -243,6 +243,14 @@ Value role_probe(const Entity& e) {
   return arr_of({Value(e.name_visible), Value(e.wakeup_invuln), Value(e.dead_gone)});
 }
 
+Value vec3_value(const lfw::Vector3& v) {
+  lfw::Object o;
+  o.set(u"x", Value(v.x));
+  o.set(u"y", Value(v.y));
+  o.set(u"z", Value(v.z));
+  return Value(std::make_shared<lfw::Object>(o));
+}
+
 bool get_num(const Entity& e, const std::string& name, double& out) {
   if (name == "lifetime") out = e.lifetime();
   else if (name == "spawn_time") out = e.spawn_time();
@@ -303,6 +311,7 @@ bool get_num(const Entity& e, const std::string& name, double& out) {
   else if (name == "aabb_max_x") out = e.aabb_max_x;
   else if (name == "l_len") out = e.l_len;
   else if (name == "r_len") out = e.r_len;
+  else if (name == "atom_time") out = e.atom_time();
   else return false;
   return true;
 }
@@ -334,6 +343,14 @@ bool get_value(const Entity& e, const std::string& name, Value& out) {
   } else if (name == "drink") out = e.drink != nullptr ? Value(true) : Value();
   else if (name == "id") out = Value(e.id);
   else if (name == "ref") out = e.ref();
+  else if (name == "velocity") out = vec3_value(e.velocity);
+  else if (name == "prev_velocity") out = vec3_value(e.prev_velocity);
+  else if (name == "position") out = vec3_value(e.position);
+  else if (name == "prev_position") out = vec3_value(e.prev_position);
+  else if (name == "dvx") out = e.dvx();
+  else if (name == "dvy") out = e.dvy();
+  else if (name == "dvz") out = e.dvz();
+  else if (name == "landing_frame") out = e.landing_frame();
   else if (name == "ctrl")
     out = e.ctrl() != nullptr ? Value(ctrl_mark(e.ctrl())) : Value();
   else return false;
@@ -542,6 +559,106 @@ int main(int argc, char** argv) {
         g_entity->frame = parse_value(t, i);
         std::printf("run frame %s || %s | v=%s\n", render(g_entity->frame).c_str(),
                     join(g_log).c_str(), render(g_entity->frame).c_str());
+      } else if (what == "pos") {
+        const double x = lfw::to_number(parse_value(t, i));
+        const double y = lfw::to_number(parse_value(t, i));
+        const double z = lfw::to_number(parse_value(t, i));
+        g_entity->position.set(x, y, z);
+        std::printf("run pos %s %s %s || %s | p=%s\n", render(Value(x)).c_str(),
+                    render(Value(y)).c_str(), render(Value(z)).c_str(), join(g_log).c_str(),
+                    render(vec3_value(g_entity->position)).c_str());
+      } else if (what == "ground") {
+        const double y = lfw::to_number(parse_value(t, i));
+        g_entity->set_ground_y(y);
+        std::printf("run ground %s || %s | g=%s\n", render(Value(y)).c_str(),
+                    join(g_log).c_str(), render(Value(g_entity->ground_y())).c_str());
+      } else if (what == "link") {
+        const std::string& field = t[i++];
+        const std::string& to = t[i++];
+        Entity* v = to == "self" ? g_entity.get() : nullptr;
+        if (field == "bearer") g_entity->bearer = v;
+        else if (field == "catcher") g_entity->catcher = v;
+        else if (field == "holding") g_entity->holding = v;
+        else if (field == "catching") g_entity->catching = v;
+        else {
+          std::fprintf(stderr, "unknown link '%s' at line %d\n", field.c_str(), lineno);
+          return 2;
+        }
+        std::printf("run link %s %s || %s | b=%s c=%s\n", field.c_str(), to.c_str(),
+                    join(g_log).c_str(),
+                    render(Value(g_entity->bearer != nullptr)).c_str(),
+                    render(Value(g_entity->catcher != nullptr)).c_str());
+      } else if (what == "setvel") {
+        const Value x = parse_value(t, i);
+        const Value y = parse_value(t, i);
+        const Value z = parse_value(t, i);
+        g_entity->set_velocity(x, y, z);
+        std::printf("run setvel %s %s %s || %s | v=%s pv=%s g=%s\n", render(x).c_str(),
+                    render(y).c_str(), render(z).c_str(), join(g_log).c_str(),
+                    render(vec3_value(g_entity->velocity)).c_str(),
+                    render(vec3_value(g_entity->prev_velocity)).c_str(),
+                    render(Value(g_entity->is_on_ground)).c_str());
+      } else if (what == "leaveground") {
+        g_entity->leave_ground();
+        std::printf("run leaveground || %s | p=%s g=%s\n", join(g_log).c_str(),
+                    render(vec3_value(g_entity->position)).c_str(),
+                    render(Value(g_entity->is_on_ground)).c_str());
+      } else if (what == "gravity") {
+        g_entity->handle_gravity();
+        std::printf("run gravity || %s | v=%s\n", join(g_log).c_str(),
+                    render(vec3_value(g_entity->velocity)).c_str());
+      } else if (what == "gdecay") {
+        const Value factor = parse_value(t, i);
+        if (std::holds_alternative<std::monostate>(factor))
+          g_entity->handle_ground_velocity_decay();
+        else
+          g_entity->handle_ground_velocity_decay(lfw::to_number(factor));
+        std::printf("run gdecay %s || %s | v=%s pv=%s\n", render(factor).c_str(),
+                    join(g_log).c_str(), render(vec3_value(g_entity->velocity)).c_str(),
+                    render(vec3_value(g_entity->prev_velocity)).c_str());
+      } else if (what == "vdecay") {
+        const Value accx = parse_value(t, i);
+        const Value accz = parse_value(t, i);
+        const Value factor = parse_value(t, i);
+        g_entity->handle_velocity_decay(
+            accx,
+            std::holds_alternative<std::monostate>(accz) ? std::nullopt
+                                                         : std::optional<Value>(accz),
+            std::holds_alternative<std::monostate>(factor) ? 1.0
+                                                           : lfw::to_number(factor));
+        std::printf("run vdecay %s %s %s || %s | v=%s pv=%s\n", render(accx).c_str(),
+                    render(accz).c_str(), render(factor).c_str(), join(g_log).c_str(),
+                    render(vec3_value(g_entity->velocity)).c_str(),
+                    render(vec3_value(g_entity->prev_velocity)).c_str());
+      } else if (what == "velocity") {
+        const Value vinfo = parse_value(t, i);
+        g_entity->update_velocity(vinfo);
+        std::printf("run velocity %s || %s | v=%s pv=%s g=%s\n", render(vinfo).c_str(),
+                    join(g_log).c_str(), render(vec3_value(g_entity->velocity)).c_str(),
+                    render(vec3_value(g_entity->prev_velocity)).c_str(),
+                    render(Value(g_entity->is_on_ground)).c_str());
+      } else if (what == "land") {
+        const bool self = t[i] == "self";
+        const Value v = self ? g_entity->frame : parse_value(t, i);
+        g_entity->set_landing_frame(v);
+        std::printf("run land %s || %s | v=%s\n", self ? "self" : render(v).c_str(),
+                    join(g_log).c_str(), render(g_entity->landing_frame()).c_str());
+      } else if (what == "keys") {
+        const double lr = trace::to_double(t[i++]);
+        const double ud = trace::to_double(t[i++]);
+        const double jd = trace::to_double(t[i++]);
+        lfw::controller::BaseController* c = g_host->make_ctrl(0);
+        if (lr > 0) c->keys.R.hit(Value(1.0), 0.0);
+        else if (lr < 0) c->keys.L.hit(Value(1.0), 0.0);
+        if (ud > 0) c->keys.D.hit(Value(1.0), 0.0);
+        else if (ud < 0) c->keys.U.hit(Value(1.0), 0.0);
+        if (jd > 0) c->keys.j.hit(Value(1.0), 0.0);
+        else if (jd < 0) c->keys.d.hit(Value(1.0), 0.0);
+        g_entity->set_ctrl(c);
+        std::printf("run keys %s %s %s || %s | lr=%d ud=%d jd=%d\n",
+                    render(Value(lr)).c_str(), render(Value(ud)).c_str(),
+                    render(Value(jd)).c_str(), join(g_log).c_str(), c->LR(), c->UD(),
+                    c->jd());
       } else if (what == "summaries") {
         const std::vector<std::pair<std::u16string, std::shared_ptr<lfw::Summary>>>& items =
             lfw::summary_mgr().items();

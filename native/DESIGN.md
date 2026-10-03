@@ -4548,3 +4548,92 @@ TS 侧 `WorldDataset` 有 103 个字段，但**所有已经移植过的调用点
 - `Entity::stat_slots()` 是**给 harness/宿主看的窥视口**：把 TS 侧的私有槽位
   （`_catch_time`、`_toughness_r_value`、五个恢复 tick 的 `max`）一次导出成数据，
   TS 侧用 `as any` 读同样的字段拼同一个对象，两边逐字节比对。
+
+## 45. 切片 9b：`Entity` 的速度 / 摩擦 / 重力层
+
+`entity.{h,cpp}` 的第二刀：`get dvx/dvy/dvz`、`set_velocity`、`leave_ground`、
+`handle_ground_velocity_decay`、`handle_velocity_decay`、`handle_gravity`、
+`update_velocity`。这一层是后续 `update()` / 状态机落地判定（`is_on_ground`、
+`velocity.y`）的地基，输入只有「数值 + 帧 + 控制器」三样，所以在 `World` / `LFW` 缺席时
+也能独立锁死。
+
+### 45.1 单元边界（为什么是这七支）
+1. **不碰位置积分**：`update_position` / `set_position` 需要 `world.restrict` 与
+   `world.ground.y`（真 `World`），留到 World 切片；`set_velocity` 的 `prev_velocity`
+   镜像与 `velocity.y > 0 → leave_ground` 已经能独立观察。
+2. **`leave_ground` 与 `set_velocity` 一起搬**：`leave_ground` 只依赖
+   `position.y` / `ground_y` / `is_on_ground`，而 `set_velocity` 依赖它；`eqlt`
+   （`round_float(a - b) <= 0`）直接复用已搬的 `utils/math/float_equal.h`。
+3. **`update_velocity(vinfo)` 的 `vinfo` 收 `Value`**：TS 里它就是帧对象
+   （`update()` 里的 `this.update_velocity(this.frame)`），端口按 JS 解构语义用
+   `field_or` 逐键读——缺失键与 `undefined` 等价，于是 9a 的 `run frame …` 探针
+   可以直接驱动它。
+4. **`calc_v` 复用**：速度模式计算交给已搬的 `entity/calc_v.*`，本层只负责
+   `SpeedMode` / `SpeedCtrl` 的分派与 `acc_*` 的补默认。
+
+### 45.2 保真要点
+1. **`set_velocity` 跳过 `null`/`undefined` 但写入 `NaN`**：TS 是
+   `_x !== null && _x !== void 0`，所以端口签名收 `Value`（`monostate` = `undefined`、
+   `NullTag` = `null`），只有 `nullish` 才跳过；差分里 `run setvel u z u` 与
+   `run setvel n 0.1235 u u`（`round_float` 千分位）分别锁这两半。
+2. **`dvx/dvy/dvz` 的「原样返回 vs 乘因子」二分**：帧值假（`0`/`null`/`undefined`/`NaN`/`""`）
+   就**原样返回**，真才 `v * dataset("fvx_f")`；数据集缺失时 `v * undefined` → `NaN`，
+   所以差分里有「帧没有 `dvx` → `undefined`」「有 4 而 `fvx_f` 缺失 → `NaN`」
+   「`fvz_f = 0.25` 时 `8 → 2`」「`dvz: null` → `null`」四条。
+3. **`handle_velocity_decay` 的钳位是「先改值再回夹」**，且**两支的钳位目标不同**：
+   `x > dvx` → `x -= accx`，若 `x < dvx` 则 `x = dvx`；`x < -dvx` → `x += accx`，
+   若 `x > -dvx` 则 `x = -dvx`。`x = dvx` 这一支在 `dvx` 为 `null` 时把 **null 写回**
+   （随后 `set_velocity` 跳过该轴！），而 `x = -dvx` 支写的是数值 `-0`——差分用
+   `"dvx": z` + `vdecay` 与「`x == dvx` 时 `accx` 为 `NaN`」两条分别锁死。
+4. **`ctrl_x && !LR` → `dvx = 0`**：只有「帧要求受控 + 控制器 `LR` 为 0」才把目标速度清零；
+   `LR` 非 0 时保留帧上的 `dvx`（此时 `calc_v` 用 `LR` 当方向）。`ctrl_z/UD` 同理。
+5. **落地区分是对象同一性**：`this._landing_frame === this.frame`，端口用 `strict_equals`
+   （`shared_ptr` 指针比较）；`landing` 决定 `land_friction_*` 还是 `friction_*` 三件套，
+   且 `factor *= …` 在数据集缺失时变成 `NaN`（TS 的 `factor *= undefined`）。
+6. **`fz` 为 `undefined` 时 `accz` 走默认参数**：TS 是
+   `handle_velocity_decay(accx, accz = accx, factor = 1)`；端口把「`undefined`」映射成
+   `std::nullopt` 才触发默认，`null` 不触发（会被 `to_number` 成 `0`）。
+7. **`handle_gravity` 的 `gravity_enabled = true` 只吃 `undefined`**：`null` 是真值语义下的假
+   → 直接返回；`0`/`""` 同理；只有缺失才默认开。`position.y <= ground_y`、
+   `bearer`/`catcher`/`shaking`/`motionless` 五个守卫全部短路照抄。
+8. **`update_velocity` 的流水线**：`dvx/dvy/dvz` 先按 `fv*_f` 缩放（只对真值）→ 补
+   `vxm/vym/vzm`（默认 `Default`/`AccTo`/`Default`）与 `ctrl_x/y/z`（默认 0）→
+   `acc_*`（`AccTo|FixedAccTo` 且 `acc == void 0` 且 `dv` 为真时取 `dv`）→
+   按 `nullish(dv)`、`!ctrl`、`LR|UD|jd` 四路分派调 `calc_v`。
+   - `acc == void 0` 是**宽松比较**：`null` 也吃默认，`0` 不吃。
+   - `dvx == void 0` 同理：`null`/`undefined` 直接 noop，`0`/`""` 会进 `calc_v`。
+   - `vxm == SpeedMode.AccTo` 也是宽松比较：`"4"` 这样的字符串同样命中
+     （差分用 `vxm s "4"` 锁 `equals` 而非 `strict_equals`）。
+   - `LR != 0 && Control` 才把 `LR` 当方向；`Enable`/`Disable` 一律用 `1`。`jd`/`UD` 同理。
+9. **`update_velocity` 直接写 `velocity.x/y/z`**（`round_float`），**不碰 `prev_velocity`、
+   也不调 `leave_ground`**：差分先 `run set is_on_ground n 1`，正 `vy` 之后
+   `is_on_ground` 必须仍是 `b1`；同时「0.1 + 0.2」这类和必须在写回时重新取整。
+
+### 45.3 有意不覆盖 / 不可观测项
+- `update_position` / `set_position` / `check_velocity` 一类的调用点属于 World 切片。
+- `WorldDataset` 给 `friction_factor = land_friction_factor = 1`、
+  `friction_x = friction_z = 0.25`、`land_friction_x = 1`、`land_friction_z = 0.5` 全部**带默认值**，
+  所以 `fz` 为 `undefined` 的分支在真实数据下不可达 →「`fz` 的 `nullopt` 处理」这条
+  等价，已在变异表头记录，不列条目。
+- `vxm`/`vym`/`vzm`/`ctrl_*` 的**默认赋值本身**不可观测：`vxm` 默认 `Default` 与
+  `calc_v` 的兜底分支是同一条路径；`ctrl_x = 0` 与 `undefined` 在 `truthy`/`equals` 下同真同假
+  → 相关候选撤回（表头记录）。
+- `acc_*` 的 `truthy(dvx)` 守卫在 DSL 能表达的值域下与去掉等价（真值→同值，假值→同假）；
+  「`nullish` 改成严格 `undefined`」则**可**观测（`acc_x: z` 用例），故保留。
+- 「`truthy(dv)` 改成 `!nullish(dv)`」等价（`0`/`""`/`NaN` 乘/不乘都得到同一个值）。
+
+### 45.4 harness 观察点
+- 新增 op：`run setvel <x> <y> <z>`（`Value` 字面量，`u`/`z` 就是 `undefined`/`null`）、
+  `run leaveground`、`run pos <x> <y> <z>` 与 `run ground <数字>`（窥视写 `position` / `_ground_y`，
+  因为 `set_position` 未搬）、`run link bearer|catcher|holding|catching self|none`、
+  `run gravity`、`run gdecay <factor>`、`run vdecay <accx> <accz> <factor>`、
+  `run velocity <vinfo 字面量>`、`run land <帧字面量>|self`、
+  `run keys <LR> <UD> <jd>`（新建 base 控制器并按下对应键）。
+- 新 `get` 字段：`velocity`/`prev_velocity`/`position`/`prev_position`（`{x,y,z}`）、
+  `dvx`/`dvy`/`dvz`、`atom_time`、`landing_frame`。
+- TS 侧 `Ditto.vec3` 桩把 `set` 定义成**不可枚举**属性，`Object.keys`（即渲染）才只看到
+  `x/y/z`——真 `IVector3` 的方法在原型上，同理。
+- `run keys` 用 `hit(1)` 让 `_d_time = 1 > _u_time = 0`（`is_end()` 为假 → 键算「按下」），
+  两侧同一个字面量；`lr/ud/jd` 由控制器 getter 打印，顺带验证键位映射。
+- `run land self` 把 `_landing_frame` 指向**当前帧对象**，才能覆盖 `=== this.frame` 的
+  同一性分支（另一支用等值但不同一的对象）。

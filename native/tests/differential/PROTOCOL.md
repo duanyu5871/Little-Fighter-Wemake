@@ -2687,7 +2687,7 @@ harness op：
 9. **`env hook` 只对指定键生效**：`jump_height` 之外（`gravity`/`screen_w`/`screen_h`/`difficulty`）
    的 `set` 只有 `dataset_change` 一条日志，锁住「键钩子按名查找、整体回调对所有托管键生效」。
 
-### 6.9.96 `entity`（差分 319 行，变异 115/115 全杀）
+### 6.9.96 `entity`（差分 763 行，变异 207/207 全杀）
 
 harness op：
 
@@ -2704,6 +2704,20 @@ harness op：
   `run dataset <键字面量>` / `run itrfall <itr 字面量>`、
   `run ctrl none|base|base_released|human|human_bare|bot|same`、
   `run hook dead|gravity <值字面量>|none`、`run summaries`。
+- 物理层（9b 追加）：
+  `run setvel <x> <y> <z>`（三个 `Value` 字面量，`u`/`z` 就是 `undefined`/`null`，
+  用来区分「跳过写」与「写进去」）、`run leaveground`（`leave_ground()`）、
+  `run pos <x> <y> <z>` / `run ground <数字>`（窥视写 `position` / `_ground_y`，
+  因为 `set_position` 属于 World 切片）、
+  `run link bearer|catcher|holding|catching self|none`（`bearer`/`catcher` 等是公开字段）、
+  `run gravity`（`handle_gravity()`）、
+  `run gdecay <factor>`（`handle_ground_velocity_decay`，`u` 触发默认 1）、
+  `run vdecay <accx> <accz> <factor>`（`handle_velocity_decay`，`u` 分别触发
+  `accz = accx` 与 `factor = 1`）、
+  `run velocity <vinfo 字面量>`（`update_velocity`，`o <对数>` 直接给键值对）、
+  `run land <帧字面量>|self`（`self` 把 `_landing_frame` 指向当前帧对象本身）、
+  `run keys <LR> <UD> <jd>`（重建 base 控制器并按需按下 `L/R`、`U/D`、`d/j`，
+  使 `LR`/`UD`/`jd` 分别为 -1/0/1）。
 
 输出：
 
@@ -2713,7 +2727,18 @@ harness op：
 - `run frame <帧> || <日志> | v=<帧>`、`run dataset <键> || <日志> | v=<值>`；
 - `run role|autorole || <日志> | v=[<name_visible>,<wakeup_invuln>,<dead_gone>]`；
 - `run ctrl <种类> || <日志> | v=base|human|bot`；
-- `run summaries || <日志> | graves=<数> items <id>:<hp_lost>/<mp_usage> …`。
+- `run summaries || <日志> | graves=<数> items <id>:<hp_lost>/<mp_usage> …`；
+- `run setvel <x> <y> <z> || <日志> | v=<velocity> pv=<prev_velocity> g=<is_on_ground>`；
+- `run leaveground || <日志> | p=<position> g=<is_on_ground>`；
+- `run pos … || <日志> | p=<position>`、`run ground … || <日志> | g=<ground_y>`；
+- `run link <字段> <to> || <日志> | b=<bearer?> c=<catcher?>`；
+- `run gravity || <日志> | v=<velocity>`（同样打印 `pv`/`g` 的变体见
+  `gdecay`/`vdecay`/`velocity`）；
+- `run gdecay <factor> || <日志> | v=<velocity> pv=<prev_velocity>`；
+- `run vdecay <accx> <accz> <factor> || <日志> | v=<velocity> pv=<prev_velocity>`；
+- `run velocity <vinfo> || <日志> | v=<velocity> pv=<prev_velocity> g=<is_on_ground>`；
+- `run land <帧>|self || <日志> | v=<landing_frame>`；
+- `run keys <LR> <UD> <jd> || <日志> | lr=<0|1|-1> ud=<…> jd=<…>`。
 
 日志项（按发生顺序、逗号分隔）：`on_*_changed:<self|?>:<新值>:<旧值>`、`on_dead:<self>`、
 `on_ctrl_changed:<vc>:<前一个>:<self>`（控制器渲染成 `base|human|bot|u`）、
@@ -2731,7 +2756,9 @@ harness op：
 `emitter/src_emitter`、`lifetime/spawn_time/render_effect_time`、
 `mounted/ghosted/stat_bar/wait/facing/motionless/shaking/fallinjury/throwinjury`、
 `name_visible/wakeup_invuln/dead_gone/ctrl_visible/puppet/is_on_ground`、
-`jumping.x|y|z|t`、`aabb_min_x/aabb_max_x/l_len/r_len`。
+`jumping.x|y|z|t`、`aabb_min_x/aabb_max_x/l_len/r_len`、
+物理层追加：`velocity/prev_velocity/position/prev_position`（`{x,y,z}`）、
+`dvx/dvy/dvz`、`atom_time`、`landing_frame`。
 
 覆盖面（杀掉全部 115 条变异的关键）：
 
@@ -2767,3 +2794,35 @@ harness op：
     （对应 TS 的 `this.toughness = this.toughness_max = …`）。
 12. **`frame` 层**：`state`/`bot_ignore`/`dataset`/`on_exhaustion`/`on_dead` 都从帧上读，
     与 `bg`/`base`/`world` 三层组成四层回退（`env bg` 设 55、base 30 → 读 30）。
+13. **`set_velocity` 的跳过与写入**：`run setvel u z u` 什么都不改（`prev_velocity` 也不动），
+    `run setvel n 0.1235 u u` 证明写入前 `round_float`（千分位）；
+    `run setvel n 1 n 0 u`（y = 0）**不**触发 `leave_ground`（`is_on_ground` 保持 `b1`），
+    `n 2` 触发且 `position.y` 被抬到 `ground_y + 0.1`。
+14. **`leave_ground` 的 `eqlt` 窗口**：`pos 5 / ground 5` 必须把 y 抬到 `5.1`；
+    `7 > 5`、`5.1 > 5` 都不动 y；每次都把 `is_on_ground` 清成 `false`。
+15. **`dvx/dvy/dvz` 的四种形态**：缺键 → `u`、`dvz z` → `z`、`fvx_f` 缺失 → `NaN`、
+    `fvx_f = 0.5` 时 `5 → 2.5`（`dvy` 走 `bg` 层、`dvz` 走 `env dataset` 的 `0.25`）。
+16. **`handle_gravity` 的五守卫 + 三态开关**：`motionless`/`shaking`/`bearer`/`catcher`
+    各有一条「值不变」的读数；`pos 0 / ground 0` 与 `pos -1` 都不掉速度；
+    `gravity_enabled: b0` 与 `z`（null）都不掉，「缺键」（默认 `true`）掉；
+    `d` 键按下时用 `gravity_d`、松开时用 `gravity`。
+17. **落地区分与摩擦三件套**：`land self`（同一对象）用 `land_friction_*`，
+    `land` 成等值但不同一的对象用 `friction_*`；`gdecay n 2` / `gdecay n 0.5`（指数）
+    / `gdecay n 0` 与默认 `u` 各一条。
+18. **`handle_velocity_decay` 的双钳位**：`keys 0 0 0` 时 `ctrl_x/ctrl_z` 把目标速度清零
+    （钳到 0）；`keys 1 0 1` 时保留帧值（钳到 ±dvx/dvz）；`keys 0 1 0` 只放开 z；
+    `keys -1 0 0` 走 `x += accx` 一支；`dvx: null` 把 **null** 写回（该轴不动），
+    `x == dvx` 且 `accx` 为 `NaN` 时也不动。
+19. **`update_velocity` 的九种 `SpeedMode`**：`Default`（含负值软目标）、`Extra`、
+    `Fixed`、`FixedAcc`、`Acc`、`FixedLf2`、`AccTo`（含「已超过目标不动」）、
+    `FixedAccTo`（不吃方向）、`vxm s "4"`（宽松相等命中）与 `vxm` 缺省（= `Default`）。
+20. **加速度补默认**：`AccTo` + `acc_x` 缺失/`z`（null）→ 取 `dvx`；`acc_x n 0` → 不取
+    （`0 == void 0` 为假）→ `calc_v` 拿到 0 加速度 → 原地不动。
+21. **控制器分派**：`run keys` 造出 `LR/UD/jd` 的 -1/0/1，配合 `ctrl_x/y/z`
+    的 0/1/2/3 覆盖「`!ctrl` 用 `facing`」「`Control` 用 `LR|UD|jd` 当方向」
+    「`Enable`/`Disable` 一律 1」「`LR/jd/UD == 0` 时 `Control`/`Disable` 不命中」。
+22. **`update_velocity` 的写回**：只写 `velocity`（不动 `prev_velocity`）、
+    写回时再 `round_float`（`0.1 + 0.2` 必须回到 `0.3`）、`vy > 0` 也不 `leave_ground`
+    （`run set is_on_ground n 1` 之后仍是 `b1`）。
+23. **`atom_time` 的三个缩放点**：`env dataset atom_time n 2` 之后新建的实体
+    （`run get atom_time` = 2）验重力 `v -= g * 2`、摩擦 `pow(f, 2)`、`acc_* *= 2`。

@@ -12,7 +12,10 @@
 #include "lfw/defines/entity_group.h"
 #include "lfw/defines/frame_id.h"
 #include "lfw/defines/game_key.h"
+#include "lfw/defines/speed_ctrl.h"
+#include "lfw/defines/speed_mode.h"
 #include "lfw/defines/state_enum.h"
+#include "lfw/entity/calc_v.h"
 #include "lfw/entity/entity_type_check.h"
 #include "lfw/entity/summary_mgr.h"
 #include "lfw/ground.h"
@@ -20,7 +23,10 @@
 #include "lfw/utils/container_help/field_or.h"
 #include "lfw/utils/math/base.h"
 #include "lfw/utils/math/clamp.h"
+#include "lfw/utils/math/float_equal.h"
 #include "lfw/utils/math/round_float.h"
+
+#include <cmath>
 
 namespace lfw {
 namespace {
@@ -581,6 +587,215 @@ double Entity::itr_motionless() const {
     return num_of(dataset(u"ball_itr_motionless"));
   }
   return num_of(dataset(u"itr_motionless"));
+}
+
+// `get dvx()` / `get dvy()` / `get dvz()`: a falsy frame value is returned untouched
+// (`0` / `null` / `undefined`), a truthy one is multiplied by the dataset factor
+// (`undefined` dataset → NaN, exactly like the TS `v * undefined`).
+Value Entity::dvx() const {
+  const Value v = field_or(frame, u"dvx");
+  if (!truthy(v)) return v;
+  return Value(to_number(v) * to_number(dataset(u"fvx_f")));
+}
+
+Value Entity::dvy() const {
+  const Value v = field_or(frame, u"dvy");
+  if (!truthy(v)) return v;
+  return Value(to_number(v) * to_number(dataset(u"fvy_f")));
+}
+
+Value Entity::dvz() const {
+  const Value v = field_or(frame, u"dvz");
+  if (!truthy(v)) return v;
+  return Value(to_number(v) * to_number(dataset(u"fvz_f")));
+}
+
+void Entity::set_velocity(const Value& x, const Value& y, const Value& z) {
+  // TS starts with `if (is_f_num(_x) || is_f_num(_y) || is_f_num(_z)) debugger;` — a
+  // dev-only guard with no observable effect.
+  if (!nullish(x)) prev_velocity.x = velocity.x = round_float(to_number(x));
+  if (!nullish(y)) prev_velocity.y = velocity.y = round_float(to_number(y));
+  if (!nullish(z)) prev_velocity.z = velocity.z = round_float(to_number(z));
+  if (velocity.y > 0) leave_ground();
+}
+
+void Entity::leave_ground() {
+  if (eqlt(position.y, _ground_y)) position.y = round_float(_ground_y + 0.1);
+  is_on_ground = false;
+}
+
+void Entity::handle_ground_velocity_decay(double factor) {
+  if (position.y > _ground_y || truthy(Value(shaking)) || truthy(Value(motionless))) return;
+  const bool landing = strict_equals(_landing_frame, frame);
+  factor *= to_number(dataset(landing ? u"land_friction_factor" : u"friction_factor"));
+  const Value fx = dataset(landing ? u"land_friction_x" : u"friction_x");
+  const Value fz = dataset(landing ? u"land_friction_z" : u"friction_z");
+  // An `undefined` `accz` argument falls back to `accx` (TS default parameter).
+  handle_velocity_decay(fx,
+                        std::holds_alternative<std::monostate>(fz)
+                            ? std::nullopt
+                            : std::optional<Value>(fz),
+                        factor);
+}
+
+void Entity::handle_velocity_decay(const Value& accx, std::optional<Value> accz,
+                                   double factor) {
+  const double atom_time = to_number(host_->world_dataset(u"atom_time"));
+  Value x(round_float(to_number(velocity.x) * std::pow(factor, atom_time)));
+  Value z(round_float(to_number(velocity.z) * std::pow(factor, atom_time)));
+  const Value accz_value = accz.has_value() ? *accz : accx;
+  const double acc_x = round_float(to_number(accx) * atom_time);
+  const double acc_z = round_float(to_number(accz_value) * atom_time);
+
+  const Value ctrl_x = field_or(frame, u"ctrl_x");
+  const Value ctrl_z = field_or(frame, u"ctrl_z");
+  // `let { dvx = 0, dvz = 0 } = this;` — the destructuring default only covers
+  // `undefined`, a `null` frame value survives into the comparisons below.
+  Value dvx_value = dvx();
+  if (std::holds_alternative<std::monostate>(dvx_value)) dvx_value = Value(0.0);
+  Value dvz_value = dvz();
+  if (std::holds_alternative<std::monostate>(dvz_value)) dvz_value = Value(0.0);
+  // `const { UD, LR } = this.ctrl` — TS would throw on a missing controller, so the
+  // cases always keep one installed.
+  const int lr = ctrl_ != nullptr ? ctrl_->LR() : 0;
+  const int ud = ctrl_ != nullptr ? ctrl_->UD() : 0;
+  if (truthy(ctrl_x) && lr == 0) dvx_value = Value(0.0);
+  if (truthy(ctrl_z) && ud == 0) dvz_value = Value(0.0);
+
+  const double dvx_num = to_number(dvx_value);
+  const double dvz_num = to_number(dvz_value);
+  if (gt(x, dvx_value)) {
+    x = Value(to_number(x) - acc_x);
+    if (lt(x, dvx_value)) x = dvx_value;
+  } else if (lt(x, Value(-dvx_num))) {
+    x = Value(to_number(x) + acc_x);
+    if (gt(x, Value(-dvx_num))) x = Value(-dvx_num);
+  }
+  if (gt(z, dvz_value)) {
+    z = Value(to_number(z) - acc_z);
+    if (lt(z, dvz_value)) z = dvz_value;
+  } else if (lt(z, Value(-dvz_num))) {
+    z = Value(to_number(z) + acc_z);
+    if (gt(z, Value(-dvz_num))) z = Value(-dvz_num);
+  }
+  set_velocity(x, Value(NullTag{}), z);
+}
+
+void Entity::handle_gravity() {
+  if (bearer != nullptr || catcher != nullptr || truthy(Value(shaking)) ||
+      truthy(Value(motionless)))
+    return;
+  // `const { gravity_enabled = true } = this.frame;` — only `undefined` takes the
+  // default, `null` reads as falsy.
+  const Value gravity_enabled = field_or(frame, u"gravity_enabled");
+  const bool enabled = std::holds_alternative<std::monostate>(gravity_enabled)
+                           ? true
+                           : truthy(gravity_enabled);
+  if (position.y <= _ground_y || !enabled) return;
+  velocity.y = round_float(velocity.y - gravity() * _atom_time);
+}
+
+void Entity::update_velocity(const Value& vinfo) {
+  if (bearer != nullptr || catcher != nullptr || truthy(Value(shaking)) ||
+      truthy(Value(motionless)))
+    return;
+  const double atom_time = _atom_time;
+
+  Value dvx = field_or(vinfo, u"dvx");
+  Value dvy = field_or(vinfo, u"dvy");
+  Value dvz = field_or(vinfo, u"dvz");
+  if (truthy(dvx)) dvx = Value(round_float(to_number(dvx) * to_number(dataset(u"fvx_f"))));
+  if (truthy(dvy)) dvy = Value(round_float(to_number(dvy) * to_number(dataset(u"fvy_f"))));
+  if (truthy(dvz)) dvz = Value(round_float(to_number(dvz) * to_number(dataset(u"fvz_f"))));
+
+  Value vxm = field_or(vinfo, u"vxm");
+  if (std::holds_alternative<std::monostate>(vxm))
+    vxm = Value(static_cast<double>(SpeedMode::Default));
+  Value vym = field_or(vinfo, u"vym");
+  if (std::holds_alternative<std::monostate>(vym))
+    vym = Value(static_cast<double>(SpeedMode::AccTo));
+  Value vzm = field_or(vinfo, u"vzm");
+  if (std::holds_alternative<std::monostate>(vzm))
+    vzm = Value(static_cast<double>(SpeedMode::Default));
+  Value ctrl_x = field_or(vinfo, u"ctrl_x");
+  if (std::holds_alternative<std::monostate>(ctrl_x)) ctrl_x = Value(0.0);
+  Value ctrl_y = field_or(vinfo, u"ctrl_y");
+  if (std::holds_alternative<std::monostate>(ctrl_y)) ctrl_y = Value(0.0);
+  Value ctrl_z = field_or(vinfo, u"ctrl_z");
+  if (std::holds_alternative<std::monostate>(ctrl_z)) ctrl_z = Value(0.0);
+
+  Value acc_x = field_or(vinfo, u"acc_x");
+  Value acc_y = field_or(vinfo, u"acc_y");
+  Value acc_z = field_or(vinfo, u"acc_z");
+  // `acc_x == void 0` is loose equality: `null` and `undefined` both take the branch.
+  if ((equals(vxm, Value(static_cast<double>(SpeedMode::AccTo))) ||
+       equals(vxm, Value(static_cast<double>(SpeedMode::FixedAccTo)))) &&
+      nullish(acc_x) && truthy(dvx))
+    acc_x = dvx;
+  if ((equals(vym, Value(static_cast<double>(SpeedMode::AccTo))) ||
+       equals(vym, Value(static_cast<double>(SpeedMode::FixedAccTo)))) &&
+      nullish(acc_y) && truthy(dvy))
+    acc_y = dvy;
+  if ((equals(vzm, Value(static_cast<double>(SpeedMode::AccTo))) ||
+       equals(vzm, Value(static_cast<double>(SpeedMode::FixedAccTo)))) &&
+      nullish(acc_z) && truthy(dvz))
+    acc_z = dvz;
+  if (truthy(acc_x)) acc_x = Value(round_float(to_number(acc_x) * atom_time));
+  if (truthy(acc_y)) acc_y = Value(round_float(to_number(acc_y) * atom_time));
+  if (truthy(acc_z)) acc_z = Value(round_float(to_number(acc_z) * atom_time));
+
+  double vx = velocity.x;
+  double vy = velocity.y;
+  double vz = velocity.z;
+  // `const { UD, LR, jd } = this._ctrl` — the cases always keep a controller.
+  const int lr = ctrl_ != nullptr ? ctrl_->LR() : 0;
+  const int ud = ctrl_ != nullptr ? ctrl_->UD() : 0;
+  const int jd = ctrl_ != nullptr ? ctrl_->jd() : 0;
+  const Value facing_v = Value(facing);
+  const auto apply = [](double current, const Value& value, const Value& mode,
+                        const Value& acc, const Value& direction) {
+    return entity::calc_v(current, to_number(value), mode, acc, direction);
+  };
+
+  if (nullish(dvx)) {
+    /* noop */
+  } else if (!truthy(ctrl_x)) {
+    vx = apply(vx, dvx, vxm, acc_x, facing_v);
+  } else if (lr != 0 && equals(ctrl_x, Value(static_cast<double>(SpeedCtrl::Control)))) {
+    vx = apply(vx, dvx, vxm, acc_x, Value(static_cast<double>(lr)));
+  } else if (lr != 0 && equals(ctrl_x, Value(static_cast<double>(SpeedCtrl::Enable)))) {
+    vx = apply(vx, dvx, vxm, acc_x, Value(1.0));
+  } else if (lr == 0 && equals(ctrl_x, Value(static_cast<double>(SpeedCtrl::Disable)))) {
+    vx = apply(vx, dvx, vxm, acc_x, Value(1.0));
+  }
+
+  if (nullish(dvy)) {
+    /* noop */
+  } else if (!truthy(ctrl_y)) {
+    vy = apply(vy, dvy, vym, acc_y, Value(1.0));
+  } else if (jd != 0 && equals(ctrl_y, Value(static_cast<double>(SpeedCtrl::Control)))) {
+    vy = apply(vy, dvy, vym, acc_y, Value(static_cast<double>(jd)));
+  } else if (jd != 0 && equals(ctrl_y, Value(static_cast<double>(SpeedCtrl::Enable)))) {
+    vy = apply(vy, dvy, vym, acc_y, Value(1.0));
+  } else if (jd == 0 && equals(ctrl_y, Value(static_cast<double>(SpeedCtrl::Disable)))) {
+    vy = apply(vy, dvy, vym, acc_y, Value(1.0));
+  }
+
+  if (nullish(dvz)) {
+    /* noop */
+  } else if (!truthy(ctrl_z)) {
+    vz = apply(vz, dvz, vzm, acc_z, Value(1.0));
+  } else if (ud != 0 && equals(ctrl_z, Value(static_cast<double>(SpeedCtrl::Control)))) {
+    vz = apply(vz, dvz, vzm, acc_z, Value(static_cast<double>(ud)));
+  } else if (ud != 0 && equals(ctrl_z, Value(static_cast<double>(SpeedCtrl::Enable)))) {
+    vz = apply(vz, dvz, vzm, acc_z, Value(1.0));
+  } else if (ud == 0 && equals(ctrl_z, Value(static_cast<double>(SpeedCtrl::Disable)))) {
+    vz = apply(vz, dvz, vzm, acc_z, Value(1.0));
+  }
+
+  velocity.x = round_float(vx);
+  velocity.y = round_float(vy);
+  velocity.z = round_float(vz);
 }
 
 void Entity::set_arest(double v) {
