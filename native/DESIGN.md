@@ -3955,3 +3955,64 @@ virtual double ctrl_lr() const { return 0; }
 - ⚠️ TS 侧真 `grant_buff` 需要 `victim.lfw.factory.create_buff` 与 `victim.world.buffs`；
   假实体要提供 `world.buffs = new Map()` 与一个打日志并返回 `undefined` 的 `create_buff`，
   才能与 C++ 侧 `BuffEnv::create_buff` 对齐。
+
+## 37. 切片 5：`state/WeaponState_OnGround` / `_OnHand` / `_Throwing` / `_InTheSky`
+
+`native/lfw/state/weapon_state_misc.{h,cpp}`（对应
+`src/LFW/state/WeaponState_OnGround.ts` / `_OnHand.ts` / `_Throwing.ts` / `_InTheSky.ts`）。
+四个类都直接继承 `WeaponState_Base`，合并成一个单元。
+
+### 37.1 单元边界（`native/lfw/state/state_base.h` 的补充）
+`IStateEntity` 补 9 个**带默认实现的虚函数**：
+`motionless` / `has_bearer` / `bearer_motionless` / `set_bearer_motionless` /
+`lfw_new_team` / `frame_behavior` / `set_dropping` /
+`data_indexes_throw_on_ground` / `data_indexes_just_on_ground`。
+分别对应 TS 的 `e.motionless`、`e.bearer.motionless`、`e.lfw.new_team`、
+`e.frame.behavior`、`e.dropping`、`indexes?.throw_on_ground` / `?.just_on_ground`。
+
+### 37.2 保真要点
+1. 四个类在 TS 里都**没有构造函数默认实参**（继承来的 `state` 是必填），
+   端口保持 `explicit X(Value state)`；`ENTITY_STATES` 对普通/重型武器的多次实例化
+   都靠显式传值。
+2. **`WeaponState_OnGround.enter`** 只做 `e.team = e.lfw.new_team`；
+   `update` 只有 `handle_ground_velocity_decay`。`e.team` 是属性写 ⇒
+   端口的 `set_team` 静默，靠状态文本 `team=` 观测。
+3. **`WeaponState_OnHand.pre_update`**：`if (e.motionless && e.bearer)` 是**两层**
+   真值判定；`max` 是 `Math.max`（NaN 传播、`-0/+0` 规则）⇒ 端口用 `lfw::max`。
+   `e.bearer.motionless` 是「另一个实体上的属性」，端口开成
+   `has_bearer` / `bearer_motionless` / `set_bearer_motionless` 三个静默缝。
+4. **`WeaponState_Throwing.get_gravity`**：`e.frame.behavior == FrameBehavior.Boomerang`
+   是**宽松**比较（`"3"` 也算）⇒ 端口 `equals`；boomerang 走
+   `round_float(dataset / 4)`，否则原样返回 dataset（缺失 ⇒ `undefined/4 = NaN`）。
+5. **`WeaponState_Throwing.enter`** 的顺序是 `leave_ground()` →
+   `drop_hurted = false` → `if (boomerang) set_velocity(e.velocity.x * 0.6)`
+   （**单实参**，y/z 缺省 ⇒ 端口传 `Value(), Value()`）；乘 0.6 **不取整**
+   （真正的取整在 `Entity.set_velocity` 内部，本单元被 fake 缝掉）。
+6. **`WeaponState_Throwing.on_landing`** 的
+   `indexes?.throw_on_ground || indexes?.just_on_ground` 需要一个
+   「取第一个真值」的复刻；两个读取都静默，但**选择顺序**决定传给
+   `hit_ground_rebouncing` 的 `nf`。
+7. **两处 `find_align_frame` 的实参顺序不同**：`WeaponState_Base.hit_ground_rebouncing`
+   是 `(id, throwings, in_the_skys)`，`WeaponState_InTheSky.update` 是
+   `(id, in_the_skys, throwings)`（TS 原文如此）。端口各自照抄，
+   用例用同一组 `isky/ithrow` 数组同时锁住两条路径。
+8. `wt != WT.Heavy` 是**宽松** `!=`（`"2"` 也算重型）；`fast_*` 是
+   `base ?? 表 ?? 99` 三层兜底，端口用 `coalesce2`（`null` 与 `undefined` 都兜底，
+   这一点由 `fast_vx z` 的用例锁住）。
+9. **不可观测的三处**（写进变异规格头注）：
+   - Heavy 的 `fast_*` 表值全是 1，而重型被守卫排除；
+   - 其余类型的 `fast_y` / `fast_z` 表值全是 99，与最终兜底相同
+     ⇒ 这两条中间兜底删掉不可观测（`fast_x` 的 4.5（Baseball）可观测）；
+   - `set_drop_hurted` 与 `leave_ground` 的先后顺序（`dh` 无日志）。
+10. `nf` 为真时先 `e.dropping = false`（属性写 ⇒ 静默）再 `enter_frame(nf)`。
+
+### 37.3 harness 观察点
+- 一对 harness `weapon_state_misc.{cpp,ts}`；`env cls` 选类，构造参数走 `env state`。
+- 输入与覆盖面见 `PROTOCOL.md` §6.9.89。
+- 状态文本 `team= dh= hp= hpr= motionless= bmotion= dropping=`；
+  `run make` 额外打 `s=`，`run gravity` 额外打 `r=`。
+- ⚠️ **`base` 必须一直是有键对象**（TS 读 `base.fast_vx` 没有 `?.`）；
+  `o` 的计数是键值对个数。
+- ⚠️ `nf` 为 `undefined` 的落地组合**故意不覆盖**：
+  `enter_frame_by_id` 在 C++ 是 `std::u16string` 形参，会把 `undefined` 渲染成
+  字符串 `"undefined"`，与 TS 的 `u` 不同（属工具边界，不是语义差异）。

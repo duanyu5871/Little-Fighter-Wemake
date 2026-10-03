@@ -72,7 +72,9 @@ class IStateEntity : public buff::IBuffEntity {
   virtual Value ground_y() const { return Value(); }
   virtual Value get_sudden_death_frame() { return Value(); }
   virtual void holding_set_team(const Value& v) { (void)v; }
+  virtual Value lfw_new_team() const { return Value(); }
   virtual Value frame_on_landing() const { return Value(); }
+  virtual Value frame_behavior() const { return Value(); }
   virtual Value frame_info() const { return Value(); }
   virtual double ctrl_ud() const { return 0; }
   virtual double ctrl_lr() const { return 0; }
@@ -100,7 +102,11 @@ class IStateEntity : public buff::IBuffEntity {
     return Value();
   }
   virtual void set_shaking(const Value& v) { (void)v; }
+  virtual Value motionless() const { return Value(); }
   virtual void set_motionless(const Value& v) { (void)v; }
+  virtual bool has_bearer() const { return false; }
+  virtual Value bearer_motionless() const { return Value(); }
+  virtual void set_bearer_motionless(const Value& v) { (void)v; }
   virtual void world_callbacks_call(const std::u16string& name) { (void)name; }
   virtual void handle_ground_velocity_decay() {}
   virtual Value data_indexes_default() const { return Value(); }
@@ -110,10 +116,13 @@ class IStateEntity : public buff::IBuffEntity {
   virtual bool has_data_indexes() const { return false; }
   virtual Value data_indexes_on_ground() const { return Value(); }
   virtual Value data_indexes_throwings() const { return Value(); }
+  virtual Value data_indexes_throw_on_ground() const { return Value(); }
+  virtual Value data_indexes_just_on_ground() const { return Value(); }
   virtual Value data_base() const { return Value(); }
   virtual Value base_type() const { return Value(); }
   virtual Value drop_hurted() const { return Value(); }
   virtual void set_drop_hurted(const Value& v) { (void)v; }
+  virtual void set_dropping(bool v) { (void)v; }
   virtual void leave_ground() {}
   virtual Value frame_id() const { return Value(); }
   virtual Value find_align_frame(const Value& fid, const Value& throwings,

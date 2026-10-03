@@ -125,6 +125,7 @@ add_library(lfw_core STATIC
   state/character_state_teleport.cpp
   state/weapon_state_base.cpp
   state/state_base_proxy.cpp
+  state/weapon_state_misc.cpp
 )
 
 target_include_directories(lfw_core PUBLIC

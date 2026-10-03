@@ -2385,3 +2385,43 @@ harness op：
 6. **落地的速度阈值要卡三档**：`y = 20`（不触发）、`y = 10`（恰好等于 `5*2`，杀 `<`）、
    `y = -7`（在 `5` 与 `10` 之间，杀「不乘 2」）、`y = -10`。
 7. `env state n u` / `run default` 两个场景用来锁住「构造默认实参」。
+
+### 6.9.89 `weapon_state_misc`（差分 203 行，变异 61/61 全杀）
+
+harness op：
+
+- `env cls s "onground"|"onhand"|"throwing"|"inthesky"`；`env state`（构造参数）、
+  `env newteam|team|motionless|bmotion|dh|base|wt|behavior|fid|onlanding|vstate|vx|vy|vz|align|indexes|throwg|justg|isky|ithrow|gval|vel`
+  （值字面量）、`env hp|hpr <裸数字>`、`env bearer|dropping <真值>`。
+- `run make|enter|update|landing|preupdate|gravity`。
+
+输出：`run make` 带 `s=`（构造参数）、`gravity` 带 `r=`；状态文本
+`team= dh= hp= hpr= motionless= bmotion= dropping=`。
+
+覆盖面（杀掉全部 61 条变异的关键）：
+
+1. **`base` 必须是对象**：`update` 与 `hit_ground_rebouncing` 里 TS 直接读
+   `base.fast_vx` / `base.bounce_x`（没有 `?.`），`env base u` 会当场抛异常；
+   另外 `o` 的计数是**键值对个数**（`o 3 fast_vy … fast_vx … fast_vz …`），
+   第一轮把它写成 `o 2` 时多余字段被静默丢弃，边界用例形同不存在。
+2. **Throwing 的 `||` 链要三种组合**：两个都有值（看优先级）、
+   `throw_on_ground` 为 falsy（`0` / `u`）时掉到 `just_on_ground`、
+   只有 `throw_on_ground`（验 `just` 侧不是唯一来源）。
+   ⚠️ 两者都缺失会让 C++ 把 id 渲染成字符串 `"undefined"` 而 TS 渲染 `u`，
+   用例**故意不覆盖**这种组合（变异规格头注已写明）。
+3. **`is_boomerang` 的宽松比较要给一次字符串**（`behavior s "3"`）：
+   同一场景同时锁住 `gravity` 的取整与 `enter` 的速度缩放。
+4. **`enter` 的 `drop_hurted` 重置要带着 `dh b 1` 进**，否则不可观测；
+   `dh` 属于 `hit_ground_rebouncing` 会写回的字段，每段场景都要重置。
+5. **OnHand 需要「bearer 更大」与「自身更大」两个方向**（区分 `max` 与 `min`），
+   外加 `bearer` 缺失、`motionless` 为 0、`NaN`、数字字符串四种守卫边界。
+6. **`fast_*` 的三层兜底各要一个场景**：`base` 覆盖（`fast_vx=10` 对表值 4.5）、
+   表值（`wt=4` 的 `fast_x=4.5`）、未知类型兜底 99（`wt=9`，`vy/vz=5` 不够快）、
+   `null` 兜底（`fast_vx z`）。`fast_y`/`fast_z` 的中间表项与 Heavy 的关系见规格头注。
+7. **六个比较的等号都要卡**：每个轴取精确值与 ±(值+0.5)；
+   负半轴还要覆盖 `vx`（`-3/-3.5`）与 `vz`（`-3/-3.5`）——
+   `vz > fast_z` 的 `>`→`>=` 是第一轮唯一存活者，靠 `vz=3/3.5` 补杀。
+8. `wt s "2"` 一次，用来看重型守卫的 `!=` 与 `!==`；
+   `dropping b 1` 进 `update`，用来看 `set_dropping(false)`；
+   `nf` 缺失时只留 `find_align_frame` 日志，用来看 `set_dropping` 与
+   `enter_frame` 都在 `if (nf)` 里面。
