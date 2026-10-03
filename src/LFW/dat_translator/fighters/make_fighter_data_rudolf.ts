@@ -1,5 +1,4 @@
-import { E_Val as EV, OID, StateEnum, type IEntityData } from "../../defines";
-import { CondMaker } from "../CondMaker";
+import { OID, StateEnum, type IEntityData } from "../../defines";
 
 /**
  *

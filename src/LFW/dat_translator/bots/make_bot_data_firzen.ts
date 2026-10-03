@@ -5,6 +5,7 @@ import { bot_ball_dfj } from "./bot_ball_dfj";
 import { bot_chasing_action } from "./bot_chasing_action";
 import { bot_explosion_dua } from "./bot_explosion_dua";
 import { bot_explosion_duj } from "./bot_explosion_duj";
+import { bot_uppercut_dva } from "./bot_uppercut_dva";
 import { BotMaker } from "./BotMaker";
 import { frames } from "./frames";
 
@@ -30,7 +31,11 @@ export function make_bot_data_firzen(): BotMaker {
     bot_explosion_dua(100, void 0, -700, 700, 500),
 
     // disaster + ...a
-    bot_chasing_action('d^a+a', ['a'], void 0, probability(2, 0.1))
+    bot_chasing_action('d^a+a', ['a'], void 0, probability(2, 0.1)),
+
+    // dva
+    bot_uppercut_dva(0),
+
   ).set_frames(
     ["270", "271", "272", "273"],
     ['cancel_d>j']
@@ -48,6 +53,7 @@ export function make_bot_data_firzen(): BotMaker {
       'd^j_2',
       'd^a',
       'd>j',
+      "dva",
     ]
   )
 }
