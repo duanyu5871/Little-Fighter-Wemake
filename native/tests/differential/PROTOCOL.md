@@ -1641,3 +1641,200 @@ harness op：
    走 `upd_fx` 会被前面的清理掩盖。
 2. `Times.add(d)` 的差异要在**全新 buff**（`_value` 为 0）上打，否则 `add(1)` 也可能正好触顶，
    两侧都触发 hook 而看不出差别。
+
+### 6.9.61 `collision_core`（差分 258 行，变异 72/72 全杀）
+
+harness op：
+
+- `env dataset <值>`（`min_vrest` / `vrest_offset` / `itr_arest`）
+- `env a <字段> …` / `env v <字段> …`：
+  `id`(裸字面量) `pos`(3 个值) `data_id`(裸字面量) `data_type` `frame` `prefabs` `bear`
+  `marks`(0/1) `dropping`(0/1) `arest` `catcher`(0/1) `hurtable` `invul` `bot_ignore`
+  `team` `emitter` `spawn` `bot`(0/1)
+- `env itr <值>` / `env bdy <值>` / `env ally 0|1` / `env vrest 0|1` / `env dev 0|1`
+- `env load_ok 0|1` / `env load_names <数组>` / `env idx <i> <j>` / `env new_id_base`
+- `env pool <值>` / `env pool_ok 0|1` / `env pool_handlers <n>`
+- `new` / `get` / `test` / `snap` / `snapset <字段> <值>` / `from_snap` / `clone` /
+  `slot 0|1` / `state`
+
+约定与陷阱：
+1. **裸字面量 vs 值语法**：`env a id "A"`、`snapset aid "A"` 用裸字面量；
+   其余值位置（含 `pos` 的每个分量、`snapset` 的每个数字）都要走值语法
+   （`n <数>` / `s "串"` / `a <个数> …` / `o <数> <k> <v>…` / `u` / `z` / `b 0|1`）。
+2. `env a pos` 与 `data_type` 在两侧都按值语法解析（历史上写成裸数字会直接解析失败）。
+3. `__tester` 在真代码里是 `Expression` 实例：`run(c)` 是方法、`debug` **也是方法**，
+   且判定是 `if (c.lfw.dev && bdy.__tester.debug) Ditto.Log('bdy.__tester:', bdy.__tester.debug())`
+   —— **dev 为真就记录，不看返回值真假**。harness 里 TS 侧把 `__tester` 包成
+   `{run, debug()}`，C++ 侧 `tester_run` / `tester_debug` 产生同样的日志；
+   TS 侧同时把 `Ditto.Log` 重定向到同一日志（两边都用 `String(x)` 口径渲染）。
+4. `get_bounding` 由「假世界」提供：读 `frame.__cube`（6 个数）。
+5. 对象池语义：`acquire_collision` 返回带预设字段的新对象（`pool` / `pool_handlers`
+   控制），`pool_ok 0` 走 TS 的 `|| {}` 分支。
+6. `get` 的观察点：`new`/`get`/`from_snap` 的结果会被写进 `slot`，
+   用 `slot 0|1` 切换、`state` 打印；`clone` 会切到另一个 slot，
+   于是「一边 `load_handlers` 清空、另一边也变」这种共享语义可以直接看到。
+
+### 6.9.62 `action_handlers`（差分 110 行，变异 70/70 全杀）
+
+harness op：
+
+- `env injury <值>` / `env real_injury <值>`（碰撞体上的两个伤害量）
+- `env data_found <值>` / `env no_data`（`lfw.datas.find` 的结果）
+- `env ally 0|1`（`attacker.is_ally(victim)` 的结果）
+- `env mt_int <n>`（`lfw.mt.int()` 的返回值，用于 `FUSION` 的随机分支）
+- `env a|v|e <字段> …`：`hp` `hp_r` `hp_max` `mp` `mp_max` `vel`(速度 x) `face` `team`
+  `data` `bot`(0/1，同时影响 `is_bot_ctrl`) `src_emitter` `emitter` `bearer`(0/1) `fuse_bys`
+- `act <类型字面量> <动作值>`（类型是**裸 JS 字符串字面量**，动作整体走值语法）
+
+输出：`act <类型> ret=<返回値> || <调用日志> | <状态快照>`；
+状态包含双方 hp/hp_r/mp/速度/朝向/队伍、受击方的无敌三连、`fuse_bys`(只印 id)、
+`dismiss_data`/`dismiss_time`、双方 bot 标志，以及本动作创建出的 buff 的
+`lifetime/duration/level`（`buff=none` 表示没建）。
+
+三条必须注意的假实现约定：
+1. `victim.data.type` 是**从 `data` 里取 `type`**，所以用例必须给实体设 `data`，
+   不能只设一个独立的「类型」字段。
+2. 假 `play_sound(sounds, pos = this.position)` 要带默认参数，才能复刻真 `Entity` 的行为。
+3. `grant_buff` 会真的跑起来（C++ 侧用真 `buff::Buff`、TS 侧用假 buff 对象），
+   所以 `BuffEnv`/`factory`/`world.buffs` 必须齐备；只有 `create_buff` 这一件事被记录，
+   其余 setter 静默 —— 事后用「回读 buff 的 lifetime/duration/level」来观测施放结果。
+
+### 6.9.63 `collision_handlers2`（差分 63 行，变异 49/49 全杀）
+
+harness op：
+
+- `env itr <值>`（`injury` / `arest` / `motionless` / `shaking` / `catchingact` / `caughtact` / `dvx` / `dvz`）
+- `env dataset <值>`（碰撞体的 dataset，给 `handle_rest`/`handle_stiffness` 用；
+  `handle_injury` 的恢复率另见 `env recov`）
+- `env rest <值>` / `env recov <值>`（`world.dataset.hp_recoverability`）
+- `env vel <值>` / `env velz <值>`：**仅 C++ 侧**注入 `calc_itr_velocity` 的 x/z 分量；
+  TS 侧是真算，所以这两个 op 在 TS 侧只做占位消费
+- `env a|v <字段> <值>`：`hp` `hp_r` `type`(决定 `is_fighter`) `weight` `fall` `fall_max`
+  `defend` `defend_max` `resting` `catch_max` `catching`(0/1) `catcher`(0/1) `marks`(0/1)
+  `elec_dur` `itr_fall` `hit_sounds` `motionless` `src_emitter` `ice` `state` `face` `dataset`
+- `run injury [scale] [keep]` / `run catch` / `run freeze` / `run efreeze` / `run shield`
+
+输出：`run <名字> || <调用日志> | <状态>`；状态含双方 hp/hp_r/fall/defend/resting/toughness/
+catch_time/catching/catcher/shaking/motionless/速度，以及碰撞体的 `inj/inj_r/rinj/rinj_r`
+和本次创建的 buff（`lifetime/duration/level`）。
+
+三条假实现约定：
+1. 假实体的 `dataset(key)` 要把 `electrify_duration` 映射到用例的 `elec_dur`，
+   `world.dataset` 要是「用例 dataset + `hp_recoverability`」的合并视图。
+2. `data` 要按实体返回各自的 `type`（默认 8=Fighter），`indexes.ice` 与 `base.hit_sounds`
+   也从用例取值。
+3. `summary_mgr.apply_damage` 与 `Ditto.warn` 都被重定向到同一日志；
+   日志里实体一律用 `A:`/`V:` 前缀。
+### 6.9.64 `collision_handlers3`（差分 267 行，变异 78/78 全杀）
+
+harness op：
+
+- `env itr <值>`（`bdefend` / `injury` / `fall` / `motionless` / `shaking`）
+- `env dataset <值>`：碰撞体 dataset，供 `handle_rest` / `handle_stiffness` 与护甲的世界级兜底
+- `env rest <值>` / `env recov <值>` / `env itr_motionless <值>` / `env armorwork 0|1`
+- `env acube <值>` / `env bcube <值>`：`{left,right,bottom,top,near,far}`。假 `spark_point`
+  固定取 `(a.left, b.right, a.top)`，两侧同式，用来捕捉「两个 cube 写反」的变异
+- `env a|v <字段> <值>`：**一行只允许一个字段，出现多余 token 直接报错退出**。
+  字段：`hp` `hp_r` `tough` `tough_max` `velx` `vely` `velz` `posx` `posy` `posz` `team`
+  `state` `base_type` `bearer`(0/1) `type`(8/16/32) `armor` `in_the_sky` `hit_sounds`
+  `itr_fall` `dataset` `ice` `marks`(0/1) `elec_dur` `src_emitter` `motionless` `fall`
+  `fall_max` `defend` `defend_max` `resting` `catch_max` `catching` `catcher`
+- `run whirlwind` / `run ballhit_a` / `run ballhit_b` / `run armor`
+
+输出：`run <名字> || <调用日志> | <状态>`。日志含实体动作（统一 `A:` / `V:` 前缀）、
+`spark:x:y:z:类型`、`snd:类型:x:y:z`，以及只有 `armor` 才有的 `ret:0|1`；状态含双方
+hp/hp_r/tough/tough_max/速度/team/state/motionless/shaking 与碰撞体的 `inj/inj_r/rinj/rinj_r`，
+外加本次施放的 buff 的 `lifetime/duration/level`。
+
+三条约定：
+1. **`env armorwork` 是 `is_armor_work()` 的替身**。TS 侧真函数由 `bframe.state` 驱动，
+   harness 把 `armorwork 0` 映射成 `bframe.state = Injured`，因此**不能**在 `armorwork 1`
+   的同时又把 `itr.bdefend` 设到 200——那种组合下真函数会返回 false 而 C++ 侧仍是 true。
+   `bdefend >= 200` 这条分支属于 `is_armor_work` 自己的单元，不在本 harness 覆盖范围内。
+2. 假实体的 `dataset(key)` 先查实体自身、再落到世界 dataset；在用例可控范围内与 TS
+   `Entity.dataset()` 的 `frame.dataset ?? data.base ?? world.bg.data.dataset ?? world.dataset`
+   等价。
+3. `handle_armor` 结尾会跑 `handle_injury`，所以 `summary_mgr.apply_damage` 与
+   `factory.create_buff` 要像 6.9.63 那样接上（Electroshock 分支靠 `marks=1` + Fighter
+   受害者触发）。
+
+### 6.9.65 `collision_handlers4`（差分 84 行，变异 81/81 全杀）
+
+harness op：
+
+- `env itr <值>`（`bdefend`）/ `env bdy <值>`（`kind`）/ `env aframe <值>`（`behavior`）
+- `env dataset <值>`：碰撞体 dataset，供 `handle_rest` / `handle_stiffness` 使用
+- `env rest <值>` / `env itr_motionless <值>`
+- `env a|v <字段> <值>`：**一行只允许一个字段，出现多余 token 直接报错退出**。
+  字段：`hp` `hp_r` `state` `facing` `base_type` `velx` `vely` `velz` `frame_id`
+  `throwings` `in_the_sky` `arest` `dropping`(0/1) `hit_sounds` `type`(8 = Fighter)
+- `run ballhitother` / `run weaponhitother`
+
+输出：`run <名字> || <调用日志> | <状态>`。日志含实体动作（统一 `A:` / `V:` 前缀，覆盖
+`set_hp` / `set_hp_r` / `set_velocity` / `set_arest` / `enter_frame` / `set_dropping` /
+`play_sound`）、`handlers` 缝的 `A:set_motionless` / `V:set_shaking` / `A:set_arest` /
+`add_v_rest`，以及 `faf:<frame_id>:<throwings>:<in_the_skys>`；状态含双方
+`hp/hp_r/state/facing/base_type/vel/arest/dropping/frame_id`。
+
+三条约定：
+1. 假 `find_align_frame` **固定返回 `"faf_result"`**，三个入参只进日志不进返回值。因此
+   「把 `enter_frame` 的实参写死成 `"faf_result"`」这类变异仍然不可观测（返回值本就等于该
+   常量），变异规格里用的是「换成 `a->frame_id()`」这种可观测写法。
+2. `handlers` 缝的 `attacker_set_arest` 会**回写假实体的 `arest`**：TS 侧 `attacker.arest = ...`
+   走的就是实体 setter，C++ 侧若只打日志不回写，状态行会漂移。
+3. `env a type` 驱动 `Handlers4Env::is_fighter`（真身是 `entity::is_fighter_data(data)`），
+   所以 `type = 8` 是 Fighter、`type = 0` 不是；「非 Fighter 受害者」靠 `type = 0` 构造。
+
+### 6.9.66 `collision_weapon_is_hit`（差分 115 行，变异 85/85 全杀）
+
+harness op：
+
+- `env itr <值>`（`injury` / `bdefend` / `fall` / `motionless` / `shaking`）
+- `env dataset <值>` / `env recov <裸数字>` / `env itr_motionless <值>` / `env rest <裸数字>`
+- `env velx|vely|velz <裸数字>`：`calc_itr_velocity` 缝的注入值，语义等同 `itr.dvx/dvy/dvz`
+- `env acube <值>` / `env bcube <值>`：`{left,right,bottom,top,near,far}`。假 `spark_point`
+  固定取 `(a.left, b.top, a.near)`，两侧同式，用来捕捉「两个 cube 写反」的变异
+- `env a|v <字段> <值>`：**一行只允许一个字段，出现多余 token 直接报错退出**
+- `run hit`
+
+输出：`run hit || <调用日志> | <状态>`。日志含四个前置 handler 的痕迹（`set_arest` /
+`set_motionless` / `set_shaking` / `set_hp(_r)` / `set_toughness` / `summary:...`），以及
+`set_dropping` / `sp:...` / `spark:...:<kind>` / `set_velocity:...`（只列实际写入的分量）/
+`leave_ground` / `mark:<tag>` / `pick:<indexes>` / `enter_frame_by_id` / `set_team`；状态含双方
+`hp/hp_r/tough/state/face/base_type/team/bearer/dropping/on_ground/data_id/vel` 与碰撞体的
+`inj/inj_r/rinj/rinj_r`。
+
+三条约定：
+1. `env velx/vely/velz` 的语义是 **`itr.dvx/dvy/dvz`**，不是最终速度：假 `calc_velocity` 还会再乘
+   `attacker.facing`（即真算式里的 `x_direction`）。所以 `env a face -1` 时注入 7 得到 -7，
+   与真算式一致；把朝向因子漏掉是本轮第一次差分的唯一残留漂移。
+2. 受害者刻意设为非 Fighter（`type = 16`），令真 `is_fall()` 恒为真，`calc_itr_velocity` 的 y 分量
+   才等于 `dvy`；否则真算式给 0 而缝给注入值，会造出假漂移。
+3. `itr.fall` 的临界值是 **100**（`140 - DEFAULT_FALL_VALUE_DIZZY`）。用例卡 99/100；
+   卡 139/140 会让 `is_fly` 的三条变异全部不可观测。
+
+### 6.9.67 `collision_fall`（差分 113 行，变异 84/84 全杀）
+
+harness op：
+
+- `env itr <值>`（`fall` / `effect`）
+- `env dataset <值>` / `env acube <值>` / `env bcube <值>`
+- `env velx|vely|velz <裸数字>`：`calc_itr_velocity` 缝的注入值
+- `env a|v <字段> <值>`：**一行只允许一个字段，出现多余 token 直接报错退出**
+- `run fall`
+
+输出：`run fall || <调用日志> | <状态>`。日志顺序固定为 `set_toughness` → `set_fall_value` →
+`set_defend_value` → `set_resting` → `set_velocity` → `sp:` → `spark:x:y:z:<kind>` →
+[`drop_holding`] → `enter_frame` / `enter_frame_by_id`；状态含双方
+`hp/hp_r/tough/fall/fall_max/defend/resting/state/face/vel`。
+
+三条约定：
+1. `env velx|vely|velz` 的语义是 **`itr.dvx/dvy/dvz`**：假 `calc_velocity` 会再乘 `x_direction`，
+   并把同一个方向值写进 `ItrVelocity::x_direction`（也就是 `turn_face` 的输入）。为对齐真算式，
+   假实体把 `weight` 与 `ivx_f/ivy_f/ivz_f` 固定为 1，且 `fall_value` 在该函数开头就被清零
+   ⇒ 真 `is_fall()` 恒为真 ⇒ y 分量正好等于 `dvy`。
+2. `x_direction` 的 position-based 分支必须在缝里复刻：`effect ∈ {FireExplosion(22),
+   Explosion(23)}` 或 `attacker.state == HeavyWeapon_InTheSky(2000)` 时为 -1，否则取
+   `attacker.facing`。假实体位置恒为 0，所以 `diff_x > 0` / `diff_x < 0` 两条都不成立。
+3. `critical_hit` 支持对象（`{1: [...], -1: [...]}`）与数组两种形态；**缺键时 TS 会抛
+   `TypeError`**，所以用例只覆盖「对象含两个键」与「数组且方向为 +1」两类。

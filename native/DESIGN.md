@@ -2429,3 +2429,314 @@ TS 的 `Map.get` 返回**同一个对象**。C++ harness 若写 `g_buff = *it->s
 
 另外：特效实体 id 是运行时生成的（`E1/E2/…`），静态用例拿不到，故 harness 约定 `env entity "@"`
 表示「最近创建的实体」。
+
+## 9. 切片 6 核心：`Collision`（碰撞对象与判定）
+
+`native/lfw/collision/collision.{h,cpp}` 落地 TS `collision/Collision.ts`：
+`collision_new` / `collision_get` / `collision_test` / `collision_to_snapshot` /
+`collision_from_snapshot` / `collision_clone`。
+
+### 9.1 单元边界
+- `CollisionActor`：**值结构**读面（id / 位置 / data_id / data_type / frame /
+  itr_prefabs / bear 的 wpoint.attacking / marks / dropping / arest / catcher(hurtable) /
+  invulnerable / bot_ignore / team / emitter / spawn_time / is_bot_ctrl）。
+- `CollisionCoreEnv`：动作与外部世界（get_bounding / dataset / get_v_rest / is_ally /
+  acquire_collision / new_id / dev / log / tester_run / tester_debug / find_entity /
+  find_object_data / priority_of / load_handlers）。
+- `HandlersEnv` 与 `Collision` 结构上移到 `collision.h`（`handlers.h` 只 include 它），
+  使两个单元共用同一个碰撞对象，且 `handlers.cpp` 无需改动。
+
+### 9.2 三处必须保真的表示
+1. `acquire_collision` 返回 **`Collision&`**：TS 是对象池复用，复用对象上「上一轮的残留字段」
+   本身可观测，不能改成每次新建。
+2. `handlers` 用 `shared_ptr<vector<u16string>>`：TS `{...src}` 中该数组是**浅拷贝引用**，
+   用 `vector` 会变深拷贝，`collision_clone` 之后「一边 `length = 0`、另一边也变空」就没了。
+3. `priority` 是 `Value` 而非 `double`：`ENTITY_PRIORITY_MAP` 对未列出的实体类型返回
+   `undefined`，用 `double` 无法表示。
+
+### 9.3 保留的 TS 怪癖
+`collision_from_snapshot` 里查 `bdy` 用的是 **`aframe.bdy`**（不是 `bframe.bdy`）。
+用例专门构造了「FA 有 bdy[0]/bdy[1]、FB 只有 bdy[0]，且 bdy[0] 的 hit_flag 决定性不同」
+来锁住它：把这里「改对」会立刻被差分打回。
+
+### 9.4 本轮抓到的两个真实端口 bug
+1. **`index_by` 只认对象**：TS 里 `frames[id]` 与 `itr[i]` 都走 JS 属性访问，
+   数组也能用数字字符串下标；C++ 首版只处理 `Object`，于是 `from_snapshot` 一取 `itr`/`bdy`
+   就返回 null（差分表现为 `from_snap no` vs `yes`）。现已支持 `Array` + 数字下标，
+   并显式做 `!(index >= 0)` 以避开 NaN 转型。
+2. **`dataset` 不是 `Collision` 的字段**：TS 只在 `collision_new` 内部解构
+   `world.dataset` 用于算 `rest`，从不写回碰撞对象。首版多写了 `c.dataset = dataset;`，
+   被差分抓到（对象字段多出一个键）。`Collision::dataset` 保留，但只作为 handlers 单元
+   的行为缝字段、由那个单元的 harness 直接设置。
+
+### 9.5 「看起来必然可观测」的三条变异其实不可观测
+- `if (!truthy(prefab_id)) itr_index = -1;` 取反 **以及** 整段短路：
+  `prefab_id` 为假时，紧随其后的 `index_by(a.itr_prefabs, to_string(prefab_id), ...)`
+  必定同样失败（拿不到 `"undefined"` 键），两条路径都得 `-1`。
+- `truthy(v.emitter)` → `truthy(a.emitter)`：同一条 `&&` 链上，
+  `strict_equals(v.emitter, a.emitter)` 在两者真假性不同时必为 false ⇒ 结果恒等。
+- `get` 的 `if (!ni || !nj) return nullptr;` → `&&`：纯提前退出，
+  任一侧为空数组时循环体一次都不执行，返回值仍是 `nullptr`。
+- `get` 双层循环次序反转：成对成立性 = 两侧各自谓词的合取，
+  可通过的组合构成乘积集，其字典序最小元在两种遍历次序下相同。
+这些都已写进 `mutations/collision_core.mjs` 头注（连同证明），不列入变异集。
+
+## 10. 切片 6 核心：动作表 `collision_action_handlers`
+
+`native/lfw/collision/action_handlers.{h,cpp}` 落地 TS `entity/collision_action_handlers.ts`：
+一个按动作类型字符串分发的表，21 种动作全部覆盖（`A/V_SOUND`、`A/V_NEXT_FRAME`、
+`A/V_SET_PROP`、四个「防御」项、`A/V_REBOUND_VX`、`V_TURN_FACE`、`V_TURN_TEAM`、
+`FUSION`、`BROADCAST`、`VALUE_STEAL`、`A/V_BUFF`（含 `apply_buff`）、`ERROR`、`NONE`）。
+
+### 10.1 单元边界
+- `IActionEntity`：读面 + 动作（hp/hp_r/hp_max/mp/mp_max、velocity_x、facing、team、
+  data/data_type、src_emitter/emitter/bearer、fuse_bys、dismiss_data/dismiss_time、
+  invisible/motionless/invulnerable、play_sound/enter_frame/transform/set_prop、
+  `buff_entity()` 供 `grant_buff` 使用）。
+- `ActionEnv`：`mt_int`/`mt_set_mark`/`find_data`/`broadcast`/`alert`/`find_entity`/
+  `is_ally`/`buff_env`。
+- `run_action(env, type, action, attacker, victim, injury, real_injury)` 返回该动作的返回値
+  （四个防御项返回 `0`，其余返回 `undefined`）。
+
+### 10.2 从真源码里挖出来的三处约定（都靠差分打出来）
+1. `play_sound(sounds, pos = this.position)` 的默认位置在**实现侧的参数默认值**上，
+   调用点原样传 `a.data?.pos`（可能是 `undefined`）。端口因此把默认值交给 `IActionEntity`
+   的实现去处理，而不是在分发处补。首版在调用点补默认值，被差分立刻打回。
+2. `fighter_2.invisible = fighter_2.motionless = fighter_2.invulnerable = 1000000`
+   是**从右往左**求值的：先 `invulnerable`、再 `motionless`、最后 `invisible`。
+   端口按同样的顺序调用 setter（顺序本身可观测）。
+3. `is_bot_ctrl(attacker.ctrl)` 读的是实体上的 `ctrl.__is_bot_ctrl__`，
+   不是实体自身的某个布尔字段；`VALUE_STEAL` 的 `target` 是 `switch`：
+   `0`/其他 → 攻击者自身、`1` → `src_emitter`、`2` → `emitter`、`3` → `bearer`，
+   取不到就整体放弃；`over_hp_r` 决定 hp 的钳制上限是 `hp_r` 还是 `hp_max`。
+
+### 10.3 `apply_buff` 的两级判定
+`hitflag` **只有是数字时**才做判定：先 `hitflag & victim.data.type`（类型位），
+再 `hitflag & (attacker.is_ally(victim) ? Ally : Enemy)`（队伍位）；
+是字符串（或缺失）则跳过两级，直接施放。`duration`/`buff` 用解构默认值 `0`/`''`。
+这一点在写用例时必须显式构造队伍位，否则「队伍位判定取反」这类变异全部存活。
+
+### 10.4 harness 观测量教训
+- 无状态动作（`play_sound`/`enter_frame`/`transform`）的日志必须带**实体身份**
+  （`A:play_sound:…`），否则「打到受击方」这类主客互换完全不可观测。
+- 两侧假实体的 `data` 必须能区分主客（这里给了 `id: "DA"`/`"DV"`），
+  否则 `FUSION` 的 `dismiss_data`/`hp_r` 取值错误不可观测。
+- 数值边界要挑在**钳制会生效**的地方：`hp_r` 的上限、`mp` 的封顶、
+  `hp_max` 与 `hp_r` 的大小关系，都要让「上限取错」真的改变结果。
+
+## 11. 切片 6 核心：`handlers2`（受伤 / 抓取 / 冰冻 / 护盾）
+
+`native/lfw/collision/handlers2.{h,cpp}` 落地 5 个 handler：
+`handle_injury`（含 scale / keep_toughness 参数与「施放者转嫁」）、`handle_itr_catch`、
+`handle_itr_kind_freeze`、`handle_itr_effect_freeze`、`handle_john_shield_hit_other_ball`。
+
+### 11.1 单元边界
+- `IHandlerEntity`：接口式读面 + 动作（hp/hp_r/toughness、fall_value(+max)、
+  defend_value(+max)、resting、catch_time(+max)、catching/catcher、itr_fall、
+  src_emitter、shaking/motionless、set_velocity、enter_frame(_by_id)、play_sound、
+  `data()`、`dataset(key)`、`marks_has(kind)`、`buff_entity()`）。
+- `Handlers2Env`：`warn` / `hp_recoverability` / `find_entity` / `summary_apply_damage` /
+  `buff_env` / `is_fighter` / `calc_velocity`。
+- 缝用**模块级全局**（`set_handlers2_env`），因为真源码里这批 handler 依赖的是模块级单例
+  （`summary_mgr`、`Ditto`、`world.dataset`），而且 `Collision` 结构属于已冻结单元，不动它更安全。
+
+### 11.2 保真要点（都由差分逼出来）
+1. **JS 参数默认值发生在被调函数里**：TS 写 `grant_buff(KIND, a, v, a.dataset('electrify_duration'))`，
+   当该值为 `undefined` 时由 `grant_buff(duration = 0)` 兜成 `0`。端口不能直接传 `to_number(...)`
+   （会得到 `NaN`），必须在**调用点**补默认：`missing(x) ? 0 : to_number(x)`。
+2. `is_fighter(victim)` 读的是**实体自身** `data.type === Fighter`，所以假实体的 type 必须
+   按实体分开，否则「看错实体」这种变异不可观测。
+3. `handle_itr_catch` 调的是**方法** `set_catch_time(...)`（不是属性 setter）。
+4. `find_entity` 与 `attacker_itr_motionless` 是**缝的实现细节**（TS 侧分别是直接引用与属性直读），
+   两侧都必须静默，否则会造出假差异。
+5. `calc_itr_velocity` 在本单元是注入的（返回固定分量），因此用例必须让 TS 侧的真算式
+   恰好算出同一组值：`dvx*ivx_f*facing/weight`、`(!is_fall ? 0 : dvy*ivy_f/weight)`、
+   `dvz*ivz_f/weight`；`is_fall` 还会看 `hp <= 0`，所以打伤之后要把 hp 还原再测冰冻。
+
+### 11.3 观测量教训
+- 「抖动 = 无动作值」这类变异要求 `itr.motionless` 在同一个 handler 里被显式设置：
+  `handle_john_shield_hit_other_ball` 先跑 `handle_stiffness`，会把 `attacker.motionless`
+  重新写成 `itr.motionless ?? itr_motionless`——用例不设 `itr.motionless` 就永远是 `undefined`，
+  两侧都取不到差异。
+- 「`injury_r` 为 0 也写」这类分支要用 `hp_recoverability = 1` 构造出 0 才能杀。
+
+## 12. `collision/handlers3`：旋风、球受击与护甲
+
+`native/lfw/collision/handlers3.{h,cpp}` 落地 4 个 handler：`handle_itr_kind_whirlwind`、
+`handle_ball_is_hit_a`、`handle_ball_is_hit_b`、`handle_armor`（唯一带回返回值的一个）。
+另外新增 `native/lfw/defines/collision_defaults.h`，镜像 `Defines.ts` 里被本单元用到的
+6 个常量：`DEFAULT_FALL_VALUE_DIZZY/CRITICAL`、`DEFAULT_FORCE_BREAK_DEFEND_VALUE`
+以及三个护甲比率。
+
+### 12.1 单元边界
+- `IH3Entity`：速度/位置读写、`team`、`bearer`/`base_type`/`state`、
+  `data_in_the_skys_first()`、`data_base_hit_sounds()`、`armor`、`toughness(+_max)`、
+  `itr_fall(itr)`、`dataset(key)`、`set_motionless`/`set_shaking`、
+  `enter_frame_by_id`、`play_sound`、`buff_entity()`。
+- `Handlers3Env`：`find_entity` / `is_ball` / `is_weapon` / `spark_point(a_cube, b_cube)` /
+  `spark` / `play_sound_global` / `is_armor_work`；与 `handlers2` 一样用**模块级全局缝**
+  （`set_handlers3_env`）。
+- `handle_armor` 结尾会调 `handlers2` 的 `handle_injury`，所以假实体必须**同时实现
+  `IH3Entity` 与 `IHandlerEntity`**，用例也要同时装好 `set_handlers2_env` + `set_handlers3_env`。
+
+### 12.2 保真要点
+1. **临界值比较不统一**：两个 `ball_is_hit` 用的是严格 `>`，而 `handle_armor` 用的是 `>=`
+   （`fall >= DEFAULT_FALL_VALUE_CRITICAL`）。端口用同一个 helper 上的 `inclusive` 参数区分，
+   绝不「顺手统一」。
+2. **`victim.hp = victim.hp_r = 0` 是右到左赋值**：先写 `hp_r` 再写 `hp`，顺序可观测。
+3. **JS 解构默认值只认 `undefined`**：`fall = attacker.itr_fall(itr)`、`dead_sounds = hit_sounds`、
+   三个护甲比率都属这类语义。所以端口里的 `missing()` 只判定 `monostate`，`null` 要当真值
+   继续参算（`to_number(null)` 恰为 0，与 JS 一致）。
+4. `handle_armor` 的 `fall` 缺省来自 `attacker.itr_fall(itr)`，其真身是
+   `itr.fall ?? dataset('itr_fall')`；端口只在 `itr.fall` 缺失时才去问实体。
+5. 护甲那两处 dataset 兜底（`itr_shaking` / `itr_motionless`）读的是**实体**上的
+   `dataset()`，与 `handle_stiffness` 读**碰撞体** `dataset` 不是同一个来源。
+
+### 12.3 观测量教训
+- **harness 的 `env a|v` 行只消费一个字段**，多余 token 会被静默丢弃。第一版用例把
+  `posx/posz`、`velx/vely/velz`、`hp/hp_r` 写在同一条 `env` 行里，结果 z 方向恒为 0，
+  三条只影响 `vz` 的变异因此存活。现已改为「一行一字段」，并让两侧 harness 在
+  `walk_side` 之后检查 `i == 行 token 数`，否则直接报错退出——这类静默丢字段
+  比变异存活更难发现。
+- 方向类变异要靠**符号组合**杀：用例必须同时覆盖 `(+x,+z)`、`(-x,+z)`、`(+x,-z)` 三种位移，
+  否则 `normalize(dx)`/`normalize(dz)` 互换这类变异不可观测。
+- `is_ball` / `is_weapon` 复用了 `entity/entity_type_check` 的 `*_data(data)`，所以假实体要按
+  各自的 `data.type` 区分（Fighter 8 / Weapon 16 / Ball 32），「看错实体」才可观测。
+
+## 13. `collision/handlers4`：球击中他人与武器击中他人
+
+`native/lfw/collision/handlers4.{h,cpp}` 落地 `handle_ball_hit_other` 与
+`handle_weapon_hit_other`，对应 `src/LFW/collision/handle_ball_hit_other.ts` 与
+`handle_weapon_hit_other.ts`。
+
+### 13.1 单元边界
+- `IH4Entity`（独立接口，**不**继承 `IH3Entity`）：`id`、`data()`、`hp(+_r)` 读写、`state`、
+  `facing`、`base_type`、`velocity`/`set_velocity`、`frame_id()`、
+  `data_indexes_throwings()`、`data_indexes_in_the_skys()`、`arest()`/`set_arest`、
+  `enter_frame(info)`、`set_dropping(bool)`、`data_base_hit_sounds()`、`play_sound(sounds)`。
+- `Handlers4Env`：`find_entity` / `is_fighter` /
+  `find_align_frame(frame_id, throwings, in_the_skys)`；同样是**模块级全局缝**
+  （`set_handlers4_env`）。
+- 两个函数各自还要 `handlers` 的 `handle_rest` + `handle_stiffness`，所以用例必须同时装好
+  `set_handlers_env`（`handlers` 缝）与 `set_handlers4_env`。
+
+### 13.2 保真要点
+1. **`attacker.hp = attacker.hp_r = 0` 复用 `handlers3` 的右到左语义**：`zero_hp()` 先写
+   `hp_r` 再写 `hp`，日志顺序可观测。三处调用点（Normal / 破防 / 同朝向）共用它。
+2. **`bdefend` 的 `truthy && >= 200` 里 `truthy` 是死代码**：JS 的 `>=` 会先 `ToNumber`，
+   凡是数值 ≥ 200 的值都不可能是假值；其余假值（`0` / `-0` / `""` / `null` / `undefined` /
+   `false` / `NaN`）要么数值 < 200，要么 `NaN`——而端口的 `ge` 在 `ToNumber` 得到 `NaN` 时
+   返回 false（`less_than` 回传 `std::nullopt`）。端口照抄该前缀以保持逐行一致，并在变异
+   规格头部记录为不可观测。
+3. **`Weapon_OnHand` 前置守卫是冗余的**：TS 原文就是「先 `if (state === Weapon_OnHand) return;`
+   再 `switch (state) { case Weapon_Throwing: ... }`」这种同构双层结构，端口按 `if` + `if` 落地。
+   因为 `1001 !== 1002`，去掉第一层守卫对任何单一 `state` 值都不可观测；只有让它**在其他
+   `state` 上误触发**（取反，或把 `Weapon_OnHand` 换成 `Weapon_Throwing`）才可观测。
+4. **`-0.3 * vx` 必须保住负零**：`vx = 0` 时结果是 `-0`，与 `0` 的 `render` 不同，用例专门
+   覆盖了 `velx = 0`。
+5. **`arest` 是先取快照再回写**：`const arest = a->arest(); a->enter_frame(nf);
+   a->set_arest(arest);` 顺序不可调换，否则 `enter_frame` 对 `arest` 的副作用会被覆盖。
+   差分日志把 `enter_frame` 与 `set_arest` 都打印出来，所以顺序类变异可观测。
+6. **`handle_ball_hit_other` 结尾的 `play_sound` 在 `switch` 之外**：非 JohnChase 的
+   `behavior`、非 Fighter 的受害者都不影响它发声。
+7. TS 的 `switch (aframe.behavior)` 里 `DennisChase` … `JulianBall` 一批 `case` 的 body 只有
+   一个 `break`，与「整段省略」语义完全等价，端口按省略落地；变异规格头部记录了这一点。
+
+### 13.3 harness 观察点
+- `env a|v` 沿用「**一行一字段**」硬约束（多余 token 直接报错退出），字段：`hp` `hp_r`
+  `state` `facing` `base_type` `velx` `vely` `velz` `frame_id` `throwings` `in_the_sky`
+  `arest` `dropping` `hit_sounds` `type`。
+- 假 `find_align_frame` 把三个入参全部打进日志
+  （`faf:<frame_id>:<throwings>:<in_the_skys>`）并固定返回 `"faf_result"`，这样「参数接错」
+  与「`enter_frame` 实参写死」两类变异都能被杀。
+- `handlers` 缝的 `attacker_set_arest(double)` 也必须**回写假实体的 `arest`**：TS 侧
+  `attacker.arest = ...` 走的就是实体 setter，若 C++ 侧只打日志不回写，实体状态行会停在
+  `undefined`，造成纯 harness 建模差异（首轮差分就是这么失败的）。
+
+## 14. `collision/weapon_is_hit`：武器被命中
+
+`native/lfw/collision/weapon_is_hit.{h,cpp}` 落地 `handle_weapon_is_hit`
+（对应 `src/LFW/collision/handle_weapon_is_hit.ts`）。
+
+### 14.1 单元边界
+- `IWeaponIsHitEntity : IHandlerEntity`：在 handlers2 的实体缝之上补 `has_bearer` /
+  `set_dropping` / `base_type` / `facing` / `team`+`set_team` / `data_id` /
+  `data_indexes_throwings` / `data_indexes_in_the_skys` / `leave_ground`。这里**继承**而不是
+  另开接口，因为本单元前后要串 `handle_rest` / `handle_stiffness` / `handle_injury`，
+  而 `handle_injury` 直接吃 `IHandlerEntity`。
+- `WeaponIsHitEnv`：`find_entity` / `spark_point(a_cube, b_cube)`（返回 `SparkPoint` 三值结构，
+  免得把 JS 的元组展开搬进端口）/ `spark(x, y, z, kind)` / `mt_mark` / `mt_pick` /
+  `calc_velocity`；模块级全局缝（`set_weapon_is_hit_env`）。
+
+### 14.2 保真要点
+1. **`calc_itr_velocity` 是注入缝**：TS 里 `handle_weapon_is_hit` 直接 import 它，端口把它挂到
+   `WeaponIsHitEnv` 上。于是差分两侧必须满足「真算式 == 注入值」：harness 把 `weight` 与
+   `ivx_f/ivy_f/ivz_f` 固定为 1，用 `env velx/vely/velz` 当作 `itr.dvx/dvy/dvz`，并让假
+   `calc_velocity` 复刻 `x_direction = attacker.facing` 这个因子——否则「朝向 -1」的用例会漂移。
+2. **`is_fly` 在 TS 里并不是布尔**：`itr.fall && itr.fall >= D.DEFAULT_FALL_VALUE_CRITICAL`
+   在 `itr.fall` 为 `undefined` 时返回 `undefined`。端口收成 `bool`，只参与真值判断，语义等价。
+3. **临界值是 100 而不是 140**：`DEFAULT_FALL_VALUE_CRITICAL = 140 - DEFAULT_FALL_VALUE_DIZZY = 100`。
+   用例必须卡在 99/100；卡在 139/140 时 `is_fly` 的三条变异会全部不可观测（本轮就是这么栽的）。
+4. **`truthy(itr.fall)` / `truthy(itr.bdefend)` 前缀是死代码**：JS 的 `>=` 先 `ToNumber`，数值一旦
+   达到阈值必然是真值；其余假值要么低于阈值、要么是 `NaN`（而端口的 `ge` 遇 `NaN` 返回 false）。
+   端口照抄以保持逐行一致，并在变异规格头注里记录为不可观测。
+5. **`victim.set_velocity(vx)` 只写 x**：TS 的 `Entity.set_velocity` 会跳过 `null/undefined`
+   分量，并在末尾 `if (this.velocity.y > 0) this.leave_ground()`。harness 的假实体复刻了这两条
+   （日志只列实际写入的分量；y > 0 时多一次 `leave_ground`），否则「三参写一参」不可观测。
+6. **`data.indexes?.throwings?.[0]` 要区分数组 / 对象 / 缺失**：端口的 `index_0` 依次尝试
+   `as_array` → `as_object` → `undefined`，空数组提前返回 `undefined`，所以「数组下标」与
+   「对象键」两条分支都能挂变异，而空数组不会越界。
+
+### 14.3 harness 观察点
+- `env a|v` 一行一字段，字段：`hp` `hp_r` `tough` `state` `face` `base_type` `team` `bearer`
+  `drop` `data_id` `throwings` `in_the_sky` `velx` `vely` `velz` `on_ground` `fall` `fall_max`
+  `defend` `resting` `type` `src_emitter` `ice` `hit_sounds` `motionless` `dataset`。
+- `env acube` / `env bcube`、`env itr`、`env dataset`、`env rest`、`env recov`、`env itr_motionless`。
+- `env velx/vely/velz`、`env rest`、`env recov` 用**裸数字**（与 handlers2 的约定一致），其余数值
+  一律走值语法 `n ...`。首次跑差分时把 `env velx n 7` 写成了值语法，结果两侧各错各的
+  （C++ `strtod("n") = 0`、TS `Number("n") = NaN`），直接漂移。
+- 受害者必须是**非 Fighter**（`env v type n 16`），这样 TS 的真 `is_fall()` 才为真，
+  `calc_itr_velocity` 的 y 分量才等于注入值。
+
+## 15. `collision/fall`：倒地
+
+`native/lfw/collision/fall.{h,cpp}` 落地 `handle_fall`（对应 `src/LFW/collision/handle_fall.ts`）。
+
+### 15.1 单元边界
+- `IFallEntity : IHandlerEntity`：补 `facing` / `velocity_x` / `spark_point(a, b, out x, y, z)` /
+  `data_indexes_fire` / `data_indexes_critical_hit` / `holding_base_type` / `drop_holding`。
+- `FallEnv`：`find_entity` / `is_fighter` / `spark` / `calc_velocity`；模块级全局缝
+  （`set_fall_env`）。
+- 本单元不调用其他 handler，只额外依赖 `entity/face_helper` 的 `turn_face`（已由
+  `entity_helpers` 门禁覆盖）。
+
+### 15.2 保真要点
+1. **`is_critical` 读的是 `itr.fall`**，与实体自身的 `fall_value` 无关——后者在本函数开头就被清零。
+2. **`victim.velocity.x / victim.facing` 的除法语义必须保住**：`0 / 0` 是 `NaN`，而 `NaN >= 0`
+   为 false ⇒ 方向 -1；`±x / 0` 是 `±Infinity` ⇒ 方向由符号决定。用例专门覆盖了 `0/0`、
+   `±/0` 以及 `facing = 0` 这几种组合。
+3. **`x_direction` 同时扮演两个角色**：它既是速度方向，也是 `enter_frame` 的朝向。
+   `Fire/MFire2` 用 `turn_face(x_direction)`，`MFire1/FireExplosion` 直接用原值——两处不能
+   「顺手统一」。
+4. **`FireExplosion`/`Explosion` 会让 `calc_itr_velocity` 走 position-based 分支**：此时
+   `x_direction` 恒为 -1（假实体两侧位置都为 0，`diff_x` 既不 > 0 也不 < 0）。harness 的
+   `calc_velocity` 缝复刻了这段判断，否则 effect = 22 的用例会漂移。
+5. **`let effect = SparkEnum.Hit` 是死初始化**：紧随其后的 `if / else if / else if / else`
+   穷尽了所有情况，初值必被覆盖。端口照抄以保持逐行一致，并在变异规格头注记录为不可观测。
+6. **`critical_hit[direction]` 缺键时 TS 会抛 `TypeError`**（`undefined[0]`），整个碰撞判定中断；
+   端口不允许抛异常，所以 `index_by` 返回 `undefined`。这是**有意的行为分歧**，用例也因此不构造
+   缺键场景——那条路径在 TS 侧不是一行可比对的输出。
+7. **`data.indexes.critical_hit` 既可能是对象也可能数组**：真实数据是
+   `{[1]: [...], [-1]: [...]}`，但 JS 的 `obj[key]` 对数组同样成立，所以 `index_by` 按
+   「`as_object` 优先、`as_array` 兜底」实现，并采用数组下标语义（负下标越界即 `undefined`，
+   不抛）。用例两种形态都覆盖。
+8. **`index_0` 的三态**（数组 / 对象键 `"0"` / 缺失）与 `fall.cpp` 内的 `index_by` 配套，
+   空数组提前返回，避免「下标写成 1」这类变异退化成越界 UB。
+
+### 15.3 harness 观察点
+- `env a|v` 一行一字段：`hp` `hp_r` `tough` `fall` `fall_max` `defend` `resting` `state` `face`
+  `type` `velx` `vely` `velz` `fire` `crit` `holding` `ice` `hit_sounds` `src_emitter`
+  `motionless` `dataset`。
+- `env itr` / `env acube` / `env bcube` / `env dataset`，以及裸数字的 `env velx|vely|velz`
+  （`calc_itr_velocity` 缝的注入值）。
+- 数值写法沿用既有约定：`face` / `fall` / `hp` 等走值语法 `n ...`，`velx` / `tough` 走裸数字。

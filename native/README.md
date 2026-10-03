@@ -365,3 +365,17 @@ VS Code 里也已经指好（`.vscode/settings.json`）：
 | 6a | 步骤 6 之叶子：`collision` 处理器（`stiffness` / `body_goto` / `super_punch_me` / `weapon_picked` / `rest` / `itr_kind_magic_flute`；`HandlersEnv` 行为缝 + 调用序列差分；保住 `??` 与 `\|\|` 的惰性） | ✅ 通过（`collision_handlers` 60 行；变异 **30/30 全杀**） |
 
 | 4a | 步骤 4 主体：`Buff` 基类 + `grant_buff`（`Times` 三重计时 / 受害者表压缩 / 特效实体跟随 / 快照往返；`IBuffEntity`+`BuffEnv` 行为缝；修 `show_effect` 同键覆盖 bug） | ✅ 通过（`buff` 139 行；变异 **61/61 全杀**） |
+
+| 6b | 切片 6 核心：`Collision`（碰撞对象装配 / 判定链 / 快照往返 / 副本；`CollisionActor`+`CollisionCoreEnv` 缝；保留 `from_snapshot` 取 `aframe.bdy` 怪癖；修 `index_by` 不支持数组下标、`dataset` 误写两个真 bug） | ✅ 通过（`collision_core` 258 行；变异 **72/72 全杀**） |
+
+| 6c | 切片 6 核心：动作表 `collision_action_handlers`（21 种动作分发 + `VALUE_STEAL` 全分支 + `FUSION` 合体 + `apply_buff` 两级判定；`IActionEntity`+`ActionEnv` 缝；复刻 `play_sound` 默认位置与赋值链右到左求值） | ✅ 通过（`action_handlers` 110 行；变异 **70/70 全杀**） |
+
+| 6d | 切片 6 核心：`handlers2`（受伤/抓取/冰冻(含 effect 版)/护盾 5 个 handler；`IHandlerEntity`+模块级 `Handlers2Env` 缝；复刻 JS 参数默认值、`is_fighter` 按实体、`calc_itr_velocity` 注入） | ✅ 通过（`collision_handlers2` 63 行；变异 **49/49 全杀**） |
+
+| 6e | 切片 6 核心：`handlers3`（旋风 / 球受击 a·b / 护甲；`IH3Entity` + 模块级 `Handlers3Env` 缝；新增 `collision_defaults.h`；区分 `>` 与 `>=` 两种临界值比较、`hp_r` 先于 `hp` 赋值、`missing()` 只认 `undefined`） | ✅ 通过（`collision_handlers3` 267 行；变异 **78/78 全杀**） |
+
+| 6f | 切片 6 核心：`handlers4`（球击中他人 / 武器击中他人；`IH4Entity` + 模块级 `Handlers4Env` 缝；保住 `hp_r` 先于 `hp`、`-0.3 * vx` 的负零、`arest` 先快照后回写，并记录 `truthy(bdefend)` 前缀与 `Weapon_OnHand` 前置守卫两处不可观测冗余） | ✅ 通过（`collision_handlers4` 84 行；变异 **81/81 全杀**） |
+
+| 6g | 切片 6 核心：`weapon_is_hit`（武器被命中；`IWeaponIsHitEntity : IHandlerEntity` + 模块级 `WeaponIsHitEnv` 缝；`calc_itr_velocity` 走注入缝并复刻 `x_direction = facing`；保住 `set_velocity` 的分量跳过与 y>0 自动离地、`indexes?.throwings?.[0]` 的数组/对象/缺失三分支；修正临界值 100 不是 140） | ✅ 通过（`collision_weapon_is_hit` 115 行；变异 **85/85 全杀**） |
+
+| 6h | 切片 6 核心：`fall`（倒地；`IFallEntity : IHandlerEntity` + 模块级 `FallEnv` 缝；`turn_face` 与直传 `x_direction` 两条朝向路径、`velocity.x / facing` 的 `NaN` 与 `±Infinity` 语义、`critical_hit` 对象/数组双形态与 `index_0` 三态取值；记录 `critical_hit` 缺键时 TS 抛 `TypeError` 这一有意分歧） | ✅ 通过（`collision_fall` 113 行；变异 **84/84 全杀**） |

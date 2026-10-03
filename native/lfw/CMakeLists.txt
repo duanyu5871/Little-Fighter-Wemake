@@ -63,6 +63,12 @@ add_library(lfw_core STATIC
   collision/calc_itr_velocity.cpp
   collision/handlers.cpp
   collision/collision.cpp
+  collision/action_handlers.cpp
+  collision/handlers2.cpp
+  collision/handlers3.cpp
+  collision/handlers4.cpp
+  collision/weapon_is_hit.cpp
+  collision/fall.cpp
   buff/buff.cpp
   controller/double_click.cpp
   controller/seq_keys.cpp

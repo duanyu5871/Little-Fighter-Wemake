@@ -74,7 +74,7 @@ struct CollisionCoreEnv {
   std::function<bool(const Value& tester, Collision& c)> tester_run;
   std::function<bool(const std::u16string& id, CollisionActor& out)> find_entity;
   std::function<bool(const std::u16string& id, Value& out)> find_object_data;
-  std::function<double(double data_type)> priority_of;
+  std::function<Value(double data_type)> priority_of;
   std::function<bool(Collision& c)> load_handlers;
 };
 
@@ -106,7 +106,7 @@ struct Collision {
   std::u16string bframe_id;
   double itr_index = 0;
   double bdy_index = 0;
-  double priority = 0;
+  Value priority;
   std::shared_ptr<std::vector<std::u16string>> handlers;
   Value injury;
   Value injury_r;
@@ -157,7 +157,7 @@ Collision* collision_get(const CollisionCoreEnv& core, const CollisionActor& att
 bool collision_test(Collision& c);
 CollisionSnapshot collision_to_snapshot(const Collision& c);
 Collision* collision_from_snapshot(const CollisionCoreEnv& core, const CollisionSnapshot& s);
-Collision& collision_clone(const CollisionCoreEnv& core, const Collision& src);
+void collision_clone(const CollisionCoreEnv& core, const Collision& src, Collision& out);
 
 void handle_super_punch_me(Collision& c);
 void handle_weapon_picked(Collision& c);

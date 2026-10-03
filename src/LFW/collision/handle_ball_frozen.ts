@@ -52,7 +52,7 @@ export function handle_ball_frozen(a: Entity, v: Entity, itr: IItrInfo): boolean
   freeze_ball_opoint.x = a.facing * round(cx2 - cx1)
   freeze_ball_opoint.y = round(cy1 - cy2)
   freeze_ball_opoint.z = round(z2 - z1)
-  const freeze_ball = a.spawn_entity(
+  const freeze_ball = a.spawn(
     freeze_ball_opoint, void 0, turn_face(v.facing)
   )
   if (!freeze_ball) return false;

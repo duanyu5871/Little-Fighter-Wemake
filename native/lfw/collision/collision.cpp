@@ -41,10 +41,17 @@ bool array_at(const Value& v, size_t index, Value& out) {
 
 bool index_by(const Value& holder, const std::u16string& k, Value& out) {
   const Object* o = as_object(holder);
-  if (o == nullptr) return false;
-  const Value* p = o->get(k);
-  if (p == nullptr) return false;
-  out = *p;
+  if (o != nullptr) {
+    const Value* p = o->get(k);
+    if (p == nullptr) return false;
+    out = *p;
+    return true;
+  }
+  const Array* a = as_array(holder);
+  if (a == nullptr) return false;
+  const double index = to_number(Value(k));
+  if (!(index >= 0) || index >= static_cast<double>(a->size())) return false;
+  out = a->at(static_cast<size_t>(index));
   return true;
 }
 
@@ -129,7 +136,6 @@ Collision& collision_new(const CollisionCoreEnv& core, const CollisionInits& o) 
   c.real_injury_r = Value(NullTag{});
   c.aid = a.id;
   c.vid = v.id;
-  c.dataset = dataset;
   return c;
 }
 
@@ -176,19 +182,13 @@ bool collision_test(Collision& c) {
   const Value bdy_tester = field_or(c.bdy, u"__tester");
   if (truthy(bdy_tester)) {
     const bool ret = c.core->tester_run(bdy_tester, c);
-    if (c.core->dev()) {
-      const Value dbg = c.core->tester_debug(bdy_tester);
-      if (truthy(dbg)) c.core->log(to_string(dbg));
-    }
+    if (c.core->dev()) c.core->log(u"bdy.__tester: " + to_string(c.core->tester_debug(bdy_tester)));
     if (!ret) return false;
   }
   const Value itr_tester = field_or(c.itr, u"__tester");
   if (truthy(itr_tester)) {
     const bool ret = c.core->tester_run(itr_tester, c);
-    if (c.core->dev()) {
-      const Value dbg = c.core->tester_debug(itr_tester);
-      if (truthy(dbg)) c.core->log(to_string(dbg));
-    }
+    if (c.core->dev()) c.core->log(u"itr.__tester: " + to_string(c.core->tester_debug(itr_tester)));
     if (!ret) return false;
   }
   return c.core->load_handlers(c);
@@ -273,11 +273,9 @@ Collision* collision_from_snapshot(const CollisionCoreEnv& core, const Collision
   return &ret;
 }
 
-Collision& collision_clone(const CollisionCoreEnv& core, const Collision& src) {
-  Collision& c = core.acquire_collision();
-  c = src;
-  c.id = core.new_id();
-  return c;
+void collision_clone(const CollisionCoreEnv& core, const Collision& src, Collision& out) {
+  out = src;
+  out.id = core.new_id();
 }
 
 }
