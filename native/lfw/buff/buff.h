@@ -3,6 +3,7 @@
 #include <functional>
 #include <string>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "lfw/core/value.h"
@@ -30,7 +31,49 @@ class IBuffEntity {
   virtual void set_outline_color(const std::u16string& v) = 0;
   virtual void enter_frame_by_id(const std::u16string& id) = 0;
   virtual void attach(bool on) = 0;
+  virtual Value data() const { return Value(); }
+  virtual Value state() const { return Value(); }
+  virtual Value wait() const { return Value(); }
+  virtual void set_wait(const Value& v) { (void)v; }
+  virtual Value mp() const { return Value(); }
+  virtual void set_mp(const Value& v) { (void)v; }
+  virtual Value mp_max() const { return Value(); }
+  virtual Value dataset(const std::u16string& key) const {
+    (void)key;
+    return Value();
+  }
+  virtual Value hp() const { return Value(); }
+  virtual Value hp_r() const { return Value(); }
+  virtual void set_hp(const Value& v) { (void)v; }
+  virtual Value marks_get(const std::u16string& key) const {
+    (void)key;
+    return Value();
+  }
+  virtual void marks_set(const std::u16string& key, const std::u16string& value) {
+    (void)key;
+    (void)value;
+  }
+  virtual bool marks_delete(const std::u16string& key) {
+    (void)key;
+    return false;
+  }
 };
+
+inline bool set_mark(IBuffEntity& e, const std::u16string& key, const std::u16string& value,
+                     const Value& prev) {
+  if (std::holds_alternative<std::monostate>(prev) || equals(e.marks_get(key), prev)) {
+    e.marks_set(key, value);
+    return true;
+  }
+  return false;
+}
+
+inline bool del_mark(IBuffEntity& e, const std::u16string& key, const Value& value) {
+  if (std::holds_alternative<std::monostate>(value) || equals(e.marks_get(key), value)) {
+    return e.marks_delete(key);
+  }
+  return false;
+}
 
 struct BuffEnv {
   std::function<IBuffEntity*(const std::u16string& id)> find_entity;
@@ -64,7 +107,7 @@ class Buff {
 
   void set_env(const BuffEnv* env) { _env = env; }
   const BuffEnv* env() const { return _env; }
-  void init() {}
+  virtual void init() {}
   void reset(const std::u16string& id);
   void set_attacker_by_id(const std::u16string& id);
   void set_attacker_entity(IBuffEntity* e);
@@ -74,8 +117,8 @@ class Buff {
   void update(double d);
   Value to_snapshot() const;
   void read_snapshot(const Value& s);
-  void mount();
-  void unmount();
+  virtual void mount();
+  virtual void unmount();
 
  protected:
   virtual std::u16string effect_oid() const { return std::u16string(); }
@@ -83,11 +126,20 @@ class Buff {
   virtual bool has_on_update() const { return false; }
   virtual bool has_on_tick() const { return false; }
   virtual bool has_on_end() const { return false; }
-  virtual void on_update(IBuffEntity* attacker, IBuffEntity* victim) {}
-  virtual void on_tick(IBuffEntity* attacker, IBuffEntity* victim) {}
-  virtual void on_end(IBuffEntity* attacker, IBuffEntity* victim) {}
+  virtual void on_update(IBuffEntity* attacker, IBuffEntity* victim) {
+    (void)attacker;
+    (void)victim;
+  }
+  virtual void on_tick(IBuffEntity* attacker, IBuffEntity* victim) {
+    (void)attacker;
+    (void)victim;
+  }
+  virtual void on_end(IBuffEntity* attacker, IBuffEntity* victim) {
+    (void)attacker;
+    (void)victim;
+  }
   Value effect_data();
-  void place_effect(IBuffEntity* effect, IBuffEntity* victim);
+  virtual void place_effect(IBuffEntity* effect, IBuffEntity* victim);
   void place_effect_center(IBuffEntity* effect, IBuffEntity* victim);
   void del_effect(const std::u16string& vid);
   void clear_effects();

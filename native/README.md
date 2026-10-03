@@ -379,3 +379,19 @@ VS Code 里也已经指好（`.vscode/settings.json`）：
 | 6g | 切片 6 核心：`weapon_is_hit`（武器被命中；`IWeaponIsHitEntity : IHandlerEntity` + 模块级 `WeaponIsHitEnv` 缝；`calc_itr_velocity` 走注入缝并复刻 `x_direction = facing`；保住 `set_velocity` 的分量跳过与 y>0 自动离地、`indexes?.throwings?.[0]` 的数组/对象/缺失三分支；修正临界值 100 不是 140） | ✅ 通过（`collision_weapon_is_hit` 115 行；变异 **85/85 全杀**） |
 
 | 6h | 切片 6 核心：`fall`（倒地；`IFallEntity : IHandlerEntity` + 模块级 `FallEnv` 缝；`turn_face` 与直传 `x_direction` 两条朝向路径、`velocity.x / facing` 的 `NaN` 与 `±Infinity` 语义、`critical_hit` 对象/数组双形态与 `index_0` 三态取值；记录 `critical_hit` 缺键时 TS 抛 `TypeError` 这一有意分歧） | ✅ 通过（`collision_fall` 113 行；变异 **84/84 全杀**） |
+
+| 6i | 切片 6 核心：`n_bdy_normal`（普通 bdy 受击；`INbdyNormalEntity : IFallEntity` + 模块级 `NbdyNormalEnv` 缝；子处理器直接调真函数；保住 `==` 与 `===` 之别、三分组各自的调用顺序、`switch` 的 `case void 0`、`id.length` 三态、`a(r)` 的 `floor+fmod`，并记录「非 Fighter 到不了 SilentHit」「字符串长度为 0 不可达」两处不可观测） | ✅ 通过（`collision_n_bdy_normal` 175 行；变异 **100/100 全杀**） |
+
+| 6j | 切片 6 核心：`n_bdy_defend`（bdy 防御；`INdbdyDefendEntity : INbdyNormalEntity` + 模块级 `NbdDefendEnv`，action 分发走 `dispatch` 缝；保住德摩根三段守卫、爆炸类无视朝向、`bdefend` 默认 32、`defend_ratio` 的 `??` 取源、`if (vx)` 的 0/-0/NaN、破防与未破防两条分支对 `bdy.actions` 的不同白名单） | ✅ 通过（`collision_n_bdy_defend` 110 行；变异 **65/65 全杀**） |
+
+| 6k | 切片 6 核心：`ball_frozen`（冻结飞球；`IFrozenEntity` + `BallFrozenEnv{is_ball,is_fighter}`，模块级可变 opoint 复刻；保住宽松比较的 kind 白名单、分组交换与双向守卫、三条 break 的短路或、`cx1`/`cx2` 的四个分支、`x` 独享 facing 符号与 `round` 位置、`spawn` falsy 时跳过 `enter_frame`） | ✅ 通过（`collision_ball_frozen` 151 行；变异 **89/89 全杀**） |
+
+| 6l | 切片 6 核心：`healing`（治疗 buff；`IHealingEntity{id,dataset,buff_entity}` + `HealingEnv`，`grant_buff` 用真实现；保住 `!itr.injury` 早退、`Math.max` 的 NaN 传播、`ceil(injury / max(1,value)) * max(1,ticks)` 的算子位置、`kind + "_" + victim.id` 的 buff id） | ✅ 通过（`collision_healing` 55 行；变异 **22/22 全杀**） |
+
+| 6m | 切片 6 核心：`keeper`（碰撞处理表注册半边；`CollisionKeeper::add/register/load_handlers` + `HANDLER_CONFIGS` 19 条 + `collisions_keeper` 单例；保住 `pack_a/b` 组合键、`ALL_STATES` 身份哨兵、四个 `is_u*` 守卫、`handlers` 先清空、表格顺序即处理顺序、`handle_body_goto` 的声明名） | ✅ 通过（`collision_keeper` 108 行；变异 **45/45 全杀**）｜`handle()` 待后续单元 |
+
+| 6n | 切片 6 核心：`keeper` 的 `handle()`（调度半边；`CollisionKeeper::handle` + `KeeperEnv` 六个新缝 `call_handler`/`ball_frozen`/`run_action`/两处 push/`victim_play_sound`；保住 `handle_ball_frozen(v,a,itr)` 的实参顺序、`itr_tests/bdy_tests` 的**预计算时机**、`pretest` 真假两条取值路径、严格 `=== false` 才跳过、六个静音 kind 的严格比较与 `data.base.hit_sounds` 两层取值；`ball_hit` 照抄死代码） | ✅ 通过（`collision_keeper_handle` 77 行；变异 **48/48 全杀**） |
+
+| 6o | 切片 4 首个：`Buff_GroupAttack` / `Buff_Electrify`（`buff` 基类可继承化：`place_effect`/`mount`/`unmount`/`init` 转虚，`IBuffEntity` 增补能力一律用**带默认实现的虚函数**以免动 10 个已门禁 harness；保住 `KIND` 作标记键、`effect_oid/frame_id`、`place_effect`→居中、`mount` 转调基类、`unmount` 用 `del_mark` 的**条件删除**） | ✅ 通过（`buff_marks` 41 行；变异 **30/30 全杀**） |
+
+| 6p | 切片 4 第二组：`Buff_Healing` / `Buff_MpHealing`（静态 `duration_of` 的两个 `max(1,·)` 位置、`mount` 打标记并逐受害者取 tick 间隔、`has_on_tick()` 必须置真、`on_tick` 的回血/回蓝与 `hp_r`/`mp_max` 钳制、`MpHealing` **没有**上限守卫（TS 原文即注释掉）、`unmount` 的条件删除） | ✅ 通过（`buff_healing` 52 行；变异 **42/42 全杀**） |

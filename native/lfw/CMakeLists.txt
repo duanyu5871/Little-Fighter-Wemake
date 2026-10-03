@@ -70,7 +70,15 @@ add_library(lfw_core STATIC
   collision/weapon_is_hit.cpp
   collision/fall.cpp
   collision/n_bdy_normal.cpp
+  collision/n_bdy_defend.cpp
+  collision/ball_frozen.cpp
+  collision/healing.cpp
+  collision/keeper.cpp
   buff/buff.cpp
+  buff/buff_group_attack.cpp
+  buff/buff_electrify.cpp
+  buff/buff_healing.cpp
+  buff/buff_mp_healing.cpp
   controller/double_click.cpp
   controller/seq_keys.cpp
   controller/key_status.cpp

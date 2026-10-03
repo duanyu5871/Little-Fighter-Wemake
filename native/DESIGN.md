@@ -2740,3 +2740,395 @@ TS 的 `Map.get` 返回**同一个对象**。C++ harness 若写 `g_buff = *it->s
 - `env itr` / `env acube` / `env bcube` / `env dataset`，以及裸数字的 `env velx|vely|velz`
   （`calc_itr_velocity` 缝的注入值）。
 - 数值写法沿用既有约定：`face` / `fall` / `hp` 等走值语法 `n ...`，`velx` / `tough` 走裸数字。
+
+## 16. `collision/n_bdy_normal`：普通 bdy 受击
+
+`native/lfw/collision/n_bdy_normal.{h,cpp}` 落地 `handle_itr_normal_bdy_normal`
+（对应 `src/LFW/collision/handle_itr_normal_bdy_normal.ts`）。
+
+### 16.1 单元边界
+- `INbdyNormalEntity : IFallEntity`——**必须是一条继承链**。本单元要串 `handle_fall`，而假实体若
+  同时实现两个各自继承 `IHandlerEntity` 的接口，就会出现两个 `IHandlerEntity` 子对象 ⇒ 纯虚二义。
+- `NbdyNormalEnv`：`find_entity` / `is_fighter` / `is_fall(Collision&)` / `spark` /
+  `calc_velocity`；模块级全局缝（`set_nbdy_normal_env`）。
+- 子处理器**直接调用已闭合的真函数**，不再另开缝：`handle_armor`(handlers3，返回 bool)、
+  `handle_injury`(handlers2)、`handle_rest`/`handle_stiffness`(handlers)、
+  `handle_itr_effect_freeze`(handlers2)、`handle_fall`(fall)。
+- 已移植的 `is_fall` 吃的是 **`Value` 图**，所以缝定义为 `std::function<bool(Collision&)>`，
+  harness 现场构造 `{victim:{fall_value, hp, is_on_ground, frame:{state}, data:{type}}}` 再调真函数。
+
+### 16.2 保真要点
+1. **`if (itr.effect == ItrEffect.Ignore)` 用的是宽松 `==`**，端口用 `equals()`；而 `switch`
+   内部是 `===`，端口用 `strict_equals()`。两者只在「能强转为 10000 但本身不是数字」时分离
+   （例如字符串 `"10000"`），用例专门构造了这一条。
+2. **三个分组的调用顺序各不相同**，不可统一：
+   - `Fire / MFire1 / MFire2 / FireExplosion` → injury → rest → stiffness → fall
+   - `Ice` 且 `state === Frozen` → injury → **stiffness → rest** → fall
+   - `Explosion / Normal / Sharp / undefined` → 长路径（injury → rest → stiffness → …）
+   - 其余 effect（`Through(4)` / `None(5)`）**什么都不做**
+3. **`switch` 的 `case void 0` 只匹配 `undefined`**（不含 `null`）⇒ 端口判定 `monostate`。
+4. **`id && id.length > 0` 的 `length` 是三态的**：string 是 UTF-16 单元数、数组是元素数、
+   其余是 `undefined`（比较结果恒 false）。端口用 `std::optional<double> value_length()` 配
+   `has_value() && *len > 0`。注意 `[]` 在 JS 里是**真值** ⇒ 空数组能走到长度判断，「数组长度 +1」
+   的变异可观测；而 `""` 是**假值** ⇒ 空字符串被 `truthy(id)` 拦下，字符串长度分支永远只见到
+   长度 ≥ 1，「字符串长度 +1」的变异**不可观测**（已记入规格头注）。
+5. **`a(r) = Math.floor(r / 50) % 2 > 0 ? 1 : -1`**：用 `lfw::floor` + `std::fmod`（JS `%` 与
+   `fmod` 同号）。注意 `r >= 100`（等价于 `fall_value <= 0`）会被 `is_fall` 提前拦走，所以
+   「k = 2」只能靠 `fall_max - fall_value` 的差构造；负 `r`（`fall_value > fall_value_max`）也在
+   用例里覆盖。
+6. **`is_fall` 为真时整段 impact 逻辑被跳过**（`handle_fall` + `return`），因此「非 Fighter
+   受害者」永远到不了 `SparkEnum.SilentHit` 那一支——该 `else` 分支在本单元里**不可达**，
+   规格头注连同 `&& v_is_fighter` 的不可观测一起记录。
+7. **`critical_hit` / `grand_injured` 既可能是对象也可能是数组**，`injured` 是**字符串对**：
+   `index_by` 按「`as_object` 优先、`as_array` 兜底」实现，负下标越界返回 `undefined` 而不抛。
+8. **impact 尾段之前必须重置 `fall_value`**：`handle_fall` 会把 `fall_value` 清零，而 `is_fall` 对
+   `fall_value <= 0` 恒真 ⇒ 不重置就整段尾逻辑被早退跳过（首轮 25 条变异存活全因于此）。
+
+### 16.3 harness 观察点
+- `env a|v` 一行一字段：`hp` `hp_r` `tough` `tough_max` `armor` `state` `face` `team`
+  `base_type` `bearer` `type` `velx` `vely` `velz` `posx` `posy` `posz` `ground_y` `fall`
+  `fall_max` `defend` `resting` `itr_fall` `fire` `crit` `dizzy` `grand_injured` `injured`
+  `backhurtact` `fronthurtact` `holding` `ice` `hit_sounds` `src_emitter` `motionless`
+  `in_the_sky` `dataset`。
+- 另有 `env itr` / `env dataset` / `env bframe` / `env aframe` / `env armorwork 0|1` /
+  `env acube` / `env bcube` / `env rest` / `env itr_motionless`，以及裸数字的 `env velx|vely|velz`。
+- **日志前缀必须跨缝统一**：C++ 侧本可以给每套 env 各自的 `spark`/`spark_point` 配不同前缀，
+  但 TS 侧只有一个 `world.spark` 与一个实体 `spark_point` ⇒ 两条路径共用前缀。只有「同一次 run
+  内两条路径互斥」时才安全（本单元 group B 的 `is_fall` 早退与 impact spark 正是互斥）。
+- **`handle_armor` 的 TS 实现走 `victim.spark_point()`（实体方法）**，而 C++ 端口走
+  `handlers3_env().spark_point` 缝 ⇒ 本 harness 让缝的公式与前缀都对齐实体方法
+  （`x = a.left, y = b.top, z = a.near`）。handlers3 自己的 harness 用的是另一套公式
+  （`b.left / a.top / b.near`）以便「拿错 cube」可观测，两者不可混用。
+- `armorwork` 是 `is_armor_work` 的替身：`armorwork 1` 的用例必须让 TS 侧真函数也返回 true
+  （`fulltime` 为真、`bframe.state` 在允许集合内、effect 不是火/冰、`bdefend < 200`、
+  `aframe.state !== 3006`）。
+
+## 17. `collision/n_bdy_defend`：bdy 防御
+
+`native/lfw/collision/n_bdy_defend.{h,cpp}` 落地 `handle_itr_normal_bdy_defend`
+（对应 `src/LFW/collision/handle_itr_normal_bdy_defend.ts`）。
+
+### 17.1 单元边界
+- `INdbdyDefendEntity : INbdyNormalEntity`（只多一个 `defend_ratio()`）+ 模块级 `NbdDefendEnv`
+  （`find_entity` / `calc_velocity` / `spark` / `dispatch`）。
+- 子处理器直接调真函数：`handle_itr_normal_bdy_normal`、`handle_injury`、`handle_rest`、
+  `handle_stiffness`。
+- **action 分发做成了缝**：TS 是 `collision_action_handlers[AT.A_NEXT_FRAME](action, collision)`，
+  而端口的 `run_action` 会牵进 `ActionEnv` 与 34 个纯虚的 `IActionEntity`；本单元真正要保证的只有
+  「分发给哪个 handler key」与「`action.type` 的过滤条件」两件事，handler 本体已由
+  `action_handlers` 单元门禁。所以端口写为 `g_env.dispatch(handler_type, action)`，harness 两侧
+  都打成 `dispatch:<handler_type>:<render(action)>`。
+
+### 17.2 保真要点
+1. **`const { bdefend = DEFAULT_BREAK_DEFEND_VALUE } = itr` 的默认值只在 `undefined` 时生效**
+   ⇒ 端口用 `missing()`（只认 `monostate`），默认值 **32**；破防阈值是 **200**。
+2. **守卫是德摩根前的三段式**：`(effect !== FireExplosion && effect !== Explosion &&
+   attacker.facing === victim.facing) || bdefend >= 200`。三个 `!==` 是**严格**比较；端口写成
+   `explosive = (effect === FireExplosion || effect === Explosion)` 之后即
+   `(!explosive && same_face) || bdefend >= 200`。
+3. **爆炸类伤害无视朝向**：`FireExplosion` / `Explosion` 会让第一个括号整个为假，于是**同向**的
+   爆炸类伤害也会走防御分支（只要 `bdefend < 200`）。
+4. **`victim.defend_ratio` 是 `this._defend_ratio ?? world.dataset.defend_ratio`**（`??` 把 `null`
+   也算缺失），并且它被当作 `handle_injury` 的 **scale**（`keep_toughness` 取默认值 `false`）。
+5. **`const [vx] = calc_itr_velocity(collision); if (vx) victim.set_velocity(vx / 2);`**：只写 x
+   （y/z 传 `undefined`），且 `if (vx)` 对 `0` / `-0` / `NaN` 全为假。
+6. **两个分支对 `bdy.actions` 的过滤条件不同**：破防时看 `A_BROKEN_DEFEND` / `V_BROKEN_DEFEND`，
+   未破防时看 `A_DEFEND` / `V_DEFEND`；`itr.actions` 两边都看 `A_DEFEND` / `V_DEFEND`。
+   这是本单元最重要的变异目标。
+7. **`actions` 只按数组迭代**：TS 用 `actions?.forEach`，`undefined` / `null` 会短路，但**其它非数组
+   值会抛 TypeError**（`(5)?.forEach` 不是函数）。端口用 `as_array` 守卫 ⇒ 对非数组值**宽容**。
+   这是有意的行为分歧，用例只用数组与 `null` / 缺失。
+8. 破防分支会把 `defend_value` 夹到 `0`（递减后可能已经是负数）。
+
+### 17.3 harness 观察点
+- 沿用 `n_bdy_normal` 的全套 `env a|v` 字段，另加 `defend_ratio`；`env` 侧另加 `env bdy`。
+- 一次 run 只会走「守卫移交 → `handle_itr_normal_bdy_normal`」或「防御路径（破防 / 未破防）」其中
+  一条，三者的日志形态区别明显。
+- **每条防御用例之前都要重置 `defend`**：递减会累积，不重置就会从「未破防」掉进「破防」
+  （本轮 3 条变异存活全因于此）。
+
+## 18. `collision/ball_frozen`：冻结飞球
+
+`native/lfw/collision/ball_frozen.{h,cpp}` 落地 `handle_ball_frozen`
+（对应 `src/LFW/collision/handle_ball_frozen.ts`）。
+
+### 18.1 单元边界
+- `IFrozenEntity`（**独立接口**，不继承 `IHandlerEntity`）+ 模块级 `BallFrozenEnv
+  { is_ball, is_fighter }`。
+- 与其它 collision 单元不同，本单元**没有被调用的子处理器**：全部是纯判定 + 一次 `spawn` +
+  一次 `enter_frame`，所以不需要 `IHandlerEntity` 那一族。
+- `is_ball` / `is_fighter` 做成缝：端口侧用 `lfw::entity::is_ball_data` / `is_fighter_data`
+  作用在 `e.data()` 上，TS 侧直接调真函数。
+
+### 18.2 保真要点
+1. **模块级可变 opoint**：`freeze_ball_opoint` 是 TS 的模块级单例对象，只有 `x` / `y` / `z`
+   三个字段会被重写。端口用 `static Value`（持 `shared_ptr<Object>`）复刻，于是连续两次调用
+   共享同一个对象；字段顺序也照抄（`oid,kind,x,y,action,z`）。
+2. **比较运算符逐处不同**：
+   - `[Normal, CharacterThrew, WeaponSwing].some(v => v == itr.kind)` 是**宽松**比较
+     ⇒ `kind` 写成字符串 `"0"` / `"4"` 也算命中；
+   - `v.state != StateEnum.Ball_Flying`、`a.state == StateEnum.Weapon_OnHand` 是宽松；
+   - 分组比较 `v != EntityGroup.Freezer` 同样是宽松（`!=`）。端口统一用 `equals`。
+3. **分组守卫是两个方向**：先试「v 含 Freezer **且** a 含 FreezableBall」⇒ 交换角色；
+   否则若「a 里有任何元素不是 Freezer」**或**「v 里有任何元素不是 FreezableBall」⇒ 直接失败。
+   即：走到后面要求 *a 全是 Freezer* 且 *v 全是 FreezableBall*。
+4. **`do { ... } while (0)` 的三条 `break` 是短路或**：`v.state` 必须是 `Ball_Flying`，
+   然后 `is_ball(v)` / `is_fighter(a)` / `a.state == Weapon_OnHand` 任一成立才继续。
+   端口保留求值顺序（球在前、战士次之、武器在手上最后）。
+5. **`cx1` 的两个分支不等价**：`a.facing > 0 ? x1 - centerx : x1 + centerx - centerx`。
+   右边**不能**约成 `x1`：`x1 + c - c` 与 `x1 - c` 差 `2c`，但 `c == 0` 时两者又相等
+   —— 所以用例必须给非零 `centerx` 才能让「取错分支」可观测。
+6. **`cy2` 减的是 `height / 2`，`cx2` 加的是 `width / 2`**；`cx2` 的另一支是
+   `(x2 + centerx - width) + width / 2`（中间是减法，不是加法）。
+7. **只有 `x` 分量乘 `a.facing`**；`y` / `z` 不带朝向符号。
+8. **`round` 出现在三处**，且 `x` 是先 `round(cx2 - cx1)` 再乘 `a.facing`
+   （舍入发生在乘朝向符号之前，两者不可交换）。
+9. `a.spawn(opoint, undefined, turn_face(v.facing))` 的 falsy 结果会直接 `return false`，
+   并且**不会**执行 `v.enter_frame(GONE_FRAME_INFO)`。
+10. `turn_face(undefined)` 返回 `undefined`（不会退化成 `1`）；`a.facing` 缺失时
+    `a_facing * round(...)` 得到 `NaN`，只污染 `opoint.x`。
+
+### 18.3 harness 观察点
+- 假实体的 `group` / `state` / `type` / `face` / `posx` / `posy` / `posz` / `frame` 都是
+  「一行一字段」的 `env a|v` 输入；`frame` 是对象（`centerx` / `centery` / `width` / `height`）。
+- `spawn` 与 `enter_frame` 的日志**必须带实体身份**（`A:spawn:` / `V:enter_frame:`），
+  否则「`spawn` 问错实体」不可观测。
+- `a.spawn` 与 `v.spawn` 的返回值分别由 `env a spawn 0|1` / `env v spawn 0|1` 控制；
+  **守卫读的是 `a` 的返回值**，只设 `env v spawn 0` 杀不掉「忽略返回值」的变异
+  （首轮就是这个坑，靠 `A.spawn=` / `V.spawn=` 出现在状态文本里才看出来）。
+- 状态文本同时打印双方的 `spawn` 标志，所以「谁被问了」也能从状态侧看出来。
+
+## 19. `collision/healing`：治疗 buff
+
+`native/lfw/collision/healing.{h,cpp}` 落地 `handle_healing`
+（对应 `src/LFW/collision/handle_healing.ts`）。
+
+### 19.1 单元边界
+- `IHealingEntity { id, dataset(key), buff_entity() }`（**最小读面**，只有三个方法）+
+  模块级 `HealingEnv { find_entity, buff_env }`。
+- 这里**没有**复用 `handlers2.h` 的 `IHandlerEntity`（34 个纯虚）：本单元只读 `dataset` 与
+  `buff_entity` 两处，复用会把 harness 逼成一份 150 行的空实现，反而掩盖边界。
+- `buff::grant_buff` 用**真实现**（它属于已门禁的 `buff` 单元），本单元只负责「把谁和多少时长
+  交出去」。
+- `Buff_Healing.duration_of` **就地实现**而不是先造 `Buff_Healing` 类（那个类属于切片 4）；
+  等切片 4 落地时应当把这里换成对类静态方法的调用。
+
+### 19.2 保真要点
+1. **`if (!itr.injury) return;` 在一切查表之前**：`0` / `""` / 缺失都会直接返回，
+   连 `create_buff` 都不会发生。
+2. **`Math.max(1, x)` 的 NaN 语义**：`x` 缺失时 `Math.max(1, undefined)` 是 **NaN**，
+   不是 1。端口的 `lfw::max` 也显式传播 NaN（`if (std::isnan(x)) return x;`）。
+3. **时长公式**：`ceil(injury / max(1, hp_healing_value)) * max(1, hp_healing_ticks)`。
+   两个 `max(1, …)` 分别在分母与乘数上，位置不可换。
+4. **buff id 是 `kind + "_" + victim.id`**，由 `grant_buff` 内部拼出；`kind` 是 `"Healing"`。
+5. `attacker` 允许为空：`grant_buff` 里是 `if (attacker) buf.set_attacker(attacker)`，
+   所以 attacker 为空串 id 时 buff 的 `attacker_id` 保持 `""`（不是崩溃）。
+6. `v == nullptr` 守卫是**端口产物**（TS 是解构 `collision.attacker/victim`，不存在查表失败），
+   在契约内不可达；已写进变异规格头注。
+
+### 19.3 harness 观察点
+- 输入：`env itr <值>`、`env a|v dataset <值>`；输出：
+  `run heal || <日志> | <双方 dataset> buff=<id>/<lifetime>/<duration>/<level>/<attacker>`。
+- 日志里的 `create_buff:<kind>:<id>` 与状态里的 `buff=` 一起，把「kind 对不对」「时长算没算对」
+  「谁是 attacker」三件事都变成可观测；少了 `duration` 这一项，handler 返回 void 会让整个公式
+  不可观测。
+- **假 `IBuffEntity` 的 id 必须等于它所属实体的 id**：`grant_buff` 用 `victim.id` 拼 buff id，
+  第一版我把 buff 实体的 id 写成 `"VB"` 而实体是 `"V"`，差分立刻在 buff id 上分叉。
+- 每个 op 之前清空 `g_granted`，否则早退用例会打印出上一条留下的 buff。
+
+## 20. `collision/keeper`：碰撞处理表（注册半边）
+
+`native/lfw/collision/keeper.{h,cpp}` 落地 `CollisionKeeper` 的**注册与查表**半边
+（对应 `src/LFW/collision/CollisionKeeper.ts` 的 `pack_a` / `pack_b` / `is_u8,u12,u16` /
+`IHandlerEntry` / `add` / `register` / `load_handlers` / `HANDLER_CONFIGS` / `collisions_keeper`）。
+
+### 20.1 作用域说明（重要）
+本单元**暂不包含** `handle(collision)`。它需要三样目前还不存在的东西：
+1. 实体侧的 `victim.collided_list` / `victim.lastest_collided` / `attacker.collision_list`；
+2. `collision_action_handlers[action.type]` 的分派入口（端口里是 `run_action`，需要
+   `ActionEnv` 与 28 个纯虚的 `IActionEntity`）；
+3. `handle_ball_frozen(victim, attacker, itr)` 所需的 `IFrozenEntity` 适配器。
+现在硬做会把本单元 90% 的差分内容变成「测缝」。这些缝齐了之后再在同一个文件里补 `handle`，
+并重跑两道门禁。
+
+### 20.2 保真要点
+1. **`pack_a` / `pack_b` 是双向自洽的**：插入与查表都走同一个函数，所以任何**确定的、单射的**
+   位移或加一都会把两侧一起挪走 —— 改位移、改加一都**不可观测**。唯一可观测的破坏是让它**丢掉一个
+   参数**（制造键碰撞）。变异规格里用的是后者。
+2. **`ALL_STATES` 是身份哨兵，不是内容**：`add` 里 `if (a_state_list !== ALL_STATES)` 是**数组身份
+   比较**；`register` 走默认参数时给的正是 `ALL_STATES` 这同一个对象 ⇒ 永不写入 `entry.a_state`
+   ⇒ 表示「全状态通过」。端口用显式 `has_a_state` / `has_v_state` 标记复刻，**不能比内容**。
+   推论：`HANDLER_CONFIGS` 里没有任何一条设置 `a_state`，所以 `g_env.attacker_state()` 的值
+   在本单元**永远不会被读到**。
+3. **`a_type` 是 `collision.attacker.data.type`，`v_type` 是 `victim.data.type`**，
+   `itr_kind` 是 `collision.itr.kind`，`bdy_kind` 是 `collision.bdy.kind`；
+   端口里前两者取自 `CollisionActor::data_type`（已是数字），后两者取自 `Value`。
+4. **四个守卫的语义是 `Number.isInteger(v) && v >= 0 && v < hi`**，`hi` 分别是
+   `256`(a_type) / `4096`(itr) / `256`(v_type) / `65536`(bdy)。任一不满足就**直接返回 false**
+   （`handlers` 已经被清空）。端口对 `Value` 形状的 kind 用 `std::get_if<double>` 复刻
+   （字符串 kind 一律不通过），对 `double` 形状的 type 用整数 + 区间判定。
+5. **`load_handlers` 先清空 `collision.handlers` 再查表**，所以「早退」与「没命中」都会让
+   `handlers` 变成空数组；返回值是 `handlers.length > 0`。
+6. **表格顺序即处理顺序**：`HANDLER_CONFIGS` 的条目顺序决定同一 key 下多个 handler 的先后
+   （例如 `(Ball, Normal, Ball, Normal)` 会先命中 `handle_ball_hit_other`，再命中
+   `handle_ball_is_hit_b`）。
+7. **`handle_body_goto` 的注册名是「声明名」**：TS 里是
+   `import { handle_body_goto as handle_criminal_hit }`，但 `fn.name` 报的是 `handle_body_goto`。
+8. `adds(...)` 用 `i.run.bind(i)`，注册进去的函数名会变成 `"bound run"`；当前表格全部走
+   `register`，所以**本单元不实现 `adds`**（结果与 `register` 等价），待有真实调用方时再补。
+
+### 20.3 harness 观察点
+- 输入：`env a|v type|state <裸数字>`、`env itr|bdy|handlers <值语法>`；`run load`。
+- 输出：`run load || handlers=[<名字,…>] | ret=0|1`。
+- `collision.handlers` 在端口里是 `shared_ptr<vector<u16string>>`（**名字**，与 TS 的
+  `Ditto.debug` 打印 `fn.name` 一致），harness 直接打印这个名字列表 —— 名字列表同时暴露了
+  「命中哪几条」「几条」「顺序」三件事。
+- `env handlers` 预置脏数据，用来观测「查表前必须清空」。
+
+## 21. `collision/keeper`：`handle()` 调度半边
+
+`CollisionKeeper::handle(Collision&) const`（同一个 `keeper.{h,cpp}`，与 §20 的注册半边共用
+`collisions_keeper` 单例）。
+
+### 21.1 单元边界：六个新缝
+`KeeperEnv` 在原来的 `attacker_state` / `victim_state` 之外再加六个：
+
+| 缝 | 对应 TS | 理由 |
+|---|---|---|
+| `call_handler(name, c)` | `handlers.forEach(fn => fn(collision))` | 端口的 `collision.handlers` 存的是**函数名**（`collision_core` 单元定下的形态，与 `Ditto.debug` 打印 `fn.name` 一致），所以调用点必须由一个名字→函数的映射来兑现 |
+| `ball_frozen(first, second, itr)` | `handle_ball_frozen(victim, attacker, itr)` | 真函数要 `IFrozenEntity`（11 个方法），端口此刻只有 `CollisionActor`；本单元只负责「在什么时候、用哪个顺序调它」 |
+| `run_action(type, action, c)` | `collision_action_handlers[action.type](action, collision)` | 同 `n_bdy_defend`：`run_action` 要 `ActionEnv` + 28 个纯虚的 `IActionEntity`，handler 本体由 `action_handlers` 单元门禁 |
+| `victim_push_collided(c)` / `attacker_push_collision(c)` | `victim.collided_list.push(...)` / `attacker.collision_list.push(...)` | 实体侧列表尚未端口化 |
+| `victim_play_sound(sounds)` | `victim.play_sound(sounds)` | 实体动作面 |
+
+`dev` / `log` / `tester_run` / `find_object_data` 复用已有的 `CollisionCoreEnv`，不新造缝。
+
+### 21.2 保真要点
+1. **`handle_ball_frozen(victim, attacker, itr)` 的实参顺序是 `(v, a, itr)`** —— 与其它所有
+   handler 的 `(collision)` 不同，这是最容易写错的一处。
+2. **`itr_tests` / `bdy_tests` 在 handler 循环之前算好、循环之后才用**：`itr.actions?.map(v =>
+   v.pretest && v.tester?.run(collision) !== false)`。所以带 `pretest` 的动作，其 `tester` 会在
+   **handler 日志之前**被调用一次；不带 `pretest` 的则在分派时调用。日志顺序即可观测这个时机。
+3. **`test_result = action.pretest ? itr_tests?.[idx] : action.tester?.run(collision)`**，
+   只有**严格 `=== false`** 才 `return`（即跳过该动作）；`undefined` 照跑。
+   推论：`pretest` 为假时缓存的元素永远用不到（所以缓存的「假值」分支不可观测）。
+4. **`?.` 只是空值保护**：`v.tester?.run(...)` 在 `tester` 缺失时得到 `undefined`，
+   `undefined !== false` 为真 ⇒ 该动作照跑。端口里必须**先判 `truthy(tester)` 再调用**。
+5. **末尾六个 kind 用严格 `!==` 判定静音**：`Block` / `Whirlwind` / `MagicFlute` /
+   `MagicFlute2` / `Pick` / `PickSecretly`。所以 `itr.kind` 是字符串 `"14"` 时**不会**静音
+   （`"14" !== 14`），端口用 `strict_equals`。
+   另外 `sounds = victim.data.base.hit_sounds` 是**两层**取值。
+6. **`ball_hit` 是死代码**：TS 里累计完再也没被读过。端口照抄累计并显式 `(void)ball_hit;`，
+   相关变异在规格头注里标记为不可观测。
+7. `handle()` 不改 keeper 状态 ⇒ 端口声明为 `const`。
+
+### 21.3 harness 观察点
+- 本单元的 harness 是**独立的一对** `collision_keeper_handle.{cpp,ts}`，不复用注册半边的用例
+  （注册与调度各有各的输入面）。同一个 TS 文件因此被两个 subject 覆盖。
+- 输入：`env dev 0|1`、`env data <值>`、`env a|v id/type/state`、`env itr|bdy|handlers <值>`；
+  输出：`run hunt || <日志>`，日志里 `dbg:` / `handler:` / `tester:` / `action:` /
+  `frozen` 相关 / `v_collided:` / `a_collision:` / `sound:` 都是可观测点。
+- **缝写成对实参顺序敏感**：`env.ball_frozen` 的 C++ 实现是 `return first.id != u"V";`，
+  于是把参数写成 `(attacker, victim, itr)` 会翻转返回值、跳过 action 分派，而 TS 侧的真
+  `handle_ball_frozen` 在两种顺序下都因空 `group` 返回 `false` ⇒ 差分立刻抓到顺序错误。
+  这是「TS 侧的真函数无法打桩」时的通用手法。
+- **TS 侧打桩**：`Ditto` 是普通对象（`src/LFW/ditto/Instance.ts` 的 `const _Ditto`），
+  可以直接 `Ditto.DEV = …` / `Ditto.debug = …`；`collision_action_handlers` 是普通对象，
+  逐键换成日志桩；假 handler 要 `Object.defineProperty(fn, "name", …)`，否则 debug 行打印不出名字。
+- **打完桩的对象要洗一遍**：给 action 注入 `tester.run` 后先用 `JSON.parse(JSON.stringify(x))`
+  去掉函数再 `renderValue`，才能与 C++ 侧的 `render(action)` 对齐（注意保留 `r` 键）。
+
+## 22. `buff` 子类（一）：`Buff_GroupAttack` / `Buff_Electrify`
+
+`native/lfw/buff/buff_group_attack.{h,cpp}`、`native/lfw/buff/buff_electrify.{h,cpp}`
+（对应 `src/LFW/buff/Buff_GroupAttack.ts`、`Buff_Electrify.ts`）。这两类是切片 4 的第一对，
+形状完全一致：**给每个受击者打/清一个标记 + 挂一个居中特效实体**。
+
+### 22.1 为了可继承而对基类做的改造（`native/lfw/buff/buff.h`）
+1. `Buff::place_effect` / `mount` / `unmount` / `init` 全部改成 **`virtual`**：
+   TS 里子类正是覆写这四个。`place_effect_center` 保持非虚（TS 也非虚，子类只在
+   `place_effect` 里转调它）。这些改动**不改变任何既有行为**，只是打开继承点。
+2. `IBuffEntity` 新增 `data` / `state` / `wait` / `set_wait` / `mp` / `set_mp` / `mp_max` /
+   `dataset` / `marks_get` / `marks_set` / `marks_delete`，全部是**带默认实现的虚函数**，
+   **不是纯虚**。原因：有 **10 个已门禁 harness** 实现了 `IBuffEntity`，加纯虚会让它们全部
+   编译失败；带默认实现则零改动、零回归。
+   ——「给已门禁接口补充能力」一律用这个办法。
+3. 新增 `set_mark(IBuffEntity&, key, value, prev)` / `del_mark(IBuffEntity&, key, value)` 自由函数，
+   照抄 `Entity.set_mark` / `del_mark` 的**条件语义**：
+   - `prev == void 0` 只认 `undefined`（用 `std::holds_alternative<std::monostate>`，**不是** `missing()`，
+     后者把 `null` 也算缺失）；
+   - 值比较用宽松 `equals`；
+   - 条件不成立时**什么都不做**（`del_mark` 连日志都不产生）。
+   这套语义是 `unmount()` 的关键：标记值被别人改过时就不能删。
+
+### 22.2 保真要点
+1. **`static KIND` 是类的身份**：`Buff_GroupAttack.KIND === "GroupAttack"`、
+   `Buff_Electrify.KIND === "Electrify"`。`mount` 用它当**标记键**，`unmount` 也用它。
+   端口里它是 `const char16_t*` 静态成员（`grant_buff` 的调用方需要它）。
+2. `static GROUPS` 目前是给（尚未端口化的）buff 工厂用的纯数据，本单元没有任何读取点。
+3. **`effect_oid` / `effect_frame_id` 是受保护的 getter**：`"fx"` + `"16"` / `"32"`。
+   `effect_oid` 为空串时 `update_effects()` 会提前返回（不建特效实体）。
+4. **`place_effect` 被覆写成 `place_effect_center`**：特效贴在受击者**当前帧的视觉中心**
+   （`y + centery - h/2`，`h = height || pic.h`），而不是脚底。这是与基类的唯一行为差异。
+5. **`mount()` 必须转调 `Buff::mount()`**（负责 `_mounted` 与 `world.buffs.set`），
+   **`unmount()` 必须在清完标记后转调 `Buff::unmount()`**（负责删特效与逐受害者清理）。
+6. `unmount()` 遍历的是**转调基类之前的**受害表副本语义：端口先把 `victims()` 循环跑完再调
+   `Buff::unmount()`（基类会在内部清空 `_victims`）。
+7. 端口用 `using Buff::Buff;` 继承构造函数（真实签名是 `(const BuffEnv*, id, kind)`，
+   与 TS 的 `(lfw, id, kind)` 对应）。
+
+### 22.3 harness 观察点
+- 一对 harness `buff_marks.{cpp,ts}` 同时覆盖两个类（`env cls s "group_attack"|"electrify"`）。
+- 输入：`env id|kind|cls|victim`（字符串值）、`env vpos|vframe|mark`（对象）、
+  `run make|mount|unmount|effect`。
+- 可观测面：`<victim>:buffs_set:` / `world_buffs_set:` / `<victim>:set_mark:key:value` /
+  `<victim>:del_mark:key` / 特效实体的 `outline_alpha,outline_width,outline_color,set_position,
+  enter_frame_by_id,attach` / `find_data:<oid>` / 状态文本里的 `marks=[…]` 与 `fx=x/y/z`。
+- **`find_data` 必须落日志**，否则 `effect_oid` 换成另一个非空串完全不可观测（任何非空 oid
+  都返回真值对象）。空串那一支靠 `update_effects` 的提前返回观测。
+- **字符串日志有两种写法**：表示「值」的字符串（`enter_frame_by_id`、`outline_color`）
+  两端都要走 `renderValue`（C++ 用 `render(Value(u16string))`），否则 TS 打 `s"16"` 而
+  C++ 打 `16`；表示「键/身份」的字符串（`buffs_set:` 的 key、`set_mark:` 的 key、victims 列表）
+  两端都用裸拼接。同一个 harness 里两种并存。
+- `env mark` 必须是**覆盖**语义（对应 `marks.set`），所以 C++ 侧走实体的 `marks_set()`
+  而不是往 `_marks` 里 `emplace_back`（后者会造出重复键，而 TS 的 `Map` 不会）。
+
+## 23. `buff` 子类（二）：`Buff_Healing` / `Buff_MpHealing`
+
+`native/lfw/buff/buff_healing.{h,cpp}`、`native/lfw/buff/buff_mp_healing.{h,cpp}`
+（对应 `src/LFW/buff/Buff_Healing.ts`、`Buff_MpHealing.ts`）。
+这对是切片 4 第二组：**打标记 + 按 ticker 周期回血/回蓝**。
+
+### 23.1 单元边界（`native/lfw/buff/buff.h` 的补充）
+`IBuffEntity` 又补了三个**带默认实现的虚函数**：`hp` / `hp_r` / `set_hp`。
+和上一轮一样，**不能加纯虚**（10 个已门禁 harness 会被打断）。
+
+### 23.2 保真要点
+1. **`static duration_of(e, amount)`**：`ceil(amount / max(1, <kind>_healing_value)) *
+   max(1, <kind>_healing_ticks)`。两个 `max(1, …)` 分别在**分母**与**乘数**上，位置不可换；
+   `Math.max(1, undefined)` 是 **NaN**（见 DESIGN §19.2）。
+2. **`mount()`**：先 `Buff::mount()`，再对每个受害者 `set_mark(KIND, this.id)`，
+   并把 `this.ticks` 设成该受害者的 `<kind>_healing_ticks`（循环里最后一个受害者胜出）。
+   ⇒ 标记键是**类常量**，而 tick 间隔是**每受害者读一遍**。
+3. **`has_on_tick()` 必须覆写为 `true`**，否则基类的 `update()` 根本不会调 `on_tick`。
+   端口的基类默认返回 `false`（这是给「无周期行为」的子类省的）。
+4. **`on_tick`**：
+   - `Buff_Healing`：`hp >= hp_r` 时只把 `lifetime` 刷成 `duration` 并返回；
+     否则 `hp = min(hp_r, hp + hp_healing_value)`。
+   - `Buff_MpHealing`：**没有** `mp >= mp_max` 那一段 —— TS 原文里它是**注释掉的**，
+     端口照抄（不要「顺手补上」）。只做 `mp = min(mp_max, mp + mp_healing_value)`。
+5. **`unmount()`**：用 `del_mark(KIND, this.id)` 的**条件删除**（标记值被别人改过就不删），
+   最后 `Buff::unmount()`。
+6. `Times` 的**累积语义**（`native/lfw/utils/times.cpp`）：`add(d)` 把 `d` 累加到 `_value`，
+   只有 `_value >= _max` 才返回 `true` 并把 `_value` 归位。
+   ⇒ 写用例时 `run tick <ticks>` 才会**每次**触发；`run tick 1` 三次只触发一次。
+   这是本轮 5 条变异存活的主因（用例的 tick 根本没触发到 `on_tick`）。
+
+### 23.3 harness 观察点
+- 一对 harness `buff_healing.{cpp,ts}`（`env cls s "healing"|"mp_healing"`）。
+- 输入：`env id|kind|cls|victim`（字符串）、`env vdata|vhp|vmp|mark`（对象）、
+  `env ticks|duration`（裸数字，需先 `run make`）。
+- `run make|mount|unmount|tick <d>|duration <amount>`；`duration` 直接调类的**静态** `duration_of`。
+- 状态文本逐受害者打印 `hp=[…]` / `mp=[…]`，另有 `ticks=` / `life=` / `dur=` / `marks=`。
+- **数值日志一律走 `render`**（两端都是），别一端 `renderValue` 一端裸数字 ——
+  字符串日志则按 §22.3 的「值型 vs 键型」分别处理。

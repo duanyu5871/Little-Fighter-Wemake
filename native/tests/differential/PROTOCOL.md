@@ -1838,3 +1838,170 @@ harness op：
    `attacker.facing`。假实体位置恒为 0，所以 `diff_x > 0` / `diff_x < 0` 两条都不成立。
 3. `critical_hit` 支持对象（`{1: [...], -1: [...]}`）与数组两种形态；**缺键时 TS 会抛
    `TypeError`**，所以用例只覆盖「对象含两个键」与「数组且方向为 +1」两类。
+
+### 6.9.68 `collision_n_bdy_normal`（差分 175 行，变异 100/100 全杀）
+
+harness op：
+
+- `env itr <值>`（`effect` / `injury` / `bdefend` / `fall` / `motionless` / `shaking`）
+- `env dataset <值>` / `env bframe <值>` / `env aframe <值>` / `env armorwork 0|1`
+- `env acube <值>` / `env bcube <值>` / `env rest <裸数字>` / `env itr_motionless <值>`
+- `env velx|vely|velz <裸数字>`：`calc_itr_velocity` 缝的注入值
+- `env a|v <字段> <值>`：**一行只允许一个字段，出现多余 token 直接报错退出**
+- `run hit`
+
+输出：`run hit || <调用日志> | <状态>`。一次 run 只会出现其中一条路径的日志（`Ignore` 直接返回；
+armour 命中短路；四个 effect 分组各自成套；impact 路径要么 `is_fall` 早退、要么走完全程）。
+
+三条约定：
+1. `env velx|vely|velz` 的语义是 `itr.dvx/dvy/dvz`，缝里要复刻真算式的三件事：`x` 乘
+   `x_direction`（`position_based` 时恒为 -1）、**`y` 只在 `is_fall` 为真时才取注入值**（否则为
+   0）、`z` 直传。漏掉 `y` 的门控会让 impact 路径的 y 分量出现假漂移。
+2. `armorwork` 必须与 TS 侧真 `is_armor_work` 同真同假：`armorwork 1` 的用例要让真函数返回 true
+   （`fulltime` 真、`bframe.state` 允许、effect 非火非冰、`bdefend < 200`、`aframe.state !== 3006`）；
+   `armorwork 0` 的用例只能配「无 armor」或让 `bframe.state` 落在失效集合（如 `Injured`）。
+3. 每次进入 impact 尾段之前都要**显式重置 `fall`**（`env v fall n ...`）：`handle_fall` 会把
+   `fall_value` 清零，而 `is_fall` 对 `fall_value <= 0` 恒真 ⇒ 不重置就会整段尾逻辑被早退跳过
+   （首轮 25 条变异存活全是这个原因）。
+
+### 6.9.69 `collision_n_bdy_defend`（差分 110 行，变异 65/65 全杀）
+
+harness op：
+
+- 与 6.9.68 相同，另加 `env bdy <值>`（防御方 bdy），以及 `env a|v defend_ratio <值>`。
+- `env itr <值>` 里可用 `effect` / `bdefend` / `injury` / `actions`；`bdy.actions` 走 `env bdy`。
+- `run hit`。
+
+输出：`run hit || <调用日志> | <状态>`。日志里 `dispatch:<handler_type>:<action>` 表示 action 分发；
+整段只会有三种形态之一：守卫移交（出现 `handle_itr_normal_bdy_normal` 的痕迹）、破防分支
+（`spark:...:broken_defend` + 两组 `A_BROKEN_DEFEND` 过滤）、未破防分支
+（`spark:...:defend_hit` + 两组 `A_DEFEND` 过滤）。
+
+三条约定：
+1. **action 分发是缝**，不是真 `run_action`：`dispatch` 的第一个参数就是 TS 里的 handler key
+   （`A_NEXT_FRAME` / `V_NEXT_FRAME`），第二个参数是原始 action 对象。因此「分发给哪个 key」
+   与「`action.type` 的白名单」都可观测，而 handler 本体由 `action_handlers` 单元覆盖。
+2. `actions` 只按数组迭代；TS 对非数组值会抛 `TypeError`，端口用 `as_array` 守卫（宽容）。
+   用例只用数组与 `null` / 缺失。
+3. **每条防御用例之前都要重置 `defend`**：`defend_value -= bdefend` 会累积，不重置就会从
+   「未破防」掉进「破防」，三条 bdy 分支的变异会因此全部存活。
+
+### 6.9.70 `collision_ball_frozen`（差分 151 行，变异 89/89 全杀）
+
+harness op：
+
+- `env itr <值>`：`kind` 用值语法（`env itr o 1 kind n 0`，字符串形式 `s "0"` 也在用例里）。
+- `env a|v group <值>` / `state` / `type` / `face` / `frame` 走值语法；
+  `posx` / `posy` / `posz` 走裸数字；`spawn 0|1` 是裸标志。
+- `run hit`。
+
+输出：`run hit || <调用日志> | <双方状态> | ret=0|1`。
+日志里 `A:spawn:oid:kind:x:y:z:action:face` 与 `V:enter_frame:gone` 带实体身份。
+
+三条约定：
+1. **`frame` 是对象**：`env a frame o 4 centerx n 5 centery n 6 width n 0 height n 0`。
+   只要对象里字段数与 `o <n>` 不符，harness 会直接报 `value literal truncated`。
+2. **`spawn` 的返回标志要分别设在 `a` 和 `v` 上**：守卫读的是 `a.spawn` 的返回值，
+   只改 `v` 那条不能覆盖「忽略返回值」这一支。
+3. 用例里凡是「影响分支判定」的字段（`group` / `state` / `type` / `face` / `frame` /
+   `pos*` / `spawn`）在切换场景时都要显式重置，别依赖上一轮残留。
+
+### 6.9.71 `collision_healing`（差分 55 行，变异 22/22 全杀）
+
+harness op：
+
+- `env itr <值>`：`injury` 用值语法，字符串（`s "6"`）与缺失都要覆盖。
+- `env a|v dataset <值>`：**只用对象**。`dataset` 是实体上的普通属性读，传 `null` 属于契约外。
+- `run heal`。
+
+输出：`run heal || <调用日志> | <双方 dataset> buff=<id>/<lifetime>/<duration>/<level>/<attacker>`；
+无 buff 时写作 `buff=none`。
+
+三条约定：
+1. **`duration` 必须显式打印**：handler 返回 void，公式算错只能从 `grant_buff` 之后的 buff 状态
+   里看出来。harness 的 `create_buff` 要把返回的 `Buff*` 存进全局，状态文本再读它。
+2. **假 buff 实体的 id 要和实体一致**（见 DESIGN §19.3），否则 buff id 会分叉。
+3. 用例要同时覆盖：`injury` 的假值（`0` / `""` / 缺失 / 键名写错）、`ceil` 的进位与整除、
+   两个 `max(1, …)` 的钳制（含 `0` 与 `0.5`）、dataset 缺键造成的 NaN、字符串 `injury` 的强转。
+
+### 6.9.72 `collision_keeper`（差分 108 行，变异 45/45 全杀）
+
+harness op：
+
+- `env a|v type <裸数字>`：`collision.attacker/victim.data.type`。
+- `env a|v state <裸数字>`：供 `a_state` / `v_state` 过滤使用（目前只有 `v_state` 有用例）。
+- `env itr <值>` / `env bdy <值>`：必须**都存在**，真实现会直接读它们的 `.kind`。
+- `env handlers <值>`：预置 `collision.handlers`（数组，元素被当作名字）。
+- `run load`。
+
+输出：`run load || handlers=[<名字,…>] | ret=0|1`。
+
+三条约定：
+1. **一条用例一个探针**：表格里有 19 条配置，每条至少要有一个能命中的 `(a,v,itr,bdy)` 组合，
+   否则「删掉该条」或「改该条的枚举」都不可观测。
+2. **要专门造「同 key 多命中」的用例**（`(Ball, Normal, Ball, Normal)`）以及
+   **状态过滤**的用例（武器三条配置的 `v_state`）。
+3. `pack_a` / `pack_b` 的位移与 `|` / `+` 都是不可观测的（双向自洽、无碰撞）；
+   想让它可观测必须**制造键碰撞**（丢掉 kind）。
+
+### 6.9.73 `collision_keeper_handle`（差分 77 行，变异 48/48 全杀）
+
+harness op：
+
+- `env dev 0|1`：对应 `Ditto.DEV` / `CollisionCoreEnv::dev`。
+- `env data <值>`：包成 `{base: <值>}`，模拟 `victim.data`。
+- `env a|v id s "…"` / `env a|v type <裸数字>` / `env a|v state <裸数字>`。
+- `env itr <值>` / `env bdy <值>`：`kind` 与 `actions` 都放这里；`actions` 的每个元素是
+  `o 3 type s "…" pretest b 0|1 tester o 1 r b 0|1`。
+- `env handlers <值>`：handler **名字**数组（两端都会做成同名桩函数）。
+- `run hunt`。
+
+输出：`run hunt || <日志>`，无状态文本。
+
+三条约定：
+1. `itr` 与 `bdy` 必须都存在（真实现直接读它们的 `.kind`）。
+2. **`actions` 只能是数组或 `null`**：`actions?.map` 对非数组会抛 `TypeError`，端口用
+   `as_array` 宽容 ⇒ 非数组属契约外。
+3. 想观测「测试预计算的时机」，同一个 run 里必须**同时**有 handler 日志与 tester 日志。
+
+### 6.9.74 `buff_marks`（差分 41 行，变异 30/30 全杀）
+
+harness op：
+
+- `env cls s "group_attack"` / `s "electrify"`：选类。
+- `env kind s "…"` / `env id s "…"`：构造参数（`kind` 不参与子类逻辑，只为快照/工厂）。
+- `env victim s "V1"`：追加一个受击者（累计；`run make` 时全部挂上）。
+- `env vpos o 3 x n … y n … z n …`、`env vframe o 3 centery n … height n … pic_h n …`：
+  作用于**最后一个**追加的受击者。
+- `env mark o 2 key s "…" value s "…"`：给最后一个受击者**覆盖式**写一个标记。
+- `run make` / `run mount` / `run unmount` / `run effect`（`effect` 即 `update(0)`）。
+
+输出：`run <op> || <日志> | <状态>`；状态含 `id=`、`victims=[…]`、`marks=[<实体>{key=value,…}]`、`fx=x/y/z`。
+
+三条约定：
+1. **受击者是累计的**：第二次以后 `run make` 会带上之前所有受害者，所以「只处理第一个受害者」
+   这类变异从第二个场景起就可观测。
+2. **想观测 `del_mark` 的条件删除**，必须在 `mount` 之后用 `env mark` 把标记值改成外来值，
+   再 `run unmount`。两个类各要一个这样的场景。
+3. 状态文本里**不要打印 `mounted`**：端口有 public `mounted()`，但 TS 的 `_mounted` 是
+   protected 且没有 getter，TS 侧读不到。挂载与否改从 `world_buffs_set:` 日志观测。
+
+### 6.9.75 `buff_healing`（差分 52 行，变异 42/42 全杀）
+
+harness op：
+
+- `env cls s "healing"` / `s "mp_healing"`；`env kind` / `env id`。
+- `env victim s "V1"`（累计）；`env vdata o 4 hp_healing_value n … hp_healing_ticks n …
+  mp_healing_value n … mp_healing_ticks n …`、`env vhp o 2 hp n … hp_r n …`、
+  `env vmp o 2 mp n … mp_max n …`、`env mark o 2 key s "…" value s "…"`：都作用于**最后一个**受害者。
+- `env ticks n …` / `env duration n …`：需要已有 buff（先 `run make`）。
+- `run make|mount|unmount|tick <d>|duration <amount>`。
+
+输出：`run <op> || <日志> | <状态>`；`duration` 的输出是 `d=<值>`。
+
+三条约定：
+1. **`run tick <d>` 的 `d` 要写成 `>= tips`**（即当前 `ticks`）才能每次触发 `on_tick`；
+   想观测「累积」本身就把 `d` 写小、多调几次。
+2. `duration_of` 的用例要覆盖：整除与不整除、`value`/`ticks` 为 `0` 的钳制、`0` 与负数金额。
+3. 「越界钳制」类变异（`min(hp_r, …)` / `min(mp_max, …)`）必须把**起始值放到离上限不足一次回复量**
+   的位置，否则钳制永远不生效。
