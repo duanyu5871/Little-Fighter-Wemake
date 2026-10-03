@@ -2463,3 +2463,41 @@ harness op：
 8. **「单段为空」与「全空」都要有**：全空场景锁掉罐子 + `mt.range(-6,6)/2`
    的日志（含参数与商），单段为空场景锁住 `&&` 链不提前触发。
 9. `env hpmax|mp|mpmax` 是 Value 字面量而不是裸数字，才能表达 `u`（NaN 场景）。
+
+### 6.9.91 `character_state_jump`（差分 103 行，变异 48/48 全杀）
+
+harness op：
+
+- `env state|pos|gy|jx|jy|jz|jt|jumpflag|dvals|onlanding|landing1`（值字面量）、
+  `env lr|ud <裸数字>`、`env bot <真值>`、`env held s "..."`（`ctrl.is_end(key)`
+  为真表示该键**未**按住；harness 用「`held` 里是否含该字符」实现）。
+- `run make|default|enter|update|landing`。
+
+输出：`run make|default` 带 `s=`（构造参数）；状态文本
+`pos=[x:y:z] gy= jx= jy= jz= jt=`；日志逐条打缝调用（`handle_ground_velocity_decay`、
+`ctrl_is_end:<键>`、`prev_frame`、`dataset:<键>`、`world_dataset:<键>`、
+`set_velocity:x:y:z`、`enter_frame(:by_id)`、`update_velocity`）。
+
+覆盖面（杀掉全部 48 条变异的关键）：
+
+1. **`gy` 要变一次高度**（`gy n 2` 配 `pos.y n 2` / `n 3`），锁住「落点判断读
+   `position.y` 而不是 x/常量」；之后**必须把 `pos.y` 复位**（本片 `pos y n 0`），
+   否则后续所有 update 都早退、半个变异表失去观察面。
+2. **五个按键各来一档**（`held s "R"` / `"L"` / `"U"` / `"D"` / `"j"`），
+   再补 `held s "RLUDj"`（x、z 的两步互相抵消）与 `held s ""`（五键全松）。
+3. **`atom_time` 两档**：`1`（整数步）与 `1.2345`（锁 `round_float` 的累加取整）。
+4. **`atom_time n 0` 是必备用例**：只有它能让计步后的 `jumping.t` 为 0，从而走到
+   起跳插值的 `else`（`vy = min = 4`）。否则「条件读成 `jumping.y`」的变异会存活
+   （本片第一次跑变异实测 SURVIVED，补了这一档才杀掉）。
+5. **起跳参数要互相可区分**：`dvals` 的行内顺序无关，但值取
+   `10/3/5/7/11/13`（height / h_f / distancez / z_f / distance / x_f），
+   任意两条读串了都会改变 `vy` 或 `vx`。
+6. **`lr`/`ud` 取 ±1 两档**（`lr 1 / ud -1` 与 `lr -1 / ud 1`）锁符号与交叉。
+7. **`jumpflag` 三档**：`b 1`（起跳）、`s "0"`（宽松真值仍起跳）、`n 0`（跳过起跳）。
+8. **`jt`/`jy` 非零档**（`n 2` / `n 1`）锁插值的分子分母不互换、`min` 不乘不加。
+9. **机器人分支单独一档**（`bot b 1`）：只推进 `t`、`y`，不读任何键。
+10. **landing 三档**：`onlanding` 有帧（帧优先、跳过 `landing_1`）、
+    `landing1 s "L1"`（`enter_frame_by_id` + `update_velocity({dvz:4,ctrl_z:Control})`）、
+    `landing1 s "L9"`（锁读取时机与值）。
+11. `landing1` 必须是**字符串**：C++ 的 `to_string(undefined)` 渲染成 `"undefined"`
+    而 TS 打 `u`，所以这一档有意不覆盖（同 §37.3）。

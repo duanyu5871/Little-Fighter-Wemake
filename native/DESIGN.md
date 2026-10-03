@@ -4080,3 +4080,63 @@ StateBase_Proxy(Value state, std::unique_ptr<CharacterState_Base> character_prox
   参与 `enter_frame_by_id` 的值必须是**字符串**（否则撞 §37.3 的 `to_string` 差异）。
 - ⚠️ `env drink` 直接构造真 `DrinkInfo`，状态文本打 `to_snapshot()` ——
   三个 `Times` 的内部状态因此全部可观测（`add()` 是否被调用也不例外）。
+
+## 39. 切片 5：`state/CharacterState_Jump`
+
+`native/lfw/state/character_state_jump.{h,cpp}`（对应 `src/LFW/state/CharacterState_Jump.ts`）。
+
+### 39.1 单元边界（`IStateEntity` 补 12 个缝）
+`ctrl_is_bot()` / `ctrl_is_end(const std::u16string&)`、`jumping_x/y/z/t()` 与
+`set_jumping_x/y/z/t()`（8 个）、`prev_frame()`、`update_velocity(const Value&)`。
+其余用既有缝：`position`、`set_position`、`ground_y`、`dataset`、`world_dataset`、
+`ctrl_lr/ud`、`handle_ground_velocity_decay`、`frame_on_landing`、
+`data_indexes_landing_1`、`enter_frame`、`enter_frame_by_id`、`set_velocity`。
+
+### 39.2 保真要点
+1. **钩子装配**：构造函数里只装 `enter` 与 `on_landing`（`update` 是重写的虚函数，
+   不是钩子）。默认 state 取 `StateEnum.Jump`（4），`state` 参数仍可覆写。
+2. **`enter` 只清四个 `jumping` 字段**（x→y→z→t 各写一次 0），不碰位置、速度、帧。
+3. **`update` 的骨架是「衰减 → 落点判断 → 计步 → 起跳」**：
+   - `handle_ground_velocity_decay()` 无条件先跑；
+   - `if (!float_equal(position.y, ground_y)) return;`（**空中不记步**，也不清
+     `jumping`；`x`/`z` 不参与判断）；
+   - `const { jump_flag } = e.get_prev_frame()` 在**分支之前**读取，
+     但只在计步结束后才用；
+   - 计步分两条路：机器人 `t`、`y` 各加一次 `atom_time`；人类 `t` 一定加，
+     然后 `R`→`+x`、`L`→`-x`、`U`→`-z`、`D`→`+z`、`j`→`+y`，每步都是
+     `round_float` 后的**读-改-写**，条件是 `!is_end(键)`（即该键被按住）；
+   - `if (!jump_flag) return;` 是**宽松真值**（字符串 `"0"` 也为真）。
+4. **`round_float` 每个计步都用一次**：`atom_time = 1.2345` 的用例把
+   「累加后取整」锁死（连续两次 1.2345 会累积到 3 而不是 2.469）。
+5. **起跳参数按 TS 的书写顺序逐条读取**：`jump_height` → `jump_h_f`
+   （`vy` 初值）→ `jump_distancez` → `jump_z_f`（`vz`）→ `jump_distance` →
+   `jump_x_f`（`vx`）。端口把每条 `e.dataset(...)` 拆成独立语句，日志顺序即原文求值顺序。
+6. **`vx = LR * (distance * x_f - abs(vz / 4))`**：`abs` 是 JS 语义（NaN 传播），
+   `/ 4` 不是取整；`vz = distancez * UD * z_f` 中间不取整；
+   `vy = height * h_f` 中间也不取整。
+7. **`min = 4` 是数字常量**：`vy = e.jumping.t ? min + (vy - min) * e.jumping.y / e.jumping.t : min`
+   照抄，注意 `jumping.t` 是在**计步之后**读的。
+8. **`set_velocity(vx, vy, vz)`** 三个参数全写，没有条件分支。
+9. **`on_landing`**：`e.frame.on_landing` 有值 → `enter_frame(帧)` 并返回；
+   否则 `enter_frame_by_id(to_string(e.data.indexes?.landing_1))`，随后
+   `update_velocity({ dvz: 4, ctrl_z: SpeedCtrl.Control })`。
+
+### 39.3 有意不覆盖 / 不可观测项
+- 机器人分支里 `t`、`y` 加的是同一个 `atom_time`，**交换两次调用不可观测**
+  （变异规格头注已写明）；少加一次 `y` 是可观测的（已列入变异）。
+- `e.jumping.*` / `e.position.y` 在 TS 是静默属性读写；端口走静默取值/写入缝，
+  只由状态文本观察终值，因此「读 `x` 还是读 `y`」这类差异靠后续行为与文本区分。
+- ⚠️ **`atom_time > 0` 时 `jumping.t` 在插值处恒为真**（计步刚加过），
+  `else` 分支只有 `atom_time = 0` 才可达。用例专门保留了这一档
+  （`atom_time n 0` + `jy n 2`），否则「条件读成 `jumping.y`」的变异会存活——
+  本片实测第一次跑变异就是这一条 SURVIVED。
+- ⚠️ 与 §37.3 同源：`landing_1` 若是 `undefined`，C++ 的 `to_string` 渲染成
+  `"undefined"` 而 TS 打 `u`，故用例里的 `landing_1` 只喂字符串，这一档有意不覆盖。
+
+### 39.4 harness 观察点
+- 一对 harness `character_state_jump.{cpp,ts}`；TS 侧用真 `CharacterState_Jump`，
+  fake Entity 提供 `jumping`（逐字段 getter/setter）、`ctrl`（`__is_bot_ctrl__`
+  与 `is_end` 打日志）、`world`（Proxy，打 `world_dataset:<键>`）、
+  `get_prev_frame()`（打日志）。
+- 输入与覆盖面见 `PROTOCOL.md` §6.9.91。
+- 状态文本 `pos=[x:y:z] gy= jx= jy= jz= jt=`；`run make|default` 额外打 `s=`。

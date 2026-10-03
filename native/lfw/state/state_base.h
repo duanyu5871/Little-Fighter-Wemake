@@ -93,6 +93,21 @@ class IStateEntity : public buff::IBuffEntity {
   virtual Value frame_info() const { return Value(); }
   virtual double ctrl_ud() const { return 0; }
   virtual double ctrl_lr() const { return 0; }
+  virtual bool ctrl_is_bot() const { return false; }
+  virtual bool ctrl_is_end(const std::u16string& key) const {
+    (void)key;
+    return true;
+  }
+  virtual Value jumping_x() const { return Value(); }
+  virtual void set_jumping_x(const Value& v) { (void)v; }
+  virtual Value jumping_y() const { return Value(); }
+  virtual void set_jumping_y(const Value& v) { (void)v; }
+  virtual Value jumping_z() const { return Value(); }
+  virtual void set_jumping_z(const Value& v) { (void)v; }
+  virtual Value jumping_t() const { return Value(); }
+  virtual void set_jumping_t(const Value& v) { (void)v; }
+  virtual Value prev_frame() const { return Value(); }
+  virtual void update_velocity(const Value& v) { (void)v; }
   virtual bool holding_is_weapon() const { return false; }
   virtual double handle_wait_flag(const Value& wait, const Value& frame) {
     (void)wait;
