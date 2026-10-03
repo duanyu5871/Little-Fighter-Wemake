@@ -4140,3 +4140,87 @@ StateBase_Proxy(Value state, std::unique_ptr<CharacterState_Base> character_prox
   `get_prev_frame()`（打日志）。
 - 输入与覆盖面见 `PROTOCOL.md` §6.9.91。
 - 状态文本 `pos=[x:y:z] gy= jx= jy= jz= jt=`；`run make|default` 额外打 `s=`。
+
+## 40. 切片 5：`state/CharacterState_Falling`
+
+`native/lfw/state/character_state_falling.{h,cpp}`（对应
+`src/LFW/state/CharacterState_Falling.ts`）。
+
+### 40.1 单元边界（`IStateEntity` 补 13 个缝）
+`ctrl_reset_key_list()`、`data_id()`、`shaking()`、
+`handle_ground_velocity_decay(double factor)`（**重载**：无参版本代表默认 `1`）、
+`fuse_bys()`、`ref_set_velocity(who, x, y, z)`、`dismiss_fusion(frame_id)`、
+`defend_value_max()` / `set_defend_value(v)`、`resting_max()` / `set_resting(v)`、
+`set_throwinjury(v)`、`data_indexes_critical_hit()`。
+其余用既有缝：`bounced` / `set_bounced`、`fall_value` / `set_fall_value` /
+`fall_value_max`、`has_catcher` / `catcher_drop_catching`、`drop_holding`、
+`leave_ground`、`frame_id`、`frame_info`、`frame_on_landing`、`facing`、`hp`、
+`wait`、`velocity_x/y/z`、`set_velocity`、`enter_frame`、`enter_frame_by_id`、
+`world_dataset`、`data_indexes_bouncing` / `_falling` / `_lying`、`find_direction`。
+
+⚠️ 本片是**第一个带实例状态**的单元：`_bouncing_frames_map` 必须跨实体保留，
+所以 `enter` 用捕获 `this` 的 lambda 装配（`on_landing` 不需要实例状态，
+仍是 `&csf_on_landing` 自由函数）。另外 `on_landing` 在端口里是 `State_Base`
+的 `std::function` 成员而**不是**虚函数，写 `override` 会编译失败（C3668）。
+
+### 40.2 保真要点
+1. `_bouncing_frames_map` 是 `Map<dataId, Set<frameId>>`：`enter` 只在
+   `!map.has(e.data.id) && e.data.indexes?.bouncing` 成立时建表，并且
+   **短路顺序要保真**——`indexes.bouncing` 只有在「还没缓存」时才被读。
+   端口把这次读放进同一个条件里（先算 `need_cache`，成立才读缝）。
+2. `enter` 顺序：`bounced = false` → `ctrl.reset_key_list()` → 建表 →
+   `catcher?.drop_catching()` → `drop_holding()` → 融合 → `leave_ground()`。
+3. 融合（`hp <= 0 && fuse_bys?.length`）：解构 `e.velocity` 后
+   `next_vx` 每轮 `* -1`（第 1 个 −vx、第 2 个回 vx），逐个
+   `fighter.set_velocity(next_vx, vy, vz)`，最后 `dismiss_fusion(e.frame.id)`。
+   `vx = 0` 时 `0 * -1` 得 `-0`，端口与原文一致（trace 里 `-0` 与 `0` 可区分）。
+4. `update`：`e.shaking > 0` 直接返回；否则按 `is_bouncing_frame(e)` 分流
+   （`update_bouncing` = `handle_ground_velocity_decay(0.7)`，注意**带参**；
+   `update_falling` 见下）。**没有** `super.update` 调用。
+5. `update_falling`：`wait <= 0` 才进；帧序号从 `1` 起，`y > 3` → 0、
+   `y < -3` → 2（严格比较，`±3` 落在中间档）；方向
+   `x / facing > 0 ? 1 : -1`（`0` 与 `NaN` 都归 −1）；
+   最后 `enter_frame({ id: indexes?.falling?.[direction][idx] })`——
+   传的是**局部对象**（只有 `id`），不是帧表里的帧对象。
+6. `leave`：先 `super.leave`（`State_Base` 的 HealSelf 补 buff），再
+   `bounced = false`、`fall_value = fall_value_max`、
+   `defend_value = defend_value_max`、`resting = resting_max`、
+   `fallinjury = 0`、`throwinjury = 0`。
+7. `on_landing`：`frame.on_landing` 为真就直接 `enter_frame` 并**返回**；
+   否则
+   `d = find_direction(frame, indexes?.bouncing) || find_direction(frame, indexes?.falling) || find_direction(frame, indexes?.critical_hit) || facing`
+   ——`||` 短路，只有前一个返回 `0` 才继续，最后才落到 `facing`。
+   然后 `!bounced && (vy <= cha_bc_tst_spd_y || abs(vx) > cha_bc_tst_spd_x)`
+   为真 → `enter_frame_by_id(indexes.bouncing[d][1])` +
+   `set_velocity(null, cha_bc_spd)`（只有 y 有新值）+ `bounced = true`；
+   否则 `enter_frame_by_id(indexes.lying[d])`。`&&` 与 `||` 都短路，所以
+   `world_dataset` 的读取条数本身也是可观测的。
+8. **两种索引形状**：`bouncing` / `falling` 是 `{"-1": [...], "1": [...]}`，
+   `lying` / `critical_hit` 是 `{"-1": id}`。端口用两个小助手复刻 JS 取值：
+   `js_at(holder, key)`（对象按键，其它给 `undefined`）与
+   `js_at_index(holder, i)`（数组按下标且越界给 `undefined`，非数组回落 `js_at`）。
+   用例里两种形状都喂到了。
+
+### 40.3 有意不覆盖 / 不可观测项
+- `new Set([...bouncing[1], ...bouncing[-1]])` 的**展开顺序**不可观测（集合）；
+  可观测的是成员，已用「只加一个方向」「每个方向只加第一个」等变异覆盖。
+- `e.data.id` / `e.frame.id` / `e.data.indexes` / `e.velocity` / `e.bounced` /
+  `e.hp` / `e.wait` / `e.shaking` / `e.facing` 在原文都是**属性读**，两侧 harness
+  都保持静默：它们的取值只通过行为与状态文本观察（变异打在缝实现上）。
+- `leave` 里四次赋值的**先后顺序**不可观测（四个静默 setter、目标互不相同）。
+- `super.leave` 的 HealSelf 分支（`State_Base` 里补 `Buff_Healing`）不在本片覆盖：
+  本片用例都用 state = 12，该分支由 `state_base/main` 负责。
+- ⚠️ 与 §37.3 同源：索引里的帧 id 只喂**字符串**，
+  `enter_frame_by_id(undefined)` 的 `"undefined"` vs `u` 渲染差异有意不覆盖。
+- ⚠️ 原理上不可杀（不是漏测）：`x / facing`、`x * facing`、`facing / x` 三者的
+  符号永远相同，所以「除法换成乘法」这类变异无法用黑盒杀；可杀的同类变异是
+  「丢掉 `facing`」「`>` 写成 `>=`」「`? 1 : -1` 互换」，都已覆盖。
+
+### 40.4 harness 观察点
+- 一对 harness `character_state_falling.{cpp,ts}`；TS 侧的 `fuse_bys` 返回
+  `FakeFighter` 实例，其 `set_velocity` 打 `ref_set_velocity` 日志，
+  对象渲染成 `{"key":"G1"}`，与 C++ 侧日志逐字相同。
+- 输入与覆盖面见 `PROTOCOL.md` §6.9.92。
+- 状态文本
+  `pos=[x,y,z] vel=[x,y,z] dataid= frameid= hp= facing= bounced= fall=/<max> defend=/<max> rest=/<max> finj= tinj=`；
+  `run make|default` 额外打 `s=`。

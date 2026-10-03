@@ -129,6 +129,7 @@ add_library(lfw_core STATIC
   state/character_state_drink.cpp
   state/state_burning.cpp
   state/character_state_jump.cpp
+  state/character_state_falling.cpp
 )
 
 target_include_directories(lfw_core PUBLIC

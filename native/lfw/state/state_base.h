@@ -108,6 +108,25 @@ class IStateEntity : public buff::IBuffEntity {
   virtual void set_jumping_t(const Value& v) { (void)v; }
   virtual Value prev_frame() const { return Value(); }
   virtual void update_velocity(const Value& v) { (void)v; }
+  virtual void ctrl_reset_key_list() {}
+  virtual Value data_id() const { return Value(); }
+  virtual Value shaking() const { return Value(); }
+  virtual void handle_ground_velocity_decay(double factor) { (void)factor; }
+  virtual Value fuse_bys() const { return Value(); }
+  virtual void ref_set_velocity(const Value& who, const Value& x, const Value& y,
+                                const Value& z) {
+    (void)who;
+    (void)x;
+    (void)y;
+    (void)z;
+  }
+  virtual void dismiss_fusion(const Value& frame_id) { (void)frame_id; }
+  virtual Value defend_value_max() const { return Value(); }
+  virtual void set_defend_value(const Value& v) { (void)v; }
+  virtual Value resting_max() const { return Value(); }
+  virtual void set_resting(const Value& v) { (void)v; }
+  virtual void set_throwinjury(const Value& v) { (void)v; }
+  virtual Value data_indexes_critical_hit() const { return Value(); }
   virtual bool holding_is_weapon() const { return false; }
   virtual double handle_wait_flag(const Value& wait, const Value& frame) {
     (void)wait;

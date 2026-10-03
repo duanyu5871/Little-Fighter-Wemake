@@ -2501,3 +2501,50 @@ harness op：
     `landing1 s "L9"`（锁读取时机与值）。
 11. `landing1` 必须是**字符串**：C++ 的 `to_string(undefined)` 渲染成 `"undefined"`
     而 TS 打 `u`，所以这一档有意不覆盖（同 §37.3）。
+
+### 6.9.92 `character_state_falling`（差分 173 行，变异 77/77 全杀）
+
+harness op：
+
+- `env state|dataid|frameid|onlanding|idxbounce|idxfalling|idxcritical|idxlying|shaking|wait|hp|facing|vx|vz|bounced|fuse|fall|fallmax|defend|defmax|rest|restmax|finj|tinj|pos|dvals|vel`
+  （值字面量）、`env vy <裸数字>`、`env catcher <真值>`。
+- `run make|default|enter|update|landing|leave`。
+
+输出：`run make|default` 带 `s=`（构造参数）；状态文本
+`pos=[x,y,z] vel=[x,y,z] dataid= frameid= hp= facing= bounced= fall=/<max> defend=/<max> rest=/<max> finj= tinj=`；
+日志逐条打缝调用（`ctrl_reset_key_list`、`catcher_drop_catching`、`drop_holding`、
+`ref_set_velocity:<fighter>:x:y:z`、`dismiss_fusion:<frame>`、`leave_ground`、
+`handle_ground_velocity_decay:<factor>`、`enter_frame`、`enter_frame_by_id`、
+`set_velocity`、`world_dataset:<键>`）。
+
+覆盖面（杀掉全部 77 条变异的关键）：
+
+1. **缓存要用「同一 data id 的第二次 enter」来锁**：`env dataid` 在
+   `A` / `B` / `C` 之间切换，配合改 `idxbounce`。A 的缓存必须保持**建表时**的集合
+   （改了 `idxbounce` 之后再 `update` 旧帧仍走衰减、走新帧则下落），B 才用新集合。
+2. **`idxbounce` 每个方向要有两个 id**：只喂一个 id 的话「每个方向只加第一个」
+   这类变异不可杀（本片第一版就漏了，补了 `B2` 的 update 场景才杀掉）。
+3. **`idxbounce` 缺省一档**（`idxbounce u` + 新 data id）：既锁 `?.` 门，
+   也锁「不为空表建缓存」——随后补上真值再 `enter` 一次，必须重新建表。
+4. **`update` 四档**：缓存命中（只打 `handle_ground_velocity_decay:0.7`）、
+   未命中（打 `enter_frame:{"id":…}`）、`shaking n 1` 与 `shaking u`（都不出力，
+   `NaN > 0` 为假）、`wait n 1` 与 `wait u`（都不出力）。
+5. **`vy` 窗口四档 + 中间档**：`4 → 0`、`3 → 1`（严格比较）、`-3 → 1`、`-4 → 2`、
+   `0 → 1`。
+6. **方向四档**：`vx 1 / facing 1`、`vx 1 / facing -1`、`vx 1 / facing 2`、
+   `vx 1 / facing 0`（`Infinity > 0` 为真）、`vx -1 / facing 1`、`vx 0`（`0 > 0` 为假）。
+7. **融合三段**：`hp 5`（不进）、`vx 0`（得到 `-0`，trace 里与 `0` 不同）、
+   `vx -3 / vy -2 / vz 4`（第一个 +3、第二个 −3，且 vy/vz 原样透传）、
+   `fuse a 0`（空表不得 `dismiss_fusion`）、`fuse u`、`hp u`（`NaN <= 0` 为假）。
+8. **landing 十一档**：`on_landing` 真帧优先；`on_landing z`（`null` 为假）继续走；
+   y 阈值的 `<=` 闭区间（`vy == 阈值`）；`|vx|` 的 `>` 开区间（`|vx| == 阈值` 不弹）；
+   负 `vx` 锁 `abs`；`bounced` 已是 `n 1`（非布尔真值）挡弹跳；
+   `bouncing` / `falling` / `critical_hit` 三对 **id 故意重叠**
+   （`B2` 同时在 bouncing[1] 与 falling[-1]，`C1` 同时在 falling[1] 与 critical[-1]），
+   顺序写错就会取到另一侧；最后一档谁都不匹配落到 `facing`。
+9. **`bouncing` / `falling` 用数组、`lying` / `critical_hit` 用裸字符串**：
+   两种索引形状都跑到（`find_direction` 的 `a == f.id` 与 `Array.isArray` 两条路）。
+10. **`leave` 一档多值**：`bounced n 1` + 六个不同数值
+    （`fall 3 / fallmax 9 / defend 4 / defmax 8 / rest 5 / restmax 7 / finj 6 / tinj 2`），
+    状态文本一次锁住「都恢复成 max」与「inj 归零」，写错字段/写错 max 都会露。
+11. `super.leave` 的 HealSelf 分支不在本片（`state 12`），`state_base/main` 负责。
