@@ -79,6 +79,8 @@ add_library(lfw_core STATIC
   buff/buff_electrify.cpp
   buff/buff_healing.cpp
   buff/buff_mp_healing.cpp
+  buff/buff_electroshock.cpp
+  buff/buff_magic_flute.cpp
   controller/double_click.cpp
   controller/seq_keys.cpp
   controller/key_status.cpp
@@ -112,6 +114,11 @@ add_library(lfw_core STATIC
   utils/times.cpp
   helper/randoming.cpp
   state/spawn_ice_piece.cpp
+  state/state_base.cpp
+  state/character_state_base.cpp
+  state/character_state_basic.cpp
+  state/character_state_walking.cpp
+  state/character_state_caught_rowing.cpp
 )
 
 target_include_directories(lfw_core PUBLIC

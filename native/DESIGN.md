@@ -2910,8 +2910,13 @@ TS 的 `Map.get` 返回**同一个对象**。C++ harness 若写 `g_buff = *it->s
   `buff_entity` 两处，复用会把 harness 逼成一份 150 行的空实现，反而掩盖边界。
 - `buff::grant_buff` 用**真实现**（它属于已门禁的 `buff` 单元），本单元只负责「把谁和多少时长
   交出去」。
-- `Buff_Healing.duration_of` **就地实现**而不是先造 `Buff_Healing` 类（那个类属于切片 4）；
-  等切片 4 落地时应当把这里换成对类静态方法的调用。
+- `Buff_Healing.duration_of` 一度是**就地实现**；切片 4 落地 `Buff_Healing` 之后（见 §23）
+  已改成 `buff::Buff_Healing::duration_of(*v->buff_entity(), to_number(injury))`。
+  要点：端口的 `IHealingEntity` 与 `IBuffEntity` **不是同一个接口**，时长必须从
+  **受击者的 buff 实体**读 dataset（真实游戏里 `entity.buff_entity()` 就是实体本身）；
+  harness 里假 buff 实体的 `dataset` 必须**转发**给所属实体，否则读到空数据集。
+  搬走后，本单元只保留「`itr.injury` 守卫 + 两次 id 查表 + `Healing` 这个 kind +
+  交给 `grant_buff` 的实参」，时长公式的变异归 `buff_healing` subject 覆盖。
 
 ### 19.2 保真要点
 1. **`if (!itr.injury) return;` 在一切查表之前**：`0` / `""` / 缺失都会直接返回，
@@ -3132,3 +3137,449 @@ TS 的 `Map.get` 返回**同一个对象**。C++ harness 若写 `g_buff = *it->s
 - 状态文本逐受害者打印 `hp=[…]` / `mp=[…]`，另有 `ticks=` / `life=` / `dur=` / `marks=`。
 - **数值日志一律走 `render`**（两端都是），别一端 `renderValue` 一端裸数字 ——
   字符串日志则按 §22.3 的「值型 vs 键型」分别处理。
+
+## 24. `buff` 子类（三）：`Buff_Electroshock`
+
+`native/lfw/buff/buff_electroshock.{h,cpp}`（对应 `src/LFW/buff/Buff_Electroshock.ts`）。
+切片 4 第三组：**没有标记，只按 ticker 周期推进受害者的 `wait`，并在 `mount` 时缩短自身时长**。
+
+### 24.1 单元边界
+本单元**不需要**给 `IBuffEntity` 增补任何成员：只用到已有的 `data` / `state` / `wait` /
+`set_wait`，加上继承来的 `victims` / `find_entity` / `set_duration` / `duration` / `set_ticks` /
+`place_effect_center`。
+
+### 24.2 保真要点
+1. **`init()` 覆写为 `set_ticks(3)`**：只设 tick 间隔，不碰 `duration`。
+2. **`effect_oid()` 覆写为 `"fx"`**，但**不覆写 `effect_frame_id()`**（基类 `"0"`）。
+   曾经想把 `effect_frame_id` 也写成 `"32"`（照抄 `Buff_Electrify`）——那是**新增行为**，
+   TS 原文没有，端口也没有。
+3. **`place_effect(effect, victim)` 覆写为 `place_effect_center(effect, victim)`**：
+   特效挂点是 `y + centery - height / 2`，不是 `Buff::place_effect` 的裸 `y`。
+4. **`mount()` 用宽松 `==`**：
+   ```text
+   Buff::mount();
+   for each victim:
+     if (victim.state == Injured) continue;   // 宽松
+     if (victim.state == Falling) continue;   // 宽松
+     set_duration(round_float(duration() / 2));
+   ```
+   两个 `if` 是**分开的两条语句**（TS 原文如此），不能合并成一条 `||`——分开写时
+   每条都要能被单条删除的变异观测到。
+5. **`on_tick()` 用严格 `===`**：
+   ```text
+   if (!is_fighter_data(victim.data)) return;
+   if (victim.state === Falling) return;
+   if (victim.state === Lying)  return;
+   victim.wait = victim.wait + 1;
+   ```
+   ⇒ 同一个方法族的 `mount` 是宽松、`on_tick` 是严格，**不可统一**。
+   字符串状态（`s "11"` / `s "12"` / `s "14"`）就是用来把这两者区分开的：
+   严格比较会「认不出」字符串形态的数字。
+6. **`round_float` 在本单元不可观测**：`Times::set_max`（即 `set_duration`）内部做 `floor`，
+   所以 `duration()` 永远是整数，`/ 2` 最多产生 `.5` 一位小数，
+   `round_float`（`round(x * 1000) / 1000`）**永远不会改变结果**。
+   ⇒ 这条变异移入规格头部的「不可观测」清单，而不是硬造用例。
+7. **`KIND` 在本单元不可观测**：本类从不读它（没有 `set_mark` / `del_mark`），
+   它只是 `grant_buff(...)` 的调用方（例如 `handlers2`）传进来的字面量，归那些单元断言。
+8. `if (victim == nullptr) return;` / `continue;` **不能反向**（`!= nullptr` 是空指针解引用路径），
+   反向形式才是可观测变异。
+
+### 24.3 harness 观察点
+- 一对 harness `buff_electroshock.{cpp,ts}`。
+- 输入：`env id|kind|victim`（字符串）、`env vtype|vstate`（**值字面量**）、
+  `env vwait|duration`（**裸数字**）、`env vpos|vframe`（对象）。
+- **`env victim` 是「重新选中」而不是「总是追加」**：同一个 id 再次出现时会先把它从列表里
+  移除再压到末尾。这样后续 `env v*` 能重新指向第一个受害者（`mount` 的守卫要逐个固定状态，
+  列表里只要还剩一个中性状态的受害者，时长就会被它偷偷减半、变异藏进噪声里）。
+- `run make|init|mount|unmount|tick <d>`；`run tick <d>` 的 `d >= ticks` 才会每次都触发 `on_tick`。
+
+## 25. `buff` 子类（四）：`Buff_MagicFlute` / `Buff_MagicFlute2`
+
+`native/lfw/buff/buff_magic_flute.{h,cpp}`（对应 `src/LFW/buff/Buff_MagicFlute.ts`、
+`Buff_MagicFlute2.ts`）。切片 4 第四组：**唯一同时实现 `on_tick` 与 `on_update` 的子类**。
+
+### 25.1 单元边界（`native/lfw/buff/buff.h` 的补充）
+`IBuffEntity` 又补了一批**带默认实现的虚函数**（依旧不能加纯虚：10 个已门禁 harness 会全崩）：
+
+- 读：`data_type` / `velocity_y` / `team` / `data_indexes_falling` / `data_indexes_in_the_skys`
+- 写：`set_velocity(x,y,z)` / `handle_velocity_decay(accx)` / `set_hp_r` / `set_fallinjury` /
+  `set_toughness` / `set_team`
+
+`data.indexes.falling` / `data.indexes.in_the_skys` 按 `fall` / `weapon_is_hit` 的既有做法
+拆成 `data_indexes_*()` 缝（`IFrameIndexes` 的字段名与形状见 `fall.h`）。
+`summary_mgr.apply_damage` 用**模块级缝**（与 `handlers2` 的 `summary_apply_damage` 同形）：
+`MagicFluteEnv { summary_apply_damage }` + `magic_flute_env()` / `set_magic_flute_env()`。
+
+### 25.2 结构说明：两个类共用文件内 helper
+两个 TS 类的 `on_tick` / `on_update` **逐字相同**，只差两个常量
+（`injury` / 加速度）。端口把方法体抽成文件内匿名 namespace 的
+`apply_flute_tick(attacker, victim, injury, injury_r)` 与
+`apply_flute_update(attacker, victim, acc)`，类方法只负责选常量。
+这是本仓端口化里**唯一一处**主动合并重复体的地方，理由是 TS 侧除常量外连标识符序列都一致，
+合并后没有引入任何 TS 里不存在的分支；变异规格的锚点也相应落在 helper 文本与常量定义上。
+
+### 25.3 保真要点
+1. **`init()`**：`ticks = 3; duration = 3;`（两个类一致）。
+2. **`on_tick()`** 顺序不可换：
+   ```text
+   prev_hp = victim.hp              // 必须在扣血之前读
+   victim.hp_r -= injury_r          // 0.5
+   victim.hp   -= injury            // 2 / 1
+   victim.fallinjury = 20
+   victim.toughness  = 0
+   if (attacker) summary_mgr.apply_damage(attacker, injury, victim, prev_hp)
+   ```
+   `hp` 每次减少固定值（不是按比例），且 `injury_r` 两个类都是 `0.5`。
+3. **`on_update()` 的 `calc_v` 目标与加速度是同一个数**：
+   `calc_v(victim.velocity.y, acc, SpeedMode.AccTo, acc, 1)`，`acc` = `3`（Flute）/ `1.5`（Flute2）。
+   `AccTo` 分支里 `target` 与 `acc` 都乘 `direction`（这里是 `1`，所以看不出差别），
+   且 `if (!acc) return current` 在前 —— **`acc = 0` 是合法的早退分支**。
+4. **`set_velocity(null, vy)`**：`x` 是 `null`、`z` 省略（`undefined`）；真 `Entity.set_velocity`
+   对两者一视同仁（都跳过），所以只有 `y` 可观测。
+5. **`handle_velocity_decay(0.25)`** 只传一个实参 ⇒ `accz = accx`、`factor = 1`（真实现的默认参数）。
+6. **type 分支是严格比较**：`victim.data.type` 与 `EntityEnum.Fighter`(8) / `Weapon`(16)
+   **严格**相等才进对应分支（字符串 `"8"` / `"16"` 都不进）。
+   Fighter 分支里 `victim.state !== StateEnum.Falling` 也是**严格**。
+7. **Weapon 分支内层 `switch` 的两个 `break` 等价于空分支**（`Weapon_InTheSky`=1000 /
+   `HeavyWeapon_InTheSky`=2000，两个条件用 `&&` 与早退合并），`default` 才是
+   `team = attacker.team` + 进 `in_the_skys[0]`。
+8. **`indexes?.falling?.[-1][0]`**：`falling` 是 `{"-1": [...], "1": [...]}` 形状的对象
+   ⇒ `index_by(falling, u"-1")` 再 `index_0(...)`；`indexes?.in_the_skys?.[0]` 是数组 ⇒ 只 `index_0`。
+   ⚠️ `falling` 缺失或没有 `"-1"` 键时 TS 会 `undefined[0]` **抛异常**（契约外，端口不复制）；
+   索引缺失时 TS 传 `undefined` 给 `enter_frame_by_id`，端口传 `to_string(Value())` ⇒
+   用例必须始终给出索引（规格头注已写明）。
+9. `index_by` 的数组分支、`index_0` 的对象分支在本单元都是**死代码**（照抄自 `fall.cpp`），
+   写进规格头注而不是硬造用例。
+10. Fighter 分支结尾那个 `return;` 是 if/else-if 的等价变换，**不可观测**（删掉后
+    落到 Weapon 测试，而该测试在 Fighter 为真时必为假）。
+
+### 25.4 harness 观察点
+- 一对 harness `buff_magic_flute.{cpp,ts}`（`env cls s "mf1"|"mf2"` 选择类）。
+- 输入：`env id|kind|cls|attacker|victim`（字符串；`env attacker s ""` 表示无攻击者）、
+  `env ateam|vtype|vstate|vhp|vhp_r|vfallinjury|vtough|vteam|vindexes`（**值字面量**）、
+  `env vvy`（**裸数字**）。
+- `run make|init|tick <d>`。`on_update` **每次 `tick` 都跑**；`on_tick` 需要 `d >= ticks`。
+- 观察面：`set_velocity` / `handle_velocity_decay` / `enter_frame_by_id` / `set_hp` / `set_hp_r` /
+  `set_fallinjury` / `set_toughness` / `set_team` 日志，`apply_damage:<a>:<injury>:<v>:<prev_hp>`
+  （TS 侧 `summary_mgr.apply_damage` 被**打桩**，与 `handlers2` 的处理一致），
+  以及逐受害者的 `hp()/hp_r()/fall/tough/team/vy/type` 状态文本。
+- **假实体的 `data` getter 要把 `_indexes` 合并进去**：TS 真类读的是
+  `victim.data.indexes.falling`，而端口读的是 `data_indexes_falling()` 缝；
+  若 TS 侧 `data` 只返回 `_data`，`env vtype` 会连带把 `indexes` 抹掉，差分立刻分叉。
+
+## 26. 切片 5 起点：`state/State_Base`
+
+`native/lfw/state/state_base.{h,cpp}`（对应 `src/LFW/state/State_Base.ts`）。
+切片 5 的第一块：所有状态类的基类。
+
+### 26.1 单元边界
+```text
+IStateEntity : buff::IBuffEntity   // 只加 velocity_x() / velocity_z()
+StateEnv { const buff::BuffEnv* buff_env; }   // 模块级缝，同 handlers4 的 x_env()
+```
+`IStateEntity` 继承 `IBuffEntity`，因为 `leave()` 里要调
+`Buff_Healing::duration_of(e, …)`（它的参数就是 `const IBuffEntity&`），
+而 `grant_buff` 的 victim 形参也是 `IBuffEntity*`。
+
+### 26.2 可选钩子用 `std::function` 成员，不用「虚函数 + has_ 标志」
+`State_Base.ts` 里的 `pre_update?` / `enter?` / `on_dead?` / `on_landing?` /
+`get_gravity?` / `get_sudden_death_frame?` / `get_caught_end_frame?` / `get_auto_frame?` /
+`find_frame_by_id?` / `on_leave_ground?` 都是**声明式可选成员**：基类原型上根本没有这些属性。
+
+调用方写的是 `this._state?.get_gravity?.(this)`，也就是**先判存在再调用**
+（`Entity.ts:623 / 815 / 1571 / 1661 / 1756 / 1810 / 1824` 都这么写）。
+端口用**空 `std::function` 成员**建模：
+
+```text
+if (s->get_gravity) { Value g = s->get_gravity(*e); }
+```
+
+恰好等价于 `?.` 的存在性判断，且比 `virtual + has_xxx()` 少一半声明
+（`Buff` 用 `has_on_tick()` 是因为那边是必需/可选的二选一，这里 10 个钩子用虚函数会写 20 个函数）。
+`update` / `leave` / `on_restrict` 在 TS 里**基类就有实现** ⇒ 保持 `virtual` 且始终存在。
+
+### 26.3 保真要点
+1. **`leave(e, next_frame)` 只处理 `HealSelf`**，用**严格** `===`：
+   `grant_buff(Buff_Healing.KIND, void 0, e, Buff_Healing.duration_of(e, Defines.STATE_HEAL_SELF_HP))`。
+   `STATE_HEAL_SELF_HP = 104`（端口写成文件内 `kStateHealSelfHp`，同 `n_bdy_defend` 的
+   `kDefaultBreakDefendValue` 约定）。攻击者是 `void 0` ⇒ 端口传 `nullptr`。
+2. **`on_restrict(e, x, y, z)`**：
+   ```text
+   vx = vz = null ; vy = null            // 注意 vy 恒为 null（源码里那行被注释掉了）
+   if (!float_equal(x, e.position.x)) vx = clamp(e.velocity.x, -0.5, 0.5)
+   if (!float_equal(z, e.position.z)) vz = clamp(e.velocity.z, -0.5, 0.5)
+   if (!float_equal(y, e.position.y)) { vx = clamp(e.velocity.x, …); vz = clamp(e.velocity.z, …) }
+   if (vx !== null || vz !== null || vy !== null) e.set_velocity(vx, vy, vz)
+   e.position.x = x ; e.position.y = y ; e.position.z = z
+   ```
+   - `MIN_V = 0.5`；y 那一支是「贴地保留速度」的补丁，会**同时**把 x 与 z 都刷一遍。
+   - 判空是 **`!== null`**，不是 `undefined`：`undefined !== null` 为真 ⇒
+     **速度缺失时仍会调用 `set_velocity(undefined, null, vz)`**。端口的 `is_null` 因此
+     **只认 `NullTag`**，绝不能把 `monostate` 也算进去（变异规格里那条「missing 算 null」专门盖这个）。
+3. **`clamp` 的 JS 语义要单独建模**：`clamp(value, min, max) = value < min ? min : value > max ? max : value`。
+   `value` 非数（`undefined` / 字符串）时两次比较都为假 ⇒ **原样返回**。
+   端口的 `lfw::clamp` 是 `double` 版，所以 `on_restrict` 里用一个 `Value` 版的
+   `clamp_velocity(v)`：`d = to_number(v)`，越界返回**数值上/下界**，否则**原样返回 `v`**
+   （这样 `undefined` 仍是 `undefined`、`NaN` 仍是 `NaN`、字符串仍是字符串）。
+4. **`e.position.x = x` 是直接写字段，不是 `set_position`**：端口用 `IBuffEntity::set_position`，
+   其语义（写 `_px/_py/_pz`）与 TS 的字段写一致；**harness 里这一处不能打日志**，
+   否则 TS 侧（字段写，无法拦截）与 C++ 侧（函数调用，可打日志）立刻分叉。
+5. `update(e)` 在 TS 里是**空方法**，照抄成空方法。
+
+### 26.4 harness 观察点
+- 一对 harness `state_base.{cpp,ts}`。
+- 输入：`env victim s "V1"`、`env state` / `dataset` / `pos` / `velx` / `velz`（**值字面量**，
+  `velx`/`velz` 可写 `u` 造缺失速度）。
+- `run make|leave|restrict <x> <y> <z>|update`。
+- 观察面：`dataset:` / `create_buff:` / `world_buffs_set:` / `buffs_set:` / `set_mark:` / `set_velocity:`
+  日志，以及 `state=` / `pos=[…]` / `vel=[…]` / `granted=<id>:<duration>` / `marks=[…]` 状态文本。
+- **`set_mark` 的 key 走裸插值**（C++ `s_of`、TS `${String(key)}`），value 走 `render`
+  —— 与 `buff_marks` 的「值型 vs 键型」约定一致。
+- `run make` 必须把「上一个创建出来的 buff」清空，否则 `granted=` 会把上一场景的结果带进来。
+
+## 27. 切片 5：`state/CharacterState_Base`
+
+`native/lfw/state/character_state_base.{h,cpp}`（对应 `src/LFW/state/CharacterState_Base.ts`）。
+角色状态的基类，覆写了 `update` 并**首次**给 `State_Base` 的可选钩子装上了实现。
+
+### 27.1 单元边界（`native/lfw/state/state_base.h` 的补充）
+`IStateEntity` 又补了一批**带默认实现的虚函数**（不能加纯虚：`state_base` 的 harness 已门禁）：
+
+- 读：`facing` / `holding_base_type` / `is_on_ground` / `frame_on_landing` / `data_frames` /
+  `data_indexes_default` / `data_indexes_landing_2` / `data_indexes_heavy_obj_walk`
+  （`data_indexes_falling` / `data_indexes_in_the_skys` 已在上一单元加好）
+- 写/动作：`enter_frame(next_frame)` / `drop_holding` / `handle_ground_velocity_decay`
+
+### 27.2 可选钩子的「安装」而不是「覆写」
+`State_Base.ts` 里 `on_landing?` / `get_auto_frame?` / `get_sudden_death_frame?` /
+`get_caught_end_frame?` / `on_leave_ground?` 是可选成员，端口把它们建模成空 `std::function` 成员
+（见 DESIGN §26.2）。于是 `CharacterState_Base` **不是覆写虚函数，而是在构造函数里赋值**：
+
+```text
+CharacterState_Base::CharacterState_Base(Value state) : State_Base(std::move(state)) {
+  on_landing = &csb_on_landing;                 // 等等五个
+}
+```
+
+五个实现体放在文件内匿名 namespace 里（无捕获 ⇒ 可以直接取函数地址）。
+`update` 因为基类本来就有实现，保持 `override`。
+
+### 27.3 保真要点
+1. **`update`**：`State_Base::update(e)`（空）之后调 `e.handle_ground_velocity_decay()`。
+2. **`on_landing`**：先看 `e.frame.on_landing`（`truthy` 判定），有就 `enter_frame` 并返回；
+   否则 `enter_frame_by_id(e.data.indexes?.landing_2)`。
+3. **`get_auto_frame`** 的三段优先级（**不可换序**）：
+   `holding.base_type === Heavy` → `indexes.heavy_obj_walk`；
+   否则 `is_on_ground` → `indexes.default`；
+   否则 `hp > 0` → `indexes.in_the_skys[0]`。
+   然后 `if (!fid) return void 0`，最后 `frames[fid]`。
+   `holding.base_type` 的比较是**严格** `===`。
+4. **`get_sudden_death_frame`**：**先** `set_velocity(2 * facing, 2)`（只给 x/y，z 省略），
+   再看 `if (indexes?.falling)` 决定要不要返回 `{ id: falling[1][1] }`。
+5. **`get_caught_end_frame`**：`cvx = dataset('cvx_d')`、`cvy = dataset('cvy_d')`，
+   `set_velocity(-1 * cvx * facing, cvy)`（y 直接是 `cvy`，可能是 `undefined` ⇒ NaN），
+   再看 `if (indexes?.falling)` 决定要不要返回 `{ id: falling[-1][1] }`。
+6. **`on_leave_ground`**：四个状态 `Running(2) / Walking(1) / Standing(0) / Rowing(6)` 用**严格** `===`
+   逐个判否（德摩根后是 `&&` 链），命中后 `holding.base_type === Heavy` 则 `drop_holding()`，
+   最后 `enter_frame(NEXT_FRAME_AUTO)`（`{ id: "auto" }`）。
+7. **`falling[1][1]` 这类取值会让 TS 抛异常**：`falling` 存在但没有 `"1"` 键时
+   `falling["1"]` 是 `undefined`，再 `[1]` 就 TypeError。端口不复制这个异常，用例始终给全两个键。
+8. `index_by` 的**数组分支**与 `index_0` 的**对象分支**在本单元仍是死代码（照抄 `fall.cpp`）。
+
+### 27.4 harness 观察点
+- 一对 harness `character_state_base.{cpp,ts}`。
+- 输入：`env victim s "V1"`、`env onground`（**裸数字**）、
+  `env state`（状态对象自己的 state）/ `vstate`（**实体的** state）/
+  `hp` / `facing` / `holding` / `onlanding` / `dataset` / `indexes` / `frames` / `velx` / `velz`（值字面量）。
+- `run make|update|landing|up|auto|sudden|caught`。
+- 输出 `run <op> || <日志> | ret=<返回值或 -> | <状态>`；五个可选钩子在端口的返回值
+  用 `ret=` 观测（`undefined` 打成 `-`，与 TS 侧一致）。
+- ⚠️ **两处命名坑**：
+  1. `env state` 是**状态对象自己**的 state（构造参数），`env vstate` 才是**实体**的 state。
+     `on_leave_ground` 读的是后者 —— 只设 `env state` 会让 `run up` 静默什么都不做
+     （本轮 7 条变异存活全因此而起）。
+  2. `on_landing` 的 velocity 形参 TS 原文没用，所以 `run landing` 不传值。
+
+## 28. 切片 5：`state/CharacterState_Standing` / `_Running` / `_Injured`
+
+`native/lfw/state/character_state_basic.{h,cpp}`
+（对应 `src/LFW/state/CharacterState_Standing.ts`、`CharacterState_Running.ts`、`CharacterState_Injured.ts`）。
+三个都是几十行的「地面小状态」，共用一份 harness 与用例，合成一个单元。
+
+### 28.1 单元边界（`native/lfw/state/state_base.h` 的补充）
+`IStateEntity` 又补 3 个**带默认实现的虚函数**：
+
+- `ground_y()`（`e.ground_y`）
+- `get_sudden_death_frame()` —— **注意这是「实体侧」的同名方法**，与 `State_Base` 上那个
+  「钩子」不是一回事（见 §28.2）
+- `holding_set_team(v)` —— 对应 `holding.team = e.team`（写的是**持有物实体**的字段）
+
+### 28.2 两个 `get_sudden_death_frame` 必须分清
+```text
+Entity.get_sudden_death_frame(): TNextFrame      // 无参，内部 this._state?.get_sudden_death_frame?.(this) || NEXT_FRAME_AUTO
+State_Base.get_sudden_death_frame?(e): INextFrame // 有参，是「状态对象」上的可选钩子
+```
+`CharacterState_Standing/Running` 写的是 **`e.get_sudden_death_frame()`**（实体侧、无参）
+⇒ 端口把它建成 `IStateEntity::get_sudden_death_frame()` **缝**（无参、返回 `Value`），
+由 harness 的假实体给出返回值。真正的「钩子 → 实体方法」那一层委托属于 `Entity`（切片 7）。
+
+### 28.3 保真要点
+1. **`CharacterState_Injured` 的 `super.enter?.(e, prev_frame)` 是死代码**：
+   `State_Base.ts` 与 `CharacterState_Base.ts` 都只用 `?` **声明** `enter`，
+   谁都没实现 ⇒ `super.enter` 恒为 `undefined`。端口因此什么都不写（不是漏）。
+   而 `Injured` 自己是「可选钩子」的实现 ⇒ 端口在构造函数里 `enter = &csi_enter;`。
+2. **`Injured.enter`**：`holding?.base_type === WeaponEnum.Heavy`（**严格**）时
+   先 `e.drop_holding()`，再把 `holding.team = e.team`。
+   **顺序可观测**（两件事都有日志），所以不能合并。
+3. **`Standing.update`**：`super.update(e)`（含 `handle_ground_velocity_decay`）之后，
+   `e.hp <= 0` ⇒ `enter_frame(e.get_sudden_death_frame())` 并 **return**；
+   否则 `e.position.y > e.ground_y` ⇒ `enter_frame_by_id(indexes?.in_the_skys?.[0])`。
+   `hp <= 0` 是**宽松**数值比较（`undefined` ⇒ NaN ⇒ 假）。
+4. **`Running.update`**：`super.update(e)` 之后，`{ vz, vx } = e.velocity`；
+   `if (vz)` 为真时 `dz = abs(vz / 4)`，若 `vx > dz` 则 `vx -= dz`，若 `vx < -dz` 则 `vx += dz`，
+   然后 `set_velocity(vx)`（**只写 x**）。最后 `if (e.hp <= 0) enter_frame(e.get_sudden_death_frame())`
+   —— 注意与 `Standing` 不同，这里**没有 else**，也没有 return。
+   `if (vz)` 是**真值**判定（`0` / `NaN` / `undefined` 都为假）。
+5. 三个类的构造函数默认参数（`Standing` / `Running` / `Injured`）在本单元**不可观测**
+   （没有任何路径读状态对象自己的 `_state`），写进规格头注。
+
+### 28.4 harness 观察点
+- 一对 harness `character_state_basic.{cpp,ts}`。
+- `env cls s "standing"|"running"|"injured"` 选类；`env usedefault 1` 不带状态构造（验证默认参数可省）。
+- 输入：`env victim s "V1"`、`env onground|usedefault`（**裸数字**）、
+  `env state|vstate|hp|facing|vteam|ground_y|holding|onlanding|dataset|indexes|frames|pos|velx|velz`（值字面量）。
+- `run make|update|enter`。
+- 状态文本：`state=` / `hp=` / `ground=` / `pos=[x:y:z]` / `vel=[x:z]` /
+  `holding=` / `holding_team=` / `team=`。
+- ⚠️ **TS 侧的「普通字段写」要改成带日志的属性**：
+  `holding.team = e.team` 在 TS 里是纯字段写（无日志），而端口那一步是缝调用。
+  若只在 C++ 侧打日志，差分立刻分叉；若两侧都**不打**日志，则「先掉落再改阵营」与
+  「先改阵营再掉落」两条变异的**顺序**不可观测（本轮唯一存活项）。
+  最终做法：TS 假实体的 `holding` getter 返回一个带 **`get/set team`** 的对象，
+  setter 里打 `holding_set_team:<值>` 日志；C++ 的 `holding_set_team` 也打同样的日志。
+
+## 29. 切片 5：`state/CharacterState_Walking`
+
+`native/lfw/state/character_state_walking.{h,cpp}`（对应 `src/LFW/state/CharacterState_Walking.ts`）。
+第一个同时使用「输入（ctrl）」与「等待值（wait）」的状态。
+
+### 29.1 单元边界（`native/lfw/state/state_base.h` 的补充）
+`IStateEntity` 补 6 个**带默认实现的虚函数**：
+
+- `frame_info()`（`e.frame`，整帧对象）、`ctrl_ud()` / `ctrl_lr()`（`e.ctrl.UD` / `.LR`）
+- `holding_is_weapon()`（`is_weapon(e.holding)`）
+- `handle_wait_flag(wait, frame)` → `double`
+- `enter_frame_by_id_fallback(id, fallback)`
+
+### 29.2 为什么新开一个 `enter_frame_by_id_fallback` 而不是给已有虚函数加形参
+TS 的签名是 `enter_frame_by_id(id: string | undefined, fallback: boolean = false)`。
+**绝不能**把已有的 `IBuffEntity::enter_frame_by_id(const u16string&)` 改成两参数版本：
+现有 harness 覆写的是**一参数**版本，基类签名一变，它们的函数就不再是覆写，
+调用会静默落到基类的空实现上（编译通过、行为全错）。
+所以新开一个**带默认实现**的虚函数，默认实现转发给一参数版本：
+
+```text
+virtual void enter_frame_by_id_fallback(const std::u16string& id, bool fallback) {
+  (void)fallback;
+  enter_frame_by_id(id);
+}
+```
+
+新增成员永远安全，改已有签名永远不安全 —— 这是本仓反复确认的规则。
+
+### 29.3 保真要点
+1. **`update`**：`super.update(e)`（含 `handle_ground_velocity_decay`）之后：
+   ```text
+   if (!ctrl.UD && !ctrl.LR && !e.wait) {
+     if (is_weapon(e.holding) && e.holding?.base_type === Heavy) e.wait = e.handle_wait_flag(void 0, e.frame)
+     else e.enter_frame_by_id(e.data.indexes?.default, true)
+   }
+   if (e.hp <= 0) e.enter_frame(e.get_sudden_death_frame())
+   else if (e.position.y > e.ground_y) e.enter_frame_by_id(e.data.indexes?.in_the_skys?.[0])
+   ```
+   - 三个条件是 **`&&`**；`e.wait` 走**真值**判定（`0` 也算「不等待」）。
+   - Heavy 分支把 `handle_wait_flag(void 0, e.frame)` 的结果**写回 `e.wait`**，
+     `void 0` 与 `e.frame` 的**实参顺序**可观测。
+   - `is_weapon(e.holding)` 与 `holding.base_type === Heavy` 是**两个独立条件**：
+     前者看 `holding.data.type === EntityEnum.Weapon(16)`，后者看 `holding.base_type`。
+     用例必须分别构造「是武器但不是重型」「是重型但不是武器」两种输入。
+   - `enter_frame_by_id(indexes?.default, **true**)` —— 第二个实参是 `true`。
+2. **`e.hp <= 0` 之后 `return`**：与 `Standing` 同形（`else if` 的等价变换），
+   必须构造「hp<=0 **且** 高于地面」的输入才能观测这个 `return`。
+3. 构造函数默认参数（`StateEnum.Walking`）在本单元不可观测（没有路径读状态对象自己的 `_state`）。
+
+### 29.4 harness 观察点
+- 一对 harness `character_state_walking.{cpp,ts}`。
+- 输入：`env victim s "V1"`、`env ctrlud|ctrllr|hweapon|waitflag`（**裸数字**）、
+  `env state|hp|vwait|frame|ground_y|holding|indexes|pos`（值字面量，`vwait` 可 `u`）。
+- `run make|update`。
+- 状态文本：`hp=` / `wait=` / `waitflag=` / `frame=` / `pos=[x:y:z]` /
+  `ground=` / `holding=` / `hweapon=` / `ctrl=UD LR`。
+- ⚠️ **TS 侧要让真 `is_weapon()` 能工作**：`is_weapon(v) = v?.data?.type === 16`，
+  所以假实体的 `holding` getter 必须返回带 **`data: { type }`** 的对象
+  （由 `env hweapon` 驱动成 `16` / `0`），否则 TS 侧永远进不了 Heavy 分支、差分立刻分叉。
+- ⚠️ **C++ 侧的一参数 `enter_frame_by_id` 也要打上 `:0` 后缀**：
+  TS 侧只有一个带默认参数的 `enter_frame_by_id(id, fallback=false)`，
+  两条调用路径打出的文本必须一致。
+
+## 30. 切片 5：`state/CharacterState_Caught` / `_Rowing`
+
+`native/lfw/state/character_state_caught_rowing.{h,cpp}`
+（对应 `src/LFW/state/CharacterState_Caught.ts`、`CharacterState_Rowing.ts`）。
+两个都在 `enter` 钩子里干活的小状态，合成一个单元。
+
+### 30.1 单元边界（`native/lfw/state/state_base.h` 的补充）
+`IStateEntity` 补 5 个**带默认实现的虚函数**：
+
+- `has_holding()`（`const holding = e.holding; if (holding)` 的**真值**判定，
+  与 `holding_base_type()` 是两件事：前者看对象是否存在，后者看它的 `base_type` 字段）
+- `fall_value()` / `fall_value_max()` / `set_fall_value(v)`
+- `data_indexes_landing_1()`
+
+### 30.2 保真要点
+1. **`CharacterState_Caught.update` 不调 `super.update(e)`**：因此**没有**
+   `handle_ground_velocity_decay`，只做 `e.set_velocity(0, 0, 0)`。
+   这是与 `Standing` / `Running` / `Walking` 不同的地方，用例专门断言「update 无日志」。
+2. **`Caught.enter`**：
+   ```text
+   e.fall_value = e.fall_value_max      // 读的也是实体属性，不是 dataset！
+   e.set_velocity(0, 0, 0)
+   const holding = e.holding
+   if (holding) e.drop_holding()                                   // 任何持有物都丢
+   if (holding?.base_type === Heavy) holding.team = e.team         // 只有重型才改阵营
+   ```
+   两个 `if` 的守卫不同：**掉落看「有没有持有物」，改阵营看「是不是重型」**。
+   用例必须给出「有持有物但非重型」与「没有持有物但 `base_type` 是重型」两种输入。
+3. **`Rowing.on_landing`** 与 `CharacterState_Base` 的同名钩子结构一致，
+   但回落索引是 `indexes?.landing_1`（基类用的是 `landing_2`）——
+   所以它**覆盖**掉基类装好的那个钩子（在构造函数里重新赋值）。
+4. **`Rowing.enter`**：
+   ```text
+   if (prev_frame.state !== SE.Falling) return          // 严格比较
+   vx = dataset('rowing_distance') * dataset('bfall_x_f')
+   vy = dataset('rowing_height') * dataset('bfall_h_f')
+   next_vx = velocity.x >= 0 ? vx : -vx
+   next_vy = calc_v(velocity.y, vy, SpeedMode.Default, 0)   // 只传 4 个实参，direction 默认 1
+   set_velocity(next_vx, next_vy)                            // z 省略
+   ```
+   - `SpeedMode.Default` 分支：`target = value * direction`；
+     `current < target && target > 0` 取 `target`；`current > target && target < 0` 取 `target`；
+     否则**返回原值**。所以 `current` 比负数目标更小的时候会**原样保留**（用例专门覆盖）。
+   - `acc` 在 `Default` 模式下**不被使用**（变异不可观测，已写进规格头注）。
+5. **`velocity.y` 缺失在端口无法表示**：`IBuffEntity::velocity_y()`（以及 `calc_v` 本身）
+   是 `double` 型，缺失值变成 `NaN`，而 TS 会原样保留 `undefined` 并把它返回。
+   ⇒ 用例只给数值型 `vely`（`velocity.x` 是 `Value` 型，`u` 已覆盖）。已写进规格头注。
+
+### 30.3 harness 观察点
+- 一对 harness `character_state_caught_rowing.{cpp,ts}`。
+- `env cls s "caught"|"rowing"`；`env victim s "V1"`；`env has_holding 0|1`（**裸数字**）。
+- 输入：`env state|prevstate|fall|fallmax|vteam|velx|vely|holding|onlanding|dataset|indexes`
+  （值字面量；`velx`/`vely`/`fall`/`fallmax` 可 `u`）。
+  `prevstate` 是传给 `enter` 的 `{ state: … }`。
+- `run make|enter|update|landing`。
+- 状态文本：`fall=` / `fallmax=` / `vel=[x:y]` / `has_holding=` / `holding=` / `holding_team=` / `team=`。
+- ⚠️ **C++ 二元运算符的求值顺序是未指定的**：
+  `to_number(e.dataset(A)) * to_number(e.dataset(B))` 在 MSVC 上会**先算右边**，
+  而 TS 严格从左到右 ⇒ harness 的 `dataset` 日志顺序分叉。
+  修法：把两次读取**拆成独立语句**先读进局部量，再相乘。
+  **凡是一个表达式里有两次带副作用的读取/调用，都必须拆开。**

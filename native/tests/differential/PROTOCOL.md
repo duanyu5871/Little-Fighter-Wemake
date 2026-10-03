@@ -2005,3 +2005,215 @@ harness op：
 2. `duration_of` 的用例要覆盖：整除与不整除、`value`/`ticks` 为 `0` 的钳制、`0` 与负数金额。
 3. 「越界钳制」类变异（`min(hp_r, …)` / `min(mp_max, …)`）必须把**起始值放到离上限不足一次回复量**
    的位置，否则钳制永远不生效。
+
+### 6.9.76 `buff_electroshock`（差分 60 行，变异 22/22 全杀）
+
+harness op：
+
+- `env id s "B1"` / `env kind s "Electroshock"`。
+- `env victim s "V1"`：**重新选中**语义（已在列表里就先移除再压到末尾），后续 `env v*` 作用于它。
+- `env vtype n 8` / `env vstate n 11`（**值字面量**，可用 `s "12"` 造字符串状态）；
+  `env vwait 0`（**裸数字**）；`env vpos o 3 x n … y n … z n …`、
+  `env vframe o 3 centery n … height n … pic_h n …`。
+- `env duration 8`（**裸数字**）；需要已有 buff（先 `run make`）。
+- `run make|init|mount|unmount|tick <d>`。
+
+输出：`run <op> || <日志> | <状态>`；状态含 `id=` / `victims=[…]` / `ticks=` / `dur=` / `life=`，
+以及逐受害者的 `state=[…]` / `type=[…]` / `wait=[…]`。
+
+覆盖面（这是杀掉全部 22 条变异的关键，逐条都要留）：
+
+1. **`mount` 的守卫场景必须把列表里**每个**受害者都固定成能被守卫拦下的状态**。
+   用例先只用一个受害者（`V1`）跑完 Injured/Falling 的 `n` 与 `s` 四种组合，
+   **最后**才引入第二个受害者（`V2`，状态 `n 0`）来观测「两个受害者都被处理」。
+   反过来写（先有 `V2`）会让时长无论如何都被 `V2` 减半，四条守卫变异全部存活。
+2. **数值与字符串两种状态形态都要覆盖**：`n 11` / `s "11"`、`n 12` / `s "12"`、
+   `n 14` / `s "14"`。`mount` 是宽松比较（两种形态都拦），`on_tick` 是严格比较
+   （只拦数值形态），差异只能靠字符串用例暴露。
+3. **特效居中要用 `centery != height / 2` 的帧数据**：例如 `centery n 4 height n 10`
+   ⇒ 居中挂点比裸 `y` 少 `1`。（`centery 4 height 8` 时两者恰好相等，变异会存活。）
+4. **`run tick <d>` 的 `d >= ticks`**（`init` 后是 `3`），否则 ticker 不触发、`on_tick` 与
+   特效创建都不会发生。
+5. 非战士（`env vtype n 16`）用例用来观测 `is_fighter_data` 守卫。
+
+### 6.9.77 `buff_magic_flute`（差分 82 行，变异 58/58 全杀）
+
+harness op：
+
+- `env cls s "mf1"` / `s "mf2"`、`env id` / `env kind`（字符串）。
+- `env attacker s "A1"`（字符串；`s ""` = 无攻击者，`run make` 时不再 `set_attacker`）。
+- `env victim s "V1"`：**重新选中**语义（已在列表里就先移除再压到末尾），后续 `env v*` 作用于它。
+- `env vtype` / `env vstate` / `env vhp` / `env vhp_r` / `env vfallinjury` / `env vtough` /
+  `env vteam` / `env vindexes`：**值字面量**；`env ateam`：值字面量，作用于 `attacker` 指向的实体。
+  例：`env vindexes o 2 falling o 2 -1 a 2 s "30" s "31" 1 a 1 s "35" in_the_skys a 2 s "40" s "41"`
+- `env vvy`：**裸数字**。
+- `run make|init|tick <d>`。
+
+输出：`run <op> || <日志> | <状态>`；状态含 `id=` / `victims=[…]` / `ticks=` / `dur=` / `life=`，
+以及逐受害者的 `hp=[…]` / `hp_r=[…]` / `fall=[…]` / `tough=[…]` / `team=[…]` / `vy=[…]` / `type=[…]`。
+
+覆盖面（杀掉全部 58 条变异的关键）：
+
+1. **`on_update` 每次 `tick` 都跑**，`on_tick` 只在 `_ticker.add(d)` 为真时跑
+   ⇒ 想同时观测两段就必须 `run tick 3`（`init` 后 `ticks = 3`）。
+2. **`calc_v` 的四种输入都要给**：`vy = 0`（未达目标，回 `current + acc`）、
+   `vy = acc`（恰达目标，原样保留）、`vy > acc`（超过目标，原样保留）、`vy < 0`（反向仍在加速）
+   —— 少任何一种，「方向取反」「换模式」「当前与目标互换」都会漏杀。
+3. **类型比较是严格的**：必须有 `env vtype s "8"` 与 `env vtype s "16"` 两条
+   （否则 `strict_equals` → `equals` 的两条变异必存活）。
+4. **状态比较也是严格的**：`env vstate s "12"` 用来区分
+   `!strict_equals(state, Falling)` 与 `!equals(state, Falling)`。
+5. **两个天空状态要各给一次**（`n 1000` 与 `n 2000`）：前者杀 `&&` → `||`，
+   后者杀「第二个条件写成了第一个枚举」。
+6. **`in_the_skys` 的数组长度必须 ≥ 2**，才杀得掉 `index_0` 的 `at(0)` → `at(1)`；
+   `falling` 也要同时给 `"-1"` 与 `"1"` 两个键才杀得掉键写错。
+7. **「字段不重置」陷阱**：每个 `run make` 之前都要**显式重置** `vstate` / `vhp` / `vhp_r` /
+   `vvy`（前一轮 `on_tick` 已经把 `hp` 扣过、`vy` 被写回），否则下一段场景静默走偏。
+
+### 6.9.78 `state_base`（差分 46 行，变异 37/37 全杀）
+
+harness op：
+
+- `env victim s "V1"`（字符串）。
+- `env state`：**值字面量**（可写 `n 1700`，也可写 `s "1700"` 造字符串状态）。
+- `env dataset`：值字面量对象，例 `env dataset o 2 hp_healing_value n 10 hp_healing_ticks n 2`；
+  两个键都可以缺（缺 `hp_healing_value` 时 `max(1, undefined)` 是 NaN，时长整体变 NaN）。
+- `env pos`：对象 `o 3 x n … y n … z n …`。
+- `env velx` / `env velz`：**值字面量**，`u` = 速度缺失。
+- `run make|leave|restrict <x> <y> <z>|update`（`restrict` 的三个参数是**裸数字**）。
+
+输出：`run <op> || <日志> | <状态>`；状态含 `state=` / `pos=[x:y:z]` / `vel=[vx:vz]` /
+`granted=<buff id>:<duration>` / `marks=[key=value,…]`。
+
+覆盖面（杀掉全部 37 条变异的关键）：
+
+1. **`leave` 要覆盖四种状态输入**：`n 1700`（命中）、`n 0`（不命中）、`s "1700"`（严格比较不命中）、
+   以及缺 `hp_healing_value` 的场景（渲染出 `nNaN`）。
+2. **`on_restrict` 要覆盖四条路径**：只有 x 动（`restrict 10 0 0`）、只有 z 动（`0 0 10`）、
+   只有 y 动（`0 10 0`，会把 x 与 z **一起**刷）、什么都没动（先 `env pos o 3 x n 5 …` 再 `restrict 5 6 7`
+   —— 这条是「恒调用 `set_velocity`」与「`||` 变 `&&`」的唯一观测点）。
+3. **两个轴的速度必须不同符号**（`velx n 2` / `velz n -2`）：否则「x/z 写反」「取错速度」都不可观测。
+4. **必须有不触发钳制的速度**（`0.25` / `-0.25`）来区分「越界返回上下界」与「原样返回」。
+5. **必须有缺失速度**（`velx u` / `velz u`）：`undefined !== null` 为真，
+   这条是「`is_null` 把 missing 也算 null」的唯一观测点，也是 `clamp` 原样返回非数的观测点。
+
+### 6.9.79 `character_state_base`（差分 68 行，变异 50/50 全杀）
+
+harness op：
+
+- `env victim s "V1"`（字符串）；`env onground 0|1`（**裸数字**）。
+- `env state`：**状态对象**的 state（构造参数，值字面量，可用 `s "2"` 造字符串）。
+- `env vstate`：**实体**的 state（值字面量，可用 `s "2"`）；`up` / `landing` 读的是它。
+- `env hp` / `facing` / `holding` / `onlanding` / `velx` / `velz`：值字面量
+  （`holding`/`onlanding`/`velx`/`velz` 可写 `u`）。
+- `env dataset` / `indexes` / `frames`：值字面量对象。典型：
+  `env indexes o 5 landing_2 s "40" default s "50" heavy_obj_walk s "60" in_the_skys a 2 s "70" s "71" falling o 2 1 a 2 s "80" s "81" -1 a 2 s "90" s "91"`
+- `run make|update|landing|up|auto|sudden|caught`。
+
+输出：`run <op> || <日志> | ret=<返回值|-> | <状态>`；
+状态含 `state=`（状态对象）/ `estate=`（实体）/ `hp=` / `face=` / `onground=` / `holding=` / `vel=[x:z]`。
+
+覆盖面（杀掉全部 50 条变异的关键）：
+
+1. **`run up` 之前必须同时设 `env vstate`**（实体状态）与 `env holding`；
+   四种状态各跑一次，再加一次 `vstate s "2"` 区分严格/宽松比较。
+2. **`holding` 要覆盖 `u`（缺失）、`0`、`1`（非 Heavy 的数值）、`2`（Heavy）、`s "2"`（字符串 Heavy）**：
+   `s "2"` 是「严格比较 → 宽松比较」的唯一观测点。
+3. **`run sudden` / `run caught` 之前必须把 `falling` 两层键都恢复到索引对象里**
+   （本单元为「缺 falling 时返回 undefined」另有一段无 falling 的场景，
+   若忘了恢复，六条「取到哪一帧」的变异全部不可观测）。
+4. **`indexes` 里 `in_the_skys` 要 `a 2`**，才杀得掉 `index_0` 的 `at(0)` → `at(1)`；
+   `frames` 要同时给出 `"40"` / `"50"` / `"60"` / `"70"` 四帧，
+   才分得清「取错索引键」与「取错帧表」。
+5. **`env onground` 的三种组合都要有**（地面 / 空中 hp>0 / 空中 hp<=0），
+   再叠加 `holding` 的 Heavy，才能把 `get_auto_frame` 的三段优先级逐条钉住。
+6. **ESM 循环依赖坑**：harness 里必须**第一行**写
+   `import "../../../../src/LFW/entity/Entity";`（只为副作用），否则
+   `CharacterState_Base.ts` 的**值导入** `import { Entity } from "../entity/Entity"`
+   会把 `Entity → ENTITY_STATES → CharacterState_Caught → CharacterState_Base` 的环拉起来，
+   打包结果在 `CharacterState_Caught extends undefined` 上直接崩。
+   （`State_Base.ts` 用的是 `import type`，所以上一单元没踩到。）
+
+### 6.9.80 `character_state_basic`（差分 82 行，变异 37/37 全杀）
+
+harness op：
+
+- `env cls s "standing"` / `s "running"` / `s "injured"`（选被测类）。
+- `env usedefault 1`：不带状态构造（`new CharacterState_Standing()` 等），验证默认参数。
+- `env victim s "V1"`（字符串）；`env onground 0|1`（**裸数字**）。
+- `env state` / `vstate` / `hp` / `facing` / `vteam` / `ground_y` / `holding` / `onlanding` /
+  `dataset` / `indexes` / `frames` / `pos` / `velx` / `velz`：值字面量。
+- `run make|update|enter`。
+
+输出：`run <op> || <日志> | <状态>`；
+状态含 `state=` / `hp=` / `ground=` / `pos=[x:y:z]` / `vel=[x:z]` /
+`holding=` / `holding_team=` / `team=`。
+
+覆盖面（杀掉全部 37 条变异的关键）：
+
+1. **`Standing` 要覆盖四种位置/血量组合**：存活且贴地（`y == ground_y`，什么都不做）、
+   存活且高于地面（进 `in_the_skys[0]`）、`hp = 0`（进骤死帧）、
+   **`hp = 0` 且高于地面**（这一条专门用来观测 `return` —— 少了它就杀不掉「穿透到地面分支」）。
+   再加 `hp = u`（缺失血量按存活算）。
+2. **`Running` 的四种 vx/vz 组合缺一不可**：`vz = 0`（不拖拽）、`vx > dz`（减）、
+   `vx < -dz`（加）、`|vx| <= dz`（原样）。
+   另外必须有 **`vz < 0`** 的一次，才杀得掉「丢掉 `abs`」；`vx = u` 与 `vz = u` 各一次。
+3. **`Injured` 的 holding 要覆盖 `u` / `1` / `2` / `s "2"`**：
+   `s "2"` 是「严格比较 → 宽松比较」的唯一观测点，`1` 是「换枚举值」的观测点。
+4. **`holding.team` 的写入必须有日志**（见 DESIGN §28.4），否则「顺序」类变异存活。
+5. `env holding` 要**重置** `holding_team`（对齐 TS 里换了一个全新的 holding 对象）。
+
+### 6.9.81 `character_state_walking`（差分 52 行，变异 34/34 全杀）
+
+harness op：
+
+- `env victim s "V1"`（字符串）。
+- `env ctrlud 0|1` / `env ctrllr 0|1` / `env hweapon 0|1`：**裸数字**。
+- `env waitflag <数字>`：**裸数字**，`handle_wait_flag` 的返回值。
+- `env state|hp|vwait|frame|ground_y|holding|indexes|pos`：值字面量（`vwait` 可 `u`）。
+- `run make|update`。
+
+输出：`run <op> || <日志> | <状态>`；
+状态含 `hp=` / `wait=` / `waitflag=` / `frame=` / `pos=[x:y:z]` /
+`ground=` / `holding=` / `hweapon=` / `ctrl=UD LR`。
+
+覆盖面（杀掉全部 34 条变异的关键）：
+
+1. **`e.wait` 被写回之后必须显式重置**（`env vwait u`）：
+   Heavy 分支会把 `wait` 设成 `waitflag`（真值），此后所有「空闲」场景都会被静默跳过。
+   本轮首轮 2 条存活正是这个老坑的第四次命中。
+2. **四种 holding 组合都要有**：`hweapon 1` + `holding 2`（进 wait 分支）、
+   `hweapon 1` + `holding 1`（是武器但非重型）、`hweapon 1` + `holding s "2"`（严格比较）、
+   `hweapon 0` + `holding 2`（是重型但不是武器）。
+3. **ctrl 的三种输入**：`ud=1`、`lr=1`、两者都 0；`wait` 的 `u` / `0` / `3` 三种。
+4. **`hp<=0` 且高于地面**必须单独造一条，否则「穿透到地面分支」不可观测。
+5. `indexes.in_the_skys` 要 `a 2`，才杀得掉 `index_0` 的 `at(0)` → `at(1)`。
+
+### 6.9.82 `character_state_caught_rowing`（差分 59 行，变异 39/39 全杀）
+
+harness op：
+
+- `env cls s "caught"` / `s "rowing"`；`env victim s "V1"`（字符串）。
+- `env has_holding 0|1`（**裸数字**）。
+- `env state|prevstate|fall|fallmax|vteam|velx|vely|holding|onlanding|dataset|indexes`：值字面量
+  （`velx`/`vely`/`fall`/`fallmax` 可 `u`）。`prevstate` 是传给 `enter` 的 `{ state: … }`。
+- `run make|enter|update|landing`。
+
+输出：`run <op> || <日志> | <状态>`；
+状态含 `fall=` / `fallmax=` / `vel=[x:y]` / `has_holding=` / `holding=` / `holding_team=` / `team=`。
+
+覆盖面（杀掉全部 39 条变异的关键）：
+
+1. **`has_holding` 与 `holding` 必须交叉组合**：
+   `has_holding 1 + holding 2`（掉落 + 改阵营）、`has_holding 1 + holding 1`（只掉落）、
+   `has_holding 1 + holding s "2"`（严格比较）、**`has_holding 0 + holding 2`**（都不做）。
+   最后一条是「掉落守卫被删」「改阵营不看守卫」两个变异的唯一观测点；
+   **注意进入该场景前要把 `holding` 也设成重型** —— 只设 `has_holding 0` 而沿用上一条的
+   `holding 1`，两条变异都会因为 `1 !== 2` 而**静默存活**（本轮唯一一次存活）。
+2. **`Rowing` 的 `prevstate` 要有 4 种**：`n 12`（命中）、`n 0`（不命中）、
+   `s "12"`（严格比较）、以及配 `S = Falling` 之外的状态值。
+3. **`calc_v` 的 `Default` 分支要三种 `vely`**：正值（`5` → 取目标 `-12`）、
+   小负值（`-5` → 取目标 `-12`）、**更小的负值（`-20` → 原样保留）**。
+   少了最后一种，「把 `prev_vy` 写成常量」与「换模式」两条变异杀不掉。
+4. **`velx` 要有正、负、`0`、`u` 四种**：`0` 是 `>= 0` 与 `> 0` 的唯一分界；`u` 观测 `>=` 对非数的结果。
+5. `indexes` 要同时给 `landing_1` 与 `default`，才分得清「回落索引取错」。

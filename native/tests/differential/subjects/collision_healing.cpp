@@ -41,9 +41,12 @@ std::string join(const std::vector<std::string>& xs) {
   return out;
 }
 
+struct Fake;
+
 struct FakeBuff : lfw::buff::IBuffEntity {
   std::u16string _id;
-  explicit FakeBuff(std::u16string id) : _id(std::move(id)) {}
+  Fake* _owner;
+  FakeBuff(std::u16string id, Fake* owner) : _id(std::move(id)), _owner(owner) {}
   const std::u16string& id() const override { return _id; }
   void position(double& x, double& y, double& z) const override {
     x = 0;
@@ -62,6 +65,7 @@ struct FakeBuff : lfw::buff::IBuffEntity {
   void set_outline_color(const std::u16string&) override {}
   void enter_frame_by_id(const std::u16string&) override {}
   void attach(bool) override {}
+  Value dataset(const std::u16string& key) const override;
 };
 
 struct Fake : IHealingEntity {
@@ -69,7 +73,7 @@ struct Fake : IHealingEntity {
   Value _dataset;
   FakeBuff _buff;
 
-  explicit Fake(std::u16string id) : _id(std::move(id)), _buff(_id) {}
+  explicit Fake(std::u16string id) : _id(std::move(id)), _buff(_id, this) {}
 
   const std::u16string& id() const override { return _id; }
 
@@ -79,6 +83,8 @@ struct Fake : IHealingEntity {
 
   lfw::buff::IBuffEntity* buff_entity() override { return &_buff; }
 };
+
+Value FakeBuff::dataset(const std::u16string& key) const { return _owner->dataset(key); }
 
 Fake g_att(u"A");
 Fake g_vic(u"V");

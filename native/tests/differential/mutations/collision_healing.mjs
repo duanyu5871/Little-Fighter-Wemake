@@ -1,6 +1,12 @@
 /**
  * Mutation spec for `native/lfw/collision/healing.cpp`.
  *
+ * The duration formula used to be inlined here; since `Buff_Healing` was ported
+ * (slice 4) it lives in `native/lfw/buff/buff_healing.cpp` and is covered by the
+ * `buff_healing` subject. What this unit owns now is only:
+ * the `itr.injury` guard, the two id lookups, the `Healing` kind, and *what* entity
+ * and duration are handed to `grant_buff`.
+ *
  * Disproven / unobservable mutations (proven by reading the TS original, the port
  * and the case file, not by a surviving run):
  *
@@ -9,17 +15,15 @@
  *    `collision.vid` (`"V"`), so neither lookup can fail. The guard is a port
  *    artefact of turning the TS destructuring (`const { attacker, victim }`) into
  *    two id lookups; it is not reachable from any in-contract input.
- * 2. Swapping the two `max(1.0, ...)` calls or moving the `ticks` line above the
- *    `value` line is behaviour preserving: both are pure reads of the victim's
- *    dataset and the arithmetic is applied afterwards.
- * 3. `g_env.buff_env()` is a resource accessor with no alternative expression; the
- *    whole `grant_buff` path (id construction, lifetime/duration/level, attacker
- *    and victim wiring, `mount`) is real ported code owned by the `buff` subject
- *    and is only *used* here. What this unit owns is the `injury` guard, the two
- *    `max(1, dataset)` clamps, the ceiling/ticks arithmetic and *what* entity is
- *    handed to `grant_buff` -- all four are covered below and observable through
- *    the harness (`create_buff:<kind>:<id>` in the log and
- *    `buff=<id>/<lifetime>/<duration>/<level>/<attacker>` in the state text).
+ * 2. `a == nullptr ? nullptr : a->buff_entity()` degenerates to `a->buff_entity()`
+ *    because `a` is never null here; the ternary is kept for symmetry with the TS
+ *    original, which passes `attacker` straight through (`grant_buff` itself only
+ *    calls `set_attacker` when the attacker is truthy).
+ * 3. Swapping the two `set_healing_env` / `healing_env` accessors or reordering the
+ *    three `grant_buff` arguments that follow the kind is behaviour preserving for
+ *    this harness; the observable orderings are covered by the "handed to
+ *    grant_buff" pair below.
+ * 4. `g_env.buff_env()` is a resource accessor with no alternative expression.
  */
 export default {
   subject: "collision_healing",
@@ -67,78 +71,6 @@ export default {
       to: "  IHealingEntity* v = g_env.find_entity(c.aid);",
     },
     {
-      note: "value dataset key swapped for ticks",
-      file: "native/lfw/collision/healing.cpp",
-      from: 'to_number(v->dataset(u"hp_healing_value")));',
-      to: 'to_number(v->dataset(u"hp_healing_ticks")));',
-    },
-    {
-      note: "ticks dataset key swapped for value",
-      file: "native/lfw/collision/healing.cpp",
-      from: 'to_number(v->dataset(u"hp_healing_ticks")));',
-      to: 'to_number(v->dataset(u"hp_healing_value")));',
-    },
-    {
-      note: "value clamp uses min",
-      file: "native/lfw/collision/healing.cpp",
-      from: '  const double value = max(1.0, to_number(v->dataset(u"hp_healing_value")));',
-      to: '  const double value = min(1.0, to_number(v->dataset(u"hp_healing_value")));',
-    },
-    {
-      note: "ticks clamp uses min",
-      file: "native/lfw/collision/healing.cpp",
-      from: '  const double ticks = max(1.0, to_number(v->dataset(u"hp_healing_ticks")));',
-      to: '  const double ticks = min(1.0, to_number(v->dataset(u"hp_healing_ticks")));',
-    },
-    {
-      note: "value clamp floor lowered to zero",
-      file: "native/lfw/collision/healing.cpp",
-      from: '  const double value = max(1.0, to_number(v->dataset(u"hp_healing_value")));',
-      to: '  const double value = max(0.0, to_number(v->dataset(u"hp_healing_value")));',
-    },
-    {
-      note: "ticks clamp floor lowered to zero",
-      file: "native/lfw/collision/healing.cpp",
-      from: '  const double ticks = max(1.0, to_number(v->dataset(u"hp_healing_ticks")));',
-      to: '  const double ticks = max(0.0, to_number(v->dataset(u"hp_healing_ticks")));',
-    },
-    {
-      note: "duration ceiling replaced by floor",
-      file: "native/lfw/collision/healing.cpp",
-      from: "  const double duration = ceil(to_number(injury) / value) * ticks;",
-      to: "  const double duration = floor(to_number(injury) / value) * ticks;",
-    },
-    {
-      note: "duration ceiling dropped",
-      file: "native/lfw/collision/healing.cpp",
-      from: "  const double duration = ceil(to_number(injury) / value) * ticks;",
-      to: "  const double duration = (to_number(injury) / value) * ticks;",
-    },
-    {
-      note: "injury divided by value becomes multiplied",
-      file: "native/lfw/collision/healing.cpp",
-      from: "  const double duration = ceil(to_number(injury) / value) * ticks;",
-      to: "  const double duration = ceil(to_number(injury) * value) * ticks;",
-    },
-    {
-      note: "injury and value operands swapped",
-      file: "native/lfw/collision/healing.cpp",
-      from: "  const double duration = ceil(to_number(injury) / value) * ticks;",
-      to: "  const double duration = ceil(value / to_number(injury)) * ticks;",
-    },
-    {
-      note: "ticks applied as a divisor",
-      file: "native/lfw/collision/healing.cpp",
-      from: "  const double duration = ceil(to_number(injury) / value) * ticks;",
-      to: "  const double duration = ceil(to_number(injury) / value) / ticks;",
-    },
-    {
-      note: "ticks omitted from the duration",
-      file: "native/lfw/collision/healing.cpp",
-      from: "  const double duration = ceil(to_number(injury) / value) * ticks;",
-      to: "  const double duration = ceil(to_number(injury) / value);",
-    },
-    {
       note: "buff kind misspelled",
       file: "native/lfw/collision/healing.cpp",
       from: '  buff::grant_buff(g_env.buff_env(), u"Healing", a == nullptr ? nullptr : a->buff_entity(),',
@@ -147,14 +79,26 @@ export default {
     {
       note: "attacker handed to grant_buff is the victim",
       file: "native/lfw/collision/healing.cpp",
-      from: "  buff::grant_buff(g_env.buff_env(), u\"Healing\", a == nullptr ? nullptr : a->buff_entity(),\n                   v->buff_entity(), duration);",
-      to: '  buff::grant_buff(g_env.buff_env(), u"Healing", v->buff_entity(), v->buff_entity(), duration);',
+      from: "  buff::grant_buff(g_env.buff_env(), u\"Healing\", a == nullptr ? nullptr : a->buff_entity(),\n                   v->buff_entity(),\n                   buff::Buff_Healing::duration_of(*v->buff_entity(), to_number(injury)));",
+      to: '  buff::grant_buff(g_env.buff_env(), u"Healing", v->buff_entity(),\n                   v->buff_entity(),\n                   buff::Buff_Healing::duration_of(*v->buff_entity(), to_number(injury)));',
     },
     {
       note: "victim handed to grant_buff is the attacker",
       file: "native/lfw/collision/healing.cpp",
-      from: "  buff::grant_buff(g_env.buff_env(), u\"Healing\", a == nullptr ? nullptr : a->buff_entity(),\n                   v->buff_entity(), duration);",
-      to: '  buff::grant_buff(g_env.buff_env(), u"Healing", a == nullptr ? nullptr : a->buff_entity(),\n                   a == nullptr ? nullptr : a->buff_entity(), duration);',
+      from: "  buff::grant_buff(g_env.buff_env(), u\"Healing\", a == nullptr ? nullptr : a->buff_entity(),\n                   v->buff_entity(),\n                   buff::Buff_Healing::duration_of(*v->buff_entity(), to_number(injury)));",
+      to: '  buff::grant_buff(g_env.buff_env(), u"Healing", a == nullptr ? nullptr : a->buff_entity(),\n                   a == nullptr ? nullptr : a->buff_entity(),\n                   buff::Buff_Healing::duration_of(*v->buff_entity(), to_number(injury)));',
+    },
+    {
+      note: "duration is not derived from the injury",
+      file: "native/lfw/collision/healing.cpp",
+      from: "                   buff::Buff_Healing::duration_of(*v->buff_entity(), to_number(injury)));",
+      to: "                   0.0);",
+    },
+    {
+      note: "duration reads the attacker dataset",
+      file: "native/lfw/collision/healing.cpp",
+      from: "                   buff::Buff_Healing::duration_of(*v->buff_entity(), to_number(injury)));",
+      to: "                   buff::Buff_Healing::duration_of(*a->buff_entity(), to_number(injury)));",
     },
   ],
 };

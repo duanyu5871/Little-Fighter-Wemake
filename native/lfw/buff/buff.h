@@ -57,6 +57,21 @@ class IBuffEntity {
     (void)key;
     return false;
   }
+  virtual Value data_type() const { return Value(); }
+  virtual double velocity_y() const { return 0; }
+  virtual void set_velocity(const Value& x, const Value& y, const Value& z) {
+    (void)x;
+    (void)y;
+    (void)z;
+  }
+  virtual void handle_velocity_decay(double accx) { (void)accx; }
+  virtual void set_hp_r(const Value& v) { (void)v; }
+  virtual void set_fallinjury(const Value& v) { (void)v; }
+  virtual void set_toughness(const Value& v) { (void)v; }
+  virtual Value team() const { return Value(); }
+  virtual void set_team(const Value& v) { (void)v; }
+  virtual Value data_indexes_falling() const { return Value(); }
+  virtual Value data_indexes_in_the_skys() const { return Value(); }
 };
 
 inline bool set_mark(IBuffEntity& e, const std::u16string& key, const std::u16string& value,
