@@ -69,6 +69,7 @@ add_library(lfw_core STATIC
   collision/handlers4.cpp
   collision/weapon_is_hit.cpp
   collision/fall.cpp
+  collision/n_bdy_normal.cpp
   buff/buff.cpp
   controller/double_click.cpp
   controller/seq_keys.cpp
