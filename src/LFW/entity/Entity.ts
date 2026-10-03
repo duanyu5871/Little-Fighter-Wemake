@@ -48,6 +48,7 @@ import { is_ball_ctrl, is_boss, is_fighter, is_human_ctrl } from "./type_check";
 export interface IEntityRenderer {
   render(dt: number, dfactor: number): void;
 }
+/* TODO: Entity过于厚重了 -Gim */
 export class Entity {
   static readonly TAG: string = 'Entity';
   static readonly MotionlessWaitTicks: number = 16;
@@ -84,7 +85,7 @@ export class Entity {
   readonly blockers = new Map<string, Collision>();
   readonly superpunchs = new Map<string, Collision>();
   readonly callbacks = new Callbacks<IEntityCallbacks>()
-  protected readonly _emitters: string[] = [];
+  protected readonly emitters: string[] = [];
 
   protected _data: IEntityData;
   protected _origin_data_id: string = '';
@@ -481,6 +482,7 @@ export class Entity {
     if (o > 0 && v <= 0) {
       this.callbacks.call("on_dead", this);
       this._state?.on_dead?.(this);
+      /* TODO: 要想办法尽量摆脱 State 判定，保持数据行为透明 - Gim*/
       if (
         this.state !== StateEnum.Gone &&
         this.frame.id !== FrameId.Gone &&
@@ -544,9 +546,8 @@ export class Entity {
     ++this._render_effect_time;
   }
 
-  get src_emitter(): string | undefined { return this._emitters[0] }
-  get emitter(): string | undefined { return this._emitters[this.emitters.length - 1] }
-  get emitters(): string[] { return this._emitters; }
+  get src_emitter(): string | undefined { return this.emitters[0] }
+  get emitter(): string | undefined { return this.emitters[this.emitters.length - 1] }
 
   /**
    * 闪烁计数
@@ -712,7 +713,7 @@ export class Entity {
     this._landing_frame = null;
     this.bearer = null;
     this.holding = null;
-    this._emitters.length = 0;
+    this.emitters.length = 0;
     this._arest = 0;
     this.vrests.clear()
     this.blockers.clear()
@@ -814,107 +815,12 @@ export class Entity {
     );
   }
 
-  on_spawn(
-    emitter: Entity,
-    opoint: IOpointInfo,
-    offset_velocity: IVector3 = Ditto.vec3(0, 0, 0),
-    facing: TFace = emitter.facing,
-  ): this {
-    const emitter_frame = emitter.frame;
-    if (emitter.state === StateEnum.Ball_Rebounding) {
-      const attacker = emitter.lastest_collided?.attacker ?? emitter;
-      this._emitters[0] = attacker.id;
-      this._emitters.length = 1;
-      this.team = attacker.team;
-      this.facing = emitter.facing;
-    } else {
-      this._emitters.push(...emitter.emitters, emitter.id);
-      this.team = emitter.team;
-      this.facing = emitter.facing;
-    }
-    const { pos_type } = opoint;
-    let { x: pos_x, y: pos_y } = emitter.position;
-    const { z: pos_z } = emitter.position;
-    const opoint_y = (opoint.__gen_y ? opoint.__gen_y.get(emitter) : opoint.y) ?? 0;
-    const opoint_x = (opoint.__gen_x ? opoint.__gen_x.get(emitter) : opoint.x) ?? 0;
-    const opoint_z = (opoint.__gen_z ? opoint.__gen_z.get(emitter) : opoint.z) ?? 2;
 
-
-    if (pos_type === 1) {
-      pos_y = pos_y - opoint_y;
-      pos_x = pos_x + emitter.facing * opoint_x;
-    } else {
-      pos_y = pos_y + emitter_frame.centery - opoint_y;
-      pos_x = pos_x - emitter.facing * (emitter_frame.centerx - opoint_x);
-    }
-    this.prev_position.copy(emitter.position);
-    this.set_position(pos_x, pos_y, pos_z + opoint_z);
-
-    const result = this.get_next_frame(opoint.action);
-    const which = result?.which;
-    const nf_facing = which?.__gen_facing ? which.__gen_facing.get(emitter) : which?.facing;
-    facing = nf_facing ? this.handle_facing_flag(nf_facing) : emitter.facing;
-
-    if (result) this.enter_frame(result.which);
-    else this.enter_frame(Defines.NEXT_FRAME_AUTO);
-
-    const { speedz: o_speedz = this.get_opoint_speed_z(emitter, opoint) } = opoint;
-    let o_dvx = (opoint.__gen_dvx ? opoint.__gen_dvx.get(emitter) : opoint.dvx) ?? 0
-    let o_dvy = (opoint.__gen_dvy ? opoint.__gen_dvy.get(emitter) : opoint.dvy) ?? 0
-    const o_dvz = (opoint.__gen_dvz ? opoint.__gen_dvz.get(emitter) : opoint.dvz) ?? 0
-
-    const { weight } = this;
-    o_dvy = o_dvy / weight;
-    const ud = is_fighter(emitter) ? emitter.ctrl.UD : 0;
-    const { x: ovx, y: ovy, z: ovz } = offset_velocity;
-    if (o_dvx > 0) o_dvx = o_dvx / weight - abs(ovz / 2);
-    else o_dvx = o_dvx / weight + abs(ovz / 2);
-
-    if (is_num(opoint.max_hp))
-      this.hp = this.hp_r = this.hp_max = opoint.max_hp;
-    if (is_num(opoint.hp)) this.hp = this.hp_r = opoint.hp;
-    if (is_num(opoint.max_mp)) this.mp = this.mp_max = opoint.max_mp;
-    if (is_num(opoint.mp)) this.mp = opoint.mp;
-
-    const { dvy = 0, dvz = 0, dvx = 0 } = this;
-    const {
-      vxm,
-      vym,
-      vzm,
-      acc_x = 0,
-      acc_y = 0,
-      acc_z = 0,
-    } = this.frame;
-    const z_disabled =
-      result?.frame?.state === StateEnum.Normal ||
-      result?.frame?.state === StateEnum.Burning;
-
-    let vx = ovx + o_dvx * facing;
-    let vy = ovy + o_dvy + dvy;
-    let vz = z_disabled ? 0 : ovz + o_dvz + o_speedz * ud;
-    if (vxm === SpeedMode.Fixed) vx = dvx;
-    if (vym === SpeedMode.Fixed) vy = dvy;
-    if (vzm === SpeedMode.Fixed) vz = dvz;
-    if (vxm == SpeedMode.Extra && acc_x) vx += acc_x;
-    if (vym == SpeedMode.Extra && acc_y) vy += acc_y;
-    if (vzm == SpeedMode.Extra && acc_z) vz += acc_z;
-
-    this.prev_velocity.x = this.velocity.x = round_float(vx);
-    this.prev_velocity.y = this.velocity.y = round_float(vy);
-    this.prev_velocity.z = this.velocity.z = round_float(vz);
-    switch (opoint.kind) {
-      case OpointKind.Pick:
-        emitter.drop_holding();
-        this.bearer = emitter;
-        this.bearer.holding = this;
-        break;
-    }
-    this.motionless = opoint.motionless ?? 2;
-    return this;
-  }
   get_opoint_speed_z(emitter: Entity, opoint: IOpointInfo): number {
     if (opoint.speedz !== void 0) return opoint.speedz;
     if (!is_fighter(emitter)) return 0;
+    
+    /* TODO: 要想办法尽量摆脱 State 判定，保持数据行为透明 - Gim*/
     switch (this.state) {
       case StateEnum.Ball_Flying:
       case StateEnum.Ball_3006:
@@ -1038,7 +944,7 @@ export class Entity {
             facing = v.x < 0 ? -1 : v.x > 0 ? 1 : facing;
             break;
         }
-        const e = this.spawn_entity(opoint, v, facing);
+        const e = this.spawn(opoint, v, facing);
         if (!e) return;
         switch (opoint.spreading) {
           case OpointSpreading.FloatRange: {
@@ -1072,7 +978,7 @@ export class Entity {
     }
   }
 
-  spawn_entity(
+  spawn(
     opoint: IOpointInfo,
     offset_velocity: IVector3 = Ditto.vec3(0, 0, 0),
     facing: TFace = this.facing,
@@ -1081,32 +987,21 @@ export class Entity {
     this.lfw.mt.mark = "se_1";
     const oid = this.lfw.mt.pick(opoint.oid);
     if (!oid) {
-      Ditto.warn(
-        `[Entity::spawn_object] failed, oid: ${oid}, opoint: `,
-        opoint,
-      );
+      Ditto.warn(`[Entity::spawn] failed, oid: ${oid}, opoint: `, opoint);
+      // eslint-disable-next-line no-debugger
+      debugger;
       return;
     }
     const data = this.lfw.datas.find(oid);
     if (!data) {
-      Ditto.warn(
-        `[Entity::spawn_object] failed, oid: ${oid}, data: `,
-        data,
-        ` opoint: `,
-        opoint,
-      );
+      Ditto.warn(`[Entity::spawn] failed, oid: ${oid}, data: ${data}, opoint: `, opoint);
       // eslint-disable-next-line no-debugger
       debugger;
       return;
     }
     const entity = this.lfw.factory.create_entity_with_bot("", this.world, data);
     if (!entity) {
-      Ditto.warn(
-        `[Entity::spawn_object] failed, oid: ${oid}, data: `,
-        data,
-        ` opoint: `,
-        opoint,
-      );
+      Ditto.warn(`[Entity::spawn] failed, oid: ${oid}, data: `, data, `,opoint: `, opoint);
       // eslint-disable-next-line no-debugger
       debugger;
       return;
@@ -1119,6 +1014,108 @@ export class Entity {
     for (const [, v] of this.vrests) entity.add_v_rest(collision_clone(v));
 
     return entity;
+  }
+
+  on_spawn(
+    emitter: Entity,
+    opoint: IOpointInfo,
+    offset_velocity: IVector3 = Ditto.vec3(0, 0, 0),
+    facing: TFace,
+  ): this {
+    const emitter_frame = emitter.frame;
+    /* TODO: 要想办法尽量摆脱 State 判定，保持数据行为透明 - Gim*/
+    if (emitter.state === StateEnum.Ball_Rebounding) {
+      const attacker = emitter.lastest_collided?.attacker ?? emitter;
+      this.emitters[0] = attacker.id;
+      this.emitters.length = 1;
+      this.team = attacker.team;
+      this.facing = emitter.facing;
+    } else {
+      this.emitters.push(...emitter.emitters, emitter.id);
+      this.team = emitter.team;
+      this.facing = emitter.facing;
+    }
+    const { pos_type } = opoint;
+    let { x: pos_x, y: pos_y } = emitter.position;
+    const { z: pos_z } = emitter.position;
+    const opoint_y = (opoint.__gen_y ? opoint.__gen_y.get(emitter) : opoint.y) ?? 0;
+    const opoint_x = (opoint.__gen_x ? opoint.__gen_x.get(emitter) : opoint.x) ?? 0;
+    const opoint_z = (opoint.__gen_z ? opoint.__gen_z.get(emitter) : opoint.z) ?? 2;
+
+
+    if (pos_type === 1) {
+      pos_y = pos_y - opoint_y;
+      pos_x = pos_x + emitter.facing * opoint_x;
+    } else {
+      pos_y = pos_y + emitter_frame.centery - opoint_y;
+      pos_x = pos_x - emitter.facing * (emitter_frame.centerx - opoint_x);
+    }
+    this.prev_position.copy(emitter.position);
+    this.set_position(pos_x, pos_y, pos_z + opoint_z);
+
+    const result = this.get_next_frame(opoint.action);
+    const which = result?.which;
+    const nf_facing = which?.__gen_facing ? which.__gen_facing.get(emitter) : which?.facing;
+    facing = nf_facing ? this.handle_facing_flag(nf_facing) : emitter.facing;
+
+    if (result) this.enter_frame(result.which);
+    else this.enter_frame(Defines.NEXT_FRAME_AUTO);
+
+    const { speedz: o_speedz = this.get_opoint_speed_z(emitter, opoint) } = opoint;
+    let o_dvx = (opoint.__gen_dvx ? opoint.__gen_dvx.get(emitter) : opoint.dvx) ?? 0
+    let o_dvy = (opoint.__gen_dvy ? opoint.__gen_dvy.get(emitter) : opoint.dvy) ?? 0
+    const o_dvz = (opoint.__gen_dvz ? opoint.__gen_dvz.get(emitter) : opoint.dvz) ?? 0
+
+    const { weight } = this;
+    o_dvy = o_dvy / weight;
+    const ud = is_fighter(emitter) ? emitter.ctrl.UD : 0;
+
+    if (is_num(opoint.max_hp))
+      this.hp = this.hp_r = this.hp_max = opoint.max_hp;
+    if (is_num(opoint.hp)) this.hp = this.hp_r = opoint.hp;
+    if (is_num(opoint.max_mp)) this.mp = this.mp_max = opoint.max_mp;
+    if (is_num(opoint.mp)) this.mp = opoint.mp;
+
+    const { dvy = 0, dvz = 0, dvx = 0 } = this;
+    const {
+      vxm,
+      vym,
+      vzm,
+      acc_x = 0,
+      acc_y = 0,
+      acc_z = 0,
+    } = this.frame;
+
+    /* TODO: 要想办法尽量摆脱 State 判定，保持数据行为透明 - Gim*/
+    const z_disabled =
+      result?.frame?.state === StateEnum.Normal ||
+      result?.frame?.state === StateEnum.Burning;
+
+    const { x: ovx, y: ovy, z: ovz } = offset_velocity;
+    if (o_dvx > 0) o_dvx = o_dvx / weight - abs(ovz / 2);
+    else o_dvx = o_dvx / weight + abs(ovz / 2);
+    let vx = ovx + o_dvx * facing;
+    let vy = ovy + o_dvy + dvy;
+    let vz = z_disabled ? 0 : ovz + o_dvz + o_speedz * ud;
+    if (vxm === SpeedMode.Fixed) vx = dvx;
+    if (vym === SpeedMode.Fixed) vy = dvy;
+    if (vzm === SpeedMode.Fixed) vz = dvz;
+    if (vxm == SpeedMode.Extra && acc_x) vx += acc_x;
+    if (vym == SpeedMode.Extra && acc_y) vy += acc_y;
+    if (vzm == SpeedMode.Extra && acc_z) vz += acc_z;
+
+    this.prev_velocity.x = this.velocity.x = round_float(vx);
+    this.prev_velocity.y = this.velocity.y = round_float(vy);
+    this.prev_velocity.z = this.velocity.z = round_float(vz);
+    switch (opoint.kind) {
+      case OpointKind.Pick:
+        emitter.drop_holding();
+        this.bearer = emitter;
+        this.bearer.holding = this;
+        break;
+    }
+    this.motionless = opoint.motionless ?? 2;
+    return this;
   }
 
   attach(ghost: unknown = false): this {
@@ -2394,6 +2391,7 @@ export class Entity {
     let { x } = pos;
     const { y, z } = pos;
     const { frame } = this;
+    /* TODO: 要想办法尽量摆脱 State 判定，保持数据行为透明 - Gim*/
     if (frame.state === StateEnum.Message) {
       const { centerx, width } = frame;
       let { camera: { position: { x: cam_x } } } = this.world;
