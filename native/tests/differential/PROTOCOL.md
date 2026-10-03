@@ -2687,7 +2687,7 @@ harness op：
 9. **`env hook` 只对指定键生效**：`jump_height` 之外（`gravity`/`screen_w`/`screen_h`/`difficulty`）
    的 `set` 只有 `dataset_change` 一条日志，锁住「键钩子按名查找、整体回调对所有托管键生效」。
 
-### 6.9.96 `entity`（差分 763 行，变异 207/207 全杀）
+### 6.9.96 `entity`（差分 977 行，变异 265/265 全杀）
 
 harness op：
 
@@ -2718,6 +2718,15 @@ harness op：
   `run land <帧字面量>|self`（`self` 把 `_landing_frame` 指向当前帧对象本身）、
   `run keys <LR> <UD> <jd>`（重建 base 控制器并按需按下 `L/R`、`U/D`、`d/j`，
   使 `LR`/`UD`/`jd` 分别为 -1/0/1）。
+- 帧查找 / 标志层（9c 追加）：
+  `run prev`（`get_prev_frame()`）、`run findframe <id 字面量>`、`run autoframe`、
+  `run align <id 字面量> <src 字面量> <dst 字面量>`、`run suddenframe`、`run caughtframe`、
+  `run facingflag <flag 字面量>`、`run waitflag <wait 字面量> <帧字面量>`、
+  `run framewait <帧字面量>`、`run waitblock <裸数字>`（写 `_from_wait_block`）、
+  `run buddy <数据字面量>` / `run buddyset <字段> <值字面量>`（第二个实体，用来让
+  catcher 与 bearer 有不同朝向）、`run link … buddy`。
+  `run hook` 追加 `frameid|autoframe|sudden|caught` 四个子命令，其中 `frameid` 多一个
+  `echo` 形式（把入参原样返回，锁「传进钩子的是查找 id」）；`run hook none` 清空六个钩子。
 
 输出：
 
@@ -2738,7 +2747,16 @@ harness op：
 - `run vdecay <accx> <accz> <factor> || <日志> | v=<velocity> pv=<prev_velocity>`；
 - `run velocity <vinfo> || <日志> | v=<velocity> pv=<prev_velocity> g=<is_on_ground>`；
 - `run land <帧>|self || <日志> | v=<landing_frame>`；
-- `run keys <LR> <UD> <jd> || <日志> | lr=<0|1|-1> ud=<…> jd=<…>`。
+- `run keys <LR> <UD> <jd> || <日志> | lr=<0|1|-1> ud=<…> jd=<…>`；
+- `run prev || <日志> | v=<prev_frame>`；
+- `run findframe <id> || <日志> | v=<帧>`、`run autoframe || <日志> | v=<帧>`；
+- `run align <id> <src> <dst> || <日志> | v=<{id:…}>`；
+- `run suddenframe || <日志> | v=<帧 id 或 NEXT_FRAME_AUTO>`；
+- `run caughtframe || <日志> | v=<帧 id> p=<position>`；
+- `run facingflag <flag> || <日志> | v=<新朝向> f=<当前 facing>`；
+- `run waitflag <wait> <帧> || <日志> | v=<新 wait> w=<当前 wait>`；
+- `run framewait <帧> || <日志> | v=<算出的等待>`；
+- `run waitblock <数字> || <日志> | v=<b0|b1>`。
 
 日志项（按发生顺序、逗号分隔）：`on_*_changed:<self|?>:<新值>:<旧值>`、`on_dead:<self>`、
 `on_ctrl_changed:<vc>:<前一个>:<self>`（控制器渲染成 `base|human|bot|u`）、
@@ -2758,7 +2776,7 @@ harness op：
 `name_visible/wakeup_invuln/dead_gone/ctrl_visible/puppet/is_on_ground`、
 `jumping.x|y|z|t`、`aabb_min_x/aabb_max_x/l_len/r_len`、
 物理层追加：`velocity/prev_velocity/position/prev_position`（`{x,y,z}`）、
-`dvx/dvy/dvz`、`atom_time`、`landing_frame`。
+`dvx/dvy/dvz`、`atom_time`、`landing_frame`；帧查找层追加：`from_wait_block`（`b0`/`b1`）。
 
 覆盖面（杀掉全部 115 条变异的关键）：
 
@@ -2826,3 +2844,33 @@ harness op：
     （`run set is_on_ground n 1` 之后仍是 `b1`）。
 23. **`atom_time` 的三个缩放点**：`env dataset atom_time n 2` 之后新建的实体
     （`run get atom_time` = 2）验重力 `v -= g * 2`、摩擦 `pow(f, 2)`、`acc_* *= 2`。
+24. **`findframe` 的严格 `switch`**：`run findframe u` → 当前帧；`run findframe z`
+    **不**走 `case void 0`，而是查 `frames["null"]`（查不到 → auto 帧），两条结果不同即证严格；
+    `s "none"`/`s "self"` → 当前帧，`s "auto"` → auto 帧，`s "gone"` → `GONE_FRAME_INFO`，
+    `s "nope"` → auto 帧，`n 7` 走数字键查表。
+25. **钩子返回值的真值判定**：`run hook frameid s "hookf"` 命中（连 `n 0` 穿透）、
+    `run hook frameid n 0` 落到 switch；`run hook frameid echo` 把入参原样返回，
+    于是「传进去的是查找 id」与「传进去的是实体 id」会打出不同结果。
+26. **`find_auto_frame` 的 nullish 链**：`hook autoframe z` 穿透到 `frames["0"]`；
+    `frames o 1 "0" n 0` 时返回 `0`（假值也算命中，不回退当前帧）；`frames` 清空 → 当前帧。
+27. **`find_align_frame` 的对齐**：命中（`(idx + 1) % dst.length` 回绕）、
+    未命中（`indexOf` 得 -1 → `dst[0]`）、只有 `dst` 有长度 → `dst[0]`、
+    `dst` 为空/`z` → `find_auto_frame()`。
+28. **`prev` 读写**：`_prev_frame` 初值 `u`，`run land`/`run set` 之后可读回。
+29. **`suddenframe`/`caughtframe` 的 `||` 兜底**：钩子返回 `0`/`""` 也落到
+    `Defines.NEXT_FRAME_AUTO`（与 `findframe` 的 `??` 链区分）；无钩子时直接读常量。
+30. **`caughtframe` 的就地抬升且不取整**：`ground_y = 0.1235`、`position.y = 0` →
+    抬到 `1.1235`（`p=` 打出未取整值）；`position.y = 5 > ground_y` 时不动。
+31. **`facingflag` 的 12 支矩阵**：`3`(Ctrl) 在 `LR = -1/0/1` 三态、`6`(AntiCtrl) 同三态、
+    `2`(Backward)、`-1`/`1`(Left/Right)、`7`(VX) 与 `8`(AntiVX) 在 `vx > 0 / < 0 / == 0`
+    三态、`9`(Trend) 的「`LR` 优先于 `vx`」与 `LR == 0` 回退、default 支的
+    `u`/`s "3"`/`n 3.5`（非数字/非枚举值一律回 `facing`）。
+32. **`4`/`5` 是共用别名**：`link catcher buddy` 时 4/5 跟着 buddy 的朝向（`-1/0/2`）；
+    把 catcher 清空、改把 buddy 接到 `bearer` 上，4/5 仍**忽略 bearer** 回退 `this.facing`
+    —— 这就是「catcher 支在前、bearer 支是死代码」的判别力来源。
+33. **`waitflag` 的四级判定**：`u`+帧与 `z`+帧都命中第一支（宽松 `== void 0`）、
+    `n 3` 走 `is_positive`、`s "3"` **不**算正数（`is_positive` 只认 number）、
+    `s "i"` 与「没有帧」都回 `this.wait`、`s "d"` 走差值支（帧缺 `wait` → `NaN` 被
+    `max(0, …)` 留下）、其余字符串/对象走 `get_frame_wait`。
+34. **`framewait` 的两半**：`env dataset wait_offset` 参与求和；`run waitblock 1` +
+    `atom_time 2` 之后必须减 **`_atom_time`**（写成常量 1 会被杀）。

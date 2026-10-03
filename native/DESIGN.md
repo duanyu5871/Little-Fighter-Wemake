@@ -4637,3 +4637,103 @@ TS 侧 `WorldDataset` 有 103 个字段，但**所有已经移植过的调用点
   两侧同一个字面量；`lr/ud/jd` 由控制器 getter 打印，顺带验证键位映射。
 - `run land self` 把 `_landing_frame` 指向**当前帧对象**，才能覆盖 `=== this.frame` 的
   同一性分支（另一支用等值但不同一的对象）。
+
+## 46. 切片 9c：`Entity` 的帧查找 / 标志处理
+
+`entity.{h,cpp}` 的第三刀：`find_frame_by_id`、`find_auto_frame`、`find_align_frame`、
+`get_prev_frame`、`get_sudden_death_frame`、`get_caught_end_frame`、`handle_facing_flag`、
+`handle_wait_flag`、`get_frame_wait`。这一层的输入只有「帧表 + 状态回调 + 控制器/关系」
+三样，所以在 `set_frame` / `enter_frame`（需要 `__judger` 与 `lfw.mt` 缝）之前就能独立锁死。
+
+### 46.1 单元边界（为什么是这九支）
+1. **不碰 `set_frame` / `enter_frame` / `get_next_frame`**：这三支要 `lfw.mt.pick`、
+   `preprocess_next_frame`（端口仍是桩）和 `__judger` 表达式求值，属于下一刀。
+2. **不碰 `set_state`**：它要完整的 `IStateEntity` 实现与 `_states` 注册表注入，放在
+   `Entity` 实现 `state::IStateEntity` 的那一刀一起做。本刀只把 `_state?.xxx?.(this)` 的
+   六个可选回调保留成注入钩子（9a/9b 已建立的缝）。
+3. **`get_prev_frame` 顺手搬**：它只是 `_prev_frame` 的读取口，同时把 9a 的窥视口
+   从 `prev_frame()` 改名成 `get_prev_frame()`，避免与 TS 只有方法无属性的事实混淆。
+4. **`find_align_frame` 依赖 `find_auto_frame`**：后者的兜底链要被前者复用，所以两支同刀。
+
+### 46.2 保真要点
+1. **`find_frame_by_id` 的 `switch` 是严格比较**：`case void 0:` 只吃 `undefined`，
+   所以 `null` 的 id **不会**返回当前帧，而是落到 `this._data.frames["null"]`（键名是
+   `String(null)`）→ 查不到 → `find_auto_frame()`。端口因此只对 `monostate` 短路，
+   `NullTag` 继续走查表；差分里 `run findframe z` 与 `run findframe u` 的结果不同即锁此点。
+2. **状态钩子的返回值用 `truthy` 判定**：`const r = this._state?.find_frame_by_id?.(this, id); if (r) return r;`
+   ——`0`/`""`/`null` 都算「没找到」，继续走 switch。端口用 `truthy(r)`；差分用
+   `run hook frameid s "hookf"`（真值命中）与 `run hook frameid n 0`（假值穿透）两面覆盖。
+   钩子的**第一个参数是实体自身**（TS `(this, id)`），端口目前只传 id——见 §46.3。
+3. **`find_auto_frame` 是 nullish 链**：`_state?.get_auto_frame?.() ?? frames["0"] ?? this.frame`。
+   注意 `frames["0"]` 只要非 nullish 就赢，哪怕它是 `0`（假值）——差分用
+   `run frames o 1 "0" n 0` + `run autoframe` 锁「返回 0 而不是当前帧」。
+4. **`find_align_frame` 的取模对齐**：`dst?.length && src?.length` 时
+   `(src.indexOf(id) + 1) % dst.length`，**未命中 `indexOf` 得 -1 → `dst[0]`**；
+   只有 `dst` 有长度时也是 `dst[0]`；都没有才是 `find_auto_frame()`。
+   端口按 `(idx + 1) % d_len` 复刻（`idx` 初值 `s_len` 表示 -1），返回 `{ id: … }` 新对象。
+   另外 `src` / `dst` 只认数组（`as_array`），空数组与 `null` 同路。
+5. **`get_sudden_death_frame` / `get_caught_end_frame` 的兜底是 `||`**：
+   `_state?.xxx?.(this) || Defines.NEXT_FRAME_AUTO`——钩子返回假值同样落到 `NEXT_FRAME_AUTO`，
+   与 `??` 不同；差分用 `run hook sudden n 0` 锁住穿透。
+6. **`get_caught_end_frame` 会就地抬升 `position.y` 且不取整**：
+   `if (this.position.y < this.ground_y) this.position.y = this.ground_y + 1;`
+   端口原样照抄（**不经过 `round_float`**）；差分把 `ground_y` 设成 `0.1235`，抬升后
+   `position.y` 必须打出 `1.1235`。
+7. **`handle_facing_flag` 的分派**：严格 `switch`，非数字（`undefined`/`null`/字符串）
+   一律走 default `this.facing`。各分支细节：
+   - `Ctrl` 用 `ctrl?.LR || this.facing`（`LR` 为 0 时回退），`AntiCtrl` 用
+     `ctrl?.LR ? turn_face(LR) : this.facing`——注意 `turn_face` 收的是 **LR** 而不是 facing。
+   - `SameAsCatcher` / `OpposingCatcher` 走 `catcher?.facing || this.facing`（`||` 真值语义），
+     `Opposing` 支对 `turn_face` 的结果再判真值（`turn_face(undefined)` 是 `NaN` → 假 → 回退）。
+   - `Trend` 里 TS 写的是 `const { LR } = this.ctrl;` **没有可选链**，端口对应取
+     `ctrl_` 的 `LR()`；`LR` 为 0 才看 `velocity.x`。
+   - `VX` / `AntiVX` 在 `velocity.x == 0`（含 `-0`）时回退 `this.facing`。
+   - **`SameAsBearer` / `OpposingBearer` 的 case 不可达**：`FacingFlag` 里
+     `SameAsBearer == SameAsCatcher == 4`、`OpposingBearer == OpposingCatcher == 5`，
+     JS `switch` 取**第一个**匹配 `case`，所以 4/5 永远走 catcher 支（bearer 支是死代码）。
+     端口照抄顺序（catcher 在前），差分用两组场景锁死：①`link catcher buddy` + buddy 朝向
+     `-1/0/2`，4/5 必须跟着 **catcher** 变；②`link catcher none` + `link bearer buddy`，
+     4/5 必须**忽略 bearer** 回退到 `this.facing`。把两条 case 的顺序对调就会被杀。
+8. **`handle_wait_flag` 的四级判定**：
+   `wait == void 0 && frame` → `get_frame_wait(frame)`（宽松比较，`null` 也命中）；
+   `is_positive(wait)` → `wait`；`wait === "i" || !frame` → `this.wait`；
+   `wait === "d"` → `max(0, frame.wait - this.frame.wait + this.wait)`；否则
+   `get_frame_wait(frame)`。
+   - `frame` 是可选参数，**存在但假值**（`0`/`null`/`""`）一律算「没有帧」：
+     端口用 `has_frame = frame_value.has_value() && truthy(*frame_value)`。
+   - `is_positive` 只对 `number` 且 `> 0` 为真（`"3"` 这种字符串不算），差分有
+     `run waitflag s "3"` 对照。
+   - `"d"` 支的 `frame.wait` 缺失时是 `undefined` → `max(0, NaN)` = `NaN`（端口 `to_number`
+     同值），差分用「帧没有 `wait` 键」覆盖。
+9. **`get_frame_wait` 的两半**：`frame.wait + world.dataset.wait_offset`（数据集缺失 →
+   `NaN`），再在 `_from_wait_block` 时减去 `_atom_time`。端口额外加了
+   `from_wait_block()` / `set_from_wait_block()` 窥视口，差分把 `atom_time` 设成 2 后
+   用 `run waitblock 1` 锁「减的是 `_atom_time` 而不是常量 1」。
+
+### 46.3 有意不覆盖 / 不可观测项
+- `this._state?.find_frame_by_id?.(this, id)` 的**第一个参数**（实体自身）在端口里没有对应
+  类型可传，钩子签名收缩成 `std::function<Value(const Value&)>`（只收 id）。这是明确的
+  **缝简化**，等 `Entity` 实现 `state::IStateEntity` 时统一改回 `(Entity&, …)`；在
+  harness 里用 `(_e, id) => id` 的 echo 钩子把「第二参数是查找用的 id」钉住，
+  所以「端口误传实体 id」这条变异是可杀的（见变异表 `find_frame_by_id passes the entity id`）。
+- `Ditto.warn("Entity::find_frame_by_id", "frame not find! id:", id)` 只是控制台警告，
+  无任何可观测副作用，端口直接不调用（已在实现处注释）。
+- `find_frame_by_id` 的 `Gone` 支返回 `GONE_FRAME_INFO` 这个**常量对象**，其内容由
+  `Defines` 数据决定；差分只断言「与 `Defines` 里的同名字段一致」，不重复锁常量形状。
+- `find_align_frame` 的 `dst` 里含非字符串项、`src` 含重复 id 等情形属于数据约束
+  （帧表由 `IData` 保证），不在 DSL 里构造。
+- `handle_facing_flag` 在 `ctrl` 为 `null` 时 TS 的 `Trend` 支会抛异常（没有可选链），
+  端口同样不防；这是上游行为，不构造该输入。
+
+### 46.4 harness 观察点
+- 新增 op：`run prev`、`run findframe <id>`、`run autoframe`、`run align <id> <src> <dst>`、
+  `run suddenframe`、`run caughtframe`、`run facingflag <flag>`、`run waitflag <wait> <frame>`、
+  `run framewait <frame>`、`run waitblock <数字>`（裸数字，不用 `Value` 字面量）、
+  `run buddy` / `run buddyset <字段> <值>`（第二个实体，用来让 catcher 与 bearer 有不同朝向）。
+- `run link … buddy` 把第二个实体接到 `bearer` 上，于是「catcher 与 bearer 朝向不同」成为
+  可构造输入（4/5 别名的判别力全靠它）。
+- `run hook` 扩展 `frameid|autoframe|sudden|caught` 四个子命令，`frameid` 多一个
+  `echo` 形式（把 id 原样返回，锁钩子的参数）；`run hook none` 现在清空全部六个钩子。
+- 新 `get` 字段：`from_wait_block`（`b0`/`b1`）。
+- `run findframe` 的 id 直接收 `Value` 字面量，`s "gone"` / `z` / `u` / `n 7` 分别覆盖
+  `Gone` 常量支、`null` 查表支、`undefined` 当前帧支、数字键支。

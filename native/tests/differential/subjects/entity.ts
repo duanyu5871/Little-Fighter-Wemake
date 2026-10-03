@@ -61,9 +61,12 @@ const lfwStub = {
 
 (worldStub as unknown as { lfw: unknown }).lfw = lfwStub;
 
+// `Ditto.warn` is a console warning; the port drops it (no trace effect), so the stub
+// only has to exist.
+Ditto.warn = (() => undefined) as never;
+
 // `Entity` builds its vectors through the host.
-Ditto.vec3 = (x = 0, y = 0, z = 0) => {
-  const v = { x, y, z } as { x: number; y: number; z: number; set: unknown };
+Ditto.vec3 = (x = 0, y = 0, z = 0) => {  const v = { x, y, z } as { x: number; y: number; z: number; set: unknown };
   // The real `IVector3` keeps `set` off the own-key list; `Object.keys` (and so
   // `renderValue`) must only see x/y/z.
   Object.defineProperty(v, "set", {
@@ -78,6 +81,7 @@ Ditto.vec3 = (x = 0, y = 0, z = 0) => {
 };
 
 let ent: Entity | undefined = undefined;
+let buddy: Entity | undefined = undefined;
 let stateStub: Record<string, unknown> = {};
 
 const ctrlMark = (c: unknown): string => {
@@ -217,7 +221,7 @@ const NUMERIC_FIELDS = new Set([
   "facing", "motionless", "shaking", "fallinjury", "throwinjury", "name_visible",
   "wakeup_invuln", "dead_gone", "ctrl_visible", "puppet", "is_on_ground",
   "jumping.x", "jumping.y", "jumping.z", "jumping.t", "aabb_min_x", "aabb_max_x",
-  "l_len", "r_len", "atom_time",
+  "l_len", "r_len", "atom_time", "from_wait_block",
 ]);
 
 const VALUE_FIELDS = new Set([
@@ -351,6 +355,8 @@ const getNum = (e: Entity, name: string): number => {
       return e.r_len;
     case "atom_time":
       return (e as unknown as { _atom_time: number })._atom_time;
+    case "from_wait_block":
+      return (e as unknown as { _from_wait_block: boolean })._from_wait_block ? 1 : 0;
     default:
       void p;
       return undefined;
@@ -713,7 +719,7 @@ function main(): void {
       } else if (what === "link") {
         const field = t[i++]!;
         const to = t[i++]!;
-        const v = to === "self" ? (ent as unknown) : null;
+        const v = to === "self" ? (ent as unknown) : to === "buddy" ? (buddy as unknown) : null;
         if (field === "bearer") ent!.bearer = v as never;
         else if (field === "catcher") ent!.catcher = v as never;
         else if (field === "holding") ent!.holding = v as never;
@@ -788,6 +794,72 @@ function main(): void {
         out.push(
           `run keys ${r(lr)} ${r(ud)} ${r(jd)} || ${log.join(",")} | lr=${c.LR} ud=${c.UD} jd=${c.jd}`,
         );
+      } else if (what === "buddy") {
+        buddy = new Entity(worldStub as never, parseValue(t, [i]) as never);
+        out.push(`run buddy || id=${buddy.id} | ${log.join(",")}`);
+      } else if (what === "buddyset") {
+        const name = t[i++]!;
+        const inV = parseValue(t, [i]);
+        let outV: unknown = undefined;
+        if (VALUE_FIELDS.has(name) && setValue(buddy!, name, inV)) outV = getValue(buddy!, name);
+        else if (NUMERIC_FIELDS.has(name) && setNum(buddy!, name, Number(inV))) {
+          outV = getNum(buddy!, name);
+        } else {
+          process.stderr.write(`unknown buddyset '${name}'\n`);
+          process.exit(2);
+        }
+        out.push(`run buddyset ${name} ${r(inV)} || ${log.join(",")} | v=${r(outV)}`);
+      } else if (what === "prev") {
+        const v = parseValue(t, [i]);
+        (ent as unknown as { _prev_frame: unknown })._prev_frame = v;
+        out.push(`run prev ${r(v)} || ${log.join(",")} | v=${r(ent!.get_prev_frame())}`);
+      } else if (what === "findframe") {
+        const id = parseValue(t, [i]);
+        out.push(
+          `run findframe ${r(id)} || ${log.join(",")} | v=${r(ent!.find_frame_by_id(id as never))}`,
+        );
+      } else if (what === "autoframe") {
+        out.push(`run autoframe || ${log.join(",")} | v=${r(ent!.find_auto_frame())}`);
+      } else if (what === "align") {
+        const idx = [i];
+        const fid = parseValue(t, idx);
+        const src = parseValue(t, idx);
+        const dst = parseValue(t, idx);
+        out.push(
+          `run align ${r(fid)} ${r(src)} ${r(dst)} || ${log.join(",")} | v=${r(ent!.find_align_frame(String(fid), src as never, dst as never))}`,
+        );
+      } else if (what === "suddenframe") {
+        out.push(
+          `run suddenframe || ${log.join(",")} | v=${r(ent!.get_sudden_death_frame())}`,
+        );
+      } else if (what === "caughtframe") {
+        const v = ent!.get_caught_end_frame();
+        out.push(
+          `run caughtframe || ${log.join(",")} | v=${r(v)} p=${r(ent!.position)}`,
+        );
+      } else if (what === "facingflag") {
+        const f = parseValue(t, [i]);
+        out.push(
+          `run facingflag ${r(f)} || ${log.join(",")} | v=${r(ent!.handle_facing_flag(f as never))} f=${r(ent!.facing)}`,
+        );
+      } else if (what === "waitflag") {
+        const idx = [i];
+        const w = parseValue(t, idx);
+        const f = parseValue(t, idx);
+        out.push(
+          `run waitflag ${r(w)} ${r(f)} || ${log.join(",")} | v=${r(ent!.handle_wait_flag(w as never, f as never))} w=${r(ent!.wait)}`,
+        );
+      } else if (what === "framewait") {
+        const f = parseValue(t, [i]);
+        out.push(
+          `run framewait ${r(f)} || ${log.join(",")} | v=${r(ent!.get_frame_wait(f as never))}`,
+        );
+      } else if (what === "waitblock") {
+        const b = Number(t[i++]);
+        (ent as unknown as { _from_wait_block: boolean })._from_wait_block = b !== 0;
+        out.push(
+          `run waitblock ${r(b)} || ${log.join(",")} | v=${r((ent as unknown as { _from_wait_block: boolean })._from_wait_block ? 1 : 0)}`,
+        );
       } else if (what === "summaries") {
         const m = summary_mgr as unknown as {
           _items: Map<string, { hp_lost: number; mp_usage: number }>;
@@ -805,6 +877,23 @@ function main(): void {
         } else if (sub === "gravity") {
           const v = parseValue(t, [i]);
           stateStub.get_gravity = () => v;
+        } else if (sub === "frameid") {
+          if (t[i] === "echo") {
+            i++;
+            stateStub.find_frame_by_id = (_e: unknown, id: unknown) => id;
+          } else {
+            const v = parseValue(t, [i]);
+            stateStub.find_frame_by_id = () => v;
+          }
+        } else if (sub === "autoframe") {
+          const v = parseValue(t, [i]);
+          stateStub.get_auto_frame = () => v;
+        } else if (sub === "sudden") {
+          const v = parseValue(t, [i]);
+          stateStub.get_sudden_death_frame = () => v;
+        } else if (sub === "caught") {
+          const v = parseValue(t, [i]);
+          stateStub.get_caught_end_frame = () => v;
         } else if (sub === "none") {
           stateStub = {};
           (ent as unknown as { _state: unknown })._state = null;

@@ -795,7 +795,6 @@ run setvel n 0 n 0 n 0
 run velocity o 1 dvy n 4
 run get velocity
 run get is_on_ground
-
 # --- atom_time scales gravity, the decay exponent and the accelerations
 env dataset s "atom_time" n 2
 run make o 4 id s "p6" type n 1 name s "T2" base o 2 name s "T2" gravity n 2
@@ -821,3 +820,237 @@ run get velocity
 run setvel n 0 n 0 n 0
 run velocity o 3 dvz n 4 vzm n 4 acc_z n 2
 run get velocity
+
+# ==================== slice 9c: frame lookup / flags ====================
+
+# --- find_frame_by_id: the state hook, the FrameId switch and the data fallback
+run make o 5 id s "f1" type n 1 name s "Fr" base o 0 frames o 4 "0" o 2 id s "f0" wait n 5 "3" o 1 id s "f3" "zz" o 1 id s "fz" "gone" o 1 id s "fgone"
+run get frame
+run findframe u
+run findframe z
+run findframe s ""
+run findframe s "self"
+run findframe s "auto"
+run findframe s "gone"
+run findframe s "3"
+run findframe n 3
+run findframe s "zz"
+run findframe s "nope"
+run autoframe
+run frame o 2 id s "cur" wait n 9
+run autoframe
+run hook frameid o 1 id s "hookf"
+run findframe s "3"
+run hook frameid echo
+run findframe s "3"
+run findframe n 7
+run hook frameid u
+run findframe s "3"
+run hook frameid n 0
+run findframe s "3"
+run hook frameid s "hs"
+run findframe s "auto"
+run hook autoframe o 1 id s "sa"
+run autoframe
+run findframe s "3"
+run hook autoframe u
+run autoframe
+run hook autoframe n 0
+run autoframe
+run hook none
+run autoframe
+run findframe s "3"
+
+# --- find_auto_frame without a "0" entry: the current frame is the last resort
+run make o 5 id s "f2" type n 1 name s "F2" base o 0 frames o 1 "7" o 1 id s "f7"
+run frame o 2 id s "cur2" wait n 2
+run autoframe
+run findframe s "nope"
+run findframe s "7"
+run findframe u
+
+# --- prev frame and the two state-driven frame getters
+run prev o 1 id s "pf"
+run get prev_frame
+run prev u
+run get prev_frame
+run suddenframe
+run hook sudden o 1 id s "sd"
+run suddenframe
+run hook sudden n 0
+run suddenframe
+run hook none
+run suddenframe
+run pos n 0 n 0.5 n 0
+run ground n 0
+run caughtframe
+run get position
+run pos n 0 n -2 n 0
+run caughtframe
+run get position
+run ground n 0.1235
+run pos n 0 n -2 n 0
+run caughtframe
+run get position
+run hook caught o 1 id s "ce"
+run pos n 0 n 5 n 0
+run caughtframe
+run get position
+run hook caught n 0
+run caughtframe
+run hook none
+run caughtframe
+
+# --- find_align_frame: the index wrap, the empty-src branch and the auto fallback
+run align s "3" a 2 s "1" s "3" a 3 s "a" s "b" s "c"
+run align s "9" a 2 s "1" s "3" a 3 s "a" s "b" s "c"
+run align s "1" a 1 s "1" a 1 s "only"
+run align s "3" a 0 a 3 s "a" s "b" s "c"
+run align s "3" u a 2 s "x" s "y"
+run align s "3" z a 2 s "x" s "y"
+run align s "3" a 2 s "1" s "3" a 0
+run align s "3" u u
+run hook autoframe o 1 id s "af"
+run align s "3" u u
+run hook none
+
+# --- handle_facing_flag: every case, the strict switch and the shared 4/5 values
+run make o 4 id s "f3" type n 1 name s "Fa" base o 0
+run set facing n 1
+run facingflag n 3
+run keys 1 0 0
+run facingflag n 3
+run keys -1 0 0
+run facingflag n 3
+run facingflag n 6
+run keys 0 0 0
+run facingflag n 6
+run set facing n -1
+run facingflag n 6
+run set facing n 1
+run keys 0 0 1
+run set facing n -1
+run setvel n 5 n 0 n 0
+run facingflag n 9
+run setvel n -5 n 0 n 0
+run facingflag n 9
+run setvel n 0 n 0 n 0
+run facingflag n 9
+run keys 1 0 0
+run facingflag n 9
+run set facing n 1
+run setvel n 5 n 0 n 0
+run facingflag n 7
+run setvel n -3 n 0 n 0
+run facingflag n 7
+run facingflag n 8
+run setvel n 5 n 0 n 0
+run facingflag n 8
+run setvel n 0 n 0 n 0
+run facingflag n 7
+run facingflag n 8
+run facingflag n 2
+run set facing n -1
+run facingflag n 2
+run facingflag n -1
+run set facing n 1
+run facingflag n -1
+run facingflag n 1
+run set facing n -1
+run facingflag n 0
+run facingflag u
+run facingflag s "3"
+run facingflag n 3.5
+run facingflag n 4
+run facingflag n 5
+run link catcher self
+run set facing n 1
+run facingflag n 4
+run set facing n 0
+run facingflag n 4
+run set facing n 1
+run facingflag n 5
+run set facing n 0
+run facingflag n 5
+run link catcher none
+run set facing n 1
+run facingflag n 4
+run facingflag n 5
+run buddy o 4 id s "b1" type n 1 name s "Bu" base o 0
+run buddyset facing n -1
+run link catcher buddy
+run set facing n 1
+run facingflag n 4
+run facingflag n 5
+run buddyset facing n 0
+run facingflag n 4
+run facingflag n 5
+run buddyset facing n 2
+run facingflag n 4
+run facingflag n 5
+run link catcher none
+run link bearer buddy
+run buddyset facing n -1
+run set facing n 1
+run facingflag n 4
+run facingflag n 5
+run link bearer none
+
+# --- get_auto_frame with a falsy "0" entry and a falsy state answer
+run make o 5 id s "f6" type n 1 name s "F6" base o 0 frames o 2 "0" n 0 "3" o 1 id s "f3"
+run autoframe
+run findframe s "nope"
+run hook autoframe n 0
+run autoframe
+run hook autoframe u
+run autoframe
+run hook none
+run autoframe
+
+# --- get_caught_end_frame on the exact ground line
+run pos n 0 n 0 n 0
+run ground n 0.1235
+run pos n 0 n 0.1235 n 0
+run caughtframe
+run get position
+
+# --- handle_wait_flag / get_frame_wait: the default paths, "i"/"d" and the offset
+env dataset s "wait_offset" n 0.5
+run make o 4 id s "f4" type n 1 name s "W" base o 0
+run set wait n 7
+run frame o 2 id s "cf" wait n 9
+run framewait o 1 wait n 3
+run waitblock 1
+run framewait o 1 wait n 3
+run waitblock 0
+run framewait o 1 wait n 3
+run framewait o 1 wait u
+run waitflag u o 1 wait n 3
+run waitflag z o 1 wait n 3
+run waitflag n 5 o 1 wait n 3
+run waitflag n 2.5 o 1 wait n 3
+run waitflag n 0 o 1 wait n 3
+run waitflag n -1 o 1 wait n 3
+run waitflag s "i" o 1 wait n 3
+run waitflag s "d" o 1 wait n 6
+run waitflag s "d" o 1 wait n 1
+run waitflag s "d" o 1 wait u
+run waitflag s "x" o 1 wait n 3
+run waitflag u u
+run waitflag n 5 u
+run waitflag s "i" u
+run waitflag s "d" u
+run waitflag u z
+run waitflag n 0 u
+run get from_wait_block
+
+# --- atom_time 2: the wait block subtracts two
+env dataset s "atom_time" n 2
+run make o 4 id s "f5" type n 1 name s "W2" base o 0
+run get atom_time
+run set wait n 1
+run frame o 2 id s "cf2" wait n 5
+run framewait o 1 wait n 5
+run waitblock 1
+run framewait o 1 wait n 5
+run waitflag s "d" o 1 wait n 5

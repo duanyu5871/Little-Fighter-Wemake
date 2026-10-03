@@ -10,6 +10,7 @@
 #include "lfw/defines/defines_data.h"
 #include "lfw/defines/entity_enum.h"
 #include "lfw/defines/entity_group.h"
+#include "lfw/defines/facing_flag.h"
 #include "lfw/defines/frame_id.h"
 #include "lfw/defines/game_key.h"
 #include "lfw/defines/speed_ctrl.h"
@@ -17,6 +18,7 @@
 #include "lfw/defines/state_enum.h"
 #include "lfw/entity/calc_v.h"
 #include "lfw/entity/entity_type_check.h"
+#include "lfw/entity/face_helper.h"
 #include "lfw/entity/summary_mgr.h"
 #include "lfw/ground.h"
 #include "lfw/state/entity_states.h"
@@ -25,6 +27,7 @@
 #include "lfw/utils/math/clamp.h"
 #include "lfw/utils/math/float_equal.h"
 #include "lfw/utils/math/round_float.h"
+#include "lfw/utils/type_check.h"
 
 #include <cmath>
 
@@ -52,6 +55,14 @@ std::optional<double> opt_num(const Value& v) {
 }
 
 Value base_of(const Value& data) { return field_or(data, u"base"); }
+
+// `obj[key]` with a dynamic key (the `field_or` overloads only take literals).
+Value field_kv(const Value& v, const std::u16string& key) {
+  const Object* o = as_object(v);
+  if (o == nullptr) return Value();
+  const Value* p = o->get(key);
+  return p != nullptr ? *p : Value();
+}
 
 std::u16string frame_id_of(const Entity& e) { return to_string(field_or(e.frame, u"id")); }
 
@@ -190,6 +201,10 @@ void Entity::reset(Value data, state::States* states) {
   _after_blink = std::nullopt;
   state_on_dead = nullptr;
   state_get_gravity = nullptr;
+  state_find_frame_by_id = nullptr;
+  state_get_auto_frame = nullptr;
+  state_get_sudden_death_frame = nullptr;
+  state_get_caught_end_frame = nullptr;
   dead_gone = 0;
   dead_join = Value(NullTag{});
   ctrl_visible = 0;
@@ -587,6 +602,158 @@ double Entity::itr_motionless() const {
     return num_of(dataset(u"ball_itr_motionless"));
   }
   return num_of(dataset(u"itr_motionless"));
+}
+
+// --- frame lookup / flags -----------------------------------------------------
+
+// `this._state?.find_frame_by_id?.(this, id)`, then the `FrameId` switch, then the
+// `_data.frames` lookup with the `find_auto_frame()` fallback.  The missing-frame
+// branch also calls `Ditto.warn(...)`, a console warning with no trace effect.
+Value Entity::find_frame_by_id(const Value& id_value) const {
+  if (state_find_frame_by_id) {
+    const Value r = state_find_frame_by_id(id_value);
+    if (truthy(r)) return r;
+  }
+  // `switch (id)` is strict, so only `undefined` hits `case void 0:` — a `null` id
+  // falls through to the `frames[null]` lookup.
+  if (std::holds_alternative<std::monostate>(id_value)) return frame;
+  const std::u16string* s = std::get_if<std::u16string>(&id_value);
+  if (s != nullptr) {
+    if (*s == frame_id::kNone || *s == frame_id::kSelf) return frame;
+    if (*s == frame_id::kAuto) return find_auto_frame();
+    if (*s == frame_id::kGone) {
+      const Value* gone = defines::find(u"GONE_FRAME_INFO");
+      return gone != nullptr ? *gone : Value();
+    }
+  }
+  const std::u16string key = to_string(id_value);
+  const Value found = field_kv(field_or(_data, u"frames"), key);
+  if (nullish(found)) return find_auto_frame();
+  return found;
+}
+
+// `this._state?.get_auto_frame?.(this) ?? this._data.frames["0"] ?? this.frame`
+Value Entity::find_auto_frame() const {
+  if (state_get_auto_frame) {
+    const Value f = state_get_auto_frame();
+    if (!nullish(f)) return f;
+  }
+  const Value f0 = field_or(field_or(_data, u"frames"), u"0");
+  if (!nullish(f0)) return f0;
+  return frame;
+}
+
+// `find_align_frame(frame_id, src, dst)`: the frame after `frame_id` in the `dst`
+// list aligned with its position in `src` (`(idx + 1) % len`, so an unknown id lands
+// on the first entry), `dst[0]` when only `dst` has entries, else the auto frame.
+Value Entity::find_align_frame(const std::u16string& frame_id, const Value& src,
+                               const Value& dst) const {
+  const Array* d = as_array(dst);
+  const Array* s = as_array(src);
+  const std::size_t d_len = d != nullptr ? d->size() : 0;
+  const std::size_t s_len = s != nullptr ? s->size() : 0;
+  if (d_len > 0 && s_len > 0) {
+    std::size_t idx = s_len;  // `indexOf` → -1
+    for (std::size_t i = 0; i < s_len; ++i) {
+      if (strict_equals(s->at(i), Value(frame_id))) {
+        idx = i;
+        break;
+      }
+    }
+    Object nf;
+    nf.set(u"id", d->at((idx + 1) % d_len));
+    return Value(std::make_shared<Object>(nf));
+  }
+  if (d_len > 0) {
+    Object nf;
+    nf.set(u"id", d->at(0));
+    return Value(std::make_shared<Object>(nf));
+  }
+  return find_auto_frame();
+}
+
+// `this._state?.get_sudden_death_frame?.(this) || Defines.NEXT_FRAME_AUTO` — the
+// fallback is truthiness-based, so a falsy state answer also falls through.
+Value Entity::get_sudden_death_frame() const {
+  if (state_get_sudden_death_frame) {
+    const Value v = state_get_sudden_death_frame();
+    if (truthy(v)) return v;
+  }
+  const Value* auto_frame = defines::find(u"Defines.NEXT_FRAME_AUTO");
+  return auto_frame != nullptr ? *auto_frame : Value();
+}
+
+Value Entity::get_caught_end_frame() {
+  if (position.y < _ground_y) position.y = _ground_y + 1;
+  if (state_get_caught_end_frame) {
+    const Value v = state_get_caught_end_frame();
+    if (truthy(v)) return v;
+  }
+  const Value* auto_frame = defines::find(u"Defines.NEXT_FRAME_AUTO");
+  return auto_frame != nullptr ? *auto_frame : Value();
+}
+
+double Entity::handle_facing_flag(const Value& facing_value) const {
+  // `switch (facing)` is a strict comparison, so only exact numbers match a case.
+  const double* d = std::get_if<double>(&facing_value);
+  if (d == nullptr) return this->facing;
+  const double cur = this->facing;
+  const int lr = ctrl_ != nullptr ? ctrl_->LR() : 0;
+  const Value catcher_facing =
+      catcher != nullptr ? Value(catcher->facing) : Value();
+  const Value bearer_facing = bearer != nullptr ? Value(bearer->facing) : Value();
+  if (*d == static_cast<double>(FacingFlag::Ctrl))
+    return lr != 0 ? static_cast<double>(lr) : cur;
+  if (*d == static_cast<double>(FacingFlag::AntiCtrl))
+    return lr != 0 ? to_number(entity::turn_face(Value(static_cast<double>(lr)))) : cur;
+  if (*d == static_cast<double>(FacingFlag::SameAsCatcher))
+    return truthy(catcher_facing) ? to_number(catcher_facing) : cur;
+  if (*d == static_cast<double>(FacingFlag::OpposingCatcher))
+    return truthy(entity::turn_face(catcher_facing))
+               ? to_number(entity::turn_face(catcher_facing))
+               : cur;
+  if (*d == static_cast<double>(FacingFlag::Backward))
+    return to_number(entity::turn_face(Value(cur)));
+  if (*d == static_cast<double>(FacingFlag::Left) ||
+      *d == static_cast<double>(FacingFlag::Right))
+    return *d;
+  if (*d == static_cast<double>(FacingFlag::VX))
+    return velocity.x > 0 ? 1 : velocity.x < 0 ? -1 : cur;
+  if (*d == static_cast<double>(FacingFlag::AntiVX))
+    return velocity.x > 0 ? -1 : velocity.x < 0 ? 1 : cur;
+  if (*d == static_cast<double>(FacingFlag::Trend)) {
+    if (lr != 0) return static_cast<double>(lr);
+    return velocity.x > 0 ? 1 : velocity.x < 0 ? -1 : cur;
+  }
+  if (*d == static_cast<double>(FacingFlag::SameAsBearer))
+    return truthy(bearer_facing) ? to_number(bearer_facing) : cur;
+  if (*d == static_cast<double>(FacingFlag::OpposingBearer))
+    return truthy(entity::turn_face(bearer_facing))
+               ? to_number(entity::turn_face(bearer_facing))
+               : cur;
+  return cur;
+}
+
+double Entity::handle_wait_flag(const Value& wait_value,
+                               const std::optional<Value>& frame_value) const {
+  // `frame` is an optional object in TS, so a present-but-falsy frame counts as "no
+  // frame" everywhere below.
+  const bool has_frame = frame_value.has_value() && truthy(*frame_value);
+  if (nullish(wait_value) && has_frame) return get_frame_wait(*frame_value);
+  if (is_positive(wait_value)) return to_number(wait_value);
+  const std::u16string* s = std::get_if<std::u16string>(&wait_value);
+  if ((s != nullptr && *s == u"i") || !has_frame) return this->wait;
+  if (s != nullptr && *s == u"d") {
+    return max(0.0, to_number(field_or(*frame_value, u"wait")) -
+                        to_number(field_or(this->frame, u"wait")) + this->wait);
+  }
+  return get_frame_wait(*frame_value);
+}
+
+double Entity::get_frame_wait(const Value& frame_value) const {
+  const double d = to_number(field_or(frame_value, u"wait")) +
+                   to_number(host_->world_dataset(u"wait_offset"));
+  return _from_wait_block ? d - _atom_time : d;
 }
 
 // `get dvx()` / `get dvy()` / `get dvz()`: a falsy frame value is returned untouched

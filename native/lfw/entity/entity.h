@@ -177,7 +177,6 @@ class Entity {
 
   double ground_y() const { return _ground_y; }
   const Value& data() const { return _data; }
-  Value prev_frame() const { return _prev_frame; }
   std::u16string origin_data_id() const;
   Value group() const;
   double mounted() const { return _mounted; }
@@ -249,6 +248,22 @@ class Entity {
   double base_type() const;
   Value state() const;
 
+  // --- frame lookup / flags ---------------------------------------------------
+  // `find_frame_by_id` falls back to `find_auto_frame()` when the id is unknown;
+  // `handle_facing_flag` / `handle_wait_flag` / `get_frame_wait` are the pure flag
+  // resolvers `handle_next_frame_result` will use.
+  Value find_frame_by_id(const Value& id) const;
+  Value find_auto_frame() const;
+  Value find_align_frame(const std::u16string& frame_id, const Value& src,
+                         const Value& dst) const;
+  Value get_prev_frame() const { return _prev_frame; }
+  Value get_sudden_death_frame() const;
+  Value get_caught_end_frame();
+  double handle_facing_flag(const Value& facing) const;
+  double handle_wait_flag(const Value& wait,
+                          const std::optional<Value>& frame = std::nullopt) const;
+  double get_frame_wait(const Value& frame) const;
+
   // --- physics: velocity / friction / gravity --------------------------------
   // `get dvx()` / `get dvy()` / `get dvz()`; a frame without the key yields
   // `undefined`, a falsy one is returned as-is.
@@ -292,12 +307,20 @@ class Entity {
   Value landing_frame() const { return _landing_frame; }
   void set_landing_frame(const Value& v) { _landing_frame = v; }
   void set_ground_y(double v) { _ground_y = v; }
+  bool from_wait_block() const { return _from_wait_block; }
+  void set_from_wait_block(bool v) { _from_wait_block = v; }
+  void set_prev_frame(const Value& v) { _prev_frame = v; }
 
-  // `_state` is a `state::State_Base*` in the full port; the stat layer only reaches
-  // the two optional hooks below, so they are injected until the state wiring slice
-  // lands (`_state?.on_dead?.(this)` / `_state?.get_gravity?.(this)`).
+  // `_state` is a `state::State_Base*` in the full port; the ports so far only reach
+  // the optional hooks below, so they are injected until the state wiring slice lands
+  // (`_state?.on_dead?.(this)` / `_state?.get_gravity?.(this)` / …).  A missing hook
+  // and a state without that optional callback are the same thing in TS.
   std::function<void()> state_on_dead;
   std::function<Value()> state_get_gravity;
+  std::function<Value(const Value&)> state_find_frame_by_id;
+  std::function<Value()> state_get_auto_frame;
+  std::function<Value()> state_get_sudden_death_frame;
+  std::function<Value()> state_get_caught_end_frame;
 
   // The `this` argument every callback receives.  A listener sees the real object in
   // TS; the port hands over a `Value` view, which is what the ported type checks

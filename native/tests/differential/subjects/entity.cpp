@@ -31,6 +31,7 @@ std::u16string g_team = u"1";
 int g_id_counter = 0;
 std::vector<std::unique_ptr<lfw::controller::BaseController>> g_ctrls;
 std::unique_ptr<Entity> g_entity;
+std::unique_ptr<Entity> g_buddy;
 
 std::string render(const Value& v) { return to_ascii(render_value(v)); }
 std::string s_of(const std::u16string& s) { return to_ascii(s); }
@@ -312,6 +313,7 @@ bool get_num(const Entity& e, const std::string& name, double& out) {
   else if (name == "l_len") out = e.l_len;
   else if (name == "r_len") out = e.r_len;
   else if (name == "atom_time") out = e.atom_time();
+  else if (name == "from_wait_block") out = e.from_wait_block() ? 1.0 : 0.0;
   else return false;
   return true;
 }
@@ -332,7 +334,7 @@ bool get_value(const Entity& e, const std::string& name, Value& out) {
   else if (name == "itr") out = e.itr();
   else if (name == "bdy") out = e.bdy();
   else if (name == "frame") out = e.frame;
-  else if (name == "prev_frame") out = e.prev_frame();
+  else if (name == "prev_frame") out = e.get_prev_frame();
   else if (name == "data") out = e.data();
   else if (name == "emitter") {
     const std::u16string* p = e.emitter();
@@ -575,7 +577,9 @@ int main(int argc, char** argv) {
       } else if (what == "link") {
         const std::string& field = t[i++];
         const std::string& to = t[i++];
-        Entity* v = to == "self" ? g_entity.get() : nullptr;
+        Entity* v = to == "self"   ? g_entity.get()
+                    : to == "buddy" ? g_buddy.get()
+                                    : nullptr;
         if (field == "bearer") g_entity->bearer = v;
         else if (field == "catcher") g_entity->catcher = v;
         else if (field == "holding") g_entity->holding = v;
@@ -659,6 +663,79 @@ int main(int argc, char** argv) {
                     render(Value(lr)).c_str(), render(Value(ud)).c_str(),
                     render(Value(jd)).c_str(), join(g_log).c_str(), c->LR(), c->UD(),
                     c->jd());
+      } else if (what == "buddy") {
+        g_buddy = std::make_unique<Entity>(*g_host, parse_value(t, i));
+        std::printf("run buddy || id=%s | %s\n", s_of(g_buddy->id).c_str(),
+                    join(g_log).c_str());
+      } else if (what == "buddyset") {
+        const std::string& name = t[i++];
+        const Value in_v = parse_value(t, i);
+        double n = 0;
+        Value out_v;
+        if (set_value(*g_buddy, name, in_v)) get_value(*g_buddy, name, out_v);
+        else if (set_num(*g_buddy, name, lfw::to_number(in_v))) {
+          get_num(*g_buddy, name, n);
+          out_v = Value(n);
+        } else {
+          std::fprintf(stderr, "unknown buddyset '%s' at line %d\n", name.c_str(), lineno);
+          return 2;
+        }
+        std::printf("run buddyset %s %s || %s | v=%s\n", name.c_str(), render(in_v).c_str(),
+                    join(g_log).c_str(), render(out_v).c_str());
+      } else if (what == "prev") {
+        const Value v = parse_value(t, i);
+        g_entity->set_prev_frame(v);
+        std::printf("run prev %s || %s | v=%s\n", render(v).c_str(), join(g_log).c_str(),
+                    render(g_entity->get_prev_frame()).c_str());
+      } else if (what == "findframe") {
+        const Value id = parse_value(t, i);
+        std::printf("run findframe %s || %s | v=%s\n", render(id).c_str(),
+                    join(g_log).c_str(),
+                    render(g_entity->find_frame_by_id(id)).c_str());
+      } else if (what == "autoframe") {
+        std::printf("run autoframe || %s | v=%s\n", join(g_log).c_str(),
+                    render(g_entity->find_auto_frame()).c_str());
+      } else if (what == "align") {
+        const Value fid = parse_value(t, i);
+        const Value src = parse_value(t, i);
+        const Value dst = parse_value(t, i);
+        std::printf("run align %s %s %s || %s | v=%s\n", render(fid).c_str(),
+                    render(src).c_str(), render(dst).c_str(), join(g_log).c_str(),
+                    render(g_entity->find_align_frame(text_of(fid), src, dst)).c_str());
+      } else if (what == "suddenframe") {
+        std::printf("run suddenframe || %s | v=%s\n", join(g_log).c_str(),
+                    render(g_entity->get_sudden_death_frame()).c_str());
+      } else if (what == "caughtframe") {
+        const Value v = g_entity->get_caught_end_frame();
+        std::printf("run caughtframe || %s | v=%s p=%s\n", join(g_log).c_str(),
+                    render(v).c_str(), render(vec3_value(g_entity->position)).c_str());
+      } else if (what == "facingflag") {
+        const Value f = parse_value(t, i);
+        std::printf("run facingflag %s || %s | v=%s f=%s\n", render(f).c_str(),
+                    join(g_log).c_str(),
+                    render(Value(g_entity->handle_facing_flag(f))).c_str(),
+                    render(Value(g_entity->facing)).c_str());
+      } else if (what == "waitflag") {
+        const Value w = parse_value(t, i);
+        const Value f = parse_value(t, i);
+        const std::optional<Value> frame =
+            std::holds_alternative<std::monostate>(f) ? std::nullopt
+                                                      : std::optional<Value>(f);
+        std::printf("run waitflag %s %s || %s | v=%s w=%s\n", render(w).c_str(),
+                    render(f).c_str(), join(g_log).c_str(),
+                    render(Value(g_entity->handle_wait_flag(w, frame))).c_str(),
+                    render(Value(g_entity->wait)).c_str());
+      } else if (what == "framewait") {
+        const Value f = parse_value(t, i);
+        std::printf("run framewait %s || %s | v=%s\n", render(f).c_str(),
+                    join(g_log).c_str(),
+                    render(Value(g_entity->get_frame_wait(f))).c_str());
+      } else if (what == "waitblock") {
+        const double b = trace::to_double(t[i++]);
+        g_entity->set_from_wait_block(b != 0);
+        std::printf("run waitblock %s || %s | v=%s\n", render(Value(b)).c_str(),
+                    join(g_log).c_str(),
+                    render(Value(g_entity->from_wait_block() ? 1.0 : 0.0)).c_str());
       } else if (what == "summaries") {
         const std::vector<std::pair<std::u16string, std::shared_ptr<lfw::Summary>>>& items =
             lfw::summary_mgr().items();
@@ -676,9 +753,30 @@ int main(int argc, char** argv) {
         } else if (sub == "gravity") {
           const Value v = parse_value(t, i);
           g_entity->state_get_gravity = [v]() { return v; };
+        } else if (sub == "frameid") {
+          if (t[i] == "echo") {
+            ++i;
+            g_entity->state_find_frame_by_id = [](const Value& v) { return v; };
+          } else {
+            const Value v = parse_value(t, i);
+            g_entity->state_find_frame_by_id = [v](const Value&) { return v; };
+          }
+        } else if (sub == "autoframe") {
+          const Value v = parse_value(t, i);
+          g_entity->state_get_auto_frame = [v]() { return v; };
+        } else if (sub == "sudden") {
+          const Value v = parse_value(t, i);
+          g_entity->state_get_sudden_death_frame = [v]() { return v; };
+        } else if (sub == "caught") {
+          const Value v = parse_value(t, i);
+          g_entity->state_get_caught_end_frame = [v]() { return v; };
         } else if (sub == "none") {
           g_entity->state_on_dead = nullptr;
           g_entity->state_get_gravity = nullptr;
+          g_entity->state_find_frame_by_id = nullptr;
+          g_entity->state_get_auto_frame = nullptr;
+          g_entity->state_get_sudden_death_frame = nullptr;
+          g_entity->state_get_caught_end_frame = nullptr;
         } else {
           std::fprintf(stderr, "unknown hook '%s' at line %d\n", sub.c_str(), lineno);
           return 2;
