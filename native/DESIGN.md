@@ -4443,3 +4443,108 @@ TS 侧 `WorldDataset` 有 103 个字段，但**所有已经移植过的调用点
 - 输出：`run make|default` → `pure=`/`same=`/`keys=`；
   `run keys|dump` → 键列表 / 整张表；`run get|has|tracked` → `v=`/`has=`/`tracked=`；
   `run set` → `field_change:<键>:<新值>:<旧值>` 与 `dataset_change:<键>:<新值>:<旧值>`（无通知则为空）。
+
+## 44. 切片 9a：`Entity` 的构造 / `reset` + 数值通知层
+
+`native/lfw/entity/entity.{h,cpp}`（对应 `src/LFW/entity/Entity.ts` 的 2716 行中的
+「构造 + `reset()` + 统计量访问器」这一段）。这是**强连通块的第一刀**：
+`Entity` / `World` / `LFW` 互相依赖，只能按可验证的切面逐块搬。
+
+### 44.1 单元边界（为什么先搬这一段）
+1. `Entity.ts` 里最底层、被后续所有行为（物理、帧、碰撞、快照）依赖的是
+   **统计量槽位 + 通知层**：`hp/mp/hp_r/hp_max/mp_max/toughness*/fall_value*/defend_value*/`
+   `resting*/catch_time_max/reserve/blinking/invisible/invulnerable/arest/outline_*/mix_*/greyscale`，
+   以及 `reset()` 对它们的初始化。先把这一层逐字节锁死，后面的物理切片才有可信地基。
+2. **宿主边界**：TS 里这段代码读 `this.world` / `this.lfw`（`world.dataset`、
+   `world.bg.data.dataset`、`world.mark_players_alive`、`lfw.new_id`、`lfw.new_team`、
+   `lfw.factory.acquire_ctrl/release_ctrl`）以及 `this.enter_frame` / `this.apply_opoints` /
+   `this.play_sound`。`World` / `LFW` 还没搬，所以端口把这些**注入**成 `IEntityHost`
+   （每个虚函数注释里都写着它镜像的那句 TS）。harness 的双侧桩世界与此一一对应。
+3. **数据形态**：`_data` / `frame` / `armor` / `dead_join` / `transforms` / `group` 等都是
+   `Value`（和其余端口一致）；统计量本身是 C++ 数值成员（TS 里也只是数值）。
+4. `_state` 在完整端口里是 `state::State_Base*`；本切片只用到两个可选钩子
+   （`_state?.on_dead?.(this)` / `_state?.get_gravity?.(this)`），所以先暴露成
+   `std::function<void()> state_on_dead` 与 `std::function<Value()> state_get_gravity`，
+   等状态接线切片落地再换成真指针（`reset()` 里 `this._state = null` 对应「两个钩子都清空」）。
+
+### 44.2 保真要点
+1. **`??` 与 `||` 分得很清**：`resting_max` 家族是 `_x ?? world.dataset.x`（只有
+   `undefined`/`null` 才回退，`0` 不回退），`armor = armor || null`、`name` 的
+   `ctrl.player.name || \`Player ${id}\``、`variant = Number(team) || 0` 都是**真值**语义
+   （`0`/`""`/`NaN` 会回退）。端口分别用 `opt_num`（`nullish` 判定）与 `truthy` 复刻。
+2. **严格相等才静默**：`reserve/resting/fall_value/toughness*/arest/catch_time` 的 setter 都是
+   `if (o === v) return;`（`aste` 用的是宽松 `==`，数值上等价），所以 `0` 与 `-0`、
+   `20` 与 `20` 都不发通知；`fall_value`/`defend_value` 更细：**比较用的是未取整的入参**，
+   存的是 `round_float(v)`，因此 `fall_value = 20.00049`（当前 20）会「值没变但通知照发」。
+3. **通知顺序与载荷**：键钩子式的 `on_<字段>_changed` 在本层就是
+   `callbacks.call(name, this, v, o)`；`hp/mp/hp_max/mp_max/hp_r` 是把**赋值写进实参**
+   （`callbacks.call("on_mp_max_changed", this, (this._mp_max = v), o)`），所以载荷永远是
+   存下来的值。回调里的 `this` 在端口是 `ref()`（`Value` 视图，至少含 `id`），harness 双侧都
+   用「参数里的 id == 当前实体 id ? self : ?」归一。
+4. **钳制与取整恒定**：`max(0, v)` + `round_float(v)` 是所有计数类 setter 的固定组合；
+   `blinking/invisible/invulnerable` 只有这两个运算、**没有**通知。
+5. **`fall_value` / `defend_value` 下降时的连锁恢复**：`v < o` 时先
+   `resting = resting_max`、`toughness_resting = toughness_resting_max`，**再**发自己的通知；
+   这两条各自的通知（`on_resting_changed` 有、`on_toughness_resting_changed` **不存在**）
+   顺序被差分锁住。
+6. **`hp` 的死亡分支**：`on_hp_changed` →（人类控制器且跨过 0）`mark_players_alive(v > 0)` →
+   `o > 0 && v <= 0` 时依次 `on_dead` → 状态钩子 → 三个守卫
+   （`state !== Gone`、`frame.id !== "gone"`、`data.base.brokens?.length`）通过才
+   `apply_opoints(brokens)` + `play_sound(dead_sounds)` → `frame.on_dead ?? data.on_dead`
+   有值就 `enter_frame` → 最后 `v > _hp_r` 时抬 `hp_r`。守卫是**短路**的，
+   所以「0 血但 frame 是 gone」这类场景不会去打碎件。
+7. **`mp` 的耗竭分支**：结构相同（`on_mp_changed` → 摘要 → `frame.on_exhaustion ?? data.on_exhaustion`），
+   区别是 mp 只做摘要不做死亡。摘要用 `summary_mgr`（真端口），
+   `v < o` 时按 `id` 记 `hp_lost`/`mp_usage`，`!is_independent(team)` 时**再**记一份到队伍键。
+8. **控制器是「值 + 真对象」双层**：类型判定 `is_human_ctrl(v)` 读的是 `v.__is_human_ctrl__`
+   （TS 侧真控制器就是有这些标记的对象），而 `gravity` 要调 `ctrl.is_end(GK.Defend)`，
+   所以端口持有真 `BaseController*`，并用 `is_human()`/`is_bot()` 做等价判定；
+   只有回调载荷需要 `Value` 视图时才由 `ctrl_ref()` 现搭（带 `__is_base_ctrl__` 等标记、
+   `player`、`player_id`）。
+9. **`name` 是「值」不是「字符串」**：TS 的 `get name(): string` 在 `_name === undefined`
+   时真的会返回 `undefined`（类型谎），`_name = null` 才回落到 `data.base.name ?? ''`。
+   端口把 `_name` 存成 `Value`、`name()` 也返回 `Value`，才能把 `undefined` / `null` /
+   空串三种情况区分开（差分里有 `set name u` 的用例）。
+10. **`team` 的 `variant` 解析**用 JS `Number()`（`"12"`→12、`"abc"`→NaN→`0`、`"-0"`→`-0`→`0`），
+    端口复用 `to_number` + `truthy`；同时 `++_render_effect_time` 也在这一步。
+11. **`reset()` 的顺序**：清 marks/buffs → 复位地形/数据/新 id → 基础槽位 →
+    `set_catching(null)`/`catcher = null` → `callbacks.clear()` → 团队 →
+    恢复 tick 与 `hp_max/mp_max` 快照 → 控制器释放+获取 → `reset_armor()` →
+    `fall_value = fall_value_max`、`defend_value = defend_value_max`、
+    `_hp = _hp_r = hp_max`、`_mp = mp_max`、`set_catch_time(catch_time_max)` →
+    隐身/闪烁/死亡槽位 → `outline_*` / `mix_*` / `greyscale` → `auto_key_role()`。
+    端口逐行照抄，只有三处**有意不同**（见 44.3）。
+12. **`reset_armor()`** 的赋值链 `this.toughness = this.toughness_max = armor?.toughness ?? 0`
+    在 JS 里是**先 `toughness_max` 后 `toughness`**（左值引用先求、右侧赋值先做），
+    所以两条通知的顺序是 max → value，端口按这个顺序写（harness 的 `run armor` 用带监听器的
+    重跑把顺序锁住）。
+
+### 44.3 有意不覆盖 / 不可观测项
+- **TS 需要 `data.base` 存在**：`reset()` 直接读 `data.base.resting_max`，
+  数据里没有 `base` 会抛；端口用 `field_or` 一路读穿，这不构成差异（用例都会给 `base`）。
+- `copies` / `vrests` / `blockers` / `superpunchs` / `collision_list` / `collided_list` /
+  `lastest_collided` / `opoints` 在 `reset()` 里被清空，但本切片**没有任何代码往里面写**，
+  所以「清空」这个动作不可观测（等碰撞/持有物切片落地后再纳入）。
+- `terrain` / `_atom_time` / `prev_position` / `position` / `velocity` / `prev_velocity` /
+  `_motionless_ticks` 被 `reset()` 写入，但**没人读**（物理切片才读），故不可观测。
+- `add_catch_time(0)` 与 `set_catch_time(_catch_time)` 是同一件事，
+  所以「`!value` 提前返回」在 DSL 能表达的值域里等价（已在变异表注释里记录）。
+- 「没有状态」与「有状态但没有那个钩子」在 TS 里都表现为不调用，
+  端口把两者合并成「空 `std::function`」（不可观测）。
+- `_state?.leave/enter`、`set_state`、`enter_frame` / `apply_opoints` / `play_sound` 的真实实现
+  属于后续切片；harness 在 TS 侧把这三个方法换成**实例间谍**（C++ 侧对应宿主虚函数），
+  两边打印同一份日志。
+- `bare` 值形状的边界（`group` 是字符串而不是数组等）会让 TS 侧 `group?.some` 抛异常，
+  这类输入不做用例。
+
+### 44.4 harness 观察点
+- 一对 harness `entity.{cpp,ts}`；TS 侧构造**真** `Entity`，宿主侧给桩
+  `world`（真 `WorldDataset` 当 `dataset`、`bg.data.dataset` 是普通层、`mark_players_alive` 打日志）
+  与桩 `lfw`（`new_id`/`new_team`/`factory`），并打桩 `Ditto.vec3`。
+- 控制器：`base`/`human`/`bot` 三种（对应 `__is_*_ctrl__` 标记 / `set_kind`），
+  另有 `human_bare`（玩家没有名字，走 `Player <id>`）、`base_released`（`d` 键
+  `_d_time > _u_time`，让 `is_end('d')` 为假以覆盖 `gravity` 的另一支）、`same`（重设同一控制器）。
+- 输入与覆盖面见 `PROTOCOL.md` §6.9.96。
+- `Entity::stat_slots()` 是**给 harness/宿主看的窥视口**：把 TS 侧的私有槽位
+  （`_catch_time`、`_toughness_r_value`、五个恢复 tick 的 `max`）一次导出成数据，
+  TS 侧用 `as any` 读同样的字段拼同一个对象，两边逐字节比对。

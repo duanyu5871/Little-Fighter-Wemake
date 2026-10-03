@@ -1,0 +1,662 @@
+#include "lfw/entity/entity.h"
+
+#include <memory>
+#include <string>
+#include <utility>
+#include <variant>
+#include <vector>
+
+#include "lfw/core/value.h"
+#include "lfw/defines/defines_data.h"
+#include "lfw/defines/entity_enum.h"
+#include "lfw/defines/entity_group.h"
+#include "lfw/defines/frame_id.h"
+#include "lfw/defines/game_key.h"
+#include "lfw/defines/state_enum.h"
+#include "lfw/entity/entity_type_check.h"
+#include "lfw/entity/summary_mgr.h"
+#include "lfw/ground.h"
+#include "lfw/state/entity_states.h"
+#include "lfw/utils/container_help/field_or.h"
+#include "lfw/utils/math/base.h"
+#include "lfw/utils/math/clamp.h"
+#include "lfw/utils/math/round_float.h"
+
+namespace lfw {
+namespace {
+
+// `Number.MIN_SAFE_INTEGER`, written out because the port has no such constant yet.
+constexpr double kMinSafeInteger = -9007199254740991.0;
+
+bool nullish(const Value& v) {
+  return std::holds_alternative<std::monostate>(v) || std::holds_alternative<NullTag>(v);
+}
+
+// JS `a ?? b`.
+Value or_nullish(const Value& v, const Value& fallback) {
+  return nullish(v) ? fallback : v;
+}
+
+// A stat slot reads as a number; the TS side would hold whatever the dataset holds,
+// and the dataset only ever holds numbers.
+double num_of(const Value& v) { return nullish(v) ? 0.0 : to_number(v); }
+
+std::optional<double> opt_num(const Value& v) {
+  return nullish(v) ? std::nullopt : std::optional<double>(to_number(v));
+}
+
+Value base_of(const Value& data) { return field_or(data, u"base"); }
+
+std::u16string frame_id_of(const Entity& e) { return to_string(field_or(e.frame, u"id")); }
+
+Value next_frame_of(const Value& a, const Value& b) { return or_nullish(a, b); }
+
+std::size_t array_length(const Value& v) {
+  const Array* a = as_array(v);
+  return a != nullptr ? a->size() : 0;
+}
+
+}
+
+Entity::Entity(IEntityHost& host, Value data)
+    : Entity(host, std::move(data), &state::entity_states()) {}
+
+Entity::Entity(IEntityHost& host, Value data, state::States* states) {
+  host_ = &host;
+  _data = std::move(data);
+  states_ = states;
+  _atom_time = num_of(host.world_dataset(u"atom_time"));
+  terrain = Ground::horizon();
+  {
+    Object nf;
+    nf.set(u"id", Value(std::u16string()));
+    _next_frame_by_id = Value(std::make_shared<Object>(nf));
+  }
+  reset(_data, states);
+}
+
+void Entity::reset(Value data) { reset(std::move(data), &state::entity_states()); }
+
+void Entity::reset(Value data, state::States* states) {
+  marks.clear();
+  // `for (const buf of this.buffs.values()) buf.del_victim(this)` needs the entity to
+  // be a `buff::IBuffEntity`, which lands with the buff wiring slice; the map is still
+  // cleared here so a reset never keeps stale entries.
+  buffs.clear();
+  is_on_ground = false;
+  terrain = Ground::horizon();
+  _data = std::move(data);
+  const Value data_now = _data;
+  _origin_data_id = to_string(field_or(data_now, u"id"));
+  id = host_->new_id();
+  wait = 0;
+  _motionless_ticks = 0;
+  _lifetime = 0;
+  fallinjury = 0;
+  _ground_y = 0;
+  variant = 0;
+  transforms = Value(NullTag{});
+  transform_index = 0;
+  _reserve = 0;
+  _mounted = 0;
+  _ghosted = 0;
+  prev_position.set(kMinSafeInteger, kMinSafeInteger, kMinSafeInteger);
+  position.set(0, 0, 0);
+  fuse_bys.clear();
+  has_fuse_bys = false;
+  dismiss_time = std::nullopt;
+  dismiss_data = Value(NullTag{});
+  stat_bar = 0;
+  _toughness_resting_max = defines::num(u"Defines.DEFAULT_TOUGHNESS_RESTING_MAX");
+  _resting_max = opt_num(field_or(base_of(data_now), u"resting_max"));
+  _resting = 0;
+  _toughness = 0;
+  _toughness_max = 0;
+  _toughness_resting = 0;
+  _fall_value_max = opt_num(field_or(base_of(data_now), u"fall_value_max"));
+  _defend_value_max = opt_num(field_or(base_of(data_now), u"defend_value_max"));
+  _defend_ratio = opt_num(field_or(base_of(data_now), u"defend_ratio"));
+  _catch_time_max = opt_num(field_or(base_of(data_now), u"catch_time_max"));
+  throwinjury = 0;
+  facing = 1;
+  {
+    const Value* empty_frame = defines::find(u"EMPTY_FRAME_INFO");
+    frame = empty_frame != nullptr ? *empty_frame : Value();
+  }
+  _prev_frame = frame;
+  set_catching(nullptr);
+  catcher = nullptr;
+  wakeup_invuln = 0;
+  name_visible = 0;
+  _outline_alpha = 0.8;
+  velocity.set(0, 0, 0);
+  prev_velocity.set(0, 0, 0);
+  callbacks.clear();
+  _name = Value(NullTag{});
+  _team = host_->new_team();
+  _landing_frame = Value(NullTag{});
+  bearer = nullptr;
+  holding = nullptr;
+  emitters.clear();
+  _arest = 0;
+  vrests.clear();
+  blockers.clear();
+  superpunchs.clear();
+  motionless = 0;
+  shaking = 0;
+  bounced = false;
+  lying_a_count = 0;
+  lying_d_count = 0;
+  lying_c_count = 0;
+  drop_hurted = false;
+  dropping = false;
+  states_ = states;
+  _hp_r_tick.set_max(num_of(dataset(u"hp_r_ticks")));
+  _hp_r_tick.set_value(0);
+  _mp_r_tick.set_max(num_of(dataset(u"mp_r_ticks")));
+  _mp_r_tick.set_value(0);
+  _fall_r_tick.set_max(num_of(dataset(u"fall_r_ticks")));
+  _fall_r_tick.set_value(0);
+  _defend_r_tick.set_max(num_of(dataset(u"defend_r_ticks")));
+  _defend_r_tick.set_value(0);
+  _toughness_r_value = num_of(dataset(u"toughness_r_value"));
+  _defend_r_value = num_of(dataset(u"defend_r_value"));
+  _fall_r_value = num_of(dataset(u"fall_r_value"));
+  _hp_max = opt_num(dataset(u"hp_max"));
+  _mp_max = opt_num(dataset(u"mp_max"));
+  _defend_ratio = opt_num(field_or(base_of(data_now), u"defend_ratio"));
+  jumping.x = 0;
+  jumping.y = 0;
+  jumping.z = 0;
+  jumping.t = 0;
+  if (ctrl_ != nullptr) host_->release_ctrl(ctrl_);
+  ctrl_ = host_->acquire_ctrl();
+  reset_armor();
+  set_fall_value(fall_value_max());
+  set_defend_value(defend_value_max());
+  _hp_r = hp_max();
+  _hp = _hp_r;
+  _mp = mp_max();
+  set_catch_time(catch_time_max());
+  _invisible = 0;
+  _invulnerable = 0;
+  _blinking = 0;
+  _after_blink = std::nullopt;
+  state_on_dead = nullptr;
+  state_get_gravity = nullptr;
+  dead_gone = 0;
+  dead_join = Value(NullTag{});
+  ctrl_visible = 0;
+  const Value drink_info = field_or(base_of(data_now), u"drink");
+  drink = truthy(drink_info) ? std::make_unique<DrinkInfo>(drink_info) : nullptr;
+  opoints.clear();
+  _prev_cpoint_a = Value(NullTag{});
+  collision_list.clear();
+  collided_list.clear();
+  lastest_collided = std::nullopt;
+  _outline_color.clear();
+  _outline_alpha = 0.8;
+  _outline_width = 1;
+  _outline_enabled = std::nullopt;
+  _mix_color.clear();
+  _mix_strength = 0;
+  _greyscale = 0;
+  _render_effect_time = 0;
+  auto_key_role();
+}
+
+std::u16string Entity::outline_color() const {
+  if (!_outline_color.empty()) return _outline_color;
+  const Value* map = defines::find(u"Defines.TeamInfoMap");
+  const Value info = map != nullptr ? field_or(*map, _team.c_str()) : Value();
+  const Value c = field_or(info, u"outline_color");
+  return truthy(c) ? to_string(c) : std::u16string();
+}
+
+void Entity::set_outline_color(std::u16string v) {
+  _outline_color = std::move(v);
+  ++_render_effect_time;
+}
+
+void Entity::set_outline_alpha(double v) {
+  _outline_alpha = v;
+  ++_render_effect_time;
+}
+
+void Entity::set_outline_width(double v) {
+  _outline_width = v;
+  ++_render_effect_time;
+}
+
+Value Entity::outline_enabled() const {
+  return _outline_enabled.has_value() ? Value(*_outline_enabled) : dataset(u"outline_enabled");
+}
+
+void Entity::set_outline_enabled(const Value& v) {
+  _outline_enabled = opt_num(v);
+  ++_render_effect_time;
+}
+
+void Entity::set_mix_color(std::u16string v) {
+  _mix_color = std::move(v);
+  ++_render_effect_time;
+}
+
+void Entity::set_mix_strength(double v) {
+  _mix_strength = v;
+  ++_render_effect_time;
+}
+
+void Entity::set_greyscale(double v) {
+  _greyscale = v;
+  ++_render_effect_time;
+}
+
+std::u16string Entity::origin_data_id() const {
+  if (!_origin_data_id.empty()) return _origin_data_id;
+  return to_string(field_or(_data, u"id"));
+}
+
+Value Entity::group() const { return field_or(base_of(_data), u"group"); }
+
+void Entity::set_reserve(double v) {
+  v = round_float(v);
+  const double o = _reserve;
+  if (o == v) return;
+  _reserve = v;
+  callbacks.call(u"on_reserve_changed", {ref(), Value(v), Value(o)});
+}
+
+double Entity::type() const { return num_of(field_or(_data, u"type")); }
+
+Value Entity::itr() const { return field_or(frame, u"itr"); }
+
+Value Entity::bdy() const { return field_or(frame, u"bdy"); }
+
+void Entity::set_toughness_resting_max(double v) {
+  v = round_float(v);
+  const double o = _toughness_resting_max;
+  if (o == v) return;
+  _toughness_resting_max = v;
+}
+
+double Entity::resting_max() const {
+  return _resting_max.has_value() ? *_resting_max : num_of(host_->world_dataset(u"resting_max"));
+}
+
+void Entity::set_resting_max(double v) {
+  v = round_float(v);
+  const double o = resting_max();
+  if (o == v) return;
+  _resting_max = v;
+  callbacks.call(u"on_resting_max_changed", {ref(), Value(v), Value(o)});
+}
+
+void Entity::set_resting(double v) {
+  v = round_float(v);
+  const double o = _resting;
+  if (o == v) return;
+  _resting = v;
+  callbacks.call(u"on_resting_changed", {ref(), Value(v), Value(o)});
+}
+
+void Entity::set_fall_value(double v) {
+  const double o = _fall_value;
+  if (o == v) return;
+  _fall_value = round_float(v);
+  if (v < o) {
+    set_resting(resting_max());
+    set_toughness_resting(toughness_resting_max());
+  }
+  callbacks.call(u"on_fall_value_changed", {ref(), Value(v), Value(o)});
+}
+
+void Entity::set_toughness(double v) {
+  v = round_float(v);
+  if (v < 0) v = 0;
+  const double o = _toughness;
+  if (o == v) return;
+  _toughness = v;
+  if (v < o) set_toughness_resting(toughness_resting_max());
+  callbacks.call(u"on_toughness_changed", {ref(), Value(v), Value(o)});
+}
+
+void Entity::set_toughness_max(double v) {
+  v = round_float(v);
+  if (v < 0) v = 0;
+  const double o = _toughness_max;
+  if (o == v) return;
+  _toughness_max = v;
+  callbacks.call(u"on_toughness_max_changed", {ref(), Value(v), Value(o)});
+}
+
+void Entity::set_toughness_resting(double v) {
+  v = round_float(v);
+  const double o = _toughness_resting;
+  if (o == v) return;
+  _toughness_resting = v;
+}
+
+double Entity::catch_time_max() const {
+  return _catch_time_max.has_value() ? *_catch_time_max
+                                     : num_of(host_->world_dataset(u"catch_time_max"));
+}
+
+void Entity::set_catch_time_max(double v) {
+  v = round_float(v);
+  const double o = catch_time_max();
+  if (o == v) return;
+  _catch_time_max = v;
+  callbacks.call(u"on_catch_time_max_changed", {ref(), Value(v), Value(o)});
+}
+
+double Entity::fall_value_max() const {
+  return _fall_value_max.has_value() ? *_fall_value_max
+                                     : num_of(host_->world_dataset(u"fall_value_max"));
+}
+
+void Entity::set_fall_value_max(double v) {
+  v = round_float(v);
+  const double o = fall_value_max();
+  if (o == v) return;
+  _fall_value_max = v;
+  callbacks.call(u"on_fall_value_max_changed", {ref(), Value(v), Value(o)});
+}
+
+void Entity::set_defend_value(double v) {
+  const double o = _defend_value;
+  if (o == v) return;
+  _defend_value = round_float(v);
+  if (v < o) {
+    set_resting(resting_max());
+    set_toughness_resting(toughness_resting_max());
+  }
+  callbacks.call(u"on_defend_value_changed", {ref(), Value(v), Value(o)});
+}
+
+double Entity::defend_value_max() const {
+  return _defend_value_max.has_value() ? *_defend_value_max
+                                       : num_of(host_->world_dataset(u"defend_value_max"));
+}
+
+void Entity::set_defend_value_max(double v) {
+  v = round_float(v);
+  const double o = defend_value_max();
+  if (o == v) return;
+  _defend_value_max = v;
+  callbacks.call(u"on_defend_value_max_changed", {ref(), Value(v), Value(o)});
+}
+
+double Entity::defend_ratio() const {
+  return _defend_ratio.has_value() ? *_defend_ratio
+                                   : num_of(host_->world_dataset(u"defend_ratio"));
+}
+
+void Entity::set_defend_ratio(double v) {
+  v = round_float(v);
+  const double o = defend_ratio();
+  if (o == v) return;
+  _defend_ratio = v;
+}
+
+Value Entity::name() const {
+  if (!std::holds_alternative<NullTag>(_name)) return _name;
+  if (ctrl_ != nullptr && ctrl_->is_human()) {
+    const Value pname = field_or(ctrl_->player, u"name");
+    if (truthy(pname)) return pname;
+    return Value(u"Player " + to_string(field_or(ctrl_->player, u"id")));
+  }
+  const Value base_name = field_or(base_of(_data), u"name");
+  return nullish(base_name) ? Value(std::u16string()) : base_name;
+}
+
+void Entity::set_name(const Value& v) {
+  if (strict_equals(v, name())) return;
+  const Value o = _name;
+  _name = v;
+  callbacks.call(u"on_name_changed",
+                 {ref(), truthy(v) ? v : Value(std::u16string()), o});
+}
+
+void Entity::set_mp(double v) {
+  const double o = _mp;
+  v = max(0.0, v);
+  v = round_float(v);
+  if (o == v) return;
+  _mp = v;
+  if (v < o) {
+    const std::shared_ptr<Summary> s = summary_mgr().get(id);
+    s->set_mp_usage(Value(to_number(s->mp_usage()) + (o - v)));
+  }
+  if (v < o && !defines::is_independent(_team)) {
+    const std::shared_ptr<Summary> s = summary_mgr().get(_team);
+    s->set_mp_usage(Value(to_number(s->mp_usage()) + (o - v)));
+  }
+  callbacks.call(u"on_mp_changed", {ref(), Value(v), Value(o)});
+  if (o > 0 && v <= 0) {
+    const Value nf = next_frame_of(field_or(frame, u"on_exhaustion"),
+                                   field_or(_data, u"on_exhaustion"));
+    if (truthy(nf)) host_->enter_frame(nf);
+  }
+}
+
+void Entity::set_hp_r(double v) {
+  const double o = _hp_r;
+  v = max(0.0, v);
+  v = round_float(v);
+  if (o == v) return;
+  _hp_r = v;
+  callbacks.call(u"on_hp_r_changed", {ref(), Value(_hp_r), Value(o)});
+}
+
+void Entity::set_hp(double v) {
+  const double o = _hp;
+  v = max(0.0, v);
+  v = round_float(v);
+  if (o == v) return;
+  _hp = v;
+  if (v < o) {
+    const std::shared_ptr<Summary> s = summary_mgr().get(id);
+    s->set_hp_lost(Value(to_number(s->hp_lost()) + (o - v)));
+  }
+  if (v < o && !defines::is_independent(_team)) {
+    const std::shared_ptr<Summary> s = summary_mgr().get(_team);
+    s->set_hp_lost(Value(to_number(s->hp_lost()) + (o - v)));
+  }
+  callbacks.call(u"on_hp_changed", {ref(), Value(v), Value(o)});
+  if (ctrl_ != nullptr && ctrl_->is_human() && ((o > 0) != (v > 0))) {
+    host_->mark_players_alive(v > 0);
+  }
+  if (o > 0 && v <= 0) {
+    callbacks.call(u"on_dead", {ref()});
+    if (state_on_dead) state_on_dead();
+    const Value brokens = field_or(base_of(_data), u"brokens");
+    if (!strict_equals(state(), Value(static_cast<double>(StateEnum::Gone))) &&
+        frame_id_of(*this) != std::u16string(frame_id::kGone) &&
+        array_length(brokens) > 0) {
+      host_->apply_opoints(brokens);
+      host_->play_sound(field_or(base_of(_data), u"dead_sounds"));
+    }
+    const Value nf = next_frame_of(field_or(frame, u"on_dead"), field_or(_data, u"on_dead"));
+    if (truthy(nf)) host_->enter_frame(nf);
+  }
+  if (v > _hp_r) set_hp_r(v);
+}
+
+double Entity::mp_max() const {
+  return _mp_max.has_value() ? *_mp_max : num_of(host_->world_dataset(u"mp_max"));
+}
+
+void Entity::set_mp_max(double v) {
+  const double o = mp_max();
+  v = max(0.0, v);
+  v = round_float(v);
+  if (v == o) return;
+  _mp_max = v;
+  callbacks.call(u"on_mp_max_changed", {ref(), Value(*_mp_max), Value(o)});
+}
+
+double Entity::hp_max() const {
+  return _hp_max.has_value() ? *_hp_max : num_of(host_->world_dataset(u"hp_max"));
+}
+
+void Entity::set_hp_max(double v) {
+  const double o = hp_max();
+  v = max(0.0, v);
+  v = round_float(v);
+  if (v == o) return;
+  _hp_max = v;
+  callbacks.call(u"on_hp_max_changed", {ref(), Value(*_hp_max), Value(o)});
+}
+
+void Entity::set_team(std::u16string v) {
+  if (equals(Value(v), Value(_team))) return;
+  const std::u16string o = _team;
+  _team = std::move(v);
+  const double n = to_number(Value(_team));
+  variant = truthy(Value(n)) ? n : 0;
+  callbacks.call(u"on_team_changed", {ref(), Value(_team), Value(o)});
+  ++_render_effect_time;
+}
+
+const std::u16string* Entity::src_emitter() const {
+  return emitters.empty() ? nullptr : &emitters.front();
+}
+
+const std::u16string* Entity::emitter() const {
+  return emitters.empty() ? nullptr : &emitters.back();
+}
+
+void Entity::set_blinking(double v) { _blinking = round_float(max(0.0, v)); }
+
+void Entity::set_invisible(double v) { _invisible = round_float(max(0.0, v)); }
+
+void Entity::set_invulnerable(double v) { _invulnerable = round_float(max(0.0, v)); }
+
+Value Entity::bot_ignore() const {
+  return or_nullish(field_or(frame, u"bot_ignore"), field_or(base_of(_data), u"bot_ignore"));
+}
+
+void Entity::set_ctrl(controller::BaseController* v) {
+  if (v == nullptr) return;
+  if (ctrl_ == v) return;
+  controller::BaseController* prev = ctrl_;
+  ctrl_ = v;
+  callbacks.call(u"on_ctrl_changed", {ctrl_ref(v), ctrl_ref(prev), ref()});
+  host_->mark_players_alive(ctrl_->is_human() && hp() > 0);
+  if (prev != nullptr) host_->release_ctrl(prev);
+}
+
+void Entity::as_key_role(const Value& v) {
+  name_visible = truthy(v) ? 1 : 0;
+  wakeup_invuln = truthy(v) ? 1 : 0;
+  dead_gone = truthy(v) ? 0 : 1;
+}
+
+void Entity::auto_key_role() {
+  bool v = false;
+  const Array* group_arr = as_array(group());
+  if (group_arr != nullptr) {
+    for (std::size_t i = 0; i < group_arr->size(); ++i) {
+      const Value& item = group_arr->at(i);
+      if (equals(item, Value(std::u16string(entity_group::kRegular))) ||
+          equals(item, Value(std::u16string(entity_group::kBoss)))) {
+        v = true;
+        break;
+      }
+    }
+  }
+  as_key_role(Value(v));
+}
+
+double Entity::gravity() const {
+  const Value g1 = state_get_gravity ? state_get_gravity() : Value();
+  const Value g2 = ctrl_ != nullptr && ctrl_->is_end(gk::kDefend) ? dataset(u"gravity")
+                                                                  : dataset(u"gravity_d");
+  return nullish(g1) ? num_of(g2) : to_number(g1);
+}
+
+double Entity::itr_motionless() const {
+  if (type() == static_cast<double>(EntityEnum::Ball)) {
+    return num_of(dataset(u"ball_itr_motionless"));
+  }
+  return num_of(dataset(u"itr_motionless"));
+}
+
+void Entity::set_arest(double v) {
+  if (equals(Value(v), Value(_arest))) return;
+  _arest = round_float(v);
+}
+
+double Entity::weight() const { return num_of(or_nullish(field_or(base_of(_data), u"weight"), Value(1.0))); }
+
+double Entity::base_type() const {
+  return num_of(or_nullish(field_or(base_of(_data), u"type"), Value(0.0)));
+}
+
+Value Entity::state() const { return field_or(frame, u"state"); }
+
+void Entity::reset_armor() {
+  const Value armor_v = field_or(base_of(_data), u"armor");
+  armor = truthy(armor_v) ? armor_v : Value(NullTag{});
+  const Value toughness = field_or(armor_v, u"toughness");
+  set_toughness_max(num_of(toughness));
+  set_toughness(num_of(toughness));
+  set_toughness_resting(0);
+  set_toughness_resting_max(num_of(field_or(armor_v, u"toughness_resting")));
+  const Value trv = field_or(armor_v, u"toughness_r_value");
+  _toughness_r_value = num_of(or_nullish(trv, dataset(u"toughness_r_value")));
+  const Value trt = field_or(armor_v, u"toughness_r_tick");
+  _toughness_r_tick.set_max(num_of(or_nullish(trt, dataset(u"toughness_r_tick"))));
+  _toughness_r_tick.set_value(0);
+}
+
+Entity& Entity::set_catching(Entity* v) {
+  if (catching == v) return *this;
+  catching = v;
+  return *this;
+}
+
+Entity& Entity::add_catch_time(double value) {
+  if (!truthy(Value(value))) return *this;
+  return set_catch_time(_catch_time + value);
+}
+
+Entity& Entity::set_catch_time(double value) {
+  const double v = round_float(value);
+  if (equals(Value(_catch_time), Value(v))) return *this;
+  _catch_time = clamp(v, 0.0, catch_time_max());
+  return *this;
+}
+
+Value Entity::dataset(const std::u16string& name) const {
+  Value v = field_or(field_or(frame, u"dataset"), name.c_str());
+  if (nullish(v)) v = field_or(base_of(_data), name.c_str());
+  if (nullish(v)) v = host_->bg_dataset(name);
+  if (nullish(v)) v = host_->world_dataset(name);
+  return v;
+}
+
+Value Entity::itr_fall(const Value& itr) const {
+  const Value fall = field_or(itr, u"fall");
+  return nullish(fall) ? dataset(u"itr_fall") : fall;
+}
+
+Value Entity::ref() const {
+  Object o;
+  o.set(u"id", Value(id));
+  return Value(std::make_shared<Object>(o));
+}
+
+Value Entity::ctrl_ref(controller::BaseController* ctrl) const {
+  if (ctrl == nullptr) return Value();
+  Object o;
+  o.set(u"__is_base_ctrl__", Value(true));
+  if (ctrl->is_human()) o.set(u"__is_human_ctrl__", Value(true));
+  if (ctrl->is_bot()) o.set(u"__is_bot_ctrl__", Value(true));
+  o.set(u"player", ctrl->player);
+  o.set(u"player_id", Value(ctrl->player_id));
+  return Value(std::make_shared<Object>(o));
+}
+
+}

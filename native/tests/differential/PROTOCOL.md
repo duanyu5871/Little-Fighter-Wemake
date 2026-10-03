@@ -2686,3 +2686,84 @@ harness op：
    `run set jump_height n 12` 之后再 `run default` 仍读到 `n12`、`tracked=b1`。
 9. **`env hook` 只对指定键生效**：`jump_height` 之外（`gravity`/`screen_w`/`screen_h`/`difficulty`）
    的 `set` 只有 `dataset_change` 一条日志，锁住「键钩子按名查找、整体回调对所有托管键生效」。
+
+### 6.9.96 `entity`（差分 319 行，变异 115/115 全杀）
+
+harness op：
+
+- `env dataset <键字面量> <值字面量>`（真 `WorldDataset` 的 `set`）、
+  `env bg <键字面量> <值字面量>`（`world.bg.data.dataset` 那一层）、
+  `env team s "<队伍>"`（宿主 `new_team` 的返回值）。
+- `run make <数据字面量>`（新实体）、`run reset <数据字面量>`（同一实体重跑 `reset`）。
+- `run frame <帧字面量>`（直接换 `this.frame`，用来观察帧层：`state`/`bot_ignore`/`dataset`/
+  `on_dead`/`on_exhaustion`/`id === "gone"`）。
+- `run get <字段>` / `run set <字段> <值字面量>`（字段表见下）。
+- `run slots`（`stat_slots()`）、`run armor`（重跑 `reset_armor()`）、
+  `run catch <数字>` / `run addcatch <数字>` / `run catching`、
+  `run role <值字面量>` / `run autorole`、
+  `run dataset <键字面量>` / `run itrfall <itr 字面量>`、
+  `run ctrl none|base|base_released|human|human_bare|bot|same`、
+  `run hook dead|gravity <值字面量>|none`、`run summaries`。
+
+输出：
+
+- `run make|reset || id=<id> | <日志>`；
+- `run get <字段> || <日志> | v=<值>`、`run set <字段> <入参> || <日志> | v=<值>`；
+- `run slots|armor|catch|addcatch || <日志> | v={<槽位对象>}`；
+- `run frame <帧> || <日志> | v=<帧>`、`run dataset <键> || <日志> | v=<值>`；
+- `run role|autorole || <日志> | v=[<name_visible>,<wakeup_invuln>,<dead_gone>]`；
+- `run ctrl <种类> || <日志> | v=base|human|bot`；
+- `run summaries || <日志> | graves=<数> items <id>:<hp_lost>/<mp_usage> …`。
+
+日志项（按发生顺序、逗号分隔）：`on_*_changed:<self|?>:<新值>:<旧值>`、`on_dead:<self>`、
+`on_ctrl_changed:<vc>:<前一个>:<self>`（控制器渲染成 `base|human|bot|u`）、
+`mark_players_alive:b0|b1`、`release_ctrl:<控制器>`、`acquire_ctrl`、
+`enter_frame:<帧>`、`apply_opoints:<打碎件>`、`play_sound:<音效>`、`state_on_dead`。
+
+`run get`/`run set` 认得的字段（两侧同名）：
+`id`、`origin_data_id`、`hp/mp/hp_r/hp_max/mp_max`、`resting/resting_max`、
+`fall_value/fall_value_max`、`defend_value/defend_value_max/defend_ratio`、
+`toughness/toughness_max/toughness_resting/toughness_resting_max`、
+`catch_time_max`、`reserve`、`blinking/invisible/invulnerable/arest`、
+`outline_color/outline_alpha/outline_width/outline_enabled`、`mix_color/mix_strength/greyscale`、
+`name/team/variant`、`bot_ignore/group/state/type/base_type/weight/gravity/itr_motionless`、
+`frame/prev_frame/data/armor/dead_join/transforms/itr/bdy/drink/ref/ctrl`、
+`emitter/src_emitter`、`lifetime/spawn_time/render_effect_time`、
+`mounted/ghosted/stat_bar/wait/facing/motionless/shaking/fallinjury/throwinjury`、
+`name_visible/wakeup_invuln/dead_gone/ctrl_visible/puppet/is_on_ground`、
+`jumping.x|y|z|t`、`aabb_min_x/aabb_max_x/l_len/r_len`。
+
+覆盖面（杀掉全部 115 条变异的关键）：
+
+1. **`reset()` 的每个槽位都有读数**：默认值段一次读 30 多个 getter，
+   加上 `run slots` 的 9 个私有槽位（`catch_time`、`toughness_r_value`、
+   `fall_r_value`、`defend_r_value`、五个恢复 tick 的 `max`），
+   所以「漏初始化 / 初始值写错 / 从数据集快照错」都会露。
+2. **`??` 与 `||` 的分界**：`env dataset` 改掉 `hp_max`/`mp_max`/`resting_max` 后
+   `run get` 仍读构造时快照（`_hp_max` 家族），而 `run dataset <键>` 直接读四层回退；
+   `armor n 0` 用例锁 `armor || null`；`group`/`player.name` 的空值锁 `||` 的真值语义。
+3. **严格相等的静默**：`reserve n 7` 连打两次、`arest n 1.5` 连打两次、
+   `catch n 0` 连打两次、`resting/toughness_resting` 的 `1.00049`（取整后不变）
+   都是空日志，同时紧随其后的 `run get` 证明值确实存下来了。
+4. **`fall_value`/`defend_value` 的「未取整比较 + 取整存储」**：
+   `fall_value n 20.00049`（当前 20）必须**发通知且存 20**。
+5. **下降时的连锁恢复顺序**：先 `on_resting_changed` 再自己的通知；
+   `toughness` 下降时 `toughness_resting` 被抬到 `toughness_resting_max`（无通知）。
+6. **`hp` 的死亡分支逐守卫**：`hook dead` 打上状态钩子；`d2` 有 `brokens`/`dead_sounds`
+   → `apply_opoints` + `play_sound`；把 `frame.id` 换成 `"gone"` 或把 `state` 换成 `9998`
+   → 两条都不打；帧层 `on_dead` 优先于数据层（`fod6` vs `dod6`）；
+   `mp` 的耗竭分支同理（帧层 `on_exhaustion`）。
+7. **摘要**：`run summaries` 在每次 hp/mp 下降后打 `id`/`hp_lost`/`mp_usage`，
+   锁「累加而不是覆盖」「`is_independent(team)` 才记队伍一份」（队伍 `"12"` 那段）。
+8. **人类控制器的活着通知**：`mark_players_alive` 只在「人类控制器 + 跨过 0」时打；
+   `hp` 从 50 到 0（base 控制器）不打，切到 `human` 后再降到 0 才打 `b0`。
+9. **控制器三态**：`none`（`undefined` → 提前返回，不打日志）、`same`（同一对象 → 提前返回）、
+   `base_released`（`d` 键 `_d_time > _u_time` → `gravity` 走 `gravity_d` 那一支，
+   配合 `env dataset` 把两个键设成 1 与 2 就能分辨）、`human_bare`（无名玩家 → `Player 9`）。
+10. **`run reset` 的重入**：重设后 id 变新、`origin_data_id` 换、`reserve`/`outline_*`/`name`
+    复位、`render_effect_time` 归零、`callbacks.clear()` 让随后的 `run set` **完全静默**、
+    `name_visible`/`dead_gone` 由 `auto_key_role()` 重算。
+11. **`run armor` 的通知顺序**：`on_toughness_max_changed` 在 `on_toughness_changed` 之前
+    （对应 TS 的 `this.toughness = this.toughness_max = …`）。
+12. **`frame` 层**：`state`/`bot_ignore`/`dataset`/`on_exhaustion`/`on_dead` 都从帧上读，
+    与 `bg`/`base`/`world` 三层组成四层回退（`env bg` 设 55、base 30 → 读 30）。

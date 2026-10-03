@@ -1,0 +1,353 @@
+# Entity: construction / reset + the stat accessor & notification layer
+
+# --- data without armor, with a group and both on_dead hooks
+run make o 5 id s "d1" type n 1 base o 9 name s "Alex" resting_max n 30 fall_value_max n 100 defend_value_max n 3 defend_ratio n 0.5 catch_time_max n 12 group a 1 s "1000" weight n 2 bot_ignore n 5 on_dead o 1 id s "dod" on_exhaustion o 1 id s "dex"
+
+# --- reset defaults: dataset-backed stats, base-backed stats and the plain slots
+run get id
+run get origin_data_id
+run get hp_max
+env dataset s "mp_max" n 300
+run get mp_max
+run get hp
+run get hp_r
+run get mp
+run get resting_max
+run get resting
+run get fall_value
+run get fall_value_max
+run get defend_value
+run get defend_value_max
+run get defend_ratio
+run get catch_time_max
+run get toughness
+run get toughness_max
+run get toughness_resting
+run get toughness_resting_max
+run get reserve
+run get weight
+run get base_type
+run get bot_ignore
+run get group
+run get state
+run get gravity
+run get itr_motionless
+run get name
+run get team
+run get outline_color
+run get mix_color
+run get outline_enabled
+run get outline_alpha
+run get outline_width
+run get mix_strength
+run get greyscale
+run get blinking
+run get invisible
+run get invulnerable
+run get resting
+run get toughness_resting
+run get arest
+run get name_visible
+run get wakeup_invuln
+run get dead_gone
+run get stat_bar
+run get wait
+run get variant
+run get facing
+run get mounted
+run get ghosted
+run get lifetime
+run get spawn_time
+run get render_effect_time
+run get jumping.x
+run get jumping.t
+run get is_on_ground
+run get puppet
+run get aabb_min_x
+run get l_len
+run slots
+run summaries
+run autorole
+
+# --- stat setters: notifications, rounding and the strict-equality silence
+run set reserve n 7
+run set reserve n 7
+run set reserve n 7.00049
+run set resting_max n 20
+run set resting n 20
+run set resting n 20.00049
+run set toughness_resting_max n 4
+run set toughness_resting_max n 5.00049
+run set fall_value n 50
+run set toughness_resting n 0
+run set fall_value n 20
+run set fall_value n 20.00049
+run get toughness_resting
+run get resting
+run set fall_value n 20
+run set defend_value n 3
+run set defend_value n 1
+run get resting
+run set toughness n 0
+run set toughness n -5
+run set toughness n 8
+run set toughness_resting n 0
+run set toughness n 3
+run get toughness_resting
+run set toughness_max n -2
+run set toughness_max n 9
+run set toughness_resting n 1
+run set toughness_resting n 1.00049
+run set fall_value_max n 80
+run set fall_value_max n 80
+run set defend_value_max n 4
+run set defend_ratio n 0.25
+run set catch_time_max n 15
+run set outline_alpha n 0.4
+run set outline_width n 3
+run set mix_color s "ff0000"
+run set mix_strength n 0.5
+run set greyscale n 2
+run set outline_enabled n 0
+run get outline_enabled
+run set outline_enabled z
+run get outline_enabled
+run set blinking n -3
+run set blinking n 4.5
+run set invisible n 2.5
+run set invisible n -1.5
+run set invulnerable n -1
+run set ghosted n 3
+run set arest n 1.5
+run set arest n 1.5
+run set arest n 2.00049
+run set hp_r n -2
+run set hp_r n 2
+run set hp_r n 3.00049
+run set hp n 50
+run get hp_r
+
+# --- team / name: loose equality, variant parsing and the callback payloads
+run set team s "1"
+run set team s "12"
+run set team s "abc"
+run get variant
+run set team s "3"
+run set name s "Bob"
+run get name
+run set name s "Bob"
+run set name z
+run get name
+run set name u
+run get name
+run get variant
+run get render_effect_time
+
+# --- the dataset / bg / frame layers behind `dataset()`
+env bg s "hp_max" n 999
+run dataset s "hp_max"
+env bg s "hp_max" u
+run dataset s "hp_max"
+env dataset s "hp_max" n 400
+run dataset s "hp_max"
+run dataset s "nope"
+run get hp_max
+env bg s "resting_max" n 55
+run dataset s "resting_max"
+env bg s "resting_max" u
+run itrfall o 0
+run itrfall o 1 fall n 7
+
+# --- hp / mp: summaries, exhaustion and the death branch
+run set mp n 10
+run set mp n 3
+run set mp n 0
+run summaries
+run set mp n 300
+run summaries
+run set team s "12"
+run set hp n 100
+run set hp n 20
+run summaries
+run hook dead
+run set hp n 0
+run get hp_r
+run hook gravity n 5
+run get gravity
+run hook none
+run get gravity
+run hook gravity u
+run get gravity
+run hook none
+
+# --- the death branch with brokens + dead_sounds and a frame level on_dead
+run make o 5 id s "d2" type n 1 base o 2 brokens a 1 s "p1" dead_sounds a 2 s "s1" s "s2" on_dead o 1 id s "dod2" frame o 2 id s "f2" on_dead o 1 id s "fod2"
+run set hp n 0
+run set hp n 30
+run frame o 1 id s "gone"
+run set hp n 0
+run frame o 1 id s "f2"
+run set hp n 30
+run set hp n 0
+run make o 4 id s "d3" type n 1 base o 0 on_dead o 1 id s "dod3"
+run set hp n 0
+run make o 3 id s "dd" type n 1 base o 2 name s "Dee" drink o 2 hp_h_ticks n 10 hp_h_value n 1
+run get drink
+
+# --- armor: reset_armor() on a fresh entity, then re-run on demand
+run make o 4 id s "d4" type n 1 base o 1 armor o 4 toughness n 6 toughness_resting n 2 toughness_r_value n 9 toughness_r_tick n 3 on_dead o 1 id s "dod4"
+run get toughness
+run get toughness_max
+run get toughness_resting
+run get toughness_resting_max
+run slots
+run set toughness_max n 0
+run set toughness n 0
+run armor
+run slots
+
+# --- controllers: the flag pairs, the alive notification and the release hook
+run make o 3 id s "d5" type n 1 base o 1 name s "Eve"
+run get ctrl
+run set name s "Zed"
+run get name
+run ctrl human
+run get ctrl
+run get name
+run ctrl bot
+run get ctrl
+run ctrl none
+run get ctrl
+run ctrl base
+run get ctrl
+
+# --- catch time helpers and roles
+run catch n 5
+run catch n 9999
+run addcatch n 3
+run addcatch n 0
+run catch n 0
+run catch n 3.00049
+run catch n 3
+run role b 1
+run role b 0
+run autorole
+run catching
+
+# --- the frame layer: `dataset()`, `bot_ignore`, `state` and the death guard
+run make o 5 id s "d6" type n 1 base o 1 name s "Fay" on_dead o 1 id s "dod6" on_exhaustion o 1 id s "dex6"
+run frame o 4 id s "f9" state n 7 dataset o 1 hp_max n 77 bot_ignore n 3
+run get state
+run get bot_ignore
+run dataset s "hp_max"
+run dataset s "nope"
+run set mp n 0
+run hook dead
+run frame o 3 id s "gone" state n 7 on_dead o 1 id s "fod6"
+run set hp n 0
+run get hp_r
+run frame o 3 id s "f10" state n 7 on_exhaustion o 1 id s "fex6"
+run set mp n 5
+run set mp n 0
+run get state
+run hook none
+
+# --- rounding / clamping corners
+run set resting_max n 20.00049
+run set fall_value n 20.00049
+run get fall_value
+run get resting
+run set hp n -5
+run get hp
+run set hp n 12.3456
+run set mp n -1
+run set mp n 7.8912
+run set hp_max n -3
+run set mp_max n 0.00049
+run get hp_max
+run get mp_max
+env dataset s "mp_max" n 300
+run get mp_max
+env dataset s "ball_itr_motionless" n 9
+
+# --- a Ball entity with no base values: the dataset fallbacks show through
+run make o 3 id s "d7" type n 32 base o 0
+run get itr_motionless
+run get resting_max
+env dataset s "resting_max" n 41
+run get resting_max
+run set resting_max n 41
+env dataset s "gravity" n 1
+env dataset s "gravity_d" n 2
+run get gravity
+run ctrl base_released
+run get gravity
+run ctrl same
+run ctrl human
+run get gravity
+run get ctrl
+run set name z
+run get name
+run ctrl human_bare
+run get name
+run set name s "Kai"
+run get name
+run ctrl base
+run set hp n 50
+run set hp n 0
+run get hp_r
+run ctrl human
+run set hp n 30
+run set hp n 0
+run ctrl human
+run get ctrl
+
+# --- armor as a falsy value, group variants and the done-state death guard
+run make o 3 id s "d8" type n 1 base o 1 armor n 0
+run get armor
+run make o 3 id s "d9" type n 1 base o 1 group a 2 s "x" s "Boss"
+run autorole
+run make o 3 id s "d10" type n 1 base o 1 group a 1 s "x"
+run autorole
+run make o 3 id s "d12" type n 1 base o 2 brokens a 1 s "p1" dead_sounds a 1 s "s1"
+run frame o 2 id s "f12" state n 9998
+run set hp n 0
+
+# --- reset() re-entry: new id, cleared stats, cleared callbacks and hooks
+run make o 3 id s "d13" type n 1 base o 1 name s "Ines"
+run set outline_color s "aa00ff"
+run get outline_color
+run get render_effect_time
+run set outline_enabled n 0
+run set reserve n 5
+run get reserve
+run role b 1
+run hook dead
+run reset o 3 id s "d14" type n 1 base o 0
+run get id
+run get origin_data_id
+run get reserve
+run get outline_color
+run get name
+run get render_effect_time
+run get name_visible
+run get dead_gone
+run get outline_alpha
+run get outline_enabled
+run set reserve n 1
+run set hp n 0
+
+run make o 3 id s "d15" type n 1 base o 1 resting_max n 30
+run frame o 2 id s "fx" dataset o 1 resting_max n 66
+run dataset s "resting_max"
+
+# --- values that only exist as reads
+run get armor
+run get dead_join
+run get transforms
+run get prev_frame
+run get drink
+run get ref
+run get emitter
+run get src_emitter
+run summaries

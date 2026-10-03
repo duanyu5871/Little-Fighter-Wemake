@@ -55,6 +55,7 @@ add_library(lfw_core STATIC
   entity/face_helper.cpp
   entity/find_frame_direction.cpp
   entity/entity_dataset.cpp
+  entity/entity.cpp
   entity/summary.cpp
   entity/summary_mgr.cpp
   entity/drink_info.cpp
