@@ -1054,3 +1054,424 @@ run framewait o 1 wait n 5
 run waitblock 1
 run framewait o 1 wait n 5
 run waitflag s "d" o 1 wait n 5
+
+# --- 9d: snapshot (to_snapshot / read_snapshot) ---
+env data s "d1" o 3 id s "d1" frames o 2 "f-7" o 2 id s "f-7" wait n 2 "f-8" o 2 id s "f-8" wait n 3 base o 1 toughness_max n 9
+env data s "d2" o 2 id s "d2" frames o 0
+run make o 4 id s "s1" type n 1 name s "Sn" base o 3 hp_max n 40 mp_max n 30 name s "Base"
+run snap
+run set hp n 25
+run set mp n 9
+run set resting n 3
+run set landing_frame u
+run set dismiss_time n 2.5
+run set dismiss_data o 1 id s "d1"
+run snap
+run copy s "c1"
+run copy s "c2"
+run copy s "c1"
+run set transforms a 2 o 1 id s "t0" o 1 id s "t1"
+run set dead_join o 2 d n 3 kids a 2 n 1 s "x"
+run snap
+run set dead_join o 2 d n 3 kids a 2 n 1 s "x"
+run snap
+run snapbuf
+run set hp n 3
+run set mp n 1
+run pos n 0 n 0 n 0
+run setvel n 0 n 0 n 0
+run set name s "Changed"
+run snap
+run snapapply
+run snap
+run get hp
+run get mp
+run get position
+run get velocity
+run get name
+run get dismiss_time
+run get dismiss_data
+run get transforms
+run get dead_join
+run get catcher
+run get landing_frame
+run snappoke RESTING_MAX n NaN
+run snappoke DISMISS_TIME z
+run snappoke CATCH_TIME_MAX n NaN
+run snap
+run snapapply
+run get resting_max
+run get dismiss_time
+run get catch_time_max
+run snap
+run snappoke MP_MAX z
+run snappoke HP_MAX n 7.5
+run snapapply
+run snap
+run get mp_max
+run get hp_max
+run snappoke HP_MAX z
+run snapapply
+run snap
+run get hp_max
+run snappoke BOUNCED n 2
+run snappoke DROP_HURTED n -1
+run snappoke DROPPING n 0
+run snappoke IS_ON_GROUND z
+run snappoke FACING n -1
+run snapapply
+run snap
+run get is_on_ground
+run get facing
+run snappokestr NAME s ""
+run snappokestr TEAM s "12"
+run snappokestr COPIES s "b,a,b"
+run snappokestr DEAD_JOIN s ""
+run snapapply
+run get name
+run get team
+run get dead_join
+run snap
+run snappokestr COPIES s "x,"
+run snapapply
+run snap
+run snappokestr NAME s "Ren"
+run snappokestr FRAME_ID s "nope"
+run snappokestr LANDING_FRAME_ID s ""
+run snappokestr DATA_ID s "d1"
+run snapapply
+run get name
+run get data
+run get frame
+run get landing_frame
+run snap
+run snappokestr FRAME_ID s "f-7"
+run snappokestr LANDING_FRAME_ID s "auto"
+run snapapply
+run get frame
+run get landing_frame
+run snappokestr FRAME_ID s "f-8"
+run snappokestr PREV_FRAME_ID s "f-7"
+run snapapply
+run get frame
+run get prev_frame
+run snap
+run snappokestr FRAME_ID s "gone"
+run snappokestr PREV_FRAME_ID s "f0"
+run snapapply
+run get frame
+run get prev_frame
+run snappokestr CATCHER_ID s "b1"
+run snappokestr BEARER_ID s "zzz"
+run snappokestr CATCHING_ID s ""
+run snappokestr TRANSFORM_0_ID s "t0"
+run snappokestr TRANSFORM_1_ID s ""
+run snapapply
+run snap
+run get catcher
+run get bearer
+run get catching
+run get transforms
+run snappokestr TRANSFORM_0_ID s "d1"
+run snappokestr TRANSFORM_1_ID s "d2"
+run snapapply
+run get transforms
+
+# --- 9d: poke every mutable slot, then round-trip ---
+run snapbuf
+run snappoke WAIT n 900.5
+run snappoke VARIANT n 901.5
+run snappoke TRANSFORM_INDEX n 902.5
+run snappoke LIFETIME n 903.5
+run snappoke SPAWN_TIME n 904.5
+run snappoke RESERVE n 905.5
+run snappoke MOUNTED n 906.5
+run snappoke GHOSTED n 907.5
+run snappoke RESTING n 908.5
+run snappoke RESTING_MAX n 909.5
+run snappoke TOUGHNESS n 910.5
+run snappoke TOUGHNESS_MAX n 911.5
+run snappoke TOUGHNESS_R_VALUE n 912.5
+run snappoke TOUGHNESS_RESTING n 913.5
+run snappoke TOUGHNESS_RESTING_MAX n 914.5
+run snappoke FALL_VALUE n 915.5
+run snappoke FALL_VALUE_MAX n 916.5
+run snappoke FALL_R_VALUE n 917.5
+run snappoke DEFEND_VALUE n 918.5
+run snappoke DEFEND_VALUE_MAX n 919.5
+run snappoke DEFEND_R_VALUE n 920.5
+run snappoke DEFEND_RATIO n 921.5
+run snappoke FALLINJURY n 922.5
+run snappoke THROWINJURY n 923.5
+run snappoke FACING n 924.5
+run snappoke POS_X n 925.5
+run snappoke POS_Y n 926.5
+run snappoke POS_Z n 927.5
+run snappoke PREV_POS_X n 928.5
+run snappoke PREV_POS_Y n 929.5
+run snappoke PREV_POS_Z n 930.5
+run snappoke VEL_X n 931.5
+run snappoke VEL_Y n 932.5
+run snappoke VEL_Z n 933.5
+run snappoke PREV_VEL_X n 934.5
+run snappoke PREV_VEL_Y n 935.5
+run snappoke PREV_VEL_Z n 936.5
+run snappoke MP n 937.5
+run snappoke MP_MAX n 938.5
+run snappoke HP n 939.5
+run snappoke HP_R n 940.5
+run snappoke HP_MAX n 941.5
+run snappoke AREST n 942.5
+run snappoke MOTIONLESS n 943.5
+run snappoke SHAKING n 944.5
+run snappoke CATCH_TIME n 945.5
+run snappoke CATCH_TIME_MAX n 946.5
+run snappoke DISMISS_TIME n 947.5
+run snappoke INVISIBLE_DURATION n 948.5
+run snappoke INVULNERABLE_DURATION n 949.5
+run snappoke BLINKING_DURATION n 950.5
+run snappoke JUMP_X n 951.5
+run snappoke JUMP_Y n 952.5
+run snappoke JUMP_Z n 953.5
+run snappoke JUMP_T n 954.5
+run snappoke GROUND_Y n 955.5
+run snappoke PREV_GROUND_Y n 956.5
+run snappoke AABB_MIN_X n 957.5
+run snappoke AABB_MAX_X n 958.5
+run snappoke AABB_MIN_Z n 959.5
+run snappoke AABB_MAX_Z n 960.5
+run snappoke L_LEN n 961.5
+run snappoke R_LEN n 962.5
+run snappoke STAT_BAR_TYPE n 963.5
+run snappoke HP_R_TICK_VALUE n 964.5
+run snappoke HP_R_TICK_MIN n 965.5
+run snappoke HP_R_TICK_MAX n 966.5
+run snappoke HP_R_TICK_LIFES n 967.5
+run snappoke HP_R_TICK_REMAINS n 968.5
+run snappoke MP_R_TICK_VALUE n 969.5
+run snappoke MP_R_TICK_MIN n 970.5
+run snappoke MP_R_TICK_MAX n 971.5
+run snappoke MP_R_TICK_LIFES n 972.5
+run snappoke MP_R_TICK_REMAINS n 973.5
+run snappoke RESTING_TICK_VALUE n 974.5
+run snappoke RESTING_TICK_MIN n 975.5
+run snappoke RESTING_TICK_MAX n 976.5
+run snappoke RESTING_TICK_LIFES n 977.5
+run snappoke RESTING_TICK_REMAINS n 978.5
+run snappoke TOUGHNESS_R_TICK_VALUE n 979.5
+run snappoke TOUGHNESS_R_TICK_MIN n 980.5
+run snappoke TOUGHNESS_R_TICK_MAX n 981.5
+run snappoke TOUGHNESS_R_TICK_LIFES n 982.5
+run snappoke TOUGHNESS_R_TICK_REMAINS n 983.5
+run snappoke FALL_R_TICK_VALUE n 984.5
+run snappoke FALL_R_TICK_MIN n 985.5
+run snappoke FALL_R_TICK_MAX n 986.5
+run snappoke FALL_R_TICK_LIFES n 987.5
+run snappoke FALL_R_TICK_REMAINS n 988.5
+run snappoke DEFEND_R_TICK_VALUE n 989.5
+run snappoke DEFEND_R_TICK_MIN n 990.5
+run snappoke DEFEND_R_TICK_MAX n 991.5
+run snappoke DEFEND_R_TICK_LIFES n 992.5
+run snappoke DEFEND_R_TICK_REMAINS n 993.5
+run snappoke BOUNCED n 994.5
+run snappoke LYING_A_COUNT n 995.5
+run snappoke LYING_D_COUNT n 996.5
+run snappoke LYING_C_COUNT n 997.5
+run snappoke DROP_HURTED n 998.5
+run snappoke IS_ON_GROUND n 999.5
+run snappoke NAME_VISIBLE n 1000.5
+run snappoke WAKEUP_INVULN n 1001.5
+run snappoke DEAD_GONE n 1002.5
+run snappoke CTRL_VISIBLE n 1003.5
+run snappoke DROPPING n 1004.5
+run snappokestr ID s "p0"
+run snappokestr DATA_ID s "p1"
+run snappokestr FRAME_ID s "p2"
+run snappokestr PREV_FRAME_ID s "p3"
+run snappokestr LANDING_FRAME_ID s "p4"
+run snappokestr CATCHING_ID s "p5"
+run snappokestr CATCHER_ID s "p6"
+run snappokestr BEARER_ID s "p7"
+run snappokestr HOLDING_ID s "p8"
+run snappokestr TEAM s "p9"
+run snappokestr NAME s "p10"
+run snappokestr AFTER_BLINK s "p11"
+run snappokestr DISMISS_DATA_ID s "p12"
+run snappokestr TRANSFORM_0_ID s "p13"
+run snappokestr TRANSFORM_1_ID s "p14"
+run snappokestr COPIES s "p15"
+run snappokestr DEAD_JOIN s "{\"d\":5}"
+run snapapply
+run snap
+run get wait
+run get lifetime
+run get spawn_time
+run get reserve
+run get mounted
+run get ghosted
+run get resting
+run get resting_max
+run get toughness
+run get toughness_max
+run get toughness_resting
+run get toughness_resting_max
+run get fall_value
+run get fall_value_max
+run get defend_value
+run get defend_value_max
+run get defend_ratio
+run get catch_time_max
+run get mp
+run get mp_max
+run get hp
+run get hp_r
+run get hp_max
+run get arest
+run get motionless
+run get shaking
+run get blinking
+run get invisible
+run get invulnerable
+run get fallinjury
+run get throwinjury
+run get facing
+run get position
+run get prev_position
+run get velocity
+run get prev_velocity
+run get jumping.x
+run get jumping.y
+run get jumping.z
+run get jumping.t
+run get ground_y
+run get aabb_min_x
+run get aabb_max_x
+run get l_len
+run get r_len
+run get stat_bar
+run get name_visible
+run get wakeup_invuln
+run get dead_gone
+run get ctrl_visible
+run get is_on_ground
+run get id
+run get name
+run get team
+run get frame
+run get prev_frame
+run get landing_frame
+run get data
+run get transforms
+run get dead_join
+run get catcher
+run get bearer
+run get catching
+run get holding
+run get dismiss_data
+run snap
+
+# --- 9d: nullable slots keep NaN only in the nullish spelling ---
+run snappoke RESTING_MAX n NaN
+run snappoke FALL_VALUE_MAX n NaN
+run snappoke DEFEND_VALUE_MAX n NaN
+run snappoke DEFEND_RATIO n NaN
+run snappoke CATCH_TIME_MAX n NaN
+run snappoke DISMISS_TIME n NaN
+run snapapply
+run snap
+run get resting_max
+run get fall_value_max
+run get defend_value_max
+run get defend_ratio
+run get catch_time_max
+run get dismiss_time
+run snappoke RESTING_MAX n 12.5
+run snappoke FALL_VALUE_MAX n 13.5
+run snappoke DEFEND_VALUE_MAX n 14.5
+run snappoke DEFEND_RATIO n 0.75
+run snappoke CATCH_TIME_MAX n 16.5
+run snappoke DISMISS_TIME n 17.5
+run snapapply
+run snap
+run get resting_max
+run get fall_value_max
+run get defend_value_max
+run get defend_ratio
+run get catch_time_max
+run get dismiss_time
+run snappoke DISMISS_TIME z
+run snapapply
+run snap
+run get dismiss_time
+
+# --- 9d: the boolean quartet uses `!== 0`, so null lands on true ---
+run snappoke BOUNCED n 0
+run snappoke DROP_HURTED n 2
+run snappoke DROPPING n 0
+run snappoke IS_ON_GROUND z
+run snapapply
+run snap
+run get is_on_ground
+run snappoke BOUNCED z
+run snappoke DROP_HURTED n 0
+run snappoke DROPPING n 5
+run snappoke IS_ON_GROUND n 0
+run snapapply
+run snap
+run get is_on_ground
+run snappoke DROP_HURTED z
+run snappoke DROPPING z
+run snapapply
+run snap
+
+# --- 9d: links and transforms ---
+run link catcher buddy
+run link bearer none
+run link catching self
+run link holding buddy
+run snap
+run get catcher
+run get bearer
+run get catching
+run get holding
+run set transforms a 1 o 1 id s "t0"
+run snap
+run snappokestr TRANSFORM_0_ID s "d1"
+run snappokestr TRANSFORM_1_ID s "zzz"
+run snapapply
+run get transforms
+run snap
+run snappokestr TRANSFORM_0_ID s "zzz"
+run snappokestr TRANSFORM_1_ID s "d2"
+run snapapply
+run get transforms
+run snappokestr TRANSFORM_0_ID s "d1"
+run snappokestr TRANSFORM_1_ID s ""
+run snapapply
+run get transforms
+run snappokestr TRANSFORM_0_ID s ""
+run snappokestr TRANSFORM_1_ID s "d2"
+run snapapply
+run get transforms
+
+run snappokeid CATCHING_ID self
+run snappokeid CATCHER_ID buddy
+run snappokeid BEARER_ID self
+run snappokeid HOLDING_ID self
+run snapapply
+run get catching
+run get catcher
+run get bearer
+run get holding
+run snap
+run snappokeid CATCHING_ID buddy
+run snappokeid CATCHER_ID self
+run snappokeid BEARER_ID self
+run snappokeid HOLDING_ID buddy
+run snapapply
+run get catching
+run get catcher
+run get bearer
+run get holding
+run get name
+run snap

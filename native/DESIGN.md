@@ -4737,3 +4737,102 @@ TS 侧 `WorldDataset` 有 103 个字段，但**所有已经移植过的调用点
 - 新 `get` 字段：`from_wait_block`（`b0`/`b1`）。
 - `run findframe` 的 id 直接收 `Value` 字面量，`s "gone"` / `z` / `u` / `n 7` 分别覆盖
   `Gone` 常量支、`null` 查表支、`undefined` 当前帧支、数字键支。
+## 47. 切片 9d：`Entity` 的快照读写层
+
+`entity.{h,cpp}` 的第四刀：`to_snapshot(nums, strs)` / `read_snapshot(nums, strs)`，
+外加它需要的 `copies`（TS 的 `Set<string>`）、两个新宿主缝
+（`find_data` = `lfw.datas.find`、`find_entity` = `world.entity_map.get`）。
+这一层是存档 / 回放的地基：`NSlot` / `SSlot` 表在切片 4 就搬完了，所以本刀只做
+「逐槽位搬运 + 类型转换」，可以在没有 `World` / `LFW` 的情况下整片锁死。
+
+### 47.1 单元边界（为什么是这两支）
+1. **不碰 `set_frame` / `enter_frame` / `get_next_frame`**：它们要
+   `__judger`（`base/expression.h` + `lfw.mt`）与 `preprocess_next_frame`（端口仍是桩）。
+2. **不碰 `set_state`**：需要 `Entity` 实现 `state::IStateEntity`，与本刀无关。
+3. **`copies` 顺手补上**：`to_snapshot` 读它、`read_snapshot` 写它、`reset()` 清它，
+   而且它出现的第三条路径（`create_copy`）属于后续切片，所以本刀只给
+   `Set.add` 语义（插入序 + 去重）留一个 `add_copy` 缝。
+4. **两个宿主缝**：`read_snapshot` 是端口里第一处「按 id 找数据 / 找实体」的需求
+   （`lfw.datas.find`、`world.entity_map.get`），做成 `IEntityHost` 的虚函数，
+   默认实现是「找不到」。
+
+### 47.2 保真要点
+1. **端口签名收 `Value` 而不是 `double`**：TS 的 `nums` 是 `number[]`，但槽位里
+   可以出现 `null`（`nums[MP_MAX] = this._mp_max` 没有 `?? NaN` 兜底），而 `null`
+   与 `NaN` 在 `read_snapshot` 之后的 `mp_max()` 上**可观测地不同**，所以端口用
+   `std::vector<Value>`：数字、`NaN`、`null`、`undefined` 四态都能原样表达。
+   `Times` 的 5 槽块（`write_nums` / `read_nums`）走一个 `std::vector<double>` 暂存数组，
+   `utils/times.*` 一行未改。差分里 `run snappoke MP_MAX z` 与 `n 7.5` 分别验这两半。
+2. **`?? NaN` 槽位与裸槽位是两类**：`RESTING_MAX` / `FALL_VALUE_MAX` / `DEFEND_VALUE_MAX` /
+   `DEFEND_RATIO` / `CATCH_TIME_MAX` / `DISMISS_TIME` 写的是 `x ?? NaN`
+   （端口 `or_nan`），而 `MP_MAX` / `HP_MAX` 写的是裸值。`read` 侧前者走
+   `num_or_null(…)`（NaN → `null` → `nullopt`），后者只走 `opt_num`：
+   于是「NaN 进 → null 出 → NaN 再写出」对前一组成立，对后一组 `null` 会留着。
+   差分给六个槽位各喂一次 `n NaN`（再 `run get` 看它回落到数据集）与一次普通数字。
+3. **`num_or_null` 是严格 `Number.isNaN`**：`null` / `undefined` / 字符串都原样穿过，
+   只有真 NaN 变 `null`。端口复用切片 4 的 `entity::num_or_null(const Value&)`，
+   再套 `opt_num`（nullish → `nullopt`，NaN 保持 NaN）。
+4. **布尔四件套是 `!== 0`，不是 `truthy`**：`bounced` / `drop_hurted` / `dropping` /
+   `is_on_ground` 的读侧是 `nums[SLOT] !== 0`，所以 `null` / `undefined` / `"0"`
+   都算 **true**。端口用 `not_zero`（`strict_equals(v, 0)` 取反）；差分用两组
+   「0 / 2 / z / -1」不同真值模式把「取反」与「收成 `truthy`」两种变异都杀掉。
+   写侧是 `x ? 1 : 0`（`false` 落 0）。
+5. **字符串槽位的三种「压平」**：实体引用（`catching` / `catcher` / `bearer` /
+   `holding` / `landing_frame`）写 `?? ''`；`_name` / `_after_blink` /
+   `dismiss_data.id` 同理；而读侧的 `_name = strs[NAME] || null` 与
+   `_after_blink = strs[AFTER_BLINK] || null` 是**真值语义**——空串进去 → null 出来。
+6. **`copies` 是插入序 + 去重的集合**：端口用 `std::vector<std::u16string>` + `add_copy`
+   （`Set.add` 语义：重复不插）。写侧把所有 id 用逗号连起来再 `slice(0, -1)` 去掉尾逗号
+   （空集合写 `''`）；读侧 `split(',')` 会把 `"x,"` 变成 `["x", ""]`——空串也是成员。
+   差分有「`c1 / c2 / c1` 三次 `run copy`」（去重）、「`COPIES = "b,a,b"`」（去重 + 顺序）、
+   「`COPIES = "x,"`」（尾逗号产生空成员）三段。
+7. **`transforms` 的双重条件**：读侧要 `t0 && t1`（**两个 id 都非空**）且 `find` 到的
+   两份数据都真值，否则 `null`；写侧是 `transforms?.[0]?.id ?? ''` / `[1]`，
+   端口按 `as_array` + `size() > 0` / `> 1` 复刻。差分有一条 1 元素数组
+   （`TRANSFORM_0` 有值、`TRANSFORM_1` 必须为空）与三条「只有一个 id 能查到」的场景。
+8. **`dead_join` 走 JSON**：写 `JSON.stringify`（端口 `core/json.h` 的 `json_stringify`），
+   读 `JSON.parse`（`json_parse`）。空串 → `null`。TS 在 JSON 非法时**抛异常**，
+   属于端口模型外：端口保留旧值，差分只喂合法 JSON（`{"d":5}`）。
+9. **`read_snapshot` 不触发任何通知**：它直接写私有字段（`_hp` / `_mp` / `_reserve` …），
+   所以每段 `run snapapply` 的回调日志都必须是空的——这也是差分的一部分。
+10. **帧查找的 `?? this.frame` 是死代码**：`find_frame_by_id` 永远不会返回
+    nullish（未命中会回落到 auto 帧），所以 TS 的 `?? this.frame` / 端口
+    `if (!nullish(...))` 两边同路；`LANDING_FRAME_ID` 则真的分「空串 → null」与
+    「非空 → 查表结果（查不到是 auto 帧对象）」两支。
+11. **赋值顺序**：`id` 与 `_data`（`lfw.datas.find`）先落，再做帧查找，所以数据里
+    自带的 `frames` 表参与查找。差分的 `env data` 记录里放了一张 `frames` 表
+    （`"f-7"`），并用 `DATA_ID → "d1"` + `FRAME_ID → "f-7"` 把这条顺序钉住。
+
+### 47.3 有意不覆盖 / 不可观测项
+- `to_tri` / `from_tri` 不在 `Entity` 的快照路径上（属于别的调用点），本刀不涉及。
+- `Times::to_snapshot` / `read_snapshot`（`array<double,5>`）不属于本刀。
+- `_after_blink` 的「空串 vs nullopt」在**本刀不可观测**：它只喂给尚未搬的闪烁逻辑，
+  写侧两种表示都打印成 `""` → 相关候选撤回（表头记录）。
+- 往 `double` 槽位 poke 非数字（例如 `s "7"`）超出端口模型：TS 会把字符串原样存进
+  `_hp`，端口按 `to_number` 折算；差分只 poke 数字 / `null` / `NaN`。
+- `JSON.parse` 失败时 TS 抛异常、端口保留旧值 → 不做差分（不是可比较的行为）。
+- `read_snapshot` 里 `frame = find_frame_by_id(...) ?? frame` 的兜底（见 47.2-10）等价，
+  与 `_landing_frame` 的 `?? null` 同类，均已在变异表头记录，不列条目。
+- `nums[STAT_BAR_TYPE] = this.stat_bar ?? NaN` 的 `??` 在端口不可达：TS 把 `stat_bar`
+  声明成 `number`（初值 0），端口同样是 `double`，所以写侧直接 `Value(stat_bar)`。
+
+### 47.4 harness 观察点
+- 新增 op：`run snap`（当前快照）、`run snapbuf`（把当前快照存进缓冲区）、
+  `run snappoke <槽位名> <值字面量>`、`run snappokestr <槽位名> <值字面量>`、
+  `run snappokeid <槽位名> self|buddy`（把**活实体的 id** 塞进某个字符串槽位，
+  这样 `read_snapshot` 的按 id 解析才真的能命中，且不会把 id 写死在用例里）、
+  `run snapapply`（把缓冲区喂回 `read_snapshot` 并打印回读后的快照）、
+  `run copy <字符串>`（`copies.add`，打印 `added=b0|b1`）、
+  `env data <id 字面量> <数据字面量>`（`lfw.datas.find` 的表）。
+- 输出：`run snap|snapbuf|snapapply || <日志> | n=<全部 num 槽位> s=<全部 str 槽位>`，
+  槽位用**枚举顺序**、逗号分隔、两侧共用 `render`（数字带位模式），任何一个槽位错位都会露。
+- 槽位名 → 下标走 `nslot_entries()` / `sslot_entries()`（切片 4 的表），
+  顺带把「枚举表与实际赋值」绑在一起。
+- 新 `get` 字段：`dismiss_time`（`number | null`）、`dismiss_data`（对象或 null）、
+  `catching` / `catcher` / `bearer` / `holding`（渲染成 `{id}` 或 `null`，
+  避免把整只实体打出来）；`transforms` / `dead_join` / `landing_frame` 同时可 `set`。
+- 「每个槽位都 poke 一个互不相同的值再 `snapapply`」这一段（`snapbuf` → 105 次
+  `snappoke` + 17 次 `snappokestr` → `snapapply` → `snap` + 60 多个 `get`）
+  是杀掉「写错槽位 / 漏写槽位 / 读错槽位」三类变异的骨干。
+- TS 侧的 `world.entity_map.get` 用**活实体**现算（`reset` 会换 id，用表会过期），
+  `lfw.datas.find` 用 `env data` 填的表；端口侧同义。

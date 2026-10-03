@@ -2687,7 +2687,7 @@ harness op：
 9. **`env hook` 只对指定键生效**：`jump_height` 之外（`gravity`/`screen_w`/`screen_h`/`difficulty`）
    的 `set` 只有 `dataset_change` 一条日志，锁住「键钩子按名查找、整体回调对所有托管键生效」。
 
-### 6.9.96 `entity`（差分 977 行，变异 265/265 全杀）
+### 6.9.96 `entity`（差分 1387 行，变异 407/407 全杀）
 
 harness op：
 
@@ -2727,6 +2727,12 @@ harness op：
   catcher 与 bearer 有不同朝向）、`run link … buddy`。
   `run hook` 追加 `frameid|autoframe|sudden|caught` 四个子命令，其中 `frameid` 多一个
   `echo` 形式（把入参原样返回，锁「传进钩子的是查找 id」）；`run hook none` 清空六个钩子。
+- 快照层（9d 追加）：`run snap`（当前 `to_snapshot`）、`run snapbuf`（把当前快照存进缓冲区）、
+  `run snappoke <槽位名> <值字面量>` / `run snappokestr <槽位名> <值字面量>`（改缓冲区的一个槽位）、
+  `run snappokeid <槽位名> self|buddy`（把活实体的 id 塞进槽位，避免把 id 写死）、
+  `run snapapply`（把缓冲区喂给 `read_snapshot` 并打印回读后的快照）、
+  `run copy <字符串>`（`copies.add`，打印 `added=b0|b1`）、
+  `env data <id 字面量> <数据字面量>`（填 `lfw.datas.find` 的表）。
 
 输出：
 
@@ -2756,7 +2762,12 @@ harness op：
 - `run facingflag <flag> || <日志> | v=<新朝向> f=<当前 facing>`；
 - `run waitflag <wait> <帧> || <日志> | v=<新 wait> w=<当前 wait>`；
 - `run framewait <帧> || <日志> | v=<算出的等待>`；
-- `run waitblock <数字> || <日志> | v=<b0|b1>`。
+- `run waitblock <数字> || <日志> | v=<b0|b1>`；
+- `run snap|snapbuf|snapapply || <日志> | n=<105 个 num 槽位> s=<17 个 str 槽位>`
+  （枚举顺序、逗号分隔，共用 `render`，数字带位模式）；
+- `run snappoke <槽位名> <值> || <日志> | v=<值>`、`run snappokestr … || <日志> | v=<值>`；
+- `run snappokeid <槽位名> <self|buddy> || <日志> | v=<该实体的 id>`；
+- `run copy <字符串> || <日志> | added=<b0|b1>`。
 
 日志项（按发生顺序、逗号分隔）：`on_*_changed:<self|?>:<新值>:<旧值>`、`on_dead:<self>`、
 `on_ctrl_changed:<vc>:<前一个>:<self>`（控制器渲染成 `base|human|bot|u`）、
@@ -2776,7 +2787,9 @@ harness op：
 `name_visible/wakeup_invuln/dead_gone/ctrl_visible/puppet/is_on_ground`、
 `jumping.x|y|z|t`、`aabb_min_x/aabb_max_x/l_len/r_len`、
 物理层追加：`velocity/prev_velocity/position/prev_position`（`{x,y,z}`）、
-`dvx/dvy/dvz`、`atom_time`、`landing_frame`；帧查找层追加：`from_wait_block`（`b0`/`b1`）。
+`dvx/dvy/dvz`、`atom_time`、`landing_frame`；帧查找层追加：`from_wait_block`（`b0`/`b1`）；
+快照层追加：`dismiss_time`、`dismiss_data`、`catching`/`catcher`/`bearer`/`holding`
+（后四个渲染成 `{id}` 或 `null`），`landing_frame`/`transforms`/`dead_join` 同时可 `set`。
 
 覆盖面（杀掉全部 115 条变异的关键）：
 
@@ -2874,3 +2887,44 @@ harness op：
     `max(0, …)` 留下）、其余字符串/对象走 `get_frame_wait`。
 34. **`framewait` 的两半**：`env dataset wait_offset` 参与求和；`run waitblock 1` +
     `atom_time 2` 之后必须减 **`_atom_time`**（写成常量 1 会被杀）。
+
+35. **全槽位 poke 往返（本片的骨干）**：`snapbuf` → 105 次 `snappoke`（每个 num 槽位一个
+    互不相同的值）+ 17 次 `snappokestr` → `snapapply` → `snap` 必须把 105 + 17 个值
+    原样回显，随后 60 多个 `run get` 再从实体侧确认一遍。任何「写错槽位 / 漏写槽位 /
+    读错槽位 / tick 块落错位置」都会露。
+36. **`?? NaN` 槽位与裸槽位的两分**：`RESTING_MAX` / `FALL_VALUE_MAX` / `DEFEND_VALUE_MAX` /
+    `DEFEND_RATIO` / `CATCH_TIME_MAX` / `DISMISS_TIME` 各喂一次 `n NaN`：写侧是
+    `x ?? NaN`、读侧是 `num_or_null`（NaN → null），于是 `run snap` 打回 `NaN`、
+    `run get` 落到数据集默认；再喂一次普通数字，六个槽位都要变成该数字。
+    `MP_MAX` 与 `HP_MAX` 则相反：`z` 进去出来还是 `null`（`run snap` 打 `null`、
+    `run get` 落到数据集默认），`HP_MAX n 7.5` 打 `7.5`。
+37. **布尔四件套是 `!== 0`**：两段场景用**不同真值模式**（`0 / 2 / 0 / z` 与 `z / 0 / 5 / 0`）
+    覆盖 `BOUNCED` / `DROP_HURTED` / `DROPPING` / `IS_ON_GROUND`：
+    `null` 必须变 **true**，`2`/`-1`/`5` 也是 true，只有 `0` 是 false；
+    于是「取反」与「收成 `truthy`」两种变异都被杀（`DROP_HURTED` / `DROPPING` 各补一次
+    `z`，否则两者在数字 poke 下无法分辨）。
+38. **`copies` 的 Set 语义**：三次 `run copy`（`c1`、`c2`、`c1`）打出 `added=b1/b1/b0`；
+    `COPIES = "b,a,b"` → 去重且保序成 `b,a`；`COPIES = "x,"` → 多出一个空成员
+    （`x,` 两个成员）；空串 → 清空。
+39. **`transforms` 的双重条件**：1 元素数组（`TRANSFORM_0` 有值、`TRANSFORM_1` 必须为空）、
+    两个 id 只有一个能查到（→ `null`）、两个都能查到（→ 2 元素数组）、第一个为空（→ `null`）。
+40. **`dead_join` 的 JSON 往返**：`run set dead_join o 2 d n 3 kids a 2 n 1 s "x"` 之后
+    `run snap` 的 `DEAD_JOIN` 槽位是 `JSON.stringify` 的结果；`snappokestr DEAD_JOIN s ""`
+    → null；`snappokestr DEAD_JOIN s "{\"d\":5}"` → `json_parse` 回读成对象。
+41. **实体引用槽位**：`link catcher buddy` / `link bearer none` / `link catching self` /
+    `link holding buddy` 之后 `run snap` 的四个 id 槽位分别是 `b1` / `''` / 自身 id / `b1`，
+    `run get` 反向确认（`{id}` 或 `null`）；再用 `run snappokeid`（把活实体 id 塞进槽位）
+    构造两段**四个槽位两两不同**的场景——`catching=self / catcher=buddy / bearer=self / holding=self`
+    与 `catching=buddy / catcher=self / bearer=self / holding=buddy`——把「四个槽位互相读错」
+    以及「`holding = catcher`」这类变异全部杀掉。
+42. **`read_snapshot` 全程静默**：每一行 `run snapapply` 的回调日志都必须是空的——
+    它直接写私有字段，不走 setter。
+43. **赋值顺序（id / data → 帧查找）**：`env data` 的记录自带 `frames` 表（`f-7` / `f-8`）；
+    `DATA_ID → "d1"` 之后再 `FRAME_ID → "f-7"`，`run get frame` 必须拿到**新数据**的帧；
+    `FRAME_ID → "f-8"` + `PREV_FRAME_ID → "f-7"` 让当前帧与前帧是**两个不同对象**，
+    才能分辨「帧槽位读了前帧」这类错位；`FRAME_ID → "nope"` 落到 auto 帧；
+    `FRAME_ID → "gone"` 给 `GONE_FRAME_INFO`；`LANDING_FRAME_ID → ""` 给 `null`、
+    `→ "auto"` 给 auto 帧。
+44. **字符串槽位的压平**：`NAME = ""` → `run get name` 是 `null`；`AFTER_BLINK` poke 非空值
+    必须出现在快照里；`DISMISS_DATA_ID` 能查到就写 `dismiss_data`、查不到就写 `null`、
+    空串则跳过查找；`TEAM` 原样保留（不做空串 → null）。

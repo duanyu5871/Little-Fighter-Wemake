@@ -37,6 +37,8 @@ struct IEntityRenderer {
 // (`world.dataset`, `world.mark_players_alive`, `lfw.new_id`, `lfw.factory`, …); the
 // real `World` / `LFW` classes do not exist yet, so the port takes them from a host
 // object.  Every method mirrors one TS expression, quoted in the comment.
+class Entity;
+
 class IEntityHost {
  public:
   virtual ~IEntityHost() = default;
@@ -61,6 +63,16 @@ class IEntityHost {
   virtual void release_ctrl(controller::BaseController* ctrl) { (void)ctrl; }
   // `world.mark_players_alive(this, alive)`
   virtual void mark_players_alive(bool alive) { (void)alive; }
+  // `world.lfw.datas.find(id)`
+  virtual Value find_data(const std::u16string& id) const {
+    (void)id;
+    return Value();
+  }
+  // `world.entity_map.get(id)` — the TS side writes `?? null`, so a miss is `nullptr`.
+  virtual Entity* find_entity(const std::u16string& id) const {
+    (void)id;
+    return nullptr;
+  }
   // `this.enter_frame(nf)`
   virtual void enter_frame(const Value& nf) { (void)nf; }
   // `this.apply_opoints(this._data.base.brokens)`
@@ -105,6 +117,8 @@ class Entity {
   std::unique_ptr<DrinkInfo> drink;
   std::vector<Entity*> fuse_bys;
   bool has_fuse_bys = false;
+  // TS keeps this as an insertion-ordered `Set`; dedup happens on insert.
+  std::vector<std::u16string> copies;
   std::optional<double> dismiss_time;
   Value dismiss_data = Value(NullTag{});
   double stat_bar = 0;
@@ -287,6 +301,16 @@ class Entity {
   Entity& set_catch_time(double value);
   Value dataset(const std::u16string& name) const;
   Value itr_fall(const Value& itr) const;
+
+  // --- snapshot (`to_snapshot` / `read_snapshot`) -----------------------------
+  // TS hands over `number[]` / `string[]`; the port keeps `Value` entries so a slot
+  // whose TS type allows `null` stays distinguishable from `NaN` in both directions.
+  // Both vectors are indexed by `NSlot` / `SSlot` and sized by the caller.
+  void to_snapshot(std::vector<Value>& nums, std::vector<std::u16string>& strs) const;
+  void read_snapshot(const std::vector<Value>& nums, const std::vector<std::u16string>& strs);
+  // `this.copies.add(id)` — `Set.add` keeps the first insertion order and ignores a
+  // duplicate, so the ported vector search-and-appends.  Returns whether it inserted.
+  bool add_copy(const std::u16string& copy_id);
 
   // --- harness / platform peek -------------------------------------------------
   // TS keeps these slots private (`_catch_time`, `_toughness_r_value`, the recovery

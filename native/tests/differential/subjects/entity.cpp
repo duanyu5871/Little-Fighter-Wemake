@@ -10,6 +10,7 @@
 #include "lfw/core/js_num.h"
 #include "lfw/core/value.h"
 #include "lfw/entity/entity.h"
+#include "lfw/entity/entity_snapshot.h"
 #include "lfw/entity/summary_mgr.h"
 #include "lfw/world_dataset.h"
 
@@ -27,6 +28,8 @@ using trace::to_ascii;
 std::vector<std::string> g_log;
 std::unique_ptr<lfw::WorldDataset> g_dataset;
 Value g_bg_dataset;
+// `env data` fills the `lfw.datas.find` table (`read_snapshot` looks a data id up).
+Value g_datas = Value(std::make_shared<lfw::Object>());
 std::u16string g_team = u"1";
 int g_id_counter = 0;
 std::vector<std::unique_ptr<lfw::controller::BaseController>> g_ctrls;
@@ -35,6 +38,45 @@ std::unique_ptr<Entity> g_buddy;
 
 std::string render(const Value& v) { return to_ascii(render_value(v)); }
 std::string s_of(const std::u16string& s) { return to_ascii(s); }
+
+// Snapshot buffers: `run snapbuf` fills them from `to_snapshot`, `run snappoke`
+// edits a slot and `run snapapply` feeds them back through `read_snapshot`.
+std::vector<Value> g_snap_nums(static_cast<std::size_t>(lfw::entity::num_slots()));
+std::vector<std::u16string> g_snap_strs(static_cast<std::size_t>(lfw::entity::str_slots()));
+
+std::string render_num_slots(const std::vector<Value>& nums) {
+  std::string s;
+  for (std::size_t k = 0; k < nums.size(); ++k) {
+    if (k != 0) s += ",";
+    s += render(nums[k]);
+  }
+  return s;
+}
+
+std::string render_str_slots(const std::vector<std::u16string>& strs) {
+  std::string s;
+  for (std::size_t k = 0; k < strs.size(); ++k) {
+    if (k != 0) s += ",";
+    s += render(Value(strs[k]));
+  }
+  return s;
+}
+
+std::size_t nslot_index(const std::string& name) {
+  for (const lfw::EnumNumberEntry& e : lfw::entity::nslot_entries()) {
+    if (s_of(e.name) == name) return static_cast<std::size_t>(e.value);
+  }
+  std::fprintf(stderr, "unknown nslot '%s'\n", name.c_str());
+  std::exit(2);
+}
+
+std::size_t sslot_index(const std::string& name) {
+  for (const lfw::EnumNumberEntry& e : lfw::entity::sslot_entries()) {
+    if (s_of(e.name) == name) return static_cast<std::size_t>(e.value);
+  }
+  std::fprintf(stderr, "unknown sslot '%s'\n", name.c_str());
+  std::exit(2);
+}
 
 Value field_of(const Value& v, const std::u16string& key) {
   const lfw::Object* o = lfw::as_object(v);
@@ -46,6 +88,23 @@ Value field_of(const Value& v, const std::u16string& key) {
 std::u16string text_of(const Value& v) {
   const std::u16string* s = std::get_if<std::u16string>(&v);
   return s != nullptr ? *s : lfw::to_string(v);
+}
+
+// `v ?? null` for the nullable slots (`dismiss_time`): nullish → `nullopt`.
+std::optional<double> opt_num_of(const Value& v) {
+  if (std::holds_alternative<std::monostate>(v) || std::holds_alternative<lfw::NullTag>(v)) {
+    return std::nullopt;
+  }
+  return std::optional<double>(lfw::to_number(v));
+}
+
+// `catching` / `catcher` / `bearer` / `holding` render as `{id}` (or `null`) so the
+// two sides print the same thing without dumping a whole entity.
+Value id_ref(const Entity* e) {
+  if (e == nullptr) return Value(lfw::NullTag{});
+  lfw::Object o;
+  o.set(u"id", Value(e->id));
+  return Value(std::make_shared<lfw::Object>(o));
 }
 
 std::u16string ctrl_mark(const Value& v) {
@@ -106,6 +165,19 @@ class Host : public lfw::IEntityHost {
 
   void play_sound(const Value& sounds) override {
     g_log.push_back("play_sound:" + render(sounds));
+  }
+
+  // `world.lfw.datas.find(id)`
+  Value find_data(const std::u16string& id) const override {
+    return field_of(g_datas, id);
+  }
+
+  // `world.entity_map.get(id) ?? null` — answered from the live harness entities so a
+  // `reset` (new id) never leaves a stale lookup behind.
+  Entity* find_entity(const std::u16string& id) const override {
+    if (g_entity != nullptr && g_entity->id == id) return g_entity.get();
+    if (g_buddy != nullptr && g_buddy->id == id) return g_buddy.get();
+    return nullptr;
   }
 
   // kind: 0 = base (the factory's `InvalidController`), 1 = human (`LocalController`),
@@ -353,6 +425,13 @@ bool get_value(const Entity& e, const std::string& name, Value& out) {
   else if (name == "dvy") out = e.dvy();
   else if (name == "dvz") out = e.dvz();
   else if (name == "landing_frame") out = e.landing_frame();
+  else if (name == "dismiss_time")
+    out = e.dismiss_time.has_value() ? Value(*e.dismiss_time) : Value(lfw::NullTag{});
+  else if (name == "dismiss_data") out = e.dismiss_data;
+  else if (name == "catching") out = id_ref(e.catching);
+  else if (name == "catcher") out = id_ref(e.catcher);
+  else if (name == "bearer") out = id_ref(e.bearer);
+  else if (name == "holding") out = id_ref(e.holding);
   else if (name == "ctrl")
     out = e.ctrl() != nullptr ? Value(ctrl_mark(e.ctrl())) : Value();
   else return false;
@@ -415,6 +494,11 @@ bool set_value(Entity& e, const std::string& name, const Value& v) {
   else if (name == "outline_enabled") e.set_outline_enabled(v);
   else if (name == "name") e.set_name(v);
   else if (name == "team") e.set_team(text_of(v));
+  else if (name == "dismiss_time") e.dismiss_time = opt_num_of(v);
+  else if (name == "dismiss_data") e.dismiss_data = v;
+  else if (name == "landing_frame") e.set_landing_frame(v);
+  else if (name == "transforms") e.transforms = v;
+  else if (name == "dead_join") e.dead_join = v;
   else return false;
   return true;
 }
@@ -460,6 +544,10 @@ int main(int argc, char** argv) {
         o->set(key, parse_value(t, i));
       } else if (sub == "team") {
         g_team = text_of(parse_value(t, i));
+      } else if (sub == "data") {
+        const std::u16string id = text_of(parse_value(t, i));
+        lfw::Object* o = lfw::as_object(g_datas);
+        o->set(id, parse_value(t, i));
       } else {
         std::fprintf(stderr, "unknown env '%s' at line %d\n", sub.c_str(), lineno);
         return 2;
@@ -746,6 +834,44 @@ int main(int argc, char** argv) {
         }
         std::printf("run summaries || %s | graves=%zu items%s\n", join(g_log).c_str(),
                     lfw::summary_mgr().grave_count(), s.c_str());
+      } else if (what == "snap" || what == "snapbuf" || what == "snapapply") {
+        if (what == "snapapply") g_entity->read_snapshot(g_snap_nums, g_snap_strs);
+        std::vector<Value> nums(static_cast<std::size_t>(lfw::entity::num_slots()));
+        std::vector<std::u16string> strs(static_cast<std::size_t>(lfw::entity::str_slots()));
+        g_entity->to_snapshot(nums, strs);
+        if (what == "snapbuf") {
+          g_snap_nums = nums;
+          g_snap_strs = strs;
+        }
+        std::printf("run %s || %s | n=%s s=%s\n", what.c_str(), join(g_log).c_str(),
+                    render_num_slots(nums).c_str(), render_str_slots(strs).c_str());
+      } else if (what == "snappoke") {
+        const std::string& name = t[i++];
+        const Value v = parse_value(t, i);
+        g_snap_nums[nslot_index(name)] = v;
+        std::printf("run snappoke %s %s || %s | v=%s\n", name.c_str(),
+                    render(g_snap_nums[nslot_index(name)]).c_str(), join(g_log).c_str(),
+                    render(g_snap_nums[nslot_index(name)]).c_str());
+      } else if (what == "snappokestr") {
+        const std::string& name = t[i++];
+        const Value v = parse_value(t, i);
+        g_snap_strs[sslot_index(name)] = text_of(v);
+        std::printf("run snappokestr %s %s || %s | v=%s\n", name.c_str(),
+                    render(Value(g_snap_strs[sslot_index(name)])).c_str(), join(g_log).c_str(),
+                    render(Value(g_snap_strs[sslot_index(name)])).c_str());
+      } else if (what == "snappokeid") {
+        const std::string& name = t[i++];
+        const std::string& which = t[i++];
+        Entity* target = which == "buddy" ? g_buddy.get() : g_entity.get();
+        const std::u16string poke_id = target != nullptr ? target->id : std::u16string();
+        g_snap_strs[sslot_index(name)] = poke_id;
+        std::printf("run snappokeid %s %s || %s | v=%s\n", name.c_str(), which.c_str(),
+                    join(g_log).c_str(), render(Value(poke_id)).c_str());
+      } else if (what == "copy") {
+        const Value v = parse_value(t, i);
+        const bool added = g_entity->add_copy(text_of(v));
+        std::printf("run copy %s || %s | added=%s\n", render(v).c_str(), join(g_log).c_str(),
+                    render(Value(added)).c_str());
       } else if (what == "hook") {
         const std::string& sub = t[i++];
         if (sub == "dead") {

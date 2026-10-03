@@ -1,6 +1,7 @@
 import { BaseController } from "../../../../src/LFW/controller/BaseController";
 import { Ditto } from "../../../../src/LFW/ditto";
 import { Entity } from "../../../../src/LFW/entity/Entity";
+import { NSlot, SSlot } from "../../../../src/LFW/entity/EntitySnapshot";
 import { summary_mgr } from "../../../../src/LFW/entity/SummaryMgr";
 import { WorldDataset } from "../../../../src/LFW/WorldDataset";
 import { parseValue, readCaseLines, renderValue, splitWs } from "./trace_util";
@@ -39,8 +40,34 @@ const worldStub = {
   entity_map: new Map<string, Any>(),
 };
 
+// `world.entity_map.get(id)` must always see the current ids, so it is answered from
+// the live harness entities instead of a table that `reset` would invalidate.
+worldStub.entity_map.get = ((id: string) => {
+  if (ent !== undefined && ent.id === id) return ent;
+  if (buddy !== undefined && buddy.id === id) return buddy;
+  return undefined;
+}) as never;
+
+// `lfw.datas.find(id)`, filled by `env data`.
+const dataTable = new Map<string, Any>();
+
+// Snapshot buffers shared by `run snap|snapbuf|snappoke|snapapply`.
+let gSnapNums: unknown[] = new Array<unknown>(Number(NSlot.COUNT));
+let gSnapStrs: unknown[] = new Array<unknown>(Number(SSlot.COUNT));
+
+// `{id}` (or `null`) so `catching` / `catcher` / `bearer` / `holding` print the same
+// thing as the port without dumping a whole entity.
+const idRef = (e: Entity | null | undefined): unknown => (e ? { id: e.id } : null);
+
+const renderNums = (nums: unknown[]): string =>
+  Array.from({ length: nums.length }, (_v, k) => r(nums[k])).join(",");
+
+const renderStrs = (strs: unknown[]): string =>
+  Array.from({ length: strs.length }, (_v, k) => r(strs[k])).join(",");
+
 const lfwStub = {
   players: new Map<string, Any>(),
+  datas: { find: (id: string): Any => dataTable.get(id) },
   get new_team(): string {
     return team;
   },
@@ -229,7 +256,8 @@ const VALUE_FIELDS = new Set([
   "group", "bot_ignore", "state", "armor", "dead_join", "transforms", "itr", "bdy",
   "frame", "prev_frame", "data", "emitter", "src_emitter", "drink", "ref", "ctrl", "id",
   "velocity", "prev_velocity", "position", "prev_position", "dvx", "dvy", "dvz",
-  "landing_frame",
+  "landing_frame", "dismiss_time", "dismiss_data",
+  "catching", "catcher", "bearer", "holding",
 ]);
 
 const getNum = (e: Entity, name: string): number => {
@@ -425,6 +453,18 @@ const getValue = (e: Entity, name: string): unknown => {
       return e.dvz;
     case "landing_frame":
       return (e as unknown as { _landing_frame: unknown })._landing_frame;
+    case "dismiss_time":
+      return e.dismiss_time ?? null;
+    case "dismiss_data":
+      return e.dismiss_data;
+    case "catching":
+      return idRef(e.catching);
+    case "catcher":
+      return idRef(e.catcher);
+    case "bearer":
+      return idRef(e.bearer);
+    case "holding":
+      return idRef(e.holding);
     case "ctrl":
       return e.ctrl ? ctrlMark(e.ctrl) : undefined;
     default:
@@ -593,6 +633,21 @@ const setValue = (e: Entity, name: string, v: unknown): boolean => {
     case "team":
       e.team = String(v);
       return true;
+    case "dismiss_time":
+      e.dismiss_time = v as never;
+      return true;
+    case "dismiss_data":
+      e.dismiss_data = v as never;
+      return true;
+    case "landing_frame":
+      (e as unknown as { _landing_frame: unknown })._landing_frame = v;
+      return true;
+    case "transforms":
+      e.transforms = v as never;
+      return true;
+    case "dead_join":
+      e.dead_join = v as never;
+      return true;
     default:
       return false;
   }
@@ -623,6 +678,10 @@ function main(): void {
         bgDataset[key] = parseValue(t, idx);
       } else if (sub === "team") {
         team = String(parseValue(t, [i]));
+      } else if (sub === "data") {
+        const idx = [i];
+        const id = String(parseValue(t, idx));
+        dataTable.set(id, parseValue(t, idx));
       } else {
         process.stderr.write(`unknown env '${sub}'\n`);
         process.exit(2);
@@ -868,6 +927,61 @@ function main(): void {
         let s = "";
         for (const [id, sum] of m._items) s += ` ${id}:${r(sum.hp_lost)}/${r(sum.mp_usage)}`;
         out.push(`run summaries || ${log.join(",")} | graves=${m._graves.length} items${s}`);
+      } else if (what === "snap" || what === "snapbuf" || what === "snapapply") {
+        if (what === "snapapply") ent!.read_snapshot(gSnapNums as never, gSnapStrs as never);
+        const nums = new Array<unknown>(Number(NSlot.COUNT));
+        const strs = new Array<unknown>(Number(SSlot.COUNT));
+        ent!.to_snapshot(nums as never, strs as never);
+        if (what === "snapbuf") {
+          gSnapNums = nums;
+          gSnapStrs = strs;
+        }
+        out.push(
+          `run ${what} || ${log.join(",")} | n=${renderNums(nums)} s=${renderStrs(strs)}`,
+        );
+      } else if (what === "snappoke") {
+        const name = t[i++]!;
+        const idx = Number((NSlot as unknown as Record<string, number>)[name]);
+        if (!Number.isFinite(idx)) {
+          process.stderr.write(`unknown nslot '${name}'\n`);
+          process.exit(2);
+        }
+        gSnapNums[idx] = parseValue(t, [i]);
+        out.push(
+          `run snappoke ${name} ${r(gSnapNums[idx])} || ${log.join(",")} | v=${r(gSnapNums[idx])}`,
+        );
+      } else if (what === "snappokestr") {
+        const name = t[i++]!;
+        const idx = Number((SSlot as unknown as Record<string, number>)[name]);
+        if (!Number.isFinite(idx)) {
+          process.stderr.write(`unknown sslot '${name}'\n`);
+          process.exit(2);
+        }
+        gSnapStrs[idx] = parseValue(t, [i]);
+        out.push(
+          `run snappokestr ${name} ${r(gSnapStrs[idx])} || ${log.join(",")} | v=${r(gSnapStrs[idx])}`,
+        );
+      } else if (what === "snappokeid") {
+        const name = t[i++]!;
+        const which = t[i++]!;
+        const target = which === "buddy" ? buddy : ent;
+        const pokeId = target !== undefined ? target.id : "";
+        const idx = Number((SSlot as unknown as Record<string, number>)[name]);
+        if (!Number.isFinite(idx)) {
+          process.stderr.write(`unknown sslot '${name}'\n`);
+          process.exit(2);
+        }
+        gSnapStrs[idx] = pokeId;
+        out.push(
+          `run snappokeid ${name} ${which} || ${log.join(",")} | v=${r(pokeId)}`,
+        );
+      } else if (what === "copy") {
+        const v = parseValue(t, [i]);
+        const cid = String(v);
+        const set = (ent as unknown as { copies: Set<string> }).copies;
+        const added = !set.has(cid);
+        set.add(cid);
+        out.push(`run copy ${r(v)} || ${log.join(",")} | added=${r(added)}`);
       } else if (what === "hook") {
         const sub = t[i++]!;
         if (sub === "dead") {

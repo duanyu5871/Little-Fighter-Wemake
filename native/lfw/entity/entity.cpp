@@ -6,6 +6,7 @@
 #include <variant>
 #include <vector>
 
+#include "lfw/core/json.h"
 #include "lfw/core/value.h"
 #include "lfw/defines/defines_data.h"
 #include "lfw/defines/entity_enum.h"
@@ -18,6 +19,7 @@
 #include "lfw/defines/state_enum.h"
 #include "lfw/entity/calc_v.h"
 #include "lfw/entity/entity_type_check.h"
+#include "lfw/entity/entity_snapshot.h"
 #include "lfw/entity/face_helper.h"
 #include "lfw/entity/summary_mgr.h"
 #include "lfw/ground.h"
@@ -30,6 +32,7 @@
 #include "lfw/utils/type_check.h"
 
 #include <cmath>
+#include <limits>
 
 namespace lfw {
 namespace {
@@ -65,6 +68,37 @@ Value field_kv(const Value& v, const std::u16string& key) {
 }
 
 std::u16string frame_id_of(const Entity& e) { return to_string(field_or(e.frame, u"id")); }
+
+// `this.frame.id` / `this._prev_frame.id` for a frame held as a `Value`.
+std::u16string frame_id_value(const Value& f) { return to_string(field_or(f, u"id")); }
+
+// `optional ?? NaN`, the spelling `to_snapshot` uses for its nullable stat slots.
+Value or_nan(const std::optional<double>& v) {
+  return v.has_value() ? Value(*v) : Value(std::numeric_limits<double>::quiet_NaN());
+}
+
+// `Times` writes plain numbers, so its five-slot block goes through a scratch buffer.
+Value& tick_slot(std::vector<Value>& nums, entity::NSlot slot, std::size_t k) {
+  return nums[static_cast<std::size_t>(slot) + k];
+}
+
+void write_tick(const Times& t, std::vector<Value>& nums, entity::NSlot slot) {
+  std::vector<double> buf(5, 0.0);
+  t.write_nums(buf, 0);
+  for (std::size_t k = 0; k < 5; ++k) tick_slot(nums, slot, k) = Value(buf[k]);
+}
+
+void read_tick(Times& t, const std::vector<Value>& nums, entity::NSlot slot) {
+  std::vector<double> buf(5, 0.0);
+  for (std::size_t k = 0; k < 5; ++k) {
+    buf[k] = to_number(nums[static_cast<std::size_t>(slot) + k]);
+  }
+  t.read_nums(buf, 0);
+}
+
+// `a !== b` for the `bounced` / `dropping` family: a `null` / `undefined` / string
+// entry in the array is not `0`, so the boolean becomes true.
+bool not_zero(const Value& v) { return !strict_equals(v, Value(0.0)); }
 
 Value next_frame_of(const Value& a, const Value& b) { return or_nullish(a, b); }
 
@@ -123,6 +157,7 @@ void Entity::reset(Value data, state::States* states) {
   has_fuse_bys = false;
   dismiss_time = std::nullopt;
   dismiss_data = Value(NullTag{});
+  copies.clear();
   stat_bar = 0;
   _toughness_resting_max = defines::num(u"Defines.DEFAULT_TOUGHNESS_RESTING_MAX");
   _resting_max = opt_num(field_or(base_of(data_now), u"resting_max"));
@@ -1039,6 +1074,332 @@ Value Entity::ctrl_ref(controller::BaseController* ctrl) const {
   o.set(u"player", ctrl->player);
   o.set(u"player_id", Value(ctrl->player_id));
   return Value(std::make_shared<Object>(o));
+}
+
+// --- snapshot ----------------------------------------------------------------
+
+// `to_snapshot(nums, strs)`: every slot is written, so an array allocated with
+// `NUM_SLOTS` / `STR_SLOTS` ends up hole-free on both sides.  The nullable stat
+// slots keep the TS spelling (`?? NaN`), while `MP_MAX` / `HP_MAX` are written as
+// stored — `null` / `undefined` stay nullish instead of folding into `NaN`.
+void Entity::to_snapshot(std::vector<Value>& nums, std::vector<std::u16string>& strs) const {
+  using entity::NSlot;
+  using entity::SSlot;
+  const auto N = [&nums](NSlot slot) -> Value& {
+    return nums[static_cast<std::size_t>(slot)];
+  };
+  const auto S = [&strs](SSlot slot) -> std::u16string& {
+    return strs[static_cast<std::size_t>(slot)];
+  };
+
+  N(NSlot::WAIT) = Value(wait);
+  N(NSlot::VARIANT) = Value(variant);
+  N(NSlot::TRANSFORM_INDEX) = Value(transform_index);
+  N(NSlot::LIFETIME) = Value(_lifetime);
+  N(NSlot::SPAWN_TIME) = Value(_spawn_time);
+
+  N(NSlot::RESERVE) = Value(_reserve);
+  N(NSlot::MOUNTED) = Value(_mounted);
+  N(NSlot::GHOSTED) = Value(_ghosted);
+
+  N(NSlot::RESTING) = Value(_resting);
+  N(NSlot::RESTING_MAX) = or_nan(_resting_max);
+  N(NSlot::TOUGHNESS) = Value(_toughness);
+  N(NSlot::TOUGHNESS_MAX) = Value(_toughness_max);
+  N(NSlot::TOUGHNESS_R_VALUE) = Value(_toughness_r_value);
+  N(NSlot::TOUGHNESS_RESTING) = Value(_toughness_resting);
+  N(NSlot::TOUGHNESS_RESTING_MAX) = Value(_toughness_resting_max);
+
+  N(NSlot::FALL_VALUE) = Value(_fall_value);
+  N(NSlot::FALL_VALUE_MAX) = or_nan(_fall_value_max);
+  N(NSlot::FALL_R_VALUE) = Value(_fall_r_value);
+  N(NSlot::DEFEND_VALUE) = Value(_defend_value);
+  N(NSlot::DEFEND_VALUE_MAX) = or_nan(_defend_value_max);
+  N(NSlot::DEFEND_R_VALUE) = Value(_defend_r_value);
+  N(NSlot::DEFEND_RATIO) = or_nan(_defend_ratio);
+
+  N(NSlot::FALLINJURY) = Value(fallinjury);
+  N(NSlot::THROWINJURY) = Value(throwinjury);
+  N(NSlot::FACING) = Value(facing);
+
+  N(NSlot::POS_X) = Value(position.x);
+  N(NSlot::POS_Y) = Value(position.y);
+  N(NSlot::POS_Z) = Value(position.z);
+  N(NSlot::PREV_POS_X) = Value(prev_position.x);
+  N(NSlot::PREV_POS_Y) = Value(prev_position.y);
+  N(NSlot::PREV_POS_Z) = Value(prev_position.z);
+  N(NSlot::VEL_X) = Value(velocity.x);
+  N(NSlot::VEL_Y) = Value(velocity.y);
+  N(NSlot::VEL_Z) = Value(velocity.z);
+  N(NSlot::PREV_VEL_X) = Value(prev_velocity.x);
+  N(NSlot::PREV_VEL_Y) = Value(prev_velocity.y);
+  N(NSlot::PREV_VEL_Z) = Value(prev_velocity.z);
+
+  N(NSlot::MP) = Value(_mp);
+  N(NSlot::MP_MAX) = _mp_max.has_value() ? Value(*_mp_max) : Value(NullTag{});
+  N(NSlot::HP) = Value(_hp);
+  N(NSlot::HP_R) = Value(_hp_r);
+  N(NSlot::HP_MAX) = _hp_max.has_value() ? Value(*_hp_max) : Value(NullTag{});
+
+  N(NSlot::AREST) = Value(_arest);
+  N(NSlot::MOTIONLESS) = Value(motionless);
+  N(NSlot::SHAKING) = Value(shaking);
+
+  N(NSlot::CATCH_TIME) = Value(_catch_time);
+  N(NSlot::CATCH_TIME_MAX) = or_nan(_catch_time_max);
+  N(NSlot::DISMISS_TIME) = or_nan(dismiss_time);
+
+  N(NSlot::INVISIBLE_DURATION) = Value(_invisible);
+  N(NSlot::INVULNERABLE_DURATION) = Value(_invulnerable);
+  N(NSlot::BLINKING_DURATION) = Value(_blinking);
+
+  N(NSlot::JUMP_X) = Value(jumping.x);
+  N(NSlot::JUMP_Y) = Value(jumping.y);
+  N(NSlot::JUMP_Z) = Value(jumping.z);
+  N(NSlot::JUMP_T) = Value(jumping.t);
+
+  N(NSlot::GROUND_Y) = Value(_ground_y);
+  N(NSlot::PREV_GROUND_Y) = Value(_prev_ground_y);
+
+  N(NSlot::AABB_MIN_X) = Value(aabb_min_x);
+  N(NSlot::AABB_MAX_X) = Value(aabb_max_x);
+  N(NSlot::AABB_MIN_Z) = Value(aabb_min_z);
+  N(NSlot::AABB_MAX_Z) = Value(aabb_max_z);
+  N(NSlot::L_LEN) = Value(l_len);
+  N(NSlot::R_LEN) = Value(r_len);
+
+  // `this.stat_bar ?? NaN` — `stat_bar` is a plain number in the port.
+  N(NSlot::STAT_BAR_TYPE) = Value(stat_bar);
+
+  write_tick(_hp_r_tick, nums, NSlot::HP_R_TICK_VALUE);
+  write_tick(_mp_r_tick, nums, NSlot::MP_R_TICK_VALUE);
+  write_tick(_resting_tick, nums, NSlot::RESTING_TICK_VALUE);
+  write_tick(_toughness_r_tick, nums, NSlot::TOUGHNESS_R_TICK_VALUE);
+  write_tick(_fall_r_tick, nums, NSlot::FALL_R_TICK_VALUE);
+  write_tick(_defend_r_tick, nums, NSlot::DEFEND_R_TICK_VALUE);
+
+  N(NSlot::BOUNCED) = Value(bounced ? 1.0 : 0.0);
+  N(NSlot::LYING_A_COUNT) = Value(lying_a_count);
+  N(NSlot::LYING_D_COUNT) = Value(lying_d_count);
+  N(NSlot::LYING_C_COUNT) = Value(lying_c_count);
+  N(NSlot::DROP_HURTED) = Value(drop_hurted ? 1.0 : 0.0);
+  N(NSlot::DROPPING) = Value(dropping ? 1.0 : 0.0);
+  N(NSlot::IS_ON_GROUND) = Value(is_on_ground ? 1.0 : 0.0);
+  N(NSlot::NAME_VISIBLE) = Value(name_visible);
+  N(NSlot::WAKEUP_INVULN) = Value(wakeup_invuln);
+  N(NSlot::DEAD_GONE) = Value(dead_gone);
+  N(NSlot::CTRL_VISIBLE) = Value(ctrl_visible);
+
+  S(SSlot::ID) = id;
+  S(SSlot::DATA_ID) = to_string(field_or(_data, u"id"));
+  S(SSlot::FRAME_ID) = frame_id_of(*this);
+  S(SSlot::PREV_FRAME_ID) = frame_id_value(_prev_frame);
+  S(SSlot::LANDING_FRAME_ID) =
+      nullish(_landing_frame) ? std::u16string() : frame_id_value(_landing_frame);
+  S(SSlot::CATCHING_ID) = catching != nullptr ? catching->id : std::u16string();
+  S(SSlot::CATCHER_ID) = catcher != nullptr ? catcher->id : std::u16string();
+  S(SSlot::BEARER_ID) = bearer != nullptr ? bearer->id : std::u16string();
+  S(SSlot::HOLDING_ID) = holding != nullptr ? holding->id : std::u16string();
+  S(SSlot::TEAM) = _team;
+  S(SSlot::NAME) = nullish(_name) ? std::u16string() : to_string(_name);
+  S(SSlot::AFTER_BLINK) = _after_blink.has_value() ? *_after_blink : std::u16string();
+  S(SSlot::DISMISS_DATA_ID) =
+      nullish(dismiss_data) ? std::u16string() : to_string(field_or(dismiss_data, u"id"));
+  const Array* tr = as_array(transforms);
+  S(SSlot::TRANSFORM_0_ID) = tr != nullptr && tr->size() > 0
+                                 ? frame_id_value(tr->at(0))
+                                 : std::u16string();
+  S(SSlot::TRANSFORM_1_ID) = tr != nullptr && tr->size() > 1
+                                 ? frame_id_value(tr->at(1))
+                                 : std::u16string();
+  std::u16string copy_list;
+  for (const std::u16string& copy_id : copies) copy_list += copy_id + u",";
+  // `s.slice(0, -1)` drops the trailing comma; an empty set keeps the empty string.
+  S(SSlot::COPIES) = copies.empty() ? std::u16string() : copy_list.substr(0, copy_list.size() - 1);
+  S(SSlot::DEAD_JOIN) = truthy(dead_join) ? json_stringify(dead_join).value_or(u"")
+                                          : std::u16string();
+}
+
+// `read_snapshot(nums, strs)`: no coercion on the way in — a slot backed by a plain
+// `double` converts through `to_number` (a non-number poke is outside the port's
+// model), while the nullable slots keep `null`.
+void Entity::read_snapshot(const std::vector<Value>& nums,
+                           const std::vector<std::u16string>& strs) {
+  using entity::NSlot;
+  using entity::SSlot;
+  const auto N = [&nums](NSlot slot) -> const Value& {
+    return nums[static_cast<std::size_t>(slot)];
+  };
+  const auto S = [&strs](SSlot slot) -> const std::u16string& {
+    return strs[static_cast<std::size_t>(slot)];
+  };
+
+  wait = to_number(N(NSlot::WAIT));
+  variant = to_number(N(NSlot::VARIANT));
+  transform_index = to_number(N(NSlot::TRANSFORM_INDEX));
+  _lifetime = to_number(N(NSlot::LIFETIME));
+  _spawn_time = to_number(N(NSlot::SPAWN_TIME));
+
+  _reserve = to_number(N(NSlot::RESERVE));
+  _mounted = to_number(N(NSlot::MOUNTED));
+  _ghosted = to_number(N(NSlot::GHOSTED));
+
+  _resting = to_number(N(NSlot::RESTING));
+  _resting_max = opt_num(entity::num_or_null(N(NSlot::RESTING_MAX)));
+  _toughness = to_number(N(NSlot::TOUGHNESS));
+  _toughness_max = to_number(N(NSlot::TOUGHNESS_MAX));
+  _toughness_r_value = to_number(N(NSlot::TOUGHNESS_R_VALUE));
+  _toughness_resting = to_number(N(NSlot::TOUGHNESS_RESTING));
+  _toughness_resting_max = to_number(N(NSlot::TOUGHNESS_RESTING_MAX));
+
+  _fall_value = to_number(N(NSlot::FALL_VALUE));
+  _fall_value_max = opt_num(entity::num_or_null(N(NSlot::FALL_VALUE_MAX)));
+  _fall_r_value = to_number(N(NSlot::FALL_R_VALUE));
+  _defend_value = to_number(N(NSlot::DEFEND_VALUE));
+  _defend_value_max = opt_num(entity::num_or_null(N(NSlot::DEFEND_VALUE_MAX)));
+  _defend_r_value = to_number(N(NSlot::DEFEND_R_VALUE));
+  _defend_ratio = opt_num(entity::num_or_null(N(NSlot::DEFEND_RATIO)));
+
+  fallinjury = to_number(N(NSlot::FALLINJURY));
+  throwinjury = to_number(N(NSlot::THROWINJURY));
+  facing = to_number(N(NSlot::FACING));
+
+  position.set(to_number(N(NSlot::POS_X)), to_number(N(NSlot::POS_Y)),
+               to_number(N(NSlot::POS_Z)));
+  prev_position.set(to_number(N(NSlot::PREV_POS_X)), to_number(N(NSlot::PREV_POS_Y)),
+                    to_number(N(NSlot::PREV_POS_Z)));
+  velocity.set(to_number(N(NSlot::VEL_X)), to_number(N(NSlot::VEL_Y)),
+               to_number(N(NSlot::VEL_Z)));
+  prev_velocity.set(to_number(N(NSlot::PREV_VEL_X)), to_number(N(NSlot::PREV_VEL_Y)),
+                    to_number(N(NSlot::PREV_VEL_Z)));
+
+  _mp = to_number(N(NSlot::MP));
+  _mp_max = opt_num(N(NSlot::MP_MAX));
+  _hp = to_number(N(NSlot::HP));
+  _hp_r = to_number(N(NSlot::HP_R));
+  _hp_max = opt_num(N(NSlot::HP_MAX));
+
+  _arest = to_number(N(NSlot::AREST));
+  motionless = to_number(N(NSlot::MOTIONLESS));
+  shaking = to_number(N(NSlot::SHAKING));
+
+  _catch_time = to_number(N(NSlot::CATCH_TIME));
+  _catch_time_max = opt_num(entity::num_or_null(N(NSlot::CATCH_TIME_MAX)));
+  dismiss_time = opt_num(entity::num_or_null(N(NSlot::DISMISS_TIME)));
+
+  _invisible = to_number(N(NSlot::INVISIBLE_DURATION));
+  _invulnerable = to_number(N(NSlot::INVULNERABLE_DURATION));
+  _blinking = to_number(N(NSlot::BLINKING_DURATION));
+
+  jumping.x = to_number(N(NSlot::JUMP_X));
+  jumping.y = to_number(N(NSlot::JUMP_Y));
+  jumping.z = to_number(N(NSlot::JUMP_Z));
+  jumping.t = to_number(N(NSlot::JUMP_T));
+
+  _ground_y = to_number(N(NSlot::GROUND_Y));
+  _prev_ground_y = to_number(N(NSlot::PREV_GROUND_Y));
+
+  aabb_min_x = to_number(N(NSlot::AABB_MIN_X));
+  aabb_max_x = to_number(N(NSlot::AABB_MAX_X));
+  aabb_min_z = to_number(N(NSlot::AABB_MIN_Z));
+  aabb_max_z = to_number(N(NSlot::AABB_MAX_Z));
+  l_len = to_number(N(NSlot::L_LEN));
+  r_len = to_number(N(NSlot::R_LEN));
+  stat_bar = to_number(N(NSlot::STAT_BAR_TYPE));
+
+  read_tick(_hp_r_tick, nums, NSlot::HP_R_TICK_VALUE);
+  read_tick(_mp_r_tick, nums, NSlot::MP_R_TICK_VALUE);
+  read_tick(_resting_tick, nums, NSlot::RESTING_TICK_VALUE);
+  read_tick(_toughness_r_tick, nums, NSlot::TOUGHNESS_R_TICK_VALUE);
+  read_tick(_fall_r_tick, nums, NSlot::FALL_R_TICK_VALUE);
+  read_tick(_defend_r_tick, nums, NSlot::DEFEND_R_TICK_VALUE);
+
+  bounced = not_zero(N(NSlot::BOUNCED));
+  lying_a_count = to_number(N(NSlot::LYING_A_COUNT));
+  lying_d_count = to_number(N(NSlot::LYING_D_COUNT));
+  lying_c_count = to_number(N(NSlot::LYING_C_COUNT));
+  drop_hurted = not_zero(N(NSlot::DROP_HURTED));
+  dropping = not_zero(N(NSlot::DROPPING));
+  is_on_ground = not_zero(N(NSlot::IS_ON_GROUND));
+  name_visible = to_number(N(NSlot::NAME_VISIBLE));
+  wakeup_invuln = to_number(N(NSlot::WAKEUP_INVULN));
+  dead_gone = to_number(N(NSlot::DEAD_GONE));
+  ctrl_visible = to_number(N(NSlot::CTRL_VISIBLE));
+
+  id = S(SSlot::ID);
+  const Value data = host_->find_data(S(SSlot::DATA_ID));
+  if (truthy(data)) _data = data;
+  const Value next_frame = find_frame_by_id(Value(S(SSlot::FRAME_ID)));
+  if (!nullish(next_frame)) frame = next_frame;
+  const Value next_prev = find_frame_by_id(Value(S(SSlot::PREV_FRAME_ID)));
+  if (!nullish(next_prev)) _prev_frame = next_prev;
+  if (S(SSlot::LANDING_FRAME_ID).empty()) {
+    _landing_frame = Value(NullTag{});
+  } else {
+    const Value landing = find_frame_by_id(Value(S(SSlot::LANDING_FRAME_ID)));
+    _landing_frame = nullish(landing) ? Value(NullTag{}) : landing;
+  }
+  catching = host_->find_entity(S(SSlot::CATCHING_ID));
+  catcher = host_->find_entity(S(SSlot::CATCHER_ID));
+  bearer = host_->find_entity(S(SSlot::BEARER_ID));
+  holding = host_->find_entity(S(SSlot::HOLDING_ID));
+  _team = S(SSlot::TEAM);
+  _name = S(SSlot::NAME).empty() ? Value(NullTag{}) : Value(S(SSlot::NAME));
+  _after_blink = S(SSlot::AFTER_BLINK).empty()
+                     ? std::nullopt
+                     : std::optional<std::u16string>(S(SSlot::AFTER_BLINK));
+  if (!S(SSlot::DISMISS_DATA_ID).empty()) {
+    const Value found = host_->find_data(S(SSlot::DISMISS_DATA_ID));
+    dismiss_data = nullish(found) ? Value(NullTag{}) : found;
+  } else {
+    dismiss_data = Value(NullTag{});
+  }
+
+  const std::u16string& t0 = S(SSlot::TRANSFORM_0_ID);
+  const std::u16string& t1 = S(SSlot::TRANSFORM_1_ID);
+  if (!t0.empty() && !t1.empty()) {
+    const Value d0 = host_->find_data(t0);
+    const Value d1 = host_->find_data(t1);
+    if (truthy(d0) && truthy(d1)) {
+      auto arr = std::make_shared<Array>();
+      arr->push_back(d0);
+      arr->push_back(d1);
+      transforms = Value(arr);
+    } else {
+      transforms = Value(NullTag{});
+    }
+  } else {
+    transforms = Value(NullTag{});
+  }
+
+  copies.clear();
+  if (!S(SSlot::COPIES).empty()) {
+    std::u16string cur;
+    const std::u16string& all = S(SSlot::COPIES);
+    for (std::size_t i = 0; i <= all.size(); ++i) {
+      if (i == all.size() || all[i] == u',') {
+        add_copy(cur);
+        cur.clear();
+      } else {
+        cur.push_back(all[i]);
+      }
+    }
+  }
+  // `JSON.parse` throws in TS on malformed text; the port keeps the current value.
+  if (!S(SSlot::DEAD_JOIN).empty()) {
+    const std::optional<Value> parsed = json_parse(S(SSlot::DEAD_JOIN));
+    if (parsed.has_value()) dead_join = *parsed;
+  } else {
+    dead_join = Value(NullTag{});
+  }
+}
+
+bool Entity::add_copy(const std::u16string& copy_id) {
+  for (const std::u16string& existing : copies) {
+    if (existing == copy_id) return false;
+  }
+  copies.push_back(copy_id);
+  return true;
 }
 
 }
