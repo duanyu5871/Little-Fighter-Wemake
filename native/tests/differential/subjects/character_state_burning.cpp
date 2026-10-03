@@ -7,7 +7,7 @@
 
 #include "lfw/buff/buff.h"
 #include "lfw/core/value.h"
-#include "lfw/state/character_state_walking.h"
+#include "lfw/state/character_state_burning.h"
 #include "lfw/utils/container_help/field_or.h"
 
 #include "trace_util.h"
@@ -17,7 +17,7 @@ namespace {
 using lfw::Value;
 using lfw::buff::Buff;
 using lfw::buff::BuffEnv;
-using lfw::state::CharacterState_Walking;
+using lfw::state::CharacterState_Burning;
 using lfw::state::IStateEntity;
 using trace::parse_value;
 using trace::render_value;
@@ -39,40 +39,37 @@ std::string join(const std::vector<std::string>& xs) {
   return out;
 }
 
-Value marker_frame() {
-  lfw::Object o;
-  o.set(u"id", Value(std::u16string(u"SD")));
-  return Value(std::make_shared<lfw::Object>(o));
+Value field_by(const Value& holder, const std::u16string& key) {
+  const lfw::Object* o = lfw::as_object(holder);
+  if (o == nullptr) return Value();
+  const Value* p = o->get(key);
+  return p != nullptr ? *p : Value();
 }
 
 struct FakeEnt : IStateEntity {
   std::u16string _id;
-  Value _hp;
-  Value _wait_value;
-  Value _frame_info;
-  Value _holding;
   Value _indexes;
-  Value _ground_y;
-  double _px = 0;
-  double _py = 0;
-  double _pz = 0;
-  double _wait_flag = 0;
-  double _ctrl_ud = 0;
-  double _ctrl_lr = 0;
-  bool _holding_is_weapon = false;
+  Value _wdata;
+  Value _facing;
+  Value _bounced;
+  Value _vx;
+  Value _vy;
+  Value _vz;
+  Value _onlanding;
+  bool _catcher = false;
 
   explicit FakeEnt(std::u16string id) : _id(std::move(id)) {}
 
   const std::u16string& id() const override { return _id; }
   void position(double& x, double& y, double& z) const override {
-    x = _px;
-    y = _py;
-    z = _pz;
+    x = 0;
+    y = 0;
+    z = 0;
   }
   void set_position(double x, double y, double z) override {
-    _px = x;
-    _py = y;
-    _pz = z;
+    (void)x;
+    (void)y;
+    (void)z;
   }
   double frame_centery() const override { return 0; }
   double frame_height() const override { return 0; }
@@ -96,41 +93,48 @@ struct FakeEnt : IStateEntity {
     g_log.push_back(s_of(_id) + ":outline_color:" + render(Value(v)));
   }
   void enter_frame_by_id(const std::u16string& id) override {
-    g_log.push_back(s_of(_id) + ":enter_frame_by_id:" + render(Value(id)) + ":0");
-  }
-  void enter_frame_by_id_fallback(const std::u16string& id, bool fallback) override {
-    g_log.push_back(s_of(_id) + ":enter_frame_by_id:" + render(Value(id)) + ":" +
-                    std::string(fallback ? "1" : "0"));
+    g_log.push_back(s_of(_id) + ":enter_frame_by_id:" + render(Value(id)));
   }
   void attach(bool on) override {
     g_log.push_back(s_of(_id) + ":attach:" + std::string(on ? "1" : "0"));
   }
-  Value hp() const override { return _hp; }
-  Value wait() const override { return _wait_value; }
-  void set_wait(const Value& v) override {
-    _wait_value = v;
-    g_log.push_back(s_of(_id) + ":set_wait:" + render(v));
+  bool has_catcher() const override { return _catcher; }
+  void catcher_drop_catching() override {
+    g_log.push_back(s_of(_id) + ":catcher_drop_catching");
   }
-  Value holding_base_type() const override { return lfw::field_or(_holding, u"base_type"); }
-  bool holding_is_weapon() const override { return _holding_is_weapon; }
-  double ctrl_ud() const override { return _ctrl_ud; }
-  double ctrl_lr() const override { return _ctrl_lr; }
-  Value ground_y() const override { return _ground_y; }
-  Value frame_info() const override { return _frame_info; }
-  double handle_wait_flag(const Value& wait, const Value& frame) override {
-    g_log.push_back(s_of(_id) + ":handle_wait_flag:" + render(wait) + ":" + render(frame));
-    return _wait_flag;
+  Value bounced() const override { return _bounced; }
+  void set_bounced(const Value& v) override {
+    _bounced = v;
+    g_log.push_back(s_of(_id) + ":set_bounced:" + render(v));
   }
-  Value get_sudden_death_frame() override {
-    g_log.push_back(s_of(_id) + ":get_sudden_death_frame");
-    return marker_frame();
+  Value facing() const override { return _facing; }
+  void set_facing(const Value& v) override {
+    _facing = v;
+    g_log.push_back(s_of(_id) + ":set_facing:" + render(v));
   }
-  Value data_indexes_default() const override { return lfw::field_or(_indexes, u"default"); }
-  Value data_indexes_in_the_skys() const override {
-    return lfw::field_or(_indexes, u"in_the_skys");
+  Value world_dataset(const std::u16string& key) const override {
+    g_log.push_back(s_of(_id) + ":world_dataset:" + s_of(key));
+    return field_by(_wdata, key);
   }
-  Value velocity_x() const override { return Value(); }
-  Value velocity_z() const override { return Value(); }
+  Value frame_on_landing() const override { return _onlanding; }
+  Value data_indexes_bouncing() const override {
+    return lfw::field_or(_indexes, u"bouncing");
+  }
+  Value data_indexes_lying() const override { return lfw::field_or(_indexes, u"lying"); }
+  Value velocity_x() const override { return _vx; }
+  Value velocity_z() const override { return _vz; }
+  void set_velocity(const Value& x, const Value& y, const Value& z) override {
+    g_log.push_back(s_of(_id) + ":set_velocity:" + render(x) + ":" + render(y) + ":" + render(z));
+    if (!std::holds_alternative<std::monostate>(x) && !std::holds_alternative<lfw::NullTag>(x)) {
+      _vx = x;
+    }
+    if (!std::holds_alternative<std::monostate>(y) && !std::holds_alternative<lfw::NullTag>(y)) {
+      _vy = y;
+    }
+    if (!std::holds_alternative<std::monostate>(z) && !std::holds_alternative<lfw::NullTag>(z)) {
+      _vz = z;
+    }
+  }
   void enter_frame(const Value& frame) override {
     g_log.push_back(s_of(_id) + ":enter_frame:" + render(frame));
   }
@@ -142,7 +146,8 @@ struct FakeEnt : IStateEntity {
 std::vector<FakeEnt*> g_ents;
 FakeEnt* g_victim = nullptr;
 Value g_state;
-CharacterState_Walking* g_state_obj = nullptr;
+Value g_velocity;
+CharacterState_Burning* g_state_obj = nullptr;
 
 FakeEnt* find_ent(const std::u16string& id) {
   for (size_t i = 0; i < g_ents.size(); ++i) {
@@ -160,12 +165,9 @@ FakeEnt& ent(const std::u16string& id) {
 
 std::string state_text() {
   const FakeEnt& v = *g_victim;
-  return "hp=" + render(v._hp) + " wait=" + render(v._wait_value) +
-         " waitflag=" + num(v._wait_flag) + " frame=" + render(v._frame_info) + " pos=[" +
-         num(v._px) + ":" + num(v._py) + ":" + num(v._pz) + "]" + " ground=" +
-         render(v._ground_y) + " holding=" + render(v.holding_base_type()) + " hweapon=" +
-         std::string(v._holding_is_weapon ? "1" : "0") + " ctrl=" +
-         std::string(v._ctrl_ud ? "1" : "0") + std::string(v._ctrl_lr ? "1" : "0");
+  return "bounced=" + render(v._bounced) + " facing=" + render(v._facing) + " vel=[" +
+         render(v._vx) + ":" + render(v._vy) + ":" + render(v._vz) + "]" + " catcher=" +
+         std::string(v._catcher ? "1" : "0");
 }
 
 void bind() {
@@ -190,11 +192,12 @@ std::u16string value_text(const Value& v) {
 
 int main(int argc, char** argv) {
   if (argc < 2) {
-    std::fprintf(stderr, "usage: lfw_trace_character_state_walking <case-file>\n");
+    std::fprintf(stderr, "usage: lfw_trace_character_state_burning <case-file>\n");
     return 2;
   }
   bind();
   g_state = Value(static_cast<double>(0));
+  g_velocity = Value();
 
   std::ifstream in(argv[1]);
   if (!in) {
@@ -217,38 +220,26 @@ int main(int argc, char** argv) {
         g_state = parse_value(t, i);
       } else if (sub == "victim") {
         g_victim = &ent(value_text(parse_value(t, i)));
-      } else if (sub == "hp") {
-        if (g_victim != nullptr) g_victim->_hp = parse_value(t, i);
-      } else if (sub == "vwait") {
-        if (g_victim != nullptr) g_victim->_wait_value = parse_value(t, i);
-      } else if (sub == "waitflag") {
-        if (g_victim != nullptr) g_victim->_wait_flag = trace::to_double(t[i++]);
-      } else if (sub == "frame") {
-        if (g_victim != nullptr) g_victim->_frame_info = parse_value(t, i);
-      } else if (sub == "ground_y") {
-        if (g_victim != nullptr) g_victim->_ground_y = parse_value(t, i);
       } else if (sub == "indexes") {
         if (g_victim != nullptr) g_victim->_indexes = parse_value(t, i);
-      } else if (sub == "ctrlud") {
-        if (g_victim != nullptr) g_victim->_ctrl_ud = trace::to_double(t[i++]);
-      } else if (sub == "ctrllr") {
-        if (g_victim != nullptr) g_victim->_ctrl_lr = trace::to_double(t[i++]);
-      } else if (sub == "hweapon") {
-        if (g_victim != nullptr) g_victim->_holding_is_weapon = trace::to_double(t[i++]) != 0;
-      } else if (sub == "holding") {
-        const Value v = parse_value(t, i);
-        if (g_victim != nullptr) {
-          lfw::Object o;
-          o.set(u"base_type", v);
-          g_victim->_holding = Value(std::make_shared<lfw::Object>(o));
-        }
-      } else if (sub == "pos") {
-        const Value v = parse_value(t, i);
-        if (g_victim != nullptr) {
-          g_victim->_px = lfw::to_number(lfw::field_or(v, u"x"));
-          g_victim->_py = lfw::to_number(lfw::field_or(v, u"y"));
-          g_victim->_pz = lfw::to_number(lfw::field_or(v, u"z"));
-        }
+      } else if (sub == "wdata") {
+        if (g_victim != nullptr) g_victim->_wdata = parse_value(t, i);
+      } else if (sub == "facing") {
+        if (g_victim != nullptr) g_victim->_facing = parse_value(t, i);
+      } else if (sub == "bounced") {
+        if (g_victim != nullptr) g_victim->_bounced = parse_value(t, i);
+      } else if (sub == "velx") {
+        if (g_victim != nullptr) g_victim->_vx = parse_value(t, i);
+      } else if (sub == "vely") {
+        if (g_victim != nullptr) g_victim->_vy = parse_value(t, i);
+      } else if (sub == "velz") {
+        if (g_victim != nullptr) g_victim->_vz = parse_value(t, i);
+      } else if (sub == "landingvel") {
+        g_velocity = parse_value(t, i);
+      } else if (sub == "catcher") {
+        if (g_victim != nullptr) g_victim->_catcher = trace::to_double(t[i++]) != 0;
+      } else if (sub == "onlanding") {
+        if (g_victim != nullptr) g_victim->_onlanding = parse_value(t, i);
       } else {
         std::fprintf(stderr, "unknown env '%s' at line %d\n", sub.c_str(), lineno);
         return 2;
@@ -260,11 +251,20 @@ int main(int argc, char** argv) {
       const std::string& what = t[i++];
       if (what == "make") {
         delete g_state_obj;
-        g_state_obj = new CharacterState_Walking(g_state);
+        g_state_obj = new CharacterState_Burning();
         std::printf("run make || %s | %s\n", join(g_log).c_str(), state_text().c_str());
+      } else if (what == "enter") {
+        if (g_state_obj->enter) g_state_obj->enter(*g_victim, Value());
+        std::printf("run enter || %s | %s\n", join(g_log).c_str(), state_text().c_str());
       } else if (what == "update") {
         g_state_obj->update(*g_victim);
         std::printf("run update || %s | %s\n", join(g_log).c_str(), state_text().c_str());
+      } else if (what == "leave") {
+        g_state_obj->leave(*g_victim, Value());
+        std::printf("run leave || %s | %s\n", join(g_log).c_str(), state_text().c_str());
+      } else if (what == "landing") {
+        if (g_state_obj->on_landing) g_state_obj->on_landing(*g_victim, g_velocity);
+        std::printf("run landing || %s | %s\n", join(g_log).c_str(), state_text().c_str());
       } else {
         std::fprintf(stderr, "unknown run '%s' at line %d\n", what.c_str(), lineno);
         return 2;

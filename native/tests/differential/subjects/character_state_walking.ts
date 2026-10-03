@@ -19,8 +19,8 @@ class FakeEnt {
   _py = 0;
   _pz = 0;
   _waitFlag = 0;
-  _ctrlUd = false;
-  _ctrlLr = false;
+  _ctrlUd = 0;
+  _ctrlLr = 0;
   _holdingIsWeapon = false;
   buffs = {
     set: (k: string, _v: unknown) => {
@@ -179,9 +179,9 @@ function main(): void {
       } else if (sub === "indexes") {
         if (victim) victim._indexes = parseValue(t, idx);
       } else if (sub === "ctrlud") {
-        if (victim) victim._ctrlUd = num(t[i++]!) !== 0;
+        if (victim) victim._ctrlUd = num(t[i++]!);
       } else if (sub === "ctrllr") {
-        if (victim) victim._ctrlLr = num(t[i++]!) !== 0;
+        if (victim) victim._ctrlLr = num(t[i++]!);
       } else if (sub === "hweapon") {
         if (victim) victim._holdingIsWeapon = num(t[i++]!) !== 0;
       } else if (sub === "holding") {

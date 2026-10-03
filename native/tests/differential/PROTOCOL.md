@@ -2217,3 +2217,171 @@ harness op：
    少了最后一种，「把 `prev_vy` 写成常量」与「换模式」两条变异杀不掉。
 4. **`velx` 要有正、负、`0`、`u` 四种**：`0` 是 `>= 0` 与 `> 0` 的唯一分界；`u` 观测 `>=` 对非数的结果。
 5. `indexes` 要同时给 `landing_1` 与 `default`，才分得清「回落索引取错」。
+
+### 6.9.83 `state_misc`（差分 58 行，变异 42/42 全杀）
+
+harness op：
+
+- `env cls s "weapon_broken"` / `s "to_catching"` / `s "to_louisex"` / `s "to_8xxx"` / `s "ball"`。
+- `env victim s "V1"`（字符串）。
+- `env state|vstate|vtype|finddata|findfighter|transformtype`：值字面量。
+  `finddata` / `findfighter` 是 `datas_find*` 的返回值；`transformtype` 是 `transform()` 后实体新的 `data.type`。
+- `run make|landing|update|enter|leave`。
+
+输出：`run <op> || <日志> | <状态>`；
+状态含 `state=` / `vstate=` / `type=` / `shaking=` / `motionless=` / `vel=[x:y:z]`。
+
+覆盖面（杀掉全部 42 条变异的关键）：
+
+1. **`to_8xxx` 要覆盖 4 段**：`vtype 4 + transformtype 8`（新变成 Fighter，报告）、
+   `vtype 8`（类型没变，不报告）、`transformtype 16`（新类型不是 Fighter，不报告）、
+   `finddata u`（没查到数据 ⇒ 不 transform、`new_type` 仍是旧的）、
+   `state s "8008"`（字符串状态被 `typeof` 守卫挡掉）、以及 `transformtype s "8"`（严格比较）。
+2. **`ball` 要覆盖 4 个球状态 + 一个非球状态 + 一个字符串状态**：
+   `3000` 是「四个条件用 `||` 连」的观测点，`s "3001"` 是「严格 → 宽松」的观测点。
+3. **`to_louisex` 要覆盖 `findfighter` 有/无两种**。
+4. `to_catching` 与 `to_louisex` 的 `enter_frame(find_auto_frame())` 都要能观测到
+   （假实体把 `find_auto_frame()` 打成 `{id:"AUTO"}` 并记日志）。
+
+### 6.9.84 `character_state_dash`（差分 63 行，变异 42/42 全杀）
+
+harness op：
+
+- `env victim s "V1"`（字符串）；`env ctrlud -1|0|1` / `env ctrllr -1|0|1`（**裸数字**）。
+- `env state|prevstate|pos|ground_y|velx|vely|velz|facing|dataset`：值字面量（`vely` 可 `u`）。
+- `run make|enter`。
+
+输出：`run <op> || <日志> | <状态>`；
+状态含 `pos=[x:y:z]` / `ground=` / `vel=[x:y:z]` / `face=` / `ctrl=ud,lr`。
+
+覆盖面（杀掉全部 42 条变异的关键）：
+
+1. **早退守卫要有 4 种组合**：贴地 + 有垂直速度（不早退）、悬空 + 有垂直速度（早退）、
+   悬空 + 垂直速度 `0`（不早退）、悬空 + `vely u`（不早退）；再加贴地 + `vely 0`。
+2. **x 方向五条支路各至少一次**，且**每次都显式设 `velx`**（上一场景会写回）：
+   `prevstate 2` + `velx 5`（Running 支）、`prevstate s "2"` + `velx 5`（宽松比较观测点）、
+   `prevstate 1` + `velx 5`（「别的状态」观测点）、`ctrllr 1` / `ctrllr -1`（LR 支）、
+   `velx 5` / `velx -5` / `velx 0` / `velx u`（四条速度支）。
+3. **两组零速度场景**：`facing 1` 与 `facing -1`（见 DESIGN §32.2 的第二条警告）。
+4. **`ctrllr -1` 与 `ctrlud -1`**：符号必须能透传到速度上（`LR * dx`、`UD * dz`）。
+5. **`ctrlud` 三种取值**（`0` 保留原 z、`1` 正、`-1` 负）。
+
+### 6.9.85 `character_state_burning`（差分 51 行，变异 37/37 全杀）
+
+harness op：
+
+- `env victim s "V1"`（字符串）；`env catcher 0|1`（**裸数字**）。
+- `env indexes|wdata|facing|bounced|velx|vely|velz|landingvel|onlanding`：值字面量
+  （`velx` 可 `u`）。`wdata` 是 `world.dataset` 的内容；`landingvel` 是 `{x, y}`。
+- `run make|enter|update|leave|landing`。
+
+输出：`run <op> || <日志> | <状态>`；
+状态含 `bounced=` / `facing=` / `vel=[x:y:z]` / `catcher=`。
+
+覆盖面（杀掉全部 37 条变异的关键）：
+
+1. **每个 `landing` 场景都要显式设 `env bounced n 0`**（见 DESIGN §33.3 的第二条警告）。
+2. **`||` 的两侧要各自单独成立一次**：
+   `y=5, x=0`（左侧成立、右侧短路不读）、`y=6, x=0`（两侧都不成立 ⇒ else）、
+   `y=6, x=4`（右侧成立）、`y=6, x=-4`（右侧靠 `abs` 成立）。
+   少了 `y=6, x=0` 就杀不掉「左右阈值互换」；少了 `x=-4` 就杀不掉「去掉 `abs`」。
+3. **`bounced` 要有 `0` / `1` / `u` 三种**：`1` 是「已弹跳 ⇒ 直接躺下」的观测点，
+   `u` 是真值判定（缺失即假）。
+4. **`facing` 的三种速度输入**：`0`（不转头）、正、负、以及 `u`（缺失 ⇒ 不转头）。
+5. **`enter` 要跑两次**（有/无 catcher），并观察它写出的
+   `set_bounced:false` 与 `handle_ground_velocity_decay` 日志。
+6. **`leave` 之前先把 `bounced` 置真**，才能观测到它被清回 `false`。
+
+### 6.9.86 `character_state_teleport`（差分 106 行，变异 61/61 全杀）
+
+harness op：
+
+- `env cls s "nearest"|"farthest"`；`env state`（值字面量）；`env victim s "M1"`。
+- `env facing|seg`（值字面量）；`env gy <裸数字>`。
+- `env pos o 3 x n .. y n .. z n ..`；
+  `env ent o 6 id s ".." fighter b .. ally b .. hp n .. x n .. z n ..`
+  （按 id 覆盖或追加，保留插入序）。
+- `run make|default|enter`。
+
+输出：`run <op> || <日志> | <状态>`；
+状态含 `id=` / `pos=[x:y:z]` / `face=` / `seg=` / `gy=`。
+
+覆盖面（杀掉全部 61 条变异的关键）：
+
+1. **`env cls` 之后必须重新 `run make`**（见 DESIGN §34.3 的第二条警告）。
+2. **自身实体要真的进列表**（TS 侧放 `victim` 本身），并把自身位置调到「最近」
+   （`env pos o 3 x n 1 ..`），否则杀不掉「丢掉自身过滤」。
+3. **非战斗实体要排在最近处**：`N1(fighter=0, x=1)` + `N2(fighter=1, x=20)`，
+   否则 `!is_fighter || is_self` 的 `||` → `&&` 不可观测。
+4. **死实体要排在最近处**：`D1(hp=0, x=1)` + `D2(hp=10, x=30)`。
+5. **两个 z 不同的候选**：`Z1(x=6, z=100)` + `Z2(x=7, z=0)`。
+   原文 z 项恒为 0 时选 `Z1`（`x = -114`）；z 项一旦变成真的就选 `Z2`（`-113`）。
+6. **等距平局**：`T1(5)` / `T2(-5)`（近敌保留先到的）；
+   `V1(5)` / `V2(-5)`（远盟同理）。少了它们杀不掉 `dis < best` → `<=`。
+7. **远盟要有非等距场景**（`A1(5)` / `A2(40)` ⇒ `x = -80`）：
+   只有等距场景时「谓词忽略搜索方向」两边同解，杀不掉。
+8. **`facing` 要 `1` / `-1` 各一次**，且要有 `x != z` 的场景（`-89 / 4`），
+   否则看不见 `ground_segment(x, z)` / `ground_y(seg, x, z)` 的实参顺序。
+9. **最后一条候选要能胜出**（`W1(40)` / `W2(2)`），否则杀不掉「跳过最后一个」。
+10. **同一个受害者的 x 要中途改变**（`MC`：`x=0` 时选 `C1(6)`，改成 `x=-6` 后选 `C2(-7)`），
+    否则「不读自身 x」不可观测。
+11. **`run default`** 覆盖两个构造默认实参（`state=400` / `state=401`）。
+
+### 6.9.87 `weapon_state_base`（差分 163 行，变异 73/73 全杀）
+
+harness op：
+
+- `env state|indexes|ionground|ithrow|isky|frames|onlanding|base|wt|dh|vstate|fid|vel|nf|align`
+  （值字面量）；`env hp|hpr <裸数字>`；`env onground <真值>`。
+- `run make|auto|landing|update|leaveground|rebound`。
+
+输出：`run <op> || <日志> | <状态>`；状态含 `hp=` / `hpr=` / `dh=`，
+`auto` 额外带 `fid=`。
+
+覆盖面（杀掉全部 73 条变异的关键）：
+
+1. **`auto` 要覆盖「贴地 / 空中 / `indexes` 为假值 / 键不在表里 / 空数组」五种**：
+   空数组那条会让 `to_string(缺失)` 变成键 `"undefined"`，正好也是 `indexes` 守卫的观测点。
+2. **`rebound` 的反弹系数要分别用「表值 / `base` 覆盖 / 表外的武器类型」跑一遍**：
+   表外类型（`wt n 9`）会同时触发三处 `??` 兜底；
+   `wt n 5`（Drink，表尾）与 `wt n 2.5`（小数）分别锁住范围检查的两半。
+3. **`is_bounce` 的五个项各自都要有「只靠它成立」的用例**，尤其第 4 项
+   （`dvx >= min_z`）要**正反各一条**：`x=3` 时原文成立、`z=3` 时原文不成立，
+   互换 `dvx`/`dvz` 的变异才杀得掉。
+4. **`Heavy` 不可用于 align 分支**（见 DESIGN §35.2 第 6 条），
+   要用 `wt n 0`（None）与 `wt n 4`（Baseball）来覆盖 align。
+5. **`min_x` / `fast_*` 的边界要卡在等号上**：
+   `base` 里把阈值设成 `2`，再用 `x=±4`（`bounce_x=0.5`）让 `dvx` 恰好等于 `±2`。
+6. **速度要出现小数**（`x/y/z = -1.2345 / -1.2345 / 1.2345`），
+   否则三条 `round_float` 变异不可观测。
+7. `dh` / `hp` / `hpr` 每段重置；`vstate` 要出现**字符串** `s "1002"` 一次，
+   用来看 `==` 与 `===` 的区别。
+
+### 6.9.88 `state_base_proxy`（差分 113 行，变异 55/55 全杀）
+
+harness op：
+
+- `env cls s "proxy"|"15"|"frozen"`、`env state`（构造参数）、
+  `env data|indexes|frames|onlanding|wdata|hbtype|vx|vz|vel|rid|pos|rxyz`（值字面量）、
+  `env vstate`（实体状态）、`env hp <裸数字>`、`env catcher|onground <真值>`。
+- `run make|default|update|leave|restrict|preupdate|enter|dead|landing|leaveground|gravity|auto|sdf|cef|ffbi`。
+
+覆盖面（杀掉全部 55 条变异的关键）：
+
+1. **类型矩阵要走全四种**：`data.type = 8`（Fighter）/ `16`（Weapon）/ `32`（Ball）/
+   `4`（Ohters，落到 `_proxy`），外加一次 `env data u`。
+   ⚠️ `EntityEnum::Ball = HitFlag::Ball = 0x20 = 32`，**不是 4**。
+2. **每种类型都要有一组「只有它能产生」的日志**：
+   Fighter → `auto` 返回 `stats["4"]`、`landing` 用 `landing_2="22"`、`sdf`/`cef` 有返回、
+   `leaveground` 在读 `falling`；
+   Weapon → `auto` 用 `on_ground="9"`、`landing` 用 `on_ground`、`leaveground` 无条件进 auto 帧；
+   Ball → `enter` 里 `set_shaking`/`set_motionless`/`set_velocity`；
+   `_proxy` → 全空。
+3. **`HealSelf` 场景必须先改 `env state` 再 `run make`**（见 DESIGN §36.2 第 7 条），
+   否则 `leave` 走不进 buff 分支，「调用两次」不可观测。
+4. **`State_Frozen.enter` 的 `super_enter` 要能看见**：只有 Ball 目标装了 `enter`，
+   所以要用 `data.type = 32` + `vstate = 3001` 再跑一次 `enter`。
+5. **`hbtype` 要给一次字符串**（`s "2"`），才能区分 `==` 与 `===`。
+6. **落地的速度阈值要卡三档**：`y = 20`（不触发）、`y = 10`（恰好等于 `5*2`，杀 `<`）、
+   `y = -7`（在 `5` 与 `10` 之间，杀「不乘 2」）、`y = -10`。
+7. `env state n u` / `run default` 两个场景用来锁住「构造默认实参」。

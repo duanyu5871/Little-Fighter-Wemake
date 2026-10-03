@@ -3583,3 +3583,375 @@ virtual void enter_frame_by_id_fallback(const std::u16string& id, bool fallback)
   而 TS 严格从左到右 ⇒ harness 的 `dataset` 日志顺序分叉。
   修法：把两次读取**拆成独立语句**先读进局部量，再相乘。
   **凡是一个表达式里有两次带副作用的读取/调用，都必须拆开。**
+
+## 31. 切片 5：五个小状态（`state_misc`）
+
+`native/lfw/state/state_misc.{h,cpp}`，一个文件装五个各几十行的小状态：
+
+| 类 | 对应 TS | 覆写点 |
+| --- | --- | --- |
+| `State_WeaponBroken` | `State_WeaponBroken.ts` | `on_landing` 钩子 → `enter_frame(GONE_FRAME_INFO)` |
+| `State_TransformToCatching` | `State_TransformToCatching.ts` | `update` |
+| `CharacterState_TransformToLouisEX` | `CharacterState_Transform2LouisEX.ts` | `enter` 钩子 |
+| `State_TransformTo8XXX` | `State_TransformTo8XXX.ts` | `leave`（**虚函数**，唯一一个读自己 `_state` 的） |
+| `BallState_Base` | `BallState_Base.ts` | `enter` 钩子 |
+
+### 31.1 单元边界（`native/lfw/state/state_base.h` 的补充）
+`IStateEntity` 补 8 个**带默认实现的虚函数**：
+`transfrom_to_another` / `find_auto_frame` / `transform(data)` / `datas_find(oid)` /
+`datas_find_fighter(oid)` / `set_shaking` / `set_motionless` / `world_callbacks_call(name)`。
+
+### 31.2 保真要点
+1. **`State_WeaponBroken`**：`on_landing` 直接 `enter_frame(GONE_FRAME_INFO)`，
+   连 `truthy` 判断都没有（对比 `CharacterState_Base` / `Rowing` 的 on_landing 都有帧判定）。
+2. **`State_TransformToCatching.update`** 与 **`CharacterState_TransformToLouisEX.enter`**
+   **都不调 `super`**（前者没有 `handle_ground_velocity_decay`，后者没有基类 `enter` 实现可言）。
+3. **`CharacterState_TransformToLouisEX`**：TS 的**类名与文件名不一致**
+   （类叫 `CharacterState_TransformToLouisEX`，文件叫 `CharacterState_Transform2LouisEX.ts`），
+   端口按**类名**命名。查找字面量是 `"50"`，找不到就整个跳过（不 transform、不进帧）。
+4. **`State_TransformTo8XXX.leave` 是本片唯一读「状态对象自己的 state」的地方**：
+   ```text
+   if (typeof this.state !== "number") return
+   oid = "" + (this.state - 8000)
+   data = e.lfw.datas.find(oid)
+   old_data = e.data
+   if (data) e.transform(data)
+   e.enter_frame(e.find_auto_frame())
+   new_type = e.data.type
+   if (old_data.type !== new_type && new_type === EntityEnum.Fighter)
+     e.world.callbacks.call("on_fighter_add", e)
+   ```
+   - `typeof … !== "number"` ⇒ 端口用 `!std::holds_alternative<double>(state())`，
+     **字符串形态的 state 会被挡掉**（用例专门覆盖）。
+   - `"" + (state - 8000)` 是 JS 的数字转字符串 ⇒ `to_string(Value(num))`。
+   - `old_data` 必须在 `transform` **之前**取。
+   - 两个类型比较都是**严格**（`!==` 与 `===`）。
+5. **`BallState_Base`**：TS 里**没有构造函数**（直接继承 `State_Base.enter` 的位置是空的），
+   端口为了装 `enter` 钩子才写了一个构造函数。四个球状态用**严格** `===` 逐个判否（德摩根后是 `&&` 链），
+   命中后清 `shaking`、`motionless`、速度（三个都清）。
+   注意它覆写的是 `State_Base` 里的**钩子**，不是虚函数。
+
+### 31.3 harness 观察点
+- 一对 harness `state_misc.{cpp,ts}`（`env cls` 选 5 个类之一）。
+- 输入：`env victim s "V1"`、`env state|vstate|vtype|finddata|findfighter|transformtype`（值字面量）。
+  `finddata` / `findfighter` 是 `datas_find*` 的返回值；`transformtype` 是 `transform()` 之后
+  实体新的 `data.type`。
+- `run make|landing|update|enter|leave`。
+- 状态文本：`state=`（状态对象自己的）/ `vstate=`（实体）/ `type=` / `shaking=` / `motionless=` / `vel=[x:y:z]`。
+- ⚠️ 同名调用要去重：`e.enter_frame(e.find_auto_frame());` 在本文件里出现 **3 次**
+  （`cs2_enter` / `update` / `leave`），写变异锚点必须带上前后一行。
+- ⚠️ 「宽松比较」类变异需要**字符串形态**的输入：`transformtype s "8"` 是
+  `strict_equals(new_type, Fighter)` → `equals` 的唯一观测点（本轮唯一一次存活）。
+
+### 29.5 修订：`ctrl_ud()` / `ctrl_lr()` 由 `bool` 改为 `double`
+
+`CharacterState_Dash`（§32）要把上下/左右输入**当数字用**（`UD * dz`、`LR * dx`），
+而 §29 落地时这两个缝是 `bool`。现已改为：
+
+```text
+virtual double ctrl_ud() const { return 0; }
+virtual double ctrl_lr() const { return 0; }
+```
+
+- **`Walking` 的端口文本一个字都不用改**：`!e.ctrl_ud()` 对 `double` 依然成立
+  （`!0.0` 为真、`!(-1.0)` 为假），与 JS 的 `!UD` 完全一致。
+  ⇒ 它的变异锚点也没变，门禁复跑仍 **34/34 全杀**。
+- **改返回类型是「大声失败」而不是静默失配**：旧 harness 里写的是
+  `bool ctrl_ud() const override`，返回类型不协变 ⇒ **编译报 C2555**（与
+  `character_state_caught_rowing` 里 `velocity_y()` 那次同一类错误）。这正是「可以改已有缝的类型」与「不可以改已有缝的形参个数」
+  的区别：前者会报错，后者会静默退化成隐藏而非覆写。
+- 语义边界：控制器取值只可能是 `0 / ±1`，`NaN` 不可能出现，所以 `double` 足够；
+  这点已写进 `character_state_dash` 的规格头注。
+
+## 32. 切片 5：`state/CharacterState_Dash`
+
+`native/lfw/state/character_state_dash.{h,cpp}`（对应 `src/LFW/state/CharacterState_Dash.ts`）。
+本片第一个**用数字型 ctrl** 的状态。
+
+### 32.1 保真要点
+1. **`enter` 的早退守卫要求两个条件同时成立**：
+   ```text
+   if (e.position.y > e.ground_y && e.velocity.y !== 0) return
+   ```
+   贴地（`y == ground_y`）时即使有垂直速度也**不**早退；
+   悬空但垂直速度为 `0`（或缺失 ⇒ NaN ⇒ `NaN !== 0` 为真）时**要**早退。
+   `!==` 是严格比较。
+2. **六个 dataset 的读取顺序即日志顺序**：
+   `dash_distance` → `dash_x_f`（→ `dx`）→ `dash_distancez` → `dash_z_f`（→ `dz`）→
+   `dash_height` → `dash_h_f`（→ `vy`）。端口把六次读取**拆成独立语句**再相乘，
+   否则 MSVC 的求值顺序与 TS 的左到右不一致（同 §30.3 的坑）。
+3. **`next_vz` 的初值会被保留**：`let next_vz = vz`，只有 `if (UD)` 为真才被覆盖
+   ⇒ 没有上下输入时 z 速度**原样保留**（`next_vx` 的初值则总是被后面的 if/else 链覆盖，
+   属死代码，已写进规格头注）。
+4. **x 方向的五路选择**（顺序即优先级）：
+   ```text
+   if (prev_frame.state === Running) next_vx = facing * dx     // 严格比较
+   else if (LR)                      next_vx = LR * dx          // 真值判定，乘出来的符号是 ±
+   else if (vx > 0)                  next_vx = dx
+   else if (vx < 0)                  next_vx = -dx
+   else                              next_vx = facing * dx
+   ```
+   注意第 4、5 支用的是**实体当前 x 速度的符号**决定冲刺方向，
+   而两个兜底支用的是 `facing`。
+5. `vy = dash_height * dash_h_f` 是**向上初速度**，与 x/z 一起交给 `set_velocity(next_vx, vy, next_vz)`。
+6. 构造函数默认参数（`StateEnum.Dash`）在本单元不可观测。
+
+### 32.2 harness 观察点
+- 一对 harness `character_state_dash.{cpp,ts}`。
+- 输入：`env victim s "V1"`、`env ctrlud|ctrllr`（**裸数字**，`-1/0/1`）、
+  `env state|prevstate|pos|ground_y|velx|vely|velz|facing|dataset`（值字面量）。
+- `run make|enter`。状态文本：`pos=[x:y:z]` / `ground=` / `vel=[x:y:z]` / `face=` / `ctrl=ud,lr`。
+- ⚠️ **`set_velocity` 会写回 `velx`/`vely`/`velz`**，所以「上一场景留下的速度」会污染下一场景。
+  本单元首轮 3 条存活全部源于此：`prevstate n 2` 的场景写回 `velx = -5`，
+  于是 `prevstate s "2"` 场景里的 `vx` 已是 `-5`，走的是 `vx < 0` 支（结果与
+  Running 支**相同**），宽松比较变异因此不可观测。
+  ⇒ **每个场景都要显式设置它依赖的每一个速度分量。**
+- ⚠️ `facing = -1` 会让 `facing * dx` 与 `-dx` **数值相同**，
+  于是「`vx < 0` 支被删」与「兜底支忽略 facing」两条变异互相掩护。
+  必须**同时**给 `facing = 1`（区分 `-dx`）与 `facing = -1`（区分 `dx`）两组零速度场景。
+
+## 33. 切片 5：`state/CharacterState_Burning`
+
+`native/lfw/state/character_state_burning.{h,cpp}`（对应 `src/LFW/state/CharacterState_Burning.ts`）。
+第一个同时覆写 `enter` / `update` / `leave` / `on_landing` 四个位置的状态。
+
+### 33.1 单元边界（`native/lfw/state/state_base.h` 的补充）
+`IStateEntity` 补 8 个**带默认实现的虚函数**：
+`bounced` / `set_bounced` / `has_catcher` / `catcher_drop_catching` / `set_facing` /
+`world_dataset(key)` / `data_indexes_bouncing` / `data_indexes_lying`。
+
+其中 `world.dataset.*` 用「按 key 取值」的缝（`world_dataset("cha_bc_tst_spd_y")` 等），
+而不是给每个字段开一个成员。
+
+### 33.2 保真要点
+1. **`enter` 里调的是 `super.update(e)` 而不是 `super.enter`** —— 这是 TS 原文的
+   怪异之处（`override enter(...) { super.update(e); ... }`），端口**照抄**：
+   安装的 lambda 里调 `this->CharacterState_Base::update(e)`。
+   注意 `CharacterState_Base::update` 不是静态成员，自由函数无法直接调用，
+   所以这个钩子必须写成**捕获 `this` 的 lambda**。
+   实际重启时 `enter` 只做三件事：驱动基类 update（⇒ 地面速度衰减）、
+   `bounced = false`、有 catcher 就 `drop_catching()`。
+2. **`update`**：`super.update(e)` 之后
+   `vx = e.velocity.x; if (vx) e.facing = vx > 0 ? -1 : 1` ——
+   即「朝速度方向的反面转」。`if (vx)` 是真值判定，
+   **`0` 不转头**（所以 `> 0` 写成 `>= 0` 是不可观测的，已写进规格头注）。
+3. **`leave`**：`super.leave(e, next_frame)` 之后 `bounced = false`。
+   `super.leave` 落在 `State_Base::leave` 的 `HealSelf` 分支上（`Burning` 不可能命中）
+   ⇒ 删掉这次调用**不可观测**（已写进规格头注）。
+4. **`on_landing`**：
+   ```text
+   if (e.frame.on_landing) { enter_frame(on_landing); return }
+   if (!e.bounced && (vy <= world.dataset.cha_bc_tst_spd_y
+                      || abs(vx) > world.dataset.cha_bc_tst_spd_x)) {
+     enter_frame_by_id(indexes?.bouncing?.[-1][1])
+     set_velocity(null, world.dataset.cha_bc_spd)      // 只写 y
+     e.bounced = true
+   } else {
+     enter_frame_by_id(indexes?.lying?.[-1])
+   }
+   ```
+   - **`||` 的短路会影响 `dataset` 的读取条数**：`vy` 达标时右侧的
+     `cha_bc_tst_spd_x` **不会被读**，日志也就少一条。端口保持同样的 `||` 顺序。
+   - `bouncing` 是 `{"-1": [...]}` 形状（取 `[-1][1]`，第二个元素），
+     而 `lying` 是 `{"-1": id, "1": id}` 形状（`[-1]` 直接给帧 id）。
+   - `set_velocity(null, spd)` 只给 y，x 是 `null`、z 省略。
+5. 构造函数**没有**默认参数（TS 里就是 `constructor() { super(StateEnum.Burning) }`）。
+
+### 33.3 harness 观察点
+- 一对 harness `character_state_burning.{cpp,ts}`。
+- 输入：`env victim s "V1"`、`env catcher 0|1`（**裸数字**）、
+  `env indexes|wdata|facing|bounced|velx|vely|velz|landingvel|onlanding`（值字面量）。
+  `landingvel` 是传给 `on_landing` 的 `{x, y}` 速度对象。
+- `run make|enter|update|leave|landing`。
+- 状态文本：`bounced=` / `facing=` / `vel=[x:y:z]` / `catcher=`。
+- ⚠️ **TS 侧的 `world.dataset` 用 `Proxy` 打日志**：`e.world.dataset.X` 是**属性读**，
+   而端口是 `world_dataset("X")` **函数调用**；用 `Proxy` 的 `get` 陷阱才能让两边
+   的日志条数与顺序（含短路少读）完全一致。
+- ⚠️ **`bounced` 会被 `on_landing` 自己置真**（弹跳分支里 `e.bounced = true`），
+   于是**后续所有 `landing` 场景都会被 `!e.bounced` 挡住**。
+   本单元首轮 4 条存活（全在 `||` 右侧）就是因为它：
+   「缓落弹跳」场景把 `bounced` 置真后，后面两条本想观测右侧条件的场景直接走了 else。
+   ⇒ **每个 `landing` 场景都要显式 `env bounced n 0`。**
+
+## 34. 切片 5：`state/CharacterState_Teleport2*`
+
+`native/lfw/state/character_state_teleport.{h,cpp}`（对应
+`src/LFW/state/CharacterState_Teleport2NearestEnemy.ts` 与
+`CharacterState_Teleport2FarthestAlly.ts`）。
+两个 TS 类**镜像**实现：除「同盟极性」与「接受更优者的谓词」外逐字节相同。
+
+### 34.1 单元边界（`native/lfw/state/state_base.h` 的补充）
+`IStateEntity` 补 9 个**带默认实现的虚函数**：
+`world_entities()`（世界实体列表）、
+`is_fighter_ref(o)` / `is_self_ref(o)` / `is_ally_ref(o)` / `ref_hp(o)` /
+`ref_position_x(o)` / `ref_position_z(o)`、
+`ground_segment(x, z)` / `ground_y(segment, x, z)`。
+
+**静默 vs 打日志**这条界线在本单元最关键：
+`is_*_ref` / `ref_*` 对应 TS 的**属性读**（`o.hp`、`o.position.x`、`o === m`、
+`o.is_ally(m)`）⇒ 端口里**静默**，不打日志；
+而 `world.ground.segment(x, z)` 与 `world.ground.y(seg, x, z)` 在 TS 里是
+**方法调用** ⇒ 端口里**打日志**，两个 harness 必须给出一致的条数与顺序。
+
+### 34.2 保真要点
+1. **`abs(o.position.z - o.position.z)` 是 TS 原文的 bug**（恒为 0），端口**照抄**成
+   `abs(e.ref_position_z(o) - e.ref_position_z(o))`。
+   规格里用「第二个操作数换成 `mz` / 第一个换成 `mx`」两条变异证明用例能看见这个死项。
+2. **两个类的谓词不对称**：近敌是 `if (_dis < 0 || dis < _dis)`（首个候选无条件接受）；
+   远盟是 `if (dis > _dis)`（靠 `_dis` 初值 `-1` 接受首个候选）。
+   端口写成一条三元：`nearest_enemy ? (best < 0 || dis < best) : (dis > best)`。
+3. **两个类合并成两个自由函数**
+   （`pick_target(e, bool nearest_enemy)` + `teleport_to(e, tar)`）：
+   两份镜像体逐字节相同，直接复制会让**每一条变异锚点都二义**（同 §25.2 的理由）。
+   这个合并**没有引入**原对里不存在的分支 —— 那个布尔开关正是「同盟极性 + 比较谓词」本身。
+4. **`let { x, z } = m.position` 在 `if (_tar)` 之前** ⇒ 端口**先无条件**读一次
+   `e.position(x, y, z)`。TS 只解构 `x` / `z`，端口多读了一个 `y`（不用它）；
+   因为读是静默的，`my` / `mz` 这两个槽位**不可观测**（已写进规格头注）。
+5. `x = round(_tar.position.x - m.facing * 120)`：**只有 x 带偏移**，
+   `z = round(_tar.position.z)` 没有；`round` 是 `utils/math/base` 的版本。
+6. 无目标时**保留自身坐标**（`x` / `z` 来自 `m.position`），
+   但 `y` 仍然来自 `world.ground.y(...)` —— 所以「无目标」不是「什么都不写」。
+7. 构造函数带默认实参（`StateEnum.TeleportToNearestEnemy = 400` /
+   `TeleportToFarthestAlly = 401`），端口保留；harness 用 `run default` 观测它。
+
+### 34.3 harness 观察点
+- 一对 harness `character_state_teleport.{cpp,ts}`。
+- 输入：`env cls s "nearest"|"farthest"`、`env state`（值字面量）、
+  `env victim s "M1"`、`env facing|seg`（值字面量）、`env gy <裸数字>`、
+  `env pos o 3 x n .. y n .. z n ..`、
+  `env ent o 6 id s "E1" fighter b .. ally b .. hp n .. x n .. z n ..`
+  （**按 id 覆盖或追加**，保留插入序，插入序本身是搜索序）。
+- `run make|default|enter`。输出 `run <op> || <日志> | <状态>`；
+  状态文本 `id= pos=[x:y:z] face= seg= gy=`。
+- ⚠️ **自身实体必须是同一个对象**：TS 侧 `env ent` 的 id 若等于 `victim` 的 id，
+  必须把 `victim` **本身**放进实体列表（而不是包一层代理对象），否则 `o === m`
+  恒假，「跳过自身」永远不会触发。本单元首轮差分就是在这里漂移的
+  （TS 选中了自身 ⇒ `x = -119`，端口选中 `E5` ⇒ `-117`）。
+  相应地 TS 的 `FakeEnt` 要暴露 `data.type = 8` 与 `hp`，否则会在
+  `is_fighter(o)` 这步就被过滤掉。
+- ⚠️ **切换 `env cls` 之后必须重新 `run make`**：状态对象是 `make` 时按 `cls`
+  构造的，`env cls` 本身不会换对象。本单元首轮**唯一**存活的变异
+  （「谓词忽略搜索方向」）就是远盟那一段忘了 `run make`：
+  结果用近敌对象跑了「只有同盟」的场景，两边都退化成自身位置，无法区分。
+
+## 35. 切片 5：`state/WeaponState_Base` + `defines/weapon_bounce.h`
+
+`native/lfw/state/weapon_state_base.{h,cpp}`（对应 `src/LFW/state/WeaponState_Base.ts`）
+与新的手写常量表 `native/lfw/defines/weapon_bounce.h`
+（对应 `src/LFW/defines/defines.ts` 里 `Defines.WT_*` 九张表）。
+
+### 35.1 常量表（`lfw/defines/weapon_bounce.h`）
+`Defines.WT_BOUNCE_MIN_Y/X/Z`、`WT_BOUNCE_Y/X/Z`、`WT_FAST_Y/X/Z` 都是
+`Record<WT, number>`，即「以武器类型为键的对象」。TS 里用一个**不在范围内的键**
+（`undefined`、`9`、`2.5`）取值会得到 `undefined`，从而让调用点的 `??` 兜底生效。
+所以端口不能返回一个「随便什么样的 double」，而是：
+
+- `weapon_bounce_index(wt)` 把 `Value` 映射成 `0..5` 的整数下标，**否则返回 `-1`**；
+- 九个 `wt_*()` 访问器在下标为 `-1` 时返回 `Value()`（缺失），由调用点 `coalesce2` 兜底。
+
+⚠️ **`-1` 必须被拦住**：表是定长 `std::array<double,6>`，负下标是 UB 而不是可观测分歧
+（规格头注里写明了这条，避免以后有人把「范围检查」当成死代码删掉）。
+
+### 35.2 保真要点
+1. **三个钩子在构造函数里安装**（`get_auto_frame` / `on_landing` / `on_leave_ground`），
+   `update` 是 `override`（TS 里 `WeaponState_Base.update` 只调
+   `e.handle_ground_velocity_decay()`，**不调 `super.update`**）。
+2. `get_auto_frame` 的 `if (!indexes) return void 0;` 是**真守卫**：
+   端口用新缝 `has_data_indexes()` 表达（TS 是属性读 ⇒ 静默）。
+   它只有在「`indexes` 是假值、但 `frames` 里恰好有键 `"undefined"`」时才可观测 —— 用例里
+   专门造了这个组合（`env indexes n 0` + `frames` 的 `undefined` 键）。
+3. `on_landing` 走 `frame.on_landing` 优先、否则 `enter_frame_by_id(indexes?.on_ground)`
+   （**没有** truthy 判定，与 `CharacterState_Base` 的 `landing_2` 形成对照）。
+4. `on_leave_ground` 是 `enter_frame(Defines.NEXT_FRAME_AUTO)` ——
+   实参本身是**帧对象**，端口用文件内的 `next_frame(Value(u"auto"))` 复刻。
+5. `hit_ground_rebouncing(e, nf, velocity)` 是**类的新方法**（不是钩子）：
+   - 三个反弹系数与三个阈值都用 `base.* ?? Defines.WT_*[wt] ?? 默认` 三级兜底
+     （端口用文件内 `nullish` + `coalesce2`，因为 `??` 对 `null` 也兜底，
+     而端口的 `missing()` 只认 `undefined`）。
+   - **`is_bounce` 的第 4 项是 `dvx >= bounce_min_z || dvx < -bounce_min_z`**
+     —— 左右两边都写的是 `dvx`（TS 原文），端口**照抄**，并专门为它造了两条反向用例。
+   - `if (!e.drop_hurted) { e.drop_hurted = true; if (base.drop_hurt) {...} }`：
+     标志位与伤害是**两层**守卫，「falsy 的 `drop_hurt`」只翻转标志。
+   - `e.hp = e.hp - base.drop_hurt` 与 `e.hp_r = e.hp_r - base.drop_hurt` 是**属性写** ⇒
+     端口的 `set_hp` / `set_hp_r` / `set_drop_hurted` 三个缝必须**静默**，
+     靠状态文本观测。
+   - 反弹分支里的 `const nf = e.find_align_frame(...)` **遮蔽了参数 `nf`**
+     （TS 原文如此），端口用不同名字（`align`）但保持同一作用域。
+   - `e.state == SE.Weapon_Throwing` 是**宽松** `==` ⇒ 端口用 `equals`。
+   - `fast_*` 四个比较都是**开区间**（`> -fast` 且 `< fast`）。
+6. **`Heavy` 的三个 `fast_*` 在表里都是 `1`，而它的阈值是 `min_y=min_x=2`、
+   `min_z=99`** ⇒ 反弹条件成立时 `|dvy| >= 2` 或 `|dvx| >= 2`，
+   与 `|dvy| < 1 且 |dvx| < 1` 矛盾 ⇒ **Heavy 永远进不了 align 分支**。
+   这条推理写进了变异规格头注：改这三个表项是不可观测的，不要硬造用例。
+7. `Defines.WT_BOUNCE_Z` 与 `Defines.WT_BOUNCE_X` **逐项相同** ⇒
+   「深度反弹走 x 表」这类变异不可观测（同样写进规格头注）。
+
+### 35.3 harness 观察点
+- 一对 harness `weapon_state_base.{cpp,ts}`。
+- 输入：`env state|indexes|ionground|ithrow|isky|frames|onlanding|base|wt|dh|vstate|fid|vel|nf|align`
+  （值字面量）、`env hp|hpr <裸数字>`、`env onground <真值>`。
+- `run make|auto|landing|update|leaveground|rebound`。
+- 状态文本 `hp= hpr= dh=`；`auto` 额外打印 `fid=`，`rebound` 靠日志看
+  `set_velocity` / `leave_ground` / `find_align_frame` / `enter_frame`。
+- ⚠️ **`frames` 的键必须写成裸 token**：`o 3 4 s "F4" 5 s "F5" undefined s "FU"`
+  （`o` 的计数是**键值对**个数，不是 token 数）。第一次就是因为把键写成了 `s "4"` 才被拒。
+- ⚠️ 被 `hit_ground_rebouncing` 写回的字段（`dh`、`hp`、`hp_r`）**每段场景开头都要重置**。
+
+## 36. 切片 5：`state/StateBase_Proxy` + `State_15` + `State_Frozen`
+
+`native/lfw/state/state_base_proxy.{h,cpp}`（对应 `StateBase_Proxy.ts` / `State_15.ts` /
+`State_Frozen.ts` 三个小类，按 `state_misc` 的先例合并成一个单元）。
+
+### 36.1 单元边界
+`IStateEntity` 补两个带默认实现的虚函数：`play_sound(const Value& sounds)`、
+`apply_opoints(const std::vector<Value>& opoints)`。
+
+### 36.2 保真要点
+1. **`leave` / `update` / `on_restrict` 是虚函数，不是可选钩子**：`State_Base` 里只有
+   `pre_update` / `enter` / `on_dead` / `on_landing` / `get_*` / `find_frame_by_id` /
+   `on_leave_ground` 是 `std::function` 成员。端口第一版把 `leave` 当成钩子成员写，
+   编译直接报 `C3867`（`leave` 解析成了成员函数）——**看到 `?.()` 不要想当然，先看它在
+   基类里是方法还是可选属性**。
+2. **四个代理按值持有**（`_character_proxy` / `_weapon_proxy` / `_ball_proxy` / `_proxy`），
+   构造函数里 `State_Base(state)` 与四个成员**都用拷贝**：如果基类初始化列表写
+   `std::move(state)`，四个成员就会拿到被掏空的值（基类先于成员初始化）。
+3. **TS 的四个可选构造参数没有人传过**（只有 `State_15` 传 `void 0` × 4，等价于默认值）
+   ⇒ 端口只保留 `StateBase_Proxy(Value state)`，四个成员一律用 `state` 构造。
+   这是一处**有意简化**，已写进变异规格头注。
+4. **枚举判定要用 `is_*_data`**：`entity::is_fighter(v)` 内部读的是 `v.data`，即它期望
+   一个**实体形对象**；代理手上只有 `e.data()`（就是那个 `data` 对象），所以要用
+   `entity::is_fighter_data(data)` 等三个函数。用错会静默落到 `_proxy`（首轮差分就是这么漂的）。
+5. `StateBase_Proxy` 的 11 个转发里，`get_*` 四兄弟与 `find_frame_by_id` 在钩子为空时
+   返回 `Value()`（对应 TS 的 `?.()` → `undefined`）；其余返回 void。
+6. `State_15` 就是 `StateBase_Proxy(StateEnum.Normal)`，四个代理全默认。
+7. `State_Frozen`：
+   - `enter` **包装**（不是覆写）代理装好的 `enter`：先调 `super_enter`（转发给目标类型），
+     再 `if (e.catcher) e.catcher.drop_catching()`、`if (e.holding?.base_type == Heavy)
+     e.drop_holding()`（**宽松** `==`）、最后 `play_sound(["data/065.wav.mp3"])`。
+   - `leave` 是**虚函数覆写**：`super.leave` → `play_sound(["data/066.wav.mp3"])` →
+     `apply_opoints(ice_piece_opoints)` → **再调一次 `super.leave`**（TS 原文如此）。
+     这条「调两次」正是本单元最好的变异目标：`State_Base::leave` 在 `HealSelf` 状态下会
+     `grant_buff`，于是 buf 会被授予两次。
+     ⚠️ **必须在 `env state n 1700` 之后重新 `run make`**：状态对象是用构造时的
+     `state` 建的，改 `env state` 不会改已有对象（首轮 5 条存活就是这个原因）。
+   - `on_landing` **完全不调 super**（与 `CharacterState_Base`/`WeaponState_Base` 的钩子
+     无关）：`frame.on_landing` 优先，否则
+     `vy <= world.dataset.cha_bc_tst_spd_y * 2` 时进 `bouncing[-1][0]`、
+     `set_velocity(null, cha_bc_spd)`、`hp -= 10`。
+8. `sound_list()` 是文件内 helper：把单个路径包成一个数组（TS 传的是 `["..."]`）。
+
+### 36.3 harness 观察点
+- 一对 harness `state_base_proxy.{cpp,ts}`。
+- 输入：`env cls s "proxy"|"15"|"frozen"`、`env dstate`（构造参数，用 `state`）、
+  `env data|indexes|frames|onlanding|wdata|hbtype|vx|vz|vel|rid|pos|rxyz`（值字面量）、
+  `env vstate`（实体状态）、`env hp <裸数字>`、`env catcher|onground <真值>`。
+- `run make|default|update|leave|restrict|preupdate|enter|dead|landing|leaveground|gravity|auto|sdf|cef|ffbi`，
+  返回型钩子打印 `r=`，其余打印日志。
+- ⚠️ **TS 侧 `set_shaking` / `set_motionless` 是属性写**（`e.shaking = 0`），
+  所以假实体要用 **setter**（`set shaking(v)`）而不是方法，才能与端口缝的日志对齐。
+- ⚠️ **`set_position` 两侧都必须静默**：TS 原文写的是 `e.position.x/y/z`（三次属性写），
+  端口是 `set_position(x,y,z)` 一次调用；把位置放进状态文本比较。
+  为此 TS 假实体的 `position` getter 必须返回**同一个持久对象**，否则写丢失。
+- ⚠️ TS 侧真 `grant_buff` 需要 `victim.lfw.factory.create_buff` 与 `victim.world.buffs`；
+  假实体要提供 `world.buffs = new Map()` 与一个打日志并返回 `undefined` 的 `create_buff`，
+  才能与 C++ 侧 `BuffEnv::create_buff` 对齐。

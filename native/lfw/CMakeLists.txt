@@ -119,6 +119,12 @@ add_library(lfw_core STATIC
   state/character_state_basic.cpp
   state/character_state_walking.cpp
   state/character_state_caught_rowing.cpp
+  state/state_misc.cpp
+  state/character_state_dash.cpp
+  state/character_state_burning.cpp
+  state/character_state_teleport.cpp
+  state/weapon_state_base.cpp
+  state/state_base_proxy.cpp
 )
 
 target_include_directories(lfw_core PUBLIC

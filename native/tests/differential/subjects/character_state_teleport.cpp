@@ -7,7 +7,7 @@
 
 #include "lfw/buff/buff.h"
 #include "lfw/core/value.h"
-#include "lfw/state/character_state_walking.h"
+#include "lfw/state/character_state_teleport.h"
 #include "lfw/utils/container_help/field_or.h"
 
 #include "trace_util.h"
@@ -17,7 +17,9 @@ namespace {
 using lfw::Value;
 using lfw::buff::Buff;
 using lfw::buff::BuffEnv;
-using lfw::state::CharacterState_Walking;
+using lfw::state::CharacterState_Base;
+using lfw::state::CharacterState_Teleport2FarthestAlly;
+using lfw::state::CharacterState_Teleport2NearestEnemy;
 using lfw::state::IStateEntity;
 using trace::parse_value;
 using trace::render_value;
@@ -39,27 +41,24 @@ std::string join(const std::vector<std::string>& xs) {
   return out;
 }
 
-Value marker_frame() {
-  lfw::Object o;
-  o.set(u"id", Value(std::u16string(u"SD")));
-  return Value(std::make_shared<lfw::Object>(o));
-}
+struct Ref {
+  std::u16string id;
+  bool fighter = false;
+  bool ally = false;
+  double hp = 0;
+  double x = 0;
+  double z = 0;
+};
 
 struct FakeEnt : IStateEntity {
   std::u16string _id;
-  Value _hp;
-  Value _wait_value;
-  Value _frame_info;
-  Value _holding;
-  Value _indexes;
-  Value _ground_y;
+  Value _facing;
   double _px = 0;
   double _py = 0;
   double _pz = 0;
-  double _wait_flag = 0;
-  double _ctrl_ud = 0;
-  double _ctrl_lr = 0;
-  bool _holding_is_weapon = false;
+  Value _segment;
+  double _gy = 0;
+  std::vector<Ref> _refs;
 
   explicit FakeEnt(std::u16string id) : _id(std::move(id)) {}
 
@@ -96,53 +95,74 @@ struct FakeEnt : IStateEntity {
     g_log.push_back(s_of(_id) + ":outline_color:" + render(Value(v)));
   }
   void enter_frame_by_id(const std::u16string& id) override {
-    g_log.push_back(s_of(_id) + ":enter_frame_by_id:" + render(Value(id)) + ":0");
-  }
-  void enter_frame_by_id_fallback(const std::u16string& id, bool fallback) override {
-    g_log.push_back(s_of(_id) + ":enter_frame_by_id:" + render(Value(id)) + ":" +
-                    std::string(fallback ? "1" : "0"));
+    g_log.push_back(s_of(_id) + ":enter_frame_by_id:" + render(Value(id)));
   }
   void attach(bool on) override {
     g_log.push_back(s_of(_id) + ":attach:" + std::string(on ? "1" : "0"));
   }
-  Value hp() const override { return _hp; }
-  Value wait() const override { return _wait_value; }
-  void set_wait(const Value& v) override {
-    _wait_value = v;
-    g_log.push_back(s_of(_id) + ":set_wait:" + render(v));
+  Value facing() const override { return _facing; }
+  Value world_entities() const override {
+    auto arr = std::make_shared<lfw::Array>();
+    for (const Ref& r : _refs) arr->push_back(Value(r.id));
+    return Value(arr);
   }
-  Value holding_base_type() const override { return lfw::field_or(_holding, u"base_type"); }
-  bool holding_is_weapon() const override { return _holding_is_weapon; }
-  double ctrl_ud() const override { return _ctrl_ud; }
-  double ctrl_lr() const override { return _ctrl_lr; }
-  Value ground_y() const override { return _ground_y; }
-  Value frame_info() const override { return _frame_info; }
-  double handle_wait_flag(const Value& wait, const Value& frame) override {
-    g_log.push_back(s_of(_id) + ":handle_wait_flag:" + render(wait) + ":" + render(frame));
-    return _wait_flag;
+  const Ref* find_ref(const Value& o) const {
+    const std::u16string* id = std::get_if<std::u16string>(&o);
+    if (id == nullptr) return nullptr;
+    for (const Ref& r : _refs) {
+      if (r.id == *id) return &r;
+    }
+    return nullptr;
   }
-  Value get_sudden_death_frame() override {
-    g_log.push_back(s_of(_id) + ":get_sudden_death_frame");
-    return marker_frame();
+  bool is_fighter_ref(const Value& o) const override {
+    const Ref* r = find_ref(o);
+    return r != nullptr && r->fighter;
   }
-  Value data_indexes_default() const override { return lfw::field_or(_indexes, u"default"); }
-  Value data_indexes_in_the_skys() const override {
-    return lfw::field_or(_indexes, u"in_the_skys");
+  bool is_self_ref(const Value& o) const override {
+    const std::u16string* id = std::get_if<std::u16string>(&o);
+    return id != nullptr && *id == _id;
+  }
+  bool is_ally_ref(const Value& o) const override {
+    const Ref* r = find_ref(o);
+    return r != nullptr && r->ally;
+  }
+  Value ref_hp(const Value& o) const override {
+    const Ref* r = find_ref(o);
+    return r == nullptr ? Value() : Value(r->hp);
+  }
+  double ref_position_x(const Value& o) const override {
+    const Ref* r = find_ref(o);
+    return r == nullptr ? 0 : r->x;
+  }
+  double ref_position_z(const Value& o) const override {
+    const Ref* r = find_ref(o);
+    return r == nullptr ? 0 : r->z;
+  }
+  Value ground_segment(double x, double z) override {
+    g_log.push_back(s_of(_id) + ":ground_segment:" + num(x) + ":" + num(z));
+    return _segment;
+  }
+  double ground_y(const Value& segment, double x, double z) override {
+    g_log.push_back(s_of(_id) + ":ground_y:" + render(segment) + ":" + num(x) + ":" + num(z));
+    return _gy;
   }
   Value velocity_x() const override { return Value(); }
   Value velocity_z() const override { return Value(); }
+  void set_velocity(const Value& x, const Value& y, const Value& z) override {
+    (void)x;
+    (void)y;
+    (void)z;
+  }
   void enter_frame(const Value& frame) override {
     g_log.push_back(s_of(_id) + ":enter_frame:" + render(frame));
-  }
-  void handle_ground_velocity_decay() override {
-    g_log.push_back(s_of(_id) + ":handle_ground_velocity_decay");
   }
 };
 
 std::vector<FakeEnt*> g_ents;
 FakeEnt* g_victim = nullptr;
 Value g_state;
-CharacterState_Walking* g_state_obj = nullptr;
+std::u16string g_cls = u"nearest";
+CharacterState_Base* g_state_obj = nullptr;
 
 FakeEnt* find_ent(const std::u16string& id) {
   for (size_t i = 0; i < g_ents.size(); ++i) {
@@ -160,12 +180,8 @@ FakeEnt& ent(const std::u16string& id) {
 
 std::string state_text() {
   const FakeEnt& v = *g_victim;
-  return "hp=" + render(v._hp) + " wait=" + render(v._wait_value) +
-         " waitflag=" + num(v._wait_flag) + " frame=" + render(v._frame_info) + " pos=[" +
-         num(v._px) + ":" + num(v._py) + ":" + num(v._pz) + "]" + " ground=" +
-         render(v._ground_y) + " holding=" + render(v.holding_base_type()) + " hweapon=" +
-         std::string(v._holding_is_weapon ? "1" : "0") + " ctrl=" +
-         std::string(v._ctrl_ud ? "1" : "0") + std::string(v._ctrl_lr ? "1" : "0");
+  return "id=" + s_of(v._id) + " pos=[" + num(v._px) + ":" + num(v._py) + ":" + num(v._pz) + "]" +
+         " face=" + render(v._facing) + " seg=" + render(v._segment) + " gy=" + num(v._gy);
 }
 
 void bind() {
@@ -190,7 +206,7 @@ std::u16string value_text(const Value& v) {
 
 int main(int argc, char** argv) {
   if (argc < 2) {
-    std::fprintf(stderr, "usage: lfw_trace_character_state_walking <case-file>\n");
+    std::fprintf(stderr, "usage: lfw_trace_character_state_teleport <case-file>\n");
     return 2;
   }
   bind();
@@ -213,41 +229,44 @@ int main(int argc, char** argv) {
     g_log.clear();
     if (op == "env") {
       const std::string& sub = t[i++];
-      if (sub == "state") {
+      if (sub == "cls") {
+        g_cls = value_text(parse_value(t, i));
+      } else if (sub == "state") {
         g_state = parse_value(t, i);
       } else if (sub == "victim") {
         g_victim = &ent(value_text(parse_value(t, i)));
-      } else if (sub == "hp") {
-        if (g_victim != nullptr) g_victim->_hp = parse_value(t, i);
-      } else if (sub == "vwait") {
-        if (g_victim != nullptr) g_victim->_wait_value = parse_value(t, i);
-      } else if (sub == "waitflag") {
-        if (g_victim != nullptr) g_victim->_wait_flag = trace::to_double(t[i++]);
-      } else if (sub == "frame") {
-        if (g_victim != nullptr) g_victim->_frame_info = parse_value(t, i);
-      } else if (sub == "ground_y") {
-        if (g_victim != nullptr) g_victim->_ground_y = parse_value(t, i);
-      } else if (sub == "indexes") {
-        if (g_victim != nullptr) g_victim->_indexes = parse_value(t, i);
-      } else if (sub == "ctrlud") {
-        if (g_victim != nullptr) g_victim->_ctrl_ud = trace::to_double(t[i++]);
-      } else if (sub == "ctrllr") {
-        if (g_victim != nullptr) g_victim->_ctrl_lr = trace::to_double(t[i++]);
-      } else if (sub == "hweapon") {
-        if (g_victim != nullptr) g_victim->_holding_is_weapon = trace::to_double(t[i++]) != 0;
-      } else if (sub == "holding") {
-        const Value v = parse_value(t, i);
-        if (g_victim != nullptr) {
-          lfw::Object o;
-          o.set(u"base_type", v);
-          g_victim->_holding = Value(std::make_shared<lfw::Object>(o));
-        }
+      } else if (sub == "facing") {
+        if (g_victim != nullptr) g_victim->_facing = parse_value(t, i);
+      } else if (sub == "seg") {
+        if (g_victim != nullptr) g_victim->_segment = parse_value(t, i);
+      } else if (sub == "gy") {
+        if (g_victim != nullptr) g_victim->_gy = trace::to_double(t[i++]);
       } else if (sub == "pos") {
         const Value v = parse_value(t, i);
         if (g_victim != nullptr) {
           g_victim->_px = lfw::to_number(lfw::field_or(v, u"x"));
           g_victim->_py = lfw::to_number(lfw::field_or(v, u"y"));
           g_victim->_pz = lfw::to_number(lfw::field_or(v, u"z"));
+        }
+      } else if (sub == "ent") {
+        const Value v = parse_value(t, i);
+        if (g_victim != nullptr) {
+          Ref r;
+          r.id = value_text(lfw::field_or(v, u"id"));
+          r.fighter = lfw::truthy(lfw::field_or(v, u"fighter"));
+          r.ally = lfw::truthy(lfw::field_or(v, u"ally"));
+          r.hp = lfw::to_number(lfw::field_or(v, u"hp"));
+          r.x = lfw::to_number(lfw::field_or(v, u"x"));
+          r.z = lfw::to_number(lfw::field_or(v, u"z"));
+          bool replaced = false;
+          for (Ref& it : g_victim->_refs) {
+            if (it.id == r.id) {
+              it = r;
+              replaced = true;
+              break;
+            }
+          }
+          if (!replaced) g_victim->_refs.push_back(r);
         }
       } else {
         std::fprintf(stderr, "unknown env '%s' at line %d\n", sub.c_str(), lineno);
@@ -260,11 +279,24 @@ int main(int argc, char** argv) {
       const std::string& what = t[i++];
       if (what == "make") {
         delete g_state_obj;
-        g_state_obj = new CharacterState_Walking(g_state);
+        if (g_cls == u"farthest") {
+          g_state_obj = new CharacterState_Teleport2FarthestAlly(g_state);
+        } else {
+          g_state_obj = new CharacterState_Teleport2NearestEnemy(g_state);
+        }
         std::printf("run make || %s | %s\n", join(g_log).c_str(), state_text().c_str());
-      } else if (what == "update") {
-        g_state_obj->update(*g_victim);
-        std::printf("run update || %s | %s\n", join(g_log).c_str(), state_text().c_str());
+      } else if (what == "default") {
+        delete g_state_obj;
+        if (g_cls == u"farthest") {
+          g_state_obj = new CharacterState_Teleport2FarthestAlly();
+        } else {
+          g_state_obj = new CharacterState_Teleport2NearestEnemy();
+        }
+        std::printf("run default || %s | state=%s | %s\n", join(g_log).c_str(),
+                    render(g_state_obj->state()).c_str(), state_text().c_str());
+      } else if (what == "enter") {
+        if (g_state_obj->enter) g_state_obj->enter(*g_victim, Value());
+        std::printf("run enter || %s | %s\n", join(g_log).c_str(), state_text().c_str());
       } else {
         std::fprintf(stderr, "unknown run '%s' at line %d\n", what.c_str(), lineno);
         return 2;
