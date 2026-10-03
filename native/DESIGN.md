@@ -4224,3 +4224,91 @@ StateBase_Proxy(Value state, std::unique_ptr<CharacterState_Base> character_prox
 - 状态文本
   `pos=[x,y,z] vel=[x,y,z] dataid= frameid= hp= facing= bounced= fall=/<max> defend=/<max> rest=/<max> finj= tinj=`；
   `run make|default` 额外打 `s=`。
+
+## 41. 切片 5：`state/CharacterState_Lying`
+
+`native/lfw/state/character_state_lying.{h,cpp}`（对应
+`src/LFW/state/CharacterState_Lying.ts`）。这是**最后一个未移植的 character state**。
+
+### 41.1 单元边界（`IStateEntity` 补 22 个缝）
+计数器 `lying_a_count` / `lying_d_count` / `lying_c_count`（读+写 6 缝）、
+`toughness_max()` / `set_toughness_resting(v)`、`set_hp_max(v)`、
+`dead_join()` / `set_dead_join(v)` / `dead_gone()`、`reserve()` / `set_reserve(v)`、
+`wakeup_invuln()` / `set_wakeup_invuln(v)`、`set_invulnerable(v)`、`set_blinking(v)`、
+`blink_and_respawn(v)` / `blink_and_gone(v)`、`world_puppets()`、
+`world_etc(x, y, z, kind)`。
+其余用既有缝：`has_holding` / `holding_base_type` / `holding_set_team` /
+`drop_holding`、`toughness`（写，来自 `IBuffEntity` `set_toughness`）、
+`hp` / `hp_r` / `hp_max` / `set_hp` / `set_hp_r`、`team` / `set_team`、`wait` /
+`set_wait`、`motionless`（写）、`set_outline_color`、`state()`、`position`、
+`ground_y`、`frame_info`、`ctrl_is_end`、`ctrl_reset_key_list`、`world_dataset`。
+
+⚠️ 与 Falling 同构：`on_dead` / `find_frame_by_id` 在端口里是 `State_Base` 的
+`std::function` 钩子（**不是**虚函数），`enter` 用捕获 `this` 的 lambda 调
+`on_dead`；写 `override` 会编译失败。
+
+### 41.2 保真要点
+1. `enter`：三个计数器归零 → `ctrl.reset_key_list()` →
+   `const holding = e.holding; if (holding) e.drop_holding();
+   if (holding?.base_type === WeaponEnum.Heavy) holding.team = e.team;`
+   （端口用 `has_holding()` + `strict_equals(holding_base_type(), Heavy)`）→
+   `toughness = toughness_max`、`toughness_resting = 0` →
+   `hp <= 0` 时调 `on_dead(e)`。
+2. `on_dead`：先把 `e.world.puppets` 里每个傀儡的 `team` 收进 `Set`，
+   再 `if (e.reserve) --e.reserve`（`--` 是数值语义：字符串 `"3"` → `2`），
+   然后三段排他分支：`reserve && player_teams.has(team)` →
+   `blink_and_respawn(gone_blink_time)`；否则 `dead_join` → **空分支**；
+   否则 `dead_gone` → `blink_and_gone(gone_blink_time)`。
+   端口用 `std::vector<Value>` + `strict_equals` 复刻 `Set<string>.has`。
+3. `update`：先 `super.update`（= `handle_ground_velocity_decay()` 无参，factor 1）；
+   `count_c` / `count_a` 先读，`is_end(GK.a)` 取反得到「按住」；随后
+   `lying_a_count = count_a + 1` —— 这里是 **JS `+`**（字符串会拼接），端口用 `js_add`。
+   攻击分支 `count_a && count_a % 2 && pressing_a && wait > 0`（`%` 用 `std::fmod`：
+   负奇数 `-1` 与小数 `1.5` 都是真值；`truthy(count_a)` 那半边在计数为 `0` 时等价于
+   `0 % 2 = 0`），成立则 `lying_c_count = count_c + 1`、
+   `wait = round_float(wait - atom_time)` 并**提前返回**。
+   否则继续读 `count_d`、`pressing_d`，`lying_d_count = count_d + 1`，
+   `count_d && count_d % 2 && pressing_d` 成立则
+   `lying_c_count = count_c + 1`（用的是**开头读到的** `count_c`，不是当前值）、
+   `wait = round_float(wait + atom_time)`。
+4. `leave`：**不调** `super.leave`（所以 `State_Base` 的 HealSelf 补 buff 分支
+   在 Lying 上永远不跑）。`dead_join && hp <= 0` 时依次：
+   `motionless = 30`、`invulnerable = 30`、
+   `hp = hp_r = hp_max = dead_join.hp ?? hp_max`（赋值链从右往左，`??` 只看
+   `null`/`undefined`——`0` 与 `NaN` 都会胜出）、
+   `team = dead_join.team ?? Team_1`、`reserve = dead_join.reserve ?? 0`、
+   `lfw.world.etc(position.x, position.y, position.z, "6")`、`outline_color = ""`、
+   `dead_join = null`、`wakeup_invuln = 1`；最后 `if (wakeup_invuln)` →
+   `blinking = lying_blink_time`、`invulnerable = lying_blink_time`。
+5. `find_frame_by_id` 钩子：
+   `hp <= 0 && position.y <= ground_y && state === StateEnum.Lying && !dead_join`
+   成立时返回 `e.frame`，否则 `undefined`。
+
+### 41.3 有意不覆盖 / 不可观测项
+- `set_invulnerable(30)` 必定被紧随其后的 wakeup 块覆盖（同一个块把
+  `wakeup_invuln` 置 `1`，所以那个 `if` 必跑），因此这次写入的**取值**不可观测。
+- `set_hp_max` / `set_hp_r` / `set_hp` 三次写同一个值且都静默 → 写序不可观测
+  （变异打在各自的**值**上）。
+- `player_teams` 是 `Set`：插入顺序与去重不可观测；`Set.has` 的 SameValueZero
+  与 `strict_equals` 只在 `NaN` 上不同（用例不喂 NaN team）。
+- `truthy(count_a) && count_a % 2` 的前半边在计数为 `0` 时与后半边等价
+  （`0 % 2 === 0`）→ 原理上不可杀。
+- `on_dead` 里空的 `else if (dead_join)` 分支没有可变异实体，只变异了**分支顺序**。
+- 两个 harness 的 fake 都是**原样存储**：不做真 Entity 的
+  `round_float` / `max(0, v)` 归一化（`blinking` / `invulnerable` / `reserve` /
+  `toughness`），那部分归 Entity 切片。
+- ⚠️ **用例教训**（本片实测踩过）：`pressing_d` 这类「按键松开」场景必须让
+  **另一个**键的计数为偶数，否则攻击分支会先 `return`、把后续判断整段短路，
+  变异就永远看不到差异（第一版因此漏杀 3 条）。
+- ⚠️ `round_float` 是否取整只有在 `atom_time` 非整数时才可观测，
+  用例专门保留 `atom_time n 1.2345` 一档。
+
+### 41.4 harness 观察点
+- 一对 harness `character_state_lying.{cpp,ts}`；`env state` 是构造参数，
+  `env estate` 是**实体自身**的 state（`find_frame_by_id` 要比它）；
+  `env held s "..."` 给出按住的键（`is_end(key)` 为真表示**未**按住）。
+- 输入与覆盖面见 `PROTOCOL.md` §6.9.93。
+- 状态文本很长，一次锁住所有静默写入：
+  `pos= hp=/<hp_r>/<hp_max> team= tough=/<max> trest= la= ld= lc= wait= holding= holdteam=
+   deadjoin= deadgone= reserve= wakeup= motionless= invul= blink= outline= frameid= gy=`；
+  `run make|default` 额外打 `s=`；`run findframe` 额外打 `r=`。

@@ -2548,3 +2548,57 @@ harness op：
     （`fall 3 / fallmax 9 / defend 4 / defmax 8 / rest 5 / restmax 7 / finj 6 / tinj 2`），
     状态文本一次锁住「都恢复成 max」与「inj 归零」，写错字段/写错 max 都会露。
 11. `super.leave` 的 HealSelf 分支不在本片（`state 12`），`state_base/main` 负责。
+
+### 6.9.93 `character_state_lying`（差分 235 行，变异 84/84 全杀）
+
+harness op：
+
+- `env state` 是**构造参数**，`env estate` 是**实体自身**的 state；
+  其余
+  `pos|gy|frameid|hp|hpr|hpmax|holdtype|holdteam|team|tough|tmax|trest|la|ld|lc|wait|dvals|deadjoin|deadgone|reserve|wakeup|motionless|invul|blink|outline|puppets|held`
+  （值字面量）、`env holding <真值>`。
+- `run make|default|enter|update|leave|dead|findframe`
+  （`dead` 直接调 `on_dead` 钩子，`findframe` 直接调 `find_frame_by_id` 钩子）。
+
+输出：`run make|default` 带 `s=`；`run findframe` 带 `r=`；状态文本
+`pos= hp=/<hp_r>/<hp_max> team= tough=/<max> trest= la= ld= lc= wait= holding= holdteam=
+deadjoin= deadgone= reserve= wakeup= motionless= invul= blink= outline= frameid= gy=`；
+日志逐条打缝调用（`ctrl_reset_key_list`、`ctrl_is_end:<键>`、`drop_holding`、
+`holding_set_team:<值>`、`world_dataset:<键>`、`blink_and_respawn` / `blink_and_gone`、
+`world_etc:x:y:z:kind`、`handle_ground_velocity_decay:<factor>`）。
+
+覆盖面（杀掉全部 84 条变异的关键）：
+
+1. **`enter` 的持有物三档**：无持有物（不下发 `holding_set_team`）、轻武器
+   （`drop_holding` 但保留队伍）、重武器（`base_type n 2` → 下发
+   `holding_set_team:<team>`）、未知类型（`holdtype u`）。
+2. **`on_dead` 的六个场面**：无 reserve / 无 join / 无 gone（什么都不做）；
+   `reserve n 2` + 队伍命中傀儡（`blink_and_respawn(gone_blink_time)`）；
+   `reserve n 1`（递减到 0 → **不**复活）；`dead_join` 挡住 `dead_gone`；
+   `dead_gone n 1` 走 `blink_and_gone`；`puppets a 2 s "1" s "2"` 证明队伍是
+   在**所有**傀儡里找的；`puppets a 0` 证明空集合永远不命中；
+   `env reserve s "3"` 证明 `--` 是数值语义。
+3. **`run dead` 独立一档**：脱离 `enter` 的 hp 门，单独锁 `on_dead` 的三段分支
+   （外加 `reserve n 1` + 命中队伍这一档，用来杀「递减写成 `+1` / 不递减」）。
+4. **`update` 要有「另一键偶数」的上下文**：攻击分支会提前 `return`，
+   所以测「松开防御键」的场景必须让 `env la n 2`（偶数），否则整段被短路
+   （本片第一版漏杀 3 条，实测修正）。
+5. **攻击分支五档**：奇数为真（`la n 1`）、偶数跳过（`la n 2`）、负奇数
+   （`la n -3`，锁 `truthy(fmod)` 而不是 `== 1`）、小数（`la n 1.5`）、
+   字符串（`la s "3"` → 记数变成 `"31"`，锁 `js_add`）；外加 `wait n 0` 与
+   `wait u`（都挡住攻击分支但继续走防御分支，锁 `>` 与 NaN）。
+6. **防御分支四档**：奇数生效（`ld n 3`）、偶数跳过、`ld n -3`（锁 `truthy(fmod)`）、
+   `ld u`（NaN 不生效）、松开键时不动 `wait`（锁 `pressing_d`）；
+   另有一档 `atom_time n 1.2345`，用来锁 `round_float(wait + atom_time)`
+   （整数 `atom_time` 下「取不取整」不可观测）。
+7. **`leave` 七档**：无 join；`wakeup_invuln n 1`（刷 blink/invul）；
+   `wakeup_invuln n 0`（什么都不做）；join 有 hp（`hp = hp_r = hp_max = join.hp`，
+   顺手锁 `team` / `reserve` 的 `??` 兜底与 `world_etc(...,"6")` / 清 `outline` /
+   清 `dead_join` / 置 `wakeup_invuln`）；**`join.hp n 0`**（`0` 不是 nullish →
+   胜出，hp 三连变 0，锁 `??` 与 `||` 的区别）；`join.hp u` 与 `join.hp z`
+   （都回退到 `hp_max`）；实体还活着（`hp n 1`）时整段跳过；`dead_join z` 同理。
+8. **`findframe` 六档**：四个条件各来一档反例（`hp u` / `pos.y n 1` 高于地面 /
+   `estate n 3` / `dead_join` 有值），外加全绿的一档（`r={"id":s"F0"}`）。
+9. `env state` 与 `env estate` 必须分开：前者是构造参数，后者才是
+   `find_frame_by_id` 里 `e.state === StateEnum.Lying` 的比较对象
+   （第一版把两者混用，`findframe` 的绿档其实一直返回 `u`）。

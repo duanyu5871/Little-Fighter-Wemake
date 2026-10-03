@@ -127,6 +127,33 @@ class IStateEntity : public buff::IBuffEntity {
   virtual void set_resting(const Value& v) { (void)v; }
   virtual void set_throwinjury(const Value& v) { (void)v; }
   virtual Value data_indexes_critical_hit() const { return Value(); }
+  virtual Value lying_a_count() const { return Value(); }
+  virtual void set_lying_a_count(const Value& v) { (void)v; }
+  virtual Value lying_d_count() const { return Value(); }
+  virtual void set_lying_d_count(const Value& v) { (void)v; }
+  virtual Value lying_c_count() const { return Value(); }
+  virtual void set_lying_c_count(const Value& v) { (void)v; }
+  virtual Value toughness_max() const { return Value(); }
+  virtual void set_toughness_resting(const Value& v) { (void)v; }
+  virtual void set_hp_max(const Value& v) { (void)v; }
+  virtual Value dead_join() const { return Value(); }
+  virtual void set_dead_join(const Value& v) { (void)v; }
+  virtual Value dead_gone() const { return Value(); }
+  virtual Value reserve() const { return Value(); }
+  virtual void set_reserve(const Value& v) { (void)v; }
+  virtual Value wakeup_invuln() const { return Value(); }
+  virtual void set_wakeup_invuln(const Value& v) { (void)v; }
+  virtual void set_invulnerable(const Value& v) { (void)v; }
+  virtual void set_blinking(const Value& v) { (void)v; }
+  virtual void blink_and_respawn(const Value& duration) { (void)duration; }
+  virtual void blink_and_gone(const Value& duration) { (void)duration; }
+  virtual Value world_puppets() const { return Value(); }
+  virtual void world_etc(double x, double y, double z, const std::u16string& kind) {
+    (void)x;
+    (void)y;
+    (void)z;
+    (void)kind;
+  }
   virtual bool holding_is_weapon() const { return false; }
   virtual double handle_wait_flag(const Value& wait, const Value& frame) {
     (void)wait;
