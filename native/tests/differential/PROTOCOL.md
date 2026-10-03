@@ -337,6 +337,11 @@ node native/tools/mutate.mjs native/tests/differential/mutations/<subject>.mjs
 
 存活（`SURVIVED`）意味着**用例没有鉴别力**，要补边界用例，而不是放过。
 
+⚠️ Windows 上「应用变异」与「还原」这两次写入紧跟在 `build` 之后，
+偶尔会撞上编辑器/索引器的**短暂文件锁**（`EBUSY`/`EPERM`）。
+运行器对这两处写入做了 50 × 100ms 的退避重试（`writeWithRetry`），
+重试仍失败才会退出。
+
 ### 6.2 `json5`（`JSON5.parse`，12 条全杀）
 
 | 变异 | 抓它的用例 |
@@ -2425,3 +2430,36 @@ harness op：
    `dropping b 1` 进 `update`，用来看 `set_dropping(false)`；
    `nf` 缺失时只留 `find_align_frame` 日志，用来看 `set_dropping` 与
    `enter_frame` 都在 `if (nf)` 里面。
+
+### 6.9.90 `burning_drink`（差分 149 行，变异 38/38 全杀）
+
+harness op：
+
+- `env cls s "burning"|"drink"`、`env state`（构造参数）、
+  `env data|indexes|frames|onlanding|wdata|vstate|hbtype|hpmax|mp|mpmax|pos|vx|vy|vz|facing|bounced|holdhp|holdhpr|drink|mtrange|vel`
+  （值字面量）、`env hp|hpr <裸数字>`、`env catcher|onground|holding <真值>`。
+- `run make|default|enter|update|leave|landing`。
+
+输出：`run make|default` 带 `s=`（构造参数）；状态文本
+`hp= hpr= hpmax= mp= mpmax= state= bounced= facing= holding= hhp= hhpr= drink=<快照> pos=[…]`。
+
+覆盖面（杀掉全部 38 条变异的关键）：
+
+1. **两条路线用同一个 `cls` 开关**：`burning` 走 `State_Burning` 的代理分派，
+   `drink` 走 `CharacterState_Drink` 的 update。
+2. **Burning 要把四种 data 都跑一遍**：Fighter=8（`CharacterState_Burning`）、
+   Weapon=16（`WeaponState_Base` 的 landing）、Ball=32（`BallState_Base` 的 enter，
+   需 `vstate n 3001`）、其它=4（裸 `State_Base`）。
+3. **Fighter 的 landing 要五档**：`on_landing` 帧优先、y 阈值下弹跳、
+   `bounced` 挡住弹跳、x 速度分支（跳过第一条 dataset 读取）、y 恰好等于阈值（`<=` 闭区间）。
+4. **`indexes.bouncing` 是 `{"-1":[_, id]}`**，`id` 在 `[1]`；`lying` 是 `{"-1": id}`。
+   两个索引形状都必须是**字符串**帧 id，否则 C++ 的 `to_string` 与 TS 原样渲染会打架。
+5. **Drink 的 `drink` 用对象字面量构造真 `DrinkInfo`**，状态文本直接打 `to_snapshot()`，
+   连三个 `Times` 的内部状态一起锁住（`drink_stiffness` 已验证过快照渲染一致）。
+6. **tick 门控要三套**（hp / hp_r / mp 各一个 `*_ticks n 2` 的场景）：
+   `add()` 第一次 false、第二次 true，否则「删掉 `add()`」的变异不可观测。
+7. **三段钳制各要一个错位场景**：hp 用 `hp_max`、hp_r 也用 `hp_max`（原文如此）、
+   mp 用 `mp_max`；`hp_max u` 场景让 NaN 传播可见。
+8. **「单段为空」与「全空」都要有**：全空场景锁掉罐子 + `mt.range(-6,6)/2`
+   的日志（含参数与商），单段为空场景锁住 `&&` 链不提前触发。
+9. `env hpmax|mp|mpmax` 是 Value 字面量而不是裸数字，才能表达 `u`（NaN 场景）。

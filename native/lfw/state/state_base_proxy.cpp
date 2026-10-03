@@ -63,9 +63,14 @@ void sf_on_landing(IStateEntity& e, const Value& velocity) {
 
 }
 
-StateBase_Proxy::StateBase_Proxy(Value state)
+StateBase_Proxy::StateBase_Proxy(Value state) : StateBase_Proxy(state, nullptr) {}
+
+StateBase_Proxy::StateBase_Proxy(Value state,
+                                 std::unique_ptr<CharacterState_Base> character_proxy)
     : State_Base(state),
-      _character_proxy(state),
+      _character_proxy(character_proxy != nullptr
+                           ? std::move(character_proxy)
+                           : std::make_unique<CharacterState_Base>(state)),
       _weapon_proxy(state),
       _ball_proxy(state),
       _proxy(state) {
@@ -118,7 +123,7 @@ StateBase_Proxy::StateBase_Proxy(Value state)
 
 State_Base& StateBase_Proxy::get_proxy(IStateEntity& e) {
   const Value data = e.data();
-  if (entity::is_fighter_data(data)) return _character_proxy;
+  if (entity::is_fighter_data(data)) return *_character_proxy;
   if (entity::is_weapon_data(data)) return _weapon_proxy;
   if (entity::is_ball_data(data)) return _ball_proxy;
   return _proxy;

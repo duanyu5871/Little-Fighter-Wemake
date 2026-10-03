@@ -4016,3 +4016,67 @@ virtual double ctrl_lr() const { return 0; }
 - ⚠️ `nf` 为 `undefined` 的落地组合**故意不覆盖**：
   `enter_frame_by_id` 在 C++ 是 `std::u16string` 形参，会把 `undefined` 渲染成
   字符串 `"undefined"`，与 TS 的 `u` 不同（属工具边界，不是语义差异）。
+
+## 38. 切片 5：`state/CharacterState_Drink` + `state/State_Burning`
+
+`native/lfw/state/character_state_drink.{h,cpp}`（对应
+`src/LFW/state/CharacterState_Drink.ts`）与 `native/lfw/state/state_burning.{h,cpp}`
+（对应 `src/LFW/state/State_Burning.ts`）。
+
+### 38.1 单元边界（`StateBase_Proxy` 的代理注入）
+TS 的 `StateBase_Proxy` 构造器可以注入四个代理，`State_Burning` 注入了
+`new CharacterState_Burning()` 作为 character 代理（其余三个用默认值）。
+§36 的端口当时把四个成员**按值**持有并统一用 `state` 构造，无法表达这个需求，
+所以本片给 `StateBase_Proxy` 补了一个重载：
+
+```cpp
+StateBase_Proxy(Value state, std::unique_ptr<CharacterState_Base> character_proxy);
+```
+
+`_character_proxy` 由 `CharacterState_Base` 值成员改成 `std::unique_ptr`，
+以保住多态（`CharacterState_Burning` 覆写了 `update`/`leave`）。
+单参构造器委托给双参版本（传 `nullptr` 时按 `state` 默认构造）。
+`State_15` / `State_Frozen` / 既有 `state_base_proxy` 用例的语义不受影响。
+
+`IStateEntity` 补 5 个带默认实现的虚函数：
+`hp_max` / `holding_drink`（返回 `DrinkInfo*`）/ `holding_set_hp` /
+`holding_set_hp_r` / `holding_set_velocity` / `holding_mt_range`
+（`has_holding` 复用 6u 的缝）。
+
+### 38.2 保真要点
+1. **`State_Burning` 只做三件事**：默认 state 取 `StateEnum.Burning`（18）、
+   把 `CharacterState_Burning` 注入代理、其余三个代理留给基类默认。
+   `state` 参数仍可覆写（构造函数默认实参）。
+2. **分派即代理的全部行为**：Fighter（`data.type = 8`）→ `CharacterState_Burning`、
+   Weapon（16）→ `WeaponState_Base(state)`、Ball（32）→ `BallState_Base(state)`、
+   其它 → 裸 `State_Base(state)`。端口用 `entity::is_*_data(data)`（读 `e.data`），
+   与 `is_fighter(e)`（读 `v.data`）的区别见 §36.2 第 4 条。
+3. **`CharacterState_Drink.update` 照抄原文的四段结构**：
+   - `super.update`（地面速度衰减）永远先跑；
+   - `holding` / `drink` 两层守卫，缺一即返回；
+   - 三个 `*_empty` 是**先解构再分支**（`hp_h_empty = hp_h >= hp_h_total || !hp_h_value`）；
+   - 三段恢复各自的 `add()` 门控 + `min(…, current + value)` 钳制，
+     随后累加 `drink.*_h`；
+   - **三段都空**才掉罐子：`drop_holding` → `enter_frame(NEXT_FRAME_AUTO)` →
+     `holding.hp_r = 1`、`holding.hp = 1`（赋值链从右到左）→
+     `mt.range(-6, 6) / 2` → `holding.set_velocity(vx, 6, 0)`。
+4. **hp_r 的钳制也用 `e.hp_max`**（TS 原文如此，没有独立的 `hp_r_max`），端口照抄。
+5. **类型边界**：`drink.*_value` 在 TS 是 `number`，`e.hp + value` 的 `+` 在
+   字符串输入下会变成拼接；端口按数值相加（`to_number`），
+   用例只喂数字（已写进变异规格头注）。
+6. **两处有意不移植**（写进变异规格头注）：
+   - `holding.lfw.mt.mark = "drink_drop"` 是 MT 的调试探针，C++ MT 端口没有 `mark`；
+   - `holding.hp = holding.hp_r = 1` 的**赋值顺序**不可观测（两个缝都静默，
+     终值又相同）。
+7. `mt.range(-6, 6)` 的结果由缝注入（`holding_mt_range` 打日志并返回注入值）；
+   真 MT 流由 `mersenne_twister` 单元负责，本片只锁参数与后续算术。
+
+### 38.3 harness 观察点
+- 一对 harness `burning_drink.{cpp,ts}`；`env cls` 选类。
+- 输入与覆盖面见 `PROTOCOL.md` §6.9.90。
+- 状态文本 `hp= hpr= hpmax= mp= mpmax= state= bounced= facing= holding= hhp= hhpr= drink=<快照> pos=[…]`；
+  `run make|default` 额外打 `s=`。
+- ⚠️ `indexes.bouncing` 的索引形状是 `{"-1":[_, id]}`、`lying` 是 `{"-1": id}`，
+  参与 `enter_frame_by_id` 的值必须是**字符串**（否则撞 §37.3 的 `to_string` 差异）。
+- ⚠️ `env drink` 直接构造真 `DrinkInfo`，状态文本打 `to_snapshot()` ——
+  三个 `Times` 的内部状态因此全部可观测（`add()` 是否被调用也不例外）。

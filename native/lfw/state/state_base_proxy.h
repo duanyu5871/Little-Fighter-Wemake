@@ -1,5 +1,6 @@
 #pragma once
 
+#include <memory>
 #include <utility>
 
 #include "lfw/core/value.h"
@@ -15,13 +16,14 @@ namespace state {
 class StateBase_Proxy : public State_Base {
  public:
   explicit StateBase_Proxy(Value state);
+  StateBase_Proxy(Value state, std::unique_ptr<CharacterState_Base> character_proxy);
   State_Base& get_proxy(IStateEntity& e);
   void update(IStateEntity& e) override;
   void leave(IStateEntity& e, const Value& next_frame) override;
   void on_restrict(IStateEntity& e, double x, double y, double z) override;
 
  private:
-  CharacterState_Base _character_proxy;
+  std::unique_ptr<CharacterState_Base> _character_proxy;
   WeaponState_Base _weapon_proxy;
   BallState_Base _ball_proxy;
   State_Base _proxy;

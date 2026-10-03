@@ -126,6 +126,8 @@ add_library(lfw_core STATIC
   state/weapon_state_base.cpp
   state/state_base_proxy.cpp
   state/weapon_state_misc.cpp
+  state/character_state_drink.cpp
+  state/state_burning.cpp
 )
 
 target_include_directories(lfw_core PUBLIC

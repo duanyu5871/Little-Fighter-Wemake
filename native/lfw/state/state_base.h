@@ -7,6 +7,7 @@
 
 #include "lfw/buff/buff.h"
 #include "lfw/core/value.h"
+#include "lfw/entity/drink_info.h"
 
 namespace lfw {
 namespace state {
@@ -15,9 +16,23 @@ class IStateEntity : public buff::IBuffEntity {
  public:
   virtual Value velocity_x() const = 0;
   virtual Value velocity_z() const = 0;
+  virtual Value hp_max() const { return Value(); }
   virtual Value facing() const { return Value(); }
   virtual Value holding_base_type() const { return Value(); }
   virtual bool has_holding() const { return false; }
+  virtual DrinkInfo* holding_drink() const { return nullptr; }
+  virtual void holding_set_hp(const Value& v) { (void)v; }
+  virtual void holding_set_hp_r(const Value& v) { (void)v; }
+  virtual void holding_set_velocity(const Value& x, const Value& y, const Value& z) {
+    (void)x;
+    (void)y;
+    (void)z;
+  }
+  virtual Value holding_mt_range(double lo, double hi) {
+    (void)lo;
+    (void)hi;
+    return Value();
+  }
   virtual Value fall_value() const { return Value(); }
   virtual Value fall_value_max() const { return Value(); }
   virtual void set_fall_value(const Value& v) { (void)v; }

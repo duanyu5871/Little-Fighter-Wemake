@@ -62,8 +62,22 @@ for (const m of mutations) {
   }
 }
 
+// Windows 上刚编译完的源文件偶尔会被外部进程（编辑器/索引器）短暂占用；
+// 这两处写入正落在 build 之后，所以对 EBUSY/EPERM 做一次退避重试。
+function writeWithRetry(file, text) {
+  for (let attempt = 0; attempt < 50; ++attempt) {
+    try {
+      writeFileSync(file, text);
+      return;
+    } catch (e) {
+      if ((e.code !== "EBUSY" && e.code !== "EPERM") || attempt === 49) throw e;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
+    }
+  }
+}
+
 function restoreAll() {
-  for (const [file, text] of originals) writeFileSync(file, text);
+  for (const [file, text] of originals) writeWithRetry(file, text);
 }
 
 function backupDir() {
@@ -117,7 +131,7 @@ const startedAt = Date.now();
 for (const m of mutations) {
   const file = resolve(root, m.file);
   const text = originals.get(file);
-  writeFileSync(file, text.replace(m.from, m.to));
+  writeWithRetry(file, text.replace(m.from, m.to));
 
   const t0 = Date.now();
   const built = run(["build", subject]);
