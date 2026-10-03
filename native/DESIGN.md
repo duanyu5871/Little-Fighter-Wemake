@@ -4312,3 +4312,63 @@ StateBase_Proxy(Value state, std::unique_ptr<CharacterState_Base> character_prox
   `pos= hp=/<hp_r>/<hp_max> team= tough=/<max> trest= la= ld= lc= wait= holding= holdteam=
    deadjoin= deadgone= reserve= wakeup= motionless= invul= blink= outline= frameid= gy=`；
   `run make|default` 额外打 `s=`；`run findframe` 额外打 `r=`。
+
+## 42. 切片 8：`state/States` 注册表 + `ENTITY_STATES` 装配
+
+`native/lfw/state/states.{h,cpp}`（对应 `src/LFW/state/States.ts`）、
+`native/lfw/state/entity_states.{h,cpp}`（对应 `src/LFW/state/ENTITY_STATES.ts`）与
+`native/lfw/state/state_names.h`（C++ 侧的 `constructor.name` 替身）。
+
+### 42.1 单元边界（为什么需要 `state_names.h`）
+TS 把每个状态按 `value.state` 塞进 `Map`，靠 `constructor.name` 区分实现类。
+端口这边 **RTTI 是关掉的**（编译参数 `/GR-`），`typeid` 不可用，所以：
+
+- `state_name_of<T>` 为每个可注册类给出**显式名字**（主模板故意不定义，
+  漏一个类就编译不过）；
+- `state_name_u16<T>()` 把纯 ASCII 名字逐字节加宽成 `std::u16string`；
+- `States::add<T>(args...)` / `States::make<T>(key, args...)` 在构造时用**模板实参**
+  取名字，所以「名字」与「真正 new 出来的类」不可能对不上（不存在手写字符串写错类的事）。
+
+`States` 的条目是 `{Value key, unique_ptr<State_Base> state, u16string class_name}`，
+另有一张 `map<u16string, size_t>` 做索引。
+
+### 42.2 保真要点
+1. **JS `Map` 的键语义**：数字键与字符串键**互不相同**（`0` ≠ `"0"`），
+   端口把键编码成 `"n:<值>"` / `"s:<值>"` 再查表；
+   `-0` 与 `0` 在 JS 里是同一个键（SameValueZero），`to_string(-0)` 也是 `"0"`，
+   所以这一点天然一致。
+2. **插入顺序即遍历顺序**：`set` 命中已有键时**只换值、不挪位置**
+   （JS `Map` 语义；TS 原文在这里打 `debugger`，端口留注释说明这是接线 bug 的信号，
+   行为上仍然覆盖并保留原位置）。`entries()` 按插入顺序返回，
+   harness 的 `head`/`tail`/`dump` 直接观察顺序。
+3. `add<T>(args...)` 用 **`value.state` 当键**（对应 TS `add(...values)`）；
+   `make<T>(key, args...)` 是显式键版本，供 `set_in_range` / `set_all_of` / `fallback` 使用
+   ——这条区分是必须的：`fallback` 的缓存键是**字符串** `` `${type}_${code}` ``，
+   不是状态自身的数值。
+4. `set_in_range(from, to)` **闭区间**（`for (key = from; key <= to; ++key)`），
+   `set_all_of(keys)` 逐个建；两者的 `state` 都取当前键。
+5. `fallback(type, code)`：先按字符串键查缓存，命中即返回**同一实例**；
+   否则按 `switch (type)`（`===` 严格比较）分派——
+   Fighter(8) → `CharacterState_Base`、Weapon(16) → `WeaponState_Base`、
+   Ball(32) → `BallState_Base`、其它 → `State_Base`，状态值取 `code`，
+   并以那个字符串键缓存（后续同键调用直接命中）。
+6. `ENTITY_STATES` 的装配顺序与 TS 逐条对应：
+   `TransformTo_Min..Max`（8001..8999，**999** 条）→ 7 个球的 `StateBase_Proxy` →
+   34 条具名条目（武器 7 + 重型武器 4 + 三个基类 + 21 个角色/杂项状态）→ 共 **1040** 条。
+
+### 42.3 有意不覆盖 / 不可观测项
+- TS 的 `debugger;`：只有挂了调试器才有副作用，端口按注释处理，不改语义。
+- `States.get` 的键类型只支持 `Value`；JS 允许对象当键（按引用相等），
+  游戏代码里没有这种用法，端口不做（harness 只探 `n/s/b/z/u` 五种键形状）。
+- `States.has` 目前**还没被游戏代码调用**，所以 harness 专门加了 `run has`
+  一处观察点，否则它的变异不可杀。
+- `class_name` 只是**观察点**（给差分测试比对「哪个类接了这个状态号」），
+  游戏逻辑不读它。
+
+### 42.4 harness 观察点
+- 一对 harness `entity_states.{cpp,ts}`；TS 侧直接用真 `ENTITY_STATES`
+  （`map` 是公开字段）与真 `States`。
+- 输入与覆盖面见 `PROTOCOL.md` §6.9.94。
+- 输出：`run size` → `n=<条数>`；`run dump|head|tail` → 逐条
+  `k=<键> cls=<类名> s=<状态值>`；`run get <键> | has <键>` → `r=`/`has=`；
+  `run fallback|fallback2` → `r=`/`s=` 与 `same=b0|b1`（同一实例判定）。

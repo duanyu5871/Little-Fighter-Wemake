@@ -2602,3 +2602,44 @@ deadjoin= deadgone= reserve= wakeup= motionless= invul= blink= outline= frameid=
 9. `env state` 与 `env estate` 必须分开：前者是构造参数，后者才是
    `find_frame_by_id` 里 `e.state === StateEnum.Lying` 的比较对象
    （第一版把两者混用，`findframe` 的绿档其实一直返回 `u`）。
+
+### 6.9.94 `entity_states`（差分 1127 行，变异 49/49 全杀）
+
+harness op：
+
+- `env type <值字面量>` + `env code <裸数字>`（喂 `run fallback`）。
+- `run size | dump | head | tail | get <键字面量> | has <键字面量> | fallback | fallback2 | setdup`。
+
+输出：
+
+- `run size || n=<条数>`；
+- `run dump | head | tail ||` 后跟若干行 `k=<键> cls=<类名> s=<状态值>`
+  （`dump` 打**全部 1040 条**，逐条比对整张表；`head` 打前 2 条、`tail` 打后 2 条，
+  用来便宜地观察「重设键是否挪位置」）；
+- `run get <键> || r=<类名|none> s=<状态值|none>`、`run has <键> || has=b0|b1`；
+- `run fallback | fallback2 || [same=b0|b1] r=… s=…`（`fallback2` 连调两次，
+  `same` 直接反映「命中缓存返回同一实例」）；
+- `run setdup ||`（对已存在的数字键 `0` 重新 `set` 成另一个类）。
+
+覆盖面（杀掉全部 49 条变异的关键）：
+
+1. **`dump` 把整张表打出来**：键、类名、状态值三列一次锁死接线
+   （任何一条「A 状态被换成 B 状态」的变异都会在这里露出来）。
+2. **数字键 ≠ 字符串键**：`run get n 0` 命中 `CharacterState_Standing`，
+   而 `run get s "0"` 必须是 `none`；`8001` / `"8001"`、`-1` / `"-1"` 同理；
+   `has` 也各来一遍。
+3. **非数字键**：`run get z / b 1 / u` 都是 `none`（键编码不能把它们和
+   `"0"`、`"undefined"` 混到一起）。
+4. **`fallback` 四路分派各来一档**：`8` → `CharacterState_Base`、
+   `16` → `WeaponState_Base`、`32` → `BallState_Base`、`23`（其它）→ `State_Base`；
+   另加 `u`（`String(undefined)` 造出 `"undefined_23"`）与 `s "8"`（字符串 type 走默认分支，
+   但**复用**数字 8 那次建好的 `"8_23"` 条目 → 条数不变，锁住「字符串键共享」）。
+5. **`fallback` 要连调两次**（`run fallback2`）才能锁「命中缓存返回同一实例」，
+   同时 `run size` 证明只新增一条。
+6. **`fallback` 的键是字符串而不是数值**：`type n 8 code 0` 之后
+   `get n 0` 仍是 `Standing`，`get s "8_0"` 才命中 `CharacterState_Base`。
+7. **`setdup` + `head`/`tail`/`size`**：对已存在的键重设只换值不挪位置
+   （`size` 不变、`tail` 依然以 `LandGoto94` 结尾、`get n 0` 的类名与状态值都变了）。
+8. **`set_all_of` / `set_in_range` 的规模**由 `size`（1040）与 `dump` 锁住：
+   少一条、多一条、边界差一（`TransformTo_Max`）都会露。
+9. `env type` 是**值字面量**（能表达 `u` / `s "8"`），`env code` 是裸数字。
