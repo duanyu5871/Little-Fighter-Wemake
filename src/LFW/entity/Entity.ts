@@ -82,6 +82,7 @@ export class Entity {
    */
   protected readonly copies = new Set<string>();
   protected readonly vrests = new Map<string, Collision>();
+  /* TODO: 我是否需要一个“物理引擎”来实现这个效果？ */
   readonly blockers = new Map<string, Collision>();
   readonly superpunchs = new Map<string, Collision>();
   readonly callbacks = new Callbacks<IEntityCallbacks>()
