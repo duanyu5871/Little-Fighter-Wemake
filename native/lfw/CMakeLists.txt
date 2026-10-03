@@ -8,6 +8,7 @@ add_library(lfw_core STATIC
   core/value.cpp
   fields.cpp
   ground.cpp
+  world_dataset.cpp
   transform.cpp
   defines/defines.cpp
   defines/labels.cpp

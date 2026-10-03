@@ -2643,3 +2643,46 @@ harness op：
 8. **`set_all_of` / `set_in_range` 的规模**由 `size`（1040）与 `dump` 锁住：
    少一条、多一条、边界差一（`TransformTo_Max`）都会露。
 9. `env type` 是**值字面量**（能表达 `u` / `s "8"`），`env code` 是裸数字。
+
+### 6.9.95 `world_dataset`（差分 65 行，变异 55/55 全杀）
+
+harness op：
+
+- `env pure <真值>`（`b 0|1`、`n 0|1`…，喂构造函数）、`env hook s "<键>"`（注册 `on_<键>_change`）。
+- `run make | default | keys | dump | get <键字面量> | has <键字面量> | tracked <键字面量> | set <键字面量> <值字面量>`。
+
+输出：
+
+- `run make || pure=b0|b1 keys=<键列表>`；
+- `run default || same=b1 keys=<键列表>`（`same` 判定懒加载单例是否是同一实例）；
+- `run keys || <逗号分隔的键列表>`、`run dump || {<排序后的整张表>}`（值带 `n<值>:<hexbits>` 形式）；
+- `run get <键> || <本次日志> | v=<值|u>`、`run has <键> || has=b0|b1`、
+  `run tracked <键> || tracked=b0|b1`；
+- `run set <键> <值> || <本次日志>`，日志项为
+  `field_change:<键>:<新值>:<旧值>` 与 `dataset_change:<键>:<新值>:<旧值>`（按发生顺序、逗号分隔，无通知则为空）。
+
+覆盖面（杀掉全部 55 条变异的关键）：
+
+1. **`run dump` 打整张 103 键表**：任何一条默认值写错（`-16.299999`、`794`、`450`、
+   `sync_render`/`difficulty` 的 `3`）、漏一条、多一条、写重一条都会在这里露出来；
+   排序按键序锁死（`GIM_INK`/`HERO_FT`/`LF2_NET`/`UPS` 在最前）。
+2. **`run keys` 区分两种托管形态**：非纯数据集被装了非枚举访问器 →
+   列表只有 `__is_world_dataset__`；纯数据集是普通可枚举字段 → 列表是全部 103 条加标记键之外的字段，
+   顺序与声明顺序一致（专门加了 `itr_fall`/`itr_shaking` 对调、`itr_fall` 丢一条/多一条、
+   末尾多一条这些变异来锁顺序与重数）。
+3. **`run tracked` / `run has` 三档交叉**：`jump_height`（在表里 → 托管 b1）、
+   `__is_world_dataset__`（在实例里但不在表里 → 存在 b1、托管 b0）、
+   `nope`（不存在 → 都不成立）；`run get nope` 必须是 `u` 而不是 `0`。
+4. **`set` 的通知顺序与参数**：第一个 `run set jump_height n 24.5` 先 `field_change` 后
+   `dataset_change`（顺序颠倒会被杀），两条日志的 `(curr, prev)` 与键名都被比对。
+5. **严格相等的静默**：同值重设、`u`→`u`、`0`→`-0`（`n0:0000000000000000` vs `n0:8000000000000000`）
+   都必须是空日志，同时 `run get` 证明值确实被保存下来了。
+6. **新键与未托管键**：`run set zz n 5` 之后 `run keys` 里出现 `zz`、`has=b1`、`tracked=b0`、
+   `get` 有值且日志为空；`run set __is_world_dataset__ b 0` 走「存在但不托管」那条路，
+   同样空日志但值变成 `b0`。
+7. **`pure` 数据集**：`run keys` 全量可枚举、`tracked gravity=b0`、`has gravity=b1`、
+   `has __is_world_dataset__=b0`，并且对它 `set`（含新键）完全静默（日志为空仍能读回新值）。
+8. **默认实例的持久性**：`run default` 两次都是 `same=b1`；
+   `run set jump_height n 12` 之后再 `run default` 仍读到 `n12`、`tracked=b1`。
+9. **`env hook` 只对指定键生效**：`jump_height` 之外（`gravity`/`screen_w`/`screen_h`/`difficulty`）
+   的 `set` 只有 `dataset_change` 一条日志，锁住「键钩子按名查找、整体回调对所有托管键生效」。

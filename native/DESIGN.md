@@ -4372,3 +4372,74 @@ TS 把每个状态按 `value.state` 塞进 `Map`，靠 `constructor.name` 区分
 - 输出：`run size` → `n=<条数>`；`run dump|head|tail` → 逐条
   `k=<键> cls=<类名> s=<状态值>`；`run get <键> | has <键>` → `r=`/`has=`；
   `run fallback|fallback2` → `r=`/`s=` 与 `same=b0|b1`（同一实例判定）。
+
+## 43. 切片 8b：`WorldDataset`（全局调参表 + 变更通知）
+
+`native/lfw/world_dataset.{h,cpp}`（对应 `src/LFW/WorldDataset.ts`）。
+
+### 43.1 单元边界（为什么是「键值表」而不是 103 个 C++ 字段）
+TS 侧 `WorldDataset` 有 103 个字段，但**所有已经移植过的调用点都按键取值**
+（如 `e.world_dataset(u"atom_time")`，见 `world_data.h` 的缝），并没有按 C++ 成员访问的用法。
+所以端口把实例建模成「有序键表」：
+
+- `_keys`：own 属性名顺序（构造顺序 = 默认字段声明顺序 + `__is_world_dataset__`）；
+- `_values`：`map<u16string, Value>`；
+- `_tracked`：被托管（装了 getter/setter）的键集合；
+- `_hooks`：`set_field_hook(key, fn)` 注册的 `on_<key>_change` 槽。
+
+`world_dataset_fields()`（`native/lfw/defines/fields_gen.h`）就是 TS 的
+`world_dataset_fields`（103 键），只用来判定托管关系与 `dump_dataset` 的键序。
+
+### 43.2 保真要点
+1. **默认值来源与顺序**：103 条按 TS 类字段**声明顺序**逐条抄写（顺序本身可观测：
+   `pure` 数据集与 `run keys` 直接按这个顺序打印）。其中
+   `screen_w = Defines.MODERN_SCREEN_WIDTH = 794`、`screen_h = MODERN_SCREEN_HEIGHT = 450`、
+   `sync_render = SyncRenderEnum.FPS_60 = 3`、`difficulty = Difficulty.Difficult = 3`、
+   `[CheatEnum.*]` 三个键分别是 `GIM_INK` / `HERO_FT` / `LF2_NET`（数值 0）。
+2. **`make_private_properties` 的语义**（TS `utils/make_private_properties.ts`）：
+   对每个「存在且非 `on_` / `_` 前缀、不是函数、且在 `world_dataset_fields` 里」的 own 字段，
+   用 `Object.defineProperty` 装 getter/setter（**默认非枚举**，所以 `Object.keys` 看不到它们）；
+   setter 里 `if (v === prev) return`（**严格相等**，故 `0` 与 `-0` 也等价），
+   否则先存值、再调 `on_<key>_change?.(v, prev)`、最后调
+   `on_dataset_change?.(key, v, prev)`——**顺序是先键钩子后整体回调**，两条都拿到 `(curr, prev)`。
+   端口用 `tracked(key) = !_pure && _tracked.find(key)` 复刻判定，
+   `set` 里对应 `strict_equals` 早退 → 存值 → 键钩子 → 整体回调。
+3. **`pure` 分支**：`new WorldDataset(true)` 整个跳过表驱动安装 → 字段是普通**可枚举**属性、
+   赋值不发通知，而且**没有 `__is_world_dataset__`**（`Object.assign(this, wdataset)` 也在 `!pure` 里）。
+4. **`__is_world_dataset__` 的顺序与身份**：TS 先装 getter/setter、后 `Object.assign`，
+   所以这个标记是**普通 own 属性**、位于 own 属性顺序**最后**、
+   并且**不在** `world_dataset_fields` 里（因此永远不被托管）；
+   端口在托管集合算完之后才 `emplace_back`，注释里写明了理由。
+5. **键的存在性两段语义**：`set` 分两条路——
+   键**根本不存在**（`_values` 里没有）→ 普通属性创建：追加到键序末尾、**不触发任何回调**；
+   键**存在但未被托管**（`__is_world_dataset__`、`pure` 数据集里的所有字段）→ 存值但不通知。
+   这两条都由 `run set` 的日志空白与随后 `run keys`/`run get` 交叉锁住。
+6. **`dump_dataset()`**：遍历 `world_dataset_fields()` 的键并**按 UTF-16 码元排序**
+   （JS 默认 `Array.prototype.sort` 就是字典序，与 `std::u16string` 的 `operator<` 等价，
+   所以 `GIM_INK`/`UPS` 这类大写键排在前面），逐键取当前值（表里有、实例没有则为 `undefined`）。
+   `renderValue` 按插入顺序渲染对象键，因此这一条同时锁死「键集合」与「排序」。
+   注意 `dump` **不包含** `zz` 这类运行期新键，也不包含 `__is_world_dataset__`。
+7. **默认实例**：`DEFAULT` 是懒加载单例（`new WorldDataset()`，非纯），
+   跨 `run default` 可写且可观察：先 `set` 再 `default` 仍能读回新值。
+
+### 43.3 有意不覆盖 / 不可观测项
+- `make_private_properties` 的 `_$_<key>` 备份属性、`on_<key>_change` 属性槽、
+  以及 `on_dataset_change` 本身都是**实例上的 own 属性**（会出现在 `Object.keys` 里）。
+  它们是该工具的实现细节（将来单独移植 `make_private_properties` 时再逐条锁），
+  端口把「字段集 + 两个回调槽」建模成数据，因此 harness 在 TS 侧把 `Object.keys`
+  归一化（丢掉 `on_*` 与 `_$_*` 前缀）。**这是 harness 约定，不是行为差异**，
+  已在变异表注释里记录。
+- 103 个默认字段**全部**存在于 `world_dataset_fields()`，
+  所以「构造时省略表归属判断」这一变异**与原实现等价**、原理上不可杀，
+  变异表里没有列它（托管判定仍由 `tracked`/`run tracked` 观察）。
+- `keys()`（完整 own 属性顺序）目前只服务 harness；游戏代码不枚举数据集实例，
+  正式导出路径是 `dump_dataset()`。
+- `pure()` 这类 C++ 侧便利访问器**没有**保留：TS 侧没有对应可观察属性，
+  留着只会变成不可观测的 API。
+
+### 43.4 harness 观察点
+- 一对 harness `world_dataset.{cpp,ts}`；TS 侧用真 `WorldDataset` 类与真 `WorldDataset.DEFAULT`。
+- 输入与覆盖面见 `PROTOCOL.md` §6.9.95。
+- 输出：`run make|default` → `pure=`/`same=`/`keys=`；
+  `run keys|dump` → 键列表 / 整张表；`run get|has|tracked` → `v=`/`has=`/`tracked=`；
+  `run set` → `field_change:<键>:<新值>:<旧值>` 与 `dataset_change:<键>:<新值>:<旧值>`（无通知则为空）。
