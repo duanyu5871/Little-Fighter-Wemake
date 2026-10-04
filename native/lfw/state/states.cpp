@@ -46,20 +46,20 @@ void States::set(const Value& key, std::unique_ptr<State_Base> value,
   _entries.push_back(Entry{key, std::move(value), std::move(class_name)});
 }
 
-State_Base& States::fallback(const Value& type, double code) {
-  const std::u16string state_key = to_string(type) + u"_" + to_string(Value(code));
+State_Base& States::fallback(const Value& type, const Value& code) {
+  const std::u16string state_key = to_string(type) + u"_" + to_string(code);
   const Value key(state_key);
   if (State_Base* hit = get(key)) return *hit;
   if (strict_equals(type, Value(static_cast<double>(EntityEnum::Fighter)))) {
-    return make<CharacterState_Base>(key, Value(code));
+    return make<CharacterState_Base>(key, code);
   }
   if (strict_equals(type, Value(static_cast<double>(EntityEnum::Weapon)))) {
-    return make<WeaponState_Base>(key, Value(code));
+    return make<WeaponState_Base>(key, code);
   }
   if (strict_equals(type, Value(static_cast<double>(EntityEnum::Ball)))) {
-    return make<BallState_Base>(key, Value(code));
+    return make<BallState_Base>(key, code);
   }
-  return make<State_Base>(key, Value(code));
+  return make<State_Base>(key, code);
 }
 
 }

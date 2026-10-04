@@ -6,11 +6,53 @@ import { summary_mgr } from "../../../../src/LFW/entity/SummaryMgr";
 import { State_Base } from "../../../../src/LFW/state/State_Base";
 import { States } from "../../../../src/LFW/state/States";
 import { WorldDataset } from "../../../../src/LFW/WorldDataset";
-import { parseValue, readCaseLines, renderValue, splitWs } from "./trace_util";
+import { MersenneTwister } from "../../../../src/LFW/utils/math/MersenneTwister";
+import { Ground } from "../../../../src/LFW/Ground";
+import { parseValue as parseValueRaw, readCaseLines, renderValue, splitWs } from "./trace_util";
 
 type Any = never;
 
 const r = (v: unknown): string => renderValue(v);
+
+// `nf.__judger`: the real loader (`preprocess_next_frame`) attaches a compiled
+// `Expression`.  The harness carries the marker in `__judge` (a plain key, so both
+// sides render it) and hangs a **non-enumerable** `__judger` next to it; the port
+// keeps the same plain key and answers through the host seam.
+const attachJudgers = (v: unknown): void => {
+  if (v === null || typeof v !== "object") return;
+  if (Array.isArray(v)) {
+    for (const item of v) attachJudgers(item);
+    return;
+  }
+  const o = v as Record<string, unknown>;
+  if (Object.prototype.hasOwnProperty.call(o, "__judge")) {
+    const marker = o.__judge;
+    Object.defineProperty(o, "__judger", {
+      enumerable: false,
+      value: {
+        run: (_e: unknown): unknown => {
+          log.push("judge:" + r(marker));
+          return marker;
+        },
+      },
+    });
+  }
+  for (const k of Object.keys(o)) attachJudgers(o[k]);
+};
+
+const parseValue = (t: string[], idx: number[]): unknown => {
+  const v = parseValueRaw(t, idx);
+  attachJudgers(v);
+  return v;
+};
+
+// `const enum` is erased at runtime, so the harness spells the four results out.
+const ENTER_FRAME_RESULT: Record<number, string> = {
+  0: "Gone",
+  1: "NotFound",
+  2: "Entered",
+  3: "Fallback",
+};
 
 const out: string[] = [];
 const log: string[] = [];
@@ -20,6 +62,9 @@ const log: string[] = [];
 // sides; `bg.data.dataset` is a plain layer like the port's `IEntityHost::bg_dataset`.
 const dataset = new WorldDataset();
 const bgDataset: Record<string, unknown> = Object.create(null);
+
+// `world.restrict` answer (`run restrict`); `undefined` means "no clamp".
+let restrictResult: unknown = undefined;
 
 class HumanController extends BaseController {
   readonly __is_human_ctrl__ = true;
@@ -37,6 +82,14 @@ const worldStub = {
   bg: { data: { dataset: bgDataset }, zoom_x: 1 },
   mark_players_alive: (_e: unknown, alive: boolean): void => {
     log.push("mark_players_alive:" + r(alive));
+  },
+  restrict: (e: Entity): unknown => {
+    if (restrictResult === undefined || restrictResult === null) return e.position;
+    const v = restrictResult as { x?: unknown; y?: unknown; z?: unknown };
+    return Ditto.vec3(Number(v.x ?? 0), Number(v.y ?? 0), Number(v.z ?? 0));
+  },
+  broadcast: (m: unknown): void => {
+    log.push("broadcast:" + r(m));
   },
   sounds: { play: (): void => undefined },
   entity_map: new Map<string, Any>(),
@@ -105,6 +158,10 @@ const relProbe = (): string =>
 
 const lfwStub = {
   players: new Map<string, Any>(),
+  mt: new MersenneTwister(0),
+  broadcast: (m: unknown): void => {
+    log.push("broadcast:" + r(m));
+  },
   datas: { find: (id: string): Any => dataTable.get(id) },
   get new_team(): string {
     return team;
@@ -121,10 +178,19 @@ const lfwStub = {
     release_ctrl: (c: BaseController | undefined): void => {
       log.push("release_ctrl:" + ctrlMark(c));
     },
+    create_ctrl: (id: string, pid: string, e: Entity): BaseController => {
+      log.push("create_ctrl:" + r(id) + ":" + r(pid));
+      return new BaseController("", e);
+    },
   },
 };
 
 (worldStub as unknown as { lfw: unknown }).lfw = lfwStub;
+
+// `Entity.set_position` reads the ground height through `world.ground.y(terrain, x, z)`;
+// `y` is a pure by-segment lookup, so the real `Ground` answers it and the case only has
+// to supply the terrain.
+(worldStub as unknown as { ground: unknown }).ground = new Ground(worldStub as never);
 
 // `Ditto.warn` is a console warning; the port drops it (no trace effect), so the stub
 // only has to exist.
@@ -140,6 +206,14 @@ Ditto.vec3 = (x = 0, y = 0, z = 0) => {  const v = { x, y, z } as { x: number; y
       v.x = nx;
       v.y = ny;
       v.z = nz;
+    },
+  });
+  Object.defineProperty(v, "copy", {
+    enumerable: false,
+    value: (src: { x: number; y: number; z: number }): void => {
+      v.x = src.x;
+      v.y = src.y;
+      v.z = src.z;
     },
   });
   return v as never;
@@ -170,6 +244,13 @@ const hooks = {
   sudden_value: undefined as unknown,
   caught: false,
   caught_value: undefined as unknown,
+  // `run hook view*`: the fake state drives the three `EntityStateView` forwards that
+  // nothing else in this subject reaches.  `view_busy` keeps a view-driven frame swap
+  // from re-entering the state and looping forever.
+  view_position: false,
+  view_frame: false,
+  view_enter: false,
+  view_busy: false,
 };
 
 const fid = (frame: unknown): string =>
@@ -192,10 +273,23 @@ class HarnessState extends State_Base {
       // The state touches the entity on entry so the setters stay observable.
       e.motionless = e.motionless;
       e.hp_r = e.hp_r;
+      if (!hooks.view_busy) {
+        hooks.view_busy = true;
+        if (hooks.view_position) e.set_position(1, 2, 3);
+        // a *different* frame object, so the swap is visible (`set_frame` reads `v.id`)
+        if (hooks.view_frame) {
+          e.set_frame({ ...(e.frame as Record<string, unknown>), id: "w2" } as never);
+        }
+        if (hooks.view_enter) e.enter_frame_by_id("auto");
+        hooks.view_busy = false;
+      }
     };
     this.on_dead = (e: Entity): void => {
       if (!hooks.dead) return;
       log.push(`state_on_dead:${e.id}:${r(e.hp_r)}`);
+    };
+    this.on_restrict = (e: Entity, x: number, y: number, z: number): void => {
+      log.push(`state_on_restrict:${e.id}:${r(x)}:${r(y)}:${r(z)}`);
     };
     this.get_gravity = (): unknown => (hooks.gravity ? hooks.gravity_value : undefined);
     this.find_frame_by_id = (_e: Entity, id: unknown): unknown =>
@@ -249,20 +343,22 @@ const makeCtrl = (kind: string): BaseController | undefined => {
   return new BaseController("", ent as never);
 };
 
-function bindCallbacks(e: Entity): void {
-  // The port reaches these through `IEntityHost`; here they are instance spies so the
-  // frame/opoint/sound side effects are logged instead of running (their own slices
-  // port them).
+// The host seams (`IEntityHost`) are shared by every entity on the port side, so the TS
+// side spies them on each instance it creates — the buddy included.
+function bindHostSpies(e: Entity): void {
   const spies = e as unknown as Record<string, unknown>;
-  spies.enter_frame = (nf: unknown): void => {
-    log.push("enter_frame:" + r(nf));
-  };
   spies.apply_opoints = (o: unknown): void => {
     log.push("apply_opoints:" + r(o));
   };
-  spies.play_sound = (s: unknown): void => {
-    log.push("play_sound:" + r(s));
+  // `play_sound(sounds, pos = this.position)`: the spy stands in for the real method,
+  // so it repeats that default parameter (the port passes the position explicitly).
+  spies.play_sound = (s: unknown, pos: unknown = (e as unknown as { position: unknown }).position): void => {
+    log.push("play_sound:" + r(s) + "@" + r(pos));
   };
+}
+
+function bindCallbacks(e: Entity): void {
+  bindHostSpies(e);
   const on = (key: string, fn: (...args: Any[]) => void): void => {
     (e.callbacks as unknown as { on: (k: string, f: unknown) => void }).on(key, fn);
   };
@@ -981,8 +1077,42 @@ function main(): void {
         out.push(
           `run keys ${r(lr)} ${r(ud)} ${r(jd)} || ${log.join(",")} | lr=${c.LR} ud=${c.UD} jd=${c.jd}`,
         );
+      } else if (what === "bkeys") {
+        // `keys` for the buddy: `follow_catcher` / `follow_bearer` scale one velocity
+        // term by the *other* entity's controller direction.
+        const lr = Number(t[i++]);
+        const ud = Number(t[i++]);
+        const jd = Number(t[i++]);
+        const c = makeCtrl("base")!;
+        const keys = (c as unknown as { keys: Record<string, { hit: (t?: number) => void }> })
+          .keys;
+        if (lr > 0) keys.R!.hit(1);
+        else if (lr < 0) keys.L!.hit(1);
+        if (ud > 0) keys.D!.hit(1);
+        else if (ud < 0) keys.U!.hit(1);
+        if (jd > 0) keys.j!.hit(1);
+        else if (jd < 0) keys.d!.hit(1);
+        if (buddy) buddy.ctrl = c;
+        out.push(
+          `run bkeys ${r(lr)} ${r(ud)} ${r(jd)} || ${log.join(",")} | lr=${c.LR} ud=${c.UD} jd=${c.jd}`,
+        );
       } else if (what === "buddy") {
+        // Replacing the buddy detaches every relation that pointed at the old one, so the
+        // two sides compare the same scene (the port would otherwise free it).
+        if (buddy) {
+          const a = ent as unknown as {
+            holding: unknown;
+            catching: unknown;
+            bearer: unknown;
+            catcher: unknown;
+          };
+          if (a.holding === buddy) a.holding = null;
+          if (a.catching === buddy) a.catching = null;
+          if (a.bearer === buddy) a.bearer = null;
+          if (a.catcher === buddy) a.catcher = null;
+        }
         buddy = new Entity(worldStub as never, parseValue(t, [i]) as never, states as never);
+        bindHostSpies(buddy);
         out.push(`run buddy || id=${buddy.id} | ${log.join(",")}`);
       } else if (what === "buddyset") {
         const name = t[i++]!;
@@ -1049,12 +1179,18 @@ function main(): void {
         );
       } else if (what === "summaries") {
         const m = summary_mgr as unknown as {
-          _items: Map<string, { hp_lost: number; mp_usage: number }>;
+          _items: Map<string, { hp_lost: number; mp_usage: number; picking_sum: number }>;
           _graves: unknown[];
         };
         let s = "";
-        for (const [id, sum] of m._items) s += ` ${id}:${r(sum.hp_lost)}/${r(sum.mp_usage)}`;
-        out.push(`run summaries || ${log.join(",")} | graves=${m._graves.length} items${s}`);
+        let picks = "";
+        for (const [id, sum] of m._items) {
+          s += ` ${id}:${r(sum.hp_lost)}/${r(sum.mp_usage)}`;
+          picks += ` ${id}:${r(sum.picking_sum)}`;
+        }
+        out.push(
+          `run summaries || ${log.join(",")} | graves=${m._graves.length} items${s} p${picks}`,
+        );
       } else if (what === "mark" || what === "delmark") {
         const idx = [i];
         const key = parseValue(t, idx);
@@ -1207,6 +1343,12 @@ function main(): void {
         } else if (sub === "caught") {
           hooks.caught = true;
           hooks.caught_value = parseValue(t, [i]);
+        } else if (sub === "viewpos") {
+          hooks.view_position = true;
+        } else if (sub === "viewframe") {
+          hooks.view_frame = true;
+        } else if (sub === "viewenter") {
+          hooks.view_enter = true;
         } else if (sub === "none") {
           hooks.dead = false;
           hooks.gravity = false;
@@ -1215,6 +1357,9 @@ function main(): void {
           hooks.auto_frame = false;
           hooks.sudden = false;
           hooks.caught = false;
+          hooks.view_position = false;
+          hooks.view_frame = false;
+          hooks.view_enter = false;
         } else {
           process.stderr.write(`unknown hook '${sub}'\n`);
           process.exit(2);
@@ -1247,8 +1392,22 @@ function main(): void {
           const rest = parseValue(t, idx);
           head += ` ${r(kind)} ${r(rest)}`;
           // The port builds its `Collision` struct directly; only `aid`, `itr.kind`
-          // and `rest` are read by the three v_rest entry points.
-          ent!.add_v_rest({ aid, itr: { kind }, rest: Number(rest) } as never);
+          // and `rest` are read by the three v_rest entry points.  `drop_holding` hands
+          // the record to `collision_clone`, which mints an id from `src.lfw`; that id is
+          // never read (nothing keys on `Collision.id`), so the stub keeps the *real* id
+          // counter untouched and the port copies the record as-is (DESIGN §52.4).
+          const entry = { aid, itr: { kind }, rest: Number(rest) } as Record<string, unknown>;
+          let cloneIds = 0;
+          Object.defineProperty(entry, "lfw", {
+            enumerable: false,
+            value: {
+              get new_id(): string {
+                cloneIds += 1;
+                return "clone" + cloneIds;
+              },
+            },
+          });
+          ent!.add_v_rest(entry as never);
         } else if (what === "vrestdel") {
           ent!.del_v_rest(aid);
         }
@@ -1261,6 +1420,44 @@ function main(): void {
           `${head} || ${log.join(",")} | n=${sizes.vrests.size} b=${sizes.blockers.size} s=${
             sizes.superpunchs.size
           } g=${r(ent!.get_v_rest(aid))}`,
+        );
+      } else if (what === "vratt") {
+        const idx = [i];
+        const aid = String(parseValue(t, idx));
+        const ax = Number(parseValue(t, idx));
+        const az = Number(parseValue(t, idx));
+        const maps = ent as unknown as {
+          vrests: Map<string, { attacker?: { position?: { x?: number; z?: number } } }>;
+          blockers: Map<string, { attacker?: { position?: { x?: number; z?: number } } }>;
+        };
+        for (const m of [maps.vrests, maps.blockers]) {
+          const c = m.get(aid);
+          if (c) {
+            c.attacker ??= {};
+            c.attacker.position ??= {};
+            c.attacker.position.x = ax;
+            c.attacker.position.z = az;
+          }
+        }
+        out.push(
+          `run vratt ${r(aid)} ${r(ax)} ${r(az)} || ${log.join(",")} | ax=${r(ax)} az=${r(az)}`,
+        );
+      } else if (what === "setframe") {
+        const v = parseValue(t, [i]);
+        ent!.set_frame(v as never);
+        const pairs = (ent as unknown as { _opoints: [Record<string, unknown>, number][] })
+          ._opoints;
+        const ids = pairs.map((p) => r(p[0].interval_id)).join(",");
+        out.push(
+          `run setframe ${r(v)} || ${log.join(",")} | f=${fid(ent!.frame)} pf=${prevId(
+            ent!,
+          )} lf=${r((ent as unknown as { _landing_frame: unknown })._landing_frame)} ar=${r(
+            ent!.arest,
+          )} mt=${r((ent as unknown as { _motionless_ticks: number })._motionless_ticks)} in=${r(
+            ent!.invisible,
+          )} bl=${r(ent!.blinking)} iv=${r(ent!.invulnerable)} op=[${ids}] p=${r(
+            ent!.position,
+          )} bp=${buddy ? r(buddy.position) : "z"} ${relProbe()}`,
         );
       } else if (what === "vrestdump") {
         out.push(
@@ -1283,7 +1480,9 @@ function main(): void {
         out.push(`run ${what} || ${log.join(",")} | ${relProbe()}`);
       } else if (what === "dropcatch") {
         const dropped = ent!.drop_catching();
-        out.push(`run dropcatch || ${log.join(",")} | v=${r(dropped)} ${relProbe()}`);
+        out.push(
+          `run dropcatch || ${log.join(",")} | v=${r(dropped)} ${relProbe()} f=${fid(ent!.frame)}`,
+        );
       } else if (what === "blinkgone" || what === "blinkrespawn") {
         const d = parseValue(t, [i]);
         if (what === "blinkgone") ent!.blink_and_gone(Number(d));
@@ -1299,7 +1498,139 @@ function main(): void {
         out.push(
           `run itrground ${r(itrs)} || ${log.join(",")} | p=${r(ent!.position)} g=${r(
             ent!.ground_y,
+          )} f=${fid(ent!.frame)} w=${r(ent!.wait)}`,
+        );
+      } else if (what === "restrict") {
+        const sub = t[i++]!;
+        if (sub === "none") restrictResult = undefined;
+        else {
+          i--;
+          restrictResult = parseValue(t, [i]);
+        }
+        out.push(`run restrict ${sub} || ${log.join(",")} | v=${r(restrictResult)}`);
+      } else if (what === "mtseed") {
+        const seed = Number(parseValue(t, [i]));
+        lfwStub.mt = new MersenneTwister(seed);
+        out.push(
+          `run mtseed ${r(seed)} || ${log.join(",")} | times=${r(lfwStub.mt.times)}`,
+        );
+      } else if (what === "setpos") {
+        const idx = [i];
+        const x = parseValue(t, idx);
+        const y = parseValue(t, idx);
+        const z = parseValue(t, idx);
+        ent!.set_position(x as never, y as never, z as never);
+        out.push(
+          `run setpos ${r(x)} ${r(y)} ${r(z)} || ${log.join(",")} | p=${r(ent!.position)} pv=${r(
+            ent!.prev_position,
+          )} g=${r(ent!.ground_y)}`,
+        );
+      } else if (what === "terrain") {
+        const seg = parseValue(t, [i]);
+        ent!.terrain = seg as never;
+        out.push(`run terrain ${r(seg)} || ${log.join(",")} | g=${r(ent!.ground_y)}`);
+      } else if (what === "updatepos") {
+        ent!.update_position();
+        out.push(
+          `run updatepos || ${log.join(",")} | p=${r(ent!.position)} pv=${r(ent!.prev_velocity)} v=${r(
+            ent!.velocity,
           )}`,
+        );
+      } else if (what === "opoints") {
+        const list = parseValue(t, [i]);
+        const pairs = Array.isArray(list) ? list.map((o) => [o, 0]) : [];
+        (ent as unknown as { _opoints: unknown })._opoints = pairs;
+        out.push(`run opoints ${r(list)} || ${log.join(",")} | n=${pairs.length}`);
+      } else if (what === "enter" || what === "enternext" || what === "enterid") {
+        const idx = [i];
+        let arg: unknown;
+        let argText: string;
+        let fallback = false;
+        if (what === "enter" || what === "enterid") {
+          arg = parseValue(t, idx);
+          argText = r(arg);
+          i = idx[0]!;
+        } else {
+          arg = (ent!.frame as { next?: unknown }).next;
+          argText = r(arg);
+        }
+        if (t[i] === "b") {
+          const flagIdx = [i];
+          fallback = !!parseValue(t, flagIdx);
+          i = flagIdx[0]!;
+          if (fallback) argText += " b1";
+        }
+        const result =
+          what === "enternext"
+            ? ent!.enter_frame(arg as never, fallback)
+            : what === "enterid"
+              ? ent!.enter_frame_by_id(arg as never, fallback)
+              : ent!.enter_frame(arg as never, fallback);
+        out.push(
+          `run ${what} ${argText} || ${log.join(",")} | r=${ENTER_FRAME_RESULT[result]} f=${fid(
+            ent!.frame,
+          )} w=${r(ent!.wait)} fa=${r(ent!.facing)} bl=${r(ent!.blinking)} pf=${prevId(
+            ent!,
+          )} ar=${r(ent!.arest)} mt=${r((ent as unknown as { _motionless_ticks: number })._motionless_ticks)}`,
+        );
+      } else if (what === "followbearer" || what === "followcatcher") {
+        if (what === "followbearer") ent!.follow_bearer();
+        else ent!.follow_catcher();
+        out.push(
+          `run ${what} || ${log.join(",")} | p=${r(ent!.position)} pv=${r(
+            ent!.prev_position,
+          )} v=${r(ent!.velocity)} fa=${r(ent!.facing)} team=${r(ent!.team)} f=${fid(
+            ent!.frame,
+          )} dr=${r((ent as unknown as { dropping: unknown }).dropping)}`,
+        );
+      } else if (what === "drop") {
+        ent!.drop_holding();
+        const b = buddy as unknown as
+          | {
+              position: unknown;
+              team: unknown;
+              dropping: unknown;
+              bearer: unknown;
+              holding: unknown;
+              vrests: Map<string, unknown>;
+              frame: unknown;
+              prev_position: unknown;
+            }
+          | undefined;
+        const held = b
+          ? `${r(b.position)} ${r(b.team)} ${r(b.dropping)} ${r(b.bearer != null)} ${r(
+              b.holding != null,
+            )} ${r(b.vrests.size)} bf=${fid(b.frame)} bpv=${r(b.prev_position)}`
+          : "z";
+        out.push(`run drop || ${log.join(",")} | ${relProbe()} held=[${held}]`);
+      } else if (what === "pick") {
+        if (buddy) ent!.pick(buddy);
+        out.push(
+          `run pick || ${log.join(",")} | ${relProbe()} vrests=${(buddy as unknown as { vrests: Map<string, unknown> } | undefined)?.vrests.size ?? 0} bdr=${r((buddy as unknown as { dropping: unknown } | undefined)?.dropping)} bf=${buddy ? fid(buddy.frame) : "z"}`,
+        );
+      } else if (what === "copyself") {
+        const set = (ent as unknown as { copies: Set<string> }).copies;
+        const added = !set.has(ent!.id);
+        set.add(ent!.id);
+        out.push(`run copyself || ${log.join(",")} | added=${r(added)}`);
+      } else if (what === "frameb") {
+        const v = parseValue(t, [i]);
+        if (buddy) (buddy as unknown as { frame: unknown }).frame = v;
+        out.push(`run frameb ${r(v)} || ${log.join(",")}`);
+      } else if (what === "transform" || what === "transnext") {
+        let head = "run " + what;
+        let ok = false;
+        if (what === "transform") {
+          const data = parseValue(t, [i]);
+          head += " " + r(data);
+          ent!.transform(data as never);
+        } else {
+          ok = ent!.transfrom_to_another();
+        }
+        out.push(
+          `${head} || ${log.join(",")} | v=${r(ok)} idx=${r(ent!.transform_index)} data=${r(
+            ent!.data.id,
+          )} tr=${r(ent!.transforms)} cp=${r([...((ent as unknown as { copies: Set<string> }).copies ?? [])])}`,
         );
       } else if (what === "statesdump") {
         out.push(`run statesdump || ${log.join(",")} | v=${dumpStates()}`);

@@ -39,6 +39,10 @@ int g_id_counter = 0;
 std::vector<std::unique_ptr<lfw::controller::BaseController>> g_ctrls;
 std::unique_ptr<Entity> g_entity;
 std::unique_ptr<Entity> g_buddy;
+// `world.restrict` answer (`run restrict`); a nullish value means "no clamp".
+Value g_restrict_result;
+// The harness MT: `run mtseed` reseeds it (both sides draw from the same stream).
+lfw::MersenneTwister g_mt(0.0);
 
 std::string render(const Value& v) { return to_ascii(render_value(v)); }
 std::string s_of(const std::u16string& s) { return to_ascii(s); }
@@ -65,6 +69,14 @@ struct HookConfig {
   Value sudden_value;
   bool caught = false;
   Value caught_value;
+  // `run hook view*`: the fake state drives the three `EntityStateView` forwards that
+  // nothing else in this subject reaches (`set_position` / `set_frame` /
+  // `enter_frame_by_id`).  `view_busy` keeps a view-driven frame swap from re-entering
+  // the state and looping forever.
+  bool view_position = false;
+  bool view_frame = false;
+  bool view_enter = false;
+  bool view_busy = false;
 };
 HookConfig g_hooks;
 
@@ -93,6 +105,21 @@ struct HarnessState : lfw::state::State_Base {
       // The state touches the entity on entry so the setters stay observable.
       e.set_motionless(e.motionless());
       e.set_hp_r(e.hp_r());
+      if (!g_hooks.view_busy) {
+        g_hooks.view_busy = true;
+        if (g_hooks.view_position) e.set_position(1, 2, 3);
+        if (g_hooks.view_frame) {
+          // a *different* frame object, so the swap is visible (TS `set_frame` reads
+          // `v.id`, so passing `undefined` would throw there)
+          Value f = e.frame_info();
+          const lfw::Object* src = lfw::as_object(f);
+          lfw::Object copy = src != nullptr ? *src : lfw::Object();
+          copy.set(u"id", Value(std::u16string(u"w2")));
+          e.set_frame(Value(std::make_shared<lfw::Object>(copy)));
+        }
+        if (g_hooks.view_enter) e.enter_frame_by_id(u"auto");
+        g_hooks.view_busy = false;
+      }
     };
     on_dead = [](lfw::state::IStateEntity& e) {
       if (!g_hooks.dead) return;
@@ -119,6 +146,11 @@ struct HarnessState : lfw::state::State_Base {
       if (!g_hooks.caught) return Value();
       return g_hooks.caught_value;
     };
+  }
+
+  void on_restrict(lfw::state::IStateEntity& e, double x, double y, double z) override {
+    g_log.push_back("state_on_restrict:" + s_of(e.id()) + ":" + render(Value(x)) + ":" +
+                    render(Value(y)) + ":" + render(Value(z)));
   }
 
   void leave(lfw::state::IStateEntity& e, const Value& next) override {
@@ -287,16 +319,48 @@ class Host : public lfw::IEntityHost {
     g_log.push_back("mark_players_alive:" + render(Value(alive)));
   }
 
-  void enter_frame(const Value& nf) override {
-    g_log.push_back("enter_frame:" + render(nf));
+  // `world.restrict(this)`: the scene programs the answer, or `run restrict none`
+  // leaves the position untouched (the real clamp lives in World).
+  lfw::Vector3 world_restrict(Entity& e) override {
+    if (std::holds_alternative<std::monostate>(g_restrict_result) ||
+        std::holds_alternative<lfw::NullTag>(g_restrict_result)) {
+      return e.position;
+    }
+    lfw::Vector3 r;
+    r.x = lfw::to_number(lfw::field_or(g_restrict_result, u"x"));
+    r.y = lfw::to_number(lfw::field_or(g_restrict_result, u"y"));
+    r.z = lfw::to_number(lfw::field_or(g_restrict_result, u"z"));
+    return r;
+  }
+
+  lfw::MersenneTwister& mt() override { return g_mt; }
+
+  // `nf.__judger`: the loader attaches a compiled Expression in TS, so the scene carries
+  // the marker in `__judge` and the host answers both halves of the seam.
+  bool has_next_frame_judge(const Value& nf) const override {
+    const lfw::Object* o = lfw::as_object(nf);
+    return o != nullptr && o->has(u"__judge");
+  }
+  Value next_frame_judge(const Value& nf) override {
+    const Value judge = lfw::field_or(nf, u"__judge");
+    g_log.push_back("judge:" + render(judge));
+    return judge;
+  }
+
+  void broadcast(const Value& m) override { g_log.push_back("broadcast:" + render(m)); }
+
+  lfw::controller::BaseController* create_ctrl(const std::u16string& data_id,
+                                              const std::u16string& player_id) override {
+    g_log.push_back("create_ctrl:" + render(Value(data_id)) + ":" + render(Value(player_id)));
+    return make_ctrl(0);
   }
 
   void apply_opoints(const Value& opoints) override {
     g_log.push_back("apply_opoints:" + render(opoints));
   }
 
-  void play_sound(const Value& sounds) override {
-    g_log.push_back("play_sound:" + render(sounds));
+  void play_sound(const Value& sounds, const Value& pos) override {
+    g_log.push_back("play_sound:" + render(sounds) + "@" + render(pos));
   }
 
   // `world.lfw.datas.find(id)`
@@ -314,11 +378,12 @@ class Host : public lfw::IEntityHost {
 
   // kind: 0 = base (the factory's `InvalidController`), 1 = human (`LocalController`),
   // 2 = bot (`BotController`), 3 = human without a player name; the flags/`set_kind`
-  // pair is what `is_*_ctrl` reads.
+  // pair is what `is_*_ctrl` reads. The pids mirror the TS harness: `reset()` acquires
+  // its `InvalidController` with `""` (`Entity.ts:692`), humans/bots carry "7".
   lfw::controller::BaseController* make_ctrl(int kind) {
     auto c = std::make_unique<lfw::controller::BaseController>();
     c->set_kind(kind == 1 || kind == 3, kind == 2);
-    c->player_id = kind == 3 ? u"9" : u"7";
+    c->player_id = kind == 3 ? u"9" : (kind == 0 ? std::u16string() : u"7");
     if (kind == 1) {
       lfw::Object player;
       player.set(u"id", Value(7.0));
@@ -904,7 +969,34 @@ int main(int argc, char** argv) {
                     render(Value(lr)).c_str(), render(Value(ud)).c_str(),
                     render(Value(jd)).c_str(), join(g_log).c_str(), c->LR(), c->UD(),
                     c->jd());
+      } else if (what == "bkeys") {
+        // `keys` for the buddy: `follow_catcher` / `follow_bearer` scale one velocity
+        // term by the *other* entity's controller direction.
+        const double lr = trace::to_double(t[i++]);
+        const double ud = trace::to_double(t[i++]);
+        const double jd = trace::to_double(t[i++]);
+        lfw::controller::BaseController* c = g_host->make_ctrl(0);
+        if (lr > 0) c->keys.R.hit(Value(1.0), 0.0);
+        else if (lr < 0) c->keys.L.hit(Value(1.0), 0.0);
+        if (ud > 0) c->keys.D.hit(Value(1.0), 0.0);
+        else if (ud < 0) c->keys.U.hit(Value(1.0), 0.0);
+        if (jd > 0) c->keys.j.hit(Value(1.0), 0.0);
+        else if (jd < 0) c->keys.d.hit(Value(1.0), 0.0);
+        if (g_buddy != nullptr) g_buddy->set_ctrl(c);
+        std::printf("run bkeys %s %s %s || %s | lr=%d ud=%d jd=%d\n",
+                    render(Value(lr)).c_str(), render(Value(ud)).c_str(),
+                    render(Value(jd)).c_str(), join(g_log).c_str(), c->LR(), c->UD(),
+                    c->jd());
       } else if (what == "buddy") {
+        // Replacing the buddy would leave the entity pointing at a freed object, so the
+        // four relation slots are detached first (the TS side would keep the old object
+        // alive instead, which is not what a scene wants to compare).
+        if (g_buddy != nullptr) {
+          if (g_entity->holding == g_buddy.get()) g_entity->holding = nullptr;
+          if (g_entity->catching == g_buddy.get()) g_entity->catching = nullptr;
+          if (g_entity->bearer == g_buddy.get()) g_entity->bearer = nullptr;
+          if (g_entity->catcher == g_buddy.get()) g_entity->catcher = nullptr;
+        }
         g_buddy = std::make_unique<Entity>(*g_host, parse_value(t, i), &g_states);
         std::printf("run buddy || id=%s | %s\n", s_of(g_buddy->id).c_str(),
                     join(g_log).c_str());
@@ -981,12 +1073,14 @@ int main(int argc, char** argv) {
         const std::vector<std::pair<std::u16string, std::shared_ptr<lfw::Summary>>>& items =
             lfw::summary_mgr().items();
         std::string s;
+        std::string picks;
         for (const auto& kv : items) {
           s += " " + s_of(kv.first) + ":" + render(kv.second->hp_lost()) + "/" +
                render(kv.second->mp_usage());
+          picks += " " + s_of(kv.first) + ":" + render(kv.second->picking_sum());
         }
-        std::printf("run summaries || %s | graves=%zu items%s\n", join(g_log).c_str(),
-                    lfw::summary_mgr().grave_count(), s.c_str());
+        std::printf("run summaries || %s | graves=%zu items%s p%s\n", join(g_log).c_str(),
+                    lfw::summary_mgr().grave_count(), s.c_str(), picks.c_str());
       } else if (what == "mark" || what == "delmark") {
         const Value key = parse_value(t, i);
         const std::optional<Value> value =
@@ -1127,6 +1221,14 @@ int main(int argc, char** argv) {
         const bool added = g_entity->add_copy(text_of(v));
         std::printf("run copy %s || %s | added=%s\n", render(v).c_str(), join(g_log).c_str(),
                     render(Value(added)).c_str());
+      } else if (what == "copyself") {
+        const bool added = g_entity->add_copy(g_entity->id);
+        std::printf("run copyself || %s | added=%s\n", join(g_log).c_str(),
+                    render(Value(added)).c_str());
+      } else if (what == "frameb") {
+        const Value v = parse_value(t, i);
+        if (g_buddy != nullptr) g_buddy->frame = v;
+        std::printf("run frameb %s || %s\n", render(v).c_str(), join(g_log).c_str());
       } else if (what == "hook") {
         const std::string& sub = t[i++];
         if (sub == "dead") {
@@ -1152,6 +1254,12 @@ int main(int argc, char** argv) {
         } else if (sub == "caught") {
           g_hooks.caught = true;
           g_hooks.caught_value = parse_value(t, i);
+        } else if (sub == "viewpos") {
+          g_hooks.view_position = true;
+        } else if (sub == "viewframe") {
+          g_hooks.view_frame = true;
+        } else if (sub == "viewenter") {
+          g_hooks.view_enter = true;
         } else if (sub == "none") {
           g_hooks = HookConfig{};
         } else {
@@ -1178,7 +1286,7 @@ int main(int argc, char** argv) {
       } else if (what == "setstate" || what == "setstateb") {
         const double code = trace::to_double(t[i++]);
         Entity* target = what == "setstateb" ? g_buddy.get() : g_entity.get();
-        target->set_state(code);
+        target->set_state(Value(code));
         std::printf("run %s %s || %s | n=%zu st=%s\n", what.c_str(), render(Value(code)).c_str(),
                     join(g_log).c_str(), g_states.size(),
                     render(Value(target->state_ptr() != nullptr)).c_str());
@@ -1206,6 +1314,42 @@ int main(int argc, char** argv) {
                     g_entity->vrests.size(), g_entity->blockers.size(),
                     g_entity->superpunchs.size(),
                     render(Value(g_entity->get_v_rest(aid))).c_str());
+      } else if (what == "vratt") {
+        const std::u16string aid = text_of(parse_value(t, i));
+        const double ax = lfw::to_number(parse_value(t, i));
+        const double az = lfw::to_number(parse_value(t, i));
+        const auto it = g_entity->vrests.find(aid);
+        if (it != g_entity->vrests.end()) it->second.attacker.px = ax;
+        const auto ib = g_entity->blockers.find(aid);
+        if (ib != g_entity->blockers.end()) ib->second.attacker.px = ax;
+        const auto ibz = g_entity->blockers.find(aid);
+        if (ibz != g_entity->blockers.end()) ibz->second.attacker.pz = az;
+        const auto iz = g_entity->vrests.find(aid);
+        if (iz != g_entity->vrests.end()) iz->second.attacker.pz = az;
+        std::printf("run vratt %s %s %s || %s | ax=%s az=%s\n", render(Value(aid)).c_str(),
+                    render(Value(ax)).c_str(), render(Value(az)).c_str(), join(g_log).c_str(),
+                    render(Value(ax)).c_str(), render(Value(az)).c_str());
+      } else if (what == "setframe") {
+        const Value v = parse_value(t, i);
+        g_entity->set_frame(v);
+        std::string ids;
+        for (const auto& kv : g_entity->opoints) {
+          if (!ids.empty()) ids += ",";
+          ids += render(lfw::field_or(kv.first, u"interval_id"));
+        }
+        std::printf(
+            "run setframe %s || %s | f=%s pf=%s lf=%s ar=%s mt=%s in=%s bl=%s iv=%s op=[%s] "
+            "p=%s bp=%s %s\n",
+            render(v).c_str(), join(g_log).c_str(), fid(g_entity->frame).c_str(),
+            fid(g_entity->get_prev_frame()).c_str(),
+            render(g_entity->landing_frame()).c_str(), render(Value(g_entity->arest())).c_str(),
+            render(Value(g_entity->motionless_ticks())).c_str(),
+            render(Value(g_entity->invisible())).c_str(),
+            render(Value(g_entity->blinking())).c_str(),
+            render(Value(g_entity->invulnerable())).c_str(), ids.c_str(),
+            render(vec3_value(g_entity->position)).c_str(),
+            g_buddy != nullptr ? render(vec3_value(g_buddy->position)).c_str() : "z",
+            rel_probe().c_str());
       } else if (what == "vrestdump") {
         std::printf("run vrestdump || %s | n=%s b=%s s=%s\n", join(g_log).c_str(),
                     dump_collisions(g_entity->vrests).c_str(),
@@ -1233,8 +1377,9 @@ int main(int argc, char** argv) {
                     rel_probe().c_str());
       } else if (what == "dropcatch") {
         const bool dropped = g_entity->drop_catching();
-        std::printf("run dropcatch || %s | v=%s %s\n", join(g_log).c_str(),
-                    render(Value(dropped)).c_str(), rel_probe().c_str());
+        std::printf("run dropcatch || %s | v=%s %s f=%s\n", join(g_log).c_str(),
+                    render(Value(dropped)).c_str(), rel_probe().c_str(),
+                    fid(g_entity->frame).c_str());
       } else if (what == "blinkgone" || what == "blinkrespawn") {
         const Value d = parse_value(t, i);
         if (what == "blinkgone") {
@@ -1249,9 +1394,137 @@ int main(int argc, char** argv) {
       } else if (what == "itrground") {
         const Value itrs = parse_value(t, i);
         g_entity->update_itr_bdy_hit_ground(itrs);
-        std::printf("run itrground %s || %s | p=%s g=%s\n", render(itrs).c_str(),
+        std::printf("run itrground %s || %s | p=%s g=%s f=%s w=%s\n", render(itrs).c_str(),
                     join(g_log).c_str(), render(vec3_value(g_entity->position)).c_str(),
+                    render(Value(g_entity->ground_y())).c_str(),
+                    fid(g_entity->frame).c_str(), render(Value(g_entity->wait)).c_str());
+      } else if (what == "restrict") {
+        const std::string& sub = t[i++];
+        if (sub == "none") {
+          g_restrict_result = Value();
+        } else {
+          --i;
+          g_restrict_result = parse_value(t, i);
+        }
+        std::printf("run restrict %s || %s | v=%s\n", sub.c_str(), join(g_log).c_str(),
+                    render(g_restrict_result).c_str());
+      } else if (what == "mtseed") {
+        const Value seed = parse_value(t, i);
+        g_mt.reset(lfw::to_number(seed));
+        std::printf("run mtseed %s || %s | times=%s\n", render(seed).c_str(), join(g_log).c_str(),
+                    render(Value(static_cast<double>(g_mt.times()))).c_str());
+      } else if (what == "setpos") {
+        const Value x = parse_value(t, i);
+        const Value y = parse_value(t, i);
+        const Value z = parse_value(t, i);
+        g_entity->set_position(x, y, z);
+        std::printf("run setpos %s %s %s || %s | p=%s pv=%s g=%s\n", render(x).c_str(),
+                    render(y).c_str(), render(z).c_str(), join(g_log).c_str(),
+                    render(vec3_value(g_entity->position)).c_str(),
+                    render(vec3_value(g_entity->prev_position)).c_str(),
                     render(Value(g_entity->ground_y())).c_str());
+      } else if (what == "terrain") {
+        const Value v = parse_value(t, i);
+        lfw::ITerrainInfo seg = lfw::terrain_info_new();
+        seg.id = text_of(lfw::field_or(v, u"id"));
+        seg.name = text_of(lfw::field_or(v, u"name"));
+        seg.type = static_cast<int>(lfw::to_number(lfw::field_or(v, u"type")));
+        seg.x1 = lfw::to_number(lfw::field_or(v, u"x1"));
+        seg.x2 = lfw::to_number(lfw::field_or(v, u"x2"));
+        seg.z1 = lfw::to_number(lfw::field_or(v, u"z1"));
+        seg.z2 = lfw::to_number(lfw::field_or(v, u"z2"));
+        seg.h1 = lfw::to_number(lfw::field_or(v, u"h1"));
+        seg.h2 = lfw::to_number(lfw::field_or(v, u"h2"));
+        g_entity->terrain = seg;
+        std::printf("run terrain %s || %s | g=%s\n", render(v).c_str(), join(g_log).c_str(),
+                    render(Value(g_entity->ground_y())).c_str());
+      } else if (what == "updatepos") {
+        g_entity->update_position();
+        std::printf("run updatepos || %s | p=%s pv=%s v=%s\n", join(g_log).c_str(),
+                    render(vec3_value(g_entity->position)).c_str(),
+                    render(vec3_value(g_entity->prev_velocity)).c_str(),
+                    render(vec3_value(g_entity->velocity)).c_str());
+      } else if (what == "opoints") {
+        const Value list = parse_value(t, i);
+        g_entity->opoints.clear();
+        const lfw::Array* arr = lfw::as_array(list);
+        if (arr != nullptr) {
+          for (std::size_t k = 0; k < arr->size(); ++k) {
+            g_entity->opoints.push_back(std::make_pair(arr->at(k), 0.0));
+          }
+        }
+        std::printf("run opoints %s || %s | n=%zu\n", render(list).c_str(), join(g_log).c_str(),
+                    g_entity->opoints.size());
+      } else if (what == "enter" || what == "enternext" || what == "enterid") {
+        Value arg;
+        bool fallback = false;
+        if (what == "enter" || what == "enterid") {
+          arg = parse_value(t, i);
+        } else {
+          arg = lfw::field_or(g_entity->frame, u"next");
+        }
+        if (i < t.size() && t[i] == "b") {
+          fallback = lfw::truthy(parse_value(t, i));
+        }
+        const lfw::EnterFrameResult r = what == "enternext" ? g_entity->enter_frame(arg, fallback)
+                                          : what == "enterid"
+                                              ? g_entity->enter_frame_by_id(arg, fallback)
+                                              : g_entity->enter_frame(arg, fallback);
+        std::printf(
+            "run %s %s%s || %s | r=%s f=%s w=%s fa=%s bl=%s pf=%s ar=%s mt=%s\n",
+            what.c_str(), render(arg).c_str(), fallback ? " b1" : "", join(g_log).c_str(),
+            s_of(lfw::enter_frame_result_name(r)).c_str(), fid(g_entity->frame).c_str(),
+            render(Value(g_entity->wait)).c_str(), render(Value(g_entity->facing)).c_str(),
+            render(Value(g_entity->blinking())).c_str(),
+            fid(g_entity->get_prev_frame()).c_str(), render(Value(g_entity->arest())).c_str(),
+            render(Value(g_entity->motionless_ticks())).c_str());
+      } else if (what == "followbearer" || what == "followcatcher") {
+        if (what == "followbearer") g_entity->follow_bearer();
+        else g_entity->follow_catcher();
+        std::printf("run %s || %s | p=%s pv=%s v=%s fa=%s team=%s f=%s dr=%s\n", what.c_str(),
+                    join(g_log).c_str(), render(vec3_value(g_entity->position)).c_str(),
+                    render(vec3_value(g_entity->prev_position)).c_str(),
+                    render(vec3_value(g_entity->velocity)).c_str(),
+                    render(Value(g_entity->facing)).c_str(),
+                    render(Value(g_entity->team())).c_str(), fid(g_entity->frame).c_str(),
+                    render(Value(g_entity->dropping)).c_str());
+      } else if (what == "drop") {
+        g_entity->drop_holding();
+        std::string held = "z";
+        if (g_buddy != nullptr) {
+          held = render(vec3_value(g_buddy->position)) + " " + render(Value(g_buddy->team())) +
+                 " " + render(Value(g_buddy->dropping)) + " " +
+                 render(Value(g_buddy->bearer != nullptr)) + " " + render(Value(g_buddy->holding != nullptr)) +
+                 " " + render(Value(static_cast<double>(g_buddy->vrests.size()))) +
+                 " bf=" + fid(g_buddy->frame) +
+                 " bpv=" + render(vec3_value(g_buddy->prev_position));
+        }
+        std::printf("run drop || %s | %s held=[%s]\n", join(g_log).c_str(), rel_probe().c_str(),
+                    held.c_str());
+      } else if (what == "pick") {
+        if (g_buddy != nullptr) g_entity->pick(*g_buddy);
+        std::printf("run pick || %s | %s vrests=%zu bdr=%s bf=%s\n", join(g_log).c_str(),
+                    rel_probe().c_str(), g_buddy != nullptr ? g_buddy->vrests.size() : 0,
+                    g_buddy != nullptr ? render(Value(g_buddy->dropping)).c_str() : "z",
+                    g_buddy != nullptr ? fid(g_buddy->frame).c_str() : "z");
+      } else if (what == "transform" || what == "transnext") {
+        std::string head = "run " + what;
+        bool ok = false;
+        if (what == "transform") {
+          const Value data = parse_value(t, i);
+          head += " " + render(data);
+          g_entity->transform(data);
+        } else {
+          ok = g_entity->transfrom_to_another(std::nullopt);
+        }
+        std::vector<lfw::Value> copy_list;
+        for (const std::u16string& cid : g_entity->copies) copy_list.push_back(lfw::Value(cid));
+        const std::string copies_text =
+            render(lfw::Value(std::make_shared<lfw::Array>(copy_list)));
+        std::printf("%s || %s | v=%s idx=%s data=%s tr=%s cp=%s\n", head.c_str(), join(g_log).c_str(),
+                    render(Value(ok)).c_str(), render(Value(g_entity->transform_index)).c_str(),
+                    render(lfw::field_or(g_entity->data(), u"id")).c_str(),
+                    render(g_entity->transforms).c_str(), copies_text.c_str());
       } else if (what == "statesdump") {
         std::printf("run statesdump || %s | v=%s\n", join(g_log).c_str(), dump_states().c_str());
       } else {

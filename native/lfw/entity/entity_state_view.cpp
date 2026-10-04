@@ -16,9 +16,13 @@ void EntityStateView::position(double& x, double& y, double& z) const {
 }
 
 void EntityStateView::set_position(double x, double y, double z) {
-  (void)x;
-  (void)y;
-  (void)z;
+  _e.set_position(Value(x), Value(y), Value(z));
+}
+
+void EntityStateView::assign_position(double x, double y, double z) {
+  _e.position.x = x;
+  _e.position.y = y;
+  _e.position.z = z;
 }
 
 double EntityStateView::frame_centery() const { return 0; }
@@ -27,7 +31,7 @@ double EntityStateView::frame_height() const { return 0; }
 
 double EntityStateView::frame_pic_h() const { return 0; }
 
-void EntityStateView::set_frame(const Value& info) { (void)info; }
+void EntityStateView::set_frame(const Value& info) { _e.set_frame(info); }
 
 void EntityStateView::buffs_set(const std::u16string& key, buff::Buff* b) {
   _e.buffs[key] = b;
@@ -43,7 +47,9 @@ void EntityStateView::set_outline_color(const std::u16string& v) {
   _e.set_outline_color(v);
 }
 
-void EntityStateView::enter_frame_by_id(const std::u16string& id) { (void)id; }
+void EntityStateView::enter_frame_by_id(const std::u16string& id) {
+  _e.enter_frame_by_id(Value(id));
+}
 
 void EntityStateView::attach(bool on) { (void)on; }
 
@@ -52,6 +58,10 @@ Value EntityStateView::velocity_x() const { return Value(_e.velocity.x); }
 Value EntityStateView::velocity_z() const { return Value(_e.velocity.z); }
 
 double EntityStateView::velocity_y() const { return _e.velocity.y; }
+
+void EntityStateView::set_velocity(const Value& x, const Value& y, const Value& z) {
+  _e.set_velocity(x, y, z);
+}
 
 Value EntityStateView::hp() const { return Value(_e.hp()); }
 

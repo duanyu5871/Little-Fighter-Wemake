@@ -55,7 +55,8 @@ void State_Base::on_restrict(IStateEntity& e, double x, double y, double z) {
     vz = clamp_velocity(e.velocity_z());
   }
   if (!is_null(vx) || !is_null(vz) || !is_null(vy)) e.set_velocity(vx, vy, vz);
-  e.set_position(x, y, z);
+  // `e.position.x = x` 直写：TS 这里不经过 `set_position`。
+  e.assign_position(x, y, z);
 }
 
 }

@@ -46,6 +46,10 @@ class IStateEntity : public buff::IBuffEntity {
     return Value();
   }
   virtual Value data_indexes_bouncing() const { return Value(); }
+  // `e.position.x = x` 这类**直写**：TS 的 `State_Base.on_restrict` 直接改 `Entity.position`
+  // 的三个字段，不经过 `set_position`。宿主覆盖它以便跳过状态钩子（否则会递归），其余实现
+  // 落到 `set_position`。
+  virtual void assign_position(double x, double y, double z) { set_position(x, y, z); }
   virtual Value data_indexes_lying() const { return Value(); }
   virtual Value world_entities() const { return Value(); }
   virtual bool is_fighter_ref(const Value& o) const {

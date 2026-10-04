@@ -27,6 +27,9 @@ class EntityStateView : public state::IStateEntity {
   // `this.set_position(x, y, z)` — the World owns positions, so this lands with the
   // terrain / restriction slice.
   void set_position(double x, double y, double z) override;
+  // `this.position.x = x` 直写三个字段：`State_Base.on_restrict` 走这条，不能再经过
+  // `set_position`（那里会重新调用状态钩子）。
+  void assign_position(double x, double y, double z) override;
   // Frame geometry comes from the frame-info helpers (`frame_centery` …), which the
   // AABB / frame-entering slices port.
   double frame_centery() const override;
@@ -48,6 +51,8 @@ class EntityStateView : public state::IStateEntity {
   Value velocity_x() const override;
   Value velocity_z() const override;
   double velocity_y() const override;
+  // `e.set_velocity(x, y, z)` — `State_Base.on_restrict` 的速度钳制走这里。
+  void set_velocity(const Value& x, const Value& y, const Value& z) override;
 
   // --- forwarded members ------------------------------------------------------
   Value hp() const override;

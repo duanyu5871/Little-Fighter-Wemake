@@ -75,6 +75,17 @@ std::optional<double> MersenneTwister::pick(const std::vector<double>& arr) {
   return arr[i];
 }
 
+// `Mt.pick<T>(a)` — `if (!a) return void 0; if (!Array.isArray(a)) return a;`
+Value MersenneTwister::pick_value(const Value& a) {
+  if (!truthy(a)) return Value();
+  const Array* arr = as_array(a);
+  if (arr == nullptr) return a;
+  const double index = range(0.0, static_cast<double>(arr->size()));
+  const uint32_t i = js_to_uint32(index);
+  if (i >= arr->size()) return Value();
+  return arr->at(i);
+}
+
 std::optional<double> MersenneTwister::take(std::vector<double>& arr) {
   const double index = range(0.0, static_cast<double>(arr.size()));
   const uint32_t i = js_to_uint32(index);

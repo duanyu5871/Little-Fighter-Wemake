@@ -2687,7 +2687,7 @@ harness op：
 9. **`env hook` 只对指定键生效**：`jump_height` 之外（`gravity`/`screen_w`/`screen_h`/`difficulty`）
    的 `set` 只有 `dataset_change` 一条日志，锁住「键钩子按名查找、整体回调对所有托管键生效」。
 
-### 6.9.96 `entity`（差分 2009 行，变异 594/594 全杀）
+### 6.9.96 `entity`（差分 2326 行，可执行变异 750/750 全杀；另有 67 条本主题不可观测，见 spec 头部）
 
 harness op：
 
@@ -2757,6 +2757,26 @@ harness op：
   `run blinkgone <数>` / `run blinkrespawn <数>`（打印 `blinking` 与 `_after_blink` 窥视值）、
   `run itrground <数组字面量>`（`update_itr_bdy_hit_ground`，顺带打印 `position`/`ground_y`）、
   `run linkb <字段> <self|buddy|null>`（`run link` 的 buddy 镜像，回指必须能双向摆位）。
+- 帧进入链 / 位置层（9i 追加）：`run setpos <x> <y> <z>`（`set_position`，三个都是
+  `Value` 字面量）、`run updatepos`（`update_position`）、
+  `run setframe <帧字面量>`（`set_frame`，打印 opoint 的 `interval_id` 列表）、
+  `run enter <帧字面量> [b 0|1]` / `run enternext [b 0|1]`（拿当前帧的 `next`）/
+  `run enterid <id 字面量> [b 0|1]`（`enter_frame_by_id`）、
+  `run followbearer` / `run followcatcher`、`run drop`（`drop_holding`）、
+  `run pick`（`pick(*buddy)`）、`run transform <data 字面量>` / `run transnext`
+  （`transform` / `transfrom_to_another`）、`run terrain <地形字面量>`（换 `terrain`，
+  用于 `Ground::y`）、`run vratt <aid> <px> <pz>`（只写阻挡者的 `attacker.px/pz`
+  以便 `update_position` 的 blockers 分支可观测）、`run copyself`（把自己塞进
+  `copies`）、`run frameb <帧字面量>`（写 buddy 的当前帧）、
+  `run bkeys <LR> <UD> <jd>`（`run keys` 的 buddy 版：`follow_*` 里有一项速度乘
+  **对方控制器**的 `UD()`）。
+  `run hook` 追加 `viewpos|viewframe|viewenter`：假状态在 `enter` 里调
+  `EntityStateView` 的三个转发（本主题唯一能驱动它们的入口），
+  `view_busy` 防止 `set_frame` 触发的状态进入再回调成环。
+  观察点同时扩到「进入的帧 / 被放下侧的状态 / 挑选计数」：
+  `itrground` 的 `f=`/`w=`、`dropcatch` 的 `f=`、`drop` 的 `bf=`/`bpv=`、
+  `pick` 的 `bdr=`/`bf=`、`follow*` 的 `f=`/`dr=`、`setframe` 的 `p=`/`bp=`、
+  `summaries` 的 `p <id>:<picking_sum>`。
 
 输出：
 
@@ -2810,13 +2830,32 @@ harness op：
 - `run cleanhold|cleancatch || <日志> | sh=<b0|b1> sb=… sc=… sr=… bh=… bb=… bc=… br=…`（八位关系探针）；
 - `run dropcatch || <日志> | v=<b0|b1> sh=… br=…`（同一套八位探针）；
 - `run blinkgone|blinkrespawn <数> || <日志> | bl=<blinking> ab=<after_blink 或 null>`；
-- `run itrground <数组> || <日志> | p=<position> g=<ground_y>`（进入请求以 `enter_frame:<帧>` 出现在日志里）；
-- `run linkb <字段> <to> || <日志> | sh=… br=…`（八位关系探针）。
+- `run itrground <数组> || <日志> | p=<position> g=<ground_y> f=<帧 id> w=<wait>`
+  （9i 之后 `enter_frame` 已是真方法，进入的帧直接从 `f=` 读，不再有缝日志）；
+- `run linkb <字段> <to> || <日志> | sh=… br=…`（八位关系探针）；
+- `run setpos <x> <y> <z> || <日志> | p=<position> pv=<prev_position> g=<ground_y>`；
+- `run updatepos || <日志> | p=<position> pv=<prev_velocity> v=<velocity>`；
+- `run setframe <帧> || <日志> | f=<帧 id> pf=<上一帧 id> lf=<landing_frame> ar=<arest>
+  mt=<motionless_ticks> in=<invisible> bl=<blinking> iv=<invulnerable>
+  op=[<opoint 的 interval_id 列表>] p=<position> bp=<被放下侧 position 或 z> <八位关系探针>`；
+- `run enter|enternext|enterid <入参> [b 0|1] || <日志> | r=<gone|notfound|entered|fallback>
+  f=<帧 id> w=<wait> fa=<facing> bl=<blinking> pf=<上一帧 id> ar=<arest> mt=<motionless_ticks>`；
+- `run followbearer|followcatcher || <日志> | p=<position> pv=<prev_position>
+  v=<velocity> fa=<facing> team=<队伍> f=<帧 id> dr=<dropping>`；
+- `run drop || <日志> | <被放下那一侧的 position> <team> <dropping> <bearer?> <holding?>
+  <vrests 数> bf=<帧 id> bpv=<prev_position>`（前面还有八位关系探针，`held=[…]`，
+  `z` 表示没有 buddy）；
+- `run pick || <日志> | <八位关系探针> vrests=<武器 v_rest 数> bdr=<武器 dropping> bf=<武器帧 id>`；
+- `run transform <data>|transnext || <日志> | v=<b0|b1> idx=<transform_index>
+  data=<_data.id> tr=<transforms> cp=<copies 的 id 列表>`；
+- `run terrain <地形> || <日志> | g=<ground_y>`；
+- `run bkeys <LR> <UD> <jd> || <日志> | lr=<0|1|-1> ud=<…> jd=<…>`。
 
 日志项（按发生顺序、逗号分隔）：`on_*_changed:<self|?>:<新值>:<旧值>`、`on_dead:<self>`、
 `on_ctrl_changed:<vc>:<前一个>:<self>`（控制器渲染成 `base|human|bot|u`）、
 `mark_players_alive:b0|b1`、`release_ctrl:<控制器>`、`acquire_ctrl`、
-`enter_frame:<帧>`、`apply_opoints:<打碎件>`、`play_sound:<音效>`、`state_on_dead`。
+`create_ctrl:<data id>:<player id>`、`judge:<判定值>`、`apply_opoints:<打碎件>`、
+`play_sound:<音效>`、`broadcast:<消息>`、`state_on_dead`、`state_on_restrict`。
 
 `run get`/`run set` 认得的字段（两侧同名）：
 `id`、`origin_data_id`、`hp/mp/hp_r/hp_max/mp_max`、`resting/resting_max`、
@@ -3065,8 +3104,8 @@ harness op：
     （`catcher` 同理）分别覆盖「对方回指自己 ⇒ 连对方字段一起清」与
     「回指别人 ⇒ 只清自己这侧」，八位探针 `sh sb sc sr bh bb bc br` 是判据。
 74. **`drop_catching` 的四个场景**：没有 `catching`（`v=b0` 且无日志）、
-    回指自己、回指别人、连打两次（第二次 `v=b0`）；日志里的
-    `enter_frame:{"id":s"auto"}` 锁住「一定请求 auto 帧」。
+    回指自己、回指别人、连打两次（第二次 `v=b0`）；9i 之后 `enter_frame` 是真方法，
+    「一定请求 auto 帧」由随后 `f=` 上出现的 auto 帧 id 锁住。
 75. **`blink_and_*` 不走 setter**：`run blinkgone n -3` 得 `bl=-3`，
     紧跟的 `run set blinking n -3` 得 `v=n0` —— 「直接写字段」与
     「`round_float(max(0, v))` setter」的分歧就此锁死；`run snap` 另外把
@@ -3076,3 +3115,78 @@ harness op：
     `y/h` 为字符串数字、`y` 为负、边界相等（`fG`：`3 > 3` 为假 ⇒ 进帧）、
     `centery` 缺失（NaN ⇒ 比较为假 ⇒ 仍进帧）、`ground_y = NaN`、
     以及「前一条被跳过、后一条照进」（`fM`/`fN`，`continue` 与 `break` 的分界）。
+77. **`set_position` 的轴跳过与取整**：`run setpos n 1.2345 u z`（只写 x，且
+    `round_float` 到千分位）、`run setpos u u u`（全跳过 ⇒ 一条日志都不打、
+    `prev_position` 不动）、`run setpos s "8.5" s "9" n -0.5`（字符串数字与负数）、
+    `run setpos n NaN n 0 n 0.0000001`（NaN 照写、`0.0000001` 取整成 0）——
+    四个轴跳过变异与两个取整变异都被这些点杀。
+78. **`set_position` 的 `prev_position` 哨兵**：`run pos` 先把 `prev_position`
+    设成非 MIN_SAFE，再 `run setpos` 读回 `pv=` 证明**没有**被复制；
+    实体刚 `reset` 时（`prev_position.x == MIN_SAFE`）第一次 `setpos`
+    会把 `prev_position` 整体复制成 `position`。
+79. **四条 restrict 请求的顺序与去重**：`run restrict o 3 x n 2 y n 3 z n 4`
+    之后逐轴单独变化（`n 10 n 10 n 10`、`n 2 n 3 n 7`、`n 5 n 3 n 4`、
+    `n 2 n 5 n 4`、`n 2 n 5 n 5`）把 `rx`/`rz`/`ry`/`rr` 四个帧分别拉出来；
+    「只变一个轴」的场景同时锁 `||` 与 `&&`，等值轴场景锁 `!=` 的方向。
+80. **`on_restrict` 的状态钩子**：`run setstate 80` + `run setframe … on_restrict`
+    让状态参与，`run setpos n 70 n 80 n 90` 后位置与速度同时可见
+    （速度被 `clamp_velocity` 钳到 0.5，位置走 `assign_position` 直写）。
+81. **`_ground_y` 来自地形段**：`run terrain` 依次给 SlopeH / SlopeV / Flat h1 /
+    未知类型 / 只有 `type`/`h1` 的退化段，`run setpos` 的 `g=` 覆盖
+    `Ground::y(terrain, x, z)` 的 x/z 换参与回退。
+82. **`update_position` 的 blockers 两轴四组合**：`run vratt` 把阻挡者的
+    `px/pz` 摆到实体前方/后方，`vx`/`vz` 正负各一次 ⇒ 「朝阻挡者方向的轴清零」
+    与 `prev_velocity` 的同轴写入各有观察点（积分用的是 `prev_velocity`，
+    少写一次这一步就会偏）。
+83. **`update_position` 的门与半步**：`shaking` / `motionless` 两个门分别
+    开一次，`run updatepos` 的位置不变；`atom_time` 用 `run get atom_time`
+    读出来验证梯形积分 `(v + prev_v) * 0.5 * dt`。
+84. **`set_frame` 的 gone / interval 过滤**：`run opoints` 摆三条
+    （mode 1 + k1、mode 1 + k2、mode 2 + k3），`run setframe` 带
+    `opoint a 2`（k1、k3，都是 mode 1）⇒ 只剩 k1（k2 的 interval 消失、
+    k3 的 mode 不对）；`run setframe o 1 id s "gone"` 清空整张表。
+85. **`set_frame` 的标志与收尾**：`invisible n 0.4` / `blinking n 1.6` /
+    `invulnerable n -3`（直写字段，不是钳过的 setter）、`itr` 空数组 ⇒
+    `arest` 归零、`cpoint` 缺失 ⇒ 清 `catching` + `catcher`、`broadcasts` 两条、
+    `holding` / `catching` 的 follow 收尾各有场景（buddy 的关系探针可见）。
+86. **`enter_frame` 的四态**：`Gone`（当前帧 id 是 `"gone"`，`run enter o 1 id s "k1"`
+    仍返回 `gone`）、`NotFound`（`o 0` 与 `id s "nope"`）、`Fallback`
+    （`o 0 b 1` ⇒ 落到 auto 帧且 `wait` 被更新）、`Entered`。
+87. **`handle_next_frame_result` 的扣血扣蓝**：`run enter o 3 id s "a1" mp n 2 hp n 3`
+    在 `infinity_mp` 开/关两组里各打一次，紧跟 `run get hp` / `run get mp`
+    对照；`mp_mode` 的两支与 hp 的 `<=` 边界用 `hp n 5 mp n 400 mp_mode n 0/1`、
+    `run set hp n 5` 之后再来一次钉住。
+88. **`get_next_frame` 的数组分支**：`run enter a 1 u`（全假项）、
+    `run enter a 0`（空数组）、`run mtseed` 固定后 `run enter a 2`（无裁判 ⇒
+    mt 挑一个）与 `run enter a 3`（带 `__judge` ⇒ 0 的那条被跳过、日志里少一条
+    `judge:`）、`run enter o 1 id a 2 …`（id 本身是数组 ⇒ 先 mt 挑 id）。
+89. **`get_next_frame` 的 `frame.next === which` 分支**：`run frame o 2 id s "f2"
+    next o 3 …` 摆出 `next` 对象后 `run enternext`，`run set hp n 5` / `run set mp n 4`
+    让 hp/mp 恰好命中 ⇒ 走 `hit.d ?? NEXT_FRAME_AUTO` 的跳转；
+    `run frame … next o 1 id s "k2"`（`next` 没有 hp/mp）走另一支。
+90. **`follow_bearer` 的两条 wpoint 公式**：`kind` 有值（走 `cx/cy/wb` 全式）与
+    `kind` 缺失（走丢 wpoint 的短式）各一次；`weaponact` 不匹配时
+    `enter_frame_by_id(…, true)` 把武器拉回 `b5`，hp ≤ 0 时改走 `drop_holding`。
+91. **`follow_bearer` 的投掷分支**：`dvx n -4 dvy n 3 dvz n 2` + `env dataset`
+    的三个 `wv*_f` + `weight n 4` + `run bkeys 0 -1 0`（对方按住 U）
+    ⇒ 位置重算、`vz = UD * dvz * wvz_f`、`vx = (dvx/weight - |vz|/2) * facing`、
+    对齐帧 `hx` 全部可见；`bearer` 快照 bug 就是这一场景杀的。
+92. **`follow_catcher` 的两支**：`throwvx/throwvy/throwvz` 有值（投掷冲量 +
+    `tv*_f` + 对方 `UD`）与全 0（贴身公式）各一次，后者的 `bcy`/`bfy`/`bcz`
+    三项分别被「b 侧 cpoint 有/无」两个场景钉住。
+93. **`drop_holding` 的克隆与对齐帧**：`run vrest s "vk" n 14 n 1` 之后
+    `run drop`，被放下那一侧的 `vrests` 数从 0 变 1（克隆而非共享）；
+    `run frameb` 的 `hl` 帧 + `on_hands`/`throwings` 让对齐帧算出来，
+    另外 `run link holding buddy` 缺 `cpoint` 的场景走 `{id:"auto"}`。
+94. **`pick` 的三次拒绝**：`run pick`（成功，`picking_sum` +1 且队伍摘要也 +1）、
+    第二次 `run pick`（`holding` 已有 ⇒ 早退）、`run linkb bearer self` 之后
+    `run pick`（武器已有 bearer ⇒ 早退）；`run summaries` 打印摘要对照。
+95. **`transfrom_to_another` 的环与 copies**：`run transform` 两次 +
+    `run set transforms a 1 o 4 …`（含 `frames` 245/246）+ `run enter …
+    transfrom_to_another b 1` ⇒ `next_idx == 0` 时请求帧 245（`f=` 看得见，
+    换 246 会被杀）；`run copy` / `run copyself` + `run set mounted` 覆盖
+    「还挂着的复制体也被 `transform`」「掉队的从 `copies` 删掉」。
+96. **`transform` 的控制器替换**：非 human ⇒ 打 `create_ctrl:<data id>:<player id>`，
+    human ⇒ 不打（用例先 `run ctrl human` 再 `run transform`）；
+    `reset()` 的 `player_id` 是 `""`，harness 的 `make_ctrl(0)` 曾经给 `"7"`
+    —— 这一支就是它对齐的依据。

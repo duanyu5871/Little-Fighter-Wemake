@@ -68,7 +68,7 @@ class States {
     }
   }
 
-  State_Base& fallback(const Value& type, double code);
+  State_Base& fallback(const Value& type, const Value& code);
 
  private:
   static std::u16string encode_key(const Value& key);

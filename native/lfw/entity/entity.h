@@ -14,6 +14,8 @@
 #include "lfw/defines/i_terrain_info.h"
 #include "lfw/defines/i_vector3.h"
 #include "lfw/entity/drink_info.h"
+#include "lfw/entity/enter_frame_result.h"
+#include "lfw/utils/math/mersenne_twister.h"
 #include "lfw/utils/times.h"
 
 namespace lfw {
@@ -75,12 +77,45 @@ class IEntityHost {
     (void)id;
     return nullptr;
   }
-  // `this.enter_frame(nf)`
-  virtual void enter_frame(const Value& nf) { (void)nf; }
   // `this.apply_opoints(this._data.base.brokens)`
   virtual void apply_opoints(const Value& opoints) { (void)opoints; }
-  // `this.play_sound(this._data.base.dead_sounds)`
-  virtual void play_sound(const Value& sounds) { (void)sounds; }
+  // `this.play_sound(this._data.base.dead_sounds)` 等：真实实现（Message 状态的相机
+  // 钳制、`lfw.sounds.play`）属于音频/相机切片，宿主只拿到 `(sounds, pos)`。
+  virtual void play_sound(const Value& sounds, const Value& pos) {
+    (void)sounds;
+    (void)pos;
+  }
+  // `world.restrict(this)` — 返回（可能被夹紧的）坐标点；`terrain` 赋值与越界时
+  // `enter_frame(NEXT_FRAME_GONE)` 这些副作用都在 `World` 里，留在宿主侧。
+  // （默认实现写在 `entity.cpp`：这里 `Entity` 还是不完整类型。）
+  virtual Vector3 world_restrict(Entity& e);
+  // `lfw.mt` — 共享的梅森旋转（`mt.pick` / `mt.range`）。
+  virtual MersenneTwister& mt() {
+    static MersenneTwister fallback(0.0);
+    return fallback;
+  }
+  // `for (const m of v.broadcasts) this.lfw.broadcast(m)`
+  virtual void broadcast(const Value& m) { (void)m; }
+  // `lfw.factory.create_ctrl(data.id, this.ctrl.player_id, this)`（`transform`）。
+  virtual controller::BaseController* create_ctrl(const std::u16string& data_id,
+                                                 const std::u16string& player_id) {
+    (void)data_id;
+    (void)player_id;
+    return nullptr;
+  }
+  // `nf.__judger`：是否存在判定器。TS 的数组分支只**探测**判定器、把运行留给递归调用，
+  // 所以「有没有」和「判什么」是两个问题。
+  virtual bool has_next_frame_judge(const Value& nf) const {
+    (void)nf;
+    return false;
+  }
+  // `nf.__judger?.run(this)`：TS 的 `preprocess_next_frame` 会给带 `expression` 的下帧
+  // 挂一个编译好的 `Expression`；端口还没搬那一层（DESIGN §52.4），所以判定结果由宿主
+  // 回答 —— 只有 `has_next_frame_judge` 认可的条目才会被问，返回假值即判定失败。
+  virtual Value next_frame_judge(const Value& nf) {
+    (void)nf;
+    return Value();
+  }
 };
 
 // The inline `jumping` record TS keeps on every entity.
@@ -178,7 +213,7 @@ class Entity {
   void reset(Value data, state::States* states);
   // `set_state(state_code)`: look the code up in the registry, fall back to the
   // per-type `States.fallback` entry, then leave the old state and enter the new one.
-  void set_state(double state_code);
+  void set_state(const Value& state_code);
   // `this._state` — `null` until `set_state` runs (and again after every `reset`).
   state::State_Base* state_ptr() const { return _state; }
 
@@ -305,6 +340,33 @@ class Entity {
                              double factor = 1);
   void handle_gravity();
   void update_velocity(const Value& vinfo);
+  // `set_position(x?, y?, z?)`: the three axes, then `world.restrict`, the four
+  // `on_*_restrict` frame requests plus the `_state.on_restrict` hook (all of them
+  // are host/frame requests here), and finally `_ground_y` through `Ground::y`.
+  void set_position(const Value& x, const Value& y, const Value& z);
+  // `update_position()`: blockers zero the moving axis, then the average-velocity
+  // step writes through `set_position`.
+  void update_position();
+
+  // --- enter-frame chain -------------------------------------------------------
+  // `set_frame` / `enter_frame` / `get_next_frame` were the last blocked cluster of
+  // the Entity block: `__judger` is the host seams `has_next_frame_judge` /
+  // `next_frame_judge`, `lfw.mt` the `mt()` seam, and `world.restrict` the
+  // `world_restrict` seam.
+  void set_frame(const Value& v);
+  EnterFrameResult enter_frame(const Value& nf, bool fallback = false);
+  EnterFrameResult enter_frame_by_id(const Value& id, bool fallback = false);
+  EnterFrameResult handle_next_frame_result(const Value& result, bool fallback = false);
+  Value get_next_frame(const Value& which);
+  // `holding?.follow_bearer()` / `catching?.follow_catcher()` — the relation half of
+  // `set_frame`; `drop_holding` / `pick` are the two ends of the same relation.
+  void follow_bearer();
+  void follow_catcher();
+  void drop_holding();
+  void pick(Entity& weapon);
+  // `transform(data)` / `transfrom_to_another(data?)` (TS keeps the typo).
+  void transform(const Value& data);
+  bool transfrom_to_another(const std::optional<Value>& data = std::nullopt);
 
   // --- stat helpers ----------------------------------------------------------
   void reset_armor();
@@ -399,6 +461,11 @@ class Entity {
   // `_after_blink` is only ever read by `update()` (unported) and written by the
   // `blink_and_*` pair, so the scene reads it back through here.
   const std::optional<std::u16string>& after_blink() const { return _after_blink; }
+  // `_motionless_ticks` — `set_frame` zeroes it; the decay lives in `update()`.
+  double motionless_ticks() const { return _motionless_ticks; }
+  void set_motionless_ticks(double v) { _motionless_ticks = v; }
+  // `this._next_frame_by_id` — the record `enter_frame_by_id` reuses.
+  const Value& next_frame_by_id() const { return _next_frame_by_id; }
 
   // The `this` argument every callback receives.  A listener sees the real object in
   // TS; the port hands over a `Value` view, which is what the ported type checks

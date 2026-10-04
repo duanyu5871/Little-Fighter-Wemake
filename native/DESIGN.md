@@ -657,7 +657,7 @@ bool  validate_fields(const Value& obj, const Value& field_map,
 |---|---|---|---|
 | 33 个 `xxx_new()` 默认构造 | 33 个函数 | **只被 `dat_translator/`**（XML→数据 翻译层）用 | 运行时不用，**不移植**（要移就等 `dat_translator` 一起） |
 | `I*.ts` / `type` / interface | 约 3000 行 | 只有类型，无运行时面 | C++ 运行时用 `Value` 动态取字段，**不需要结构体** |
-| `Defines` 命名空间的常量与数据表 | 66 条 + 7 个顶层对象 | `entity/` `collision/` `World` `bot/` `controller/` | **必须移**，且可差分 |
+| `Defines` 命名空间的常量与数据表 | 67 条 + 7 个顶层对象 | `entity/` `collision/` `World` `bot/` `controller/` | **必须移**，且可差分 |
 
 所以 V14 只做第三类：`native/lfw/defines/runtime_gen.{h,cpp}`（生成）+ `defines_data.{h,cpp}`（手写访问层）。
 
@@ -5161,3 +5161,148 @@ TS 的 `States` 是 `Map`，`set` 覆盖一个键时旧对象仍被 `this._state
 - `drop_catching` / `update_itr_bdy_hit_ground` 里的 `enter_frame` 在端口只是
   **请求**（`IEntityHost::enter_frame` 缝），harness 记录 `enter_frame:<帧>`；
   真正「进入帧」的语义归帧链切片。
+  （9i 之后这条缝已被**真方法**取代，见 §52.1。）
+
+## 52. 切片 9i：`Entity` 的帧进入链 / 位置写入 / 跟随关系 / transform
+
+`entity.{h,cpp}` 的第九刀，也是 Entity 块**第一次把「宿主缝」换成真链路**：9h 之前
+`enter_frame` / `set_frame` / `set_position` 都是缝或桩，这一刀把它们按 TS 语义完整
+落地，顺带把 `EntityStateView` 的三个转发、`States::fallback` 的签名、
+`State_Base::on_restrict` 的位置写回一起对齐。
+
+搬的东西：`set_frame`、`enter_frame` / `enter_frame_by_id` /
+`handle_next_frame_result` / `get_next_frame`（帧进入链）、`set_position` /
+`update_position`、`follow_bearer` / `follow_catcher` / `drop_holding` / `pick`、
+`transform` / `transfrom_to_another`，加上新文件
+`entity/enter_frame_result.h`（`EnterFrameResult` 四态）与
+`MersenneTwister::pick_value`。
+
+### 52.1 从缝到真：这一刀删掉了哪些「宿主缝」
+
+| 之前（9a–9h） | 这一刀之后 |
+| --- | --- |
+| `IEntityHost::enter_frame(帧)` 缝（9h 用它记录 `drop_catching` / `update_itr_bdy_hit_ground` 的请求） | 真 `Entity::enter_frame`：帧链自己走，返回 `EnterFrameResult`；缝从 `IEntityHost` 删除，port 侧 4 处 `host_->enter_frame(...)` 改成真调用 |
+| `set_frame` 是桩（harness 直接写 `opoints` 容器） | 真实现：gone 清 opoint、interval 过滤、状态钩子、四个标志、cpoint / broadcast / holding 收尾 |
+| `set_position` / `update_position` 未搬（harness 用 `run pos` / `run ground` 窥视写） | 真实现：轴跳过 + 取整 + MIN_SAFE 的 `prev_position` 复制 + `world.restrict` 后四条请求 + `Ground::y` |
+| `EntityStateView::set_position` / `set_frame` / `enter_frame_by_id` 只满足接口 | 三个转发全部转真（状态钩子第一次能真正驱动帧链），并补 `assign_position` / `set_velocity` |
+| `States::fallback(type, code)` 收 `double` | 收 `Value`：`to_string` 的键构造与 `strict_equals` 的类型分支都要保住 `undefined` 语义 |
+
+### 52.2 保真要点
+
+1. **`set_frame` 的 opoint 过滤是单趟稳定压实**：只留 `interval_mode` 严格等于 1
+   且新帧 `opoint` 里存在同 `interval_id` 的项（`gone` 帧直接清空）。删掉 `exists`
+   守卫、把 `resize(slow)` 换成 `resize(len)`、或从尾部取项都会被用例杀。
+2. **`set_frame` 的 `_invulnerable` 是直写字段**，不是 `set_invulnerable`
+   （`round_float(max(0, v))`）：用例写 `invulnerable n -3`，两侧都是 `-3`，
+   换成 setter 就变 `0`。
+3. **`handle_next_frame_result` 的消耗在 `infinity_mp` 门后**，`mp` / `hp` 各自还有
+   真值门（`0` 不扣、缺键写 NaN 也要扣）。用例用 `env dataset s "infinity_mp" b 1`
+   开关 + `run get hp` / `run get mp` 前后对照锁死。
+4. **`get_next_frame` 的 hp/mp 判定分两支**：`this.frame.next === which`（**对象
+   同一性**，比的是实体当前帧的 `next`，不是刚查到的帧）走
+   `hit.d ?? NEXT_FRAME_AUTO` 的跳转；否则要 `mp_mode === 1` 才放行。
+   `<=` 与 `<` 的差别用「hp 恰好相等」「mp 恰好相等」两点钉住。
+5. **数组分支是两条缝**：`has_next_frame_judge`（存在性）与 `next_frame_judge`
+   （判定）此前挤在一条缝里，数组里没有 `__judge` 的项会被多判定一次（多出一条
+   `judge:` 日志）；拆开后非裁判项不再触发 `next_frame_judge`。
+6. **`enter_frame` 的 `fallback` 只影响「查不到」**：`Gone` 直接返回（与入参无关），
+   `Fallback` 用 `find_auto_frame()` 且**必须**更新 `wait`。`enter_frame_by_id` 的
+   `id == void 0` 是**宽松**比较（`null` 也算缺），有 id 时 `fallback` 不覆盖它。
+7. **`set_position` 的请求有固定顺序**：x → z → y 三个单轴请求，然后才是整体
+   `on_restrict` 帧 + 状态钩子；`_ground_y` 用
+   `Ground::y(terrain, position.x, position.z)`（x/z 换参会被 terrain 用例杀）。
+8. **`update_position`**：门是 bearer / catcher / shaking / motionless 四选一；
+   blockers 只把**朝阻挡者方向**的速度轴清零（并同时写 `prev_velocity` 的同一轴，
+   积分才用得上）；积分是梯形 `(v + prev_v) * 0.5 * dt`，最后把钳制后的速度写回
+   `prev_velocity`。
+9. **`follow_bearer` 的 `bearer` 是快照**（TS `const { bearer } = this`）：后面的
+   `this.bearer = null` 只清成员，`vz = bearer.ctrl.UD * dvz` 仍读快照。端口一开始
+   直接读成员，于是「投掷」分支的 `vz` 恒为 0 —— 新用例（`dvx/dvy/dvz` 投掷 +
+   `bkeys` 造出对方按键）把它暴露并修掉。
+10. **`drop_holding`**：对齐帧找 `indexes.on_hands` → `indexes.throwings`，
+    找不到就用 `{id: "auto"}`；随后 `enter_frame` + `set_position`（自身坐标，
+    会走一遍 restrict 链）+ `set_team(this.team)`，最后把**自己的** `vrests`
+    逐个克隆给被放下的武器。
+11. **`transfrom_to_another` 的环**：`fmod(curr + 1, len)` → 换 `_data` →
+    `next_idx === 0` 时请求帧 245（**带 fallback**）→ 对 `copies` 里「还挂着」的
+    复制体再 `transform`，掉队的从 `copies` 里删掉；`next_idx` 用 `fmod` 结果
+    的小数部分（`transform_index` 存的是小数）。
+12. **`transform` 的控制器替换**：非 human ctrl 才重建，`create_ctrl` 的两个参数
+    是 `data.id` 与**旧 ctrl 的 `player_id`**；`reset()` 拿的是 `""`，
+    harness 的 `make_ctrl(0)` 一开始给了 `"7"`，被 `create_ctrl:…:s""` 这一支杀掉。
+
+### 52.3 递归陷阱：`assign_position`
+
+TS 的 `State_Base.on_restrict` 结尾是 `e.position.x = x; …`（**直写**），端口最初
+写成 `e.set_position(x, y, z)`，于是 `Entity::set_position` → 状态钩子 →
+`set_position` → … 直接爆栈。新增 `IStateEntity::assign_position`（默认回落到
+`set_position`，`EntityStateView` 覆盖成直写三个字段）；同时补上
+`EntityStateView::set_velocity` 的转发 —— 少了它，`on_restrict` 的速度钳制静默
+失效（TS 打 0.5、端口打 1）。
+
+### 52.4 harness 扩充
+
+- 新 op：`run setpos <x> <y> <z>`、`run updatepos`、`run setframe <帧字面量>`、
+  `run enter <帧字面量> [b 0|1]`、`run enternext [b 0|1]`、
+  `run enterid <id字面量> [b 0|1]`、`run followbearer`、`run followcatcher`、
+  `run drop`、`run pick`、`run transform <data字面量>`、`run transnext`、
+  `run terrain <地形字面量>`、`run vratt <aid> <px> <pz>`、`run copyself`、
+  `run frameb <帧字面量>`（写 buddy 的当前帧）、`run bkeys <LR> <UD> <jd>`。
+- 观察点：`run setpos` 打印 `p=` / `pv=`（`position` / `prev_position`）/ `g=`
+  （`_ground_y`）与 `world.restrict` 日志；`run enter*` 打印
+  `r=`（`gone` / `notfound` / `entered` / `fallback`）+ `f/w/fa/bl/pf/ar/mt`；
+  `run setframe` 打印 `f/pf/lf/ar/mt/in/bl/iv/op=[…]`（opoint 的 `interval_id` 列表）
+  + `p=` / `bp=`（自己与被放下侧的坐标）；
+  `run itrground` 追加 `f=` / `w=`（9i 把 `enter_frame` 换成真方法后，原来靠缝日志
+  观察的「请求了哪一帧」改从帧本身读）；
+  `run dropcatch` / `run drop` / `run pick` 也补了 `f=`（被放下侧的帧）/
+  `bpv=`（被放下侧的 `prev_position`）/ `bdr=`（被放下侧的 `dropping`）；
+  `run followbearer|followcatcher` 追加 `f=`（对齐帧结果）与 `dr=`（`dropping`）；
+  `run summaries` 追加 `p <id>:<picking_sum>`（`pick` 的计数只能从摘要里看）。
+- `run hook viewpos|viewframe|viewenter`：让假状态在 `enter` 里调
+  `EntityStateView` 的三个转发（`set_position` / `set_frame` / `enter_frame_by_id`），
+  这是本主题唯一能驱动它们的入口；`view_busy` 防止 `set_frame` 触发的状态进入再回调
+  成环，TS 侧同一份假状态镜像同一开关。
+- `world.ground` 在 TS 侧用**真** `Ground` 实例（`new Ground(worldStub)`）回答
+  `y()`，端口侧直接调 `Ground::y`；`run terrain` 覆盖 SlopeH / SlopeV / Flat h1 /
+  未知类型，x/z 换参因此可见。
+- `run vratt` 只写阻挡者的 `attacker.px/pz`（端口 `blockers` 存的是**值**语义的
+  `Collision`），两侧按同一形状构造。
+- `run bkeys` 的存在原因：`follow_bearer` / `follow_catcher` 各有一项速度乘
+  **对方控制器**的 `UD()`，不按对方键就没有观察点。
+- TS 侧删掉了 `enter_frame` spy（它让 `run enter` 变成空操作）；harness 里
+  `buddy` 被替换时先解除四条关系（端口是裸指针，否则悬垂）；`vratt` 的
+  `parseValue(t, [i])` 连读 bug、`Ditto.vec3` 桩缺 `copy`、8 个 `on_*_changed`
+  回调（用户 WIP 提交里删掉的那批）都已同步。
+
+### 52.5 有意不覆盖 / 不可观测项
+
+- `handle_next_frame_result` 的 `ctrl.reset_key_list()`：TS 没有可选链（`ctrl`
+  缺失会抛），端口加了 `nullptr` 守卫；而 `reset_key_list()` 只清控制器私有按键
+  队列（`_key_list` / `_readable_key_list`），实体侧没有观察点 —— 用例仍写
+  `reset_keys b 1` / `b 0` 把「不崩」钉住，键队列语义归控制器切片。
+- `collision_clone(v)`：TS 从 `lfw.new_id` 造新 id，端口按值拷贝 —— v_rest 路径
+  只读 `aid` / `itr` / `rest`（见 §51.2.3），harness 用一个**不消耗**真实 id
+  计数器的假 `lfw` 让 `id=eNN` 打印一致。
+- `transform` 的 `host_->create_ctrl(id, player_id)`：端口的 `acquire_ctrl()` 缝
+  没有 `player_id` 参数，`reset()` 的 `""` 只能由 harness 给定（见 §52.2.12）；
+  「旧 pid 传下去」这一条要「基控制器带非空 pid」才能观察，harness 的基控制器是
+  `""`，所以该变异列在 spec 头部的不可观测清单里。
+- `follow_bearer` 的 `WpointKind.Drop` 分支里 `lfw.mt.mark = 'dh_v'`
+  （TS 的调试标记）端口无对应物，两侧都没有观察点。
+- **9i 全量重跑后的 67 条「本主题不可观测」变异**：逐条查证后从
+  `mutations/entity.mjs` 移到了该文件头部的清单（每条都写明原因），分三类：
+  1. **9a/9e/9h 时代用例的覆盖缺口**（`set_toughness_max` 的取整、`fall_value` 的
+     未取整比较、`reset_armor` 的赋值顺序、三个 `*_recovering` 的「跳过通知」、
+     `drop_catching` 清自身一侧、`update_itr_bdy_hit_ground` 的 11 条判定）：
+     它们原本靠「帧请求日志 / 部分回调统计」观察，9i 把 `enter_frame` 缝换成真方法、
+     且用户 WIP 提交收窄过回调统计，观察点随之消失；补场景属于这四刀的用例工作，
+     不在本刀范围内。
+  2. **两式在本场景同值**（`follow_*` 的居中项为 0 / 权重为 1 / facing 相同、
+     `update_position` 的梯形与 dt、`get_next_frame` 的 mt 序列恰好等价、
+     `pick_value` 的假值输入、`on_restrict` 的速度阈值、`States::fallback` 的
+     字符串类型走不到分派）：需要给出「与 TS 一致又能区分两式」的具体数值/序列。
+  3. **harness 还没有的探针**（被放下侧的帧/位置、`transform` 的回调载荷、
+     自引用 `copies` 的 transform 结果）：需要新增观察口或改场景结构。
+  ——这三类都不是「端口与 TS 不一致」，差分本身仍然全绿（§52.1 的真链路替换
+  没有引入行为漂移）。

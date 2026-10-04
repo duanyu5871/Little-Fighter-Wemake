@@ -1,7 +1,7 @@
 # Entity: construction / reset + the stat accessor & notification layer
 
 # --- data without armor, with a group and both on_dead hooks
-run make o 5 id s "d1" type n 1 base o 9 name s "Alex" resting_max n 30 fall_value_max n 100 defend_value_max n 3 defend_ratio n 0.5 catch_time_max n 12 group a 1 s "1000" weight n 2 bot_ignore n 5 on_dead o 1 id s "dod" on_exhaustion o 1 id s "dex"
+run make o 6 id s "d1" type n 1 base o 9 name s "Alex" resting_max n 30 fall_value_max n 100 defend_value_max n 3 defend_ratio n 0.5 catch_time_max n 12 group a 1 s "1000" weight n 2 bot_ignore n 5 on_dead o 1 id s "dod" on_exhaustion o 1 id s "dex" frames o 3 "0" o 3 id s "0" state n 1 wait n 2 "dod" o 2 id s "dod" wait n 1 "dex" o 2 id s "dex" wait n 1
 
 # --- reset defaults: dataset-backed stats, base-backed stats and the plain slots
 run get id
@@ -183,7 +183,7 @@ run get gravity
 run hook none
 
 # --- the death branch with brokens + dead_sounds and a frame level on_dead
-run make o 5 id s "d2" type n 1 base o 2 brokens a 1 s "p1" dead_sounds a 2 s "s1" s "s2" on_dead o 1 id s "dod2" frame o 2 id s "f2" on_dead o 1 id s "fod2"
+run make o 6 id s "d2" type n 1 base o 2 brokens a 1 s "p1" dead_sounds a 2 s "s1" s "s2" on_dead o 1 id s "dod2" frame o 2 id s "f2" on_dead o 1 id s "fod2" frames o 3 "0" o 3 id s "0" state n 1 wait n 2 "fod2" o 2 id s "fod2" wait n 3 "dod2" o 2 id s "dod2" wait n 1
 run set hp n 0
 run set hp n 30
 run frame o 1 id s "gone"
@@ -191,13 +191,13 @@ run set hp n 0
 run frame o 1 id s "f2"
 run set hp n 30
 run set hp n 0
-run make o 4 id s "d3" type n 1 base o 0 on_dead o 1 id s "dod3"
+run make o 5 id s "d3" type n 1 base o 0 on_dead o 1 id s "dod3" frames o 2 "0" o 3 id s "0" state n 1 wait n 2 "dod3" o 2 id s "dod3" wait n 4
 run set hp n 0
 run make o 3 id s "dd" type n 1 base o 2 name s "Dee" drink o 2 hp_h_ticks n 10 hp_h_value n 1
 run get drink
 
 # --- armor: reset_armor() on a fresh entity, then re-run on demand
-run make o 4 id s "d4" type n 1 base o 1 armor o 4 toughness n 6 toughness_resting n 2 toughness_r_value n 9 toughness_r_tick n 3 on_dead o 1 id s "dod4"
+run make o 5 id s "d4" type n 1 base o 1 armor o 4 toughness n 6 toughness_resting n 2 toughness_r_value n 9 toughness_r_tick n 3 on_dead o 1 id s "dod4" frames o 2 "0" o 3 id s "0" state n 1 wait n 2 "dod4" o 2 id s "dod4" wait n 1
 run get toughness
 run get toughness_max
 run get toughness_resting
@@ -237,7 +237,7 @@ run autorole
 run catching
 
 # --- the frame layer: `dataset()`, `bot_ignore`, `state` and the death guard
-run make o 5 id s "d6" type n 1 base o 1 name s "Fay" on_dead o 1 id s "dod6" on_exhaustion o 1 id s "dex6"
+run make o 6 id s "d6" type n 1 base o 1 name s "Fay" on_dead o 1 id s "dod6" on_exhaustion o 1 id s "dex6" frames o 3 "0" o 3 id s "0" state n 1 wait n 2 "dod6" o 2 id s "dod6" wait n 1 "dex6" o 2 id s "dex6" wait n 2
 run frame o 4 id s "f9" state n 7 dataset o 1 hp_max n 77 bot_ignore n 3
 run get state
 run get bot_ignore
@@ -2166,3 +2166,371 @@ run ground n 3
 run itrground a 1 o 3 on_hit_ground b 0 y n 4 h n 3
 run itrground a 1 o 3 on_hit_ground u y n 4 h n 3
 run itrground a 2 o 2 y n 4 h n 0 o 3 on_hit_ground s "fO" y n 4 h n 3
+
+# =============================================================================
+# 9i: enter-frame chain / set_position / follow relations / transform
+# =============================================================================
+
+# --- set_position: skipped axes, rounding, the MIN_SAFE prev_position copy ----
+run make o 5 id s "i1" type n 1 name s "I1" base o 1 name s "Base" frames o 8 "0" o 8 id s "0" state n 1 wait n 3 next o 1 id s "a1" on_x_restrict o 1 id s "rx" on_z_restrict o 1 id s "rz" on_y_restrict o 1 id s "ry" on_restrict o 1 id s "rr" "a1" o 4 id s "a1" state n 2 wait n 5 hit o 1 d o 1 id s "h1" "h1" o 2 id s "h1" wait n 9 "rx" o 2 id s "rx" wait n 4 "rz" o 2 id s "rz" wait n 5 "ry" o 2 id s "ry" wait n 6 "rr" o 2 id s "rr" wait n 7 "r0" o 4 id s "r0" state n 2 wait n 8 on_restrict o 1 id s "rr"
+run restrict none
+run setpos n 1.2345 u z
+run setpos n 1.2345 n 2.3456 n 3.4567
+run setpos u u u
+run setpos z z z
+run setpos s "8.5" s "9" n -0.5
+run setpos n NaN n 0 n 0.0000001
+# a boolean axis is skipped by neither the nullish gate nor `round_float`, but the
+# port keeps `position` in typed doubles while TS stores the falsy value verbatim,
+# so the case stays inside the numbers the game actually passes.
+
+# --- set_position: the four restrict requests --------------------------------
+run pos n 0 n 0 n 0
+run restrict o 3 x n 2 y n 3 z n 4
+run setpos n 2 n 3 n 4
+run setpos n 10 n 10 n 10
+run setpos n 2 n 3 n 7
+run setpos n 5 n 3 n 4
+run setpos n 2 n 5 n 4
+run setpos n 2 n 5 n 5
+run frame o 4 id s "r0" state n 2 wait n 8 on_restrict o 1 id s "rr"
+run reg 80
+run setstate 80
+run setframe o 4 id s "r0" state n 80 wait n 8 on_restrict o 1 id s "rr"
+run setpos n 70 n 80 n 90
+# a *bare* registered state runs the real `State_Base.on_restrict`: the velocity clamp
+# reaches the entity through the view's `set_velocity`, and the restricted position is
+# written with `assign_position` (going through `set_position` would recurse)
+run regbare 81
+run setstate 81
+run setvel n 0.1 n 0 n 0.1
+run setpos n 40 n 50 n 60
+run get velocity
+run get position
+# the three view forwards nothing else drives
+run reg 82
+run reg 83
+run reg 84
+run hook viewpos
+run setstate 82
+run get position
+run hook none
+run frame o 2 id s "w1" wait n 6
+run hook viewframe
+run setstate 83
+run get frame
+run hook none
+run frame o 2 id s "w1" wait n 6
+run hook viewenter
+run setstate 84
+run get frame
+run hook none
+run restrict none
+run setpos n 0 n 0 n 0
+
+# --- set_position: the ground height comes from the terrain segment ----------
+run terrain o 7 type n 1 x1 n 0 x2 n 10 z1 n 0 z2 n 100 h1 n 0 h2 n 20
+run setpos n 5 n 1 n 30
+run setpos n 50 n 1 n 30
+run setpos n -5 n 1 n 30
+run terrain o 7 type n 2 x1 n 0 x2 n 100 z1 n 0 z2 n 20 h1 n 0 h2 n 40
+run setpos n 30 n 1 n 5
+run setpos n 30 n 1 n 30
+run terrain o 7 type n 0 x1 n 0 x2 n 10 z1 n 0 z2 n 10 h1 n 7 h2 n 90
+run setpos n 5 n 1 n 5
+run terrain o 7 type n 9 x1 n 0 x2 n 10 z1 n 0 z2 n 10 h1 n 7 h2 n 90
+run setpos n 5 n 1 n 5
+run terrain o 2 type n 0 h1 n 0
+run setpos n 1 n 1 n 1
+
+# --- update_position: blockers, gates, the average-velocity step --------------
+run make o 5 id s "i2" type n 1 name s "I2" base o 1 name s "Base" frames o 1 "0" o 3 id s "0" state n 1 wait n 2
+run get atom_time
+run set atom_time n 1
+run setvel n 4 n 0 n 6
+run vrest s "w1" n 14 n 1
+run vratt s "w1" n -1 n -2
+run updatepos
+run vratt s "w1" n 1 n 2
+run updatepos
+run setvel n -4 n 2 n -6
+run vratt s "w1" n -1 n -2
+run updatepos
+run setvel n -4 n 2 n -6
+run vratt s "w1" n 1 n 2
+run updatepos
+run setvel n 4 n 3 n 6
+run set shaking n 1
+run updatepos
+run set shaking n 0
+run set motionless n 2
+run updatepos
+run set motionless n 0
+run updatepos
+# the four gates again with a live dt
+run setvel n 4 n 3 n 6
+run set shaking n 1
+run updatepos
+run set shaking n 0
+run set motionless n 2
+run updatepos
+run set motionless n 0
+run buddy o 3 id s "ub" type n 2 base o 1 name s "UB"
+run link bearer buddy
+run updatepos
+run link bearer none
+run link catcher buddy
+run updatepos
+run link catcher none
+run set atom_time n 0
+
+# --- set_frame: the gone reset, the interval filter, the flags ----------------
+run make o 5 id s "i3" type n 1 name s "I3" base o 1 name s "Base" frames o 4 "0" o 3 id s "0" state n 1 wait n 2 "k1" o 2 id s "k1" wait n 3 "k2" o 2 id s "k2" wait n 4 "k3" o 4 id s "k3" state n 3 wait n 5 next o 1 id s "k4"
+run frame o 3 id s "0" state n 1 wait n 2
+run opoints a 3 o 3 interval_mode n 1 interval_id s "k1" interval n 0 o 3 interval_mode n 1 interval_id s "k2" interval n 0 o 3 interval_mode n 2 interval_id s "k3" interval n 0
+run setframe o 4 id s "k1" state n 1 wait n 3 opoint a 2 o 3 interval_id s "k1" interval n 0 interval_mode n 1 o 3 interval_id s "k3" interval n 0 interval_mode n 1
+run setframe o 1 id s "gone"
+run opoints a 1 o 3 interval_mode n 1 interval_id s "k1" interval n 0
+run setframe o 1 id s "gone"
+run opoints a 2 o 3 interval_mode n 1 interval_id s "k1" interval n 0 o 3 interval_mode n 1 interval_id s "k2" interval n 0
+run setframe o 3 id s "k1" state n 1 wait n 3
+run setframe o 4 id s "k1" itr a 1 o 1 kind n 0 state n 1 wait n 3
+run setframe o 4 id s "k1" itr a 0 state n 1 wait n 3
+run setframe o 6 id s "k1" state n 1 wait n 3 invisible n 0.4 blinking n 1.6 invulnerable n -3
+run setframe o 4 id s "k1" state n 1 wait n 3 cpoint o 1 x n 1
+run link catching buddy
+run linkb catcher self
+run setframe o 3 id s "k1" state n 1 wait n 3
+run link catching buddy
+run frame o 2 id s "w1" wait n 6
+run set motionless n 3
+run set arest n 5
+run setframe o 4 id s "k1" itr a 1 o 1 kind n 0 state n 1 wait n 3
+run set motionless n 3
+run setframe o 3 id s "k1" state n 1 wait n 3
+run frameb o 3 id s "hb" wait n 2 cpoint o 1 x n 1
+run link holding buddy
+run setframe o 4 id s "k1" state n 1 wait n 3 cpoint o 1 x n 1
+run link holding none
+run setframe o 4 id s "k1" state n 1 wait n 3 broadcasts a 2 s "bc1" n 2
+run setframe o 1 id s "k2"
+run setframe o 1 id s "r0"
+
+# --- the enter-frame family: Gone / NotFound / Fallback / Entered -------------
+run frame o 1 id s "gone"
+run enter o 1 id s "k1"
+run frame o 3 id s "0" state n 1 wait n 2
+run enter o 0
+run enter o 0 b 1
+run frame o 1 id s "k1"
+run enter o 1 id n 0
+run enter o 1 id s "nope"
+run enter o 3 id s "a1" mp n 2 hp n 3
+env dataset s "infinity_mp" b 1
+run enter o 3 id s "a1" mp n 2 hp n 3
+env dataset s "infinity_mp" u
+
+# the flag is what gates the drain: the two enters differ only through it
+run get hp
+run get mp
+run set hp n 400
+run set mp n 300
+# `mp_mode` only escapes the lookup branch, and the hp gate uses `<=`
+run enter o 4 id s "h1" hp n 5 mp n 400 mp_mode n 1
+run enter o 4 id s "h1" hp n 5 mp n 400 mp_mode n 0
+run set hp n 5
+run enter o 3 id s "h1" hp n 5 mp_mode n 0
+run set hp n 400
+run enter o 3 id s "h1" hp n 5 mp_mode n 1
+run enter o 3 id s "h1" hp n 5 mp_mode n 0
+run enter o 2 id s "h1" hp n 5
+run enter o 2 id s "h1" hp n 1
+run transform o 4 id s "d5b" type s "3" base o 1 name s "Base6" frames o 2 "245" o 2 id s "245" wait n 11 "246" o 2 id s "246" wait n 12
+run setstate 97
+run statesdump
+run transform o 4 id s "d6b" type n 3 base o 1 name s "Base7" frames o 2 "245" o 2 id s "245" wait n 11 "246" o 2 id s "246" wait n 12
+run setstate 98
+run statesdump
+run frame o 2 id s "f2" next o 1 id s "k2"
+# the `next` path compares with `<=` and `<`: an exact hp/mp match falls back to
+# `hit.d` (or the auto frame) instead of entering the frame
+run frame o 2 id s "f2" next o 3 id s "a1" hp n 5 mp n 4
+run set hp n 5
+run enternext
+run set hp n 400
+run frame o 2 id s "f2" next o 3 id s "a1" hp n 5 mp n 4
+run set mp n 4
+run enternext
+run set hp n 5
+run set mp n 4
+run frame o 2 id s "f2" next o 3 id s "k2" hp n 5 mp n 4
+run enternext
+run set hp n 400
+run set mp n 300
+run enter o 3 id s "h1" hp n 5 mp_mode s "1"
+run set hp n 400
+run set mp n 300
+run enter o 7 id s "h1" facing n 0 wait n 2 sound a 1 s "z" blink_time n 0 reset_keys b 0 transfrom_to_another b 0
+run frame o 2 id s "f2" next o 1 id s "k2"
+run enternext
+run enter s "a1"
+run mtseed n 1
+run enter a 3 o 3 id s "h1" hp n 5 __judge n 1 o 2 id s "a1" __judge n 0 o 2 id s "k2" __judge n 1
+run mtseed n 2
+run enter a 2 o 1 id s "a1" o 1 id s "k2"
+run mtseed n 3
+run enter a 0
+run enter a 2 o 2 id s "a1" __judge n 0 o 1 id s "k2"
+run mtseed n 1
+run enter a 3 o 1 id s "k1" o 1 id s "k2" o 1 id s "k3"
+run mtseed n 1
+run enter o 1 id a 2 s "k1" s "k3"
+run mtseed n 2
+run enter o 1 id a 2 s "k1" s "k3"
+run enter a 1 u
+run set wait n 9
+run enter a 1 u b 1
+run get wait
+run frame o 4 id s "0" state n 1 wait n 2 next o 1 id s "k2"
+run set wait n 9
+run enter o 1 id s "nope" b 1
+run get wait
+
+# an array id is picked through the mt; a non-array sound flag is not played
+run mtseed n 2
+run enter o 1 id a 2 s "a1" s "k2"
+run enter o 2 id s "h1" sound s "z"
+# a defined id plus the fallback flag keeps the defined id
+run enterid s "k1" b 1
+run enter o 7 id s "h1" facing n -1 wait s "d" sound a 2 s "x" s "y" blink_time n 5 reset_keys b 1 transfrom_to_another b 1
+run ctrl base
+run enter o 7 id s "h1" facing n 1 wait n 2 sound a 1 s "z" blink_time n 0 reset_keys b 0 transfrom_to_another b 0
+run enterid s "k2"
+run enterid u b 1
+run enterid u
+run enterid z b 0
+
+# the transform cycle requests frame 245, and the flag re-runs `transfrom_to_another`
+run set transforms a 1 o 4 id s "t1" name s "T1" base o 1 name s "T1B" frames o 2 "245" o 2 id s "245" wait n 11 "246" o 2 id s "246" wait n 12
+run enter o 2 id s "h1" transfrom_to_another b 1
+run transnext
+run get frame
+run get wait
+run get facing
+run get blinking
+
+# --- holding relations: pick / follow_bearer / follow_catcher / drop_holding --
+run make o 5 id s "r1" type n 1 name s "R1" base o 2 name s "Base" weight n 2 frames o 2 "0" o 3 id s "0" state n 1 wait n 2 "h" o 2 id s "h" wait n 3
+run buddy o 5 id s "w2" type n 2 name s "W2" base o 1 name s "W2B" frames o 2 "0" o 3 id s "0" state n 1 wait n 2 "zz" o 2 id s "zz" wait n 3
+
+# pick links the pair, refuses a second weapon and an already-borne one
+run pick
+run pick
+run summaries
+run buddy o 5 id s "w3" type n 2 name s "W3" base o 1 name s "W3B" frames o 2 "0" o 3 id s "0" state n 1 wait n 2 "zz2" o 2 id s "zz2" wait n 3
+run linkb bearer self
+run pick
+
+# drop_holding releases the held side: the align frame, the bearer team, the clones
+run buddy o 6 id s "w4" type n 2 name s "W4" base o 1 name s "W4B" frames o 3 "0" o 3 id s "0" state n 1 wait n 2 "hl" o 2 id s "hl" wait n 3 "h2" o 1 id s "h2" indexes o 2 on_hands a 1 s "hl" throwings a 1 s "h2"
+run set team s "7"
+run link holding buddy
+run vrest s "vk" n 14 n 1
+run frameb o 2 id s "hl" wait n 5
+run linkb bearer self
+run drop
+run drop
+
+# follow_bearer: the two wpoint formulas, the weaponact fallback and the hp gate
+run buddy o 5 id s "w5" type n 2 name s "W5" base o 1 name s "W5B" frames o 2 "0" o 3 id s "0" state n 1 wait n 2 "ha" o 2 id s "ha" wait n 3
+run link bearer buddy
+run frame o 3 id s "h" wait n 3 wpoint o 1 kind n 1
+run followbearer
+run frameb o 5 id s "b5" wait n 4 wpoint o 4 kind n 1 x n 5 y n 1 z n 2 centerx n 1 centery n 1
+run followbearer
+run frameb o 5 id s "b5" wait n 4 wpoint o 5 kind n 1 x n 5 y n 1 z n 2 weaponact s "nope" centerx n 1 centery n 1
+run followbearer
+run set hp n 0
+run followbearer
+run set hp n 400
+run buddyset facing n -1
+run frameb o 3 id s "b5" wait n 4 wpoint o 3 kind n 1 x n 1 y n 1
+run followbearer
+run get facing
+run buddyset facing n 1
+run frameb o 3 id s "b5" wait n 4 wpoint o 4 kind n 1 dvy n 3 x n 1 y n 1
+run followbearer
+run linkb holding self
+run frameb o 3 id s "b5" wait n 4 wpoint o 5 kind n 1 dvy u dvz u x n 1 y n 1
+run followbearer
+run linkb holding none
+run frameb o 3 id s "b5" wait n 4 wpoint o 1 kind n 3
+run link bearer buddy
+run setvel n 1 n 1 n 1
+run mtseed n 4
+run followbearer
+run mtseed n 7
+run followbearer
+run frameb o 3 id s "b5" wait n 4 wpoint o 3 kind n 0 x n 1 y n 1
+run followbearer
+
+# the throw branch: the dvx/dvy/dvz factors, the weight division and the align frame
+run buddy o 6 id s "w7" type n 2 name s "W7" base o 2 name s "W7B" weight n 4 frames o 3 "0" o 3 id s "0" state n 1 wait n 2 "ht" o 2 id s "ht" wait n 3 "hx" o 2 id s "hx" wait n 4 indexes o 2 on_hands a 1 s "ht" throwings a 1 s "hx"
+run link bearer buddy
+run linkb holding self
+run bkeys 0 -1 0
+run frame o 3 id s "ht" wait n 3 wpoint o 1 kind n 1
+env dataset s "wvx_f" n 0.25
+env dataset s "wvy_f" n 0.5
+env dataset s "wvz_f" n 0.75
+run frameb o 5 id s "b7" wait n 4 wpoint o 7 kind n 1 x n 5 y n 1 z n 2 dvx n -4 dvy n 3 dvz n 2 centerx n 1 centery n 1
+run followbearer
+run drop
+
+# follow_catcher: the throw impulse branch and the plain hold branch
+run buddy o 5 id s "w6" type n 2 name s "W6" base o 1 name s "W6B" frames o 2 "0" o 3 id s "0" state n 1 wait n 2 "hc" o 2 id s "hc" wait n 3
+run link catcher buddy
+run bkeys 0 -1 0
+run frameb o 2 id s "bc" wait n 3
+run followcatcher
+run buddyset facing n -1
+run frame o 3 id s "cc" wait n 2 centerx n 1
+run followcatcher
+run buddyset facing n 1
+run frameb o 3 id s "bc" wait n 3 cpoint o 1 z n 3
+run followcatcher
+run frameb o 5 id s "bc" wait n 3 cpoint o 6 x n 1 y n 2 z n 1 throwvx n 5 throwvy n 0 throwvz n 2 centerx n 2 centery n 1
+run frame o 4 id s "cc" wait n 2 cpoint o 1 x n 2 centery n 1
+run followcatcher
+run frame o 4 id s "cc" wait n 2 centerx n 1 centery n 1
+run followcatcher
+run frameb o 5 id s "bc" wait n 3 cpoint o 6 x n 1 y n 2 z n 1 throwvx n 0 throwvy n 0 throwvz n 0 centerx n 2 centery n 1
+run followcatcher
+
+# --- transform / transfrom_to_another ----------------------------------------
+run transform o 4 id s "d1b" type n 1 name s "D1B" base o 1 name s "Base2"
+run transnext
+run transform o 4 id s "d2b" type n 1 name s "D2B" base o 1 name s "Base3"
+run transnext
+run transnext
+run copy s "x1"
+run copy s "x1"
+run copyself
+run transnext
+run transnext
+# a human controller is trusted: the transform never replaces it
+run ctrl human
+run transform o 4 id s "d3b" type n 1 name s "D3B" base o 1 name s "Base4"
+run ctrl base
+run transform o 5 id s "d4b" type n 1 name s "D4B" base o 2 name s "Base5" armor n 3 frames o 2 "245" o 2 id s "245" wait n 11 "246" o 2 id s "246" wait n 12
+run get armor
+run transform o 5 id s "d5b" type n 1 name s "D5B" base o 1 name s "Base6" frames o 2 "245" o 2 id s "245" wait n 11 "246" o 2 id s "246" wait n 12
+run get armor
+
+# --- reset leaves the entity on EMPTY_FRAME_INFO (the identity branch) --------
+run reset o 5 id s "i3b" type n 1 name s "I3B" base o 1 name s "Base" frames o 3 "0" o 3 id s "0" state n 1 wait n 2 "k1" o 2 id s "k1" wait n 3 "k2" o 2 id s "k2" wait n 4
+run enter o 2 mp n 0 wait n 7
+run get wait
+run enter o 0
+run enter o 0 b 1
+run get frame

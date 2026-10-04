@@ -4,6 +4,8 @@
 #include <optional>
 #include <vector>
 
+#include "lfw/core/value.h"
+
 namespace lfw {
 
 class MersenneTwister {
@@ -21,6 +23,9 @@ class MersenneTwister {
 
   std::optional<double> pick(const std::vector<double>& arr);
   std::optional<double> take(std::vector<double>& arr);
+  // `Mt.pick<T>(a)`: a nullish / falsy argument becomes `undefined`, a non-array is
+  // returned as-is, and an array picks a random element (one draw, like `range(0, n)`).
+  Value pick_value(const Value& a);
 
   const uint32_t* mt() const { return _mt; }
   uint32_t matrix() const { return _matrix; }

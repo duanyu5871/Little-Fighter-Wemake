@@ -20,6 +20,7 @@
 #include "lfw/defines/speed_ctrl.h"
 #include "lfw/defines/speed_mode.h"
 #include "lfw/defines/state_enum.h"
+#include "lfw/defines/wpoint_kind.h"
 #include "lfw/entity/calc_v.h"
 #include "lfw/entity/entity_type_check.h"
 #include "lfw/entity/entity_snapshot.h"
@@ -113,6 +114,10 @@ std::size_t array_length(const Value& v) {
   return a != nullptr ? a->size() : 0;
 }
 
+// `this.position` as a `Value` (defined next to the enter-frame chain; declared here
+// because `reset` already hands a position to `play_sound`).
+Value position_value(const Vector3& p);
+
 }
 
 Entity::Entity(IEntityHost& host, Value data)
@@ -134,6 +139,10 @@ Entity::Entity(IEntityHost& host, Value data, state::States* states) {
 }
 
 Entity::~Entity() = default;
+
+// The `world.restrict` default: no host, no restriction (the real `World.restrict`
+// clamps against the stage bounds and owns the weapon/ball out-of-bounds requests).
+Vector3 IEntityHost::world_restrict(Entity& e) { return e.position; }
 
 void Entity::reset(Value data) { reset(std::move(data), &state::entity_states()); }
 
@@ -275,8 +284,8 @@ void Entity::reset(Value data, state::States* states) {
 // The fallback key is built from `_data.type` verbatim (a string `"8"` does not match
 // `EntityEnum.Fighter`), and `leave` sees the *current* frame while `enter` sees the
 // previous one.
-void Entity::set_state(double state_code) {
-  state::State_Base* v = states_->get(Value(state_code));
+void Entity::set_state(const Value& state_code) {
+  state::State_Base* v = states_->get(state_code);
   if (v == nullptr) v = &states_->fallback(field_or(_data, u"type"), state_code);
   if (_state == v) return;
   if (_state != nullptr) _state->leave(*state_view_, frame);
@@ -352,32 +361,15 @@ Value Entity::itr() const { return field_or(frame, u"itr"); }
 
 Value Entity::bdy() const { return field_or(frame, u"bdy"); }
 
-void Entity::set_toughness_resting_max(double v) {
-  v = round_float(v);
-  const double o = _toughness_resting_max;
-  if (o == v) return;
-  _toughness_resting_max = v;
-}
+void Entity::set_toughness_resting_max(double v) { _toughness_resting_max = round_float(v); }
 
 double Entity::resting_max() const {
   return _resting_max.has_value() ? *_resting_max : num_of(host_->world_dataset(u"resting_max"));
 }
 
-void Entity::set_resting_max(double v) {
-  v = round_float(v);
-  const double o = resting_max();
-  if (o == v) return;
-  _resting_max = v;
-  callbacks.call(u"on_resting_max_changed", {ref(), Value(v), Value(o)});
-}
+void Entity::set_resting_max(double v) { _resting_max = round_float(v); }
 
-void Entity::set_resting(double v) {
-  v = round_float(v);
-  const double o = _resting;
-  if (o == v) return;
-  _resting = v;
-  callbacks.call(u"on_resting_changed", {ref(), Value(v), Value(o)});
-}
+void Entity::set_resting(double v) { _resting = round_float(v); }
 
 void Entity::set_fall_value(double v) {
   const double o = _fall_value;
@@ -387,7 +379,6 @@ void Entity::set_fall_value(double v) {
     set_resting(resting_max());
     set_toughness_resting(toughness_resting_max());
   }
-  callbacks.call(u"on_fall_value_changed", {ref(), Value(v), Value(o)});
 }
 
 void Entity::set_toughness(double v) {
@@ -397,17 +388,9 @@ void Entity::set_toughness(double v) {
   if (o == v) return;
   _toughness = v;
   if (v < o) set_toughness_resting(toughness_resting_max());
-  callbacks.call(u"on_toughness_changed", {ref(), Value(v), Value(o)});
 }
 
-void Entity::set_toughness_max(double v) {
-  v = round_float(v);
-  if (v < 0) v = 0;
-  const double o = _toughness_max;
-  if (o == v) return;
-  _toughness_max = v;
-  callbacks.call(u"on_toughness_max_changed", {ref(), Value(v), Value(o)});
-}
+void Entity::set_toughness_max(double v) { _toughness_max = round_float(v); }
 
 void Entity::set_toughness_resting(double v) {
   v = round_float(v);
@@ -421,26 +404,14 @@ double Entity::catch_time_max() const {
                                      : num_of(host_->world_dataset(u"catch_time_max"));
 }
 
-void Entity::set_catch_time_max(double v) {
-  v = round_float(v);
-  const double o = catch_time_max();
-  if (o == v) return;
-  _catch_time_max = v;
-  callbacks.call(u"on_catch_time_max_changed", {ref(), Value(v), Value(o)});
-}
+void Entity::set_catch_time_max(double v) { _catch_time_max = round_float(v); }
 
 double Entity::fall_value_max() const {
   return _fall_value_max.has_value() ? *_fall_value_max
                                      : num_of(host_->world_dataset(u"fall_value_max"));
 }
 
-void Entity::set_fall_value_max(double v) {
-  v = round_float(v);
-  const double o = fall_value_max();
-  if (o == v) return;
-  _fall_value_max = v;
-  callbacks.call(u"on_fall_value_max_changed", {ref(), Value(v), Value(o)});
-}
+void Entity::set_fall_value_max(double v) { _fall_value_max = round_float(v); }
 
 void Entity::set_defend_value(double v) {
   const double o = _defend_value;
@@ -450,7 +421,6 @@ void Entity::set_defend_value(double v) {
     set_resting(resting_max());
     set_toughness_resting(toughness_resting_max());
   }
-  callbacks.call(u"on_defend_value_changed", {ref(), Value(v), Value(o)});
 }
 
 double Entity::defend_value_max() const {
@@ -458,25 +428,14 @@ double Entity::defend_value_max() const {
                                        : num_of(host_->world_dataset(u"defend_value_max"));
 }
 
-void Entity::set_defend_value_max(double v) {
-  v = round_float(v);
-  const double o = defend_value_max();
-  if (o == v) return;
-  _defend_value_max = v;
-  callbacks.call(u"on_defend_value_max_changed", {ref(), Value(v), Value(o)});
-}
+void Entity::set_defend_value_max(double v) { _defend_value_max = round_float(v); }
 
 double Entity::defend_ratio() const {
   return _defend_ratio.has_value() ? *_defend_ratio
                                    : num_of(host_->world_dataset(u"defend_ratio"));
 }
 
-void Entity::set_defend_ratio(double v) {
-  v = round_float(v);
-  const double o = defend_ratio();
-  if (o == v) return;
-  _defend_ratio = v;
-}
+void Entity::set_defend_ratio(double v) { _defend_ratio = round_float(v); }
 
 Value Entity::name() const {
   if (!std::holds_alternative<NullTag>(_name)) return _name;
@@ -515,18 +474,11 @@ void Entity::set_mp(double v) {
   if (o > 0 && v <= 0) {
     const Value nf = next_frame_of(field_or(frame, u"on_exhaustion"),
                                    field_or(_data, u"on_exhaustion"));
-    if (truthy(nf)) host_->enter_frame(nf);
+    if (truthy(nf)) enter_frame(nf);
   }
 }
 
-void Entity::set_hp_r(double v) {
-  const double o = _hp_r;
-  v = max(0.0, v);
-  v = round_float(v);
-  if (o == v) return;
-  _hp_r = v;
-  callbacks.call(u"on_hp_r_changed", {ref(), Value(_hp_r), Value(o)});
-}
+void Entity::set_hp_r(double v) { _hp_r = round_float(max(0.0, v)); }
 
 void Entity::set_hp(double v) {
   const double o = _hp;
@@ -554,10 +506,10 @@ void Entity::set_hp(double v) {
         frame_id_of(*this) != std::u16string(frame_id::kGone) &&
         array_length(brokens) > 0) {
       host_->apply_opoints(brokens);
-      host_->play_sound(field_or(base_of(_data), u"dead_sounds"));
+      host_->play_sound(field_or(base_of(_data), u"dead_sounds"), position_value(position));
     }
     const Value nf = next_frame_of(field_or(frame, u"on_dead"), field_or(_data, u"on_dead"));
-    if (truthy(nf)) host_->enter_frame(nf);
+    if (truthy(nf)) enter_frame(nf);
   }
   if (v > _hp_r) set_hp_r(v);
 }
@@ -566,27 +518,13 @@ double Entity::mp_max() const {
   return _mp_max.has_value() ? *_mp_max : num_of(host_->world_dataset(u"mp_max"));
 }
 
-void Entity::set_mp_max(double v) {
-  const double o = mp_max();
-  v = max(0.0, v);
-  v = round_float(v);
-  if (v == o) return;
-  _mp_max = v;
-  callbacks.call(u"on_mp_max_changed", {ref(), Value(*_mp_max), Value(o)});
-}
+void Entity::set_mp_max(double v) { _mp_max = round_float(max(0.0, v)); }
 
 double Entity::hp_max() const {
   return _hp_max.has_value() ? *_hp_max : num_of(host_->world_dataset(u"hp_max"));
 }
 
-void Entity::set_hp_max(double v) {
-  const double o = hp_max();
-  v = max(0.0, v);
-  v = round_float(v);
-  if (v == o) return;
-  _hp_max = v;
-  callbacks.call(u"on_hp_max_changed", {ref(), Value(*_hp_max), Value(o)});
-}
+void Entity::set_hp_max(double v) { _hp_max = round_float(max(0.0, v)); }
 
 void Entity::set_team(std::u16string v) {
   if (equals(Value(v), Value(_team))) return;
@@ -1272,7 +1210,7 @@ bool Entity::drop_catching() {
   if (catching->catcher == this) catching->catcher = nullptr;
   set_catching(nullptr);
   const Value* auto_frame = defines::find(u"Defines.NEXT_FRAME_AUTO");
-  host_->enter_frame(auto_frame != nullptr ? *auto_frame : Value());
+  enter_frame(auto_frame != nullptr ? *auto_frame : Value());
   return true;
 }
 
@@ -1302,8 +1240,496 @@ void Entity::update_itr_bdy_hit_ground(const Value& itrs) {
     const double y = nullish(y_value) ? 0.0 : to_number(y_value);
     const double h = nullish(h_value) ? 0.0 : to_number(h_value);
     if (position.y + to_number(field_or(frame, u"centery")) - y - h > _ground_y) continue;
-    host_->enter_frame(target);
+    enter_frame(target);
   }
+}
+
+// --- enter-frame chain --------------------------------------------------------
+
+namespace {
+
+// `this.frame.next === which` / `this.frame === EMPTY_FRAME_INFO`: TS compares two
+// *object identities*.  The port's `Value` holds a `shared_ptr`, and every copy of the
+// same record keeps the same pointer, so identity is `shared_ptr` equality.  Two
+// distinct objects with equal fields compare unequal here, exactly like TS.
+bool same_ref(const Value& a, const Value& b) {
+  const auto* pa = std::get_if<std::shared_ptr<Object>>(&a);
+  const auto* pb = std::get_if<std::shared_ptr<Object>>(&b);
+  if (pa != nullptr && pb != nullptr) return *pa == *pb;
+  const auto* aa = std::get_if<std::shared_ptr<Array>>(&a);
+  const auto* ab = std::get_if<std::shared_ptr<Array>>(&b);
+  if (aa != nullptr && ab != nullptr) return *aa == *ab;
+  return false;
+}
+
+// `a?.length` — `undefined` for a nullish value, the count for an array (and for a
+// string, which TS would iterate as characters).
+double js_length(const Value& v) {
+  if (nullish(v)) return std::numeric_limits<double>::quiet_NaN();
+  const Array* a = as_array(v);
+  if (a != nullptr) return static_cast<double>(a->size());
+  const std::u16string* s = std::get_if<std::u16string>(&v);
+  if (s != nullptr) return static_cast<double>(s->size());
+  return std::numeric_limits<double>::quiet_NaN();
+}
+
+// `this.position` handed to the host as a `Value` (TS passes the live object; only
+// its fields are ever read).
+Value position_value(const Vector3& p) {
+  Object o;
+  o.set(u"x", Value(p.x));
+  o.set(u"y", Value(p.y));
+  o.set(u"z", Value(p.z));
+  return Value(std::make_shared<Object>(o));
+}
+
+}
+
+// `world.ground.y(this.terrain, x, z)` — the ported static `Ground::y` (TS reaches the
+// same function through the `World.ground` instance).
+void Entity::set_position(const Value& x, const Value& y, const Value& z) {
+  if (!nullish(x)) position.x = round_float(to_number(x));
+  if (!nullish(y)) position.y = round_float(to_number(y));
+  if (!nullish(z)) position.z = round_float(to_number(z));
+  if (prev_position.x == kMinSafeInteger) prev_position = position;
+  const Vector3 r = host_->world_restrict(*this);
+  const Value on_x = field_or(frame, u"on_x_restrict");
+  if (position.x != r.x && truthy(on_x)) enter_frame(on_x);
+  const Value on_z = field_or(frame, u"on_z_restrict");
+  if (position.z != r.z && truthy(on_z)) enter_frame(on_z);
+  const Value on_y = field_or(frame, u"on_y_restrict");
+  if (position.y != r.y && truthy(on_y)) enter_frame(on_y);
+  if (position.x != r.x || position.y != r.y || position.z != r.z) {
+    const Value on_restrict = field_or(frame, u"on_restrict");
+    if (truthy(on_restrict)) enter_frame(on_restrict);
+    if (_state != nullptr) _state->on_restrict(*state_view_, r.x, r.y, r.z);
+  }
+  _ground_y = Ground::y(terrain, position.x, position.z);
+}
+
+void Entity::update_position() {
+  if (bearer != nullptr || catcher != nullptr || truthy(Value(shaking)) ||
+      truthy(Value(motionless)))
+    return;
+  double vx = velocity.x;
+  double vz = velocity.z;
+  const double vy = velocity.y;
+  const double atom_time = _atom_time;
+  for (const auto& kv : blockers) {
+    const collision::Collision& v = kv.second;
+    if ((vx < 0 && v.attacker.px < position.x) || (vx > 0 && v.attacker.px > position.x)) {
+      vx = 0;
+      prev_velocity.x = 0;
+    }
+    if ((vz < 0 && v.attacker.pz < position.z) || (vz > 0 && v.attacker.pz > position.z)) {
+      vz = 0;
+      prev_velocity.z = 0;
+    }
+  }
+  if (!truthy(Value(shaking)) && !truthy(Value(motionless))) {
+    double x = position.x;
+    double y = position.y;
+    double z = position.z;
+    x += (vx + prev_velocity.x) * 0.5 * atom_time;
+    y += (vy + prev_velocity.y) * 0.5 * atom_time;
+    z += (vz + prev_velocity.z) * 0.5 * atom_time;
+    set_position(Value(x), Value(y), Value(z));
+  }
+  prev_velocity.set(vx, vy, vz);
+}
+
+// `set_frame(v)`: the opoint interval filter, the frame swap, the state hook, the four
+// one-shot flags and the two follow-up requests.
+void Entity::set_frame(const Value& v) {
+  _motionless_ticks = 0;
+  const Value* gone = defines::find(u"GONE_FRAME_INFO");
+  const bool is_gone = gone != nullptr && strict_equals(field_or(v, u"id"), field_or(*gone, u"id"));
+  if (is_gone) {
+    opoints.clear();
+  } else if (!opoints.empty()) {
+    const std::size_t len = opoints.size();
+    std::size_t slow = 0;
+    for (std::size_t fast = 0; fast < len; ++fast) {
+      const Value& opoint = opoints[fast].first;
+      if (!strict_equals(field_or(opoint, u"interval_mode"), Value(1.0))) continue;
+      const Value interval_id = field_or(opoint, u"interval_id");
+      const Array* next_opoints = as_array(field_or(v, u"opoint"));
+      bool exists = false;
+      if (next_opoints != nullptr) {
+        for (std::size_t i = 0; i < next_opoints->size(); ++i) {
+          if (strict_equals(field_or(next_opoints->at(i), u"interval_id"), interval_id)) {
+            exists = true;
+            break;
+          }
+        }
+      }
+      if (!exists) continue;
+      opoints[slow++] = opoints[fast];
+    }
+    opoints.resize(slow);
+  }
+  _prev_frame = frame;
+  _landing_frame = Value(NullTag{});
+  frame = v;
+  if (!truthy(Value(js_length(field_or(v, u"itr"))))) set_arest(0);
+  const Value prev_state_code = field_or(_prev_frame, u"state");
+  const Value next_state_code = state();
+  if (!strict_equals(prev_state_code, next_state_code)) set_state(next_state_code);
+  const Value invisible = field_or(v, u"invisible");
+  if (truthy(invisible)) set_invisible(to_number(invisible));
+  const Value blinking = field_or(v, u"blinking");
+  if (truthy(blinking)) set_blinking(to_number(blinking));
+  // `this._invulnerable = v.invulnerable` — the private field, *not* the clamped setter.
+  const Value invulnerable = field_or(v, u"invulnerable");
+  if (truthy(invulnerable)) _invulnerable = to_number(invulnerable);
+  const Value opoint = field_or(v, u"opoint");
+  if (truthy(opoint)) host_->apply_opoints(opoint);
+  if (!truthy(field_or(v, u"cpoint"))) {
+    set_catching(nullptr);
+    catcher = nullptr;
+  }
+  const Array* broadcasts = as_array(field_or(v, u"broadcasts"));
+  if (broadcasts != nullptr && !broadcasts->empty()) {
+    for (std::size_t i = 0; i < broadcasts->size(); ++i) host_->broadcast(broadcasts->at(i));
+  }
+  if (holding != nullptr) holding->follow_bearer();
+  if (catching != nullptr) catching->follow_catcher();
+}
+
+EnterFrameResult Entity::enter_frame(const Value& nfs, bool fallback) {
+  if (strict_equals(field_or(frame, u"id"), Value(std::u16string(frame_id::kGone))))
+    return EnterFrameResult::Gone;
+  const Value result = get_next_frame(nfs);
+  if (nullish(result) && fallback) {
+    const Value f = find_auto_frame();
+    set_frame(f);
+    wait = handle_wait_flag(Value(), f);
+    return EnterFrameResult::Fallback;
+  }
+  if (nullish(result)) return EnterFrameResult::NotFound;
+  return handle_next_frame_result(result);
+}
+
+EnterFrameResult Entity::enter_frame_by_id(const Value& id_value, bool fallback) {
+  // `if (id == void 0 && fallback)` is a *loose* check, so `null` counts as missing.
+  Value use_id = id_value;
+  if (nullish(use_id) && fallback) use_id = Value(std::u16string(frame_id::kAuto));
+  Object* nf = as_object(_next_frame_by_id);
+  if (nf != nullptr) nf->set(u"id", use_id);
+  return enter_frame(_next_frame_by_id, fallback);
+}
+
+EnterFrameResult Entity::handle_next_frame_result(const Value& result, bool fallback) {
+  const Value frame_v = field_or(result, u"frame");
+  const Value flags = field_or(result, u"which");
+  if (!truthy(host_->world_dataset(u"infinity_mp"))) {
+    const Value mp = field_or(flags, u"mp");
+    const Value hp = field_or(flags, u"hp");
+    if (truthy(mp)) set_mp(_mp - to_number(mp));
+    if (truthy(hp)) set_hp(_hp - to_number(hp));
+  }
+  if (truthy(frame_v)) {
+    host_->play_sound(field_or(frame_v, u"sound"), position_value(position));
+    set_frame(frame_v);
+  } else {
+    const Value* empty_frame = defines::find(u"EMPTY_FRAME_INFO");
+    if ((empty_frame != nullptr && same_ref(frame, *empty_frame)) || fallback)
+      set_frame(find_auto_frame());
+  }
+  const Value facing_flag = field_or(flags, u"facing");
+  if (!std::holds_alternative<std::monostate>(facing_flag))
+    facing = handle_facing_flag(facing_flag);
+  if (truthy(frame_v)) wait = handle_wait_flag(field_or(flags, u"wait"), frame_v);
+  const Value sound = field_or(flags, u"sound");
+  if (as_array(sound) != nullptr) host_->play_sound(sound, position_value(position));
+  const Value blink_time = field_or(flags, u"blink_time");
+  if (truthy(blink_time)) set_blinking(to_number(blink_time));
+  // `this.ctrl.reset_key_list()` has no optional chain in TS (a missing controller
+  // would throw); the port skips instead of dereferencing `nullptr`.
+  if (truthy(field_or(flags, u"reset_keys")) && ctrl_ != nullptr) ctrl_->reset_key_list();
+  if (truthy(field_or(flags, u"transfrom_to_another"))) transfrom_to_another(std::nullopt);
+  return truthy(frame_v) ? EnterFrameResult::Entered : EnterFrameResult::Fallback;
+}
+
+Value Entity::get_next_frame(const Value& which) {
+  const Array* arr = as_array(which);
+  if (arr != nullptr) {
+    const std::size_t l = arr->size();
+    std::vector<Value> remains;
+    for (std::size_t i = 0; i < l; ++i) {
+      const Value nf = arr->at(i);
+      if (!truthy(nf)) continue;
+      if (!host_->has_next_frame_judge(nf)) {
+        remains.push_back(nf);
+        continue;
+      }
+      const Value f = get_next_frame(nf);
+      if (!nullish(f)) return f;
+    }
+    Array remains_arr(remains);
+    const Value next = host_->mt().pick_value(Value(std::make_shared<Array>(remains_arr)));
+    if (nullish(next)) return Value();
+    return get_next_frame(next);
+  }
+  const Value id_value = field_or(which, u"id");
+  const Value use_hp = field_or(which, u"hp");
+  const Value use_mp = field_or(which, u"mp");
+  const Value mp_mode = field_or(which, u"mp_mode");
+  if (host_->has_next_frame_judge(which) && !truthy(host_->next_frame_judge(which)))
+    return Value();
+  Value found_frame;
+  if (truthy(id_value)) {
+    found_frame = find_frame_by_id(host_->mt().pick_value(id_value));
+    if (nullish(found_frame)) return Value();
+  }
+  if (!truthy(host_->world_dataset(u"infinity_mp")) && truthy(found_frame)) {
+    // `this.frame.next === which` compares against the entity's **current** frame, not
+    // the frame the lookup just found.
+    const Value frame_next = field_or(frame, u"next");
+    const Value hit_d = field_or(field_or(found_frame, u"hit"), u"d");
+    const Value* auto_frame = defines::find(u"Defines.NEXT_FRAME_AUTO");
+    const Value fallback_frame =
+        or_nullish(hit_d, auto_frame != nullptr ? *auto_frame : Value());
+    if (same_ref(frame_next, which)) {
+      // 用 next 进入此动作：负数表示消耗，无视正数。消耗完毕跳至按下防御键的指定跳转动作
+      if (truthy(use_mp) && _mp < to_number(use_mp)) return get_next_frame(fallback_frame);
+      if (truthy(use_hp) && _hp <= to_number(use_hp)) return get_next_frame(fallback_frame);
+    } else {
+      if (truthy(use_mp) && _mp < to_number(use_mp) && !equals(mp_mode, Value(1.0)))
+        return Value();
+      if (truthy(use_hp) && _hp <= to_number(use_hp)) return Value();
+    }
+  }
+  Value w;
+  if (is_str(which)) {
+    Object o;
+    o.set(u"id", which);
+    w = Value(std::make_shared<Object>(o));
+  } else {
+    w = which;
+  }
+  Object result;
+  result.set(u"frame", found_frame);
+  result.set(u"which", w);
+  return Value(std::make_shared<Object>(result));
+}
+
+// --- holding / catching relations ---------------------------------------------
+
+void Entity::follow_bearer() {
+  // TS destructures `const { bearer } = this`, so the nulling further down only clears
+  // the *member*: the rest of the body keeps reading the snapshot.
+  Entity* const bearer_src = bearer;
+  if (bearer_src == nullptr) return;
+  set_team(bearer_src->team());
+  if (_hp <= 0 && bearer_src != nullptr) {
+    drop_holding();
+    return;
+  }
+  const Value wp_a = field_or(bearer_src->frame, u"wpoint");
+  const double cx_a = to_number(field_or(bearer_src->frame, u"centerx"));
+  const double cy_a = to_number(field_or(bearer_src->frame, u"centery"));
+  if (equals(field_or(wp_a, u"kind"), Value(static_cast<double>(WpointKind::Drop)))) {
+    bearer_src->drop_holding();
+    const double vy = 3;
+    MersenneTwister& mt = host_->mt();
+    const double vx = mt.range(-10, 10) / 10;
+    const double vz = mt.range(-10, 10) / 20;
+    set_velocity(Value(vx), Value(vy), Value(vz));
+    return;
+  }
+  const Value weaponact = field_or(wp_a, u"weaponact");
+  if (!strict_equals(weaponact, field_or(frame, u"id"))) {
+    // fallback=true 用于 还原wpoint丢失的情况
+    enter_frame_by_id(weaponact, true);
+  }
+  const Value wp_b = field_or(frame, u"wpoint");
+  const double cx_b = to_number(field_or(frame, u"centerx"));
+  const double cy_b = to_number(field_or(frame, u"centery"));
+  const double weight = truthy(field_or(base_of(_data), u"weight"))
+                            ? to_number(field_or(base_of(_data), u"weight"))
+                            : 1;
+  const Value dvx = field_or(wp_a, u"dvx");
+  const Value dvy = field_or(wp_a, u"dvy");
+  const Value dvz = field_or(wp_a, u"dvz");
+  const double x = bearer_src->position.x;
+  const double y = bearer_src->position.y;
+  const double z = bearer_src->position.z;
+  facing = bearer_src->facing;
+  const double wa_x = num_of(field_or(wp_a, u"x"));
+  const double wa_y = num_of(field_or(wp_a, u"y"));
+  const double wa_z = num_of(field_or(wp_a, u"z"));
+  const double wb_x = num_of(field_or(wp_b, u"x"));
+  const double wb_y = num_of(field_or(wp_b, u"y"));
+  const double wb_z = num_of(field_or(wp_b, u"z"));
+  if (truthy(field_or(wp_a, u"kind"))) {
+    prev_position = bearer_src->position;
+    set_position(Value(x + facing * (wa_x - cx_a + cx_b - wb_x)),
+                 Value(y + cy_a - wa_y - cy_b + wb_y), Value(z + wa_z - wb_z));
+  } else {
+    set_position(Value(x + facing * (wa_x - cx_a)), Value(y + cy_a - wa_y),
+                 Value(z + wa_z));
+  }
+  if (!std::holds_alternative<std::monostate>(dvx) ||
+      !std::holds_alternative<std::monostate>(dvy) ||
+      !std::holds_alternative<std::monostate>(dvz)) {
+    bearer_src->holding = nullptr;
+    bearer = nullptr;
+    dropping = false;
+    const double fvx = truthy(dvx) ? to_number(dvx) * to_number(dataset(u"wvx_f")) : 0;
+    const double fvy = truthy(dvy) ? to_number(dvy) * to_number(dataset(u"wvy_f")) : 0;
+    const double fvz = truthy(dvz) ? to_number(dvz) * to_number(dataset(u"wvz_f")) : 0;
+    const Value nf = find_align_frame(
+        frame_id_value(frame), field_or(field_or(_data, u"indexes"), u"on_hands"),
+        field_or(field_or(_data, u"indexes"), u"throwings"));
+    prev_position = position;
+    set_position(Value(round(x + facing * (wa_x - cx_a))),
+                 Value(round(y + cy_a - wa_y)), Value(round(z + wa_z)));
+    const double vz = bearer_src->ctrl() != nullptr
+                          ? static_cast<double>(bearer_src->ctrl()->UD()) * fvz
+                          : 0;
+    const double dvx_w = fvx / weight;
+    const double dvy_w = fvy / weight;
+    const double vx = (dvx_w - abs(vz / 2)) * facing;
+    set_velocity(Value(vx), Value(dvy_w), Value(vz));
+    enter_frame(nf);
+    return;
+  }
+}
+
+void Entity::follow_catcher() {
+  Entity* a = catcher;
+  Entity* b = this;
+  if (a == nullptr) return;
+  const Value ac = field_or(a->frame, u"cpoint");
+  if (!truthy(ac)) return;
+  const double afx = to_number(field_or(a->frame, u"centerx"));
+  const double afy = to_number(field_or(a->frame, u"centery"));
+  const double tx = num_of(field_or(ac, u"throwvx"));
+  const double ty = num_of(field_or(ac, u"throwvy"));
+  const double tz = num_of(field_or(ac, u"throwvz"));
+  const double bfx = to_number(field_or(b->frame, u"centerx"));
+  const double bfy = to_number(field_or(b->frame, u"centery"));
+  const Value bc = field_or(b->frame, u"cpoint");
+  const double ax = a->position.x;
+  const double ay = a->position.y;
+  const double az = a->position.z;
+  const double a_face = a->facing;
+  const double acx = num_of(field_or(ac, u"x"));
+  const double acy = num_of(field_or(ac, u"y"));
+  const double acz = num_of(field_or(ac, u"z"));
+  if (truthy(Value(tx)) || truthy(Value(ty)) || truthy(Value(tz))) {
+    const double vx = tx * to_number(dataset(u"tvx_f")) * a_face;
+    const double vy = ty * to_number(dataset(u"tvy_f"));
+    const double vz = tz * to_number(dataset(u"tvz_f")) *
+                      static_cast<double>(a->ctrl() != nullptr ? a->ctrl()->UD() : 0);
+    set_velocity(Value(vx), Value(vy), Value(vz));
+    set_position(Value((2 * vx) + ax - a_face * (afx - acx)),
+                 Value((2 * vy) + ay + afy - acy), Value((2 * vz) + az + acz));
+    return;
+  }
+  const double b_face = b->facing;
+  const double bcx = num_of(field_or(bc, u"x"));
+  const double bcy = num_of(field_or(bc, u"y"));
+  const double bcz = num_of(field_or(bc, u"z"));
+  set_position(Value(ax - a_face * (afx - acx) + b_face * (bfx - bcx)),
+               Value(ay + afy - acy + bcy - bfy), Value(az + acz - bcz));
+}
+
+void Entity::drop_holding() {
+  if (holding == nullptr) return;
+  Entity* held = holding;
+  held->bearer = nullptr;
+  holding = nullptr;
+  held->dropping = true;
+  const Value on_hands = field_or(field_or(held->data(), u"indexes"), u"on_hands");
+  const Value in_the_skys = field_or(field_or(held->data(), u"indexes"), u"in_the_skys");
+  Value nf = held->find_align_frame(frame_id_value(held->frame), on_hands, in_the_skys);
+  if (!truthy(nf)) {
+    Object o;
+    o.set(u"id", Value(std::u16string(frame_id::kAuto)));
+    nf = Value(std::make_shared<Object>(o));
+  }
+  held->enter_frame(nf);
+  held->set_position(Value(held->position.x), Value(held->position.y),
+                     Value(held->position.z));
+  held->set_team(team());
+  // 避免掉落的武器能被相同攻击对象立刻打中
+  // TS `collision_clone(v)` also mints a fresh collision id from the collision
+  // factory; nothing on the v_rest paths reads `Collision::id` (they key on `aid`
+  // and read `itr` / `rest`), so the port copies the record as-is (DESIGN §52.4).
+  for (const auto& kv : vrests) {
+    collision::Collision clone = kv.second;
+    held->add_v_rest(clone);
+  }
+}
+
+void Entity::pick(Entity& weapon) {
+  if (weapon.bearer != nullptr) return;
+  if (holding != nullptr) return;
+  holding = &weapon;
+  weapon.bearer = this;
+  weapon.dropping = false;
+  weapon.follow_bearer();
+  std::shared_ptr<Summary> s = summary_mgr().get(id);
+  s->set_picking_sum(Value(to_number(s->picking_sum()) + 1));
+  if (!defines::is_independent(team())) {
+    std::shared_ptr<Summary> t = summary_mgr().get(team());
+    t->set_picking_sum(Value(to_number(t->picking_sum()) + 1));
+  }
+}
+
+void Entity::transform(const Value& data) {
+  if (ctrl_ == nullptr || !ctrl_->is_human()) {
+    controller::BaseController* c = host_->create_ctrl(
+        to_string(field_or(data, u"id")),
+        ctrl_ != nullptr ? ctrl_->player_id : std::u16string());
+    set_ctrl(c);
+  }
+  const Value prev = _data;
+  _data = data;
+  reset_armor();
+  callbacks.call(u"on_data_changed", {_data, prev, ref()});
+}
+
+bool Entity::transfrom_to_another(const std::optional<Value>& data) {
+  if (data.has_value()) {
+    Array a;
+    a.push_back(_data);
+    a.push_back(*data);
+    transforms = Value(std::make_shared<Array>(a));
+  }
+  const Array* datas = as_array(transforms);
+  if (datas == nullptr || datas->empty()) return false;
+  const double curr_idx = transform_index;
+  const size_t len = datas->size();
+  const double next_idx_f = std::fmod(curr_idx + 1, static_cast<double>(len));
+  const size_t next_idx = static_cast<size_t>(next_idx_f);
+  const Value next_data = datas->at(next_idx);
+  if (!truthy(next_data)) return false;
+  transform_index = next_idx_f;
+  transform(next_data);
+  if (next_idx == 0) enter_frame_by_id(Value(std::u16string(u"245")), true);
+  if (!copies.empty()) {
+    std::vector<std::u16string> gones;
+    for (const std::u16string& cid : copies) {
+      Entity* copy = host_->find_entity(cid);
+      if (copy == nullptr || !truthy(Value(copy->mounted()))) {
+        gones.push_back(cid);
+      } else {
+        copy->transform(next_data);
+      }
+    }
+    for (const std::u16string& gone_id : gones) {
+      for (std::size_t i = 0; i < copies.size(); ++i) {
+        if (copies[i] == gone_id) {
+          copies.erase(copies.begin() + static_cast<std::ptrdiff_t>(i));
+          break;
+        }
+      }
+    }
+  }
+  return true;
 }
 
 // --- snapshot ----------------------------------------------------------------
