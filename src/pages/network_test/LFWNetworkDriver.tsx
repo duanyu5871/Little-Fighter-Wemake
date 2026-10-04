@@ -1,6 +1,6 @@
 import { md5 } from "@/DittoImpl";
-import { EntityEnum, GK, LFW, LFWKeyEvent, PlayerInfo, is_bot_ctrl, mt_cases, round_float, sus_cases, world_dataset_fields, type IWorldDataset } from "@/LFW";
-import { MsgEnum, type IKeyEvent, type IReqTick, type IRespClientInfo, type IRespDataset, type IRespRoomStart, type IRespTick, type TInfo, type TRejoinTick } from "@/Net";
+import { EntityEnum, LFW, PlayerInfo, is_bot_ctrl, mt_cases, round_float, sus_cases, world_dataset_fields, type IWorldDataset } from "@/LFW";
+import { MsgEnum, type IReqTick, type IRespClientInfo, type IRespDataset, type IRespRoomStart, type IRespTick, type TInfo, type TRejoinTick } from "@/Net";
 import type { IRespKeyTick } from "@/Net/IMsg_KeyTick";
 import type { Connection } from "./Connection";
 import { EntitySnapshotBuffer } from "./EntitySnapshotBuffer";
@@ -78,7 +78,6 @@ export abstract class LFWNetworkDriver {
     this._suspended = false;
     const { lfw } = this;
     if (!lfw) return;
-    lfw.events.length = 0;
     lfw.cmds.length = 0;
     lfw.world.awake();
   }
@@ -221,16 +220,10 @@ export abstract class LFWNetworkDriver {
     this.resp = resp;
     this._last_run_seq = seq;
     this.apply_bot_events(resp);
-    const req_events: IKeyEvent[] = lfw.events.map<IKeyEvent>(r => ({
-      client_id: me.id,
-      player_id: me.id + '#' + r.player,
-      game_key: r.game_key,
-      pressed: r.pressed,
-    }));
+
     const req: TInfo<IReqTick> = {
       seq: seq + this.lead,
       cmds: lfw.cmds.map(cmd => with_from(cmd, me.id)),
-      events: req_events
     };
     if (seq == 0) {
       const groups: [string, Array<{ id?: string }>][] = [
@@ -262,7 +255,6 @@ export abstract class LFWNetworkDriver {
       conn.send_nowait(MsgEnum.Tick, req);
     }
     lfw.cmds.length = 0;
-    lfw.events.length = 0;
     this._objects?.reset();
     this._randoms?.reset();
     this._events?.reset();
@@ -282,15 +274,8 @@ export abstract class LFWNetworkDriver {
 
     if (this.debugging) this._snapshot1?.capture(lfw.world.entities)
     for (const req of reqs) {
-      const { cmds, events } = req;
+      const { cmds } = req;
       if (cmds?.length) cmds.forEach(cmd => lfw.push_cmd(cmd));
-      if (!events?.length) continue;
-      for (const { player_id, pressed = false, game_key = '' } of events) {
-        if (!player_id) continue;
-        const gk = game_key as GK;
-        const le = new LFWKeyEvent(player_id, pressed, gk, gk);
-        lfw.events.push(le);
-      }
     }
   };
   protected apply_bot_events(resp: IRespTick | IRespKeyTick) {
@@ -313,7 +298,6 @@ export abstract class LFWNetworkDriver {
     lfw.world.before_update = void 0;
     lfw.world.after_update = void 0;
     this.set_catchup(0);
-    lfw.events.length = 0;
     lfw.cmds.length = 0;
     this._suspended = false;
     lfw.world.awake();

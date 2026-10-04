@@ -9,14 +9,14 @@ export const stage_val_getters: Record<S_Val, IValGetter<Stage>> = {
   [S_Val.DialogCleared]: (e) => e.dialog_cleared() ? 1 : 0,
   [S_Val.CurPhaseTime]: (e) => e.phase_time,
   [S_Val.CurDialogTime]: (e) => e.dialog_time,
-  [S_Val.PressAttack]: (e) => e.lfw.events.some(v => v.game_key === GK.a && v.pressed) ? 1 : 0,
-  [S_Val.PressJump]: (e) => e.lfw.events.some(v => v.game_key === GK.j && v.pressed) ? 1 : 0,
-  [S_Val.PressDefend]: (e) => e.lfw.events.some(v => v.game_key === GK.d && v.pressed) ? 1 : 0,
-  [S_Val.PressUp]: (e) => e.lfw.events.some(v => v.game_key === GK.U && v.pressed) ? 1 : 0,
-  [S_Val.PressDown]: (e) => e.lfw.events.some(v => v.game_key === GK.D && v.pressed) ? 1 : 0,
-  [S_Val.PressLeft]: (e) => e.lfw.events.some(v => v.game_key === GK.L && v.pressed) ? 1 : 0,
-  [S_Val.PressRight]: (e) => e.lfw.events.some(v => v.game_key === GK.R && v.pressed) ? 1 : 0,
-  [S_Val.Broadcast]: (e) => e.lfw.broadcasts
+  [S_Val.PressAttack] /**/: (e) => e.lfw.keys[GK.a].is_start() ? 1 : 0,
+  [S_Val.PressJump]   /**/: (e) => e.lfw.keys[GK.j].is_start() ? 1 : 0,
+  [S_Val.PressDefend] /**/: (e) => e.lfw.keys[GK.d].is_start() ? 1 : 0,
+  [S_Val.PressUp]     /**/: (e) => e.lfw.keys[GK.U].is_start() ? 1 : 0,
+  [S_Val.PressDown]   /**/: (e) => e.lfw.keys[GK.D].is_start() ? 1 : 0,
+  [S_Val.PressLeft]   /**/: (e) => e.lfw.keys[GK.L].is_start() ? 1 : 0,
+  [S_Val.PressRight]  /**/: (e) => e.lfw.keys[GK.R].is_start() ? 1 : 0,
+  [S_Val.Broadcast]: (e) => e.lfw.broadcasts,
 }
 
 export const get_val_getter_from_stage: IValGetterGetter<Stage> = (word: string): IValGetter<Stage> | undefined => {

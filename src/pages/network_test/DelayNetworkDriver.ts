@@ -21,7 +21,6 @@ export class DelayNetworkDriver extends LFWNetworkDriver {
     const { lfw, conn } = this;
     if (!lfw) return;
     this._suspended = false;
-    lfw.events.length = 0;
     lfw.cmds.length = 0;
     for (const resp of resps)
       this._inputs.set(resp.seq!, resp as IRespTick);

@@ -43,7 +43,6 @@ export class LockstepNetworkDriver extends LFWNetworkDriver {
     if (!lfw) return;
     this._suspended = false;
     this._resp = void 0;
-    lfw.events.length = 0;
     lfw.cmds.length = 0;
     if (!resps.length) {
       const req = this._last_req && this._last_req.seq === next_seq

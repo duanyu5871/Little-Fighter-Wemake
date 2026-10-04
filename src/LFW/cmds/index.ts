@@ -1,5 +1,5 @@
 /*** AUTO EXPORT START ***/
-export * from "./CMDS";
+export * from "./cheat_code_handler";
 export * from "./CMD_BGM";
 export * from "./CMD_CHANGE_BG";
 export * from "./CMD_CHANGE_STAGE";
@@ -18,6 +18,7 @@ export * from "./CMD_F8";
 export * from "./CMD_F9";
 export * from "./CMD_GIM_INK";
 export * from "./CMD_HERO_FT";
+export * from "./CMD_KEY_EVENTS";
 export * from "./CMD_KILL";
 export * from "./CMD_KILL_BOSS";
 export * from "./CMD_KILL_ENEMIES";
@@ -25,9 +26,9 @@ export * from "./CMD_KILL_OTHERS";
 export * from "./CMD_KILL_SOLIDERS";
 export * from "./CMD_LF2_NET";
 export * from "./CMD_LOCK_CAM";
+export * from "./CMD_POINTER_EVENTS";
 export * from "./CMD_SET_DIFFICULTY";
 export * from "./CMD_SET_PUPPET";
 export * from "./CMD_SPAWN";
-export * from "./CMD_POINTER_EVENTS";
-export * from "./cheat_code_handler";
+export * from "./CMDS";
 /*** AUTO EXPORT END ***/

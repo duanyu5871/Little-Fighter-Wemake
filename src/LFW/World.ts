@@ -327,7 +327,6 @@ export class World {
     if (this._sleeping) return;
     this.step();
     this._lifetime++;
-    this.lfw.events.length = 0;
     this.lfw.cmds.length = 0;
     this.lfw.broadcasts.length = 0;
     if (this.extra_steps > 0) this.catch_up();
@@ -366,7 +365,6 @@ export class World {
       if (this._sleeping) break;
       this.step();
       this._lifetime++;
-      this.lfw.events.length = 0;
       this.lfw.cmds.length = 0;
       this.lfw.broadcasts.length = 0;
       this.after_update?.();
@@ -532,38 +530,11 @@ export class World {
 
   protected update_ui() {
     const { layers } = this.lfw;
-    let flag = true;
     const uidt = round_float(16.66666 * this.dataset.atom_time);
     for (let i = layers.length - 1; i >= 0; i--) {
       const ui = layers.at(i)?.ui;
       if (!ui || ui.disabled) continue;
-      if (!flag) continue;
-      for (const e of this.lfw.events) {
-        if (e.pressed) ui.on_key_down(e)
-        else ui.on_key_up(e)
-      }
       ui.update(uidt);
-      flag = false
-    }
-  }
-
-  protected handle_keys() {
-    if (!this.lfw.events.length) return;
-
-    for (const e of this.lfw.events) {
-      const gk = e.game_key;
-      const fn1 = e.pressed ? 'hit' : 'end';
-      this.lfw._keys.forEach(keys => keys[gk][fn1]())
-
-      // WTF.
-      if (this.stage.control_disabled) continue;
-      const fighter = this.puppets.get(e.player)
-      if (!fighter) continue;
-      const { ctrl } = fighter
-      if (!is_human_ctrl(ctrl)) continue;
-
-      const fn2 = e.pressed ? 'start' : 'end';
-      ctrl[fn2](gk)
     }
   }
 
@@ -616,7 +587,7 @@ export class World {
   step() {
     this._entities_map.clear();
     this.transform.update();
-    this.handle_keys();
+    // this.handle_keys();
     this.update_ui();
     this.handle_cmds();
     this.update_camera();

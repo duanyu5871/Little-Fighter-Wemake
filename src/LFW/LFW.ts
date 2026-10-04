@@ -24,6 +24,7 @@ import { PlayerInfo } from "./PlayerInfo";
 import { Resources } from "./Resources";
 import * as UI from "./ui";
 import { regist_components } from './ui/component/_';
+import { array_del } from './utils/array/array_del';
 import { loop_offset } from './utils/container_help/loop_offset';
 import { MersenneTwister } from './utils/math/MersenneTwister';
 import { is_str } from './utils/type_check/is_str';
@@ -226,9 +227,11 @@ export class LFW implements I.IKeyboardCallback, IDebugging {
   protected _cheat_gkeys_matchs = new Set<string>()
   protected _keys_graves: Graves<Keys> = new Graves();
   protected _collision_graves: Graves<Collision> = new Graves();
+  protected _keys?: Keys;
 
   first_page: string = 'init';
-  readonly _keys: Keys[] = [];
+  /** 所有已挂载（`Keys.mount()`）的按键状态；未挂载的实例留在 `_keys_graves` 回收池里 */
+  readonly mounted_keys: Keys[] = [];
 
   /** 是否运行在 B站 Toy 容器环境（由外部 App 注入；主菜单“生存排行”入口仅在此环境显示） */
   toy_env: boolean = false;
@@ -268,7 +271,6 @@ export class LFW implements I.IKeyboardCallback, IDebugging {
   }
 
   cmds: string[] = [];
-  events: UI.LFWKeyEvent[] = [];
   broadcasts: string[] = [];
   push_cmd(...words: string[]) {
     this.cmds.push(words.join(' '));
@@ -295,6 +297,10 @@ export class LFW implements I.IKeyboardCallback, IDebugging {
   get new_id() { return `${++this.__id}` }
 
   get new_team() { return `team_${++this.__team}` }
+
+  get keys() {
+    return this._keys ??= this.create_keys()
+  }
 
   readonly world: World;
   readonly players: Map<string, PlayerInfo> = new Map([
@@ -441,7 +447,7 @@ export class LFW implements I.IKeyboardCallback, IDebugging {
           if (e.device_type == 'controller') this.callbacks.call('controller_detected', player)
           if (e.device_type == 'keyboard') this.callbacks.call('keyboard_detected', player)
           this._cheat_gkeys.set(pid, (this._cheat_gkeys.get(pid) || '') + key_name)
-          this.events.push(new UI.LFWKeyEvent(pid, true, key_name, key_code));
+          this.push_cmd(CMD.KEY_EVENT, `--p=${pid}`, `--s=1`, `--c=${key_code}`, `--n=${key_name}`)
         }
       }
     }
@@ -469,7 +475,7 @@ export class LFW implements I.IKeyboardCallback, IDebugging {
       for (const [pid, player] of this.players) {
         if (!player.local) continue;
         if (player.keys[key_name] !== key_code) continue
-        this.events.push(new UI.LFWKeyEvent(pid, false, key_name, key_code))
+        this.push_cmd(CMD.KEY_EVENT, `--p=${pid}`, `--s=0`, `--c=${key_code}`, `--n=${key_name}`)
       }
     }
   }
@@ -870,14 +876,14 @@ export class LFW implements I.IKeyboardCallback, IDebugging {
   }
 
   regist_keys(keys: Keys): void {
-    const idx = this._keys.indexOf(keys);
+    const idx = this.mounted_keys.indexOf(keys);
     if (idx >= 0) return this.warn('regist_keys', `keys already registered`);
-    this._keys.push(keys);
+    this.mounted_keys.push(keys);
   }
 
   recycle_keys(keys: Keys): void {
-    const idx = this._keys.indexOf(keys);
-    if (idx >= 0) this._keys.splice(idx, 1);
+    const ok = array_del(this.mounted_keys, keys)
+    if (!ok) return this.warn('recycle_keys', `keys not found!`);
     this._keys_graves.add(keys);
   }
 
