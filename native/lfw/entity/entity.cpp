@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "lfw/core/json.h"
+#include "lfw/core/js_num.h"
 #include "lfw/core/value.h"
 #include "lfw/defines/defines_data.h"
 #include "lfw/defines/entity_enum.h"
@@ -14,6 +15,8 @@
 #include "lfw/defines/facing_flag.h"
 #include "lfw/defines/frame_id.h"
 #include "lfw/defines/game_key.h"
+#include "lfw/defines/hit_flag.h"
+#include "lfw/defines/itr_kind.h"
 #include "lfw/defines/speed_ctrl.h"
 #include "lfw/defines/speed_mode.h"
 #include "lfw/defines/state_enum.h"
@@ -1215,6 +1218,92 @@ Value Entity::get_opoint_speed_z(const Entity* emitter, const Value& opoint) con
     }
   }
   return Value(0.0);
+}
+
+// --- v_rest / relation cleanup / blink arming ---------------------------------
+
+// `this.vrests.set(c.aid, c)` plus the two `itr.kind` mirrors.  The kind is compared
+// strictly (`===`), so a string kind never files into `blockers` / `superpunchs`; a
+// missing `itr` reads as `undefined` here where TS would throw (`c.itr.kind`).
+void Entity::add_v_rest(const collision::Collision& c) {
+  vrests[c.aid] = c;
+  const Value kind = field_or(c.itr, u"kind");
+  if (strict_equals(kind, Value(static_cast<double>(ItrKind::Block)))) blockers[c.aid] = c;
+  if (strict_equals(kind, Value(static_cast<double>(ItrKind::SuperPunchMe))))
+    superpunchs[c.aid] = c;
+}
+
+// `this.vrests.get(a_id)?.rest || 0` — a missing id, a `0` and a `NaN` all read back
+// as `0` (JS truthiness), everything else is returned as stored.
+double Entity::get_v_rest(const std::u16string& a_id) const {
+  const auto it = vrests.find(a_id);
+  if (it == vrests.end()) return 0;
+  const double rest = it->second.rest;
+  return truthy(Value(rest)) ? rest : 0;
+}
+
+void Entity::del_v_rest(const std::u16string& a_id) {
+  vrests.erase(a_id);
+  blockers.erase(a_id);
+  superpunchs.erase(a_id);
+}
+
+double Entity::get_flag(const Entity& other) const {
+  int32_t ret = is_ally(other) ? static_cast<int32_t>(HitFlag::Ally)
+                               : static_cast<int32_t>(HitFlag::Enemy);
+  if (_hp <= 0) ret |= static_cast<int32_t>(HitFlag::Dead);
+  return static_cast<double>(ret | js_to_int32(type()));
+}
+
+void Entity::clean_holding() {
+  if (holding == nullptr) return;
+  if (holding->bearer == this) holding->bearer = nullptr;
+  holding = nullptr;
+}
+
+void Entity::clean_catching() {
+  if (catching == nullptr) return;
+  if (catching->catcher == this) catching->catcher = nullptr;
+  catching = nullptr;
+}
+
+bool Entity::drop_catching() {
+  if (catching == nullptr) return false;
+  if (catching->catcher == this) catching->catcher = nullptr;
+  set_catching(nullptr);
+  const Value* auto_frame = defines::find(u"Defines.NEXT_FRAME_AUTO");
+  host_->enter_frame(auto_frame != nullptr ? *auto_frame : Value());
+  return true;
+}
+
+void Entity::blink_and_gone(double duration) {
+  _blinking = duration;
+  _after_blink = frame_id::kGone;
+}
+
+void Entity::blink_and_respawn(double duration) {
+  _blinking = duration;
+  _after_blink = frame_id::kRespawn;
+}
+
+// `const { y = 0, h = 0 } = itr` defaults only an `undefined`, but a `null` behaves
+// the same in the subtraction, so both read as `0` here.  Unlike TS (`itrs?.length`)
+// a non-array argument never gets that far — `as_array` answers `nullptr`.
+void Entity::update_itr_bdy_hit_ground(const Value& itrs) {
+  const Array* a = as_array(itrs);
+  if (a == nullptr || a->empty()) return;
+  const std::size_t n = a->size();
+  for (std::size_t i = 0; i < n; ++i) {
+    const Value& itr = a->at(i);
+    const Value target = field_or(itr, u"on_hit_ground");
+    if (!truthy(target)) continue;
+    const Value y_value = field_or(itr, u"y");
+    const Value h_value = field_or(itr, u"h");
+    const double y = nullish(y_value) ? 0.0 : to_number(y_value);
+    const double h = nullish(h_value) ? 0.0 : to_number(h_value);
+    if (position.y + to_number(field_or(frame, u"centery")) - y - h > _ground_y) continue;
+    host_->enter_frame(target);
+  }
 }
 
 // --- snapshot ----------------------------------------------------------------

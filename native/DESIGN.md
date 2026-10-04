@@ -5054,3 +5054,110 @@ TS 的 `States` 是 `Map`，`set` 覆盖一个键时旧对象仍被 `this._state
 - `States::set` 覆盖**活动**键的场景不可测（见 50.4 的生命周期差异），差分不写。
 - `pre_update` / `update` / `on_landing` / `on_leave_ground` / `on_restrict` 的调用点
   分别在更新循环与地形限制里，尚未搬运，本轮不涉及。
+
+## 51. 切片 9h：`Entity` 的 v_rest 三段 / 关系清理 / 闪烁标记 / 落地请求
+
+第四刀之后的又一把「小刀」：这一层全部是**短函数 + 一个隐藏的语义分歧点**，
+输入只有实体自己的容器与字段，外加一次宿主「请求进入某帧」的回调。
+
+搬运的十支：`add_v_rest` / `get_v_rest` / `del_v_rest`、
+`get_flag`、`clean_holding` / `clean_catching` / `drop_catching`、
+`blink_and_gone` / `blink_and_respawn`、`update_itr_bdy_hit_ground`。
+
+### 51.1 单元边界（为什么是这十支）
+
+1. **不碰帧链**：`set_frame` / `enter_frame` / `get_next_frame` /
+   `handle_next_frame_result` 要 `preprocess_next_frame` 的 `__judger`
+   （端口仍是桩）、`lfw.mt.pick`、以及 `world.dataset.infinity_mp` 这类 World 数据。
+2. **不碰位置**：`set_position` / `update_position` / `spark_point` 要
+   `world.restrict`（含 `get_bound` 与武器/球的越界判定）与 `world.ground.y`。
+3. **不碰跨实体动作**：`drop_holding` / `pick` / `follow_bearer` / `follow_catcher`
+   会对**另一个实体**调 `enter_frame` / `set_position` / 克隆 v_rest，等帧链落地。
+4. **不碰生命周期**：`attach` / `spawn` / `on_spawn` / `release` / `transform` /
+   `transfrom_to_another` 要 `world.add_entities` / `factory.create_ctrl` /
+   `world.del_entity`。
+5. **不碰更新循环**：`update_caught` / `update_catching` 内含 `follow_catcher` 与
+   `transfrom_to_another`；`update_ghost` / `check_fusion_dismissing` 要 Actor 与 `ctrl` 的按键判定。
+
+### 51.2 保真要点
+
+1. **`add_v_rest` 写三张表，但从不删旧镜像**：`vrests` 一定写；
+   `blockers` / `superpunchs` 只在 `itr.kind` **严格等于** `ItrKind.Block`(14) /
+   `SuperPunchMe`(6) 时写。所以「先以 kind=6 登记 w2、再以 kind=14 覆盖」之后，
+   `superpunchs` 里的 w2 仍是**旧的**那条（TS 行为如此，端口照抄）——
+   用例用 `run vrest s "w2" n 6 n 4` → `run vrest s "w2" n 14 n 9` → `run vrestdump`
+   前后对照锁死（`b` 里是新值、`s` 里还是旧值）。
+2. **kind 读取是 `field_or`，不是解引用**：TS 写 `c.itr.kind`，`itr` 为 `undefined`
+   时**抛错**；端口用 `field_or(c.itr, u"kind")`（`u`/`z`/字符串 kind 一律只是「不镜像」）。
+   非法输入不写进差分，这条差异记在这里。
+3. **容器值语义**：端口三张表都是 `std::map<std::u16string, Collision>`，**按值存**；
+   TS 三张 `Map` 共享同一个 `Collision` 对象引用。于是：
+   - TS 的 `Map` 插入序端口不保留 ⇒ `run vrestdump` 两侧都**按键排序**输出；
+   - TS 的别名（同一条 collision 同时出现在三张表里，改一处三处都变）端口没有对应物，
+     本轮用例不覆盖别名，等碰撞层真的按引用传递时再定。
+4. **`get_v_rest` 的 `|| 0`**：缺失、`0`、`NaN`（还有 `-0`）都读回 `0`；
+   端口因此写 `truthy(Value(rest)) ? rest : 0`。用例覆盖 `n 0`、`n NaN` 与未知 id。
+5. **key 会被字符串化**：`Map<string, …>` 的 key 是字符串，端口用 `std::u16string`；
+   harness 的 `text_of`（= TS `String(v)`）把数字 token 变成 `"5"`，
+   所以 `run vrestget n 5` 与 `run vrestget s "5"` 命中同一条（用例锁）。
+6. **`get_flag` 是「队伍位 + Dead + 类型」的位组合**：
+   `team` 相等给 `Ally`(2) 否则 `Enemy`(1)；`hp <= 0` 时 `|= Dead`(0x80)；
+   最后 `| this.type`。最后一步是 JS 位运算 ⇒ 端口先 `js_to_int32(type())`：
+   `type = 2.7` 先截成 2（`2|2 = 2` 之上再或队伍位）、`type = "8"` 先 `ToInt32` 成 8、
+   `type = undefined` 当 0、`type = -1` 因符号位把整个结果压成 -1。
+   `hp` 的边界用 `0 / -5 / 0.5 / 10` 四点覆盖（注意 `set hp n -5` 会被 setter 钳到 0）。
+7. **`clean_holding` / `clean_catching` 只清「对方回指自己」**：
+   先判自己这侧为空立刻返回；`holding.bearer === this` 才写 `null`，
+   然后再清自己。用例用 `run linkb bearer self`（回指自己）与
+   `run linkb bearer buddy`（回指别人）两支覆盖，`!= this` 与「不清自己这侧」都能被杀。
+8. **`drop_catching` 恒返回 `true`**（只要原来有 `catching`）：清对方回指 →
+   `set_catching(null)`（走 9a 的同一性短路）→ `enter_frame(Defines.NEXT_FRAME_AUTO)`
+   → `return true`。`enter_frame` 是**宿主缝**：帧链未移植，harness 两侧都只记
+   `enter_frame:{"id":s"auto"}`。用例覆盖「没有 catching」（`b0`）、
+   「回指是自己」「回指是别人」「连打两次」。
+9. **`blink_and_gone` / `blink_and_respawn` 不走 setter**：它们**直接**写 `_blinking`，
+   而 `set blinking`（9a 移植）是 `round_float(max(0, v))`。用例因此成对写
+   `run blinkgone n -3`（得 `-3`）与 `run set blinking n -3`（得 `0`）把这条锁死。
+   `_after_blink` 只会是 `"gone"` / `"respawn"`（`FrameId.Gone` / `FrameId.Respawn`
+   字面量），`run snap` 把 `AFTER_BLINK` 槽位一并纳入快照覆盖，
+   `run blinkgone u` / `run blinkrespawn n -3` / `run blinkgone n 4` 顺带锁「时长是
+   NaN / 负数 / 正数都照写」（`n -3` 是关键：换 `set_blinking` 会被它杀）。
+10. **`update_itr_bdy_hit_ground` 的四个判定**：
+    `if (!itrs?.length) return;`（端口 `as_array` 判空/非数组）、
+    `if (!itr.on_hit_ground) continue;`（**真值**门，`b0`/`u`/`""` 都跳过）、
+    `const { y = 0, h = 0 } = itr`（默认值只对 `undefined` 生效；`null` 在减法里也是 0，
+    所以端口统一写 `nullish ? 0 : to_number`）、
+    `(position.y + frame.centery - y - h) > _ground_y` 是**严格大于**（相等要进帧），
+    命中后 `enter_frame` 并**继续走完整个列表**（`continue` 不是 `break`）。
+    用例覆盖：缺 `on_hit_ground`、假值 `on_hit_ground`、`y` 为 `z`、
+    `y/h` 为字符串数字、`y` 为负、边界相等（`fG`）、`centery` 缺失（NaN 比较为假 ⇒ 仍进帧）、
+    `centery` 为字符串（`to_number` 后照算）、`ground_y = NaN`、
+    以及「前一条被跳过、后一条仍进帧」（`fM`/`fN`）；另外三条「假值 `on_hit_ground`
+    （`b0` / `u` / 缺键）但箱子已经压到地面线」的场景把
+    `if (!truthy(target)) continue;` 这条守卫单独钉住（少了它就会请求一个假帧）。
+
+### 51.3 harness 扩充
+
+- 新 op：`run vrest <aid> <kind> <rest>` / `run vrestget <aid>` / `run vrestdel <aid>` /
+  `run vrestdump` / `run flag <self|buddy>` / `run cleanhold` / `run cleancatch` /
+  `run dropcatch` / `run blinkgone <数>` / `run blinkrespawn <数>` /
+  `run itrground <数组字面量>` / `run linkb <字段> <self|buddy|null>`。
+- 端口侧直接构造 `collision::Collision` 结构体（只填被读的 `aid` / `itr` / `rest`），
+  TS 侧给一个同形状的字面量对象 —— 两侧都只关心这三个字段。
+- `run link` 只管 self，`run linkb` 是它的镜像（回指必须能指向自己/对方），
+  两者都打印八位关系探针 `sh sb sc sr bh bb bc br`（self/buddy 的
+  holding/bearer/catching/catcher 是否非空），于是「回指被清/没被清」在日志里可见。
+- `_after_blink` 端口通过窥视口 `after_blink()` 读回（TS 直接读 `_after_blink`），
+  `null` 与字符串两侧渲染一致。
+
+### 51.4 有意不覆盖 / 不可观测项
+
+- TS 的 `Map` 插入序与三表别名（见 51.2.3）：差分两侧不可比 / 端口无对应物，不写场景。
+- `add_v_rest` 收到没有 `itr` 的 collision：TS 抛错、端口静默，属于非法输入，不写场景。
+- `update_itr_bdy_hit_ground` 的非数组入参：TS 对字符串会按 `length` 逐字符迭代
+  （字符上没有 `on_hit_ground`，什么也不做），端口 `as_array` 直接返回 ——
+  两条路都**不产生日志**，因此不可观测（用例仍写了 `n 5` / `s "ab"` 两组，
+  作用是把「不崩」钉住）。
+- `drop_catching` / `update_itr_bdy_hit_ground` 里的 `enter_frame` 在端口只是
+  **请求**（`IEntityHost::enter_frame` 缝），harness 记录 `enter_frame:<帧>`；
+  真正「进入帧」的语义归帧链切片。

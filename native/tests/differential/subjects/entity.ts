@@ -75,6 +75,34 @@ const renderNums = (nums: unknown[]): string =>
 const renderStrs = (strs: unknown[]): string =>
   Array.from({ length: strs.length }, (_v, k) => r(strs[k])).join(",");
 
+type CollisionLike = { itr?: { kind?: unknown }; rest?: unknown };
+
+// The `vrests` / `blockers` / `superpunchs` maps render as `["w1":14:3,…]`; sorted by
+// key because the port's `std::map` cannot keep the `Map` insertion order.
+const dumpCollisions = (e: Entity, key: "vrests" | "blockers" | "superpunchs"): string =>
+  "[" +
+  [...(e as unknown as Record<typeof key, Map<string, CollisionLike>>)[key].entries()]
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([k, v]) => `${r(k)}:${r(v.itr?.kind)}:${r(v.rest)}`)
+    .join(",") +
+  "]";
+
+// The four relation slots on both harness entities, so a back-pointer write on the
+// *other* entity (`clean_holding` / `drop_catching`) is visible in the trace.
+const relProbe = (): string =>
+  [
+    ent?.holding,
+    ent?.bearer,
+    ent?.catching,
+    ent?.catcher,
+    buddy?.holding,
+    buddy?.bearer,
+    buddy?.catching,
+    buddy?.catcher,
+  ]
+    .map((v) => r(!!v))
+    .join(" ");
+
 const lfwStub = {
   players: new Map<string, Any>(),
   datas: { find: (id: string): Any => dataTable.get(id) },
@@ -877,6 +905,19 @@ function main(): void {
         out.push(
           `run link ${field} ${to} || ${log.join(",")} | b=${r(!!ent!.bearer)} c=${r(!!ent!.catcher)}`,
         );
+      } else if (what === "linkb") {
+        const field = t[i++]!;
+        const to = t[i++]!;
+        const v = to === "self" ? (ent as unknown) : to === "buddy" ? (buddy as unknown) : null;
+        if (field === "bearer") buddy!.bearer = v as never;
+        else if (field === "catcher") buddy!.catcher = v as never;
+        else if (field === "holding") buddy!.holding = v as never;
+        else if (field === "catching") buddy!.catching = v as never;
+        else {
+          process.stderr.write(`unknown linkb '${field}'\n`);
+          process.exit(2);
+        }
+        out.push(`run linkb ${field} ${to} || ${log.join(",")} | ${relProbe()}`);
       } else if (what === "setvel") {
         const idx = [i];
         const x = parseValue(t, idx);
@@ -1194,6 +1235,70 @@ function main(): void {
         out.push(
           `run ${what} ${r(code)} || ${log.join(",")} | n=${states.map.size} st=${r(
             (e as unknown as { _state: unknown })._state != null,
+          )}`,
+        );
+      } else if (what === "vrest" || what === "vrestget" || what === "vrestdel") {
+        const idx = [i];
+        const aidValue = parseValue(t, idx);
+        const aid = String(aidValue);
+        let head = `run ${what} ${r(aidValue)}`;
+        if (what === "vrest") {
+          const kind = parseValue(t, idx);
+          const rest = parseValue(t, idx);
+          head += ` ${r(kind)} ${r(rest)}`;
+          // The port builds its `Collision` struct directly; only `aid`, `itr.kind`
+          // and `rest` are read by the three v_rest entry points.
+          ent!.add_v_rest({ aid, itr: { kind }, rest: Number(rest) } as never);
+        } else if (what === "vrestdel") {
+          ent!.del_v_rest(aid);
+        }
+        const sizes = ent as unknown as {
+          vrests: Map<string, CollisionLike>;
+          blockers: Map<string, CollisionLike>;
+          superpunchs: Map<string, CollisionLike>;
+        };
+        out.push(
+          `${head} || ${log.join(",")} | n=${sizes.vrests.size} b=${sizes.blockers.size} s=${
+            sizes.superpunchs.size
+          } g=${r(ent!.get_v_rest(aid))}`,
+        );
+      } else if (what === "vrestdump") {
+        out.push(
+          `run vrestdump || ${log.join(",")} | n=${dumpCollisions(ent!, "vrests")} b=${dumpCollisions(
+            ent!,
+            "blockers",
+          )} s=${dumpCollisions(ent!, "superpunchs")}`,
+        );
+      } else if (what === "flag") {
+        const which = t[i++]!;
+        const other = which === "buddy" ? (buddy as Entity) : (ent as Entity);
+        out.push(
+          `run flag ${which} || ${log.join(",")} | v=${r(ent!.get_flag(other))} t=${r(
+            ent!.team,
+          )} ot=${r(other.team)} ty=${r(ent!.type)} h=${r(ent!.hp)}`,
+        );
+      } else if (what === "cleanhold" || what === "cleancatch") {
+        if (what === "cleanhold") ent!.clean_holding();
+        else ent!.clean_catching();
+        out.push(`run ${what} || ${log.join(",")} | ${relProbe()}`);
+      } else if (what === "dropcatch") {
+        const dropped = ent!.drop_catching();
+        out.push(`run dropcatch || ${log.join(",")} | v=${r(dropped)} ${relProbe()}`);
+      } else if (what === "blinkgone" || what === "blinkrespawn") {
+        const d = parseValue(t, [i]);
+        if (what === "blinkgone") ent!.blink_and_gone(Number(d));
+        else ent!.blink_and_respawn(Number(d));
+        out.push(
+          `run ${what} ${r(d)} || ${log.join(",")} | bl=${r(ent!.blinking)} ab=${r(
+            (ent as unknown as { _after_blink: unknown })._after_blink,
+          )}`,
+        );
+      } else if (what === "itrground") {
+        const itrs = parseValue(t, [i]);
+        ent!.update_itr_bdy_hit_ground(itrs as never);
+        out.push(
+          `run itrground ${r(itrs)} || ${log.join(",")} | p=${r(ent!.position)} g=${r(
+            ent!.ground_y,
           )}`,
         );
       } else if (what === "statesdump") {

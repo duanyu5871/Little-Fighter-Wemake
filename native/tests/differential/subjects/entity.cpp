@@ -137,6 +137,40 @@ std::string dump_states() {
   return out;
 }
 
+// The `vrests` / `blockers` / `superpunchs` maps render as `["w1":14:3,…]`.  TS keeps
+// them insertion-ordered (`Map`) where the port uses `std::map`, so the dump is sorted
+// by key on both sides — the insertion order itself is not comparable.
+std::string dump_collisions(const std::map<std::u16string, lfw::collision::Collision>& m) {
+  std::string out = "[";
+  bool first = true;
+  for (const auto& kv : m) {
+    if (!first) out += ",";
+    first = false;
+    out += render(Value(kv.first)) + ":" + render(lfw::field_or(kv.second.itr, u"kind")) + ":" +
+           render(Value(kv.second.rest));
+  }
+  out += "]";
+  return out;
+}
+
+// The four relation slots on both harness entities, so a back-pointer write on the
+// *other* entity (`clean_holding` / `drop_catching`) is visible in the trace.
+std::string rel_probe() {
+  const Entity* a = g_entity.get();
+  const Entity* b = g_buddy.get();
+  std::string out;
+  const bool flags[8] = {
+      a != nullptr && a->holding != nullptr,  a != nullptr && a->bearer != nullptr,
+      a != nullptr && a->catching != nullptr, a != nullptr && a->catcher != nullptr,
+      b != nullptr && b->holding != nullptr,  b != nullptr && b->bearer != nullptr,
+      b != nullptr && b->catching != nullptr, b != nullptr && b->catcher != nullptr};
+  for (bool f : flags) {
+    if (!out.empty()) out += " ";
+    out += render(Value(f));
+  }
+  return out;
+}
+
 // Snapshot buffers: `run snapbuf` fills them from `to_snapshot`, `run snappoke`
 // edits a slot and `run snapapply` feeds them back through `read_snapshot`.
 std::vector<Value> g_snap_nums(static_cast<std::size_t>(lfw::entity::num_slots()));
@@ -785,6 +819,20 @@ int main(int argc, char** argv) {
                     join(g_log).c_str(),
                     render(Value(g_entity->bearer != nullptr)).c_str(),
                     render(Value(g_entity->catcher != nullptr)).c_str());
+      } else if (what == "linkb") {
+        const std::string& field = t[i++];
+        const std::string& to = t[i++];
+        Entity* v = to == "self" ? g_entity.get() : to == "buddy" ? g_buddy.get() : nullptr;
+        if (field == "bearer") g_buddy->bearer = v;
+        else if (field == "catcher") g_buddy->catcher = v;
+        else if (field == "holding") g_buddy->holding = v;
+        else if (field == "catching") g_buddy->catching = v;
+        else {
+          std::fprintf(stderr, "unknown linkb '%s' at line %d\n", field.c_str(), lineno);
+          return 2;
+        }
+        std::printf("run linkb %s %s || %s | %s\n", field.c_str(), to.c_str(),
+                    join(g_log).c_str(), rel_probe().c_str());
       } else if (what == "setvel") {
         const Value x = parse_value(t, i);
         const Value y = parse_value(t, i);
@@ -1134,6 +1182,76 @@ int main(int argc, char** argv) {
         std::printf("run %s %s || %s | n=%zu st=%s\n", what.c_str(), render(Value(code)).c_str(),
                     join(g_log).c_str(), g_states.size(),
                     render(Value(target->state_ptr() != nullptr)).c_str());
+      } else if (what == "vrest" || what == "vrestget" || what == "vrestdel") {
+        const Value aid_value = parse_value(t, i);
+        const std::u16string aid = text_of(aid_value);
+        std::string head = "run " + what + " " + render(aid_value);
+        if (what == "vrest") {
+          const Value kind = parse_value(t, i);
+          const Value rest = parse_value(t, i);
+          head += " " + render(kind) + " " + render(rest);
+          // The harness builds the ported `Collision` struct directly: only `aid`,
+          // `itr.kind` and `rest` are read by the three v_rest entry points.
+          lfw::collision::Collision c;
+          c.aid = aid;
+          lfw::Object itr;
+          itr.set(u"kind", kind);
+          c.itr = Value(std::make_shared<lfw::Object>(itr));
+          c.rest = lfw::to_number(rest);
+          g_entity->add_v_rest(c);
+        } else if (what == "vrestdel") {
+          g_entity->del_v_rest(aid);
+        }
+        std::printf("%s || %s | n=%zu b=%zu s=%zu g=%s\n", head.c_str(), join(g_log).c_str(),
+                    g_entity->vrests.size(), g_entity->blockers.size(),
+                    g_entity->superpunchs.size(),
+                    render(Value(g_entity->get_v_rest(aid))).c_str());
+      } else if (what == "vrestdump") {
+        std::printf("run vrestdump || %s | n=%s b=%s s=%s\n", join(g_log).c_str(),
+                    dump_collisions(g_entity->vrests).c_str(),
+                    dump_collisions(g_entity->blockers).c_str(),
+                    dump_collisions(g_entity->superpunchs).c_str());
+      } else if (what == "flag") {
+        const std::string& which = t[i++];
+        const Entity* other = which == "buddy" ? g_buddy.get() : g_entity.get();
+        std::printf("run flag %s || %s | v=%s t=%s ot=%s ty=%s h=%s\n", which.c_str(),
+                    join(g_log).c_str(),
+                    render(Value(g_entity->get_flag(*other))).c_str(),
+                    render(Value(g_entity->team())).c_str(),
+                    render(Value(other->team())).c_str(),
+                    // `this.type` is the raw `_data.type` in TS (it may be a string),
+                    // so the trace prints the field, not `Entity::type()`'s number.
+                    render(lfw::field_or(g_entity->data(), u"type")).c_str(),
+                    render(Value(g_entity->hp())).c_str());
+      } else if (what == "cleanhold" || what == "cleancatch") {
+        if (what == "cleanhold") {
+          g_entity->clean_holding();
+        } else {
+          g_entity->clean_catching();
+        }
+        std::printf("run %s || %s | %s\n", what.c_str(), join(g_log).c_str(),
+                    rel_probe().c_str());
+      } else if (what == "dropcatch") {
+        const bool dropped = g_entity->drop_catching();
+        std::printf("run dropcatch || %s | v=%s %s\n", join(g_log).c_str(),
+                    render(Value(dropped)).c_str(), rel_probe().c_str());
+      } else if (what == "blinkgone" || what == "blinkrespawn") {
+        const Value d = parse_value(t, i);
+        if (what == "blinkgone") {
+          g_entity->blink_and_gone(lfw::to_number(d));
+        } else {
+          g_entity->blink_and_respawn(lfw::to_number(d));
+        }
+        const std::optional<std::u16string>& ab = g_entity->after_blink();
+        std::printf("run %s %s || %s | bl=%s ab=%s\n", what.c_str(), render(d).c_str(),
+                    join(g_log).c_str(), render(Value(g_entity->blinking())).c_str(),
+                    render(ab.has_value() ? Value(*ab) : Value(lfw::NullTag{})).c_str());
+      } else if (what == "itrground") {
+        const Value itrs = parse_value(t, i);
+        g_entity->update_itr_bdy_hit_ground(itrs);
+        std::printf("run itrground %s || %s | p=%s g=%s\n", render(itrs).c_str(),
+                    join(g_log).c_str(), render(vec3_value(g_entity->position)).c_str(),
+                    render(Value(g_entity->ground_y())).c_str());
       } else if (what == "statesdump") {
         std::printf("run statesdump || %s | v=%s\n", join(g_log).c_str(), dump_states().c_str());
       } else {

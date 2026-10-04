@@ -341,6 +341,28 @@ class Entity {
   // default z speed.  A missing emitter (`undefined` upstream) is not a fighter.
   Value get_opoint_speed_z(const Entity* emitter, const Value& opoint) const;
 
+  // --- v_rest / relation cleanup / blink arming --------------------------------
+  // TS keeps three `Map<string, Collision>` — `vrests` plus the `itr.kind`-driven
+  // `blockers` / `superpunchs` mirrors.  The port stores collisions **by value**
+  // while TS stores one shared object in up to three maps; see DESIGN §51.2.
+  void add_v_rest(const collision::Collision& c);
+  double get_v_rest(const std::u16string& a_id) const;
+  void del_v_rest(const std::u16string& a_id);
+  // `get_flag(other)`: `Ally` / `Enemy` by team, `| Dead` when the hp is gone, then
+  // `| this.type` — a JS bitwise or, so the type goes through `js_to_int32`.
+  double get_flag(const Entity& other) const;
+  void clean_holding();
+  void clean_catching();
+  bool drop_catching();
+  // `blink_and_gone` / `blink_and_respawn` write `_blinking` **directly** (no
+  // `round_float` / `max(0, …)`; those live in the `blinking` setter) and arm
+  // `_after_blink` with the private `FrameId` literal.
+  void blink_and_gone(double duration);
+  void blink_and_respawn(double duration);
+  // `update_itr_bdy_hit_ground(itrs)`: asks the host to enter `itr.on_hit_ground`
+  // for every itr whose box has reached the ground line.
+  void update_itr_bdy_hit_ground(const Value& itrs);
+
   // --- snapshot (`to_snapshot` / `read_snapshot`) -----------------------------
   // TS hands over `number[]` / `string[]`; the port keeps `Value` entries so a slot
   // whose TS type allows `null` stays distinguishable from `NaN` in both directions.
@@ -374,6 +396,9 @@ class Entity {
   bool from_wait_block() const { return _from_wait_block; }
   void set_from_wait_block(bool v) { _from_wait_block = v; }
   void set_prev_frame(const Value& v) { _prev_frame = v; }
+  // `_after_blink` is only ever read by `update()` (unported) and written by the
+  // `blink_and_*` pair, so the scene reads it back through here.
+  const std::optional<std::u16string>& after_blink() const { return _after_blink; }
 
   // The `this` argument every callback receives.  A listener sees the real object in
   // TS; the port hands over a `Value` view, which is what the ported type checks

@@ -2687,7 +2687,7 @@ harness op：
 9. **`env hook` 只对指定键生效**：`jump_height` 之外（`gravity`/`screen_w`/`screen_h`/`difficulty`）
    的 `set` 只有 `dataset_change` 一条日志，锁住「键钩子按名查找、整体回调对所有托管键生效」。
 
-### 6.9.96 `entity`（差分 1852 行，变异 541/541 全杀）
+### 6.9.96 `entity`（差分 2009 行，变异 594/594 全杀）
 
 harness op：
 
@@ -2748,6 +2748,15 @@ harness op：
   后者作用于 buddy）、`run statesdump`（按插入序打印注册表的 `键:类名`）、
   `run resetstates <数据字面量>`（`reset(data, states)`，与不带注册表的 `run reset` 对照）。
   `run hook …` 语义不变，只是改成配置假状态的钩子开关。
+- v_rest / 关系层（9h 追加）：`run vrest <aid> <kind> <rest>`（构造一条只填
+  `aid`/`itr.kind`/`rest` 的 collision 再 `add_v_rest`）、`run vrestget <aid>`、
+  `run vrestdel <aid>`（三个都打印三张表的大小 `n/b/s` 与 `g=<get_v_rest>` 回读）、
+  `run vrestdump`（**按键排序**打印三张表，每条渲染成 `键:kind:rest`）、
+  `run flag <self|buddy>`（`get_flag`，同时打印双方的 `team` 与自己的
+  `_data.type` 原文与 `hp`）、`run cleanhold` / `run cleancatch` / `run dropcatch`、
+  `run blinkgone <数>` / `run blinkrespawn <数>`（打印 `blinking` 与 `_after_blink` 窥视值）、
+  `run itrground <数组字面量>`（`update_itr_bdy_hit_ground`，顺带打印 `position`/`ground_y`）、
+  `run linkb <字段> <self|buddy|null>`（`run link` 的 buddy 镜像，回指必须能双向摆位）。
 
 输出：
 
@@ -2793,7 +2802,16 @@ harness op：
 - `run reg|regbare|regkey … || <日志> | n=<注册表大小>`、
   `run statesdump || <日志> | v=<键:类名 列表>`；
 - `run setstate|setstateb <数字> || <日志> | n=<注册表大小> st=<b0|b1>`；
-- `run resetstates <数据> || <日志> | id=<新 id>`。
+- `run resetstates <数据> || <日志> | id=<新 id>`；
+- `run vrest <aid> <kind> <rest> || <日志> | n=<vrests 大小> b=<blockers 大小> s=<superpunchs 大小> g=<该 aid 的 rest>`；
+- `run vrestget|vrestdel <aid> || <日志> | n=… b=… s=… g=…`；
+- `run vrestdump || <日志> | n=[键:kind:rest,…] b=[…] s=[…]`（两侧都按键排序）；
+- `run flag <self|buddy> || <日志> | v=<位组合> t=<自己队伍> ot=<对方队伍> ty=<_data.type 原文> h=<hp>`；
+- `run cleanhold|cleancatch || <日志> | sh=<b0|b1> sb=… sc=… sr=… bh=… bb=… bc=… br=…`（八位关系探针）；
+- `run dropcatch || <日志> | v=<b0|b1> sh=… br=…`（同一套八位探针）；
+- `run blinkgone|blinkrespawn <数> || <日志> | bl=<blinking> ab=<after_blink 或 null>`；
+- `run itrground <数组> || <日志> | p=<position> g=<ground_y>`（进入请求以 `enter_frame:<帧>` 出现在日志里）；
+- `run linkb <字段> <to> || <日志> | sh=… br=…`（八位关系探针）。
 
 日志项（按发生顺序、逗号分隔）：`on_*_changed:<self|?>:<新值>:<旧值>`、`on_dead:<self>`、
 `on_ctrl_changed:<vc>:<前一个>:<self>`（控制器渲染成 `base|human|bot|u`）、
@@ -3025,3 +3043,36 @@ harness op：
     （只在 harness 注册表里）静默，而 `run resetstates`（`reset(data, states)`）之后
     同样的 `setstate 71/72` 立刻打出 `n71>enter` / `s"1_72">enter`——
     `reset` 里的 `this._states = states`（9a 就抄了，但一直没有观察点）由此锁死。
+67. **v_rest 的三张表与「覆盖不删旧镜像」**：`run vrest s "w2" n 6 n 4`（进
+    `superpunchs`）之后 `run vrest s "w2" n 14 n 9`（进 `blockers`），`run vrestdump`
+    必须显示 `vrests`/`blockers` 里是新值、`superpunchs` 里还是旧值 —— 顺带把
+    「kind 交换」「键换成 `vid`」「镜像写错表」三类变异全部杀掉。
+68. **kind 是严格比较**：`run vrest s "ws" s "14" n 1`（Block 的字符串形）、
+    `run vrest s "w6" s "6" n 2`（SuperPunchMe 的字符串形）、`run vrest s "wu" u n 2`、
+    `run vrest s "wz" z n 6` 四条都不进镜像；`run vrestdump` 的 `b`/`s` 大小不变即锁死
+    `strict_equals`（两个 kind 各自换 `equals` 都会被杀：`"14"` 与 `"6"` 各锁一边）。
+69. **`get_v_rest` 的真值折叠**：`n 0` 与 `n NaN` 两条 `rest` 都读回 `n0`，
+    未知 id 也读回 `n0`；`del` 之后同一 id 再读仍是 `n0`，
+    而 `vrestdel` 的三张表大小同时下降。
+70. **key 字符串化**：`run vrest n 5 …` 与 `run vrestget n 5` / `run vrestget s "5"`
+    命中同一条 —— 数字 token 与字符串 token 落到同一个 `std::u16string` 键上。
+71. **`reset` 清三张表**：`run reset` 之后 `run vrestdump` 打 `n=[] b=[] s=[]`，
+    再 `run vrestget s "w2"` 仍是 `n0`。
+72. **`get_flag` 的位组合**：`hp = 0 / -5 / 0.5 / 10` 与 `type = 8 / 2.7 / "8" / u / -1`
+    交错出场，覆盖 `<= 0` 边界、`|= Dead`、`js_to_int32(type())`
+    （`2.7 → 2`、`"8" → 8`、`undefined → 0`、`-1` 淹没整数值）。
+73. **关系清理的两个分支**：`run linkb bearer self` / `run linkb bearer buddy`
+    （`catcher` 同理）分别覆盖「对方回指自己 ⇒ 连对方字段一起清」与
+    「回指别人 ⇒ 只清自己这侧」，八位探针 `sh sb sc sr bh bb bc br` 是判据。
+74. **`drop_catching` 的四个场景**：没有 `catching`（`v=b0` 且无日志）、
+    回指自己、回指别人、连打两次（第二次 `v=b0`）；日志里的
+    `enter_frame:{"id":s"auto"}` 锁住「一定请求 auto 帧」。
+75. **`blink_and_*` 不走 setter**：`run blinkgone n -3` 得 `bl=-3`，
+    紧跟的 `run set blinking n -3` 得 `v=n0` —— 「直接写字段」与
+    「`round_float(max(0, v))` setter」的分歧就此锁死；`run snap` 另外把
+    `AFTER_BLINK` 槽位纳入快照覆盖。
+76. **`update_itr_bdy_hit_ground` 的四条判定**：缺 `on_hit_ground`、假值
+    `on_hit_ground`、`on_hit_ground` 带缺省的 `{y,h}`、`y` 为 `z`、
+    `y/h` 为字符串数字、`y` 为负、边界相等（`fG`：`3 > 3` 为假 ⇒ 进帧）、
+    `centery` 缺失（NaN ⇒ 比较为假 ⇒ 仍进帧）、`ground_y = NaN`、
+    以及「前一条被跳过、后一条照进」（`fM`/`fN`，`continue` 与 `break` 的分界）。

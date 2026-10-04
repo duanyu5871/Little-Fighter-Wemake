@@ -1968,3 +1968,201 @@ run get hp_r
 run hook none
 run setstate 71
 run setstate 72
+
+# =============================================================================
+# 9h: v_rest / relation cleanup / blink arming / ground requests
+# =============================================================================
+
+# --- v_rest: the two kind mirrors -------------------------------------------
+run make o 4 id s "h1" type n 1 base o 0 frames o 0
+run vrest s "w1" n 14 n 3
+run vrest s "w2" n 6 n 4
+run vrest s "w3" n 0 n 5
+run vrestdump
+run vrestget s "w1"
+run vrestget s "w3"
+run vrestget s "w9"
+
+# replacing an id refreshes vrests and the mirrors, but never removes a stale
+# mirror entry (the old superpunchs entry for w2 stays behind)
+run vrest s "w2" n 14 n 9
+run vrestdump
+run vrestget s "w2"
+
+# the kind comparison is strict: a string kind and a missing kind never mirror
+run vrest s "ws" s "14" n 1
+run vrest s "wu" u n 2
+run vrest s "wz" z n 6
+run vrest s "w6" s "6" n 2
+run vrestdump
+
+# truthiness on the way out: 0 and NaN both read back as 0
+run vrest s "w0" n 14 n 0
+run vrestget s "w0"
+run vrest s "wn" n 6 n NaN
+run vrestget s "wn"
+run vrestget s ""
+
+# the id is stringified on the way in, so a numeric token lands on the same key
+run vrest n 5 n 14 n 7
+run vrestget n 5
+run vrestget s "5"
+run vrestdump
+
+# del removes the id from all three maps and is a no-op for an unknown id
+# w2 sits in both mirrors, so its delete drops a superpunchs entry too
+run vrestdel s "w2"
+run vrestdump
+run vrestdel s "w1"
+run vrestdump
+run vrestget s "w1"
+run vrestdel s "nope"
+run vrestdump
+
+# reset clears all three maps
+run reset o 4 id s "h1b" type n 1 base o 0 frames o 0
+run vrestdump
+run vrestget s "w2"
+
+# --- get_flag ---------------------------------------------------------------
+run make o 4 id s "h2" type n 1 base o 0 frames o 0
+run buddy o 4 id s "hb" type n 1 base o 0 frames o 0
+run set team s "1"
+run buddyset team s "1"
+run flag buddy
+run set team s "2"
+run flag buddy
+run set hp n 0
+run flag buddy
+run set hp n -5
+run flag buddy
+run set hp n 0.5
+run flag buddy
+run set hp n 10
+run buddyset team s "2"
+run flag buddy
+
+# the type goes through ToInt32: fractional truncates, a numeric string parses,
+# a missing type is 0 and a negative one sign-fills the whole result
+run reset o 5 id s "h2" type n 8 name s "H2" base o 0 frames o 0
+run set team s "1"
+run set hp n 10
+run flag buddy
+run reset o 5 id s "h2" type n 2.7 name s "H2" base o 0 frames o 0
+run set team s "1"
+run set hp n 10
+run flag buddy
+run reset o 5 id s "h2" type s "8" name s "H2" base o 0 frames o 0
+run set team s "1"
+run set hp n 10
+run flag buddy
+run reset o 5 id s "h2" type u name s "H2" base o 0 frames o 0
+run set team s "1"
+run set hp n 10
+run flag buddy
+run reset o 5 id s "h2" type n -1 name s "H2" base o 0 frames o 0
+run set team s "1"
+run set hp n 10
+run flag buddy
+run reset o 5 id s "h2" type n 8 name s "H2" base o 0 frames o 0
+run set team s "1"
+run set hp n 0
+run flag buddy
+
+# --- clean_holding / clean_catching -----------------------------------------
+run make o 4 id s "h3" type n 1 base o 0 frames o 0
+run buddy o 4 id s "bb" type n 1 base o 0 frames o 0
+run link holding buddy
+run linkb bearer self
+run cleanhold
+run link holding buddy
+run linkb bearer buddy
+run cleanhold
+run buddy o 4 id s "bb" type n 1 base o 0 frames o 0
+run link holding buddy
+run cleanhold
+
+run link catching buddy
+run linkb catcher self
+run cleancatch
+run link catching buddy
+run linkb catcher buddy
+run cleancatch
+run buddy o 4 id s "bb" type n 1 base o 0 frames o 0
+run link catching buddy
+run cleancatch
+
+# --- drop_catching ----------------------------------------------------------
+run make o 4 id s "h4" type n 1 base o 0 frames o 0
+run buddy o 4 id s "bc" type n 1 base o 0 frames o 0
+run dropcatch
+run link catching buddy
+run linkb catcher self
+run dropcatch
+run dropcatch
+run link catching buddy
+run linkb catcher null
+run dropcatch
+run buddy o 4 id s "bb" type n 1 base o 0 frames o 0
+run link catching buddy
+run linkb catcher null
+run dropcatch
+
+# --- blink_and_gone / blink_and_respawn -------------------------------------
+run make o 4 id s "h5" type n 1 base o 0 frames o 0
+run get blinking
+run blinkgone n 5
+run blinkrespawn n 2.5
+run blinkgone n -3
+run blinkrespawn n -3
+run blinkgone n 4
+run blinkrespawn n 0
+run blinkgone u
+run set blinking n -3
+run blinkrespawn n NaN
+run snap
+
+# --- update_itr_bdy_hit_ground ----------------------------------------------
+run make o 4 id s "h6" type n 1 base o 0 frames o 0
+run pos n 0 n 5 n 0
+run ground n 3
+run frame o 2 centery n 2 width n 10
+run itrground u
+run itrground a 0
+run itrground o 0
+run itrground n 5
+run itrground s "ab"
+run itrground a 1 o 1 y n 1
+run itrground a 1 o 1 on_hit_ground b 0
+run itrground a 1 o 2 on_hit_ground s "fA" y n 0
+run itrground a 2 o 3 on_hit_ground s "fB" y n 4 h n 3 o 3 on_hit_ground s "fC" y z h n 0
+run itrground a 1 o 3 on_hit_ground s "fD" y s "4" h s "3"
+run itrground a 1 o 3 on_hit_ground s "fE" y n 4 h n 4
+run itrground a 1 o 3 on_hit_ground s "fF" y n -1 h n 0
+run pos n 0 n 4 n 0
+run itrground a 1 o 3 on_hit_ground s "fG" y n 0 h n 3
+run itrground a 1 o 3 on_hit_ground s "fH" y n 4 h n 3
+run frame o 0
+run itrground a 1 o 2 on_hit_ground s "fI" y n 0
+run frame o 2 centery s "2" width n 10
+run itrground a 1 o 2 on_hit_ground s "fJ" y n 0
+run ground n NaN
+run itrground a 1 o 2 on_hit_ground s "fK" y n 0
+
+# an itr that carries `on_hit_ground` but no box takes the 0/0 defaults
+run frame o 2 centery n 2 width n 10
+run pos n 0 n 5 n 0
+run ground n 3
+run itrground a 1 o 1 on_hit_ground s "fL"
+
+# a skipped itr must not stop the walk: the following entry still enters
+run itrground a 2 o 3 on_hit_ground s "fM" y n 1 h n 1 o 3 on_hit_ground s "fN" y n 4 h n 3
+
+# a falsy `on_hit_ground` is skipped even when the box already reached the ground;
+# the second entry of the last scene still enters
+run pos n 0 n 5 n 0
+run frame o 2 centery n 2 width n 10
+run ground n 3
+run itrground a 1 o 3 on_hit_ground b 0 y n 4 h n 3
+run itrground a 1 o 3 on_hit_ground u y n 4 h n 3
+run itrground a 2 o 2 y n 4 h n 0 o 3 on_hit_ground s "fO" y n 4 h n 3
