@@ -122,6 +122,7 @@ export class Entity {
   protected _defend_ratio: number | null = null
   public fallinjury: number = 0;
   public throwinjury: number = 0;
+  /** TODO: 感觉可以考虑用scale来表达这个，这样还可以搞其他事情。 -Gim */
   public facing: TFace = 1;
   public frame: Readonly<IFrameInfo> = EMPTY_FRAME_INFO;
   protected _prev_frame: Readonly<IFrameInfo> = EMPTY_FRAME_INFO;
@@ -314,30 +315,11 @@ export class Entity {
   get itr(): IItrInfo[] | undefined { return this.frame.itr; }
   get bdy(): IBdyInfo[] | undefined { return this.frame.bdy; }
   get toughness_resting_max(): number { return this._toughness_resting_max; }
-  set toughness_resting_max(v: number) {
-    v = round_float(v);
-    const o = this._toughness_resting_max;
-    if (o === v) return;
-    this._toughness_resting_max = v;
-  }
-  get resting_max(): number {
-    return this._resting_max ?? this.world.dataset.resting_max;
-  }
-  set resting_max(v: number) {
-    v = round_float(v);
-    const o = this.resting_max;
-    if (o === v) return;
-    this._resting_max = v;
-    this.callbacks.call("on_resting_max_changed", this, v, o);
-  }
+  set toughness_resting_max(v: number) { this._toughness_resting_max = round_float(v); }
+  get resting_max(): number { return this._resting_max ?? this.world.dataset.resting_max; }
+  set resting_max(v: number) { this._resting_max = round_float(v); }
   get resting() { return this._resting; }
-  set resting(v: number) {
-    v = round_float(v);
-    const o = this._resting;
-    if (o === v) return;
-    this._resting = v;
-    this.callbacks.call("on_resting_changed", this, v, o);
-  }
+  set resting(v: number) { this._resting = round_float(v); }
   get fall_value(): number { return this._fall_value; }
   set fall_value(v: number) {
     const o = this._fall_value;
@@ -347,7 +329,6 @@ export class Entity {
       this.resting = this.resting_max;
       this.toughness_resting = this.toughness_resting_max;
     }
-    this.callbacks.call("on_fall_value_changed", this, v, o);
   }
 
   get toughness(): number { return this._toughness; }
@@ -358,18 +339,10 @@ export class Entity {
     if (o === v) return;
     this._toughness = v;
     if (v < o) this.toughness_resting = this.toughness_resting_max;
-    this.callbacks.call("on_toughness_changed", this, v, o);
   }
 
   get toughness_max(): number { return this._toughness_max; }
-  set toughness_max(v: number) {
-    v = round_float(v);
-    if (v < 0) v = 0;
-    const o = this._toughness_max;
-    if (o === v) return;
-    this._toughness_max = v;
-    this.callbacks.call("on_toughness_max_changed", this, v, o);
-  }
+  set toughness_max(v: number) { this._toughness_max = round_float(v); }
   get toughness_resting() { return this._toughness_resting; }
   set toughness_resting(v: number) {
     v = round_float(v);
@@ -378,21 +351,9 @@ export class Entity {
     this._toughness_resting = v;
   }
   get catch_time_max(): number { return this._catch_time_max ?? this.world.dataset.catch_time_max; }
-  set catch_time_max(v: number) {
-    v = round_float(v);
-    const o = this.catch_time_max;
-    if (o === v) return;
-    this._catch_time_max = v;
-    this.callbacks.call("on_catch_time_max_changed", this, v, o);
-  }
+  set catch_time_max(v: number) { this._catch_time_max = round_float(v); }
   get fall_value_max(): number { return this._fall_value_max ?? this.world.dataset.fall_value_max; }
-  set fall_value_max(v: number) {
-    v = round_float(v);
-    const o = this.fall_value_max;
-    if (o === v) return;
-    this._fall_value_max = v;
-    this.callbacks.call("on_fall_value_max_changed", this, v, o);
-  }
+  set fall_value_max(v: number) { this._fall_value_max = round_float(v); }
   get defend_value(): number { return this._defend_value; }
   set defend_value(v: number) {
     const o = this._defend_value;
@@ -402,23 +363,11 @@ export class Entity {
       this.resting = this.resting_max;
       this.toughness_resting = this.toughness_resting_max;
     }
-    this.callbacks.call("on_defend_value_changed", this, v, o);
   }
   get defend_value_max(): number { return this._defend_value_max ?? this.world.dataset.defend_value_max }
-  set defend_value_max(v: number) {
-    v = round_float(v);
-    const o = this.defend_value_max;
-    if (o === v) return;
-    this._defend_value_max = v;
-    this.callbacks.call("on_defend_value_max_changed", this, v, o);
-  }
+  set defend_value_max(v: number) { this._defend_value_max = round_float(v); }
   get defend_ratio(): number { return this._defend_ratio ?? this.world.dataset.defend_ratio; }
-  set defend_ratio(v: number) {
-    v = round_float(v);
-    const o = this.defend_ratio;
-    if (o === v) return;
-    this._defend_ratio = v;
-  }
+  set defend_ratio(v: number) { this._defend_ratio = round_float(v); }
 
   get name(): string {
     if (this._name !== null)
@@ -458,11 +407,7 @@ export class Entity {
     return this._hp_r;
   }
   set hp_r(v: number) {
-    const o = this._hp_r;
-    v = max(0, v)
-    v = round_float(v)
-    if (o === v) return;
-    this.callbacks.call("on_hp_r_changed", this, (this._hp_r = v), o);
+    this._hp_r = round_float(max(0, v))
   }
 
   get hp(): number {
@@ -504,22 +449,14 @@ export class Entity {
     return this._mp_max ?? this.world.dataset.mp_max;
   }
   set mp_max(v: number) {
-    const o = this.mp_max;
-    v = max(0, v)
-    v = round_float(v)
-    if (v === o) return;
-    this.callbacks.call("on_mp_max_changed", this, (this._mp_max = v), o);
+    this._mp_max = round_float(max(0, v))
   }
 
   get hp_max(): number {
     return this._hp_max ?? this.world.dataset.hp_max;
   }
   set hp_max(v: number) {
-    const o = this.hp_max;
-    v = max(0, v)
-    v = round_float(v)
-    if (v === o) return;
-    this.callbacks.call("on_hp_max_changed", this, (this._hp_max = v), o);
+    this._hp_max = round_float(max(0, v))
   }
 
   /**
