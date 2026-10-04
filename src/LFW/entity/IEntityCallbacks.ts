@@ -1,28 +1,9 @@
 import { BaseController } from "../controller";
 import type { IEntityData } from "../defines";
-import type { Unsafe } from "../utils/type_check/Unsafe";
 import type { Entity } from "./Entity";
 
 export interface IEntityCallbacks<E extends Entity = Entity> {
   on_ctrl_changed?(v: BaseController, prev: BaseController, e: Entity): void;
-
-  /**
-   * 最大血量变化
-   *
-   * @param {E} e
-   * @param {number} value 当前值
-   * @param {number} prev 上一次值
-   */
-  on_hp_max_changed?(e: E, value: number, prev: number): void;
-
-  /**
-   * 最大气量变化
-   *
-   * @param {E} e
-   * @param {number} value 当前值
-   * @param {number} prev 上一次值
-   */
-  on_mp_max_changed?(e: E, value: number, prev: number): void;
 
   /**
    * 血量变化
@@ -72,75 +53,6 @@ export interface IEntityCallbacks<E extends Entity = Entity> {
 
   on_disposed?(e: E): void;
 
-  /**
-   *
-   *
-   * @param {E} e
-   * @param {number} value 当前值
-   * @param {number} prev 上一次值
-   */
-  on_fall_value_max_changed?(e: E, value: number, prev: number): void;
-
-  /**
-   *
-   *
-   * @param {E} e
-   * @param {number} value 当前值
-   * @param {number} prev 上一次值
-   */
-  on_fall_value_changed?(e: E, value: number, prev: number): void;
-
-  /**
-   *
-   *
-   * @param {E} e
-   * @param {number} value 当前值
-   * @param {number} prev 上一次值
-   */
-  on_defend_value_max_changed?(e: E, value: number, prev: number): void;
-
-  /**
-   *
-   *
-   * @param {E} e
-   * @param {number} value 当前值
-   * @param {number} prev 上一次值
-   */
-  on_defend_value_changed?(e: E, value: number, prev: number): void;
-
-  /**
-   *
-   *
-   * @param {E} e
-   * @param {number} value 当前值
-   * @param {number} prev 上一次值
-   */
-  on_resting_max_changed?(e: E, value: number, prev: number): void;
-
-  /**
-   *
-   *
-   * @param {E} e
-   * @param {number} value 当前值
-   * @param {number} prev 上一次值
-   */
-  on_resting_changed?(e: E, value: number, prev: number): void;
-
-  on_resting_max_changed?(e: E, value: number, prev: number): void;
-
-  /**
-   * 
-   *
-   * @param {E} e
-   * @param {number} value 当前值
-   * @param {number} prev 上一次值
-   */
-  on_hp_r_changed?(e: E, value: number, prev: number): void;
-
-  on_toughness_changed?(e: E, value: number, prev: number): void;
-  on_toughness_max_changed?(e: E, value: number, prev: number): void;
   on_reserve_changed?(e: E, value: number, prev: number): void;
-  on_catch_time_max_changed?(e: E, value: number, prev: number): void;
-
   on_data_changed?(value: IEntityData, prev: IEntityData, e: E): void;
 }

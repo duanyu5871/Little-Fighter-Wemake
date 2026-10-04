@@ -1,13 +1,12 @@
 import { Buff_Healing } from "../../buff/Buff_Healing";
 import { Buff_MpHealing } from "../../buff/Buff_MpHealing";
 import { Defines, T_E, type IPropsMeta } from "../../defines";
-import { Entity, is_bot_ctrl, type IEntityCallbacks } from "../../entity";
+import { Entity, is_bot_ctrl } from "../../entity";
 import { clamp } from "../../utils/math/clamp";
 import { UINode } from "../UINode";
 import { Picture } from "./Picture";
 import { SmoothNumber } from "./SmoothNumber";
 import { UIComponent } from "./UIComponent";
-
 
 interface IFighterStatBarProps {
   dark_hp_bar?: UINode
@@ -45,159 +44,70 @@ export class FighterStatBar extends UIComponent<IFighterStatBarProps> {
   protected hp = new SmoothNumber().handler(() => this.update_hp())
   protected mp_max = new SmoothNumber().handler(() => { this.update_mp_max(); this.update_mp() })
   protected mp = new SmoothNumber().handler(() => this.update_mp())
-  protected healing: boolean = false;
+  protected hp_flashing: boolean = false;
   protected mp_healing: boolean = false;
   protected dead: boolean = false;
-  protected cbs: IEntityCallbacks = {
-    on_hp_changed: (_, v) => { this.update_hp_target(v); },
-    on_hp_max_changed: (_, v) => { this.hp_max.target = this.dead ? 0 : v; },
-    on_hp_r_changed: (_, v) => { this.hp_r.target = this.dead ? 0 : v; },
-    on_mp_max_changed: (_, v) => { this.mp_max.target = this.dead ? 0 : v; },
-    on_mp_changed: (_, v) => { this.mp.target = this.dead ? 0 : v; },
-    on_defend_value_max_changed: (_, v) => { this.defend_value_max.target = this.dead ? 0 : v; },
-    on_defend_value_changed: (_, v) => { this.defend_value.target = this.dead ? 0 : v; },
-    on_fall_value_max_changed: (_, v) => { this.fall_value_max.target = this.dead ? 0 : v; },
-    on_fall_value_changed: (_, v) => { this.fall_value.target = this.dead ? 0 : v; },
-    on_toughness_max_changed: (_, v) => { this.toughness_max.target = this.dead ? 0 : v; },
-    on_toughness_changed: (_, v) => { this.toughness.target = this.dead ? 0 : v; },
-    on_data_changed: () => this.update_head()
-  }
   protected direction: string = '';
-  private _eid: string | undefined;
-  update_hp_target(v: number) {
-    if (v <= 0) {
-      this.dead = true;
-      this.hp_max.target           /**/ = 0
-      this.hp_r.target             /**/ = 0
-      this.mp_max.target           /**/ = 0
-      this.mp.target               /**/ = 0
-      this.defend_value_max.target /**/ = 0
-      this.defend_value.target     /**/ = 0
-      this.fall_value_max.target   /**/ = 0
-      this.fall_value.target       /**/ = 0
-      this.toughness_max.target    /**/ = 0
-      this.toughness.target        /**/ = 0
-      this.update_bars();
-    } else if (this.dead) {
-      this.dead = false;
-      const { entity } = this;
-      if (entity) {
-        this.hp_max.target           /**/ = entity.hp_max
-        this.hp_r.target             /**/ = entity.hp_r
-        this.mp_max.target           /**/ = entity.mp_max
-        this.mp.target               /**/ = entity.mp
-        this.defend_value_max.target /**/ = entity.defend_value_max
-        this.defend_value.target     /**/ = entity.defend_value
-        this.fall_value_max.target   /**/ = entity.fall_value_max
-        this.fall_value.target       /**/ = entity.fall_value
-        this.toughness_max.target    /**/ = entity.toughness_max || 1
-        this.toughness.target        /**/ = entity.toughness;
-      }
-      this.update_bars();
+  protected _eid: string | undefined;
+  protected _head?: string;
+  protected _name?: string;
+  protected _name_version: number = -1;
+  protected _name_outline?: string;
+  protected _tier_colors?: string[];
+
+  protected update_hp_tier_colors(tiers: readonly UINode[], flashing: boolean): void {
+    if (flashing === this.hp_flashing) return;
+    this.hp_flashing = flashing;
+    const colors = this._tier_colors ??= tiers.map(v => v.color);
+    for (let i = tiers.length - 1; i >= 0; --i) {
+      const tier = tiers[i];
+      if (!tier.visible) tier.color = colors[i];
+      else tiers[i].color = flashing ? 'rgb(255,130,130)' : colors[i];
     }
-    this.hp.target = v;
   }
+
   set_entity(entity: Entity | undefined) {
     if (this.entity === entity && this._eid == entity?.id) return;
-    if (this.entity) this.entity.callbacks.del(this.cbs)
-
     this._eid = this.entity?.id;
     this.entity = entity
-    if (entity) {
-      // this.update_tiers(this.props.hp_bar, 0, 1);
-      // this.update_tiers(this.props.dark_hp_bar, 0, 1);
-      // this.props.dark_mp_bar?.set_scale(0)
-      // this.props.mp_bar?.set_scale(0)
-      // this.props.defend_value_bar?.set_scale(0)
-      // this.props.fall_value_bar?.set_scale(0)
-      // this.props.toughness_bar?.set_scale(0)
-
-      this.hp_max.target           /**/ = entity.hp_max
-      this.hp_r.target             /**/ = entity.hp_r
-      this.mp_max.target           /**/ = entity.mp_max
-      this.mp.target               /**/ = entity.mp
-      this.defend_value_max.target /**/ = entity.defend_value_max
-      this.defend_value.target     /**/ = entity.defend_value
-      this.fall_value_max.target   /**/ = entity.fall_value_max
-      this.fall_value.target       /**/ = entity.fall_value
-      this.toughness_max.target    /**/ = entity.toughness_max || 1
-      this.toughness.target        /**/ = entity.toughness;
-      this.update_hp_target(entity.hp);
-      this.update_bars();
-      entity.callbacks.add(this.cbs)
-    }
-    this.update_head();
   }
   override on_show(): void {
     this.direction = this.props_holder.str('direction') ?? '';
-
-  }
-  protected update_bars() {
-    this.update_defend_value();
-    this.update_mp();
-    this.update_mp_max();
-    this.update_fall_value();
-    this.update_toughness();
-    this.update_hp_r();
-    this.update_hp();
   }
   update_defend_value(val = this.defend_value.value, max = this.defend_value_max.value) {
-    const node = this.props.defend_value_bar;
-    if (!node) return;
-    if (this.dead) { node.set_scale(0, 1, 1); return; }
-    if (max === 0) return;
-    node.set_scale(val / max, 1, 1);
+    this.update_bar(this.props.defend_value_bar, val, max)
   }
   update_fall_value(val = this.fall_value.value, max = this.fall_value_max.value) {
-    const node = this.props.fall_value_bar;
-    if (!node) return;
-    if (this.dead) { node.set_scale(0, 1, 1); return; }
-    if (max === 0) return;
-    node.set_scale(val / max, 1, 1)
+    this.update_bar(this.props.fall_value_bar, val, max)
   }
   update_toughness(val = this.toughness.value, max = this.toughness_max.value) {
-    const node = this.props.toughness_bar;
-    if (!node) return;
-    if (this.dead) { node.set_scale(0, 1, 1); return; }
-    if (max === 0) return;
-    node.set_scale(val / max, 1, 1);
+    this.update_bar(this.props.toughness_bar, val, max)
   }
-  protected _tier_colors?: string[];
-  protected _tier_flashing?: boolean;
-  protected update_hp_tier_colors(node: UINode): void {
-    if (this._tier_flashing === this.healing) return;
-    this._tier_flashing = this.healing;
-    const tiers = node.children;
-    const colors = this._tier_colors ??= tiers.map(v => v.color);
-    for (let i = 0; i < tiers.length; i++)
-      tiers[i].color = this.healing ? 'rgb(255,130,130)' : colors[i];
+  update_hp(val = this.hp.value): void {
+    this.update_tiers(this.props.hp_bar, val);
   }
-  update_hp(val = this.hp.value, max = this.hp_max.value): void {
-    this.update_tiers(this.props.hp_bar, val, max);
+  update_hp_r(val = this.hp_r.value): void {
+    this.update_tiers(this.props.dark_hp_bar, val);
   }
-  update_hp_r(val = this.hp_r.value, max = this.hp_max.value): void {
-    this.update_tiers(this.props.dark_hp_bar, val, max);
-  }
-  protected update_tiers(node: UINode | undefined, val: number, max: number): void {
+  protected update_tiers(node: UINode | undefined, val: number): void {
     if (!node) return;
     const tiers = node.children;
     if (tiers.length < 2) return;
     for (let i = 0; i < tiers.length; i++) {
       const tier  /**/ = tiers[i];
       const vis = clamp(val - i * 500, 0, 500);
-      const inner_w = tier.w;
-      const visible = !this.dead && max > 0 && vis > 0 && inner_w > 0;
+      const visible = !this.dead;
       if (tier.visible != visible) tier.visible = visible;
-      if (!visible) continue;
-      tier.set_scale(vis / 500, 1, 1);
+      this.update_bar(tier, vis, 500)
     }
   }
-  update_mp(val = this.mp.value, max = this.mp_max.value) {
-    const node = this.props.mp_bar;
+  update_bar(node: UINode | undefined, val: number = 0, max: number = 0) {
     if (!node) return;
-    if (this.dead) { node.set_scale(0, 1, 1); return; }
-    if (max === 0) return;
-    node.set_scale(val / max, 1, 1);
+    if (max == 0) { node.set_scale(0); }
+    else { node.set_scale(val / max); }
+  }
+  update_mp(val = this.mp.value, max = this.mp_max.value) {
+    this.update_bar(this.props.mp_bar, val, max)
   }
   update_mp_max() {
     const node = this.props.dark_mp_bar;
@@ -205,17 +115,11 @@ export class FighterStatBar extends UIComponent<IFighterStatBarProps> {
     node.set_scale(this.dead ? 0 : 1, 1, 1);
   }
   update_head(): void {
-    const { entity } = this;
-    if (entity) {
-      const { head } = entity.data.base;
-      this.props.head_img?.set_src(typeof head === 'string' ? head : '')
-    } else {
-      this.props.head_img?.set_src('')
-    }
+    const head = this.entity?.data.base.head ?? '';
+    if (head === this._head) return;
+    this.props.head_img?.set_src(head)
+    this._head = head;
   }
-  protected _last_name?: string;
-  protected _last_name_version: number = -1;
-  protected _last_name_outline?: string;
   update_name() {
     const { name_txt } = this.props;
     if (!name_txt) return;
@@ -231,10 +135,10 @@ export class FighterStatBar extends UIComponent<IFighterStatBarProps> {
       name = `${name1} [${name0}]`
     const version = name_txt.style.version;
     const outline = name_txt.outlineColor;
-    if (name === this._last_name && version === this._last_name_version && outline === this._last_name_outline) return;
-    this._last_name = name;
-    this._last_name_version = version;
-    this._last_name_outline = outline;
+    if (name === this._name && version === this._name_version && outline === this._name_outline) return;
+    this._name = name;
+    this._name_version = version;
+    this._name_outline = outline;
     name_txt.set_text(name)
   }
   update_team() {
@@ -250,25 +154,42 @@ export class FighterStatBar extends UIComponent<IFighterStatBarProps> {
   override update(): void {
     this.update_team();
     this.update_name();
-    const { entity, props: { hp_bar, mp_bar } } = this
-    if (hp_bar) {
-      this.healing = !!entity?.marks.has(Buff_Healing.KIND) && (entity.lifetime % 8) < 4;
-      this.update_hp_tier_colors(hp_bar)
-    }
-    if (mp_bar) {
-      this.mp_healing = !!entity?.marks.has(Buff_MpHealing.KIND) && (entity.lifetime % 8) < 4;
-      mp_bar.children[0].color = this.mp_healing ? 'rgb(130,130,255)' : 'rgb(0,0,255)'
-    }
-    this.defend_value_max.update()
+    this.update_head();
     this.defend_value.update()
-    this.fall_value_max.update()
+    this.defend_value_max.update()
     this.fall_value.update()
+    this.fall_value_max.update()
     this.toughness.update()
     this.toughness_max.update()
-    this.hp_max.update()
-    this.hp_r.update()
-    this.hp.update()
-    this.mp_max.update()
     this.mp.update()
+    this.mp_max.update()
+    this.hp.update()
+    this.hp_r.update()
+    this.hp_max.update()
+
+    const { entity, props: { hp_bar, mp_bar } } = this
+    if (!entity) return;
+
+    if (hp_bar) {
+      const flashing = !!entity.marks.has(Buff_Healing.KIND) && (entity.lifetime % 8) < 4;
+      this.update_hp_tier_colors(hp_bar.children, flashing)
+    }
+    if (mp_bar) {
+      this.mp_healing = !!entity.marks.has(Buff_MpHealing.KIND) && (entity.lifetime % 8) < 4;
+      mp_bar.children[0].color = this.mp_healing ? 'rgb(130,130,255)' : 'rgb(0,0,255)'
+    }
+    this.dead = entity.hp <= 0;
+    this.defend_value.target = this.dead ? 0 : entity.defend_value;
+    this.defend_value_max.target = this.dead ? 1 : entity.defend_value_max;
+    this.fall_value.target = this.dead ? 0 : entity.fall_value;
+    this.fall_value_max.target = this.dead ? 1 : entity.fall_value_max;
+    this.toughness.target = this.dead ? 0 : entity.toughness;
+    this.toughness_max.target = this.dead ? 1 : entity.toughness_max;
+    this.mp.target = this.dead ? 0 : entity.mp;
+    this.mp_max.target = this.dead ? 1 : entity.mp_max;
+    this.hp.target = this.dead ? 0 : entity.hp;
+    this.hp_r.target = this.dead ? 0 : entity.hp_r;
+    this.hp_max.target = this.dead ? 1 : entity.hp_max;
   }
+
 }
