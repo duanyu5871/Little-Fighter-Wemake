@@ -3,6 +3,8 @@ import { Ditto } from "../../../../src/LFW/ditto";
 import { Entity } from "../../../../src/LFW/entity/Entity";
 import { NSlot, SSlot } from "../../../../src/LFW/entity/EntitySnapshot";
 import { summary_mgr } from "../../../../src/LFW/entity/SummaryMgr";
+import { State_Base } from "../../../../src/LFW/state/State_Base";
+import { States } from "../../../../src/LFW/state/States";
 import { WorldDataset } from "../../../../src/LFW/WorldDataset";
 import { parseValue, readCaseLines, renderValue, splitWs } from "./trace_util";
 
@@ -117,7 +119,76 @@ Ditto.vec3 = (x = 0, y = 0, z = 0) => {  const v = { x, y, z } as { x: number; y
 
 let ent: Entity | undefined = undefined;
 let buddy: Entity | undefined = undefined;
-let stateStub: Record<string, unknown> = {};
+
+// --- state registry + the fake state (the 9g wiring) -------------------------
+// The hooks are no longer poked onto a stub object: they live on a state that
+// `set_state` selects, so a scene must `run reg` + `run setstate` before
+// `run hook ...` can be observed — exactly like the real game, where `set_state` is
+// the only way a state becomes active.
+const states = new States();
+
+// What `run hook ...` configures.  A hook that is "off" returns `undefined` without
+// logging, which is what a missing TS callback does (`this._state?.get_gravity?.(…)`).
+const hooks = {
+  dead: false,
+  gravity: false,
+  gravity_value: undefined as unknown,
+  find: false,
+  find_echo: false,
+  find_value: undefined as unknown,
+  auto_frame: false,
+  auto_frame_value: undefined as unknown,
+  sudden: false,
+  sudden_value: undefined as unknown,
+  caught: false,
+  caught_value: undefined as unknown,
+};
+
+const fid = (frame: unknown): string =>
+  r((frame as { id?: unknown } | undefined | null)?.id);
+
+const prevId = (e: Entity): string =>
+  fid((e as unknown as { get_prev_frame(): unknown }).get_prev_frame());
+
+class HarnessState extends State_Base {
+  constructor(state: number | string) {
+    super(state);
+    this.enter = (e: Entity, prev: unknown): void => {
+      log.push(
+        `${r(this.state)}>enter:${e.id}:${fid(e.frame)}:${fid(prev)}:hp=${r(e.hp)}` +
+          `:hmax=${r(e.hp_max)}:mp=${r(e.mp)}:ml=${r(e.motionless)}:sh=${r(e.shaking)}` +
+          `:st=${r(e.state)}:og=${r(e.is_on_ground)}:team=${r(e.team)}:dt=${r(e.data.type)}` +
+          `:jx=${r(e.jumping.x)}:vx=${r(e.velocity.x)}:vy=${r(e.velocity.y)}:vz=${r(e.velocity.z)}` +
+          `:pos=${r(e.position.x)}/${r(e.position.y)}/${r(e.position.z)}:pf=${prevId(e)}`,
+      );
+      // The state touches the entity on entry so the setters stay observable.
+      e.motionless = e.motionless;
+      e.hp_r = e.hp_r;
+    };
+    this.on_dead = (e: Entity): void => {
+      if (!hooks.dead) return;
+      log.push(`state_on_dead:${e.id}:${r(e.hp_r)}`);
+    };
+    this.get_gravity = (): unknown => (hooks.gravity ? hooks.gravity_value : undefined);
+    this.find_frame_by_id = (_e: Entity, id: unknown): unknown =>
+      hooks.find ? (hooks.find_echo ? id : hooks.find_value) : undefined;
+    this.get_auto_frame = (): unknown =>
+      hooks.auto_frame ? hooks.auto_frame_value : undefined;
+    this.get_sudden_death_frame = (): unknown =>
+      hooks.sudden ? hooks.sudden_value : undefined;
+    this.get_caught_end_frame = (): unknown =>
+      hooks.caught ? hooks.caught_value : undefined;
+  }
+
+  leave(e: Entity, next: unknown): void {
+    log.push(`${r(this.state)}>leave:${e.id}:${fid(next)}`);
+  }
+}
+
+const dumpStates = (): string =>
+  [...states.map.entries()]
+    .map(([k, v]) => `${r(k)}:${(v as object).constructor.name}`)
+    .join(",");
 
 const ctrlMark = (c: unknown): string => {
   if (!c) return "u";
@@ -703,12 +774,17 @@ function main(): void {
     if (op === "run") {
       const what = t[i++]!;
       if (what === "make") {
-        ent = new Entity(worldStub as never, parseValue(t, [i]) as never);
+        ent = new Entity(worldStub as never, parseValue(t, [i]) as never, states as never);
         bindCallbacks(ent);
         out.push(`run make || id=${ent.id} | ${log.join(",")}`);
       } else if (what === "reset") {
         ent!.reset(parseValue(t, [i]) as never);
         out.push(`run reset || id=${ent!.id} | ${log.join(",")}`);
+      } else if (what === "resetstates") {
+        // `reset(data, states)`: the registry switch is observable, so the scene can
+        // tell the default `ENTITY_STATES` apart from the harness registry.
+        ent!.reset(parseValue(t, [i]) as never, states as never);
+        out.push(`run resetstates || id=${ent!.id} | ${log.join(",")}`);
       } else if (what === "get") {
         const name = t[i++]!;
         let v: unknown = undefined;
@@ -865,7 +941,7 @@ function main(): void {
           `run keys ${r(lr)} ${r(ud)} ${r(jd)} || ${log.join(",")} | lr=${c.LR} ud=${c.UD} jd=${c.jd}`,
         );
       } else if (what === "buddy") {
-        buddy = new Entity(worldStub as never, parseValue(t, [i]) as never);
+        buddy = new Entity(worldStub as never, parseValue(t, [i]) as never, states as never);
         out.push(`run buddy || id=${buddy.id} | ${log.join(",")}`);
       } else if (what === "buddyset") {
         const name = t[i++]!;
@@ -1068,38 +1144,60 @@ function main(): void {
       } else if (what === "hook") {
         const sub = t[i++]!;
         if (sub === "dead") {
-          stateStub.on_dead = (): void => {
-            log.push("state_on_dead");
-          };
+          hooks.dead = true;
         } else if (sub === "gravity") {
-          const v = parseValue(t, [i]);
-          stateStub.get_gravity = () => v;
+          hooks.gravity = true;
+          hooks.gravity_value = parseValue(t, [i]);
         } else if (sub === "frameid") {
+          hooks.find = true;
           if (t[i] === "echo") {
             i++;
-            stateStub.find_frame_by_id = (_e: unknown, id: unknown) => id;
+            hooks.find_echo = true;
           } else {
-            const v = parseValue(t, [i]);
-            stateStub.find_frame_by_id = () => v;
+            hooks.find_echo = false;
+            hooks.find_value = parseValue(t, [i]);
           }
         } else if (sub === "autoframe") {
-          const v = parseValue(t, [i]);
-          stateStub.get_auto_frame = () => v;
+          hooks.auto_frame = true;
+          hooks.auto_frame_value = parseValue(t, [i]);
         } else if (sub === "sudden") {
-          const v = parseValue(t, [i]);
-          stateStub.get_sudden_death_frame = () => v;
+          hooks.sudden = true;
+          hooks.sudden_value = parseValue(t, [i]);
         } else if (sub === "caught") {
-          const v = parseValue(t, [i]);
-          stateStub.get_caught_end_frame = () => v;
+          hooks.caught = true;
+          hooks.caught_value = parseValue(t, [i]);
         } else if (sub === "none") {
-          stateStub = {};
-          (ent as unknown as { _state: unknown })._state = null;
+          hooks.dead = false;
+          hooks.gravity = false;
+          hooks.find = false;
+          hooks.find_echo = false;
+          hooks.auto_frame = false;
+          hooks.sudden = false;
+          hooks.caught = false;
         } else {
           process.stderr.write(`unknown hook '${sub}'\n`);
           process.exit(2);
         }
-        if (sub !== "none") (ent as unknown as { _state: unknown })._state = stateStub;
         out.push(`run hook ${sub} || ${log.join(",")}`);
+      } else if (what === "reg" || what === "regbare" || what === "regkey") {
+        const bare = what === "regbare";
+        const key: unknown = what === "regkey" ? parseValue(t, [i]) : Number(t[i++]);
+        states.set(
+          key as never,
+          (bare ? new State_Base(key as never) : new HarnessState(key as never)) as never,
+        );
+        out.push(`run ${what} ${r(key)} || ${log.join(",")} | n=${states.map.size}`);
+      } else if (what === "setstate" || what === "setstateb") {
+        const code = Number(t[i++]!);
+        const e = (what === "setstateb" ? buddy : ent)!;
+        e.set_state(code);
+        out.push(
+          `run ${what} ${r(code)} || ${log.join(",")} | n=${states.map.size} st=${r(
+            (e as unknown as { _state: unknown })._state != null,
+          )}`,
+        );
+      } else if (what === "statesdump") {
+        out.push(`run statesdump || ${log.join(",")} | v=${dumpStates()}`);
       } else {
         process.stderr.write(`unknown run '${what}'\n`);
         process.exit(2);

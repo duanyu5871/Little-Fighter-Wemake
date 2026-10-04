@@ -1,6 +1,5 @@
 #pragma once
 
-#include <functional>
 #include <map>
 #include <memory>
 #include <optional>
@@ -25,7 +24,10 @@ class Buff;
 
 namespace state {
 class States;
+class State_Base;
 }
+
+class EntityStateView;
 
 // The renderer slot TS keeps in `Entity.renderer`.
 struct IEntityRenderer {
@@ -89,9 +91,12 @@ struct Jumping {
   double t = 0;
 };
 
-// Mirrors `src/LFW/entity/Entity.ts`.  This slice ports the construction / `reset`
-// layer and the stat accessor & notification layer; the physics, frame, snapshot and
-// collision entry points arrive in later slices.
+// Mirrors `src/LFW/entity/Entity.ts`.  Ported so far: construction / `reset`, the stat
+// accessor & notification layer, the velocity / friction / gravity layer, the frame
+// lookup & flag handling, the snapshot pair, the per-tick recovery layer, the
+// marks / emitter / opoint helpers and the state wiring (`set_state` + `_state`).
+// The collision entry points, the enter-frame chain, `update()` and everything that
+// needs a real `World` arrive in later slices.
 class Entity {
  public:
   static constexpr const char* TAG = "Entity";
@@ -99,6 +104,8 @@ class Entity {
 
   Entity(IEntityHost& host, Value data);
   Entity(IEntityHost& host, Value data, state::States* states);
+  // Out of line because `state_view_` holds an incomplete type here.
+  ~Entity();
 
   Entity(const Entity&) = delete;
   Entity& operator=(const Entity&) = delete;
@@ -169,6 +176,11 @@ class Entity {
   // --- lifecycle -------------------------------------------------------------
   void reset(Value data);
   void reset(Value data, state::States* states);
+  // `set_state(state_code)`: look the code up in the registry, fall back to the
+  // per-type `States.fallback` entry, then leave the old state and enter the new one.
+  void set_state(double state_code);
+  // `this._state` — `null` until `set_state` runs (and again after every `reset`).
+  state::State_Base* state_ptr() const { return _state; }
 
   // --- stat accessors (TS `get x` / `set x`) ---------------------------------
   double lifetime() const { return _lifetime; }
@@ -363,17 +375,6 @@ class Entity {
   void set_from_wait_block(bool v) { _from_wait_block = v; }
   void set_prev_frame(const Value& v) { _prev_frame = v; }
 
-  // `_state` is a `state::State_Base*` in the full port; the ports so far only reach
-  // the optional hooks below, so they are injected until the state wiring slice lands
-  // (`_state?.on_dead?.(this)` / `_state?.get_gravity?.(this)` / …).  A missing hook
-  // and a state without that optional callback are the same thing in TS.
-  std::function<void()> state_on_dead;
-  std::function<Value()> state_get_gravity;
-  std::function<Value(const Value&)> state_find_frame_by_id;
-  std::function<Value()> state_get_auto_frame;
-  std::function<Value()> state_get_sudden_death_frame;
-  std::function<Value()> state_get_caught_end_frame;
-
   // The `this` argument every callback receives.  A listener sees the real object in
   // TS; the port hands over a `Value` view, which is what the ported type checks
   // (`is_self_ref` / `is_ally_ref`) compare against.
@@ -439,6 +440,12 @@ class Entity {
   Value _prev_cpoint_a = Value(NullTag{});
   std::u16string _team;
   state::States* states_ = nullptr;
+  // `this._state?.on_dead?.(this)` / `this._state?.get_gravity?.(this)` / … — the hooks
+  // live on the active state object and receive `state_view_`, the adapter that makes
+  // them see "the entity".  A missing hook and a state without that optional callback
+  // are the same thing in TS.
+  state::State_Base* _state = nullptr;
+  std::unique_ptr<EntityStateView> state_view_;
   controller::BaseController* ctrl_ = nullptr;
   IEntityHost* host_ = nullptr;
 

@@ -13,6 +13,9 @@
 #include "lfw/entity/entity.h"
 #include "lfw/entity/entity_snapshot.h"
 #include "lfw/entity/summary_mgr.h"
+#include "lfw/state/state_base.h"
+#include "lfw/state/states.h"
+#include "lfw/utils/container_help/field_or.h"
 #include "lfw/world_dataset.h"
 
 #include "trace_util.h"
@@ -39,6 +42,100 @@ std::unique_ptr<Entity> g_buddy;
 
 std::string render(const Value& v) { return to_ascii(render_value(v)); }
 std::string s_of(const std::u16string& s) { return to_ascii(s); }
+
+// --- state registry + the fake state (the 9g wiring) -------------------------
+// The state hooks are no longer injected into the entity: they live on a state
+// object that `set_state` selects, so a scene must `run reg` + `run setstate` before
+// `run hook ...` can be observed — exactly like the real code, where `set_state` is
+// the only way a state becomes active.
+lfw::state::States g_states;
+
+// What `run hook ...` configures.  A hook that is "off" returns `undefined` without
+// logging, which is what a missing TS callback does (`this._state?.get_gravity?.(…)`).
+struct HookConfig {
+  bool dead = false;
+  bool gravity = false;
+  Value gravity_value;
+  bool find = false;
+  bool find_echo = false;
+  Value find_value;
+  bool auto_frame = false;
+  Value auto_frame_value;
+  bool sudden = false;
+  Value sudden_value;
+  bool caught = false;
+  Value caught_value;
+};
+HookConfig g_hooks;
+
+std::string fid(const Value& frame) { return render(lfw::field_or(frame, u"id")); }
+
+std::string pos_of(lfw::state::IStateEntity& e) {
+  double x = 0;
+  double y = 0;
+  double z = 0;
+  e.position(x, y, z);
+  return render(Value(x)) + "/" + render(Value(y)) + "/" + render(Value(z));
+}
+
+struct HarnessState : lfw::state::State_Base {
+  explicit HarnessState(Value key) : State_Base(std::move(key)) {
+    enter = [this](lfw::state::IStateEntity& e, const Value& prev) {
+      g_log.push_back(render(state()) + ">enter:" + s_of(e.id()) + ":" + fid(e.frame_info()) +
+                      ":" + fid(prev) + ":hp=" + render(e.hp()) +
+                      ":hmax=" + render(e.hp_max()) + ":mp=" + render(e.mp()) +
+                      ":ml=" + render(e.motionless()) + ":sh=" + render(e.shaking()) +
+                      ":st=" + render(e.state()) + ":og=" + render(Value(e.is_on_ground())) +
+                      ":team=" + render(e.team()) + ":dt=" + render(e.data_type()) +
+                      ":jx=" + render(e.jumping_x()) + ":vx=" + render(e.velocity_x()) +
+                      ":vy=" + render(Value(e.velocity_y())) + ":vz=" + render(e.velocity_z()) +
+                      ":pos=" + pos_of(e) + ":pf=" + fid(e.prev_frame()));
+      // The state touches the entity on entry so the setters stay observable.
+      e.set_motionless(e.motionless());
+      e.set_hp_r(e.hp_r());
+    };
+    on_dead = [](lfw::state::IStateEntity& e) {
+      if (!g_hooks.dead) return;
+      g_log.push_back("state_on_dead:" + s_of(e.id()) + ":" + render(e.hp_r()));
+    };
+    get_gravity = [](lfw::state::IStateEntity&) -> Value {
+      if (!g_hooks.gravity) return Value();
+      return g_hooks.gravity_value;
+    };
+    find_frame_by_id = [](lfw::state::IStateEntity&, const Value& id) -> Value {
+      if (!g_hooks.find) return Value();
+      if (g_hooks.find_echo) return id;
+      return g_hooks.find_value;
+    };
+    get_auto_frame = [](lfw::state::IStateEntity&) -> Value {
+      if (!g_hooks.auto_frame) return Value();
+      return g_hooks.auto_frame_value;
+    };
+    get_sudden_death_frame = [](lfw::state::IStateEntity&) -> Value {
+      if (!g_hooks.sudden) return Value();
+      return g_hooks.sudden_value;
+    };
+    get_caught_end_frame = [](lfw::state::IStateEntity&) -> Value {
+      if (!g_hooks.caught) return Value();
+      return g_hooks.caught_value;
+    };
+  }
+
+  void leave(lfw::state::IStateEntity& e, const Value& next) override {
+    g_log.push_back(render(state()) + ">leave:" + s_of(e.id()) + ":" + fid(next));
+  }
+};
+
+std::string dump_states() {
+  std::string out;
+  bool first = true;
+  for (const lfw::state::States::Entry& e : g_states.entries()) {
+    if (!first) out += ",";
+    first = false;
+    out += render(e.key) + ":" + s_of(e.class_name);
+  }
+  return out;
+}
 
 // Snapshot buffers: `run snapbuf` fills them from `to_snapshot`, `run snappoke`
 // edits a slot and `run snapapply` feeds them back through `read_snapshot`.
@@ -560,13 +657,19 @@ int main(int argc, char** argv) {
     if (op == "run") {
       const std::string& what = t[i++];
       if (what == "make") {
-        g_entity = std::make_unique<Entity>(*g_host, parse_value(t, i));
+        g_entity = std::make_unique<Entity>(*g_host, parse_value(t, i), &g_states);
         bind_callbacks(*g_entity);
         std::printf("run make || id=%s | %s\n", s_of(g_entity->id).c_str(),
                     join(g_log).c_str());
       } else if (what == "reset") {
         g_entity->reset(parse_value(t, i));
         std::printf("run reset || id=%s | %s\n", s_of(g_entity->id).c_str(),
+                    join(g_log).c_str());
+      } else if (what == "resetstates") {
+        // `reset(data, states)`: the registry switch is observable, so the scene can
+        // tell the default `ENTITY_STATES` apart from the harness registry.
+        g_entity->reset(parse_value(t, i), &g_states);
+        std::printf("run resetstates || id=%s | %s\n", s_of(g_entity->id).c_str(),
                     join(g_log).c_str());
       } else if (what == "get") {
         const std::string& name = t[i++];
@@ -754,7 +857,7 @@ int main(int argc, char** argv) {
                     render(Value(jd)).c_str(), join(g_log).c_str(), c->LR(), c->UD(),
                     c->jd());
       } else if (what == "buddy") {
-        g_buddy = std::make_unique<Entity>(*g_host, parse_value(t, i));
+        g_buddy = std::make_unique<Entity>(*g_host, parse_value(t, i), &g_states);
         std::printf("run buddy || id=%s | %s\n", s_of(g_buddy->id).c_str(),
                     join(g_log).c_str());
       } else if (what == "buddyset") {
@@ -979,39 +1082,60 @@ int main(int argc, char** argv) {
       } else if (what == "hook") {
         const std::string& sub = t[i++];
         if (sub == "dead") {
-          g_entity->state_on_dead = [] { g_log.push_back("state_on_dead"); };
+          g_hooks.dead = true;
         } else if (sub == "gravity") {
-          const Value v = parse_value(t, i);
-          g_entity->state_get_gravity = [v]() { return v; };
+          g_hooks.gravity = true;
+          g_hooks.gravity_value = parse_value(t, i);
         } else if (sub == "frameid") {
+          g_hooks.find = true;
           if (t[i] == "echo") {
             ++i;
-            g_entity->state_find_frame_by_id = [](const Value& v) { return v; };
+            g_hooks.find_echo = true;
           } else {
-            const Value v = parse_value(t, i);
-            g_entity->state_find_frame_by_id = [v](const Value&) { return v; };
+            g_hooks.find_echo = false;
+            g_hooks.find_value = parse_value(t, i);
           }
         } else if (sub == "autoframe") {
-          const Value v = parse_value(t, i);
-          g_entity->state_get_auto_frame = [v]() { return v; };
+          g_hooks.auto_frame = true;
+          g_hooks.auto_frame_value = parse_value(t, i);
         } else if (sub == "sudden") {
-          const Value v = parse_value(t, i);
-          g_entity->state_get_sudden_death_frame = [v]() { return v; };
+          g_hooks.sudden = true;
+          g_hooks.sudden_value = parse_value(t, i);
         } else if (sub == "caught") {
-          const Value v = parse_value(t, i);
-          g_entity->state_get_caught_end_frame = [v]() { return v; };
+          g_hooks.caught = true;
+          g_hooks.caught_value = parse_value(t, i);
         } else if (sub == "none") {
-          g_entity->state_on_dead = nullptr;
-          g_entity->state_get_gravity = nullptr;
-          g_entity->state_find_frame_by_id = nullptr;
-          g_entity->state_get_auto_frame = nullptr;
-          g_entity->state_get_sudden_death_frame = nullptr;
-          g_entity->state_get_caught_end_frame = nullptr;
+          g_hooks = HookConfig{};
         } else {
           std::fprintf(stderr, "unknown hook '%s' at line %d\n", sub.c_str(), lineno);
           return 2;
         }
         std::printf("run hook %s || %s\n", sub.c_str(), join(g_log).c_str());
+      } else if (what == "reg" || what == "regbare" || what == "regkey") {
+        const bool bare = what == "regbare";
+        Value key;
+        if (what == "regkey") {
+          key = parse_value(t, i);
+        } else {
+          const double code = trace::to_double(t[i++]);
+          key = Value(code);
+        }
+        if (bare) {
+          g_states.set(key, std::make_unique<lfw::state::State_Base>(key), u"State_Base");
+        } else {
+          g_states.set(key, std::make_unique<HarnessState>(key), u"HarnessState");
+        }
+        std::printf("run %s %s || %s | n=%zu\n", what.c_str(), render(key).c_str(),
+                    join(g_log).c_str(), g_states.size());
+      } else if (what == "setstate" || what == "setstateb") {
+        const double code = trace::to_double(t[i++]);
+        Entity* target = what == "setstateb" ? g_buddy.get() : g_entity.get();
+        target->set_state(code);
+        std::printf("run %s %s || %s | n=%zu st=%s\n", what.c_str(), render(Value(code)).c_str(),
+                    join(g_log).c_str(), g_states.size(),
+                    render(Value(target->state_ptr() != nullptr)).c_str());
+      } else if (what == "statesdump") {
+        std::printf("run statesdump || %s | v=%s\n", join(g_log).c_str(), dump_states().c_str());
       } else {
         std::fprintf(stderr, "unknown run '%s' at line %d\n", what.c_str(), lineno);
         return 2;

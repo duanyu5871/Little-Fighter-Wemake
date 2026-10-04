@@ -20,10 +20,12 @@
 #include "lfw/entity/calc_v.h"
 #include "lfw/entity/entity_type_check.h"
 #include "lfw/entity/entity_snapshot.h"
+#include "lfw/entity/entity_state_view.h"
 #include "lfw/entity/face_helper.h"
 #include "lfw/entity/summary_mgr.h"
 #include "lfw/ground.h"
 #include "lfw/state/entity_states.h"
+#include "lfw/state/state_base.h"
 #include "lfw/utils/container_help/field_or.h"
 #include "lfw/utils/math/base.h"
 #include "lfw/utils/math/clamp.h"
@@ -117,6 +119,7 @@ Entity::Entity(IEntityHost& host, Value data, state::States* states) {
   host_ = &host;
   _data = std::move(data);
   states_ = states;
+  state_view_ = std::make_unique<EntityStateView>(*this);
   _atom_time = num_of(host.world_dataset(u"atom_time"));
   terrain = Ground::horizon();
   {
@@ -126,6 +129,8 @@ Entity::Entity(IEntityHost& host, Value data, state::States* states) {
   }
   reset(_data, states);
 }
+
+Entity::~Entity() = default;
 
 void Entity::reset(Value data) { reset(std::move(data), &state::entity_states()); }
 
@@ -203,6 +208,7 @@ void Entity::reset(Value data, state::States* states) {
   lying_c_count = 0;
   drop_hurted = false;
   dropping = false;
+  // `this._states = states` — mirror TS's position (right after `dropping`).
   states_ = states;
   _hp_r_tick.set_max(num_of(dataset(u"hp_r_ticks")));
   _hp_r_tick.set_value(0);
@@ -235,12 +241,7 @@ void Entity::reset(Value data, state::States* states) {
   _invulnerable = 0;
   _blinking = 0;
   _after_blink = std::nullopt;
-  state_on_dead = nullptr;
-  state_get_gravity = nullptr;
-  state_find_frame_by_id = nullptr;
-  state_get_auto_frame = nullptr;
-  state_get_sudden_death_frame = nullptr;
-  state_get_caught_end_frame = nullptr;
+  _state = nullptr;
   dead_gone = 0;
   dead_join = Value(NullTag{});
   ctrl_visible = 0;
@@ -260,6 +261,24 @@ void Entity::reset(Value data, state::States* states) {
   _greyscale = 0;
   _render_effect_time = 0;
   auto_key_role();
+}
+
+// `set_state(state_code)`:
+//   const v = this._states.get(state_code) || this._states.fallback(this._data.type, state_code);
+//   if (this._state === v) return;
+//   this._state?.leave?.(this, this.frame);
+//   this._state = v || null;
+//   this._state?.enter?.(this, this.get_prev_frame());
+// The fallback key is built from `_data.type` verbatim (a string `"8"` does not match
+// `EntityEnum.Fighter`), and `leave` sees the *current* frame while `enter` sees the
+// previous one.
+void Entity::set_state(double state_code) {
+  state::State_Base* v = states_->get(Value(state_code));
+  if (v == nullptr) v = &states_->fallback(field_or(_data, u"type"), state_code);
+  if (_state == v) return;
+  if (_state != nullptr) _state->leave(*state_view_, frame);
+  _state = v;
+  if (_state != nullptr && _state->enter) _state->enter(*state_view_, get_prev_frame());
 }
 
 std::u16string Entity::outline_color() const {
@@ -526,7 +545,7 @@ void Entity::set_hp(double v) {
   }
   if (o > 0 && v <= 0) {
     callbacks.call(u"on_dead", {ref()});
-    if (state_on_dead) state_on_dead();
+    if (_state != nullptr && _state->on_dead) _state->on_dead(*state_view_);
     const Value brokens = field_or(base_of(_data), u"brokens");
     if (!strict_equals(state(), Value(static_cast<double>(StateEnum::Gone))) &&
         frame_id_of(*this) != std::u16string(frame_id::kGone) &&
@@ -627,7 +646,8 @@ void Entity::auto_key_role() {
 }
 
 double Entity::gravity() const {
-  const Value g1 = state_get_gravity ? state_get_gravity() : Value();
+  const Value g1 = _state != nullptr && _state->get_gravity ? _state->get_gravity(*state_view_)
+                                                            : Value();
   const Value g2 = ctrl_ != nullptr && ctrl_->is_end(gk::kDefend) ? dataset(u"gravity")
                                                                   : dataset(u"gravity_d");
   return nullish(g1) ? num_of(g2) : to_number(g1);
@@ -646,8 +666,8 @@ double Entity::itr_motionless() const {
 // `_data.frames` lookup with the `find_auto_frame()` fallback.  The missing-frame
 // branch also calls `Ditto.warn(...)`, a console warning with no trace effect.
 Value Entity::find_frame_by_id(const Value& id_value) const {
-  if (state_find_frame_by_id) {
-    const Value r = state_find_frame_by_id(id_value);
+  if (_state != nullptr && _state->find_frame_by_id) {
+    const Value r = _state->find_frame_by_id(*state_view_, id_value);
     if (truthy(r)) return r;
   }
   // `switch (id)` is strict, so only `undefined` hits `case void 0:` — a `null` id
@@ -670,8 +690,8 @@ Value Entity::find_frame_by_id(const Value& id_value) const {
 
 // `this._state?.get_auto_frame?.(this) ?? this._data.frames["0"] ?? this.frame`
 Value Entity::find_auto_frame() const {
-  if (state_get_auto_frame) {
-    const Value f = state_get_auto_frame();
+  if (_state != nullptr && _state->get_auto_frame) {
+    const Value f = _state->get_auto_frame(*state_view_);
     if (!nullish(f)) return f;
   }
   const Value f0 = field_or(field_or(_data, u"frames"), u"0");
@@ -711,8 +731,8 @@ Value Entity::find_align_frame(const std::u16string& frame_id, const Value& src,
 // `this._state?.get_sudden_death_frame?.(this) || Defines.NEXT_FRAME_AUTO` — the
 // fallback is truthiness-based, so a falsy state answer also falls through.
 Value Entity::get_sudden_death_frame() const {
-  if (state_get_sudden_death_frame) {
-    const Value v = state_get_sudden_death_frame();
+  if (_state != nullptr && _state->get_sudden_death_frame) {
+    const Value v = _state->get_sudden_death_frame(*state_view_);
     if (truthy(v)) return v;
   }
   const Value* auto_frame = defines::find(u"Defines.NEXT_FRAME_AUTO");
@@ -721,8 +741,8 @@ Value Entity::get_sudden_death_frame() const {
 
 Value Entity::get_caught_end_frame() {
   if (position.y < _ground_y) position.y = _ground_y + 1;
-  if (state_get_caught_end_frame) {
-    const Value v = state_get_caught_end_frame();
+  if (_state != nullptr && _state->get_caught_end_frame) {
+    const Value v = _state->get_caught_end_frame(*state_view_);
     if (truthy(v)) return v;
   }
   const Value* auto_frame = defines::find(u"Defines.NEXT_FRAME_AUTO");

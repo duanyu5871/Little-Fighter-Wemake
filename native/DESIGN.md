@@ -4964,3 +4964,93 @@ emitter 的 `data.type`，所以仍然可以整片锁死。
 - 场景矩阵：宽松 `==`（`n 3` 命中 `"3"`）、`z` 作 prev / value、缺键 vs `""`、
   下标 `0 / 1 / 2 / 3 / -1 / 1.5 / 0.5` 与「同一 id 的空串」、
   四个命中状态 + 未命中状态 + 字符串 / 小数 / `null` / `undefined` 状态。
+
+## 50. 切片 9g：`Entity` 的状态接线（`set_state` + `_state`）
+
+`entity.{h,cpp}` 的第七刀，也是 Entity 块里第一刀**结构接线**：新增
+`set_state`、`_state` 字段与 `EntityStateView` 适配器，并把此前注入的六个状态钩子
+（`state_on_dead` / `state_get_gravity` / `state_find_frame_by_id` /
+`state_get_auto_frame` / `state_get_sudden_death_frame` / `state_get_caught_end_frame`）
+全部改成从**活动状态对象**上取——TS 里这些钩子本来就在 `State_Base` 上，
+注入只是"状态机到位前的临时接法"。
+
+### 50.1 单元边界（为什么是这一刀）
+1. **`set_state` 是唯一入口**：TS 里 `this._state` 只在 `set_state` / `reset` 里被赋值，
+   而 `set_state` 的调用点（`set_frame` / `attach` / `update` 系列）都还没搬，
+   所以这一刀能**自洽地**把状态接线锁死：harness 直接调 `set_state` 即可。
+2. **六个钩子调用点已存在**（9a 的 `on_dead` / `get_gravity`，9c 的 `find_frame_by_id` /
+   `find_auto_frame` / `get_sudden_death_frame` / `get_caught_end_frame`），
+   这一刀只换"从哪取钩子"，不改调用语义（`truthy` / `??` / `nullish` 的判定保持原样）。
+3. **`States` / `State_Base` 早在状态块里搬完**：本刀第一次让它们与真实实体对接，
+   于是 `States.fallback` 的键格式（`\`${type}_${code}\``）、类型分派
+   （Fighter → `CharacterState_Base`、Weapon → `WeaponState_Base`、
+   Ball → `BallState_Base`、其余 → `State_Base`）与**缓存**（命中就不新建）
+   都第一次有了外部观察点。
+4. **`reset` 里的 `this._states = states` 第一次变得可观测**：9a 就照抄了这一行，
+   但在此之前没有任何观察点（`set_state` 还不存在）。
+   差分用 `run resetstates`（`reset(data, &g_states)`）与 `run reset`（默认注册表）
+   两次对照把它钉住：同一批 `setstate` 在两个注册表里的结果不同。
+
+### 50.2 保真要点
+1. **注册表查找与兜底**：`states.get(state_code) || states.fallback(_data.type, state_code)`。
+   `get` 用的是**数字键**，`fallback` 用的是字符串键 `"${type}_${code}"`——
+   两套键在端口里由 `States::encode_key` 的 `n:` / `s:` 前缀区分，
+   差分专门注册一个字符串键 `"20"` 再 `setstate 20`，证明它**不会**命中数字 20。
+2. **类型是 `_data.type` 原值**：`field_or(_data, u"type")` 直接交给 `fallback`，
+   `States` 内部用**严格**比较分派，所以 `type: "8"`（字符串）落到
+   `default` → `State_Base` 而不是 `CharacterState_Base`；差分对这一条有专门场景。
+3. **同一性早退**：`if (this._state === v) return;` —— 对**对象**比较（TS 的 `===`），
+   所以"同一个状态再设一次"必须完全静默（`run setstate 20` 连打两次，第二次日志为空）。
+4. **leave / enter 的帧参数**：`leave(this, this.frame)` 拿**当前帧**，
+   `enter(this, this.get_prev_frame())` 拿**上一帧**；差分把两者设成不同的帧 id，
+   任何"传错帧 / 传反"都会在日志里露。
+5. **`v || null` 的写法**：`fallback` 永远返回对象，所以这一句在 TS 里不会产生 `null`；
+   端口写成赋值本身，不再加多余判断（`states_` 永不为空指针）。
+6. **`reset` 清 `_state`**：TS 在 `_blinking = 0` 之后即 `this._state = null`，
+   所以 `reset` 之后钩子必须全部失灵（差分在 reset 前打开 `on_dead` 钩子、
+   reset 后打死血，日志必须为空）。
+
+### 50.3 `EntityStateView`（为什么需要适配器）
+- TS 把实体**本身**交给钩子（`on_dead?.(this)`），而端口的 `state::IStateEntity`
+  把同一批成员写成了 `Value` 签名（`Value hp_max()`），与 `Entity` 的
+  `double hp_max()` 冲突，所以用 `EntityStateView` 做桥：`Entity` 持有一个
+  `std::unique_ptr<EntityStateView>`（头文件里只有前置声明，析构写在 `.cpp`）。
+- **已转发的成员**（差分全部覆盖）：`id` / `position` / `velocity_x|y|z` /
+  `hp` / `hp_r` / `set_hp_r` / `hp_max` / `mp` / `motionless` / `set_motionless` /
+  `shaking` / `state` / `frame_info` / `prev_frame` / `is_on_ground` / `team` /
+  `data_type` / `jumping_x`。harness 的假状态在 `enter` 里把这些全部读出来打日志，
+  于是每条转发都有一条变异能被杀。
+- **有意留空**（`IBuffEntity` / `IStateEntity` 的默认值，属于后续切片）：
+  `set_position`（World 拥有位置，等地形/限制切片）、`frame_centery` / `frame_height` /
+  `frame_pic_h` / `set_frame` / `enter_frame_by_id`（进入帧链）、`attach`（要
+  `world.add_entities`），以及 `IStateEntity` 里那批还没搬的成员
+  （`holding_*` / `data_indexes_*` / `world_*` / `ground_*` …）。
+- **只能转发的两个**：`buffs_set` / `buffs_delete` 已接到 `Entity.buffs` 上，
+  但本轮差分没有"读回 buff 表"的观察点（buff 接线切片负责），
+  同理 `set_outline_alpha|width|color` 只是照抄转发。
+
+### 50.4 生命周期：TS 的 `Map` 与端口的裸指针
+TS 的 `States` 是 `Map`，`set` 覆盖一个键时旧对象仍被 `this._state` 引用着（GC 保命），
+端口 `States::set` 会销毁被替换的 `unique_ptr`。真实游戏的注册表在启动时**一次性**建好
+（`entity_states()`），此后不再替换，所以裸指针是安全的；差分也遵守这条：
+场景里覆盖一个键时，该键一定**不是**当前活动状态（`reg 50`/50 活动 → 切到 51 再覆盖 50）。
+这条写进 DESIGN 而不是"悄悄绕过"，因为它是端口与 TS 之间唯一无法用代码表达成一致的差异。
+
+### 50.5 harness 观察点
+- `run reg <数字>` / `run regbare <数字>` / `run regkey <键字面量>`：往 harness 自己的
+  注册表里放"会打日志的假状态" / "没有钩子的裸 `State_Base`" / "任意键的假状态"。
+- `run setstate <数字>` / `run setstateb <数字>`（后者作用于 buddy，用来验证
+  "同一个状态对象被两个实体共享"），打印**注册表大小**与"当前是否有活动状态"。
+- `run statesdump`：按插入序打印 `键:类名`，于是 `fallback` 的键、类名与缓存都能直接看。
+- `run reset` / `run resetstates`：前者走默认注册表、后者带 harness 注册表，
+  同一条 `setstate` 在两个注册表里的结果不同，正好把 `this._states = states` 钉住。
+- `run hook …` 语义不变（只是改成配置"假状态的钩子开不开"），
+  假状态的 `enter` / `leave` 日志自带**自己的状态键**，
+  于是"leave 的是旧状态还是新状态"这种顺序错误也能被杀。
+
+### 50.6 有意不覆盖 / 不可观测项
+- 上面 50.3 列出的留空成员与两个"只转发未观察"的成员：本轮没有观察点，
+  不列变异条目（各自的切片负责）。
+- `States::set` 覆盖**活动**键的场景不可测（见 50.4 的生命周期差异），差分不写。
+- `pre_update` / `update` / `on_landing` / `on_leave_ground` / `on_restrict` 的调用点
+  分别在更新循环与地形限制里，尚未搬运，本轮不涉及。

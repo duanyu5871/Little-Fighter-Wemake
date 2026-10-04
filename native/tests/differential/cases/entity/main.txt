@@ -169,6 +169,8 @@ run set team s "12"
 run set hp n 100
 run set hp n 20
 run summaries
+run reg 10
+run setstate 10
 run hook dead
 run set hp n 0
 run get hp_r
@@ -242,6 +244,8 @@ run get bot_ignore
 run dataset s "hp_max"
 run dataset s "nope"
 run set mp n 0
+run reg 11
+run setstate 11
 run hook dead
 run frame o 3 id s "gone" state n 7 on_dead o 1 id s "fod6"
 run set hp n 0
@@ -322,6 +326,8 @@ run set outline_enabled n 0
 run set reserve n 5
 run get reserve
 run role b 1
+run reg 12
+run setstate 12
 run hook dead
 run reset o 3 id s "d14" type n 1 base o 0
 run get id
@@ -839,6 +845,8 @@ run findframe s "nope"
 run autoframe
 run frame o 2 id s "cur" wait n 9
 run autoframe
+run reg 13
+run setstate 13
 run hook frameid o 1 id s "hookf"
 run findframe s "3"
 run hook frameid echo
@@ -875,6 +883,8 @@ run get prev_frame
 run prev u
 run get prev_frame
 run suddenframe
+run reg 14
+run setstate 14
 run hook sudden o 1 id s "sd"
 run suddenframe
 run hook sudden n 0
@@ -892,6 +902,8 @@ run ground n 0.1235
 run pos n 0 n -2 n 0
 run caughtframe
 run get position
+run reg 15
+run setstate 15
 run hook caught o 1 id s "ce"
 run pos n 0 n 5 n 0
 run caughtframe
@@ -910,6 +922,8 @@ run align s "3" u a 2 s "x" s "y"
 run align s "3" z a 2 s "x" s "y"
 run align s "3" a 2 s "1" s "3" a 0
 run align s "3" u u
+run reg 16
+run setstate 16
 run hook autoframe o 1 id s "af"
 run align s "3" u u
 run hook none
@@ -1000,6 +1014,8 @@ run link bearer none
 run make o 5 id s "f6" type n 1 name s "F6" base o 0 frames o 2 "0" n 0 "3" o 1 id s "f3"
 run autoframe
 run findframe s "nope"
+run reg 17
+run setstate 17
 run hook autoframe n 0
 run autoframe
 run hook autoframe u
@@ -1854,3 +1870,101 @@ run mark s "kd" s "keep"
 run delmark s "kd" s "other"
 run delmark s "kd" z
 run delmark s "kd"
+# --- 9g: state wiring ------------------------------------------------------
+run make o 5 id s "g1" type n 1 name s "G1" base o 1 name s "Base" frames o 0
+run reg 20
+run statesdump
+run frame o 2 id s "g1f" state n 3
+run prev o 1 id s "g1p"
+run set motionless n 3
+run set shaking n 5
+run set jumping.x n 7
+run pos n 1 n 2 n 3
+run setvel n 3 n 0 n 5
+run setstate 20
+run get motionless
+run get shaking
+run get hp_r
+run get jumping.x
+run setstate 20
+run reg 21
+run setstate 21
+run hook dead
+run set hp n 0
+run hook none
+run regbare 22
+run setstate 22
+run hook dead
+run set hp n 0
+run hook none
+run setstate 20
+
+# the fallback entry: key `<type>_<code>`, class by `_data.type`
+run regkey s "1_30"
+run setstate 30
+run statesdump
+run setstate 30
+run regkey s "31"
+run setstate 31
+run statesdump
+run regkey n 32
+run setstate 32
+run regkey s "20"
+run setstate 20
+run make o 4 id s "g8" type n 8 base o 0 frames o 0
+run setstate 40
+run statesdump
+run make o 4 id s "g16" type n 16 base o 0 frames o 0
+run setstate 41
+run statesdump
+run make o 4 id s "g32" type n 32 base o 0 frames o 0
+run setstate 42
+run statesdump
+run make o 4 id s "g4" type n 4 base o 0 frames o 0
+run setstate 43
+run statesdump
+run setstate 43
+run make o 4 id s "gstr" type s "8" base o 0 frames o 0
+run setstate 44
+run statesdump
+
+# a replaced entry keeps its position and re-enters as a fresh object
+run reg 50
+run setstate 50
+run reg 51
+run setstate 51
+run reg 50
+run setstate 50
+run statesdump
+
+# one state object, two entities
+run make o 5 id s "g2" type n 1 name s "G2" base o 1 name s "Base" frames o 0
+run reg 60
+run setstate 60
+run buddy o 5 id s "b2" type n 1 name s "B2" base o 1 name s "Base" frames o 0
+run setstateb 60
+run setstate 61
+run setstateb 61
+
+# reset drops `_state` and re-points `_states` at the default registry
+run reg 70
+run reg 71
+run regkey s "1_72"
+run setstate 70
+run hook dead
+run reset o 5 id s "g3" type n 1 name s "G3" base o 1 name s "Base" frames o 0
+run set hp n 0
+run get hp_r
+run hook none
+run setstate 71
+run setstate 72
+
+# `reset(data, states)` keeps the harness registry, so 71 is found again
+run setstate 70
+run hook dead
+run resetstates o 5 id s "g4" type n 1 name s "G4" base o 1 name s "Base" frames o 0
+run set hp n 0
+run get hp_r
+run hook none
+run setstate 71
+run setstate 72

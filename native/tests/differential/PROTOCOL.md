@@ -2687,7 +2687,7 @@ harness op：
 9. **`env hook` 只对指定键生效**：`jump_height` 之外（`gravity`/`screen_w`/`screen_h`/`difficulty`）
    的 `set` 只有 `dataset_change` 一条日志，锁住「键钩子按名查找、整体回调对所有托管键生效」。
 
-### 6.9.96 `entity`（差分 1749 行，变异 502/502 全杀）
+### 6.9.96 `entity`（差分 1852 行，变异 541/541 全杀）
 
 harness op：
 
@@ -2742,6 +2742,12 @@ harness op：
   `run emit <下标> <id 字面量>` / `run emitid <下标> self|buddy`（写发射者数组，
   后者塞活实体的 id 以免写死）、`run getemitter <下标>`（渲染解析到的实体，`u` 表示解析不到）、
   `run opointz <self|buddy|null> <opoint 字面量>`（同时打印 `state`）。
+- 状态接线层（9g 追加）：`run reg <数字>` / `run regbare <数字>` / `run regkey <键字面量>`
+  （往 harness 自己的 `States` 里注册「会打日志的假状态」/「没有钩子的裸 `State_Base`」/
+  任意键的假状态）、`run setstate <数字>` / `run setstateb <数字>`（`set_state`，
+  后者作用于 buddy）、`run statesdump`（按插入序打印注册表的 `键:类名`）、
+  `run resetstates <数据字面量>`（`reset(data, states)`，与不带注册表的 `run reset` 对照）。
+  `run hook …` 语义不变，只是改成配置假状态的钩子开关。
 
 输出：
 
@@ -2784,6 +2790,10 @@ harness op：
   `run emitid <下标> <self|buddy> || <日志> | n=<发射者数组长度>`；
 - `run getemitter <下标> || <日志> | v=<实体或 u>`（渲染成 `{"id":s"…"}`）；
 - `run opointz <self|buddy|null> <opoint> || <日志> | v=<返回值> state=<当前 state>`。
+- `run reg|regbare|regkey … || <日志> | n=<注册表大小>`、
+  `run statesdump || <日志> | v=<键:类名 列表>`；
+- `run setstate|setstateb <数字> || <日志> | n=<注册表大小> st=<b0|b1>`；
+- `run resetstates <数据> || <日志> | id=<新 id>`。
 
 日志项（按发生顺序、逗号分隔）：`on_*_changed:<self|?>:<新值>:<旧值>`、`on_dead:<self>`、
 `on_ctrl_changed:<vc>:<前一个>:<self>`（控制器渲染成 `base|human|bot|u`）、
@@ -2992,3 +3002,26 @@ harness op：
     `z` / `u` 一律 `0`；再加上 `speedz n 7`（先胜出）、`speedz z`（原样返回）、
     `null` emitter（非 fighter）、`self` emitter（`type = 1`，非 fighter）
     与 `buddy` emitter（`type = 8`，fighter）的对照，四个分支与两个守卫全被锁死。
+60. **注册表查找与兜底**：`run setstate 20`（`reg 20` 注册过）直接命中数字键；
+    `run regkey s "31"` 只注册了字符串键 `"31"`，所以 `run setstate 31` 落到
+    兜底键 `"1_31"`（`statesdump` 里能看到新建的 `State_Base`）——
+    「数字键 / 字符串键同编码」与「兜底键格式写错」两种变异都会露。
+61. **兜底按 `_data.type` 严格分派**：同一批代码在不同实体上跑出
+    `s"8_40":CharacterState_Base` / `s"16_41":WeaponState_Base` /
+    `s"32_42":BallState_Base` / `s"4_43":State_Base`，再加上 `type s "8"`（字符串）
+    仍然得到 `State_Base`——四个类名加一条字符串类型的场景，把四个分支与「严格比较」全钉住。
+62. **兜底缓存**：同一个未注册代码连打两次 `setstate`，第二次必须完全静默
+    （对象同一性早退），注册表大小也不变。
+63. **leave / enter 的帧**：`setstate` 时当前帧 `g1f`、上一帧 `g1p`，日志里 `leave` 必须带
+    `g1f`、`enter` 必须带 `g1p`；假状态的日志自带**自己的状态键**，
+    所以「leave 的是旧状态还是新状态」也能分辨。
+64. **进入钩子里的整批转发**：假状态的 `enter` 一次读出 `id / frame / prev / hp / hp_max /
+    mp / motionless / shaking / state / is_on_ground / team / data_type / jumping_x /
+    velocity_x|y|z / position`，并在进入时调 `set_motionless` / `set_hp_r`（读回值不变）；
+    18 条 `EntityStateView` 转发因此各有一条变异可杀。
+65. **`reset` 清 `_state`**：激活状态 + 打开 `on_dead` 钩子后 `run reset`，
+    再打空血量必须**没有** `state_on_dead` 日志。
+66. **`reset` 重设 `_states`**：`run reset`（默认 `ENTITY_STATES`）之后 `setstate 71`
+    （只在 harness 注册表里）静默，而 `run resetstates`（`reset(data, states)`）之后
+    同样的 `setstate 71/72` 立刻打出 `n71>enter` / `s"1_72">enter`——
+    `reset` 里的 `this._states = states`（9a 就抄了，但一直没有观察点）由此锁死。
