@@ -1971,7 +1971,7 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
     ⇒ 用例必须在 `w = 0` 之后**再抽一次**才能观察到"有没有消耗"。
   - `mt.mark = ...`、`debugging`、`mt_cases` 只被调试探针读（`pure()` 在 `src/LFW` 里无调用点）
     ⇒ 不移植（沿用既有 `MersenneTwister` 实现，它本来就没有 `mark`）。
-    **（9j 已推翻这条：它们是 TS 侧可观察的，见 §53。）**
+    **（9j 已推翻这条：它们是 TS 侧可观察的，见 §53；各模块里的 `mt.mark = …` 写入点由 §54 补回。）**
 - **变异覆盖技巧（不放回抽样 ⇒ 一次覆盖全表）**：`random_take` 是"抽走不放回"
   ⇒ 连抽 n 次（n = 数组长度）必然**恰好**把数组每个元素各抽到一次
   ⇒ 打 9 次 `ip dvx` + 13 次 `ip dvy` 就足以杀死数组里任何单个元素的变异，不必逐个写条目。
@@ -5396,4 +5396,76 @@ TS 的 `State_Base.on_restrict` 结尾是 `e.position.x = x; …`（**直写**�
   `mt.pure()` 为底再改 ⇒ 默认值不可见。
 6. **`next_int` 里 `log_entry` 与 `++_times` 的先后**：条目文本不含 mt 自己的 `times`，
   `state` 哈希在两者都完成之后取 ⇒ 任何顺序同值。
+
+## 54. 切片 9k：`mt.mark` 调试探针（把已移植模块里被丢掉的写入补回来）
+
+**背景**：9j 把 `Cases` / `mt_cases` / `mark` / `debugging` / `case` 补齐之后，
+「谁会写 mark」这件事才变得有意义 —— 而当时**没有任何已移植模块写 mark**：
+早期各刀按「只是调试探针，不影响输出与状态」的口径把 `lfw.mt.mark = …` 一行行丢掉了
+（§4.57 的那条结论）。这一刀把**已移植代码里**的这些写入逐处补回来，并让它们可观察。
+
+按 `src/` 全量清点共有 20 处调用点，其中：
+
+| 状态 | 位置 | 处理 |
+|---|---|---|
+| 已有缝（本刀不动） | `collision/weapon_is_hit`（`mt_mark(u"hwih_1"/u"hwih_2")`）、`collision/action_handlers`（`mt_set_mark(u"cact_" + kFUSION)`） | 缝已存在且 harness 已观察 |
+| **本刀补回** | `entity/entity.cpp` 的 `drop_holding`（`dh_1`）、`follow_bearer`（`dh_v`）、`get_next_frame`（`gnf_0` / `gnf_1`） | 直接用真 `host_->mt()` |
+| **本刀补回** | `state/spawn_ice_piece.cpp` 的 `ice_piece_x` / `ice_piece_y` | 参数里就有真 `mt` |
+| **本刀补回** | `helper/randoming.cpp` 的 `random_in`（`mark = name`） | 参数里就有真 `mt` |
+| **本刀补回** | `state/character_state_drink.cpp` 的掉落分支（`drink_drop`） | 新增 `holding_mt_mark` 缝（与既有 `holding_mt_range` 同款） |
+| 等各自的刀 | `Entity::spawn` / `Entity::update`（4 处）/ `Entity::spark_point` | 三个函数本身还没移植 |
+| 等各自的刀 | `base/ValExpression`（4 处）、`bot/BotController`（6 处）、`bot/state/*`（3 处）、`stage/*`、`ui/*` | 模块未移植 |
+
+### 54.1 保真要点
+
+1. **mark 写在抽取之前**：条目的 mark 是 `push` 那一刻的 `this.mark`，所以顺序是行为
+  （把 mark 挪到 `range` 之后就变成「条目挂在上一个 mark 上」）。本刀给每处都配了
+  「mark 写在抽取之后」的变异。
+2. **`reset()` 会清空 mark 并重置 `debugging = false`**（§53.2-5）⇒ harness 的
+  `run mtseed` 之后必须重新 `mtdebug 1`，否则场景里一条条目都没有（首版用例就踩了）。
+3. **`dh_1` 目前不可观察**：`drop_holding` 写完 `dh_1` 之后立刻进 `enter_frame` 链，
+  而对齐帧一定带 `id` ⇒ `get_next_frame` 的 id 分支必然再写 `gnf_1`，中间没有任何抽取
+  ⇒ 改字符串 / 删掉都不可观察（端口照抄保留，变异表头部记录）。
+4. **`entity` 用真 `host_->mt()`，不新增缝**：`IEntityHost::mt()` 在 9i 就已存在
+  （`get_next_frame` 的 `pick_value` 一直在用）⇒ 直接写即可。
+5. **`drink` 处新增 `holding_mt_mark` 缝**：`IStateEntity` 已经用 `holding_mt_range`
+  代理「持握物的 mt」，而 `holding.lfw.mt.mark = …` 也在同一个对象上 ⇒ 沿用它
+  （默认空实现，不引入 nullptr 判空路径）。
+6. `weapon_is_hit` / `action_handlers` 的缝是**有损**的（只传 mark，不传实体），
+  但它们各自只有一个受害者/攻击者 ⇒ 观察上无歧义，本刀不动它们（真要动就是另一刀：
+  把缝换成「实体自带的 mt 访问器」）。
+
+### 54.2 harness 扩充
+
+- `entity`：新增 `run mtdebug <value>` / `run mtmark` / `run mtcases`
+  （`mark=` / `text=` 用 `render`，与既有 `run` 行同格式），新用例 `entity/mt_probe.txt`
+  覆盖四条 mark（含「数组分支 + 元素带 id ⇒ `gnf_0` 被递归改成 `gnf_1`」的次序）。
+- `mt_random`：新增 `mt dbg <name> <v>` / `mt mark <name>` / `cases`（`submit()` 转储），
+  用例尾部覆盖 `Randoming.random_in`（`mark = r1`）、`ice_piece_dvx`（`ice_piece_vx`）、
+  `ice_piece_x/y`，并验证 `mt dbg … b 0` 之后条目停止。
+- `burning_drink`：新增 `run mtmark`；TS 侧的 holder 双件把 `lfw.mt.mark` 改成
+  带日志的 getter/setter 对（与 C++ 的 `holding_mt_mark` 日志逐字对齐）。
+- ⚠️ `mt_cases` 是**全局**单例 ⇒ 各 subject 的一次运行就是一个进程，
+  `mtcases` / `cases` 会清空它，场景里要按「转储即清空」来排。
+
+### 54.3 有意不覆盖 / 不可观测项
+
+1. `dh_1` 的字符串与存在性（见 54.1-3）。
+2. `weapon_is_hit` / `action_handlers` 的缝本身（本刀不改；它们已由各自的日志覆盖）。
+3. `holding_mt_mark` 的**默认实现**（空体）：没有任何 `IStateEntity` 走默认实现
+  （双件全部覆写），改默认体没有观察点。
+4. `Entity::spawn` / `update` / `spark_point`、`ValExpression`、`bot/*`、`stage/*`、`ui/*`
+  的 mark 调用点：模块没移植，随各自的刀进来。
+
+### 54.4 变异与结果
+
+- 本刀新增 21 条变异（`entity` 9 / `mt_random` 9 / `burning_drink` 3），**全部被杀**；
+  三个 spec 的现状是 `entity` 759/759、`mt_random` 64/64、`burning_drink` 41/41 全杀。
+- 其中 3 条是「mark 挪到抽取之后」的顺序变异、3 条是「不写 mark」，其余是字符串/分支写反。
+- `entity` 里那条 `pick_value wraps a non-array input` 的锚点被 9j 的 `take_value`
+  撞成两处（`if (arr == nullptr) return a;`）⇒ 本刀给它补上 `const Array*` 前缀消歧。
+- `mt_random` 里 8 条旧变异的锚点因为 `random_in` / `ice_piece_*` 插入了 mark 行而失配，
+  已按新代码重写（语义不变）。
+
+
 

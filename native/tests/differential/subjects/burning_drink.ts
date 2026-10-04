@@ -114,7 +114,13 @@ class FakeEnt {
       drink: this._drink,
       lfw: {
         mt: {
-          mark: undefined,
+          get mark(): unknown {
+            return mark;
+          },
+          set mark(v: unknown) {
+            mark = v;
+            log.push(`${self._id}:holding_mt_mark:${renderValue(v)}`);
+          },
           range: (lo: number, hi: number): unknown => {
             log.push(`${self._id}:holding_mt_range:${r(lo)}:${r(hi)}`);
             return self._mtrange;
@@ -197,6 +203,7 @@ const ent = new FakeEnt("E1");
 let cls = "burning";
 let state: unknown = 0;
 let velocity: unknown = undefined;
+let mark: unknown = undefined;
 let obj: State_Base | undefined = undefined;
 
 function stateText(): string {
@@ -289,6 +296,8 @@ function main(): void {
         const fn = obj!.on_landing;
         if (fn) fn.call(obj, ent as never, velocity as never);
         out.push(`run landing || ${log.join(",")} | ${stateText()}`);
+      } else if (what === "mtmark") {
+        out.push(`run mtmark || ${log.join(",")} | mark=${renderValue(mark)}`);
       } else {
         process.stderr.write(`unknown run '${what}'\n`);
         process.exit(2);

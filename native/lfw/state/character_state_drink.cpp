@@ -50,6 +50,7 @@ void CharacterState_Drink::update(IStateEntity& e) {
     e.enter_frame(next_frame(Value(std::u16string(frame_id::kAuto))));
     e.holding_set_hp_r(Value(1.0));
     e.holding_set_hp(Value(1.0));
+    e.holding_mt_mark(u"drink_drop");
     const double vx = to_number(e.holding_mt_range(-6.0, 6.0)) / 2.0;
     e.holding_set_velocity(Value(vx), Value(6.0), Value(0.0));
   }

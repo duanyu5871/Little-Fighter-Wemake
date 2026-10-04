@@ -157,8 +157,14 @@ export default {
     {
       note: "random_in 的上界写成 0",
       file: "native/lfw/helper/randoming.cpp",
-      from: `double Randoming::random_in(double l, double r) { return _mt->range(l, r); }`,
-      to: `double Randoming::random_in(double l, double r) { return _mt->range(l, 0.0); }`,
+      from: `double Randoming::random_in(double l, double r) {
+  _mt->mark = _name;
+  return _mt->range(l, r);
+}`,
+      to: `double Randoming::random_in(double l, double r) {
+  _mt->mark = _name;
+  return _mt->range(l, 0.0);
+}`,
     },
     {
       note: "初始 taken 是 false 而不是 null",
@@ -345,12 +351,14 @@ export default {
       file: "native/lfw/state/spawn_ice_piece.cpp",
       from: `  const double width = to_number(field_or(field_or(e, u"frame"), u"width"));
   const double r = width / 4.0;
+  mt.mark = u"ice_piece_x";
   return Value(round(width / 2.0 + mt.range(-r, r)));
 }
 
 Value ice_piece_y`,
       to: `  const double width = to_number(field_or(field_or(e, u"frame"), u"height"));
   const double r = width / 4.0;
+  mt.mark = u"ice_piece_x";
   return Value(round(width / 2.0 + mt.range(-r, r)));
 }
 
@@ -361,17 +369,19 @@ Value ice_piece_y`,
       file: "native/lfw/state/spawn_ice_piece.cpp",
       from: `  const double width = to_number(field_or(field_or(e, u"frame"), u"width"));
   const double r = width / 4.0;
+  mt.mark = u"ice_piece_x";
   return Value(round(width / 2.0 + mt.range(-r, r)));`,
       to: `  const double width = to_number(field_or(field_or(e, u"frame"), u"width"));
   const double r = width / 2.0;
+  mt.mark = u"ice_piece_x";
   return Value(round(width / 2.0 + mt.range(-r, r)));`,
     },
     {
       note: "ice_piece_x 的中心写成 width/4",
       file: "native/lfw/state/spawn_ice_piece.cpp",
-      from: `  const double r = width / 4.0;
+      from: `  mt.mark = u"ice_piece_x";
   return Value(round(width / 2.0 + mt.range(-r, r)));`,
-      to: `  const double r = width / 4.0;
+      to: `  mt.mark = u"ice_piece_x";
   return Value(round(width / 4.0 + mt.range(-r, r)));`,
     },
     {
@@ -385,9 +395,11 @@ Value ice_piece_y`,
       file: "native/lfw/state/spawn_ice_piece.cpp",
       from: `  const double width = to_number(field_or(field_or(e, u"frame"), u"width"));
   const double r = width / 4.0;
+  mt.mark = u"ice_piece_x";
   return Value(round(width / 2.0 + mt.range(-r, r)));`,
       to: `  const double width = to_number(field_or(field_or(e, u"frame"), u"width"));
   const double r = width / 4.0;
+  mt.mark = u"ice_piece_x";
   return Value(floor(width / 2.0 + mt.range(-r, r)));`,
     },
     {
@@ -409,9 +421,11 @@ Value ice_piece_y`,
       file: "native/lfw/state/spawn_ice_piece.cpp",
       from: `  const double height = to_number(field_or(field_or(e, u"frame"), u"height"));
   const double r = height / 4.0;
+  mt.mark = u"ice_piece_y";
   return Value(round(height / 2.0 + mt.range(-r, r)));`,
       to: `  const double height = to_number(field_or(field_or(e, u"frame"), u"height"));
   const double r = height / 3.0;
+  mt.mark = u"ice_piece_y";
   return Value(round(height / 2.0 + mt.range(-r, r)));`,
     },
     {
@@ -419,18 +433,74 @@ Value ice_piece_y`,
       file: "native/lfw/state/spawn_ice_piece.cpp",
       from: `  const double height = to_number(field_or(field_or(e, u"frame"), u"height"));
   const double r = height / 4.0;
+  mt.mark = u"ice_piece_y";
   return Value(round(height / 2.0 + mt.range(-r, r)));`,
       to: `  const double height = to_number(field_or(field_or(e, u"frame"), u"height"));
   const double r = height / 4.0;
+  mt.mark = u"ice_piece_y";
   return Value(floor(height / 2.0 + mt.range(-r, r)));`,
     },
     {
       note: "ice_piece_y 的中心写成 height/4",
       file: "native/lfw/state/spawn_ice_piece.cpp",
-      from: `  const double r = height / 4.0;
+      from: `  mt.mark = u"ice_piece_y";
   return Value(round(height / 2.0 + mt.range(-r, r)));`,
-      to: `  const double r = height / 4.0;
+      to: `  mt.mark = u"ice_piece_y";
   return Value(round(height / 4.0 + mt.range(-r, r)));`,
+    },
+    {
+      note: "random_in：mark 写成常量",
+      file: "native/lfw/helper/randoming.cpp",
+      from: `  _mt->mark = _name;`,
+      to: `  _mt->mark = u\"x\";`,
+    },
+    {
+      note: "random_in：不写 mark",
+      file: "native/lfw/helper/randoming.cpp",
+      from: `  _mt->mark = _name;\n  return _mt->range(l, r);`,
+      to: `  return _mt->range(l, r);`,
+    },
+    {
+      note: "random_in：mark 写在抽取之后",
+      file: "native/lfw/helper/randoming.cpp",
+      from: `  _mt->mark = _name;\n  return _mt->range(l, r);`,
+      to: `  const double v = _mt->range(l, r);\n  _mt->mark = _name;\n  return v;`,
+    },
+    {
+      note: "ice_piece_x：mark 写成 ice_piece_y",
+      file: "native/lfw/state/spawn_ice_piece.cpp",
+      from: `  mt.mark = u\"ice_piece_x\";`,
+      to: `  mt.mark = u\"ice_piece_y\";`,
+    },
+    {
+      note: "ice_piece_x：不写 mark",
+      file: "native/lfw/state/spawn_ice_piece.cpp",
+      from: `  const double r = width / 4.0;\n  mt.mark = u\"ice_piece_x\";\n  return`,
+      to: `  const double r = width / 4.0;\n  (void)0;\n  return`,
+    },
+    {
+      note: "ice_piece_x：mark 写在抽取之后",
+      file: "native/lfw/state/spawn_ice_piece.cpp",
+      from: `  mt.mark = u\"ice_piece_x\";\n  return Value(round(width / 2.0 + mt.range(-r, r)));`,
+      to: `  const Value out = Value(round(width / 2.0 + mt.range(-r, r)));\n  mt.mark = u\"ice_piece_x\";\n  return out;`,
+    },
+    {
+      note: "ice_piece_y：mark 写成 ice_piece_x",
+      file: "native/lfw/state/spawn_ice_piece.cpp",
+      from: `  mt.mark = u\"ice_piece_y\";`,
+      to: `  mt.mark = u\"ice_piece_x\";`,
+    },
+    {
+      note: "ice_piece_y：不写 mark",
+      file: "native/lfw/state/spawn_ice_piece.cpp",
+      from: `  const double r = height / 4.0;\n  mt.mark = u\"ice_piece_y\";\n  return`,
+      to: `  const double r = height / 4.0;\n  (void)0;\n  return`,
+    },
+    {
+      note: "ice_piece_y：mark 写在抽取之后",
+      file: "native/lfw/state/spawn_ice_piece.cpp",
+      from: `  mt.mark = u\"ice_piece_y\";\n  return Value(round(height / 2.0 + mt.range(-r, r)));`,
+      to: `  const Value out = Value(round(height / 2.0 + mt.range(-r, r)));\n  mt.mark = u\"ice_piece_y\";\n  return out;`,
     },
   ],
 };

@@ -6,11 +6,13 @@
 #include <vector>
 
 #include "lfw/buff/buff.h"
+#include "lfw/cases.h"
 #include "lfw/core/value.h"
 #include "lfw/entity/drink_info.h"
 #include "lfw/state/character_state_drink.h"
 #include "lfw/state/state_burning.h"
 #include "lfw/utils/container_help/field_or.h"
+#include "lfw/utils/math/mersenne_twister.h"
 
 #include "trace_util.h"
 
@@ -32,6 +34,7 @@ using trace::split_ws;
 using trace::to_ascii;
 
 std::vector<std::string> g_log;
+lfw::MersenneTwister g_mt(0.0);
 
 std::string render(const Value& v) { return to_ascii(render_value(v)); }
 std::string s_of(const std::u16string& s) { return to_ascii(s); }
@@ -153,6 +156,10 @@ struct FakeEnt : IStateEntity {
   Value holding_mt_range(double lo, double hi) override {
     g_log.push_back(s_of(_id) + ":holding_mt_range:" + num(lo) + ":" + num(hi));
     return _mtrange;
+  }
+  void holding_mt_mark(const std::u16string& mark) override {
+    g_mt.mark = mark;
+    g_log.push_back(s_of(_id) + ":holding_mt_mark:" + render(Value(mark)));
   }
   Value world_dataset(const std::u16string& key) const override {
     g_log.push_back(s_of(_id) + ":world_dataset:" + s_of(key));
@@ -385,6 +392,9 @@ int main(int argc, char** argv) {
       } else if (what == "landing") {
         if (g_obj->on_landing) g_obj->on_landing(*g_ent, g_velocity);
         std::printf("run landing || %s | %s\n", join(g_log).c_str(), state_text().c_str());
+      } else if (what == "mtmark") {
+        std::printf("run mtmark || %s | mark=%s\n", join(g_log).c_str(),
+                    render(Value(g_mt.mark)).c_str());
       } else {
         std::fprintf(stderr, "unknown run '%s' at line %d\n", what.c_str(), lineno);
         return 2;

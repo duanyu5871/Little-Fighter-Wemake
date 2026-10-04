@@ -172,3 +172,20 @@ ip dvy m1 e2
 ip dvy m2 e2
 ip dvy m1 e4
 ip dvy m1 e5
+
+# ---- 9k：mark 探针（Randoming.random_in 与 ice_piece_x/y） ----
+mt dbg m1 b 1
+mt mark m1
+rn get r1
+mt mark m1
+ip dvx m1 e4
+mt mark m1
+ip x m1 e4
+ip y m1 e4
+mt mark m1
+cases
+mt dbg m1 b 0
+rn get r1
+ip x m1 e5
+mt mark m1
+cases

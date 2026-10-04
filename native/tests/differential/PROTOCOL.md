@@ -3237,3 +3237,23 @@ harness op：
   `range` 的第三参是死参数、`pure().mt` 的别名 vs 拷贝（C++ 值语义）、`load`/`reset` 的
   `*this` 返回值、`MersenneTwisterInfo` 的字段默认值、`log_entry` 与 `++_times` 的先后。
 
+### 6.9.98 `mt.mark` 探针回填（`entity` 2363 行 / `mt_random` 158 行 / `burning_drink` 157 行；变异 759/64/41 全杀，其中 9k 新增 21 条）
+
+- 三个 subject 各有新增观察口：
+  * `entity`：`run mtdebug <valueLiteral>` / `run mtmark` / `run mtcases`
+    （`| mark=<render>`、`| text=<render> n=<render>`），新用例 `mt_probe.txt`（37 行）；
+  * `mt_random`：`mt dbg <name> <valueLiteral>` / `mt mark <name>` / `cases`
+    （`cases` 是顶层 op，与三段式的 `mt <name> <sub>` 并列）；
+  * `burning_drink`：`run mtmark`（`| mark=<render>`），TS 侧 holder 双件的
+    `lfw.mt.mark` 改成 getter/setter 对并打 `holding_mt_mark` 日志（与 C++ 缝逐字对齐）。
+- **`mark` 的观察有两条路**：`mt mark` 看「当前值」，`cases` 看「每一条抽取时的值」
+  ⇒ 「mark 写在抽取之后」这类顺序变异靠后者杀（条目会挂到上一个 mark 上）。
+- ⚠️ **`run mtseed` 会 `reset()`** ⇒ `mark` 清空、`debugging` 回 `false`；
+  场景里每个 `mtseed` 之后都要重新 `mtdebug 1`，否则一条条目都没有。
+- `mt_cases` 是进程内单例：`mtcases` / `cases` 输出整段文本**并清空**，
+  场景按「转储即清空」排（同一 subject 的多个用例文件各自独立进程，互不影响）。
+- 本刀覆盖到的 mark：`gnf_1`（id 数组分支）、`gnf_0`（数组分支；元素没有 id 时
+  递归那层不会再改 mark）、`dh_v`（`follow_bearer` 的 Drop 分支）、
+  `ice_piece_x` / `ice_piece_y` / `ice_piece_vx`、`r1`（`Randoming` 自带 name）、
+  `drink_drop`（`CharacterState_Drink` 掉落分支）。
+- `dh_1` 不可观察（原因见 DESIGN §54.1-3），已记录在 `mutations/entity.mjs` 头部。

@@ -8,7 +8,8 @@ import { States } from "../../../../src/LFW/state/States";
 import { WorldDataset } from "../../../../src/LFW/WorldDataset";
 import { MersenneTwister } from "../../../../src/LFW/utils/math/MersenneTwister";
 import { Ground } from "../../../../src/LFW/Ground";
-import { parseValue as parseValueRaw, readCaseLines, renderValue, splitWs } from "./trace_util";
+import { mt_cases } from "../../../../src/LFW/cases_instances";
+import { readCaseLines, parseValue as parseValueRaw, renderValue, splitWs } from "./trace_util";
 
 type Any = never;
 
@@ -1513,6 +1514,17 @@ function main(): void {
         lfwStub.mt = new MersenneTwister(seed);
         out.push(
           `run mtseed ${r(seed)} || ${log.join(",")} | times=${r(lfwStub.mt.times)}`,
+        );
+      } else if (what === "mtdebug") {
+        const v = parseValue(t, [i]);
+        lfwStub.mt.debugging = Boolean(v);
+        out.push(`run mtdebug ${r(v)} || ${log.join(",")} | mark=${r(lfwStub.mt.mark)}`);
+      } else if (what === "mtmark") {
+        out.push(`run mtmark || ${log.join(",")} | mark=${r(lfwStub.mt.mark)}`);
+      } else if (what === "mtcases") {
+        const text = mt_cases.submit();
+        out.push(
+          `run mtcases || ${log.join(",")} | text=${r(text)} n=${r(mt_cases.cases.length)}`,
         );
       } else if (what === "setpos") {
         const idx = [i];

@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "lfw/base/clock.h"
+#include "lfw/cases.h"
 #include "lfw/core/value.h"
 #include "lfw/helper/randoming.h"
 #include "lfw/state/spawn_ice_piece.h"
@@ -172,6 +173,14 @@ int main(int argc, char** argv) {
       fatal("unknown ip sub", sub, lineno);
     }
 
+    if (op == "cases") {
+      if (t.size() != 1) fatal("trailing token(s)", line, lineno);
+      const std::u16string text = lfw::mt_cases().submit();
+      emit("cases " + render(lfw::Value(text)) + " " +
+           render(lfw::Value(static_cast<double>(lfw::mt_cases().cases().size()))));
+      continue;
+    }
+
     if (t.size() < 3) {
       std::fprintf(stderr, "too few operands at line %d\n", lineno);
       return 2;
@@ -181,11 +190,22 @@ int main(int argc, char** argv) {
     std::size_t i = 3;
 
     if (op == "mt") {
-      if (sub != "new") fatal("unknown mt sub", sub, lineno);
-      const lfw::Value seed = parse_value(t, i);
-      if (i != t.size()) fatal("trailing token(s)", line, lineno);
-      put_mt(name, std::make_shared<lfw::MersenneTwister>(lfw::to_number(seed)));
-      emit("mt " + to_ascii(name));
+      if (sub == "new") {
+        const lfw::Value seed = parse_value(t, i);
+        if (i != t.size()) fatal("trailing token(s)", line, lineno);
+        put_mt(name, std::make_shared<lfw::MersenneTwister>(lfw::to_number(seed)));
+        emit("mt " + to_ascii(name));
+      } else if (sub == "dbg") {
+        lfw::MersenneTwister& ref = *mt_arg(name, lineno);
+        ref.debugging = lfw::truthy(parse_value(t, i));
+        emit("mt " + to_ascii(name) + " dbg " + render(lfw::Value(ref.debugging)) +
+             " mark=" + render(lfw::Value(ref.mark)));
+      } else if (sub == "mark") {
+        emit("mt " + to_ascii(name) + " mark " +
+             render(lfw::Value(mt_arg(name, lineno)->mark)));
+      } else {
+        fatal("unknown mt sub", sub, lineno);
+      }
     } else if (op == "ent") {
       if (sub == "put") {
         lfw::Value* p = find_in(g_ents, name);

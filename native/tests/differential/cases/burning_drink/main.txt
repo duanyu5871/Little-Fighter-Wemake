@@ -186,3 +186,13 @@ env drink o 3 hp_h_ticks n 1 hp_h_value n 5 hp_h_total n 0
 env hp 50
 run make
 run update
+
+# ---- 9k：掉落分支里的 mt.mark 探针 ----
+env holding b 1
+env drink o 3 hp_h_ticks n 1 hp_h_value n 0 hp_h_total n 10
+env mtrange n 7
+run make
+run update
+run mtmark
+env drink u
+run mtmark

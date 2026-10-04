@@ -70,6 +70,9 @@ Value Randoming::random_take() {
   return taken;
 }
 
-double Randoming::random_in(double l, double r) { return _mt->range(l, r); }
+double Randoming::random_in(double l, double r) {
+  _mt->mark = _name;
+  return _mt->range(l, r);
+}
 
 }

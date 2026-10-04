@@ -9,9 +9,10 @@
 //  * `holding.hp = holding.hp_r = 1` is a right-to-left assignment chain; the
 //    two seams stay SILENT, so swapping the two calls (or the order of the
 //    two `set_hp` calls) is unobservable and intentionally absent.
-//  * `holding.lfw.mt.mark = "drink_drop"` is a debug probe on the Mersenne
-//    Twister. The C++ MT port has no `mark` at all (see README), so the port
-//    drops the write; nothing in either harness prints it.
+//  * `holding.lfw.mt.mark = "drink_drop"` used to be treated as an unobservable debug
+//    probe (the C++ MT port had no `mark` / `mt_cases` back then). 9k changed that:
+//    the port now writes it through the new `holding_mt_mark` seam and the `run mtmark`
+//    op prints it, so this write has real mutations below.
 //  * `drink.hp_h_value` and friends are `number` in the original types; a
 //    string would make TS `+` concatenate while the port adds numerically.
 //    The cases only feed numbers, so the ported arithmetic is exact for every
@@ -261,6 +262,24 @@ export default {
       file: "native/lfw/state/state_base_proxy.cpp",
       from: "  if (entity::is_ball_data(data)) return _ball_proxy;",
       to: "  if (entity::is_ball_data(data)) return _weapon_proxy;",
+    },
+    {
+      note: "掉落分支：mark 写成 drink_grab",
+      file: "native/lfw/state/character_state_drink.cpp",
+      from: `    e.holding_mt_mark(u\"drink_drop\");`,
+      to: `    e.holding_mt_mark(u\"drink_grab\");`,
+    },
+    {
+      note: "掉落分支：不写 mark",
+      file: "native/lfw/state/character_state_drink.cpp",
+      from: `    e.holding_mt_mark(u\"drink_drop\");\n    const double vx = to_number(e.holding_mt_range(-6.0, 6.0)) / 2.0;`,
+      to: `    const double vx = to_number(e.holding_mt_range(-6.0, 6.0)) / 2.0;`,
+    },
+    {
+      note: "掉落分支：mark 写在抽取之后",
+      file: "native/lfw/state/character_state_drink.cpp",
+      from: `    e.holding_mt_mark(u\"drink_drop\");\n    const double vx = to_number(e.holding_mt_range(-6.0, 6.0)) / 2.0;`,
+      to: `    const double vx = to_number(e.holding_mt_range(-6.0, 6.0)) / 2.0;\n    e.holding_mt_mark(u\"drink_drop\");`,
     },
   ],
 };

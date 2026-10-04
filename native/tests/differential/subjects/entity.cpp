@@ -7,6 +7,7 @@
 #include <variant>
 #include <vector>
 
+#include "lfw/cases.h"
 #include "lfw/controller/base_controller.h"
 #include "lfw/core/js_num.h"
 #include "lfw/core/value.h"
@@ -1413,6 +1414,19 @@ int main(int argc, char** argv) {
         g_mt.reset(lfw::to_number(seed));
         std::printf("run mtseed %s || %s | times=%s\n", render(seed).c_str(), join(g_log).c_str(),
                     render(Value(static_cast<double>(g_mt.times()))).c_str());
+      } else if (what == "mtdebug") {
+        const Value v = parse_value(t, i);
+        g_mt.debugging = lfw::truthy(v);
+        std::printf("run mtdebug %s || %s | mark=%s\n", render(v).c_str(), join(g_log).c_str(),
+                    render(Value(g_mt.mark)).c_str());
+      } else if (what == "mtmark") {
+        std::printf("run mtmark || %s | mark=%s\n", join(g_log).c_str(),
+                    render(Value(g_mt.mark)).c_str());
+      } else if (what == "mtcases") {
+        const std::u16string text = lfw::mt_cases().submit();
+        std::printf("run mtcases || %s | text=%s n=%s\n", join(g_log).c_str(),
+                    render(Value(text)).c_str(),
+                    render(Value(static_cast<double>(lfw::mt_cases().cases().size()))).c_str());
       } else if (what == "setpos") {
         const Value x = parse_value(t, i);
         const Value y = parse_value(t, i);

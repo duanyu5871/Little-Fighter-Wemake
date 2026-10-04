@@ -28,6 +28,8 @@ class IStateEntity : public buff::IBuffEntity {
     (void)y;
     (void)z;
   }
+  // `holding.lfw.mt.mark = …`（`CharacterState_Drink` 的掉落分支）。
+  virtual void holding_mt_mark(const std::u16string& mark) { (void)mark; }
   virtual Value holding_mt_range(double lo, double hi) {
     (void)lo;
     (void)hi;

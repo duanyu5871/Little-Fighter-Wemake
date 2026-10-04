@@ -1467,6 +1467,7 @@ Value Entity::get_next_frame(const Value& which) {
       if (!nullish(f)) return f;
     }
     Array remains_arr(remains);
+    host_->mt().mark = u"gnf_0";
     const Value next = host_->mt().pick_value(Value(std::make_shared<Array>(remains_arr)));
     if (nullish(next)) return Value();
     return get_next_frame(next);
@@ -1479,6 +1480,7 @@ Value Entity::get_next_frame(const Value& which) {
     return Value();
   Value found_frame;
   if (truthy(id_value)) {
+    host_->mt().mark = u"gnf_1";
     found_frame = find_frame_by_id(host_->mt().pick_value(id_value));
     if (nullish(found_frame)) return Value();
   }
@@ -1531,6 +1533,7 @@ void Entity::follow_bearer() {
   const double cy_a = to_number(field_or(bearer_src->frame, u"centery"));
   if (equals(field_or(wp_a, u"kind"), Value(static_cast<double>(WpointKind::Drop)))) {
     bearer_src->drop_holding();
+    host_->mt().mark = u"dh_v";
     const double vy = 3;
     MersenneTwister& mt = host_->mt();
     const double vx = mt.range(-10, 10) / 10;
@@ -1638,6 +1641,7 @@ void Entity::follow_catcher() {
 
 void Entity::drop_holding() {
   if (holding == nullptr) return;
+  host_->mt().mark = u"dh_1";
   Entity* held = holding;
   held->bearer = nullptr;
   holding = nullptr;

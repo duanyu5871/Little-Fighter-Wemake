@@ -43,6 +43,11 @@
 //  * The mutation runner rebuilds and compares whole traces, so a wrong literal, a
 //    dropped notification, an inverted clamp or a swapped `??` all surface as drift.
 
+// 9k（mt.mark 探针）不可观察项：
+//  * `drop_holding` 的 `mark = "dh_1"` 在 TS 里被紧随其后的 `enter_frame` 链覆盖
+//    （对齐帧一定带 id ⇒ `get_next_frame` 的 id 分支必然再写 `gnf_1`），
+//    而中间没有任何抽取 ⇒ 改字符串 / 删掉都不可观察，故不列（端口照抄保留）。
+
 export default {
   subject: "entity",
 
@@ -4581,8 +4586,62 @@ export default {
         {
       "note": "pick_value wraps a non-array input",
       "file": "native/lfw/utils/math/mersenne_twister.cpp",
-      "from": "  if (arr == nullptr) return a;",
-      "to": "  if (arr == nullptr) return Value();"
+      "from": "  const Array* arr = as_array(a);\n  if (arr == nullptr) return a;",
+      "to": "  const Array* arr = as_array(a);\n  if (arr == nullptr) return Value();"
+    },
+    {
+      note: "follow_bearer：投掷分支的 mark 写成 dh_vx",
+      file: "native/lfw/entity/entity.cpp",
+      from: `    host_->mt().mark = u\"dh_v\";`,
+      to: `    host_->mt().mark = u\"dh_vx\";`,
+    },
+    {
+      note: "follow_bearer：不写 dh_v",
+      file: "native/lfw/entity/entity.cpp",
+      from: `    bearer_src->drop_holding();\n    host_->mt().mark = u\"dh_v\";\n    const double vy = 3;`,
+      to: `    bearer_src->drop_holding();\n    (void)0;\n    const double vy = 3;`,
+    },
+    {
+      note: "follow_bearer：dh_v 写在两次抽取之后",
+      file: "native/lfw/entity/entity.cpp",
+      from: `    host_->mt().mark = u\"dh_v\";\n    const double vy = 3;\n    MersenneTwister& mt = host_->mt();\n    const double vx = mt.range(-10, 10) / 10;`,
+      to: `    const double vy = 3;\n    MersenneTwister& mt = host_->mt();\n    const double vx = mt.range(-10, 10) / 10;\n    host_->mt().mark = u\"dh_v\";`,
+    },
+    {
+      note: "get_next_frame：数组分支的 mark 写成 gnf_0x",
+      file: "native/lfw/entity/entity.cpp",
+      from: `    host_->mt().mark = u\"gnf_0\";`,
+      to: `    host_->mt().mark = u\"gnf_0x\";`,
+    },
+    {
+      note: "get_next_frame：数组分支与 id 分支的 mark 写反",
+      file: "native/lfw/entity/entity.cpp",
+      from: `    host_->mt().mark = u\"gnf_0\";`,
+      to: `    host_->mt().mark = u\"gnf_1\";`,
+    },
+    {
+      note: "get_next_frame：数组分支不写 mark",
+      file: "native/lfw/entity/entity.cpp",
+      from: `    Array remains_arr(remains);\n    host_->mt().mark = u\"gnf_0\";\n    const Value next`,
+      to: `    Array remains_arr(remains);\n    (void)0;\n    const Value next`,
+    },
+    {
+      note: "get_next_frame：id 分支的 mark 写成 gnf_1x",
+      file: "native/lfw/entity/entity.cpp",
+      from: `    host_->mt().mark = u\"gnf_1\";`,
+      to: `    host_->mt().mark = u\"gnf_1x\";`,
+    },
+    {
+      note: "get_next_frame：id 分支不写 mark",
+      file: "native/lfw/entity/entity.cpp",
+      from: `    host_->mt().mark = u\"gnf_1\";\n    found_frame`,
+      to: `    (void)0;\n    found_frame`,
+    },
+    {
+      note: "get_next_frame：id 分支的 mark 写在 pick 之后",
+      file: "native/lfw/entity/entity.cpp",
+      from: `    host_->mt().mark = u\"gnf_1\";\n    found_frame = find_frame_by_id(host_->mt().pick_value(id_value));`,
+      to: `    found_frame = find_frame_by_id(host_->mt().pick_value(id_value));\n    host_->mt().mark = u\"gnf_1\";`,
     },
   ],
 };

@@ -1,6 +1,7 @@
 import "./shared/patch_date";
 
 import { Randoming } from "../../../../src/LFW/helper/Randoming";
+import { mt_cases } from "../../../../src/LFW/cases_instances";
 import { spawn_ice_piece, ice_piece_opoints } from "../../../../src/LFW/state/spawn_ice_piece";
 import { MersenneTwister } from "../../../../src/LFW/utils/math/MersenneTwister";
 
@@ -112,6 +113,16 @@ function main(): void {
       process.exit(2);
     }
 
+    if (op === "cases") {
+      if (t.length !== 1) {
+        process.stderr.write(`trailing token(s): ${raw}\n`);
+        process.exit(2);
+      }
+      const text = mt_cases.submit();
+      out.push(`cases ${renderValue(text)} ${renderValue(mt_cases.cases.length)}`);
+      continue;
+    }
+
     if (t.length < 3) {
       process.stderr.write(`too few operands: ${raw}\n`);
       process.exit(2);
@@ -121,12 +132,19 @@ function main(): void {
     const idx = [3];
 
     if (op === "mt") {
-      if (sub !== "new") {
+      if (sub === "new") {
+        mts.set(name, new MersenneTwister(parseValue(t, idx) as number));
+        out.push(`mt ${name}`);
+      } else if (sub === "dbg") {
+        const ref = mtArg(name) as MersenneTwister;
+        ref.debugging = Boolean(parseValue(t, idx));
+        out.push(`mt ${name} dbg ${renderValue(ref.debugging)} mark=${renderValue(ref.mark)}`);
+      } else if (sub === "mark") {
+        out.push(`mt ${name} mark ${renderValue((mtArg(name) as MersenneTwister).mark)}`);
+      } else {
         process.stderr.write(`unknown mt sub '${sub}'\n`);
         process.exit(2);
       }
-      mts.set(name, new MersenneTwister(parseValue(t, idx) as number));
-      out.push(`mt ${name}`);
     } else if (op === "ent") {
       if (sub === "put") ents.set(name, parseValue(t, idx));
       else if (sub === "del") ents.delete(name);

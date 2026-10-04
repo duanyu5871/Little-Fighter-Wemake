@@ -91,6 +91,7 @@ Value ice_piece_x(const Value& e, MersenneTwister& mt) {
   if (!entity::is_object(e)) return Value(0.0);
   const double width = to_number(field_or(field_or(e, u"frame"), u"width"));
   const double r = width / 4.0;
+  mt.mark = u"ice_piece_x";
   return Value(round(width / 2.0 + mt.range(-r, r)));
 }
 
@@ -98,6 +99,7 @@ Value ice_piece_y(const Value& e, MersenneTwister& mt) {
   if (!entity::is_object(e)) return Value(0.0);
   const double height = to_number(field_or(field_or(e, u"frame"), u"height"));
   const double r = height / 4.0;
+  mt.mark = u"ice_piece_y";
   return Value(round(height / 2.0 + mt.range(-r, r)));
 }
 
