@@ -440,6 +440,7 @@ bool get_value(const Entity& e, const std::string& name, Value& out) {
 
 bool set_num(Entity& e, const std::string& name, double v) {
   if (name == "outline_alpha") e.set_outline_alpha(v);
+  else if (name == "atom_time") e.set_atom_time(v);
   else if (name == "outline_width") e.set_outline_width(v);
   else if (name == "mix_strength") e.set_mix_strength(v);
   else if (name == "greyscale") e.set_greyscale(v);
@@ -834,6 +835,27 @@ int main(int argc, char** argv) {
         }
         std::printf("run summaries || %s | graves=%zu items%s\n", join(g_log).c_str(),
                     lfw::summary_mgr().grave_count(), s.c_str());
+      } else if (what == "rec") {
+        const std::string& which = t[i++];
+        if (which == "stat") g_entity->stat_recovering();
+        else if (which == "hp") g_entity->hp_recovering();
+        else if (which == "mp") g_entity->mp_recovering();
+        else if (which == "toughness") g_entity->toughness_recovering();
+        else if (which == "fall") g_entity->fall_value_recovering();
+        else if (which == "defend") g_entity->defend_value_recovering();
+        else {
+          std::fprintf(stderr, "unknown rec '%s' at line %d\n", which.c_str(), lineno);
+          return 2;
+        }
+        std::printf(
+            "run rec %s || %s | hp=%s hpr=%s mp=%s mpmax=%s r=%s t=%s tr=%s fv=%s dv=%s\n",
+            which.c_str(), join(g_log).c_str(), render(Value(g_entity->hp())).c_str(),
+            render(Value(g_entity->hp_r())).c_str(), render(Value(g_entity->mp())).c_str(),
+            render(Value(g_entity->mp_max())).c_str(), render(Value(g_entity->resting())).c_str(),
+            render(Value(g_entity->toughness())).c_str(),
+            render(Value(g_entity->toughness_resting())).c_str(),
+            render(Value(g_entity->fall_value())).c_str(),
+            render(Value(g_entity->defend_value())).c_str());
       } else if (what == "snap" || what == "snapbuf" || what == "snapapply") {
         if (what == "snapapply") g_entity->read_snapshot(g_snap_nums, g_snap_strs);
         std::vector<Value> nums(static_cast<std::size_t>(lfw::entity::num_slots()));

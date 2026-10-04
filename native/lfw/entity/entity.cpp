@@ -27,6 +27,7 @@
 #include "lfw/utils/container_help/field_or.h"
 #include "lfw/utils/math/base.h"
 #include "lfw/utils/math/clamp.h"
+#include "lfw/utils/math/clamp_add.h"
 #include "lfw/utils/math/float_equal.h"
 #include "lfw/utils/math/round_float.h"
 #include "lfw/utils/type_check.h"
@@ -1074,6 +1075,73 @@ Value Entity::ctrl_ref(controller::BaseController* ctrl) const {
   o.set(u"player", ctrl->player);
   o.set(u"player_id", Value(ctrl->player_id));
   return Value(std::make_shared<Object>(o));
+}
+
+// --- per-tick recovery --------------------------------------------------------
+
+// `toughness_recovering()`: the resting branch drains `_atom_time` from
+// `_toughness_resting` and needs `frame.toughness_recover`; the other branch gates on
+// the tick and adds the private `_toughness_r_value`.
+void Entity::toughness_recovering() {
+  if (_toughness_resting > 0) {
+    if (!truthy(field_or(frame, u"toughness_recover"))) return;
+    set_toughness_resting(
+        clamp_add(_toughness_resting, -_atom_time, 0, _toughness_resting_max));
+    return;
+  }
+  if (_toughness >= toughness_max()) return;
+  if (!_toughness_r_tick.add(_atom_time)) return;
+  set_toughness(clamp_add(_toughness, _toughness_r_value, 0, _toughness_max));
+}
+
+// Both the guard and the clamp max read the `fall_value_max` getter (`_fall_value_max
+// ?? world.dataset.fall_value_max`), so a missing dataset key makes them NaN.
+void Entity::fall_value_recovering() {
+  if (_fall_value >= fall_value_max()) return;
+  if (!_fall_r_tick.add(_atom_time)) return;
+  set_fall_value(clamp_add(_fall_value, _fall_r_value, 0, fall_value_max()));
+}
+
+void Entity::defend_value_recovering() {
+  if (_defend_value >= defend_value_max()) return;
+  if (!_defend_r_tick.add(_atom_time)) return;
+  set_defend_value(clamp_add(_defend_value, _defend_r_value, 0, defend_value_max()));
+}
+
+// `stat_recovering()`: a resting entity drains `resting` (needs `frame.stat_recover`),
+// otherwise the fall / defend values recover instead.
+void Entity::stat_recovering() {
+  if (_resting > 0) {
+    if (!truthy(field_or(frame, u"stat_recover"))) return;
+    set_resting(clamp_add(_resting, -_atom_time, 0, resting_max()));
+    return;
+  }
+  fall_value_recovering();
+  defend_value_recovering();
+}
+
+void Entity::hp_recovering() {
+  if (_hp <= 0 || _hp >= _hp_r) return;
+  _hp_r_tick.set_max(to_number(dataset(u"hp_r_ticks")));
+  if (!_hp_r_tick.add(_atom_time)) return;
+  set_hp(min(_hp_r, _hp + to_number(dataset(u"hp_r_value"))));
+}
+
+void Entity::mp_recovering() {
+  if (_hp <= 0 || _mp >= mp_max() || truthy(Value(_blinking)) ||
+      truthy(Value(_invisible))) {
+    return;
+  }
+  _mp_r_tick.set_max(to_number(dataset(u"mp_r_ticks")));
+  if (!_mp_r_tick.add(_atom_time)) return;
+  const double r_ratio = to_number(dataset(u"mp_r_ratio"));
+  double a = hp_max();
+  double b = _hp;
+  // The two `hp_max` / `_hp` readings are clamped to 500 before the ratio maths.
+  if (a > 500) a = 500;
+  if (b > 500) b = 500;
+  const double value = 1 + round_float((a - min(r_ratio * b, a)) / 100);
+  set_mp(min(mp_max(), _mp + value));
 }
 
 // --- snapshot ----------------------------------------------------------------

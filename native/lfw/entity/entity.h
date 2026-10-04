@@ -302,6 +302,16 @@ class Entity {
   Value dataset(const std::u16string& name) const;
   Value itr_fall(const Value& itr) const;
 
+  // --- per-tick recovery (`update()` calls these) ------------------------------
+  // Every one of them is a guarded `clamp_add` on a single stat plus its `Times`
+  // gate; `get hp_r()` reads the private `_hp_r` the hp branch clamps against.
+  void toughness_recovering();
+  void fall_value_recovering();
+  void defend_value_recovering();
+  void stat_recovering();
+  void hp_recovering();
+  void mp_recovering();
+
   // --- snapshot (`to_snapshot` / `read_snapshot`) -----------------------------
   // TS hands over `number[]` / `string[]`; the port keeps `Value` entries so a slot
   // whose TS type allows `null` stays distinguishable from `NaN` in both directions.
@@ -328,6 +338,7 @@ class Entity {
   double fall_r_tick_max() const { return _fall_r_tick.max(); }
   double defend_r_tick_max() const { return _defend_r_tick.max(); }
   double atom_time() const { return _atom_time; }
+  void set_atom_time(double v) { _atom_time = v; }
   Value landing_frame() const { return _landing_frame; }
   void set_landing_frame(const Value& v) { _landing_frame = v; }
   void set_ground_y(double v) { _ground_y = v; }

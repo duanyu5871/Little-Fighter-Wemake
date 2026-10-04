@@ -1058,7 +1058,7 @@ run waitflag s "d" o 1 wait n 5
 # --- 9d: snapshot (to_snapshot / read_snapshot) ---
 env data s "d1" o 3 id s "d1" frames o 2 "f-7" o 2 id s "f-7" wait n 2 "f-8" o 2 id s "f-8" wait n 3 base o 1 toughness_max n 9
 env data s "d2" o 2 id s "d2" frames o 0
-run make o 4 id s "s1" type n 1 name s "Sn" base o 3 hp_max n 40 mp_max n 30 name s "Base"
+run make o 5 id s "s1" type n 1 name s "Sn" base o 3 hp_max n 40 mp_max n 30 name s "Base" frames o 0
 run snap
 run set hp n 25
 run set mp n 9
@@ -1474,4 +1474,281 @@ run get catcher
 run get bearer
 run get holding
 run get name
+run snap
+
+# --- 9e: per-tick recovery ---
+env dataset s "atom_time" n 1
+env dataset s "hp_r_ticks" n 3
+env dataset s "hp_r_value" n 7
+env dataset s "mp_r_ticks" n 2
+env dataset s "mp_r_ratio" n 1
+env dataset s "fall_r_ticks" n 5
+env dataset s "defend_r_ticks" n 4
+env dataset s "fall_r_value" n 5
+env dataset s "defend_r_value" n 3
+env dataset s "resting_ticks" n 3
+env dataset s "toughness_r_value" n 4
+env dataset s "toughness_r_tick" n 2
+run make o 5 id s "r1" type n 1 name s "Rec" base o 1 hp_max n 40 frames o 0
+run get atom_time
+run get hp
+run get hp_r
+run rec hp
+run set hp n 0
+run rec hp
+run set hp n 20
+run rec hp
+run rec hp
+run rec hp
+run rec hp
+run set hp n 39.5
+run rec hp
+run rec hp
+run rec hp
+run snap
+run set hp n 20
+run snapbuf
+run snappoke HP_R_TICK_REMAINS n 0
+run snapapply
+run rec hp
+run rec hp
+run rec hp
+run snap
+run snappoke HP_R_TICK_REMAINS n 2
+run snappoke HP_R_TICK_VALUE n 1.5
+run snapapply
+run rec hp
+run rec hp
+run snap
+env dataset s "hp_r_value" u
+run set hp n 10
+run rec hp
+run rec hp
+run rec hp
+run snap
+env dataset s "hp_r_value" n 7
+run set hp n 20
+run rec mp
+run set hp n 0
+run rec mp
+run set hp n 20
+run set blinking n 1
+run rec mp
+run set blinking n 0
+run set invisible n 1
+run rec mp
+run set invisible n 0
+run get mp
+run get mp_max
+run set mp n 1
+run rec mp
+run rec mp
+run rec mp
+run snap
+run set mp n 5
+run snapbuf
+run snappoke HP n 100
+run snappoke HP_MAX n 200
+run snapapply
+run rec mp
+run rec mp
+run snap
+run snappoke HP n 520
+run snappoke HP_MAX n 600
+run snapapply
+run set mp n 75
+run rec mp
+run rec mp
+run snap
+env dataset s "mp_r_ratio" n 0.5
+run set mp n 5
+run rec mp
+run snap
+env dataset s "mp_r_ratio" u
+run set mp n 5
+run rec mp
+run snap
+env dataset s "mp_r_ratio" n 1
+run make o 5 id s "r2" type n 1 name s "Arm" base o 1 armor o 4 toughness n 12 toughness_resting n 5 toughness_resting_max n 6 toughness_r_value n 4 frames o 0
+run get toughness
+run get toughness_max
+run get toughness_resting
+run get toughness_resting_max
+run get fall_value
+run get fall_value_max
+run get defend_value
+run get defend_value_max
+run rec toughness
+run set toughness n 4
+run rec toughness
+run rec toughness
+run rec toughness
+run snap
+run frame o 3 id s "s1" toughness_recover b 1 stat_recover b 1
+run rec toughness
+run rec toughness
+run rec toughness
+run snap
+run frame o 3 id s "s1" toughness_recover b 0 stat_recover b 0
+run rec toughness
+run rec toughness
+run set toughness_resting n 1
+run set atom_time n 2
+run rec toughness
+run rec toughness
+run snap
+run set atom_time n 1
+run set toughness n 12
+run rec toughness
+run rec toughness
+run snap
+run set fall_value n 10
+run rec fall
+run rec fall
+run rec fall
+run snap
+run set defend_value n 4
+run rec defend
+run rec defend
+run rec defend
+run rec defend
+run rec defend
+run snap
+run set fall_value n 25
+run set defend_value n 28
+run set resting n 5
+run frame o 3 id s "s1" toughness_recover b 1 stat_recover b 1
+run rec stat
+run rec stat
+run rec stat
+run snap
+run set resting n 4.5
+run rec stat
+run snap
+run frame o 3 id s "s1" toughness_recover b 1 stat_recover b 0
+run set resting n 4
+run rec stat
+run rec stat
+run snap
+run frame o 3 id s "s1" toughness_recover b 1 stat_recover b 1
+run set resting n 0
+run rec stat
+run snap
+run set fall_value n 28
+run set defend_value n 28
+run rec stat
+run rec stat
+run snap
+run set resting n 3
+run rec stat
+run get resting
+run get resting_max
+run snap
+
+# --- 9e: the ratio maths needs the 3-decimal rounding ---
+run set hp n 20
+run snapbuf
+run snappoke HP n 12
+run snappoke HP_MAX n 200
+run snapapply
+env dataset s "mp_r_ratio" n 0.33333333333
+run set mp n 5
+run rec mp
+run rec mp
+run snap
+env dataset s "mp_r_ratio" n 1
+run snappoke HP n 100
+run snappoke HP_MAX n 200
+run snapapply
+run set mp n 5
+run rec mp
+run snap
+run get hp_max
+run get hp
+run get mp
+
+# --- 9e: hp clamps against `_hp_r`, which can be below `hp_max` ---
+run set hp n 20
+run snapbuf
+run snappoke HP_R n 30
+run snapapply
+run get hp_r
+run get hp_max
+run set hp n 25
+run rec hp
+run rec hp
+run rec hp
+run get hp
+run snap
+
+# --- 9e: toughness drain above its own max, then the recovery branch ---
+run frame o 3 id s "s1" toughness_recover b 1 stat_recover b 1
+run set toughness_resting n 20
+run rec toughness
+run rec toughness
+run snap
+run set toughness_resting n 13
+run rec toughness
+run snap
+run set toughness n 4
+run set toughness_resting n 0
+run rec toughness
+run rec toughness
+run rec toughness
+run snap
+run set toughness n 11.5
+run set toughness_resting n 0
+run rec toughness
+run rec toughness
+run rec toughness
+run snap
+# --- 9e: a stat parked on its max must not recover ---
+env dataset s "fall_value_max" n 30
+env dataset s "defend_value_max" n 30
+run set fall_value_max n 30
+run set defend_value_max n 30
+run set fall_value n 30
+run set defend_value n 30
+run rec fall
+run rec fall
+run rec fall
+run rec fall
+run rec fall
+run rec fall
+run rec defend
+run rec defend
+run rec defend
+run rec defend
+run rec defend
+run snap
+# --- 9e: the mp guards hold across a whole tick window ---
+run set hp n 0
+run set blinking n 0
+run set invisible n 0
+run set mp n 1
+run rec mp
+run rec mp
+run snap
+run set hp n 20
+run set blinking n 1
+run rec mp
+run rec mp
+run snap
+run set blinking n 0
+run set invisible n 1
+run rec mp
+run rec mp
+run snap
+run set invisible n 0
+env dataset s "mp_r_ratio" n 1
+# --- 9e: the unrounded `_mp` exposes the formula's rounding ---
+run snapbuf
+run snappoke MP n 5.0004
+run snappoke MP_MAX n 300
+run snappoke HP n 76.55001
+run snappoke HP_MAX n 200
+run snapapply
+run get mp
+run rec mp
+run rec mp
 run snap

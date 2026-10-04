@@ -4836,3 +4836,64 @@ TS 侧 `WorldDataset` 有 103 个字段，但**所有已经移植过的调用点
   是杀掉「写错槽位 / 漏写槽位 / 读错槽位」三类变异的骨干。
 - TS 侧的 `world.entity_map.get` 用**活实体**现算（`reset` 会换 id，用表会过期），
   `lfw.datas.find` 用 `env data` 填的表；端口侧同义。
+
+## 48. 切片 9e：`Entity` 的每 tick 恢复层
+
+`entity.{h,cpp}` 的第五刀：`toughness_recovering`、`fall_value_recovering`、
+`defend_value_recovering`、`stat_recovering`、`hp_recovering`、`mp_recovering`。
+这六支是 `update()` 每个 tick 都会调的「回血 / 回气 / 回韧性」逻辑，输入只有
+「帧标志 + 数据集 + `Times` + `_atom_time`」，所以仍然可以在 `World` / 状态机缺席时整片锁死。
+
+### 48.1 单元边界（为什么是这六支）
+1. **不碰 `update()`**：它是这些函数的调用者，还要状态机、碰撞与 `lfw.mt`，属于后面的切片。
+2. **`Times` 早已搬完**：`add(_atom_time)` 的「到上限才返回 true + 回绕 + `_remains` 递减」
+   是上一批 `Times` 切片的既有行为，本刀只负责**门控**（不通过就 return）。
+3. **`clamp_add` 已存在**（`utils/math/clamp_add.h`）：本刀第一次用它，
+   与 `round_float(value + offset)` 再夹的语义一致（先取整再夹）。
+
+### 48.2 保真要点
+1. **两段式分支**：`toughness_recovering` 与 `stat_recovering` 都是
+   「先看 *_resting 是否 > 0 → 走排空支；否则走恢复支」，两支都以 `return` 结尾。
+   端口逐字照抄，其中排空支靠 `frame.toughness_recover` / `frame.stat_recover` 开关。
+2. **排空支按 `_atom_time` 排**：`clamp_add(resting, -_atom_time, 0, max)`，
+   所以 `run set atom_time n 2` 之后一次调用就排 2；差值的上下界分别是
+   `_toughness_resting_max`（韧性）与 `resting_max()`（休息值）。
+3. **恢复支的门是 `Times`**：只有 `add(_atom_time)` 返回真才写值。
+   `hp_recovering` / `mp_recovering` 每次调用都会先用 `dataset("hp_r_ticks")` /
+   `dataset("mp_r_ticks")` 覆盖 tick 的上限，而 `toughness` / `fall` / `defend`
+   用的是 `reset()` / `reset_armor()` 装好的区间——差分把四个 interval 设成
+   互不相同的值（3 / 2 / 2 / 5 / 4），任何「读了别的数据集键 / 用了别的 tick」都会露。
+4. **`fall_value_max` / `defend_value_max` 是 getter**（`_x ?? world.dataset.x`）：
+   数据集缺键时比较与夹取都会遇到 `NaN`，而 `clamp_add` 的 `value > NaN` 恒假 → 保留原值。
+   差分有 `env dataset mp_r_ratio u` 这类「缺键 → NaN 传染」的场景。
+5. **`hp_recovering` 夹的是私有 `_hp_r`**（不是 `hp_max`），增量是 `dataset("hp_r_value")`：
+   `set_hp(min(_hp_r, _hp + v))`。因为 `set hp` 自己还会夹一次 `hp_max`，
+   差分专门把 `HP_R` 通过快照窥视口设成 `30 < hp_max = 40`，才能把「不夹 `_hp_r`」这条变异杀掉。
+6. **`mp_recovering` 的比率公式**：`a = hp_max()`、`b = _hp`，两者先各自夹到 500，
+   然后 `value = 1 + round_float((a - min(r_ratio * b, a)) / 100)`，最后
+   `set_mp(min(mp_max(), _mp + value))`。
+   - 三个守卫（`_hp <= 0`、`_mp >= mp_max()`、`_blinking`、`_invisible`）中前两个是数值比较、
+     后两个走 `truthy`（所以 `NaN` 也算假）。
+   - 500 的两处夹取用 `520 / 600` 的场景才能区分（不夹时 `min(1 * 520, 600) = 520` 与
+     夹后 `min(500, 500) = 500` 给出不同的增量）。
+   - `round_float` 是**三位小数**取整，差分用 `mp_r_ratio = 0.33333333333` 造出
+     `1.9600000000004 → 1.96` 的差异（harness 打印数字的位模式，能分辨）。
+
+### 48.3 有意不覆盖 / 不可观测项
+- `update()`（调用方）与 `mouse` / `world` 相关的旁路不在本刀。
+- `get toughness_max()` 就是私有 `_toughness_max`（没有数据集兜底），所以
+  「夹取用 getter 还是字段」在韧性这一支不可观测 → 不列条目。
+- `hp_recovering` 的 `_hp_r_tick.set_max(...)` 传的是 `to_number(dataset(...))`：
+  数据集缺键时是 `NaN`，`Times` 的区间比较随之恒假；这条与 `Times` 自身的行为重合，
+  只在 `hp_r_value` 缺键的场景里顺带覆盖。
+- 各恢复函数的返回值是 `void`，没有任何「是否恢复」的外部信号，所以只能用状态读数判断。
+
+### 48.4 harness 观察点
+- 新增 op `run rec <stat|hp|mp|toughness|fall|defend>`，一次调用同时打印
+  `hp / hpr / mp / mpmax / r / t / tr / fv / dv` 与回调日志——恢复函数的每个写入
+  都走 setter，所以 `on_hp_changed` 这类日志本身就是判别力来源。
+- `run set atom_time <数字>` 补了一个**窥视写入**（TS 侧写 `_atom_time`、端口加
+  `set_atom_time`），否则只能用「改数据集 + 重新 `run make`」来造 `_atom_time` 的变化。
+- `Times` 的内部状态（`VALUE/MIN/MAX/LIFES/REMAINS` 五个槽位）直接用 9d 的快照窥视口
+  `snappoke` 精确摆位（例如把 `HP_R_TICK_REMAINS` 设成 0 验证「耗尽后永不再触发」），
+  再用 `run snap` 读回——9d 的快照能力在这里第一次被别的切片当工具用。

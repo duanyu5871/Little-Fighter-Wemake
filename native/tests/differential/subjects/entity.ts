@@ -475,6 +475,9 @@ const getValue = (e: Entity, name: string): unknown => {
 const setNum = (e: Entity, name: string, v: number): boolean => {
   const p = e as unknown as Record<string, number>;
   switch (name) {
+    case "atom_time":
+      (e as unknown as { _atom_time: number })._atom_time = v;
+      return true;
     case "outline_alpha":
       e.outline_alpha = v;
       return true;
@@ -927,6 +930,22 @@ function main(): void {
         let s = "";
         for (const [id, sum] of m._items) s += ` ${id}:${r(sum.hp_lost)}/${r(sum.mp_usage)}`;
         out.push(`run summaries || ${log.join(",")} | graves=${m._graves.length} items${s}`);
+      } else if (what === "rec") {
+        const which = t[i++]!;
+        const e = ent!;
+        if (which === "stat") e.stat_recovering();
+        else if (which === "hp") e.hp_recovering();
+        else if (which === "mp") e.mp_recovering();
+        else if (which === "toughness") e.toughness_recovering();
+        else if (which === "fall") e.fall_value_recovering();
+        else if (which === "defend") e.defend_value_recovering();
+        else {
+          process.stderr.write(`unknown rec '${which}'\n`);
+          process.exit(2);
+        }
+        out.push(
+          `run rec ${which} || ${log.join(",")} | hp=${r(e.hp)} hpr=${r((e as unknown as { _hp_r: number })._hp_r)} mp=${r(e.mp)} mpmax=${r(e.mp_max)} r=${r(e.resting)} t=${r(e.toughness)} tr=${r(e.toughness_resting)} fv=${r(e.fall_value)} dv=${r(e.defend_value)}`,
+        );
       } else if (what === "snap" || what === "snapbuf" || what === "snapapply") {
         if (what === "snapapply") ent!.read_snapshot(gSnapNums as never, gSnapStrs as never);
         const nums = new Array<unknown>(Number(NSlot.COUNT));

@@ -2687,7 +2687,7 @@ harness op：
 9. **`env hook` 只对指定键生效**：`jump_height` 之外（`gravity`/`screen_w`/`screen_h`/`difficulty`）
    的 `set` 只有 `dataset_change` 一条日志，锁住「键钩子按名查找、整体回调对所有托管键生效」。
 
-### 6.9.96 `entity`（差分 1387 行，变异 407/407 全杀）
+### 6.9.96 `entity`（差分 1653 行，变异 464/464 全杀）
 
 harness op：
 
@@ -2733,6 +2733,9 @@ harness op：
   `run snapapply`（把缓冲区喂给 `read_snapshot` 并打印回读后的快照）、
   `run copy <字符串>`（`copies.add`，打印 `added=b0|b1`）、
   `env data <id 字面量> <数据字面量>`（填 `lfw.datas.find` 的表）。
+- 恢复层（9e 追加）：`run rec <stat|hp|mp|toughness|fall|defend>`（直接调那六支恢复函数）、
+  `run set atom_time <数字>`（窥视写 `_atom_time`）。
+  这两组 op 配合 9d 的 `snapbuf` / `snappoke` / `snapapply` 精确摆位 `Times` 的五个槽位。
 
 输出：
 
@@ -2767,6 +2770,7 @@ harness op：
   （枚举顺序、逗号分隔，共用 `render`，数字带位模式）；
 - `run snappoke <槽位名> <值> || <日志> | v=<值>`、`run snappokestr … || <日志> | v=<值>`；
 - `run snappokeid <槽位名> <self|buddy> || <日志> | v=<该实体的 id>`；
+- `run rec <哪种> || <日志> | hp=… hpr=… mp=… mpmax=… r=… t=… tr=… fv=… dv=…`；
 - `run copy <字符串> || <日志> | added=<b0|b1>`。
 
 日志项（按发生顺序、逗号分隔）：`on_*_changed:<self|?>:<新值>:<旧值>`、`on_dead:<self>`、
@@ -2928,3 +2932,30 @@ harness op：
 44. **字符串槽位的压平**：`NAME = ""` → `run get name` 是 `null`；`AFTER_BLINK` poke 非空值
     必须出现在快照里；`DISMISS_DATA_ID` 能查到就写 `dismiss_data`、查不到就写 `null`、
     空串则跳过查找；`TEAM` 原样保留（不做空串 → null）。
+
+45. **`Times` 门控**：`hp_r_ticks = 3` 时连续三次 `rec hp` 只有第三次真的加血
+    （前两次 `add` 返回假）——「不判断门控直接加」会被杀；把 `HP_R_TICK_REMAINS` 通过
+    快照设成 0 之后**永远**不再触发（`Times` 的耗尽语义）。
+46. **两段式分支与帧开关**：`toughness_recovering` / `stat_recovering` 的排空支
+    需要 `frame.toughness_recover` / `frame.stat_recover`；`run frame` 把它设成 `b0` 时
+    排空支必须原地不动、设成 `b1` 时按 `_atom_time` 排（`atom_time = 2` 时一次排 2），
+    并夹在 `0` 与各自的 max 之间。
+47. **getter 兜底的 NaN 传染**：`env dataset mp_r_ratio u` / `hp_r_value u` 之后
+    比率与增量都变 `NaN`，`set_*` 照写 `NaN`（位模式 `nan`）——锁「夹取/取整丢掉了 NaN」。
+48. **`hp_recovering` 夹的是 `_hp_r`**：快照把 `HP_R` 设成 30（`hp_max` 是 40）后
+    `hp = 25` + 增量 7 必须停在 30 而不是 32（后者会被 `set hp` 的 `hp_max` 夹住看不见），
+    `run get hp_r` / `run get hp_max` 把两个上限都摆出来。
+49. **`mp_recovering` 的四个守卫**：`_hp = 0`、`_mp = mp_max`、`blinking = 1`、
+    `invisible = 1` 各一条「值不变」的读数，其中后两个走 `truthy`。
+50. **比率公式的 500 夹取**：`HP = 520 / HP_MAX = 600` 且 `mp_r_ratio = 1` 时，
+    夹后 `min(500, 500) = 500` 给出 `+1`，不夹则 `min(520, 600) = 520` 给出 `+2`。
+51. **三位小数取整**：`mp_r_ratio = 0.33333333333`、`HP = 12 / HP_MAX = 200` 时
+    `(200 - 3.99999999996) / 100 = 1.9600000000004` 必须被 `round_float` 收成 `1.96`，
+    harness 打印数字的位模式所以能分辨；`min`/`max`、`/100` vs `/10`、少了 `+1`
+    同样在这条与相邻场景里被杀。
+52. **写入必须走 setter**：六支恢复函数的每个赋值在正确实现里都会打
+    `on_hp_changed` / `on_mp_changed` / `on_toughness_changed` 等日志，
+    「直接写私有字段」的变异在 `run rec` 行的日志里立刻露。
+53. **四个 tick 区间互不相同**（`hp_r_ticks 3` / `mp_r_ticks 2` / `toughness_r_tick 2` /
+    `fall_r_ticks 5` / `defend_r_ticks 4`），任何「读了别的数据集键 / 用了别的 tick」
+    都会在门控次数上错位。
