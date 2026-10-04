@@ -86,7 +86,7 @@ export class Entity {
   readonly blockers = new Map<string, Collision>();
   readonly superpunchs = new Map<string, Collision>();
   readonly callbacks = new Callbacks<IEntityCallbacks>()
-  protected readonly emitters: string[] = [];
+  readonly emitters: string[] = [];
 
   protected _data: IEntityData;
   protected _origin_data_id: string = '';
@@ -820,7 +820,7 @@ export class Entity {
   get_opoint_speed_z(emitter: Entity, opoint: IOpointInfo): number {
     if (opoint.speedz !== void 0) return opoint.speedz;
     if (!is_fighter(emitter)) return 0;
-    
+
     /* TODO: 要想办法尽量摆脱 State 判定，保持数据行为透明 - Gim*/
     switch (this.state) {
       case StateEnum.Ball_Flying:
