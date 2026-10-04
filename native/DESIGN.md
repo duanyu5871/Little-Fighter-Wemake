@@ -1971,6 +1971,7 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
     ⇒ 用例必须在 `w = 0` 之后**再抽一次**才能观察到"有没有消耗"。
   - `mt.mark = ...`、`debugging`、`mt_cases` 只被调试探针读（`pure()` 在 `src/LFW` 里无调用点）
     ⇒ 不移植（沿用既有 `MersenneTwister` 实现，它本来就没有 `mark`）。
+    **（9j 已推翻这条：它们是 TS 侧可观察的，见 §53。）**
 - **变异覆盖技巧（不放回抽样 ⇒ 一次覆盖全表）**：`random_take` 是"抽走不放回"
   ⇒ 连抽 n 次（n = 数组长度）必然**恰好**把数组每个元素各抽到一次
   ⇒ 打 9 次 `ip dvx` + 13 次 `ip dvy` 就足以杀死数组里任何单个元素的变异，不必逐个写条目。
@@ -4435,7 +4436,8 @@ TS 侧 `WorldDataset` 有 103 个字段，但**所有已经移植过的调用点
 - `keys()`（完整 own 属性顺序）目前只服务 harness；游戏代码不枚举数据集实例，
   正式导出路径是 `dump_dataset()`。
 - `pure()` 这类 C++ 侧便利访问器**没有**保留：TS 侧没有对应可观察属性，
-  留着只会变成不可观测的 API。
+  留着只会变成不可观测的 API。（`MersenneTwister.pure()` 是**另一回事**：
+  它是 TS 自己的公开 API，9j 照搬了，见 §53。）
 
 ### 43.4 harness 观察点
 - 一对 harness `world_dataset.{cpp,ts}`；TS 侧用真 `WorldDataset` 类与真 `WorldDataset.DEFAULT`。
@@ -5306,3 +5308,92 @@ TS 的 `State_Base.on_restrict` 结尾是 `e.position.x = x; …`（**直写**�
      自引用 `copies` 的 transform 结果）：需要新增观察口或改场景结构。
   ——这三类都不是「端口与 TS 不一致」，差分本身仍然全绿（§52.1 的真链路替换
   没有引入行为漂移）。
+
+## 53. 切片 9j：`MersenneTwister` 的调试面 + `Cases`
+
+**背景**：9i 之后，README「已知偏差」里与本文件相关的省略只剩最后一条 ——
+`math/mersenne_twister` 少了 `mark` / `debugging` / `mt_cases`（`pure()` / `load()` 也没搬）。
+当时的理由写的是「只是写 `Cases` 的调试探针，不影响输出与状态」。这一刀把它补齐，理由三条：
+
+1. 这三样在 **TS 侧是可观察的**：`mt_cases.submit()` 返回一整段文本，`mark` / `debugging`
+  决定这段文本的前缀与有无 ⇒ 不是 §43.3 拒绝保留的那种「TS 没有对应可观察属性」的便利 API。
+2. `mt.mark = …` / `mt.case(…)` / `mt.debugging` 在 `src/` 里有 20 多处调用点
+  （`BotController` / `BotState*` / `ValExpression` / `handle_weapon_is_hit` …），
+  全在还没搬的强连通块里；先把落点 `Cases` 建好，后面那几刀直接调用。
+3. `pure()` / `load()` 是状态存取对，且 `pure()` 正是既有 harness 算 `state` 哈希的入口
+  （TS 侧一直在用）⇒ 端口补上它，harness 两侧才对称。
+
+### 53.1 单元边界
+
+| 单元 | 位置 | 说明 |
+|---|---|---|
+| `Cases` | `native/lfw/cases.{h,cpp}` | `name` / `separator`（`\uffe5`）/ `cases` / `times` / `reset` / `push` / `submit` |
+| `mt_cases` | `cases.cpp` 的 `mt_cases()` | `cases_instances.ts` 的模块级单例；`sus_cases` **在 `src/` 里没有调用点** ⇒ 不建 |
+| `MersenneTwister` 新增 | `native/lfw/utils/math/mersenne_twister.{h,cpp}` | `mark` / `debugging` / `log_case`（TS `case`，C++ 关键字）/ `log_entry` / `pure` / `load` / `reset` 第二参 / `take_value` |
+| `Array::remove_at` | `native/lfw/core/value.h` | `take<T>` 的 `splice(index, 1)` 要按位删除（`Array` 之前只有 push/at） |
+
+### 53.2 保真要点
+
+1. **条目文本就是协议**：`"<mark>(<编号>)"` 或 `"<mark>(<编号>):[<args>]"`，其中 `<args>`
+  是 **`Array.join()` 语义**（`","` 连接、每个元素 `String(x)`、`undefined`/`null` 输出**空串**）
+  ⇒ 端口复用 `array_join`，**不要**用 `to_string` 手拼（`to_string(undefined)` 是 `"undefined"`，
+  与 `join` 不同）。
+2. **编号活在 `Cases` 自己身上**（`++times`），`submit()` **清 `cases` 但不清 `times`**
+  ⇒ 跨 submit 的编号必须连续（用例连打三次 `cases` 钉住这一点）。
+3. `reset()` 同时清 `times` 与 `cases`（harness 的 `creset` op 观察编号从头开始）。
+4. **`mark` 是「推送那一刻的快照」**：`mt_cases.push(this.mark, …)` 当场读。
+  用例「`mark m2` → 推一条 → `seed 42 d`（清 mark）→ 再推一条」正好钉住
+  「第一条带 `m2`、第二条空」。
+5. **`reset(seed, debuging = false)`**：第二参写进 `debugging`，并且**清空 `mark`**；
+  不传第二参时 `debugging` 回到 `false` ⇒ 记录会「静默停止」。这是 TS 的真实行为，
+  别顺手写成「保持原值」。
+6. **早返回不记录**：`range(min, max)` 在 `min == max` 时直接 `return min` ——
+  既不消耗随机数也不推条目（用例在同一段里连打两次 `range 5 5`，编号不变）。
+7. **隐式双条目**：`float()` 内部调 `int()` ⇒ 一次 `float` 推两条（先 `[int,n]` 后 `[float,f]`）；
+  `pick` / `take` 内部调 `range(0, len)` ⇒ 先来一条 `[range, 0, len, index]`。
+  `cases` 转储把这两类隐式条目全部包含，所以它们是**可观察**的。
+8. **`log_case` 不带 tag**：`case(…any)` 等价于 `push(mark, …args)`（没有 `'case'` 标签）；
+  而 `int` / `float` / `range` / `pick` / `take` 走的 `log_entry` 会**在参数最前面插 tag**。
+9. **`pure()` 的 `mt` 是拷贝**（TS `[...this.mt]`）⇒ C++ 用 `std::array` 值语义天然对齐。
+  ⚠️ TS 的 `_mt` 词在 `twist()` 之后是 **JS 位运算的 signed int32**（`int()` 只在返回时 `>>> 0`），
+  端口用 `uint32_t` 存同一批**位模式**；差分里凡直接打印 `mt[i]` 的地方都要先 `>>> 0`
+  （`state` 哈希一直在做，所以此前从未暴露）。
+10. **`load(info)` 是逐字段赋值**：`matrix` / `upper_mask` / `lower_mask` / `mt` / `index` /
+   `seed` / `times` / `mark`。TS 里 `this._mt = info.mt` 是**别名**，C++ 侧值语义替换 ⇒
+   差异不可观察（`pure()` 每次都给新拷贝）。
+11. **`take<T>` 的 `splice` 是原地删除**：harness 必须打印调用**之后**的数组才能看见
+   「删的是哪一个」；端口为此给 `Array` 加了 `remove_at`（`i >= size` 的守卫与
+   `pick_value` 同款，空数组时可达）。
+12. **`take` 推送的长度是「删之前」的长度**：TS 先 `push` 再 `splice` ⇒ 端口也必须
+   先 `log_entry` 再 `erase`（用例里 `take 10 20 30 40` 的条目是 `[take,4,index]`）。
+
+### 53.3 harness 扩充（`subjects/mersenne_twister.{cpp,ts}` + 新用例 `mt_debug.txt`）
+
+- 新 op：`mark <token>` / `debug <0|1>` / `case <valueLiteral>…` / `cases`（`submit()` 转储 +
+  submit 后的 `cases.length`）/ `cinfo`（`name` + `separator`）/ `creset` / `pure`（逐字段）/
+  `load <field> <value>…`（以 `pure()` 为底改一个字段再 `load`，输出 `state` 哈希与 `mark`）/
+  `pickv` / `takev`（`Value` 版 `pick` / `take`，打印返回值与操作后的参数）。
+- `seed <n>` 增加可选的 `d` 尾参 ⇒ `reset(n, true)`；输出行追加 `debug=1`。
+- 场景（`mt_debug.txt`，133 行）覆盖：关闭时零条目 / 打开时每种抽取的条目与格式 /
+  `min == max` 的零条目 / `case` 的空参·原语·数组·对象 / mark 传递与清空 /
+  `submit` 的连续编号与清空 / 每个 `load` 字段（`mt` 取 0·1·5·622·623）/ 空数组与非数组的
+  `pickv`·`takev` / **`creset` 之前先攒两条未提交条目**（否则「只清 times 不清 cases」不可观察）/
+  **`pick` 连抽 6 次**让内层 `range` 的下标出现非 0 值（否则「下标一律记 0」不可观察）。
+- `mt_basic.txt` 不动（它是随机数本体的 7614 行基线）。
+- 首轮变异跑出 2 条幸存，**两条都是用例缺口、不是端口问题**（`creset` 前队列为空、
+  `pick` 的下标恰好都是 0），补上上面两条场景后转为全杀。
+
+### 53.4 有意不覆盖 / 不可观测项
+
+1. **`sus_cases`**：`src/` 里没有任何调用点 ⇒ 不建实例（等真有调用点的刀再建）。
+2. **`range(min, max, debugging = this.debugging)` 的第三参**：TS 里就是**死参数**
+  （函数体只看 `this.debugging`）⇒ 端口不保留该参数，也没有对应变异。
+3. **`pure()` 返回的 `mt` 是别名还是拷贝**：TS 是拷贝，C++ 是值语义 ⇒ 无法构造出
+  「返回别名」的 C++ 变异（没有可杀的变异，不是漏测）。
+4. **`load()` / `reset()` 返回 `*this`**：TS 的 `: this` 只服务链式调用，两边都没有链式调用点，
+  harness 也不链式 ⇒ 返回什么不可观察。
+5. **`MersenneTwisterInfo` 的字段默认值**：`pure()` 会写满全部字段，harness 也总以
+  `mt.pure()` 为底再改 ⇒ 默认值不可见。
+6. **`next_int` 里 `log_entry` 与 `++_times` 的先后**：条目文本不含 mt 自己的 `times`，
+  `state` 哈希在两者都完成之后取 ⇒ 任何顺序同值。
+

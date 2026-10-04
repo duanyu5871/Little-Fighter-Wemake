@@ -37,13 +37,25 @@ tests/differential/
 ### 1.2 subject: `mersenne_twister`
 
 ```
-seed  <number>                          # mt.reset(seed)；同时输出一行 run
+seed  <number> [d]                      # mt.reset(seed[, true])；同时输出一行 run
 int   <count>                           # 取 count 个原始 32 位整数
 float <count>                           # 取 count 个 [0,1) 浮点（已量化到 1/1000）
 range <min> <max> <count>               # 取 count 个 [min,max) 内的值
 pick  <item> <item> ...                 # 用 items 建数组，pick 一次（不改数组）
 take  <item> <item> ...                 # 用 items 建数组，take 一次（会移除元素）
 state                                   # 输出当前 MT 状态哈希
+mark  <token|"literal">                 # mt.mark = …
+debug <0|1>                             # mt.debugging = …
+case  <valueLiteral> ...                # mt.case(...)；输出参数个数（记录进 mt_cases）
+cases                                   # mt_cases.submit()：整段文本 + submit 后的 cases.length
+cinfo                                   # mt_cases 的 name / separator
+creset                                  # mt_cases.reset()
+pure                                    # mt.pure() 逐字段（matrix/upper/lower/index/seed/times/
+                                        #   mt.length/mt[0]/mt[1]/mt[623]/mark）
+load  <field> <value> [value]           # 以 mt.pure() 为底改一个字段后 mt.load(info)；
+                                        #   输出参数回显 + state 哈希 + mark
+pickv <valueLiteral>                    # mt.pick<T>(a)（Value 版）：返回值 + 操作后的 a
+takev <valueLiteral>                    # mt.take<T>(a)：同上（会 splice，打印删除后的数组）
 ```
 
 ### 1.3 subject: `math`
@@ -185,12 +197,19 @@ nested_multi_clear
 
 | subject | op | 输出 |
 |---|---|---|
-| mersenne_twister | `run` | `run <bits16>` |
+| mersenne_twister | `run` | `run <bits16>[ debug=1]` |
 | | `state` | `state <hex16>` |
 | | `int` | `int <decimal>` |
 | | `float` | `float <bits16>` |
 | | `range` | `range <bits16min> <bits16max> <bits16result>` |
 | | `pick` / `take` | `<op> <bits16\|-> <remaining>` |
+| | `mark` / `debug` | `mark <esc>` / `debug <0\|1>` |
+| | `case` | `case <参数个数>` |
+| | `cases` | `cases <esc(整段文本)> <submit 后的 cases.length>` |
+| | `cinfo` | `cinfo <esc(name)> <esc(separator)>` |
+| | `pure` | `pure <hex8×3> <index> <bits16seed> <times> <mt.length> <mt[0]/[1]/[623] hex8> <esc(mark)>` |
+| | `load` | `load <参数回显…> <hex16state> <esc(mark)>` |
+| | `pickv` / `takev` | `<op> <renderValue(返回值)> <renderValue(操作后的参数)>` |
 | math | `clamp` `clamp_add` `normalize` | `<op> <bits16>` |
 | | `float_equal` `equal` `eqgt` `eqlt` | `<op> <true\|false>` |
 | | `range` | `range <count> <bits16>...` 或 `range null` |
@@ -3190,3 +3209,31 @@ harness op：
     human ⇒ 不打（用例先 `run ctrl human` 再 `run transform`）；
     `reset()` 的 `player_id` 是 `""`，harness 的 `make_ctrl(0)` 曾经给 `"7"`
     —— 这一支就是它对齐的依据。
+
+### 6.9.97 `MersenneTwister` 调试面 + `Cases`（差分 7747 行，变异 115/115 全杀）
+
+- 新用例 `cases/mersenne_twister/mt_debug.txt`（133 行）；`mt_basic.txt` 不动（7614 行基线）。
+- 新增 op 见 §1.2；`seed` 多了可选尾参 `d`（`reset(seed, true)`）。
+- **每个观察点的作用**：
+  1. `cinfo` 钉 `Cases.name` / `separator`（`\uffe5`，输出走 `esc`）。
+  2. `cases` 同时打印 `submit()` 的整段文本**和** submit 之后的 `cases.length`
+     ⇒ 「拼接顺序 / 分隔符 / 编号连续 / submit 清空」四件事各有独立见证；
+     连打两次 `cases` 让「清空」可观察。
+  3. `mark` / `debug` / `case` 三件套是条目文本的三个自由度：前缀、有无、参数。
+     `case` 覆盖空参、原语（`n` / `s "a b"` / `b 1` / `u` / `z`）、数组、对象
+     —— 其中 `u`/`z` 在 `join` 里必须变**空串**（`[a b,true,-0.5,,]`）。
+  4. `pure` 逐字段打印（`mt.length` + `mt[0]`/`mt[1]`/`mt[623]` 三个**不相邻**的槽）：
+     只拷首尾的变异会被 `mt[1]` 杀，`mt` 不拷会被 `mt[0]` 杀。
+     ⚠️ TS 侧打印前先 `>>> 0`（`twist()` 之后是 signed int32 的同一批位模式，见 DESIGN §53.2-9）。
+  5. `load` 每个字段一条 line：`matrix`/`upper`/`lower`/`index`/`seed`/`times`/`mt`（0·1·5·622·623）/
+     `mark`；每条都回显参数 + `state` 哈希 + `mark` ⇒ 「改了哪一格」与「漏改」都可分辨。
+     之后的 `int` / `float` / `state` 证明载入回来的状态**能接着抽**。
+  6. `pickv` / `takev`（`Value` 版）覆盖数组（打印删除后的数组）· 空数组（走 `i >= size` 守卫）·
+     非数组（原样返回）· 假值（`undefined` / `null` ⇒ `undefined`）。
+  7. `creset` 之后再推两条 ⇒ `reset()` 清 `times`（编号从 1 重来）与清 `cases` 两件事都在。
+  8. 调试开/关在同一用例里来回切（`debug 0` 段必须零条目，`debug 1` 段必须每条都在），
+     并且 `seed 42 d` / `seed 7`（不带尾参）钉住「第二参覆盖 `debugging`」。
+- **不可观测项**（6 条，已写进 `mutations/mersenne_twister.mjs` 头部）：`sus_cases` 无调用点、
+  `range` 的第三参是死参数、`pure().mt` 的别名 vs 拷贝（C++ 值语义）、`load`/`reset` 的
+  `*this` 返回值、`MersenneTwisterInfo` 的字段默认值、`log_entry` 与 `++_times` 的先后。
+

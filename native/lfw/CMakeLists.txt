@@ -10,6 +10,7 @@ add_library(lfw_core STATIC
   ground.cpp
   world_dataset.cpp
   transform.cpp
+  cases.cpp
   defines/defines.cpp
   defines/labels.cpp
   defines/runtime_gen.cpp

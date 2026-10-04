@@ -31,6 +31,8 @@ class Array {
   const Value& at(size_t i) const { return _items[i]; }
   Value& at(size_t i) { return _items[i]; }
   void push_back(Value v) { _items.push_back(std::move(v)); }
+  // `a.splice(i, 1)`：只按调用者保证的下标删除。
+  void remove_at(size_t i) { _items.erase(_items.begin() + static_cast<std::ptrdiff_t>(i)); }
   const std::vector<Value>& items() const { return _items; }
 
  private:

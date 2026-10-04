@@ -1,7 +1,10 @@
 #include "mersenne_twister.h"
 
+#include <algorithm>
 #include <cstdint>
+#include <utility>
 
+#include "lfw/cases.h"
 #include "lfw/core/js_num.h"
 #include "lfw/core/state_hash.h"
 #include "lfw/utils/math/base.h"
@@ -9,7 +12,46 @@
 
 namespace lfw {
 
-void MersenneTwister::reset(double seed) {
+// `mt_cases.push(this.mark, tag, …args)`
+void MersenneTwister::log_entry(const std::u16string& tag, std::vector<Value> args) {
+  if (!debugging) return;
+  args.insert(args.begin(), Value(tag));
+  mt_cases().push(mark, args);
+}
+
+void MersenneTwister::log_case(const std::vector<Value>& args) {
+  if (!debugging) return;
+  mt_cases().push(mark, args);
+}
+
+MersenneTwisterInfo MersenneTwister::pure() const {
+  MersenneTwisterInfo info;
+  info.matrix = _matrix;
+  info.upper_mask = _upper_mask;
+  info.lower_mask = _lower_mask;
+  std::copy(_mt.begin(), _mt.end(), info.mt.begin());
+  info.index = _index;
+  info.seed = _seed;
+  info.times = _times;
+  info.mark = mark;
+  return info;
+}
+
+MersenneTwister& MersenneTwister::load(const MersenneTwisterInfo& info) {
+  _matrix = info.matrix;
+  _upper_mask = info.upper_mask;
+  _lower_mask = info.lower_mask;
+  _mt = info.mt;
+  _index = info.index;
+  _seed = info.seed;
+  _times = info.times;
+  mark = info.mark;
+  return *this;
+}
+
+MersenneTwister& MersenneTwister::reset(double seed, bool debuging) {
+  debugging = debuging;
+  mark.clear();
   _matrix = 0x9908b0dfu;
   _upper_mask = 0x80000000u;
   _lower_mask = 0x7fffffffu;
@@ -31,6 +73,8 @@ void MersenneTwister::reset(double seed) {
 
     _mt[i] = part_hi + part_lo + static_cast<uint32_t>(i);
   }
+
+  return *this;
 }
 
 void MersenneTwister::twist() {
@@ -55,21 +99,27 @@ uint32_t MersenneTwister::next_int() {
   y ^= (y << 15) & 0xefc60000u;
   y ^= (y >> 18);
 
+  log_entry(u"int", {Value(static_cast<double>(y))});
   ++_times;
   return y;
 }
 
 double MersenneTwister::next_float() {
-  return floor_float(static_cast<double>(next_int()) / 4294967296.0);
+  const double ret = floor_float(static_cast<double>(next_int()) / 4294967296.0);
+  log_entry(u"float", {Value(ret)});
+  return ret;
 }
 
 double MersenneTwister::range(double min, double max) {
   if (min == max) return min;
-  return floor(next_float() * (max - min)) + min;
+  const double ret = floor(next_float() * (max - min)) + min;
+  log_entry(u"range", {Value(min), Value(max), Value(ret)});
+  return ret;
 }
 
 std::optional<double> MersenneTwister::pick(const std::vector<double>& arr) {
   const double index = range(0.0, static_cast<double>(arr.size()));
+  log_entry(u"pick", {Value(static_cast<double>(arr.size())), Value(index)});
   const uint32_t i = js_to_uint32(index);
   if (i >= arr.size()) return std::nullopt;
   return arr[i];
@@ -81,6 +131,7 @@ Value MersenneTwister::pick_value(const Value& a) {
   const Array* arr = as_array(a);
   if (arr == nullptr) return a;
   const double index = range(0.0, static_cast<double>(arr->size()));
+  log_entry(u"pick", {Value(static_cast<double>(arr->size())), Value(index)});
   const uint32_t i = js_to_uint32(index);
   if (i >= arr->size()) return Value();
   return arr->at(i);
@@ -88,10 +139,24 @@ Value MersenneTwister::pick_value(const Value& a) {
 
 std::optional<double> MersenneTwister::take(std::vector<double>& arr) {
   const double index = range(0.0, static_cast<double>(arr.size()));
+  log_entry(u"take", {Value(static_cast<double>(arr.size())), Value(index)});
   const uint32_t i = js_to_uint32(index);
   if (i >= arr.size()) return std::nullopt;
   const double v = arr[i];
   arr.erase(arr.begin() + static_cast<std::ptrdiff_t>(i));
+  return v;
+}
+
+Value MersenneTwister::take_value(Value& a) {
+  if (!truthy(a)) return Value();
+  Array* arr = as_array(a);
+  if (arr == nullptr) return a;
+  const double index = range(0.0, static_cast<double>(arr->size()));
+  log_entry(u"take", {Value(static_cast<double>(arr->size())), Value(index)});
+  const uint32_t i = js_to_uint32(index);
+  if (i >= arr->size()) return Value();
+  const Value v = arr->at(i);
+  arr->remove_at(i);
   return v;
 }
 
