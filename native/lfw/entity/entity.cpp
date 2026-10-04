@@ -1144,6 +1144,59 @@ void Entity::mp_recovering() {
   set_mp(min(mp_max(), _mp + value));
 }
 
+// --- marks / emitter helpers ---------------------------------------------------
+
+bool Entity::set_mark(const std::u16string& key, const std::u16string& value,
+                      const std::optional<Value>& prev) {
+  const auto it = marks.find(key);
+  const Value cur = it != marks.end() ? Value(it->second) : Value();
+  if (!prev.has_value() || nullish(*prev) || equals(cur, *prev)) {
+    marks[key] = value;
+    return true;
+  }
+  return false;
+}
+
+bool Entity::del_mark(const std::u16string& key, const std::optional<Value>& value) {
+  const auto it = marks.find(key);
+  const Value cur = it != marks.end() ? Value(it->second) : Value();
+  if (!value.has_value() || nullish(*value) || equals(cur, *value)) {
+    return marks.erase(key) != 0;
+  }
+  return false;
+}
+
+bool Entity::is_ally(const Entity& other) const { return _team == other._team; }
+
+Entity* Entity::get_emitter(double idx) const {
+  if (!(idx >= 0) || std::floor(idx) != idx) return nullptr;
+  const std::size_t i = static_cast<std::size_t>(idx);
+  if (i >= emitters.size()) return nullptr;
+  // `if (!emittier_id) return;` — an empty id is falsy, so it never resolves.
+  if (emitters[i].empty()) return nullptr;
+  return host_->find_entity(emitters[i]);
+}
+
+Value Entity::get_opoint_speed_z(const Entity* emitter, const Value& opoint) const {
+  const Value speedz = field_or(opoint, u"speedz");
+  if (!std::holds_alternative<std::monostate>(speedz)) return speedz;
+  // `is_fighter(emitter)` only reads `emitter.data`; `v?.data` makes a missing
+  // emitter behave like a non-fighter.
+  if (emitter == nullptr || !entity::is_fighter_data(emitter->data())) return Value(0.0);
+  // `switch (this.state)` compares strictly, so a non-number state never matches.
+  const Value st = state();
+  const double* d = std::get_if<double>(&st);
+  if (d != nullptr) {
+    if (*d == static_cast<double>(StateEnum::Ball_Flying) ||
+        *d == static_cast<double>(StateEnum::Ball_3006) ||
+        *d == static_cast<double>(StateEnum::Weapon_Throwing) ||
+        *d == static_cast<double>(StateEnum::HeavyWeapon_InTheSky)) {
+      return defines::num(u"Defines.DEFAULT_OPOINT_SPEED_Z");
+    }
+  }
+  return Value(0.0);
+}
+
 // --- snapshot ----------------------------------------------------------------
 
 // `to_snapshot(nums, strs)`: every slot is written, so an array allocated with

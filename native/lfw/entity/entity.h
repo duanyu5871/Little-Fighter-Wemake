@@ -312,6 +312,23 @@ class Entity {
   void hp_recovering();
   void mp_recovering();
 
+  // --- marks / emitter helpers -------------------------------------------------
+  // `set_mark` / `del_mark` are the `Map<string, string>` pair the buff & collision
+  // layers write; `prev` / `value` use JS `==` (so a `null` guard behaves like the
+  // missing one) and the stored string is compared loosely too.
+  bool set_mark(const std::u16string& key, const std::u16string& value,
+                const std::optional<Value>& prev = std::nullopt);
+  bool del_mark(const std::u16string& key,
+                const std::optional<Value>& value = std::nullopt);
+  bool is_ally(const Entity& other) const;
+  // `this.emitters[idx]` → `world.entity_map.get(...)`; a fractional / negative /
+  // out-of-range index behaves like a hole in the JS array (`undefined`).
+  Entity* get_emitter(double idx) const;
+  // `get_opoint_speed_z(emitter, opoint)`: `speedz !== void 0` wins (a `null` is
+  // passed through), otherwise only fighters in a ball / throwing state get the
+  // default z speed.  A missing emitter (`undefined` upstream) is not a fighter.
+  Value get_opoint_speed_z(const Entity* emitter, const Value& opoint) const;
+
   // --- snapshot (`to_snapshot` / `read_snapshot`) -----------------------------
   // TS hands over `number[]` / `string[]`; the port keeps `Value` entries so a slot
   // whose TS type allows `null` stays distinguishable from `NaN` in both directions.

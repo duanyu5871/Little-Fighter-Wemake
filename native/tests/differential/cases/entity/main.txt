@@ -1752,3 +1752,105 @@ run get mp
 run rec mp
 run rec mp
 run snap
+
+# --- 9f: marks / emitter / opoint speed ---
+run make o 5 id s "m1" type n 1 name s "Mk" base o 1 armor o 1 toughness n 5 frames o 0
+run mark s "k1" s "v1"
+run mark s "k1" s "v2"
+run mark s "k1" s "v3" s "v2"
+run mark s "k1" s "v3" s "v1"
+run mark s "k1" s "v3" z
+run mark s "k2" s "x" z
+run mark s "k2" s "y" s "x"
+run mark s "k3" s "z" s "nope"
+run mark s "k3" s "z" n 3
+run mark n 7 s "num"
+run mark s "k9" s "3"
+run mark s "k9" s "ok" n 3
+run mark s "k9" s "ok2" n 9
+run delmark s "k9" n 3
+run delmark s "k9"
+run mark s "k7" s "7"
+run delmark s "k7" n 7
+run mark s "k8" s "8"
+run delmark s "k8" s "8"
+run emit 2 s ""
+run getemitter 2
+run mark s "k1" s "v3" s "v3"
+run delmark s "k2"
+run delmark s "k3"
+run delmark s "k3" s "zz"
+run delmark s "k3" z
+run delmark s "k1" s "v3"
+run delmark s "k1" s "v3"
+run mark s "k1" s "back" s ""
+run delmark s "k1" u
+run delmark s "nope"
+run set team s "7"
+run ally self
+run buddy o 5 id s "b9" type n 8 name s "Bu9" base o 1 armor o 1 toughness n 5 frames o 0
+run buddyset team s "7"
+run ally buddy
+run buddyset team s "8"
+run ally buddy
+run set team s "8"
+run ally buddy
+run buddyset team s ""
+run set team s ""
+run ally buddy
+run set team s "x"
+run ally buddy
+run emitid 0 buddy
+run emit 1 s "nobody"
+run getemitter 0
+run getemitter 1
+run emitid 1 buddy
+run getemitter 1
+run getemitter 2
+run getemitter 3
+run getemitter -1
+run getemitter 1.5
+run getemitter 0.5
+run opointz self o 1 speedz n 7
+run opointz self o 1 speedz z
+run opointz null o 1 speedz n 7
+run opointz null o 1 speedz z
+run opointz null o 0
+run opointz self o 0
+run opointz buddy o 0
+run frame o 2 id s "s1" state n 3000
+run opointz buddy o 0
+run opointz self o 0
+run opointz null o 0
+run frame o 2 id s "s1" state n 1002
+run opointz buddy o 0
+run frame o 2 id s "s1" state n 3006
+run opointz buddy o 0
+run frame o 2 id s "s1" state n 2000
+run opointz buddy o 0
+run frame o 2 id s "s1" state n 3009
+run opointz buddy o 0
+run frame o 2 id s "s1" state s "1002"
+run opointz buddy o 0
+run frame o 2 id s "s1" state n 1002.5
+run opointz buddy o 0
+run frame o 2 id s "s1" state z
+run opointz buddy o 0
+run frame o 2 id s "s1" state u
+run opointz buddy o 0
+
+# --- 9f: an empty emitter id is falsy, so it never resolves ---
+run snapbuf
+run snappokestr ID s ""
+run snapapply
+run emit 0 s ""
+run getemitter 0
+run emitid 0 self
+run getemitter 0
+
+# --- 9f: the loose mark comparison reads the receiver's own map ---
+run mark s "kZ" s "v" s ""
+run mark s "kd" s "keep"
+run delmark s "kd" s "other"
+run delmark s "kd" z
+run delmark s "kd"

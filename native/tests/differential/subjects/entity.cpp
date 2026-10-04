@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cstdio>
 #include <fstream>
 #include <memory>
@@ -835,6 +836,87 @@ int main(int argc, char** argv) {
         }
         std::printf("run summaries || %s | graves=%zu items%s\n", join(g_log).c_str(),
                     lfw::summary_mgr().grave_count(), s.c_str());
+      } else if (what == "mark" || what == "delmark") {
+        const Value key = parse_value(t, i);
+        const std::optional<Value> value =
+            what == "mark"
+                ? std::optional<Value>(parse_value(t, i))
+                : std::nullopt;
+        const std::optional<Value> guard =
+            i < t.size() ? std::optional<Value>(parse_value(t, i)) : std::nullopt;
+        const bool ok = what == "mark"
+                            ? g_entity->set_mark(text_of(key), text_of(*value), guard)
+                            : g_entity->del_mark(text_of(key), guard);
+        std::string marks;
+        {
+          std::vector<std::pair<std::string, std::string>> entries;
+          for (const auto& kv : g_entity->marks) {
+            entries.emplace_back(s_of(kv.first), s_of(kv.second));
+          }
+          // `std::map` is key-ordered, but the TS side has to sort a `Map` by hand;
+          // sorting here too keeps the two dumps identical.
+          std::sort(entries.begin(), entries.end());
+          for (const auto& kv : entries) {
+            if (!marks.empty()) marks += ",";
+            marks += kv.first + ":" + kv.second;
+          }
+        }
+        std::printf("run %s %s %s %s || %s | v=%s marks=%s\n", what.c_str(),
+                    render(key).c_str(),
+                    value.has_value() ? render(*value).c_str() : "-",
+                    guard.has_value() ? render(*guard).c_str() : "-", join(g_log).c_str(),
+                    render(Value(ok)).c_str(), marks.c_str());
+      } else if (what == "ally") {
+        const std::string& which = t[i++];
+        const Entity* other = which == "buddy" ? g_buddy.get() : g_entity.get();
+        std::printf("run ally %s || %s | v=%s team=%s other=%s\n", which.c_str(),
+                    join(g_log).c_str(), render(Value(g_entity->is_ally(*other))).c_str(),
+                    render(Value(g_entity->team())).c_str(),
+                    other != nullptr ? render(Value(other->team())).c_str() : "-");
+      } else if (what == "emit") {
+        const std::string& idx_tok = t[i++];
+        const double idx = trace::to_double(idx_tok);
+        const Value id_value = parse_value(t, i);
+        if (idx < 0 || std::floor(idx) != idx) {
+          std::fprintf(stderr, "bad emitter index at line %d\n", lineno);
+          return 2;
+        }
+        const std::size_t k = static_cast<std::size_t>(idx);
+        if (g_entity->emitters.size() <= k) g_entity->emitters.resize(k + 1);
+        g_entity->emitters[k] = text_of(id_value);
+        std::printf("run emit %s %s || %s | n=%zu\n", idx_tok.c_str(),
+                    render(id_value).c_str(), join(g_log).c_str(),
+                    g_entity->emitters.size());
+      } else if (what == "emitid") {
+        const std::string& idx_tok = t[i++];
+        const std::string& which = t[i++];
+        const double idx = trace::to_double(idx_tok);
+        const Entity* target = which == "buddy" ? g_buddy.get() : g_entity.get();
+        const std::u16string eid = target != nullptr ? target->id : std::u16string();
+        if (idx < 0 || std::floor(idx) != idx) {
+          std::fprintf(stderr, "bad emitter index at line %d\n", lineno);
+          return 2;
+        }
+        const std::size_t k = static_cast<std::size_t>(idx);
+        if (g_entity->emitters.size() <= k) g_entity->emitters.resize(k + 1);
+        g_entity->emitters[k] = eid;
+        std::printf("run emitid %s %s || %s | n=%zu\n", idx_tok.c_str(), which.c_str(),
+                    join(g_log).c_str(), g_entity->emitters.size());
+      } else if (what == "getemitter") {
+        const std::string& idx_tok = t[i++];
+        Entity* e = g_entity->get_emitter(trace::to_double(idx_tok));
+        std::printf("run getemitter %s || %s | v=%s\n", idx_tok.c_str(), join(g_log).c_str(),
+                    e != nullptr ? render(id_ref(e)).c_str() : "u");
+      } else if (what == "opointz") {
+        const std::string& which = t[i++];
+        const Entity* other = which == "buddy"   ? g_buddy.get()
+                              : which == "null" ? nullptr
+                                                : g_entity.get();
+        const Value opoint = parse_value(t, i);
+        std::printf("run opointz %s %s || %s | v=%s state=%s\n", which.c_str(),
+                    render(opoint).c_str(), join(g_log).c_str(),
+                    render(g_entity->get_opoint_speed_z(other, opoint)).c_str(),
+                    render(g_entity->state()).c_str());
       } else if (what == "rec") {
         const std::string& which = t[i++];
         if (which == "stat") g_entity->stat_recovering();

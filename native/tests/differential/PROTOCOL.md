@@ -2687,7 +2687,7 @@ harness op：
 9. **`env hook` 只对指定键生效**：`jump_height` 之外（`gravity`/`screen_w`/`screen_h`/`difficulty`）
    的 `set` 只有 `dataset_change` 一条日志，锁住「键钩子按名查找、整体回调对所有托管键生效」。
 
-### 6.9.96 `entity`（差分 1653 行，变异 464/464 全杀）
+### 6.9.96 `entity`（差分 1749 行，变异 502/502 全杀）
 
 harness op：
 
@@ -2736,6 +2736,12 @@ harness op：
 - 恢复层（9e 追加）：`run rec <stat|hp|mp|toughness|fall|defend>`（直接调那六支恢复函数）、
   `run set atom_time <数字>`（窥视写 `_atom_time`）。
   这两组 op 配合 9d 的 `snapbuf` / `snappoke` / `snapapply` 精确摆位 `Times` 的五个槽位。
+- 标记 / 发射者层（9f 追加）：`run mark <键> <值> [prev]`、`run delmark <键> [值]`
+  （都打印 `v=b0|b1` 与**排序后**的 marks 转储 `k:v,k2:v2`）、
+  `run ally self|buddy`（同时打印双方的 `team`）、
+  `run emit <下标> <id 字面量>` / `run emitid <下标> self|buddy`（写发射者数组，
+  后者塞活实体的 id 以免写死）、`run getemitter <下标>`（渲染解析到的实体，`u` 表示解析不到）、
+  `run opointz <self|buddy|null> <opoint 字面量>`（同时打印 `state`）。
 
 输出：
 
@@ -2771,7 +2777,13 @@ harness op：
 - `run snappoke <槽位名> <值> || <日志> | v=<值>`、`run snappokestr … || <日志> | v=<值>`；
 - `run snappokeid <槽位名> <self|buddy> || <日志> | v=<该实体的 id>`；
 - `run rec <哪种> || <日志> | hp=… hpr=… mp=… mpmax=… r=… t=… tr=… fv=… dv=…`；
-- `run copy <字符串> || <日志> | added=<b0|b1>`。
+- `run copy <字符串> || <日志> | added=<b0|b1>`；
+- `run mark|delmark <键> … || <日志> | v=<b0|b1> marks=<排序后的 k:v 列表>`；
+- `run ally <self|buddy> || <日志> | v=<b0|b1> team=<自己队伍> other=<对方队伍>`；
+- `run emit <下标> <id> || <日志> | n=<发射者数组长度>`、
+  `run emitid <下标> <self|buddy> || <日志> | n=<发射者数组长度>`；
+- `run getemitter <下标> || <日志> | v=<实体或 u>`（渲染成 `{"id":s"…"}`）；
+- `run opointz <self|buddy|null> <opoint> || <日志> | v=<返回值> state=<当前 state>`。
 
 日志项（按发生顺序、逗号分隔）：`on_*_changed:<self|?>:<新值>:<旧值>`、`on_dead:<self>`、
 `on_ctrl_changed:<vc>:<前一个>:<self>`（控制器渲染成 `base|human|bot|u`）、
@@ -2959,3 +2971,24 @@ harness op：
 53. **四个 tick 区间互不相同**（`hp_r_ticks 3` / `mp_r_ticks 2` / `toughness_r_tick 2` /
     `fall_r_ticks 5` / `defend_r_ticks 4`），任何「读了别的数据集键 / 用了别的 tick」
     都会在门控次数上错位。
+54. **标记的宽松 `==`**：先存 `k9 = "3"`，再用 `run mark k9 ok n 3`（数字 3）命中
+    `set_mark`；`k7 = "7"` + `run delmark k7 n 7` 命中 `del_mark`
+    （第一轮变异就是在这条上活下来，补了这一对场景才杀掉）——「严格比较 / 不看 prev /
+    把 null 当期望值」三种写法都会在这些行分叉；`run mark kZ v s ""` 则是
+    「缺键不该等于空串」的反例。
+55. **`del_mark` 的返回值就是 `Map.delete`**：`kd` 存在时「prev 不匹配 → `b0` 且不删」、
+    「`z` → `b1` 且删掉」、「无 prev → `b0`（已删）」三连，
+    转储在每一步都跟着变，所以「删了却报 false」「报了 true 却没删」都必须露。
+56. **`is_ally`**：队伍相等 / 不等 / 空串相等 / `"x"` 四条读数，
+    再配合 `run buddy` 重造实体（同一实体 `self` 恒真）——「比较对象写错」「恒真」「取反」被杀。
+57. **发射者下标的 JS 语义**：`0`（指向 buddy，能解析）、`1`（先 `"nobody"` 查不到
+    → `u`，再 `emitid 1 buddy` → 能解析）、`2`（空串 id）、`3`（越界）、`-1`（负）、
+    `1.5` 与 `0.5`（分数）——「不查整数」「只看 0 号槽」「空串照查」都会露。
+58. **空串 emitter id**：把实体 id 用快照窥视口改成 `""`（`snappokestr ID` +
+    `snapapply`）之后 `run getemitter 0` 仍是 `u`——此时宿主 `find_entity("")`
+    是能查到实体的，所以「漏了 `if (!id) return;`」立刻变成「返回那个实体」。
+59. **出弹点速度的四态矩阵**：状态 `3000 / 1002 / 3006 / 2000` 各给
+    `3.5`（`Defines.DEFAULT_OPOINT_SPEED_Z`），`3009` / `s "1002"` / `1002.5` /
+    `z` / `u` 一律 `0`；再加上 `speedz n 7`（先胜出）、`speedz z`（原样返回）、
+    `null` emitter（非 fighter）、`self` emitter（`type = 1`，非 fighter）
+    与 `buddy` emitter（`type = 8`，fighter）的对照，四个分支与两个守卫全被锁死。

@@ -59,6 +59,14 @@ let gSnapStrs: unknown[] = new Array<unknown>(Number(SSlot.COUNT));
 // thing as the port without dumping a whole entity.
 const idRef = (e: Entity | null | undefined): unknown => (e ? { id: e.id } : null);
 
+// `marks` is a `Map`, so the dump keeps the insertion order the port's `std::map`
+// cannot promise — sort by key to make both sides print the same text.
+const marksText = (e: Entity): string =>
+  [...(e as unknown as { marks: Map<string, string> }).marks.entries()]
+    .map(([k, v]) => `${k}:${v}`)
+    .sort()
+    .join(",");
+
 const renderNums = (nums: unknown[]): string =>
   Array.from({ length: nums.length }, (_v, k) => r(nums[k])).join(",");
 
@@ -930,6 +938,62 @@ function main(): void {
         let s = "";
         for (const [id, sum] of m._items) s += ` ${id}:${r(sum.hp_lost)}/${r(sum.mp_usage)}`;
         out.push(`run summaries || ${log.join(",")} | graves=${m._graves.length} items${s}`);
+      } else if (what === "mark" || what === "delmark") {
+        const idx = [i];
+        const key = parseValue(t, idx);
+        const hasValue = what === "mark";
+        const value = hasValue ? parseValue(t, idx) : undefined;
+        const hasGuard = idx[0] < t.length;
+        const guard = hasGuard ? parseValue(t, idx) : undefined;
+        const e = ent as unknown as {
+          set_mark(k: string, v: string, prev?: unknown): boolean;
+          del_mark(k: string, prev?: unknown): boolean;
+        };
+        const ok =
+          what === "mark"
+            ? e.set_mark(String(key), String(value), guard)
+            : e.del_mark(String(key), guard);
+        out.push(
+          `run ${what} ${r(key)} ${hasValue ? r(value) : "-"} ${hasGuard ? r(guard) : "-"} || ${log.join(",")} | v=${r(ok)} marks=${marksText(ent!)}`,
+        );
+      } else if (what === "ally") {
+        const which = t[i++]!;
+        const other = which === "buddy" ? buddy : ent;
+        out.push(
+          `run ally ${which} || ${log.join(",")} | v=${r(ent!.is_ally(other!))} team=${r(ent!.team)} other=${other ? r(other.team) : "-"}`,
+        );
+      } else if (what === "emit") {
+        const idx = Number(t[i++]!);
+        const idValue = parseValue(t, [i]);
+        const list = (ent as unknown as { emitters: string[] }).emitters;
+        list[idx] = String(idValue);
+        out.push(
+          `run emit ${idx} ${r(idValue)} || ${log.join(",")} | n=${list.length}`,
+        );
+      } else if (what === "emitid") {
+        const idxToken = t[i++]!;
+        const which = t[i++]!;
+        const idx = Number(idxToken);
+        const target = which === "buddy" ? buddy : ent;
+        const eid = target !== undefined ? target.id : "";
+        const list = (ent as unknown as { emitters: string[] }).emitters;
+        list[idx] = eid;
+        out.push(
+          `run emitid ${idxToken} ${which} || ${log.join(",")} | n=${list.length}`,
+        );
+      } else if (what === "getemitter") {
+        const idx = Number(t[i++]!);
+        const found = ent!.get_emitter(idx);
+        out.push(
+          `run getemitter ${idx} || ${log.join(",")} | v=${found === undefined ? "u" : r(idRef(found))}`,
+        );
+      } else if (what === "opointz") {
+        const which = t[i++]!;
+        const other = which === "buddy" ? buddy : which === "null" ? undefined : ent;
+        const opoint = parseValue(t, [i]);
+        out.push(
+          `run opointz ${which} ${r(opoint)} || ${log.join(",")} | v=${r(ent!.get_opoint_speed_z(other!, opoint as never))} state=${r(ent!.state)}`,
+        );
       } else if (what === "rec") {
         const which = t[i++]!;
         const e = ent!;

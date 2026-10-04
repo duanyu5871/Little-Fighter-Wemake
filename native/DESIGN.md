@@ -4897,3 +4897,70 @@ TS 侧 `WorldDataset` 有 103 个字段，但**所有已经移植过的调用点
 - `Times` 的内部状态（`VALUE/MIN/MAX/LIFES/REMAINS` 五个槽位）直接用 9d 的快照窥视口
   `snappoke` 精确摆位（例如把 `HP_R_TICK_REMAINS` 设成 0 验证「耗尽后永不再触发」），
   再用 `run snap` 读回——9d 的快照能力在这里第一次被别的切片当工具用。
+## 49. 切片 9f：`Entity` 的标记 / 发射者 / 出弹点速度
+
+`entity.{h,cpp}` 的第六刀：`set_mark` / `del_mark` / `is_ally` / `get_emitter` /
+`get_opoint_speed_z`。这五支是「不含状态机、不含 World」的最后一批纯逻辑：
+前四支只读自身的 `marks` / `_team` / `emitters`，最后一支只读 `frame.state` 与
+emitter 的 `data.type`，所以仍然可以整片锁死。
+
+### 49.1 单元边界（为什么是这五支）
+1. **`marks` 是 `Map<string, string>`**：端口用 `std::map`（键唯一 + 按 key 有序）。
+   JS `Map` 是插入序，端口是字典序，所以 harness 两侧都把转储**排序**后再打印
+   （`k:v` 逗号拼接），让「顺序」不再是差异来源，只留「内容」。
+2. **`set_mark` / `del_mark` 的 `prev == void 0` 是宽松比较**：
+   `null` 也算「没有期望值」；`marks.get(key) == prev` 同样是 `==`，
+   所以存了 `"3"` 的标记能被 `prev = 3`（数字）命中。端口这两处都用 `equals`（JS `==` 语义），
+   而不是别处常用的 `strict_equals`。
+3. **`del_mark` 返回的是 `Map.delete` 的返回值**（删到了才 true），
+   而不是「条件成立」；条件成立但键不存在时是 `false`。
+4. **`is_ally` 是严格 `===`**：团队字段是字符串领域，宽松与严格在字符串上不可区分，
+   所以这条只能靠「比较对象写错 / 取反 / 恒真」这类变异检验。
+5. **`get_emitter(idx)`**：`this.emitters[idx]` 是 JS 数组下标（分数 / 负数 / 越界
+   一律 `undefined`），随后 `if (!id) return;` 把**空串**（唯一的假值字符串）也拦掉，
+   最后 `world.entity_map.get(id)` 查不到就是 `undefined`。
+6. **`get_opoint_speed_z(emitter, opoint)`**：`speedz !== void 0` 先胜出
+   （`null` 原样返回，`undefined` 才落到默认），然后 `is_fighter(emitter)`
+   只读 `emitter.data`（`v?.data` 让缺失的 emitter 也走「非 fighter」），
+   最后 `switch (this.state)` 是**严格数字开关**：只有
+   `Ball_Flying(3000)` / `Ball_3006(3006)` / `Weapon_Throwing(1002)` /
+   `HeavyWeapon_InTheSky(2000)` 四个状态给 `Defines.DEFAULT_OPOINT_SPEED_Z`，
+   其余（含字符串 `"1002"`、小数 `1002.5`、`null`、`undefined`）一律 `0`。
+
+### 49.2 保真要点
+1. **端口签名收 `const Entity*`**：TS 里 emitter 可以是 `undefined`（调用方
+   `get_emitter` 的返回值），`is_fighter(undefined)` 走 `v?.data` → false → `0`。
+   差分有 `run opointz null …` 场景锁这条路径（`speedz` 存在时仍然先返回 `speedz`）。
+2. **`emitter->data()` 与 `data()` 不是一回事**：一个是发射者的数据（决定
+   `is_fighter`），一个是自己的数据（决定 `frame.state` 的宿主）。harness 故意让
+   buddy 的 `type = 8`（fighter）而自动生成的那个实体是 `type = 1`，
+   于是「读错对象」的变异立刻在两端的 `opointz` 读数上分叉。
+3. **空串 emitter id 必须真的拦掉**：`run emit 0 s ""` 之后 `get_emitter`
+   必须返回 `undefined`。为了让「去掉空串检查」这条变异可杀，差分用 9d 的快照窥视口
+   把实体的 id 改成 `""`（`snappokestr ID` + `snapapply`），此时宿主
+   `find_entity("")` 是能查到实体的——只有真的判断了空串才会返回 `undefined`。
+4. **`state` 不做数值化**：端口先 `std::get_if<double>` 再比较，
+   没有 `to_number` 那一层；差分对同一个实体跑
+   `n 3000 / n 1002 / n 3006 / n 2000 / n 3009 / s "1002" / n 1002.5 / z / u`
+   九个状态，任何一种「提前转成数字」都会在字符串与小数两行露出来。
+
+### 49.3 有意不覆盖 / 不可观测项
+- `if (!(idx >= 0) || …)` 里去掉 `!(idx >= 0)` 那一半是**等价变异**：
+  `-1` 转成 `size_t` 是巨大值，仍会被越界检查挡住并返回 `undefined`，不列条目。
+- `i >= emitters.size()` 改成 `i > emitters.size()` 会越界读（UB），不作为变异条目。
+- `del_mark` 里「缺键读成 `""` 而不是 `undefined`」不可观测：缺键时
+  `Map.delete` 无论如何都返回 `false`，转储也不会变，所以同一处只对 `set_mark` 列条目。
+- `is_ally` 的严格 / 宽松在字符串团队上同义，没有对应变异条目。
+- `speedz` 是对象 / 数组这类非数字时，两端都原样返回（`field_or` 交回 `Value`），
+  由「原样返回」那条覆盖，不再单列。
+
+### 49.4 harness 观察点
+- 新增 op：`run mark <键> <值> [prev]`、`run delmark <键> [值]`
+  （都打印 `v=b0|b1` 与排序后的 marks 转储）、`run ally self|buddy`
+  （同时打印双方的 `team`）、`run emit <下标> <id 字面量>`、
+  `run emitid <下标> self|buddy`（把活实体的 id 写进发射者数组，避免写死）、
+  `run getemitter <下标>`（渲染解析到的实体，`u` 表示解析不到）、
+  `run opointz <self|buddy|null> <opoint 字面量>`（同时打印 `state`）。
+- 场景矩阵：宽松 `==`（`n 3` 命中 `"3"`）、`z` 作 prev / value、缺键 vs `""`、
+  下标 `0 / 1 / 2 / 3 / -1 / 1.5 / 0.5` 与「同一 id 的空串」、
+  四个命中状态 + 未命中状态 + 字符串 / 小数 / `null` / `undefined` 状态。
