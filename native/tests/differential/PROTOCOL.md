@@ -3537,3 +3537,39 @@ harness op：
   记忆 Map、`Holding_W_Type` 的不可达 `?? 0`、`length_of` 的非数组/非字符串分支（同值）。
 - 未搬：`get_val_from_collision`（~90 条，要「两个真实实体的碰撞」台面）、
   `get_val_from_bot_ctrl` / `get_val_getter_from_stage`（要 `BotController` / `Stage`）。
+
+### 6.9.106 `controller/BallController` + `helper/closer_one`（`entity` 用例 2326+37+108+116+576+319 → +`ball_ctrl` **174** 行 = 3656；变异 **49/49** 全杀）
+
+- 移植：`controller/ball_controller.{h,cpp}`（`reset` / `chase_point` 惰性初始化 /
+  `set_chase_point` / `aim_at` / `update_lookup`（含 `reidentify` 与 `self_ref`） / `should_chase` /
+  `update` / `update_chasing` / `calc_dir` / `stop_chasing`）、`helper/closer_one.{h,cpp}`
+  （`Value` 版，同 `manhattan_xz`）、`defines/empty_frame_info.h`（`BallController.frame` 的初值）、
+  `entity/entity_flag.h`（`flag_between`，`Entity::get_flag` 改成调它）、`core/same_ref.h`
+  （从 `entity.cpp` 抽出来共用）、`entity/entity_ref.{h,cpp}`（`ref_of`：实体 → `Value` 引用）。
+- 改动：`BaseController::{is_ball_ctrl,reset,update}` 改 `virtual`，`chasing` 从 `Entity*` 变成
+  `Value` 引用（`spawn` 的 `OpointMultiEnum` 三处改 `ref_of(*e)`）；`CtrlEnv` 新增
+  `hp` / `type` / `frame`，由 `refresh_ctrl_env` 填。
+- 新增 op（`entity`）：
+  * `run ctrl ball` → 造真 `BallController` 挂到实体上（TS 侧同款 `new BallController(...)`），
+    印 `v=ball`。**可以有第二条**（用例靠它看 `reset` 的字段初值）。
+  * `run ball <point|aim|lookup|should|dir|stop|update|closer> …` → 每条先 `refresh_ctrl_env()`，
+    观察点 = `chasing`（打成 `{id}`/`null`，与 TS 的 `idRef` 逐字对齐）/ `pt` / `dir` /
+    `leave` / `gaveup` / `lr,ud,jd` / 六个键的 `hit|hold`。候选名单复用 `env ents` 那一份
+    （与 `run list_entities` 同款：C++ 侧 `ref_of` 成引用，TS 侧直接传实体）。
+  * `run ball closer <s> <t1> <t2>` → 直连 `helper/closer_one`（TS 侧调真函数），三个 token
+    都走 `candidate_of`（`z` / `nil` = `null`，认不出的 token = `undefined`），结果打成 `{id}`/`null`。
+  * 每个 token 都是 `candidate_of` 那套：`self` / `buddy` / `spN`。
+- ⚠️ **harness 给实体的 `position` 补了 `clone`**（非枚举 + `configurable`）：TS 侧轻量 position
+  对象没有真 `Vector3` 的 `clone`/`copy`，而 `chase_point` 的惰性初始化要用 —— 是台面补丁，
+  不是端口语义。`configurable` 是为了让第二条 `run ctrl ball` 能重新定义。
+- ⚠️ **`chasing` 的观察点从 `id_ref(Entity*)` 改成「引用的 `id`」**：TS 侧一直打的是
+  `{ id: e.id }`，所以逐字输出没变（既有用例的轨迹不受影响，已全量复核）。
+- ⚠️ **队伍默认值**：台面上 `lfw.new_team` 是常量 `"1"` ⇒ 没设过队伍的两个实体算同队
+  （`flag_between` 给 `Ally`）。造「敌人」场景时必须显式写 `run set team` / `run buddyset team`。
+- ⚠️ **`o <n>` 的对数必须写对**（第三次踩）：`run frame o 3 … chase o 3 …` 里外层是
+  `id`/`state`/`chase` 三对，写成 `o 4` 会被台面判「literal 被截断」直接报错。
+- 不可观察 / 有意不覆盖（另见 DESIGN §62.3 与 `mutations/ball_controller.mjs` 的头部）：
+  `update_lookup` 的两处「更远就丢」过滤（要三个以上候选，harness 只有 `self`/`buddy` 两个槽；
+  把「球自己」当候选时距离恒 0 也压不出差异）、`self_ref` 的三个分量（候选唯一时距离不参与决策）、
+  `flag_between` 里 `js_to_int32(a_type)` 那一项（用例的 `flag = 61` 下同真同假）、
+  `set_chase_point` 的 `debugger` 断言、`reset` 的 `frame = EMPTY_FRAME_INFO`（`same_ref` 同值）。

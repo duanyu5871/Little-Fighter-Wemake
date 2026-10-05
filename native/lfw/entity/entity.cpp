@@ -8,6 +8,7 @@
 
 #include "lfw/core/json.h"
 #include "lfw/core/js_num.h"
+#include "lfw/core/same_ref.h"
 #include "lfw/core/value.h"
 #include "lfw/defines/defines_data.h"
 #include "lfw/defines/entity_enum.h"
@@ -16,6 +17,8 @@
 #include "lfw/defines/frame_id.h"
 #include "lfw/defines/game_key.h"
 #include "lfw/defines/hit_flag.h"
+#include "lfw/entity/entity_flag.h"
+#include "lfw/entity/entity_ref.h"
 #include "lfw/defines/itr_kind.h"
 #include "lfw/defines/opoint_kind.h"
 #include "lfw/defines/opoint_multi_enum.h"
@@ -1205,10 +1208,7 @@ void Entity::del_v_rest(const std::u16string& a_id) {
 }
 
 double Entity::get_flag(const Entity& other) const {
-  int32_t ret = is_ally(other) ? static_cast<int32_t>(HitFlag::Ally)
-                               : static_cast<int32_t>(HitFlag::Enemy);
-  if (_hp <= 0) ret |= static_cast<int32_t>(HitFlag::Dead);
-  return static_cast<double>(ret | js_to_int32(type()));
+  return flag_between(team(), hp(), type(), other.team());
 }
 
 void Entity::clean_holding() {
@@ -1265,20 +1265,6 @@ void Entity::update_itr_bdy_hit_ground(const Value& itrs) {
 // --- enter-frame chain --------------------------------------------------------
 
 namespace {
-
-// `this.frame.next === which` / `this.frame === EMPTY_FRAME_INFO`: TS compares two
-// *object identities*.  The port's `Value` holds a `shared_ptr`, and every copy of the
-// same record keeps the same pointer, so identity is `shared_ptr` equality.  Two
-// distinct objects with equal fields compare unequal here, exactly like TS.
-bool same_ref(const Value& a, const Value& b) {
-  const auto* pa = std::get_if<std::shared_ptr<Object>>(&a);
-  const auto* pb = std::get_if<std::shared_ptr<Object>>(&b);
-  if (pa != nullptr && pb != nullptr) return *pa == *pb;
-  const auto* aa = std::get_if<std::shared_ptr<Array>>(&a);
-  const auto* ab = std::get_if<std::shared_ptr<Array>>(&b);
-  if (aa != nullptr && ab != nullptr) return *aa == *ab;
-  return false;
-}
 
 // `a?.length` — `undefined` for a nullish value, the count for an array (and for a
 // string, which TS would iterate as characters).
@@ -2402,17 +2388,19 @@ void Entity::apply_opoints(const Value& opoints_value) {
         if (strict_equals(multi_type,
                           Value(static_cast<double>(OpointMultiEnum::AccordingEnemies)))) {
           ctrl->chasing = enemies.empty()
-                              ? nullptr
-                              : enemies[static_cast<std::size_t>(std::fmod(i, enemies.size()))];
+                              ? Value()
+                              : ref_of(*enemies[static_cast<std::size_t>(
+                                    std::fmod(i, enemies.size()))]);
         } else if (strict_equals(
                        multi_type,
                        Value(static_cast<double>(OpointMultiEnum::AccordingAllies)))) {
           ctrl->chasing = allies.empty()
-                              ? nullptr
-                              : allies[static_cast<std::size_t>(std::fmod(i, allies.size()))];
+                              ? Value()
+                              : ref_of(*allies[static_cast<std::size_t>(
+                                    std::fmod(i, allies.size()))]);
         } else if (strict_equals(multi_type,
                                  Value(static_cast<double>(OpointMultiEnum::Emitter)))) {
-          ctrl->chasing = allies.empty() ? nullptr : allies[0];
+          ctrl->chasing = allies.empty() ? Value() : ref_of(*allies[0]);
         }
       }
 
@@ -2947,6 +2935,9 @@ void Entity::refresh_ctrl_env() {
   env.py = position.y;
   env.pz = position.z;
   env.frame_state = to_number(field_or(frame, u"state"));
+  env.hp = hp();
+  env.type = type();
+  env.frame = frame;
   env.hld = field_or(frame, u"hold");
   env.hit = field_or(frame, u"hit");
   env.kd = field_or(frame, u"key_down");

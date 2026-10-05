@@ -14,6 +14,9 @@
 #include "lfw/core/js_num.h"
 #include "lfw/core/value.h"
 #include "lfw/entity/entity.h"
+#include "lfw/controller/ball_controller.h"
+#include "lfw/helper/closer_one.h"
+#include "lfw/entity/entity_ref.h"
 #include "lfw/entity/entity_snapshot.h"
 #include "lfw/entity/summary_mgr.h"
 #include "lfw/loader/get_val_from_entity.h"
@@ -88,6 +91,58 @@ Entity* candidate_of(const std::string& tok) {
 
 std::string render(const Value& v) { return to_ascii(render_value(v)); }
 std::string s_of(const std::u16string& s) { return to_ascii(s); }
+
+// `idRef(x)` 的端口版：`x` 是实体引用（`entity/entity_ref.h`）⇒ 打它里面的 `id`，
+// 空值（`undefined` / `null` / `nullptr`）就给 `null`（TS 的 `idRef` 对空值也返回 `null`）。
+Value id_probe(const Value& ref) {
+  if (!lfw::truthy(ref)) return Value(lfw::NullTag{});
+  lfw::Object o;
+  o.set(u"id", lfw::field_or(ref, u"id"));
+  return Value(std::make_shared<lfw::Object>(o));
+}
+
+Value chasing_probe(const lfw::controller::BaseController* c) {
+  return c == nullptr ? Value(lfw::NullTag{}) : id_probe(c->chasing);
+}
+
+// --- `BallController` 的驱动器 -------------------------------------------------
+// `run ctrl ball` 造一个**真**控制器挂到实体上（TS 那边也是 `new BallController`），
+// 之后 `run ball …` 用它：每次先 `refresh_ctrl_env()`（端口的控制器读 `env()`，
+// TS 的控制器直接读 `this.entity`），候选名单复用 `env ents` 的那一份。
+std::vector<std::unique_ptr<lfw::controller::BallController>> g_balls;
+lfw::controller::BallController* g_ball = nullptr;
+
+Value ball_ref(const std::string& tok) {
+  if (tok == "z" || tok == "nil") return Value(lfw::NullTag{});
+  Entity* e = candidate_of(tok);
+  return e != nullptr ? lfw::ref_of(*e) : Value();
+}
+
+std::vector<Value> ball_refs() {
+  std::vector<Value> out;
+  for (const std::string& tok : g_candidate_tokens) out.push_back(ball_ref(tok));
+  return out;
+}
+
+// `chase_point` / `dir_*` / `leave_dir` / `gave_up` / 六个键的 hit|hold，外加 `LR/UD/jd`。
+std::string ball_state(lfw::controller::BallController* b) {
+  const lfw::Vector3& cp = b->chase_point();
+  std::string hit;
+  std::string hold;
+  for (const char16_t* k : {u"L", u"R", u"U", u"D", u"j", u"d"}) {
+    hit += b->is_hit(k) ? "1" : "0";
+    hold += b->is_hold(k) ? "1" : "0";
+  }
+  return " chasing=" + render(chasing_probe(b)) + " pt=" + render(Value(cp.x)) + "/" +
+         render(Value(cp.y)) + "/" + render(Value(cp.z)) +
+         " dir=" + render(Value(b->dir_x)) + "/" + render(Value(b->dir_y)) + "/" +
+         render(Value(b->dir_z)) + " leave=" + render(Value(b->leave_dir)) +
+         " gaveup=" + render(Value(b->gave_up)) +
+         " lr=" + render(Value(static_cast<double>(b->LR()))) +
+         " ud=" + render(Value(static_cast<double>(b->UD()))) +
+         " jd=" + render(Value(static_cast<double>(b->jd()))) + " hit=" + hit +
+         " hold=" + hold;
+}
 // Defined with the `run` vocabulary further down; the `Host` seams above need it too.
 std::string join(const std::vector<std::string>& xs);
 
@@ -755,8 +810,10 @@ std::string dump_spawn(const Entity* e) {
          " on_ground=" + render(Value(e->is_on_ground)) +
          // `is_ball_ctrl(ctrl)` 与 `ctrl.chasing`：两个都打（`chasing` 不因「不是 ball ctrl」
          // 而隐藏，否则「往基控制器上写 chasing」这类变异看不见）。
+         // 端口里 `chasing` 是**实体引用**（`entity/entity_ref.h`），TS 那边是活实体
+         // （`idRef` 把它打成 `{ id }`）⇒ 这里照着打同样的东西。
          " ball=" + render(Value(ctrl != nullptr && ctrl->is_ball_ctrl())) +
-         " chasing=" + render(id_ref(ctrl == nullptr ? nullptr : ctrl->chasing));
+         " chasing=" + render(chasing_probe(ctrl));
 }
 
 // `run update` / `run updateg` 的观察点：`update` 自己写的槽位（时钟、五组计数、
@@ -1226,13 +1283,94 @@ int main(int argc, char** argv) {
         } else if (kind == "human") g_entity->set_ctrl(g_host->make_ctrl(1));
         else if (kind == "human_bare") g_entity->set_ctrl(g_host->make_ctrl(3));
         else if (kind == "bot") g_entity->set_ctrl(g_host->make_ctrl(2));
-        else if (kind == "same") g_entity->set_ctrl(g_entity->ctrl());
+        else if (kind == "ball") {
+          // 真控制器（TS 那边同样是 `new BallController(...)`）。
+          g_balls.push_back(std::make_unique<lfw::controller::BallController>());
+          g_ball = g_balls.back().get();
+          g_ball->reset();
+          g_entity->set_ctrl(g_ball);
+          std::printf("run ctrl ball || %s | v=ball\n", join(g_log).c_str());
+          continue;
+        } else if (kind == "same") g_entity->set_ctrl(g_entity->ctrl());
         else {
           std::fprintf(stderr, "unknown ctrl '%s' at line %d\n", kind.c_str(), lineno);
           return 2;
         }
         std::printf("run ctrl %s || %s | v=%s\n", kind.c_str(), join(g_log).c_str(),
                     s_of(ctrl_mark(g_entity->ctrl())).c_str());
+      } else if (what == "ball") {
+        // `BallController` 的驱动器（`controller/ball_controller.h`）。
+        // `run ctrl ball` 已经把真控制器挂上去了；这里每次先刷一遍 `CtrlEnv`
+        // （TS 的控制器直接读 `this.entity`，端口的控制器读 `env()`）。
+        const std::string& sub = t[i++];
+        if (g_ball == nullptr) {
+          std::fprintf(stderr, "run ball without `run ctrl ball` at line %d\n", lineno);
+          return 2;
+        }
+        g_entity->refresh_ctrl_env();
+        std::string head = "run ball " + sub;
+        if (sub == "point") {
+          const double x = lfw::to_number(parse_value(t, i));
+          const double y = lfw::to_number(parse_value(t, i));
+          const double z = lfw::to_number(parse_value(t, i));
+          g_ball->set_chase_point(x, y, z);
+          head += " " + render(Value(x)) + " " + render(Value(y)) + " " + render(Value(z));
+        } else if (sub == "aim") {
+          const std::string& tok = t[i++];
+          head += " " + tok;
+          const Value ref = ball_ref(tok);
+          if (i < t.size()) {
+            const double oy = lfw::to_number(parse_value(t, i));
+            head += " " + render(Value(oy));
+            g_ball->aim_at(ref, oy);
+          } else {
+            g_ball->aim_at(ref);
+          }
+        } else if (sub == "lookup") {
+          const std::string& me_tok = t[i++];
+          head += " " + me_tok;
+          const std::vector<Value> refs = ball_refs();
+          int me = -1;
+          for (int k = 0; k < static_cast<int>(g_candidate_tokens.size()); ++k) {
+            if (g_candidate_tokens[static_cast<std::size_t>(k)] == me_tok) me = k;
+          }
+          g_ball->update_lookup(me, refs);
+        } else if (sub == "should") {
+          const std::string& tok = t[i++];
+          head += " " + tok;
+          std::printf("%s || %s | v=%s\n", head.c_str(), join(g_log).c_str(),
+                      render(Value(g_ball->should_chase(ball_ref(tok)) ? 1.0 : 0.0)).c_str());
+          continue;
+        } else if (sub == "closer") {
+          // 直连 `helper/closer_one`（TS 那边调真函数）：`s` / `t1` / `t2` 都用 token，
+          // `z` / `nil` 给 `null`，认不出的 token 给 `undefined`。
+          const std::string& s_tok = t[i++];
+          const std::string& a_tok = t[i++];
+          const std::string& b_tok = t[i++];
+          head += " " + s_tok + " " + a_tok + " " + b_tok;
+          std::printf("%s || %s | v=%s\n", head.c_str(), join(g_log).c_str(),
+                      render(id_probe(lfw::helper::closer_one(
+                          ball_ref(s_tok), ball_ref(a_tok), ball_ref(b_tok)))).c_str());
+          continue;
+        } else if (sub == "dir") {
+          const double delta = lfw::to_number(parse_value(t, i));
+          const double over = lfw::to_number(parse_value(t, i));
+          const double prev = lfw::to_number(parse_value(t, i));
+          head += " " + render(Value(delta)) + " " + render(Value(over)) + " " +
+                  render(Value(prev));
+          std::printf("%s || %s | v=%s\n", head.c_str(), join(g_log).c_str(),
+                      render(Value(g_ball->calc_dir(delta, over, prev))).c_str());
+          continue;
+        } else if (sub == "stop") {
+          g_ball->stop_chasing();
+        } else if (sub == "update") {
+          g_ball->update();
+        } else {
+          std::fprintf(stderr, "unknown ball '%s' at line %d\n", sub.c_str(), lineno);
+          return 2;
+        }
+        std::printf("%s || %s |%s\n", head.c_str(), join(g_log).c_str(),
+                    ball_state(g_ball).c_str());
       } else if (what == "frame") {
         g_entity->frame = parse_value(t, i);
         std::printf("run frame %s || %s | v=%s\n", render(g_entity->frame).c_str(),

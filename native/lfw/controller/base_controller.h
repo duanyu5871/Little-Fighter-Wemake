@@ -31,6 +31,11 @@ struct CtrlEnv {
   double py = 0;
   double pz = 0;
   double frame_state = 0;
+  // `BallController` 要的三样：`this.entity.hp` / `.type` / `.frame`
+  // （帧上的 `chase` / `behavior` 都是从这里读的）。
+  double hp = 0;
+  double type = 0;
+  Value frame;
   Value pre_hitkeys;
   Value post_hitkeys;
   Value hit;
@@ -64,12 +69,15 @@ class BaseController {
   }
   bool is_human() const { return _is_human; }
   bool is_bot() const { return _is_bot; }
-  // `is_ball_ctrl(this)`（`ctrl.__is_ball_ctrl__ === true`）与 `BallController.chasing`：
-  // `BallController` 模块还没移植，先把这两个面放在基类上（`set_kind` 同款），
-  // 等它的刀再把 `chasing` 搬进子类。
+  // `is_ball_ctrl(this)`（TS 是 `ctrl.__is_ball_ctrl__ === true`）。`BallController`
+  // 重写成本恒真；`set_ball` 留给测试替身（harness 的假控制器）用。
   void set_ball(bool v) { _is_ball = v; }
-  bool is_ball_ctrl() const { return _is_ball; }
-  Entity* chasing = nullptr;
+  virtual bool is_ball_ctrl() const { return _is_ball; }
+  // `BallController.chasing`：TS 里这个字段在子类上，端口放在基类（`spawn` 的
+  // `OpointMultiEnum` 分支要在 `is_ball_ctrl` 门后写它，而端口那边只有 `BaseController*`）。
+  // 值是一个**实体引用**（`entity/entity_ref.h` 的 `ref_of`），不是 `Entity*` ——
+  // 控制器这一侧看不见 `Entity`（同 `CtrlEnv`）。
+  Value chasing;
 
   double time() const { return _time.value(); }
 
@@ -83,9 +91,8 @@ class BaseController {
   const std::u16string& key_list() const { return _readable_key_list; }
   const std::u16string& key_list_raw() const { return _key_list; }
 
-  void reset();
+  virtual void reset();
   void reset_key_list();
-
   BaseController& start(const std::vector<std::u16string>& ks);
   BaseController& hold(const std::vector<std::u16string>& ks);
   BaseController& end(const std::vector<std::u16string>& ks);
@@ -107,7 +114,7 @@ class BaseController {
 
   bool tst(const std::u16string& type, const std::u16string& key);
 
-  const ControllerResult& update();
+  virtual const ControllerResult& update();
 
   bool sequence_keys_test(const std::u16string& str) const;
   bool sametime_keys_test(const std::u16string& str) const;

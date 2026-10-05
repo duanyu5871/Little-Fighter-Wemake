@@ -11,6 +11,8 @@ import { MersenneTwister } from "../../../../src/LFW/utils/math/MersenneTwister"
 import { Ground } from "../../../../src/LFW/Ground";
 import { mt_cases } from "../../../../src/LFW/cases_instances";
 import { get_val_getter_from_entity } from "../../../../src/LFW/loader/get_val_from_entity";
+import { BallController } from "../../../../src/LFW/controller/BallController";
+import { closer_one } from "../../../../src/LFW/helper/closer_one";
 import { readCaseLines, parseValue as parseValueRaw, renderValue, splitWs } from "./trace_util";
 
 type Any = never;
@@ -24,6 +26,23 @@ class FakeBuff extends Buff {
     super({ world: worldStub } as never, id, kind as never);
   }
 }
+
+// `run ctrl ball` 造的真控制器（`BallController`）。
+let ball: BallController | null = null;
+
+// `run ball …` 的观察点：`chase_point` / `dir_*` / `leave_dir` / `gave_up` /
+// 六个键的 hit|hold，外加 `LR/UD/jd` —— 与端口 `ball_state()` 逐字对齐。
+const ballState = (b: BallController): string => {
+  const cp = b.chase_point;
+  const flags = (f: (k: never) => boolean): string =>
+    ["L", "R", "U", "D", "j", "d"].map((k) => (f(k as never) ? "1" : "0")).join("");
+  return (
+    ` chasing=${r(idRef(b.chasing as never))} pt=${r(cp.x)}/${r(cp.y)}/${r(cp.z)}` +
+    ` dir=${r(b.dir_x)}/${r(b.dir_y)}/${r(b.dir_z)} leave=${r(b.leave_dir)} gaveup=${r(b.gave_up)}` +
+    ` lr=${r(b.LR)} ud=${r(b.UD)} jd=${r(b.jd)}` +
+    ` hit=${flags((k) => b.is_hit(k))} hold=${flags((k) => b.is_hold(k))}`
+  );
+};
 
 // `nf.__judger`: the real loader (`preprocess_next_frame`) attaches a compiled
 // `Expression`.  The harness carries the marker in `__judge` (a plain key, so both
@@ -1282,8 +1301,113 @@ function main(): void {
         const kind = t[i++]!;
         if (kind === "none") ent!.ctrl = undefined;
         else if (kind === "same") ent!.ctrl = ent!.ctrl;
-        else ent!.ctrl = makeCtrl(kind);
+        else if (kind === "ball") {
+          // 真控制器（端口那边同样是 `new BallController()`）。
+          // harness 里实体的 `position` 是轻量对象（有 `set`，没有真 `Vector3` 的
+          // `clone`/`copy`），而 `BallController.chase_point` 的惰性初始化要用到它们
+          // ⇒ 就地补一份（值语义的副本，跟端口的 `Vector3` 一致）。
+          const pos = (ent as unknown as { position: Record<string, unknown> }).position;
+          const mk = (x: number, y: number, z: number): Record<string, unknown> => {
+            const o: Record<string, unknown> = { x, y, z };
+            o.set = (nx: number, ny: number, nz: number): void => {
+              o.x = nx;
+              o.y = ny;
+              o.z = nz;
+            };
+            o.copy = (v: { x: number; y: number; z: number }): void => {
+              o.x = v.x;
+              o.y = v.y;
+              o.z = v.z;
+            };
+            o.clone = (): Record<string, unknown> =>
+              mk(o.x as number, o.y as number, o.z as number);
+            return o;
+          };
+          Object.defineProperty(pos, "clone", {
+            enumerable: false,
+            configurable: true,
+            value: (): Record<string, unknown> =>
+              mk(pos.x as number, pos.y as number, pos.z as number),
+          });
+          ball = new BallController("p0", ent! as never);
+          ball.reset("p0", ent! as never);
+          (ent as unknown as { ctrl: unknown }).ctrl = ball;
+          out.push(`run ctrl ball || ${log.join(",")} | v=ball`);
+          continue;
+        } else ent!.ctrl = makeCtrl(kind);
         out.push(`run ctrl ${kind} || ${log.join(",")} | v=${ctrlMark(ent!.ctrl)}`);
+      } else if (what === "ball") {
+        // `BallController` 的驱动器（`run ctrl ball` 已经把真控制器挂上去了）。
+        const sub = t[i++]!;
+        if (!ball) {
+          process.stderr.write("run ball without `run ctrl ball`\n");
+          process.exit(2);
+        }
+        const b = ball!;
+        let head = `run ball ${sub}`;
+        if (sub === "point") {
+          const idx = [i];
+          const x = Number(parseValue(t, idx));
+          const y = Number(parseValue(t, idx));
+          const z = Number(parseValue(t, idx));
+          b.set_chase_point(x, y, z);
+          head += ` ${r(x)} ${r(y)} ${r(z)}`;
+        } else if (sub === "aim") {
+          const tok = t[i++]!;
+          head += ` ${tok}`;
+          const other = candidateOf(tok);
+          const idx = [i];
+          if (idx[0] < t.length) {
+            const oy = Number(parseValue(t, idx));
+            head += ` ${r(oy)}`;
+            b.aim_at(other as never, oy);
+          } else {
+            b.aim_at(other as never);
+          }
+        } else if (sub === "lookup") {
+          const meTok = t[i++]!;
+          head += ` ${meTok}`;
+          const list = candidateTokens.map((tk) => candidateOf(tk)).filter((e) => !!e);
+          b.update_lookup(candidateTokens.indexOf(meTok), list as never);
+        } else if (sub === "should") {
+          const tok = t[i++]!;
+          head += ` ${tok}`;
+          out.push(
+            `${head} || ${log.join(",")} | v=${r(b.should_chase(candidateOf(tok) as never) ? 1 : 0)}`,
+          );
+          continue;
+        } else if (sub === "closer") {
+          // 直连 `helper/closer_one`（端口那边调真函数）：`s` / `t1` / `t2` 都用 token，
+          // `z` / `nil` 给 `null`，认不出的 token 给 `undefined`。
+          const sTok = t[i++]!;
+          const aTok = t[i++]!;
+          const bTok = t[i++]!;
+          head += ` ${sTok} ${aTok} ${bTok}`;
+          const refOf = (tk: string): Entity | null | undefined =>
+            tk === "z" || tk === "nil" ? null : candidateOf(tk);
+          out.push(
+            `${head} || ${log.join(",")} | v=${r(
+              idRef(closer_one(refOf(sTok) as never, refOf(aTok) as never, refOf(bTok) as never)),
+            )}`,
+          );
+          continue;
+        } else if (sub === "dir") {
+          const idx = [i];
+          const delta = Number(parseValue(t, idx));
+          const over = Number(parseValue(t, idx));
+          const prev = Number(parseValue(t, idx));
+          head += ` ${r(delta)} ${r(over)} ${r(prev)}`;
+          out.push(`${head} || ${log.join(",")} | v=${r(b.calc_dir(delta, over, prev as never))}`);
+          continue;
+        } else if (sub === "stop") {
+          b.stop_chasing();
+        } else if (sub === "update") {
+          b.update();
+        } else {
+          process.stderr.write(`unknown ball '${sub}'\n`);
+          process.exit(2);
+        }
+        out.push(`${head} || ${log.join(",")} |${ballState(b)}`);
       } else if (what === "frame") {
         ent!.frame = parseValue(t, [i]) as never;
         out.push(`run frame ${r(ent!.frame)} || ${log.join(",")} | v=${r(ent!.frame)}`);

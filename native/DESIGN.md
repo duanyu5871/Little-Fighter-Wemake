@@ -6299,3 +6299,87 @@ harness（`entity` subject）新增：`run gv <词>`（查表 + 调用，印 `ha
 `data.base.resting_max`，没有 `base` 会 TypeError），以及对象字面量的**对数**要写对
 （`o 2` 后给了三对 ⇒ TS 那边 `base` 丢掉、直接崩；两处都踩过）。
 
+
+## 62. 切片 4r：`controller/BallController` + `helper/closer_one`
+
+`BaseController` 里原本留着两个「等它的刀」的占位（`set_ball` / `Entity* chasing`，见 `base_controller.h`
+的旧注释）：球的那一档控制器要读实体的位置 / 帧 / 血量，而端口的控制器看不见 `Entity`
+（依赖走 `CtrlEnv` + `Value` 引用，同 `bot/*`）。这一刀把 `BallController` 真搬了。
+
+### 62.1 移植面
+
+| TS | 端口 |
+|---|---|
+| `BallController extends BaseController` | 同（`controller/ball_controller.{h,cpp}`） |
+| `readonly __is_ball_ctrl__ = true` | 重写 `is_ball_ctrl()`（基类改成 virtual、`set_ball` 留给测试替身） |
+| `chasing: Entity \| null` | 基类上的 `Value chasing`（**实体引用**，见 62.2） |
+| `frame = EMPTY_FRAME_INFO` | `defines/empty_frame_info.h` 里现搭一份（TS 那个冻结字面量的字段照抄） |
+| `this.entity.{position,facing,hp,frame}` | `CtrlEnv` 新增 `hp` / `type` / `frame`（`facing`/`px,py,pz` 本来就有），由 `refresh_ctrl_env` 填 |
+| `update_lookup(me, entities: Entity[])` | `update_lookup(me, entities: vector<Value>)`（引用列表）。`me` 只用来定扫描起点 —— `self` 自己那份引用由 `CtrlEnv` 的位置快照现搭（见 62.3 第 2 条）；`this.chasing` 那份「活引用」用 `reidentify` 从名单里认领（见 62.3 第 1 条） |
+| `closer_one(s, t1, t2)`（`helper/closer_one.ts`） | 同名的 `Value` 版（与 `manhattan_xz` 同一套约定） |
+| `e.get_flag(me)`（`should_chase` 里） | `entity/entity_flag.h` 的 `flag_between(...)`：`Entity::get_flag` 也改成调它，避免两份实现漂移 |
+
+### 62.2 「实体引用」与 `entity/entity_ref.h`
+
+`BallController` 要读**别人**的 `position` / `frame` / `team` / `ghosted`，而控制器这一侧
+不认识 `Entity` ⇒ 新增 `entity/entity_ref.h` 的 `ref_of(const Entity&)` 作为**唯一**生成处
+（`{id, position:{x,y,z}, frame, team, hp, type, ghosted}`）。`frame` 直接拷那份 `Value`
+（共享 `shared_ptr`），所以 `frame.id` 的读法与 `core/same_ref.h` 的同一性判断都跟实体自己一致。
+
+`spawn` 的 `OpointMultiEnum` 分支（9l）原来写 `Entity*`，这一刀改成 `ref_of(*e)` 存引用；
+`chasing` 的观察点（harness 的 `dump_spawn`）也跟着改成打引用的 `id`（TS 那边 `idRef(e)` 打的
+就是 `{id}`，两边逐字对齐）。
+
+### 62.3 已知偏差 / 有意不覆盖
+
+1. **`chasing` 是「引用快照」，TS 是活实体**：TS 的 `this.chasing` 就是那个实体对象，之后
+   目标掉血 / 换队 / 换帧都会立刻反映到 `should_chase(current)`、`aim_at(current)` 的读取上；
+   端口存的是建引用那一刻的字段。补偿办法是 `update_lookup` 开头那句 `reidentify`：名单
+   （= 世界实体表）里还有同一个 `id` 时，就把 `chasing` 换成名单里的**新引用**，于是
+   「目标还在世界里」这条常见路径与 TS 逐字段一致（用例里 `run buddy` 会在名单外换对象，
+   `reidentify` 认不到时就退回旧快照 —— 这已是**有意接受**的残差）。
+   `should_chase(current)` / `update_lookup` 的候选扫描都从名单取引用，所以这条只影响
+   「目标已离开名单」的情形。
+2. **`update_lookup` 的 `self` 由 `CtrlEnv` 位置快照现搭**（`self_ref`）：TS 读 `this.entity.position`，
+   控制器层按既有分层约定不 `#include entity/entity.h`。**注意不能拿 `entities[me]` 顶替**：
+   `me` 只保证「调用方给的下标」，只有 `entities[me]` 恰好是自己时才等价（这个缺口是
+   用例里 `run ball lookup buddy` 打出来的）。
+3. **`chasing` 放在基类**：TS 里它是 `BallController` 的字段；端口放在 `BaseController` 上，
+   因为 `spawn` 那条路只有 `BaseController*`（`is_ball_ctrl()` 门之后才写它）。语义不变。
+4. **`set_chase_point` 的 `is_f_num` 断言**只有一句 `debugger`（不改变行为）⇒ 不搬。
+5. **harness 里给实体 `position` 补了 `clone`**：TS 侧那个轻量 position 对象没有真 `Vector3` 的
+   `clone`/`copy`，而 `chase_point` 的惰性初始化要用 ⇒ 在 `run ctrl ball` 时就地补一份
+   **值语义**的副本（非枚举 + `configurable`，免得渲染出多余字段、也允许场景里再建一个控制器）。
+   这是台面的补丁，不是端口语义。
+6. **`update_lookup` 的两处「更远就丢」过滤**要三个以上候选才走得到（`self` / `buddy` 两个槽
+   不够）；而且把「球自己」当候选时距离恒 0、`found_d` 被钉在 0，那两个过滤也改不了结果 ⇒
+   不列变异（见 62.5）。同一原因（候选唯一时距离不参与决策）`self_ref` 的三个分量也不可观察。
+7. **harness 的坑（不是端口语义）**：`lfw.new_team` 在台面上是常量 `"1"` ⇒ **没设过队伍的实体
+   队伍相等**（`flag_between` 会给 `Ally`）。写用例时想造「敌我」必须显式给两边队伍。
+
+### 62.4 用例
+
+`cases/entity/ball_ctrl.txt`（**174 行**，18 个场景）：帧上没有 `chase` 的早退；`Default` 找目标
+（`should_chase` 的四道门：帧 id `gone`/空、缺 `chase`、队伍、对方 hp 的 `Dead` 位、对方 `type` 的位）；
+`StopOnLost` 的 `gave_up` 早退门、目标失效那条分支、以及「失效后恢复了也不重追」；
+`UntilLost` 保持当前目标（哪怕候选里有个更近的「球自己」）与 hover 分支；`Default` 先清 `chasing`；
+`ghosted` 候选跳过；`overshoot` 的方向反转（含 `delta = 0`、NaN、以及 `over > |delta|` 这档
+——`prev = 0` 的分支会被紧随其后的反向判断**掩掉**，要靠它才杀得动）；`calc_dir` 直连探针；
+`closer_one` 直连探针（远近两个方向 + 缺 `s` / 缺 `t1` / 缺 `t2` / 都缺 / 打平）；`JohnBiscuitLeaving`
+的朝向 / 40 高度 / 上升下降键；`chase_point` 的取整、惰性初始化、`stop` 与「无候选」；
+`aim_at` 的三档 `oy` 与 `oy` 缺省 0.5（要靠 `chasing` 非空才走得到）；`update` 的「帧变了 + 旧帧有
+`chase` + 新帧没有」⇒ 停追并把追踪点收回自己、死亡分支（`hp <= 0` 真的停追）；`reset` 的
+`gave_up` / `leave_dir` 初值（要新造一个控制器才看得到）。
+
+### 62.5 变异与结果
+
+`mutations/ball_controller.mjs`（**49 条，49/49 全杀**，subject 仍是 `entity`）：`BallController`
+本体（`reset` 的两个字段 / 惰性初始化 / 取整 / `should_chase` 的四道门与两个 `ref_*` /
+`update_lookup` 的四档策略、`reidentify`、`gave_up` 门、失效清理、`ghosted` 跳过、距离比较、记账 /
+`update` 的帧变化与死亡分支 / `update_chasing` 的三轴按键、`oy` 默认值、`leave_dir` 初始化 /
+`calc_dir` 三处 / `stop_chasing`）、`closer_one` 三处、`ref_of` 的六个字段、`flag_between` 两处。
+
+过程中被用例打出来的两个真 bug（都在端口侧）：
+* `chase.overshoot?.x ?? 0` 漏了 `?? 0` ⇒ 缺 `overshoot` 时算成 `NaN`，`calc_dir` 的反向判断静默失效；
+* `should_chase` 的角色写反（TS 是「对方的 team/hp/type 对**自己**的 team」）。
+

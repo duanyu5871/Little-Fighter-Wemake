@@ -59,6 +59,7 @@ add_library(lfw_core STATIC
   entity/entity.cpp
   entity/entity_state_view.cpp
   entity/summary.cpp
+  entity/entity_ref.cpp
   entity/summary_mgr.cpp
   entity/drink_info.cpp
   collision/is_fall.cpp
@@ -92,7 +93,9 @@ add_library(lfw_core STATIC
   controller/controller_key_status.cpp
   controller/controller_result.cpp
   controller/base_controller.cpp
+  controller/ball_controller.cpp
   helper/manhattan_xz.cpp
+  helper/closer_one.cpp
   bot/closest.cpp
   bot/is_ray_hit.cpp
   bot/dummy_enum.cpp
