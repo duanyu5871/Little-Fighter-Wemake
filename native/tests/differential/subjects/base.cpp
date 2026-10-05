@@ -7,8 +7,11 @@
 #include <string>
 #include <vector>
 
+#include "lfw/base/clock.h"
+#include "lfw/base/fps.h"
 #include "lfw/base/fsm.h"
 #include "lfw/base/no_emit_callbacks.h"
+#include "lfw/base/ticker.h"
 #include "lfw/base/val_expression.h"
 #include "lfw/loader/preprocess_opoint.h"
 #include "lfw/utils/math/mersenne_twister.h"
@@ -162,6 +165,152 @@ void ve_get(int idx, long times) {
   out.out();
 }
 
+// --- `base/Ticker` + `base/FPS` 的假时钟 / 假定时器 ----------------------------
+// TS 侧换掉 `Ditto.Clock` / `Ditto.Timeout`；端口换掉 `clock()` / `timeout()` 两个槽。
+// 两侧都把 `add` / `del` 打进日志：**走 Timeout 还是走 Clock、delay 是多少**正是
+// `Ticker::schedule` 的行为。`fire` 取「句柄最大的待发回调」（Ticker 同时只会挂一个）。
+
+struct FakeClock : lfw::IClock {
+  double value = 0.0;
+  bool hid = false;
+  int next_id = 1;
+  std::map<int, std::function<void()>> pending;
+
+  double now() const override { return value; }
+  int add(std::function<void()> handler) override {
+    const int id = next_id++;
+    pending[id] = std::move(handler);
+    Line out;
+    out.add(std::string_view("CLK")).add(std::string_view("add")).add(id);
+    out.out();
+    return id;
+  }
+  void del(int handle) override {
+    pending.erase(handle);
+    Line out;
+    out.add(std::string_view("CLK")).add(std::string_view("del")).add(handle);
+    out.out();
+  }
+  bool hidden() const override { return hid; }
+};
+
+struct FakeTimeout : lfw::ITimeout {
+  int next_id = 1;
+  std::map<int, std::function<void()>> pending;
+
+  int add(std::function<void()> handler, double timeout) override {
+    const int id = next_id++;
+    pending[id] = std::move(handler);
+    Line out;
+    out.add(std::string_view("TOUT")).add(std::string_view("add")).add(id).add_bits(timeout);
+    out.out();
+    return id;
+  }
+  void del(int timer_id) override {
+    pending.erase(timer_id);
+    Line out;
+    out.add(std::string_view("TOUT")).add(std::string_view("del")).add(timer_id);
+    out.out();
+  }
+};
+
+FakeClock g_fake_clock;
+FakeTimeout g_fake_timeout;
+
+void fire_pending(std::map<int, std::function<void()>>& pend, const char* kind) {
+  if (pend.empty()) {
+    Line out;
+    out.add(std::string_view("FIRE")).add(std::string_view(kind)).add(std::string_view("-"));
+    out.out();
+    return;
+  }
+  const int id = pend.rbegin()->first;
+  const std::function<void()> fn = pend[id];
+  pend.erase(id);
+  Line out;
+  out.add(std::string_view("FIRE")).add(std::string_view(kind)).add(id);
+  out.out();
+  fn();
+}
+
+// 宿主「发一次待发的回调」：Ticker 同时只会挂一个（Timeout 或 Clock），所以先看 Timeout。
+void fire_any() {
+  if (!g_fake_timeout.pending.empty()) {
+    fire_pending(g_fake_timeout.pending, "timeout");
+    return;
+  }
+  if (!g_fake_clock.pending.empty()) {
+    fire_pending(g_fake_clock.pending, "clock");
+    return;
+  }
+  emit_line("FIRE -");
+}
+
+std::unique_ptr<lfw::Ticker> g_ticker;
+
+struct TestTickerOptions : lfw::ITickerOptions {
+  double step = 16.0;
+  double spent = 0.0;
+  int steps = 0;
+  // 重入钩子：`on_step` 里回调 Ticker 自己（`resume`/`pause`/`stop`）。这是 `_schedule`
+  // 三个守卫因子唯一的可观察入口（宿主在一步的中间改状态），所以值得做成 op。
+  std::string inside;
+
+  double step_ms() override { return step; }
+  void on_step(double dt) override {
+    Line out;
+    out.add(std::string_view("STEP")).add(steps++).add_bits(dt);
+    out.out();
+    // `on_step` 里的「干活耗时」：让假时钟前进，`Ticker::cost` 的 EMA 才动得起来。
+    g_fake_clock.value += spent;
+    if (!inside.empty() && g_ticker != nullptr) {
+      const std::string sub = inside;
+      inside.clear();
+      if (sub == "resume") {
+        g_ticker->resume();
+      } else if (sub == "pause") {
+        g_ticker->pause();
+      } else if (sub == "stop") {
+        g_ticker->stop();
+      } else if (sub == "resync") {
+        g_ticker->resync(true);
+      }
+    }
+  }
+};
+
+TestTickerOptions g_tk_opt;
+lfw::FPS g_fps;
+
+std::string flag_text(bool b) { return b ? "true" : "false"; }
+
+void ticker_dump() {
+  Line out;
+  out.add(std::string_view("TK"));
+  out.add("run=" + flag_text(g_ticker != nullptr && g_ticker->running()));
+  out.add("pend=" + flag_text(g_ticker != nullptr && g_ticker->pending()));
+  out.add("pause=" + flag_text(g_ticker != nullptr && g_ticker->paused()));
+  out.add("base=" + trace::bits_hex(g_ticker != nullptr ? g_ticker->base() : 0.0));
+  out.add("span=" + trace::bits_hex(g_ticker != nullptr ? g_ticker->span() : 0.0));
+  out.add("step=" + trace::bits_hex(g_ticker != nullptr ? g_ticker->step() : 0.0));
+  out.add("rate=" + trace::bits_hex(g_ticker != nullptr ? g_ticker->rate() : 0.0));
+  out.add("cost=" + trace::bits_hex(g_ticker != nullptr ? g_ticker->cost : 0.0));
+  out.add("dl=" + trace::bits_hex(g_ticker != nullptr ? g_ticker->deadline() : 0.0));
+  out.add("last=" + trace::bits_hex(g_ticker != nullptr ? g_ticker->last_step() : 0.0));
+  out.add("tid=" + std::to_string(g_ticker != nullptr ? g_ticker->timer_id() : 0));
+  out.add("wid=" + std::to_string(g_ticker != nullptr ? g_ticker->wake_id() : 0));
+  out.out();
+}
+
+void fps_dump() {
+  Line out;
+  out.add(std::string_view("FPS"));
+  out.add("value=" + trace::bits_hex(g_fps.value()));
+  out.add("dur=" + trace::bits_hex(g_fps.duration()));
+  out.add("ret=" + trace::bits_hex(g_fps.retention()));
+  out.out();
+}
+
 void opoint_compile() {
   const std::map<std::u16string, lfw::ValExpression<TestCtx>> gens =
       lfw::preprocess_opoint<TestCtx>(g_opoint, [](const std::u16string& msg) {
@@ -208,6 +357,9 @@ int main(int argc, char** argv) {
   lfw::callbacks_warn() = [](const std::u16string& msg) {
     emit_line("WARN " + esc(msg));
   };
+
+  lfw::set_clock(&g_fake_clock);
+  lfw::set_timeout(&g_fake_timeout);
 
   std::string raw;
   int lineno = 0;
@@ -411,6 +563,81 @@ int main(int argc, char** argv) {
       out.add(std::string_view("PK"));
       for (const std::u16string& k : g_opoint.keys()) out.add(esc(k));
       out.out();
+
+    } else if (op == "fire") {
+      fire_any();
+
+    } else if (op == "clk") {
+      const std::string sub = t[i++];
+      if (sub == "set") {
+        g_fake_clock.value = to_double(t[i++]);
+      } else if (sub == "adv") {
+        g_fake_clock.value += to_double(t[i++]);
+      } else if (sub == "hidden") {
+        g_fake_clock.hid = trace::to_flag(t[i++]);
+      } else if (sub == "pend") {
+        Line out;
+        out.add(std::string_view("PEND"));
+        out.add("clock=" + std::to_string(g_fake_clock.pending.size()));
+        out.add("tout=" + std::to_string(g_fake_timeout.pending.size()));
+        out.out();
+      } else {
+        std::fprintf(stderr, "line %d: unknown clk sub '%s'\n", lineno, sub.c_str());
+        return 2;
+      }
+
+    } else if (op == "tk") {
+      const std::string sub = t[i++];
+      if (sub == "new") {
+        g_tk_opt = TestTickerOptions();
+        g_tk_opt.step = to_double(t[i++]);
+        // 开一段新的：宿主把两个待发队列丢掉（用例因此可以逐段独立读）。
+        g_fake_clock.pending.clear();
+        g_fake_timeout.pending.clear();
+        g_ticker = std::make_unique<lfw::Ticker>(&g_tk_opt);
+      } else if (sub == "stepms") {
+        g_tk_opt.step = to_double(t[i++]);
+      } else if (sub == "spent") {
+        g_tk_opt.spent = to_double(t[i++]);
+      } else if (sub == "inside") {
+        g_tk_opt.inside = t[i++];
+      } else if (sub == "maxspan") {
+        g_ticker->max_span = to_double(t[i++]);
+      } else if (sub == "maxlag") {
+        g_ticker->max_lag_steps = to_double(t[i++]);
+      } else if (sub == "ratewin") {
+        g_ticker->rate_window = to_double(t[i++]);
+      } else if (sub == "start") {
+        g_ticker->start();
+      } else if (sub == "stop") {
+        g_ticker->stop();
+      } else if (sub == "pause") {
+        g_ticker->pause();
+      } else if (sub == "resume") {
+        g_ticker->resume();
+      } else if (sub == "resync") {
+        g_ticker->resync(i < t.size() && trace::to_flag(t[i++]));
+      } else if (sub == "dump") {
+        ticker_dump();
+      } else {
+        std::fprintf(stderr, "line %d: unknown tk sub '%s'\n", lineno, sub.c_str());
+        return 2;
+      }
+
+    } else if (op == "fps") {
+      const std::string sub = t[i++];
+      if (sub == "new") {
+        g_fps = i < t.size() ? lfw::FPS(to_double(t[i++])) : lfw::FPS();
+      } else if (sub == "update") {
+        g_fps.update(to_double(t[i++]));
+      } else if (sub == "reset") {
+        g_fps.reset();
+      } else if (sub == "dump") {
+        fps_dump();
+      } else {
+        std::fprintf(stderr, "line %d: unknown fps sub '%s'\n", lineno, sub.c_str());
+        return 2;
+      }
 
     } else {
       std::fprintf(stderr, "line %d: unknown op '%s'\n", lineno, op.c_str());

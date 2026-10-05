@@ -1943,6 +1943,9 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
   `class IClock { virtual double now_ms() const; }` + `clock()` / `set_clock()` 的
   **函数局部静态槽**（header-only，不用登记 CMake）。`Randoming::default_mt()` 用
   `clock() != nullptr ? clock()->now_ms() : 0.0` 作种子。
+  ⚠️ **已被 §59（切片 2f）取代**：`IClock` 补成 TS `ditto/IClock` 的完整四面
+  （`now` / `add` / `del` / `hidden`），方法名也从 `now_ms` 改回 TS 的 `now`；上文
+  「只带 `now_ms()`」是当时的最小投影。
   差分里两侧都装假时钟（`1700000000000`）：C++ 侧 `set_clock(&TestClock)`，
   TS 侧靠 `subjects/shared/patch_date.ts`（`Date.now = () => 1700000000000`）**在 import 顺序上先于**
   `Randoming` 被求值（`Randoming.mt = new MersenneTwister(Date.now())` 是模块求值期执行的）
@@ -5922,3 +5925,145 @@ header-only（不加 CMake 登记，靠 `#include` 传递）。
   而首版用例里 `pick` 前面正好是同 tag 的表达式（`mark` 已被写成一模一样的值）⇒
   加一段 `mtseed` 把 `mark` 清空后再 `pick`，这条立刻被杀（`mmark` 从 `""` 变 `"val_expr"`）。
   **教训同 §6.9.1**：存活先看「是不是被同值遮住」，再决定补用例还是换变异点。
+
+## 59. 切片 2f：`base/Ticker` + `base/FPS`（时序层）
+
+**背景**：`helper/Randoming`（§4.57）与 `base/Ticker` 都要一个时钟，而 `<chrono>` 被 lint 禁止
+（"host clock; use injected IClock"）⇒ 4.57 只建了 `IClock{ now_ms() }` 这个**种子用**的最小投影。
+Ticker 还需要 `add` / `del` / `hidden` 与一个 `ITimeout`，所以这一刀先把时序层的两个槽补成
+TS `ditto/IClock` + `ditto/ITimeout` 的原样，再把 `Ticker` / `FPS` 搬进来。
+
+### 59.1 单元边界
+
+| 单元 | 位置 | 说明 |
+|---|---|---|
+| `IClock` | `native/lfw/base/clock.h` | `now()` / `add(handler) -> handle` / `del(handle)` / `hidden()` |
+| `ITimeout` | 同上 | `add(handler, timeout) -> id` / `del(id)` |
+| `clock()` / `set_clock()` / `timeout()` / `set_timeout()` | 同上 | 函数局部静态槽（header-only，不登记 CMake） |
+| `clock_now` / `clock_hidden` / `clock_add` / `clock_del` / `timeout_add` / `timeout_del` | 同上 | 空槽回落版（见 59.2 的第 2 条） |
+| `ITickerOptions` / `Ticker` | `native/lfw/base/ticker.h` | `step_ms()` / `on_step(dt)` 接口 + 调度器本体 |
+| `FPS` | `native/lfw/base/fps.h` | 帧率的 `_duration` EMA 与 `1000 / _duration` |
+
+三个头都是 header-only；`Ticker` 按 TS 保留 `ITickerOptions` **接口**（而不是像 `base/Expression`
+那样收 `std::function`），因为 `step_ms()` 每帧都要现读，宿主天然实现这个两方法接口。
+
+### 59.2 保真要点
+
+1. **`IClock` / `ITimeout` 是原样补全，不是重新设计**：`now_ms()` 改名为 TS 的 `now`（因此
+   `helper/randoming.cpp`、`subjects/mt_random.cpp` 与 `mutations/mt_random.mjs` 的 2 条锚点
+   一起改成 `clock_now()`）；`ITimeout.add` 的 `...args` 是 TS 源码里自己注明的「无用的预留参数」
+   ⇒ 不移植（只到「JS 可变参数没有 C++ 对应物」这一层，签名收敛成 `add(handler, timeout)`）。
+2. **空槽回落**：`clock_now()` 回 `0.0`、`clock_hidden()` 回 `false`、`clock_add` / `timeout_add`
+   回 `0`（=「没有句柄」，与 `_timer != 0` 的判空口径对齐）、`clock_del` / `timeout_del` 变 no-op。
+   这不是防御性编程，而是**必需的**：`Randoming::default_mt()` 在**静态初始化期**取时钟，
+   那时宿主还没装槽（与 `callbacks_warn()` 的 `if (warn)` 同款约定）。
+3. **每次调用现读槽**（`clock()` / `timeout()`），不在构造时抓一份 —— 与 TS 每次读 `Ditto.Clock`
+   同义，所以宿主可以随时换（差分里 `mt_random` 与 `base` 各装各的假时钟）。
+4. **`_tick` 是 TS 的箭头函数属性** ⇒ 端口是成员函数 + `[this]() { tick(); }`（自引用不丢 `this`）。
+   TS 的 `try { this._step_once() } finally { this._schedule() }` 在端口里就是顺序两句
+   （lint 禁 `try`/`catch`，且端口的 `on_step` 不抛）——偏差见 59.4 的第 3 条。
+5. **`pause()` 故意不看 `_running`**（TS 原文如此）：没启动也能把 `_paused` 置真，之后
+   `resume()` 的 `!_running || !_paused` 门会拦住它 ⇒「停」在 `_paused` 里，`stop()` 才清。
+   给 `pause()` 补一个 `_running` 守卫是**可杀**的（用例 `tk stop; tk pause; tk dump` 打出
+   `pause=true`）。同理 `resume()` 两条门必须都在，且必须**重读 `step_ms()`**。
+6. **`resume()` 的截止点** = `max(now, _last_step + _base * _span)`：这一条是「被数据到达的节奏
+   带快」的防线（差分为此专门让 `_last_step + base*span > now`）。
+7. **`resync()` 三个语义**：`immediate` 时截止点取 `now` 且**不动** `_last_step`；非 `immediate`
+   时截止点 = `now + _base * _span` 且 `_last_step = now`；两种都复位 rate 窗口再重排。
+8. **`_schedule()` 的两路分流**：`delay > sleep_threshold && !Clock.hidden()` 才用 Timeout，且
+   Timeout 的延时是 **`delay - 1`**（把唤醒提前 1ms）；否则用 Clock 的下一帧。用例同时钉了
+   「`delay == sleep_threshold` 恰好走 Clock」「`hidden` 为真时即使 `delay` 很大也走 Clock」。
+9. **`_step_once()` 的语句顺序就是行为**：base 的 5% 换挡（换挡时按 `cost` 重算 `_span`）→
+   截止点严格比较（`t0 < _deadline` 就返回，**不推进**）→ `dt` 夹到 `_base * 4` → `on_step`
+   → `cost` 的 `truthy` 首帧直取 + 0.9/0.1 EMA → `want` 与 `_span` 的内外双夹取
+   （内夹取用 `±slew`，外夹取共用 `[1, max_span]`）→ 截止点按 `_base * _span` 推进 →
+   rate 窗口（`el >= rate_window`，`_rate_steps * 1000 / el`）→ 滞后超过 `_base * max_lag_steps`
+   时把截止点重新对齐到 `t1 + _base * _span`。每步都配了变异。
+10. **`truthy(Value(cost))` 而不是 `cost != 0`**：TS 是 `this.cost ? ... : spent`，`NaN` 与 `-0`
+    都算假 ⇒ 走 `truthy` 这个既有助手（`-0` 直取分支的位模式用例钉住了 `-0` 与 `+0` 的差别）。
+11. **`FPS` 的 `clamp(retention, 0, 0.99)`**：上界 0.99 不是 1；`_duration` 真值才走 EMA、
+    否则**直取** `dt`（所以 `update(0)` 之后 `value` 是 `Infinity`，用例里有这条）。
+
+### 59.3 harness 扩充
+
+- `subjects/base.{cpp,ts}` 新增假宿主：`FakeClock`（`clk add <id>` / `clk del <id>` 日志、
+  `set` / `adv` / `hidden` / `pending` 四个 op）与 `FakeTimeout`（`TOUT add <id> <bits(delay)>` /
+  `TOUT del <id>`），`main` 里 `set_clock` / `set_timeout` 装好。TS 侧同名假对象直接赋给
+  `Ditto.Clock` / `Ditto.Timeout`。
+- `fire`：**先**看有没有待触发 Timeout（有就触发并让假时钟前进它的延时），否则触发待唤醒的 Clock。
+- `tk new [<step_ms>]` / `maxspan` / `maxlag` / `ratewin` 三个旋钮 / `tk spent <ms>`（让
+  `TestTickerOptions` 在 `on_step` 里把假时钟推走 `spent`）/ `tk inside
+  <resume|pause|stop|resync>`（**重入钩子**：下一次 `on_step` 里回调 Ticker 自己一次，
+  用完即清；`tk new` 也会清）/ `start` / `stop` / `pause` / `resume` / `resync <0|1>` /
+  `stepms` / `dump`；`fps new [<ret>]` / `update <dt>` / `reset` / `dump`。
+  `safety` / `slew` / `sleep_threshold` 三个旋钮**不设 op**：用例给默认值就能走到所有分支
+  （`slew` 的增量、`sleep_threshold` 的边界、`safety` 进 `want` 的公式），见 59.4 第 10 条。
+- **两个 harness 语义（不是端口语义）**：① `fire` 不管待触发的是哪一类，Timeout 优先；
+  ② `tk new` 会清空两个待触发队列（模拟 TS 里「换一个 `Ticker` 实例 = 旧回调随 world 一起弃掉」）。
+  没有 ① 时首版用例会「Clock 先被触发了、Timeout 永远待触发」；没有 ② 时上一场景的残留回调
+  会被下一场景的 `fire` 触发。
+- **用例必须把假时钟推到截止点**（`clk set <deadline>`）才看得到步进：`step_once` 里
+  `t0 < _deadline` 直接返回，所以 `clk set` 给早了只会得到「什么都没发生」的 trace。
+  重入钩子的三段每段都要先 `clk set <起点>` 再 `tk new`（截止点是 `start` 用当时的时钟算的），
+  否则钩子那一枪压根步进不了 —— 首版就是这么写的，三段里有俩段白跑。
+- `cases/base/ticker.txt` 231 行，15 个场景（S1–S13 + S5.5 / S6.5 两段补丁场景）：
+  启动两路分流 / `sleep_threshold` 边界 / `hidden` /
+  `resync(immediate)` / rate 窗口与「`el` 恰好等于 `ratewin`」边界 + resync 后的重新累计 /
+  cost EMA（含 `spent` 变化，见 59.5）与 span slew / `on_step` 里重入 `resume`·`pause`·`stop` /
+  `spent` 为 0/8 / base 5% 换挡（含 `stepms 0`）/ `dt` 夹到 4 倍与 `maxlag` 三种取值 /
+  pause·resume·stop·resync 的组合与五种 no-op 状态 / `step_ms == 0` 的 `rate` 回落 /
+  FPS 的一场（含 `update 0` 的 `Infinity`、`retention` 夹取与 `reset`）。
+
+### 59.4 已知偏差 / 有意不覆盖
+
+1. **`Ticker.TAG`**（`static readonly TAG = "Ticker"`）不移植：与其它槽同款约定（没有任何运行时
+   读取点）。
+2. **`ITimeout.add` 的 `...args`** 不移植（59.2 第 1 条）。
+3. **`_tick` 的 `finally`**：TS 保证 `on_step` 抛异常时仍会 `_schedule()`；端口无异常（lint 禁
+   `try`），一律顺序执行 ⇒ 「抛异常」这条路径不可表示、也不可观察。
+4. **`_schedule()` 守卫的第三个因子 `_pending`** 原理上可观察，但本主题到不了：所有调用点
+   要么刚刚清过它（`start` / `_tick` / `resync` 内的 `cancel`），要么根本进不来 ⇒ 不列候选。
+   （另两个因子 `!_running` / `_paused` 用 `tk inside stop` / `tk inside pause` 可观察，已列。）
+5. **`_tick` 里 `if (!_running) return;`**：要观察到它需要「`stop()` 之后仍有回调被触发」，
+   而 `stop()` 已经 `cancel()` 掉了句柄（`fire` 只会打 `FIRE -`）。
+6. **`clamp(t0 - _last_step, 0, _base * 4)` 的下界**：假时钟单调（用例里只前进）⇒ 下界不可观察，
+   不列候选；上界可观察（用例把时钟一次推 64ms = `_base * 4`）。
+7. **`IClock.del` 收到未知句柄**的行为：TS 侧没有可观察 trace（`Ditto.Clock.del` 的副作用取决于
+   宿主），端口与假宿主都当 no-op ⇒ 不覆盖。
+8. **私有槽的窥视口**：`Ticker` 的 `base` / `span` / `rate` / `pending` / `paused` / `deadline` /
+   `last_step` / `timer_id` / `wake_id` 都不是 TS 的公开 API（`running` / `step` / `span` / `rate`
+   是），端口按 harness 需要把它们开成 const getter + `FPS::duration`；TS 侧靠 `as any` 读私有字段，
+   两侧都只用于 trace。
+9. **`want` 的上界换成字面量 `2` 是等价候选（已撤出名单）**：`_span` 紧接着被**同一个**
+   `max_span` 夹取，且只要 `want < max_span`，内侧的 `±slew` 夹取就保证 `_span` 正好走到 `want`；
+   `want == max_span` 时两侧的输出也同为 `max_span`（外层夹取吃掉）。因此两个 `max_span` 取值下
+   `_span` 恒同 —— 与 `9n` 撤出 `Spreading` 那条的处理口径一致（见 59.5 的存活分析）。
+10. **旋钮的默认值**：用例显式改的是 `maxspan` / `maxlag` / `ratewin` / `step_ms`（+ harness 的
+   `spent` / `inside`），`safety` / `slew` / `sleep_threshold` 只走默认值 —— harness 也就没给它们
+   设 op。三者的默认值本身都被现有候选钉住：`slew` 由 span 的增量（`1.004`）钉、`sleep_threshold`
+   由 `delay > sleep_threshold` 的边界与分流钉、`safety` 由「base 变化后不按 `cost` 重算 `_span`」
+   与 span 的夹紧值钉。`safety` 的**默认值**只有在 `cost * safety / _base` 落进 `±slew` 这段
+   极窄区间（如 `_base / safety` 附近）时才可分辨，没为它铺场景 ⇒ 不列候选（同族的等价论证
+   见第 9 条）。
+
+### 59.5 变异与结果
+
+- 本刀新增 54 条候选（`Ticker` 46 + `FPS` 6 + `clock.h` 2），**全杀**；`base` 从 87 涨到 **141**
+  （另有 1 条按构造等价、撤出名单，见 59.4 第 9 条）。
+- 分布：`start` 5、`stop`/`pause` 4、`resume` 3、`resync` 4、`cancel` 3、`schedule` 6、
+  `tick` 2、`step_once` 18、`step` getter 1、`FPS` 6、`clock.h` 2。
+- **首轮全量跑 140 条 → 6 条存活，全部是「用例的观察面不够」**（不是端口错），逐条分析后：
+  1. `resume` 去掉 `!_paused`：那一枪必须**在一步的中间**重新 `resume`（`_tick` 已经把
+     `_pending` 清了），否则 `_schedule` 的守卫会把多出来的重排吃掉 ⇒ 新增 `tk inside` 重入钩子。
+  2. `resync` 的 `immediate` 分支取反：用例里 `resync` 前的时钟没动，`now == _last_step`
+     ⇒ **同值遮住**；改成先 `clk set` 再 `resync`。
+  3/4. `resync` 不复位 rate 的计数 / 窗口起点：用例里前一步刚好**命中**了 rate 窗口，
+    所以 `_rate_steps` 与 `_rate_start` 在 `resync` 前就已经等于 `resync` 要写的值
+     ⇒ 加一段「窗口未命中（`el < ratewin`）时 resync」的场景（顺带钉住 `el == ratewin` 的边界）。
+  5. `cost` 的 EMA 系数颠倒：用例里每步的 `spent` 恒等于当前 `cost`，EMA 的两个系数**恒等**
+     ⇒ 让 `spent` 在步与步之间变（0 / 40）。
+  6. `want` 的上界换成字面量：**按构造等价**，撤出名单（证明见 59.4 第 9 条）。
+- 结论同 §6.9.1 / §58.5 的教训：**存活先看「是不是被同值遮住」，再看「用例给的状态到不到得了」**。
+  这一刀 6 条存活里有 5 条是这两类，只有 1 条是真等价。
+- 最终用例 231 行、16 个场景；`base` 三个用例合计 3660 行。
+

@@ -1,3 +1,28 @@
+// Mutation spec for the `base` differential subject.
+//
+// Subject: native/lfw/base/* + the `src/LFW/base/*` modules mirrored by the `base`
+// harness (FSM / Callbacks / NoEmitCallbacks / ValExpression / Ticker / FPS).
+//
+// Notes recorded up front (unobservable-by-design items, not silently skipped):
+//  * Slice 2f (`base/clock.h` + `Ticker` + `FPS`):
+//    - `Ticker._schedule`'s `_pending` term in the guard is unobservable: every caller
+//      either just cleared `_pending` (`start` / `_tick` / `resync` via `cancel`) or
+//      cannot see a stale callback fire, so `_schedule` is never entered with
+//      `_pending == true`.
+//    - `_tick`'s `if (!_running) return;` needs a callback that still fires after
+//      `stop()`, but `stop()` cancels the handle first (`FIRE -` in the harness).
+//    - `IClock::del` on an unknown handle has no observable trace (both the port and
+//      the fake hosts make it a no-op).
+//    - The lower bound of `clamp(t0 - _last_step, 0, _base * 4)` needs the clock to go
+//      backwards, which the fake clock in the case never does (the upper bound is
+//      observable and listed).
+//  * One candidate is withdrawn as equivalent by construction: `step_once`'s
+//    `want = clamp((cost * safety) / _base, 1, max_span)` has its upper bound replaced
+//    by the literal `2`. `_span` is clamped by the *same* `max_span` right after, and
+//    whenever `want < max_span` the inner slew clamp makes `_span` reach exactly
+//    `want`, so both `max_span` values give the same `_span` (it was the run's only
+//    survivor; see DESIGN §59.4).
+//
 export default {
   subject: "base",
   mutations: [
@@ -614,6 +639,396 @@ export default {
       file: "native/lfw/loader/preprocess_opoint.h",
       from: `    if (expr.has_err) {`,
       to: `    if (false) {`,
+    },
+
+    // ---- 2f：base/Ticker ---------------------------------------------------------
+    {
+      note: "Ticker.start：重复 start 也重新计时（丢掉 _running 守卫）",
+      file: "native/lfw/base/ticker.h",
+      from: `    if (_running) return;
+    _running = true;`,
+      to: `    _running = true;`,
+    },
+    {
+      note: "Ticker.start：首帧截止点不含一个步长",
+      file: "native/lfw/base/ticker.h",
+      from: `    _deadline = now + _base;`,
+      to: `    _deadline = now;`,
+    },
+    {
+      note: "Ticker.start：rate 不防 _base == 0",
+      file: "native/lfw/base/ticker.h",
+      from: `    _rate = _base > 0 ? 1000 / _base : 0;`,
+      to: `    _rate = 1000 / _base;`,
+    },
+    {
+      note: "Ticker.start：不复位 _span",
+      file: "native/lfw/base/ticker.h",
+      from: `    _span = 1;
+    cost = 0;
+    const double now = clock_now();`,
+      to: `    cost = 0;
+    const double now = clock_now();`,
+    },
+    {
+      note: "Ticker.start：不复位 cost",
+      file: "native/lfw/base/ticker.h",
+      from: `    _span = 1;
+    cost = 0;
+    const double now`,
+      to: `    _span = 1;
+    const double now`,
+    },
+    {
+      note: "Ticker.stop：不清 _paused",
+      file: "native/lfw/base/ticker.h",
+      from: `    _running = false;
+    _paused = false;
+    cancel();`,
+      to: `    _running = false;
+    cancel();`,
+    },
+    {
+      note: "Ticker.stop：不 cancel（残留回调）",
+      file: "native/lfw/base/ticker.h",
+      from: `    if (!_running) return;
+    _running = false;
+    _paused = false;`,
+      to: `    if (!_running) return;
+    _running = false;`,
+    },
+    {
+      note: "Ticker.pause：加 _running 守卫（TS 没有）",
+      file: "native/lfw/base/ticker.h",
+      from: `    if (_paused) return;
+    _paused = true;
+    cancel();`,
+      to: `    if (_paused || !_running) return;
+    _paused = true;
+    cancel();`,
+    },
+    {
+      note: "Ticker.pause：不 cancel",
+      file: "native/lfw/base/ticker.h",
+      from: `    _paused = true;
+    cancel();
+  }`,
+      to: `    _paused = true;
+  }`,
+    },
+    {
+      note: "Ticker.resume：不检查 _paused",
+      file: "native/lfw/base/ticker.h",
+      from: `    if (!_running || !_paused) return;`,
+      to: `    if (!_running) return;`,
+    },
+    {
+      note: "Ticker.resume：不重读 step_ms",
+      file: "native/lfw/base/ticker.h",
+      from: `    _base = _opt->step_ms();
+    const double now = clock_now();
+    _deadline = max(now, _last_step + _base * _span);`,
+      to: `    const double now = clock_now();
+    _deadline = max(now, _last_step + _base * _span);`,
+    },
+    {
+      note: "Ticker.resume：截止点丢掉 max（直接用 now）",
+      file: "native/lfw/base/ticker.h",
+      from: `    _deadline = max(now, _last_step + _base * _span);`,
+      to: `    _deadline = now;`,
+    },
+    {
+      note: "Ticker.resync：不检查 _running",
+      file: "native/lfw/base/ticker.h",
+      from: `    if (!_running) return;
+    const double now = clock_now();
+    _base = _opt->step_ms();
+    _deadline = immediate ?`,
+      to: `    const double now = clock_now();
+    _base = _opt->step_ms();
+    _deadline = immediate ?`,
+    },
+    {
+      note: "Ticker.resync：immediate 分支取反",
+      file: "native/lfw/base/ticker.h",
+      from: `    if (!immediate) _last_step = now;`,
+      to: `    if (immediate) _last_step = now;`,
+    },
+    {
+      note: "Ticker.resync：不复位 rate 计数",
+      file: "native/lfw/base/ticker.h",
+      from: `    _rate_start = now;
+    _rate_steps = 0;
+    cancel();`,
+      to: `    _rate_start = now;
+    cancel();`,
+    },
+    {
+      note: "Ticker.resync：不复位 rate 窗口起点",
+      file: "native/lfw/base/ticker.h",
+      from: `    if (!immediate) _last_step = now;
+    _rate_start = now;
+    _rate_steps = 0;`,
+      to: `    if (!immediate) _last_step = now;
+    _rate_steps = 0;`,
+    },
+    {
+      note: "Ticker.cancel：不清 _pending",
+      file: "native/lfw/base/ticker.h",
+      from: `    _pending = false;
+    if (_timer != 0) {`,
+      to: `    if (_timer != 0) {`,
+    },
+    {
+      note: "Ticker.cancel：不删 Clock 句柄",
+      file: "native/lfw/base/ticker.h",
+      from: `    if (_wake_id != 0) {
+      clock_del(_wake_id);
+      _wake_id = 0;
+    }
+  }`,
+      to: `  }`,
+    },
+    {
+      note: "Ticker.cancel：删完不清 _timer",
+      file: "native/lfw/base/ticker.h",
+      from: `      timeout_del(_timer);
+      _timer = 0;`,
+      to: `      timeout_del(_timer);`,
+    },
+    {
+      note: "Ticker.schedule：sleep_threshold 边界 > 写成 >=",
+      file: "native/lfw/base/ticker.h",
+      from: `    if (delay > sleep_threshold && !clock_hidden()) {`,
+      to: `    if (delay >= sleep_threshold && !clock_hidden()) {`,
+    },
+    {
+      note: "Ticker.schedule：守卫丢掉 !_running（重入 stop 后还会再排一个回调）",
+      file: "native/lfw/base/ticker.h",
+      from: `    if (!_running || _pending || _paused) return;`,
+      to: `    if (_pending || _paused) return;`,
+    },
+    {
+      note: "Ticker.schedule：守卫丢掉 _paused（重入 pause 后还会再排一个回调）",
+      file: "native/lfw/base/ticker.h",
+      from: `    if (!_running || _pending || _paused) return;`,
+      to: `    if (!_running || _pending) return;`,
+    },
+    {
+      note: "Ticker.schedule：不看 Clock.hidden()",
+      file: "native/lfw/base/ticker.h",
+      from: `    if (delay > sleep_threshold && !clock_hidden()) {`,
+      to: `    if (delay > sleep_threshold) {`,
+    },
+    {
+      note: "Ticker.schedule：Timeout 延时不减 1ms",
+      file: "native/lfw/base/ticker.h",
+      from: `      _timer = timeout_add([this]() { tick(); }, delay - 1);`,
+      to: `      _timer = timeout_add([this]() { tick(); }, delay);`,
+    },
+    {
+      note: "Ticker.schedule：Timeout 分支不置 _pending",
+      file: "native/lfw/base/ticker.h",
+      from: `      _pending = true;
+      _timer = timeout_add`,
+      to: `      _timer = timeout_add`,
+    },
+    {
+      note: "Ticker.schedule：Clock 分支不置 _pending",
+      file: "native/lfw/base/ticker.h",
+      from: `    _pending = true;
+    _wake_id = clock_add`,
+      to: `    _wake_id = clock_add`,
+    },
+    {
+      note: "Ticker.tick：不清 _timer",
+      file: "native/lfw/base/ticker.h",
+      from: `    _pending = false;
+    _timer = 0;
+    _wake_id = 0;`,
+      to: `    _pending = false;
+    _wake_id = 0;`,
+    },
+    {
+      note: "Ticker.tick：不清 _pending",
+      file: "native/lfw/base/ticker.h",
+      from: `    _pending = false;
+    _timer = 0;`,
+      to: `    _timer = 0;`,
+    },
+    {
+      note: "Ticker.step_once：base 变化阈值 0.05 写成 0.5",
+      file: "native/lfw/base/ticker.h",
+      from: `    if (base > 0 && abs(base - _base) > base * 0.05) {`,
+      to: `    if (base > 0 && abs(base - _base) > base * 0.5) {`,
+    },
+    {
+      note: "Ticker.step_once：base 变化后不按 cost 重算 _span",
+      file: "native/lfw/base/ticker.h",
+      from: `      _span = clamp((cost * safety) / base, 1, max_span);`,
+      to: `      _span = 1;`,
+    },    {
+      note: "Ticker.step_once：去掉 step_ms 未变时的 _base 跟进分支",
+      file: "native/lfw/base/ticker.h",
+      from: `    } else if (base > 0) {
+      _base = base;
+    }`,
+      to: `    }`,
+    },
+    {
+      note: "Ticker.step_once：未到截止点也步进（< 写成 <=）",
+      file: "native/lfw/base/ticker.h",
+      from: `    if (t0 < _deadline) return;`,
+      to: `    if (t0 <= _deadline) return;`,
+    },
+    {
+      note: "Ticker.step_once：dt 上限 4 个步长写成 8 个",
+      file: "native/lfw/base/ticker.h",
+      from: `    const double dt = clamp(t0 - _last_step, 0, _base * 4);`,
+      to: `    const double dt = clamp(t0 - _last_step, 0, _base * 8);`,
+    },
+    {
+      note: "Ticker.step_once：cost 首次不走 truthy 直取",
+      file: "native/lfw/base/ticker.h",
+      from: `    cost = truthy(Value(cost)) ? cost * 0.9 + spent * 0.1 : spent;`,
+      to: `    cost = cost * 0.9 + spent * 0.1;`,
+    },
+    {
+      note: "Ticker.step_once：cost 的 EMA 系数颠倒",
+      file: "native/lfw/base/ticker.h",
+      from: `    cost = truthy(Value(cost)) ? cost * 0.9 + spent * 0.1 : spent;`,
+      to: `    cost = truthy(Value(cost)) ? cost * 0.8 + spent * 0.2 : spent;`,
+    },
+    {
+      note: "Ticker.step_once：span 的 slew 夹取下界上界颠倒",
+      file: "native/lfw/base/ticker.h",
+      from: `    _span = clamp(_span + clamp(want - _span, -slew, slew), 1, max_span);`,
+      to: `    _span = clamp(_span + clamp(want - _span, slew, -slew), 1, max_span);`,
+    },
+    {
+      note: "Ticker.step_once：截止点推进不含 _span",
+      file: "native/lfw/base/ticker.h",
+      from: `    _deadline += _base * _span;`,
+      to: `    _deadline += _base;`,
+    },
+    {
+      note: "Ticker.step_once：rate 换算写成 ×100",
+      file: "native/lfw/base/ticker.h",
+      from: `      _rate = (_rate_steps * 1000) / el;`,
+      to: `      _rate = (_rate_steps * 100) / el;`,
+    },
+    {
+      note: "Ticker.step_once：rate 窗口边界 >= 写成 >",
+      file: "native/lfw/base/ticker.h",
+      from: `    if (el >= rate_window) {`,
+      to: `    if (el > rate_window) {`,
+    },
+    {
+      note: "Ticker.step_once：rate 窗口后不复位计数",
+      file: "native/lfw/base/ticker.h",
+      from: `      _rate_steps = 0;
+      _rate_start = t0;`,
+      to: `      _rate_start = t0;`,
+    },
+    {
+      note: "Ticker.step_once：rate 窗口后不推进起点",
+      file: "native/lfw/base/ticker.h",
+      from: `      _rate_steps = 0;
+      _rate_start = t0;
+    }`,
+      to: `      _rate_steps = 0;
+    }`,
+    },
+    {
+      note: "Ticker.step_once：滞后阈值不乘 max_lag_steps",
+      file: "native/lfw/base/ticker.h",
+      from: `    if (t1 - _deadline > _base * max_lag_steps) {`,
+      to: `    if (t1 - _deadline > _base) {`,
+    },
+    {
+      note: "Ticker.step_once：滞后重置不更新 _last_step",
+      file: "native/lfw/base/ticker.h",
+      from: `      _deadline = t1 + _base * _span;
+      _last_step = t1;`,
+      to: `      _deadline = t1 + _base * _span;`,
+    },
+    {
+      note: "Ticker.step_once：滞后重置的截止点不含 _span",
+      file: "native/lfw/base/ticker.h",
+      from: `      _deadline = t1 + _base * _span;`,
+      to: `      _deadline = t1;`,
+    },
+    {
+      note: "Ticker.step_once：整块滞后重置去掉",
+      file: "native/lfw/base/ticker.h",
+      from: `    const double t1 = clock_now();
+    if (t1 - _deadline > _base * max_lag_steps) {
+      _deadline = t1 + _base * _span;
+      _last_step = t1;
+    }
+  }`,
+      to: `    const double t1 = clock_now();
+    (void)t1;
+  }`,
+    },
+    {
+      note: "Ticker.step：不含 _span",
+      file: "native/lfw/base/ticker.h",
+      from: `  double step() const { return _base * _span; }`,
+      to: `  double step() const { return _base; }`,
+    },
+
+    // ---- 2f：base/FPS ------------------------------------------------------------
+    {
+      note: "FPS：保留率上限放到 1",
+      file: "native/lfw/base/fps.h",
+      from: `  explicit FPS(double retention = 0.99) { _retention = clamp(retention, 0, 0.99); }`,
+      to: `  explicit FPS(double retention = 0.99) { _retention = clamp(retention, 0, 1); }`,
+    },
+    {
+      note: "FPS.update：EMA 的保留/新值系数颠倒",
+      file: "native/lfw/base/fps.h",
+      from: `      _duration = _duration * _retention + dt * (1 - _retention);`,
+      to: `      _duration = _duration * (1 - _retention) + dt * _retention;`,
+    },
+    {
+      note: "FPS.update：不做首帧直取（永远走 EMA）",
+      file: "native/lfw/base/fps.h",
+      from: `    if (truthy(Value(_duration))) {`,
+      to: `    if (true) {`,
+    },
+    {
+      note: "FPS.update：跳过 EMA（永远直取 dt）",
+      file: "native/lfw/base/fps.h",
+      from: `    if (truthy(Value(_duration))) {`,
+      to: `    if (false) {`,
+    },
+    {
+      note: "FPS.update：帧率不取倒数",
+      file: "native/lfw/base/fps.h",
+      from: `    _value = 1000 / _duration;`,
+      to: `    _value = _duration;`,
+    },
+    {
+      note: "FPS.reset：不清 _duration",
+      file: "native/lfw/base/fps.h",
+      from: `    _value = 0;
+    _duration = 0;`,
+      to: `    _value = 0;`,
+    },
+
+    // ---- 2f：base/clock.h 的槽助手 ------------------------------------------------
+    {
+      note: "clock_hidden：槽为空也报 hidden（写死 true）",
+      file: "native/lfw/base/clock.h",
+      from: `inline bool clock_hidden() { return clock() != nullptr && clock()->hidden(); }`,
+      to: `inline bool clock_hidden() { return true; }`,
+    },
+    {
+      note: "timeout_add：延时参数不往下传",
+      file: "native/lfw/base/clock.h",
+      from: `  return timeout() != nullptr ? timeout()->add(std::move(handler), delay) : 0;`,
+      to: `  return timeout() != nullptr ? timeout()->add(std::move(handler), 0) : 0;`,
     },
   ],
 };

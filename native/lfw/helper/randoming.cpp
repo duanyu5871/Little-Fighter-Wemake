@@ -17,7 +17,7 @@ Value duplicate_or_default(const Value& v) {
 }
 
 MersenneTwister& Randoming::default_mt() {
-  static MersenneTwister instance(clock() != nullptr ? clock()->now_ms() : 0.0);
+  static MersenneTwister instance(clock_now());
   return instance;
 }
 

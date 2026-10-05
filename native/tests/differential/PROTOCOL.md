@@ -3399,7 +3399,7 @@ harness op：
   映射对（见上）、`world_puppets` 的 `team` 槽与 `entity_view` 的 `emitters`（消费者只有
   状态钩子与 `summary_mgr.apply_damage`，本主题一个都不走）。
 
-### 6.9.102 `base/ValExpression` + `loader/preprocess_opoint`（`base` 用例 3127 → 3426 行 = core 3127 + val_expr 299；变异 87/87 全杀，其中本刀新增 66 条）
+### 6.9.102 `base/ValExpression` + `loader/preprocess_opoint`（`base` 用例 3127 → 3429 行 = core 3127 + val_expr 302；变异 87/87 全杀，其中本刀新增 66 条）
 
 - 新用例 `cases/base/val_expr.txt`：解析结构（空白剥离 / `text` / `tag` / 数字与小数点的
   边角）、逐字错误文案与 `@下标`、四则的优先级与结合性、一元负号的递归、括号、
@@ -3430,3 +3430,48 @@ harness op：
   `v !== undefined` 过滤）不复现 ⇒ 用例只喂有值的帧。
 - 不可观察 / 有意不覆盖（另见 DESIGN §58.4）：非字符串的 `gen_*`（TS 抛 `TypeError`，无 trace）、
   `mark` 挪到实参之后的等价写法、`gen_*` 为真值非字符串的分支。
+
+### 6.9.103 `base/clock.h` 补全 + `base/Ticker` + `base/FPS`（`base` 用例 3429 → 3660 行 = core 3127 + val_expr 302 + ticker 231；变异 141/141 全杀，其中本刀新增 54 条；另有 1 条按构造等价、撤出名单）
+
+- 新用例 `cases/base/ticker.txt`（231 行）：15 个场景 —— 启动时的两路分流（Timeout / Clock）、
+  `delay == sleep_threshold` 的边界、`Clock.hidden()` 为真、`resync(immediate)`、
+  rate 窗口（含 `el` 恰好等于 `ratewin` 与 resync 之后两种状态的重新累计）、`cost` 的 EMA
+  （让 `spent` 在步间变化）与 `_span` 的 slew、`on_step` 里重入 `resume`/`pause`/`stop`、
+  `spent` 为 0 / 8、base 的 5% 换挡（含 `step_ms == 0`）、`dt` 夹到 4 倍与
+  `max_lag_steps` 三种取值、`pause`/`resume`/`stop`/`resync` 的组合与五种 no-op 状态、
+  `step_ms == 0` 时 `rate` 回落 0、FPS 一场。
+- 新增 op：
+  * 假宿主：`clk set <ms>` / `clk adv <ms>` / `clk hidden <0|1>` / `clk pend`（打
+    `PEND clock=<n> tout=<n>`）、`fire`、三个旋钮 `tk maxspan|maxlag|ratewin <v>`
+    （`safety`/`slew`/`sleep_threshold` 没有 op，用例走它们的默认值 —— 见 DESIGN §59.4 第 10 条）。
+    假时钟与假定时器的动作会打日志：`CLK add <id>` / `CLK del <id>` /
+    `TOUT add <id> <bits16(delay)>` / `TOUT del <id>`，`id` 两侧都从 1 递增。
+  * `tk new [<step_ms>]`（缺省 16）/ `tk start` / `tk stop` / `tk pause` / `tk resume` /
+    `tk resync <0|1>` / `tk stepms <ms>` / `tk spent <ms>` / `tk inside <resume|pause|stop|resync>` /
+    `tk dump`：
+    `TK run=<bool> pend=<bool> pause=<bool> base=<bits16> span=<bits16> step=<bits16>
+    rate=<bits16> cost=<bits16> dl=<bits16> last=<bits16> tid=<id> wid=<id>`。
+  * `fps new [<retention>]` / `fps update <dt>` / `fps reset` / `fps dump`：
+    `FPS value=<bits16> dur=<bits16> ret=<bits16>`。
+- ⚠️ **`tk inside <m>` 是重入钩子**：让**下一次** `on_step` 在打完 `STEP` 之后回调 Ticker 自己
+  （`resume` / `pause` / `stop` / `resync(true)`），用完即清（`tk new` 也清）。这是 `_schedule`
+  守卫三个因子里 `_running` / `_paused` 两个**唯一**的可观察入口 —— `_tick` 在调 `on_step`
+  之前就把 `_pending` 清了（这正是「宿主在一步中间改状态」的模拟）。
+- ⚠️ **`fire` 是「触发待触发的回调」，Timeout 优先**：Timeout 被触发时假时钟会**自动前进**
+  `delay`（模拟真实定时器的到期）；Clock 被触发时不动时钟。**必须先 `clk set <截止点>`** ——
+  `step_once` 里 `t0 < _deadline` 直接返回，时钟给早了 trace 就是「什么都没发生」。
+  重入钩子那几段还要注意 `_deadline` 是 `start` 用**当时**的时钟算的（`start + step_ms`）：
+  改了 `clk set` 之后必须重新 `tk new` + `tk start`，否则钩子那一枪步进不了。
+- ⚠️ **`tk new` 会清空两个待触发队列**（harness 语义，不是端口语义）：模拟 TS 里换一个
+  `Ticker` 实例 = 旧回调随 world 一起弃掉。没有它，上一场景的残留回调会被下一场景的
+  `fire` 触发。
+- ⚠️ **`tk start` 之前 `base`/`rate` 还是 0**：`_base` 只在 `start`/`resume`/`resync`/`step_once`
+  里赋值 ⇒ `tk new 16; tk dump` 打出 `base=0`（TS 侧读私有字段得到同一结果）。
+- ⚠️ **`pause` 不看 `_running`**（TS 原文）：`tk stop; tk pause; tk dump` 打出 `pause=true`，
+  要再 `tk resume`（被 `!_running` 拦下、什么也不做）才能看到它「卡住」。
+- `mt_random` 侧无新 op，只因 `IClock::now_ms` → `now` 改名同步了 `TestClock`
+  （`IClock` 现在有四个纯虚方法，假时钟必须四个都实现）。
+- 不可观察 / 有意不覆盖（另见 DESIGN §59.4）：`Ticker.TAG`、`ITimeout.add` 的 `...args`、
+  `_tick` 的 `finally`、`_schedule` 守卫里的 `_pending` 因子、`_tick` 的 `!_running` 早返回、
+  `dt` 夹取的下界、`IClock.del` 收到未知句柄。（守卫的另两个因子 `!_running` / `_paused`
+  用 `tk inside stop` / `tk inside pause` 已覆盖。）

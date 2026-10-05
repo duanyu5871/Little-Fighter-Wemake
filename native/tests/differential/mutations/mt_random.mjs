@@ -24,15 +24,15 @@ export default {
     {
       note: "默认 mt 的种子固定为 0（不读时钟）",
       file: "native/lfw/helper/randoming.cpp",
-      from: `  static MersenneTwister instance(clock() != nullptr ? clock()->now_ms() : 0.0);`,
+      from: `  static MersenneTwister instance(clock_now());`,
       to: `  static MersenneTwister instance(0.0);`,
     },
     {
       note: "默认 mt 不是同一个实例",
       file: "native/lfw/helper/randoming.cpp",
-      from: `  static MersenneTwister instance(clock() != nullptr ? clock()->now_ms() : 0.0);
+      from: `  static MersenneTwister instance(clock_now());
   return instance;`,
-      to: `  MersenneTwister instance(clock() != nullptr ? clock()->now_ms() : 0.0);
+      to: `  MersenneTwister instance(clock_now());
   return instance;`,
     },
     {

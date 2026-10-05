@@ -1,6 +1,8 @@
 import { Callbacks } from "../../../../src/LFW/base/Callbacks";
+import { FPS } from "../../../../src/LFW/base/FPS";
 import type { FSM as FSMType, IState } from "../../../../src/LFW/base/FSM";
 import { FSM } from "../../../../src/LFW/base/FSM";
+import { Ticker } from "../../../../src/LFW/base/Ticker";
 import { ValExpression } from "../../../../src/LFW/base/ValExpression";
 import { Ditto } from "../../../../src/LFW/ditto/Instance";
 import { preprocess_opoint } from "../../../../src/LFW/loader/preprocess_opoint";
@@ -82,6 +84,142 @@ function opointCompile(): void {
 }
 function keyValue(tok: string): string | number {
   return /^-?\d+(\.\d+)?$/.test(tok) ? Number(tok) : tok;
+}
+
+// --- `base/Ticker` + `base/FPS` 的假时钟 / 假定时器 --------------------------
+// TS 侧换掉 `Ditto.Clock` / `Ditto.Timeout`（端口换 `clock()` / `timeout()` 两个槽）。
+// 两侧都把 `add` / `del` 打进日志：**走 Timeout 还是走 Clock、delay 是多少**正是
+// `Ticker._schedule` 的行为。`fire` 取「句柄最大的待发回调」（Ticker 同时只挂一个）。
+
+const fakeClock = {
+  value: 0,
+  hid: false,
+  nextId: 1,
+  pending: new Map<number, () => void>(),
+  now(): number {
+    return this.value;
+  },
+  add(handler: () => void): number {
+    const id = this.nextId++;
+    this.pending.set(id, handler);
+    out.push(line("CLK", "add", id));
+    return id;
+  },
+  del(handle: number): void {
+    this.pending.delete(handle);
+    out.push(line("CLK", "del", handle));
+  },
+  hidden(): boolean {
+    return this.hid;
+  },
+};
+
+const fakeTimeout = {
+  nextId: 1,
+  pending: new Map<number, () => void>(),
+  add(handler: () => void, timeout?: number): number {
+    const id = this.nextId++;
+    this.pending.set(id, handler);
+    out.push(line("TOUT", "add", id, bitsHex(timeout ?? 0)));
+    return id;
+  },
+  del(timerId: number): void {
+    this.pending.delete(timerId);
+    out.push(line("TOUT", "del", timerId));
+  },
+};
+
+Ditto.Clock = fakeClock as never;
+Ditto.Timeout = fakeTimeout as never;
+
+function firePending(pend: Map<number, () => void>, kind: string): void {
+  let best = -1;
+  for (const k of pend.keys()) if (k > best) best = k;
+  if (best < 0) {
+    out.push(line("FIRE", kind, "-"));
+    return;
+  }
+  const fn = pend.get(best)!;
+  pend.delete(best);
+  out.push(line("FIRE", kind, best));
+  fn();
+}
+
+// 宿主「发一次待发的回调」：Ticker 同时只会挂一个（Timeout 或 Clock），所以先看 Timeout。
+function fireAny(): void {
+  if (fakeTimeout.pending.size > 0) {
+    firePending(fakeTimeout.pending, "timeout");
+    return;
+  }
+  if (fakeClock.pending.size > 0) {
+    firePending(fakeClock.pending, "clock");
+    return;
+  }
+  out.push("FIRE -");
+}
+
+let tkStep = 16;
+let tkSpent = 0;
+let tkSteps = 0;
+// 重入钩子：`on_step` 里回调 Ticker 自己（`resume`/`pause`/`stop`）。这是 `_schedule`
+// 三个守卫因子唯一的可观察入口（宿主在一步的中间改状态），所以值得做成 op。
+let tkInside = "";
+
+const tkOpt = {
+  step_ms: (): number => tkStep,
+  on_step: (dt: number): void => {
+    out.push(line("STEP", tkSteps++, bitsHex(dt)));
+    // `on_step` 里的「干活耗时」：让假时钟前进，`Ticker.cost` 的 EMA 才动得起来。
+    fakeClock.value += tkSpent;
+    if (tkInside !== "" && ticker !== undefined) {
+      const sub = tkInside;
+      tkInside = "";
+      if (sub === "resume") ticker.resume();
+      else if (sub === "pause") ticker.pause();
+      else if (sub === "stop") ticker.stop();
+      else if (sub === "resync") ticker.resync(true);
+    }
+  },
+};
+
+let ticker: Ticker | undefined;
+let fps: FPS | undefined;
+
+function flagText(b: boolean): string {
+  return b ? "true" : "false";
+}
+
+function tickerDump(): void {
+  const t = ticker as any;
+  out.push(
+    line(
+      "TK",
+      "run=" + flagText(ticker !== undefined && Boolean(ticker.running)),
+      "pend=" + flagText(t !== undefined && Boolean(t._pending)),
+      "pause=" + flagText(t !== undefined && Boolean(t._paused)),
+      "base=" + bitsHex(Number(t?._base ?? 0)),
+      "span=" + bitsHex(Number(t?._span ?? 0)),
+      "step=" + bitsHex(Number(t?._base ?? 0) * Number(t?._span ?? 0)),
+      "rate=" + bitsHex(Number(t?._rate ?? 0)),
+      "cost=" + bitsHex(Number(t?._cost ?? t?.cost ?? 0)),
+      "dl=" + bitsHex(Number(t?._deadline ?? 0)),
+      "last=" + bitsHex(Number(t?._last_step ?? 0)),
+      "tid=" + Number(t?._timer ?? 0),
+      "wid=" + Number(t?._wake_id ?? 0),
+    ),
+  );
+}
+
+function fpsDump(): void {
+  const f = fps as any;
+  out.push(
+    line(
+      "FPS",
+      "value=" + bitsHex(Number(f?._value ?? 0)),
+      "dur=" + bitsHex(Number(f?._duration ?? 0)),
+      "ret=" + bitsHex(Number(f?._retention ?? 0)),
+    ),
+  );
 }
 
 Ditto.warn = (msg: string) => {
@@ -228,6 +366,75 @@ function main(): void {
       opointCompile();
     } else if (op === "pkeys") {
       out.push(line("PK", ...Object.keys(opoint).map((k) => esc(k))));
+    } else if (op === "fire") {
+      fireAny();
+    } else if (op === "clk") {
+      const sub = t[idx[0]!++]!;
+      if (sub === "set") {
+        fakeClock.value = Number(t[idx[0]!++]!);
+      } else if (sub === "adv") {
+        fakeClock.value += Number(t[idx[0]!++]!);
+      } else if (sub === "hidden") {
+        fakeClock.hid = t[idx[0]!++]! === "1";
+      } else if (sub === "pend") {
+        out.push(line("PEND", "clock=" + fakeClock.pending.size, "tout=" + fakeTimeout.pending.size));
+      } else {
+        process.stderr.write(`unknown clk sub '${sub}'\n`);
+        process.exit(2);
+      }
+    } else if (op === "tk") {
+      const sub = t[idx[0]!++]!;
+      if (sub === "new") {
+        tkStep = Number(t[idx[0]!++]!);
+        tkSpent = 0;
+        tkSteps = 0;
+        tkInside = "";
+        // 开一段新的：宿主把两个待发队列丢掉（用例因此可以逐段独立读）。
+        fakeClock.pending.clear();
+        fakeTimeout.pending.clear();
+        ticker = new Ticker(tkOpt);
+      } else if (sub === "stepms") {
+        tkStep = Number(t[idx[0]!++]!);
+      } else if (sub === "spent") {
+        tkSpent = Number(t[idx[0]!++]!);
+      } else if (sub === "inside") {
+        tkInside = t[idx[0]!++]!;
+      } else if (sub === "maxspan") {
+        (ticker as any).max_span = Number(t[idx[0]!++]!);
+      } else if (sub === "maxlag") {
+        (ticker as any).max_lag_steps = Number(t[idx[0]!++]!);
+      } else if (sub === "ratewin") {
+        (ticker as any).rate_window = Number(t[idx[0]!++]!);
+      } else if (sub === "start") {
+        ticker!.start();
+      } else if (sub === "stop") {
+        ticker!.stop();
+      } else if (sub === "pause") {
+        ticker!.pause();
+      } else if (sub === "resume") {
+        ticker!.resume();
+      } else if (sub === "resync") {
+        ticker!.resync(idx[0]! < t.length && t[idx[0]!++]! === "1");
+      } else if (sub === "dump") {
+        tickerDump();
+      } else {
+        process.stderr.write(`unknown tk sub '${sub}'\n`);
+        process.exit(2);
+      }
+    } else if (op === "fps") {
+      const sub = t[idx[0]!++]!;
+      if (sub === "new") {
+        fps = idx[0]! < t.length ? new FPS(Number(t[idx[0]!++]!)) : new FPS();
+      } else if (sub === "update") {
+        fps!.update(Number(t[idx[0]!++]!));
+      } else if (sub === "reset") {
+        fps!.reset();
+      } else if (sub === "dump") {
+        fpsDump();
+      } else {
+        process.stderr.write(`unknown fps sub '${sub}'\n`);
+        process.exit(2);
+      }
     } else if (op === "fsm") {
       const sub = t[idx[0]!++]!;
       if (sub === "init") {

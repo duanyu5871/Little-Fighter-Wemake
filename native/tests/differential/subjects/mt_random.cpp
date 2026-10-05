@@ -24,7 +24,13 @@ using trace::to_ascii;
 
 struct TestClock : lfw::IClock {
   double value = 0.0;
-  double now_ms() const override { return value; }
+  double now() const override { return value; }
+  int add(std::function<void()> handler) override {
+    (void)handler;
+    return 0;
+  }
+  void del(int handle) override { (void)handle; }
+  bool hidden() const override { return false; }
 };
 
 TestClock g_clock;
