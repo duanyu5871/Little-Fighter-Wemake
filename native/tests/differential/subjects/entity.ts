@@ -11,6 +11,7 @@ import { MersenneTwister } from "../../../../src/LFW/utils/math/MersenneTwister"
 import { Ground } from "../../../../src/LFW/Ground";
 import { mt_cases } from "../../../../src/LFW/cases_instances";
 import { get_val_getter_from_entity } from "../../../../src/LFW/loader/get_val_from_entity";
+import { get_val_geter_from_collision } from "../../../../src/LFW/loader/get_val_from_collision";
 import { BallController } from "../../../../src/LFW/controller/BallController";
 import { closer_one } from "../../../../src/LFW/helper/closer_one";
 import { readCaseLines, parseValue as parseValueRaw, renderValue, splitWs } from "./trace_util";
@@ -227,6 +228,47 @@ function hitExtraKeys(
 }
 
 const idRef = (e: Entity | null | undefined): unknown => (e ? { id: e.id } : null);
+
+// --- `loader/get_val_from_collision` 的驱动器 ---------------------------------
+// TS 的 `Collision` 就是 `{attacker, victim, itr, bdy, aframe, bframe}`，其中
+// `attacker` / `victim` 是那两个**活**实体、`aframe` / `bframe` 取它们的 `frame`；
+// 端口的 `Collision` 只有 `CollisionActor` 快照，实体按 `id` 从 `CollisionValEnv` 找回来。
+// `none` 给一个世界外的 `{id}`：读实体的项于是取到 `undefined`（TS 真实世界此时会是
+// `TypeError`，端口按缺口给 `undefined`，见 DESIGN）。
+let cv: Record<string, unknown> = {};
+
+const cvEntityOf = (tok: string): Entity | null =>
+  tok === "none" ? null : tok === "buddy" ? buddy : ent;
+
+const cvIdOf = (tok: string): string => {
+  if (tok === "none") return "__outside__";
+  const e = cvEntityOf(tok);
+  return e ? String(e.id) : "-";
+};
+
+// TS 的 `collision.itr` / `.bdy` / `.aframe` / `.bframe` 永远是对象，所以 `cv` 里也一律
+// 放对象（端口那边同理塞空对象）：读不到的字段在两边都是 `undefined`。
+const cvFrameOf = (e: Entity | null): unknown => {
+  const f = e ? (e as unknown as { frame?: unknown }).frame : undefined;
+  return f && typeof f === "object" ? f : {};
+};
+
+const cvReset = (): void => {
+  cv = { attacker: { id: "__outside__" }, victim: { id: "__outside__" }, itr: {}, bdy: {}, aframe: {}, bframe: {} };
+};
+
+cvReset();
+
+// 七个键的 `is_hit` / `is_start` / `is_db_hit` 掩码（`run cvkey` 的回显）。
+const cvKeyState = (c: BaseController): string => {
+  const names = ["L", "R", "U", "D", "d", "j", "a"];
+  const flags = (f: (k: never) => boolean): string =>
+    names.map((k) => (f(k as never) ? "1" : "0")).join("");
+  return (
+    `t=${r(c.time)} hit=${flags((k) => c.is_hit(k))} start=${flags((k) => c.is_start(k))}` +
+    ` db=${flags((k) => c.is_db_hit(k))}`
+  );
+};
 
 // `marks` is a `Map`, so the dump keeps the insertion order the port's `std::map`
 // cannot promise — sort by key to make both sides print the same text.
@@ -1481,6 +1523,83 @@ function main(): void {
         } else {
           const v = getter(ent! as never, word as never, undefined as never);
           out.push(`run gv ${r(word)} || ${log.join(",")} | has=1 v=${r(v)}`);
+        }
+      } else if (what === "cvwho") {
+        const aTok = t[i++]!;
+        const vTok = t[i++]!;
+        const a = cvEntityOf(aTok);
+        const v = cvEntityOf(vTok);
+        cv = {
+          attacker: a ?? { id: "__outside__" },
+          victim: v ?? { id: "__outside__" },
+          itr: cv.itr ?? {},
+          bdy: cv.bdy ?? {},
+          aframe: cvFrameOf(a),
+          bframe: cvFrameOf(v),
+        };
+        out.push(
+          `run cvwho ${aTok} ${vTok} || ${log.join(",")} | a=${cvIdOf(aTok)} v=${cvIdOf(vTok)}` +
+            ` af=${fid(cv.aframe)} bf=${fid(cv.bframe)}`,
+        );
+      } else if (what === "cvclear") {
+        cvReset();
+        out.push(`run cvclear || ${log.join(",")} | v=1`);
+      } else if (what === "cvset") {
+        const field = t[i++]!;
+        const idx = [i];
+        const v = parseValue(t, idx);
+        if (field === "itr") cv.itr = v;
+        else if (field === "bdy") cv.bdy = v;
+        else if (field === "aframe") cv.aframe = v;
+        else if (field === "bframe") cv.bframe = v;
+        else if (field === "aid") cv.attacker = { id: String(v) };
+        else if (field === "vid") cv.victim = { id: String(v) };
+        else {
+          process.stderr.write(`unknown cvset '${field}'\n`);
+          process.exit(2);
+        }
+        out.push(`run cvset ${field} ${r(v)} || ${log.join(",")} | v=${r(v)}`);
+      } else if (what === "cvkey") {
+        // `hit` = `keys[k].hit(1)`（`_d_time = 1`）、`start` = `keys[k].hit()`（默认参数
+        // ⇒ `_d_time = ctrl.time`，`is_start` 为真）、`db` =
+        // `dbc[k].press(ctrl.time, undefined, 1000)`（`is_db_hit` 为真）。
+        const who = t[i++]!;
+        const mode = t[i++]!;
+        const target = who === "buddy" ? buddy : ent;
+        const c = target?.ctrl as BaseController | undefined;
+        if (!c) {
+          process.stderr.write(`run cvkey without a controller\n`);
+          process.exit(2);
+        }
+        const keys = c.keys as unknown as Record<string, { hit: (t?: number) => void }>;
+        const dbc = c.dbc as unknown as Record<
+          string,
+          { press: (t: number, data?: unknown, interval?: number) => void }
+        >;
+        for (; i < t.length; i++) {
+          const name = t[i]!;
+          if (!KEY_NAMES.has(name)) {
+            process.stderr.write(`unknown key '${name}'\n`);
+            process.exit(2);
+          }
+          if (mode === "hit") keys[name]!.hit(1);
+          else if (mode === "start") keys[name]!.hit();
+          else if (mode === "db") dbc[name]!.press(c.time, void 0, 1000);
+          else {
+            process.stderr.write(`unknown cvkey mode '${mode}'\n`);
+            process.exit(2);
+          }
+        }
+        out.push(`run cvkey ${who} ${mode} || ${log.join(",")} | ${cvKeyState(c)}`);
+      } else if (what === "cv") {
+        // `get_val_geter_from_collision(word)` 查表再调用；`has` 区分表里有没有这一项。
+        const word = String(parseValue(t, [i]));
+        const getter = get_val_geter_from_collision(word);
+        if (!getter) {
+          out.push(`run cv ${r(word)} || ${log.join(",")} | has=0 v=-`);
+        } else {
+          const v = getter(cv as never, word as never, undefined as never);
+          out.push(`run cv ${r(word)} || ${log.join(",")} | has=1 v=${r(v)}`);
         }
       } else if (what === "supern") {
         // `e.superpunchs.size`（`RequireSuperPunch`）：清空后塞 n 条。

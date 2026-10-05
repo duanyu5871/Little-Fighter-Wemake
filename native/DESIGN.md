@@ -6172,7 +6172,7 @@ TS `ditto/IClock` + `ditto/ITimeout` 的原样，再把 `Ticker` / `FPS` 搬进�
 | 文件 | 条数 | 能不能搬 |
 |---|---|---|
 | `get_val_from_entity.ts` | 39 | ✅ 本刀（`Entity` 已整块移植） |
-| `get_val_from_collision.ts` | ~90 | ⏳ 下一刀：`Collision` 已移植，但要能造出「两个真实实体撞出来的碰撞」的用例台面 |
+| `get_val_from_collision.ts` | 86 | ✅ 切片 3ab（`Collision` 已移植；「两个真实实体」的用例台面靠 `CollisionValEnv` 宿主缝，见 §63.2） |
 | `get_val_from_bot_ctrl.ts` | ? | ✗ 要 `BotController`（未移植） |
 | `get_val_getter_from_stage.ts` | ? | ✗ 要 `Stage`（未移植） |
 | `get_val_from_lf2.ts` | 0 | ✅ 本刀（但它是个**死文件**，见 61.1） |
@@ -6230,9 +6230,10 @@ TS 的回落还会包一层**投影**：`(e, ...arg) => fallback(e.world, ...arg
 
 ### 61.3 未移植部分（为什么）
 
-- `get_val_from_collision`（~90 条）：`Collision` / `is_armor_work` / 控制器的 `is_hit` / `is_start` /
-  `is_db_hit` 都已移植，缺的只是**用例台面**——`collision_core` 现在用假实体驱动核心，
-  要观察这张表需要「两个真实实体撞出来的 `Collision`」。
+- `get_val_from_collision`（86 条）：✅ 切片 3ab 已搬（`loader/get_val_from_collision.{h,cpp}`）。
+  当时缺的是**用例台面**——`collision_core` 用假实体驱动核心，而这张表要读实体的
+  `hp` / `toughness` / `bearer` / `ctrl` 等快照里没有的字段 ⇒ 台面靠 `CollisionValEnv`
+  宿主缝把活实体按 `id` 交回来（见 §63.2）。
 - `get_val_from_bot_ctrl` / `get_val_getter_from_stage`：要 `BotController` / `Stage`（步骤 4）。
 - `LFW` / `World` 两个类型没有移植 ⇒ `is_cheat` 与 `survival_rank_available` 走宿主缝
   （`IEntityHost` 的既有约定：默认实现给「没有这个服务」，旧 harness 一行都不用改）。
@@ -6383,3 +6384,123 @@ harness（`entity` subject）新增：`run gv <词>`（查表 + 调用，印 `ha
 * `chase.overshoot?.x ?? 0` 漏了 `?? 0` ⇒ 缺 `overshoot` 时算成 `NaN`，`calc_dir` 的反向判断静默失效；
 * `should_chase` 的角色写反（TS 是「对方的 team/hp/type 对**自己**的 team」）。
 
+
+## 63. 切片 3ab：`loader/get_val_from_collision`（86 条 getter 表）
+
+`Expression<Collision>` 的另一半：`preprocess_bdy` / `preprocess_itr` 和 `preprocess_action` 的
+`action.tester` 都要拿它把词换成值。TS 那张表是 `map: Record<CollisionVal, IValGetter<Collision>>`
+（86 项，顺序同 `defines/CollisionVal.ts`），查表入口 `get_val_geter_from_collision`（TS 的拼写
+少了个 `t`，端口写成 `get_val_getter_from_collision`）。
+
+### 63.1 移植面
+
+| TS | 端口 |
+|---|---|
+| `map: Record<CollisionVal, IValGetter<Collision>>` | `collision_val_getters()`：`vector<pair<u16string, ValGetter<collision::Collision>>>`，声明顺序照抄 `CollisionVal.ts` |
+| `get_val_geter_from_collision(word)` | `get_val_getter_from_collision(word)`：向量查表，未命中给 `nullptr`（= TS 的 `undefined`） |
+| `c.attacker.data.type` / `c.victim.group?.some(...)` / `c.attacker.bearer` … | `with_attacker` / `with_victim` / `with_both` 经 `CollisionValEnv` 拿到活实体再读（见 63.2） |
+| `c.itr.kind` / `c.bdy.code` / `c.aframe.state` / `c.bframe.id` | `field_of(c.itr, u"kind")` 等 —— 这四项**属于碰撞自己**，不经过实体 |
+| `c.attacker.is_ally(c.victim)` | `a.is_ally(v)`（`Entity::is_ally` 早就有） |
+| `c.attacker.throwinjury ? 1 : 0` | `num_of(truthy(Value(e.throwinjury)))`（`throwinjury` 是数字，0 与 `undefined` 都给 0） |
+| `round(100 * hp / hp_max)` | `lfw::round(...)`（`hp_max = 0` 的 `NaN` / `±Infinity` 原样走 JS 语义） |
+| `c.attacker.lfw.is_cheat(CheatEnum.LF2_NET)` | `e.host().is_cheat(cheat_enum::kLF2_NET)`（宿主缝，`get_val_from_entity` 切片加的） |
+| `c.attacker.emitter ?? ''` | `e.emitter()` 是**指针**（没有发射者），空指针 → 空串 |
+| `c.attacker.ctrl.is_hit(k)` / `is_start(k)` / `is_db_hit(k)` | `controller::BaseController::{is_hit,is_start,is_db_hit}`；返回 **boolean**（与 `1`/`0` 的那些项不同）；`is_db_hit` 非 const ⇒ `key_state` 拿非 const `BaseController*` |
+| `group?.some(v => v === EntityGroup.FreezableBall)` | `group_has(e.group(), entity_group::kFreezableBall)`：`group` 不是数组时 TS 会抛、端口给 false（`?.` 的短路在本用例里就够） |
+| `c.bdy.hit_flag ?? HitFlag.AllEnemy` | `nullish_or(field_of(c.bdy, u"hit_flag"), Value(HitFlag::AllEnemy))`（`null` 与 `undefined` 都兜底） |
+| `c.itr.effect === void 0 ? 1 : 0` | `holds_alternative<monostate>`（**严格**判 undefined，`null` 给 0 —— 与 `??` 的那几项刚好相反） |
+| `p1 > p2 ⇒ -v` / `p1 < p2 ⇒ v` / 相等 ⇒ `abs(-v)` | 同名 `closing_speed(v, p1, p2)` 一个函数，三条 `a_closing_speed_*` 共用 |
+| `is_fighter(c.attacker) && c.attacker.state == SE.Falling` | `entity::is_fighter(e.entity_view()) && equals(e.state(), Value(StateEnum::Falling))`（`Entity::state()` = `frame.state`） |
+
+### 63.2 「活实体」缺口与 `CollisionValEnv`
+
+TS 的 `Collision.attacker` / `.victim` **就是**那两个实体对象（读的时候才取字段），而端口的
+`Collision` 里只有 `CollisionActor` 快照（`id` / `data_id` / `data_type` / `frame` / `team` /
+`emitter` / `arest` …，见 `collision/collision.h`）。快照看不见 `hp` / `toughness` /
+`bearer` / `holding` / `ctrl` 这些，**也不该**让 `collision/` 层去认识 `Entity`。
+
+所以这一刀新增一个宿主缝（先例是 `collision/n_bdy_normal.h` 的 `set_nbdy_normal_env`）：
+
+```cpp
+struct CollisionValEnv { std::function<const Entity*(const std::u16string& id)> find_entity; };
+```
+
+`loader/` 可以 `#include "lfw/entity/entity.h"`（`get_val_from_entity.h` 就是这么做的），
+所以缝的宿主侧就是世界的实体表（harness 里是 `world.entity_map.get(id) ?? null`）。
+`armor_work` 同款：`collision::is_armor_work` 在端口里本来就是
+`bool is_armor_work(const Value& collision)`（读 `victim.armor` / `bframe` / `itr` / `aframe`
+四项），于是这里现搭一个只含这四项的 `Value` 递进去，同样不用让 `collision/` 认识 `Entity`。
+
+### 63.3 已知偏差 / 有意不覆盖
+
+1. **找不到那个 `id` 时读实体的项给 `undefined`**：TS 那边不存在这一刻（`Collision` 里存的是活
+   对象引用，真世界里读不出「对象没了」），要用 JS 表达只能是 `undefined.x` 抛 `TypeError`。
+   端口 `Value` 的链式取字段一路给 `undefined`。差分里只比较两边**都给 `undefined`** 的那几个词
+   （帧上的 `state` / `id`、`toughness`、`armor_work`、`victim_is_chasing`），能抛的那几个不比较。
+2. **`victim_is_chasing` 比 `id` 而不是对象**：TS 是 `c.victim === c.attacker.ctrl.chasing`；
+   端口 `chasing` 与 `victim` 都是快照 ⇒ 比 `id`（实体 `id` 唯一，等价）。
+3. **`v_frame_behavior` 读的是实体的 `frame`**（不是碰撞里的 `bframe`）：TS 也是 `c.victim.frame.behavior`，
+   移植时按字面走；用例里刻意让 `frame.behavior`（5）与 `bframe.behavior`（9）不同，好让
+   「读错了哪一份」也能被打出来。
+4. **`same_team` 的两个参数对称**：`a.is_ally(v)` 与 `v.is_ally(a)` 同值 ⇒ 交换参数构造上不可观察，
+   不列变异。`with_both` 的 `Value()` / `Value(0.0)` 同理（本用例两边都在）。
+5. **「世界里没有这个 id」的空值护栏**（`with_*` 的 `!= nullptr`、`key_state` 的空指针早退、
+   `victim_is_chasing` 的 `a == nullptr`、`armor_work` 的 `v == nullptr`）与
+   「`find_entity` 没装」的分支：TS 侧无法表达（见第 1 条），本用例走不到 ⇒ 不列变异，
+   记在 `mutations/collision_val.mjs` 头部。
+6. **harness 的坑（不是端口语义）**：
+   * `Entity::state()` 就是 `frame.state`，`run set state` / `run setstate` 都改不了它 ⇒
+     要 `run frame` / `run buddyframe` 把帧换掉。
+   * `frame.id` 为空 = `frame_id::None` ⇒ `BallController::should_chase` 直接否 ——
+     `run make` / `run buddy` 造出来的实体帧是 `EMPTY_FRAME_INFO`（id 空），想让它被追就必须
+     先 `run buddyframe`。
+   * **互相 `bearer`** 的两个实体一旦再改帧就会 `set_frame → follow_bearer → enter_frame → set_frame`
+     无限递归（**TS 侧同样栈溢出**，端口忠实复刻了这个行为）⇒ 持有位那一节放在用例最后，
+     而且只设单向关系。
+   * `run set group` / `run set armor` 不存在（那两个字段只从实体数据里来）⇒ 换一个
+     `run buddy <data>` 才换得掉。
+
+### 63.4 用例
+
+`cases/entity/collision_val.txt`（**672 行**，9 个场景，86 个词全覆盖）：默认碰撞（`cvclear`，
+两边都只探 TS 也读得下去的词）+ 表外的词（`no_such_word` / 空串 / 大小写不同的词）；
+`itr` / `bdy` / `aframe` / `bframe` 的显式值、`??` 与 `=== void 0` 对 `null` 的分歧；
+两个**各字段都不同**的实体（类型 / `base.type` / `id` / `indexes.ice` / hp / toughness /
+`throwinjury` / 队伍 / 朝向 / 组 / 位置 / 速度 / 发射者，两边取的值互相都不相等）；
+`indexes` / `group` / `armor` 缺失；`a_falling` / `v_falling` 的两道门（类型 16 的攻击方 + Falling、
+类型 8 的受守方 + Falling、以及 Fighter + 非 Falling 三档，`is_fighter` 与 `frame.state`
+两道门各要两个方向）；6 段 `armor_work`（`Injured` 帧、火、冰、`bdefend` 的
+200 边界与 199、`Ball_3006` 的攻击方帧、`fulltime: false` 的三档、防火防冰、完全没护甲）；
+42 个按键词 22 个场景（**每组每个场景只让一个键为真**，同组内两个词才分得开：`click` 组用
+`khd = 0` 的 `start`、`hit` 组用 `khd = 500` 的 `hit`、`db` 组用 `dbc.press`，攻守两侧的键
+按 `a,j,d,U,D,L,R` 轮换）；跟踪对象的四种状态（还没找目标 / 找到了正好是受击方 / 找到了但是别人 /
+`stop` 之后 / 换成非球控制器 / 世界外的攻击方）；持有位（`bearer` / `holding` 各单向两组，
+再全部解掉）。
+
+`a_falling` / `v_falling` 的两道门（`is_fighter` 与 `frame.state`）各要两个方向才钉得住：
+场景 3 里攻击方是 Fighter + Falling（1）、受击方是 Weapon + Falling（0，钉 `is_fighter`）；
+场景 4 再把攻击方做成 Weapon + Falling（0）与 Fighter + 非 Falling（0），受击方一直是
+Fighter + Falling（1）—— 两侧各有一个 1 与一个 0，两道门的任何一侧被改掉都会露馅。
+（`run buddyframe` 把受击方做成 Fighter + Falling；`frame.state` 只能靠 `run frame` /
+`run buddyframe` 改，`run set state` / `run setstate` 改的是状态机那一份。）
+
+### 63.5 变异与结果
+
+`mutations/collision_val.mjs`（**122 条，122/122 全杀**）：73 条打在 getter 本体的「读错了哪一边 /
+哪一个字段 / 哪一个分支」上（实体换边、`data.type` 与 `base.type` 互换、`itr` 与 `bdy` 互换、
+`aframe` 与 `bframe` 互换、`frame` 与 `bframe` 互换、`!= nullptr` 判反、`num_of` 判反、
+`round` / 乘 100 去掉、`closing_speed` 的三处、`armor_work` 视角少一项或拿错护甲、
+`victim_is_chasing` 的三处、`is_fighter` / `state` 两道门）、7 条打在表本身
+（词接到别的 getter、查不到时给表尾项）、42 条打在 42 个按键词上（换边或换键）。
+
+第一轮跑出 1 条 `SURVIVED`（`a_falling` 不判 Fighter）与 1 条 `compile-error`
+（我把 `v_frame_behavior` 的变异写成读 `c.bframe` 却忘了捕获 `c`）⇒ 前者补上
+「攻击方是 Weapon + Falling」那一档、后者改成 `[&c]` 捕获，再全量重跑才 122/122。
+
+`tools/mutate.mjs` 顺带加了可选的 `cases: [...]`：一份变异通常只有一两份用例看得见，
+而 subject 的用例集越攒越大（`entity` 现在有 8 份、`main.txt` 68 KB）⇒ 只跑相关用例后
+测试那一段从 ~2.0s 降到 ~0.2s（整条 `build` + `test` 从 ~4.5s 到 ~2.8s；不写 `cases`
+就照旧跑全部，既有 spec 不受影响。`build` 那 ~2.5s 省不掉 —— 一次变异改的就是 `lfw_core`）。
+
+这一刀**没有**打出端口 bug：86 个 getter 都是「读哪一边」的直译，第一次跑用例就全过；
+前两刀修过的保真缺口（`update_lookup` 的 `self_ref`、`reidentify`）在这一刀又各被间接覆盖了一次。

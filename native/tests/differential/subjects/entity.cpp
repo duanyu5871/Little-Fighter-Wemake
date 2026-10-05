@@ -19,6 +19,7 @@
 #include "lfw/entity/entity_ref.h"
 #include "lfw/entity/entity_snapshot.h"
 #include "lfw/entity/summary_mgr.h"
+#include "lfw/loader/get_val_from_collision.h"
 #include "lfw/loader/get_val_from_entity.h"
 #include "lfw/state/state_base.h"
 #include "lfw/state/states.h"
@@ -78,6 +79,13 @@ bool g_rank_avail = false;
 std::vector<std::u16string> g_cheats;
 // `e.buffs` 的宿主所有权（`run buffset` 造的）。
 std::vector<std::unique_ptr<lfw::buff::Buff>> g_buffs;
+// `run cv …` 手里的那个碰撞（`loader/get_val_from_collision`）。TS 的 `Collision` 没有
+// 快照版本，`attacker` / `victim` 就是那两个**活**实体、`aframe` / `bframe` 就是它们的
+// `frame`；端口这边只有 `CollisionActor` 快照，所以按 `id` 交给 `CollisionValEnv` 找回来。
+lfw::collision::Collision g_cv;
+// 世界外的 id：`world.entity_map.get(id) ?? null` 找不到它，读实体的项于是给 `undefined`
+// （TS 那边会是 `TypeError`，见 `DESIGN.md`）。
+const char16_t* const kCvOutside = u"__outside__";
 
 Entity* candidate_of(const std::string& tok) {
   if (tok == "self") return g_entity.get();
@@ -103,6 +111,57 @@ Value id_probe(const Value& ref) {
 
 Value chasing_probe(const lfw::controller::BaseController* c) {
   return c == nullptr ? Value(lfw::NullTag{}) : id_probe(c->chasing);
+}
+
+// --- `loader/get_val_from_collision` 的驱动器 -----------------------------------
+// `run cvwho <攻击方> <受击方>` 的 token：`self` / `buddy` / `none`（`none` = 世界外的 id，
+// `CollisionValEnv` 交给宿主的 `world.entity_map.get(id) ?? null`，找不到 ⇒ 读实体的项
+// 给 `undefined`）。
+Entity* cv_entity_of(const std::string& tok) {
+  return tok == "none" ? nullptr : candidate_of(tok);
+}
+
+// TS 的 `collision.itr` / `.bdy` / `.aframe` / `.bframe` **永远是对象**（读不到的字段才是
+// `undefined`），所以端口这边也一律塞空对象，别用 `monostate`：`field_of(monostate, …)`
+// 也是 `undefined`，但 TS 那边 `undefined.state` 会直接抛。
+Value cv_empty() { return Value(std::make_shared<lfw::Object>()); }
+
+// `aframe` / `bframe` 就是实体的 `frame`；实体没有帧时给空对象（同上）。
+Value cv_frame_of(const Entity* e) {
+  if (e == nullptr || lfw::as_object(e->frame) == nullptr) return cv_empty();
+  return e->frame;
+}
+
+void cv_reset() {
+  g_cv = lfw::collision::Collision{};
+  g_cv.itr = cv_empty();
+  g_cv.bdy = cv_empty();
+  g_cv.aframe = cv_empty();
+  g_cv.bframe = cv_empty();
+  g_cv.attacker.id = std::u16string(kCvOutside);
+  g_cv.victim.id = std::u16string(kCvOutside);
+}
+
+void cv_bind(const std::string& a_tok, const std::string& v_tok) {
+  Entity* a = cv_entity_of(a_tok);
+  Entity* v = cv_entity_of(v_tok);
+  g_cv.attacker.id = a != nullptr ? a->id : std::u16string(kCvOutside);
+  g_cv.victim.id = v != nullptr ? v->id : std::u16string(kCvOutside);
+  g_cv.aframe = cv_frame_of(a);
+  g_cv.bframe = cv_frame_of(v);
+}
+
+// 七个键的 `is_hit` / `is_start` / `is_db_hit` 掩码（`run cvkey` 的回显，让场景能自检）。
+std::string cv_key_state(lfw::controller::BaseController* c) {
+  std::string hit;
+  std::string start;
+  std::string db;
+  for (const char16_t* k : {u"L", u"R", u"U", u"D", u"d", u"j", u"a"}) {
+    hit += c->is_hit(k) ? "1" : "0";
+    start += c->is_start(k) ? "1" : "0";
+    db += c->is_db_hit(k) ? "1" : "0";
+  }
+  return "t=" + render(Value(c->time())) + " hit=" + hit + " start=" + start + " db=" + db;
 }
 
 // --- `BallController` 的驱动器 -------------------------------------------------
@@ -1091,6 +1150,15 @@ int main(int argc, char** argv) {
   g_dataset = std::make_unique<lfw::WorldDataset>();
   g_host = std::make_unique<Host>();
   bind_entity_factory();
+  cv_reset();
+  {
+    // `loader/get_val_from_collision` 的活实体缝：TS 的 `Collision.attacker` / `.victim`
+    // 是那两个实体本身，端口只有快照 ⇒ 按 `id` 现查（就是宿主那个
+    // `world.entity_map.get(id) ?? null`）。
+    lfw::loader::CollisionValEnv env;
+    env.find_entity = [](const std::u16string& id) { return g_host->find_entity(id); };
+    lfw::loader::set_collision_val_env(env);
+  }
   {
     lfw::Object o;
     g_bg_dataset = Value(std::make_shared<lfw::Object>(o));
@@ -1451,6 +1519,84 @@ int main(int argc, char** argv) {
         } else {
           const Value v = getter(*g_entity, word, lfw::BinOp{});
           std::printf("run gv %s || %s | has=1 v=%s\n", render(Value(word)).c_str(),
+                      join(g_log).c_str(), render(v).c_str());
+        }
+      } else if (what == "cvwho") {
+        const std::string& a_tok = t[i++];
+        const std::string& v_tok = t[i++];
+        cv_bind(a_tok, v_tok);
+        std::printf("run cvwho %s %s || %s | a=%s v=%s af=%s bf=%s\n", a_tok.c_str(),
+                    v_tok.c_str(), join(g_log).c_str(), s_of(g_cv.attacker.id).c_str(),
+                    s_of(g_cv.victim.id).c_str(), fid(g_cv.aframe).c_str(),
+                    fid(g_cv.bframe).c_str());
+      } else if (what == "cvclear") {
+        cv_reset();
+        std::printf("run cvclear || %s | v=1\n", join(g_log).c_str());
+      } else if (what == "cvset") {
+        const std::string& field = t[i++];
+        const Value v = parse_value(t, i);
+        if (field == "itr") g_cv.itr = v;
+        else if (field == "bdy") g_cv.bdy = v;
+        else if (field == "aframe") g_cv.aframe = v;
+        else if (field == "bframe") g_cv.bframe = v;
+        else if (field == "aid") g_cv.attacker.id = text_of(v);
+        else if (field == "vid") g_cv.victim.id = text_of(v);
+        else {
+          std::fprintf(stderr, "unknown cvset '%s' at line %d\n", field.c_str(), lineno);
+          return 2;
+        }
+        std::printf("run cvset %s %s || %s | v=%s\n", field.c_str(), render(v).c_str(),
+                    join(g_log).c_str(), render(v).c_str());
+      } else if (what == "cvkey") {
+        // 键状态：`hit` = `keys[k].hit(1)`（`_d_time = 1`）、`start` = `keys[k].hit()`
+        // （TS 的默认参数 ⇒ `_d_time = ctrl.time`，所以 `is_start` 为真）、
+        // `db` = `dbc[k].press(ctrl.time, undefined, 1000)`（`is_db_hit` 为真）。
+        const std::string& who = t[i++];
+        const std::string& mode = t[i++];
+        Entity* e = who == "buddy" ? g_buddy.get() : g_entity.get();
+        lfw::controller::BaseController* c = e != nullptr ? e->ctrl() : nullptr;
+        if (c == nullptr) {
+          std::fprintf(stderr, "run cvkey without a controller at line %d\n", lineno);
+          return 2;
+        }
+        e->refresh_ctrl_env();
+        while (i < t.size()) {
+          const std::string& name = t[i++];
+          const std::u16string k = to_u16(name);
+          lfw::controller::KeyStatus* s = c->keys.slot(k);
+          lfw::controller::DoubleClick* d = c->dbc.slot(k);
+          if (s == nullptr || d == nullptr) {
+            std::fprintf(stderr, "unknown key '%s' at line %d\n", name.c_str(), lineno);
+            return 2;
+          }
+          if (mode == "hit") {
+            s->hit(Value(1.0), 0.0);
+          } else if (mode == "start") {
+            s->hit(Value(), c->time());
+          } else if (mode == "db") {
+            d->press(c->time(), Value(), 1000.0);
+          } else {
+            std::fprintf(stderr, "unknown cvkey mode '%s' at line %d\n", mode.c_str(), lineno);
+            return 2;
+          }
+        }
+        std::printf("run cvkey %s %s || %s | %s\n", who.c_str(), mode.c_str(),
+                    join(g_log).c_str(), cv_key_state(c).c_str());
+      } else if (what == "cv") {
+        // `get_val_getter_from_collision(word)` 查表再调用。`has` 区分表里有没有这一项
+        // （TS 的 `undefined` 不能被调用，所以表里没有时只能印 `v=-`）。
+        const std::u16string word = text_of(parse_value(t, i));
+        // 控制器读 `CtrlEnv`（TS 的 `KeyStatus` 直接读 `this.ctrl.time` / `world.dataset`）。
+        if (g_entity != nullptr) g_entity->refresh_ctrl_env();
+        if (g_buddy != nullptr) g_buddy->refresh_ctrl_env();
+        const lfw::ValGetter<lfw::collision::Collision> getter =
+            lfw::loader::get_val_getter_from_collision(word);
+        if (getter == nullptr) {
+          std::printf("run cv %s || %s | has=0 v=-\n", render(Value(word)).c_str(),
+                      join(g_log).c_str());
+        } else {
+          const Value v = getter(g_cv, word, lfw::BinOp{});
+          std::printf("run cv %s || %s | has=1 v=%s\n", render(Value(word)).c_str(),
                       join(g_log).c_str(), render(v).c_str());
         }
       } else if (what == "supern") {

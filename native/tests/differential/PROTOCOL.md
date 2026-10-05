@@ -348,11 +348,17 @@ diff 失败时脚本会打印**第一处不同的行号**与两侧内容 —— 
 node native/tools/mutate.mjs native/tests/differential/mutations/<subject>.mjs
 ```
 
-规格文件 `default export { subject, mutations: [{ note, file, from, to }] }`。
+规格文件 `default export { subject, cases?, mutations: [{ note, file, from, to }] }`。
+`cases` 是可选的字符串数组：只跑 `<subject>/<case>` 这几份用例（`test <subject> <case> --reuse-ts`）。
+差分里一个 subject 的用例集会越攒越大（`entity` 现在 8 份、`main.txt` 68 KB），而一份变异通常
+只有一两份用例看得见 —— 写上 `cases` 把测试那一段从 ~2.0s 压到 ~0.2s（整条 `build` + `test`
+从 ~4.5s 到 ~2.8s）。
+**不写就照旧跑该 subject 的全部用例**（既有 spec 一行不用改），而不该写 `cases` 的场合是
+「这条变异可能被任何一份用例抓到」时。
 运行器会：先确认每条 `from` 在目标文件里**恰好出现一次**（否则直接报锚点数并退出，不猜），
 跑一次基线确认本来是绿的，然后**逐条**：改 → `build` → `test` → 还原。
 编译失败也算 `killed`（说明变异打到了不可编译的地方，不是有效变异，要换）。
-结尾统一还原并重建，最后输出 `N/总数 killed`，有存活就 exit 1。
+结尾统一还原并重建，最后输出 `subject`（含用的哪几份用例）、`N/总数 killed`，有存活就 exit 1。
 
 存活（`SURVIVED`）意味着**用例没有鉴别力**，要补边界用例，而不是放过。
 
@@ -3573,3 +3579,50 @@ harness op：
   把「球自己」当候选时距离恒 0 也压不出差异）、`self_ref` 的三个分量（候选唯一时距离不参与决策）、
   `flag_between` 里 `js_to_int32(a_type)` 那一项（用例的 `flag = 61` 下同真同假）、
   `set_chase_point` 的 `debugger` 断言、`reset` 的 `frame = EMPTY_FRAME_INFO`（`same_ref` 同值）。
+
+### 6.9.107 `loader/get_val_from_collision`（86 条 getter 表）（`entity` 用例 2326+37+108+116+576+319+174 → +`collision_val` **672** 行 = 4328；变异 **122/122** 全杀）
+
+- 移植：`loader/get_val_from_collision.{h,cpp}`（86 个 getter + `collision_val_getters()` 表 +
+  `get_val_getter_from_collision(word)` 查表；词与顺序照抄 `defines/CollisionVal.ts`）。
+- 新增宿主缝（同 `collision/n_bdy_normal.h` 那套）：
+  `struct CollisionValEnv { std::function<const Entity*(const std::u16string& id)> find_entity; };`
+  + `set_collision_val_env(env)`。理由：TS 的 `Collision.attacker` / `.victim` 是**活实体**
+  （读的时候才取字段），端口的 `Collision` 只有 `CollisionActor` 快照，而 `collision/` 层
+  不认识 `Entity`。`loader/` 可以 include `entity/entity.h`，所以缝装在 loader 这一侧。
+  宿主侧就是世界的实体表（harness：`world.entity_map.get(id) ?? null`）。
+- 新增 op（`entity`）：
+  * `run cvwho <攻方> <受击方>` → 只写 `attacker.id` / `victim.id`，顺带把双方的 `frame`
+    搬进 `aframe` / `bframe`（TS 侧就是 `{attacker, victim, itr, bdy, aframe: a.frame, bframe: v.frame}`）。
+    token 是 `self` / `buddy` / `spN` / `none`；`none` = 世界外的 id（`__outside__`）。
+    实体帧不是对象时（`EMPTY_FRAME_INFO` 是对象，缺帧才是）给空对象 —— 两边都必须是对象，
+    否则 TS 侧 `undefined.state` 会抛。
+  * `run cvclear` → 复位成「两个 `id` 都在世界外 + 四个空对象」的碰撞。
+  * `run cvset <itr|bdy|aframe|bframe|aid|vid> <值>` → 逐个覆盖（`aid`/`vid` 只改 id）。
+  * `run cvkey <self|buddy> <hit|start|db> <键…>` → `hit` = `keys[k].hit(1)`（`_d_time = 1`）、
+    `start` = `keys[k].hit()`（TS 默认参数 ⇒ `_d_time = ctrl.time`，`is_start` 才为真）、
+    `db` = `dbc[k].press(ctrl.time, undefined, 1000)`（`is_db_hit` 才为真）。回显七个键的
+    `hit` / `start` / `db` 三个掩码。
+  * `run cv s "<word>"` → `get_val_getter_from_collision(word)` 查表再调用；表里没有印
+    `has=0 v=-`（TS 的 `undefined` 不能调用），有则 `has=1 v=<值>`（同 `run gv`）。
+- 观察点：键位那 42 个词返回的是 **boolean**（`b0`/`b1`），其余是数字 / 字符串 / `u`。
+  `hit_flag` 的两个词缺字段时给 `61`（`HitFlag::AllEnemy`）。
+- ⚠️ **`Entity::state()` 就是 `frame.state`**：`run set state` / `run setstate` 都不改它
+  （`run get state` 一直是 `NaN`）⇒ 想让 `a_falling` / `v_falling` 为真必须 `run frame` /
+  `run buddyframe` 换帧。
+- ⚠️ **帧 id 为空 = `frame_id::None`**：`run make` / `run buddy` 造出来的实体拿的是
+  `EMPTY_FRAME_INFO`（id 空），`BallController::should_chase` 会因为 `frame_id::None` 直接否，
+  于是 `run ball lookup` 永远找不到目标 —— 要让球追到人，受击方必须先 `run buddyframe`。
+- ⚠️ **互相 `bearer` 的实体再改帧会无限递归**（`set_frame → follow_bearer → enter_frame →
+  set_frame`）：TS 侧同样爆栈（`RangeError: Maximum call stack size exceeded`），端口忠实复刻
+  ⇒ **持有位那一节放在用例最后**，且只设单向关系（`run link bearer buddy` / `run linkb holding self`）。
+  清链用 `run link bearer none`（`to` 认不出就是 `nullptr`）。
+- ⚠️ `run set group` / `run set armor` 不存在（这两个字段只从实体数据来）⇒ 要换只能
+  `run buddy <data>` 重建；`run buddyset position` / `velocity` 也不存在（`set_value` 的白名单里
+  没有），所以 `a_closing_speed_*` 的三档只靠攻方的 `run pos` / `run setvel` 造（受击方守在原点）。
+- ⚠️ `o <n>` 的对数必须写对（第四次踩）：`base o 3 type n … armor o 2 … group a 1 …` 这种嵌套字面量
+  少写多写都会报「literal 被截断」。
+- 不可观察 / 有意不覆盖（另见 DESIGN §63.3 与 `mutations/collision_val.mjs` 的头部）：
+  「世界里找不到这个 id」的那几个空值护栏与 `find_entity` 没装的分支（TS 无法表达）、
+  `same_team` 的两个参数交换（`is_ally` 对称）、`with_both` 的 `Value()` / `Value(0.0)`。
+- ⚠️ `tools/mutate.mjs` 新增可选字段 `cases: [...]`：只跑这几份用例（一份变异通常只有一两份
+  用例看得见）。不写就照旧跑该 subject 的全部用例，既有 spec 不受影响。

@@ -31,6 +31,21 @@ if (!specPath) {
 
 const spec = (await import(pathToFileURL(resolve(process.cwd(), specPath)).href)).default;
 const { subject, mutations } = spec;
+// `cases` 可选：只跑这几份用例（`test <subject> <case>`）。差分里 subject 的
+// 用例集会越攒越大（`entity` 已经有好几份），而一份变异通常只有一两份用例看得见
+// —— 不写就照旧跑该 subject 的全部用例。
+const specCases = Array.isArray(spec.cases) ? spec.cases : spec.cases ? [spec.cases] : [];
+
+function runTest(extraArgs) {
+  for (const name of specCases.length ? specCases : [null]) {
+    const args = ["test", subject];
+    if (name) args.push(name);
+    args.push(...extraArgs);
+    const r = run(args);
+    if (!r.ok) return r;
+  }
+  return { ok: true, out: "" };
+}
 
 const originals = new Map();
 const badAnchors = [];
@@ -114,7 +129,7 @@ if (recoverFromInterruptedRun()) {
   run(["build"]);
 }
 
-const baseline = run(["test", subject]);
+const baseline = runTest([]);
 if (!baseline.ok) {
   process.stderr.write(`baseline already failing for '${subject}':\n${baseline.out}\n`);
   process.exit(1);
@@ -136,7 +151,7 @@ for (const m of mutations) {
   const t0 = Date.now();
   const built = run(["build", subject]);
   if (built.ok) {
-    const tested = run(["test", subject, "--reuse-ts"]);
+    const tested = runTest(["--reuse-ts"]);
     rows.push({ note: m.note, survived: tested.ok, ms: Date.now() - t0 });
     if (tested.ok) ++survived;
     else ++killed;
@@ -162,7 +177,8 @@ for (const r of rows) {
 const totalMs = Date.now() - startedAt;
 const slowest = [...rows].sort((a, b) => (b.ms ?? 0) - (a.ms ?? 0))[0];
 process.stdout.write(
-  `\n${killed} killed, ${survived} survived, ${compileError} compile-error (of ${rows.length})\n` +
+  `\nsubject ${subject}${specCases.length ? ` (cases: ${specCases.join(", ")})` : " (all cases)"}\n` +
+    `${killed} killed, ${survived} survived, ${compileError} compile-error (of ${rows.length})\n` +
     `total ${(totalMs / 1000).toFixed(1)}s, ${(totalMs / rows.length).toFixed(0)} ms/mutation` +
     (slowest ? `, slowest '${slowest.note}' ${slowest.ms} ms\n` : "\n"),
 );
