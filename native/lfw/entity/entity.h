@@ -86,6 +86,19 @@ class IEntityHost {
     (void)id;
     return nullptr;
   }
+  // `world.puppets.values()` — the `_blinking === Respawn` branch scans them for the
+  // nearest living friend (and `world_puppets()` builds the state-layer view of the
+  // same list).  Borrowed pointers; the host keeps the storage.
+  virtual std::vector<Entity*> puppets() { return {}; }
+  // `world.stage.player_l` / `player_r` / `far` / `near`（重生点的随机范围）。
+  virtual Value stage_value(const std::u16string& key) const {
+    (void)key;
+    return Value();
+  }
+  // `world.ground.step`（TS 的 `Ground.step` 是 `readonly step = 10`）。
+  virtual double ground_step() const { return 10.0; }
+  // `lfw.survival_rank_mode`（`update_catching` 的 `throwinjury === -1` 分支）。
+  virtual bool survival_rank_mode() const { return false; }
   // `world.entities.length + world.ghosts.length`（`spawn` 的 unimportant 门）。
   virtual double entity_count() const { return 0.0; }
   // `world.add_entities(this)`（`attach`）。
@@ -413,12 +426,55 @@ class Entity {
   // the `inherit_speed_*` velocity write.
   void apply_opoints(const Value& opoints);
 
+  // --- the tick (`update` / `update_ghost`) ------------------------------------
+  // `update()`: `mt.case` markers, the recovery decays (v_rest / arest / invisible /
+  // invulnerable / blinking including the `Gone` & `Respawn` branches), the opoint
+  // tick table, `stat_recovering` / `toughness_recovering`, the wait / motionless
+  // bookkeeping, the `handle_gravity → update_velocity → update_position` sub-step
+  // loop, then the catch relations, the controller result and the aabb refresh.
+  void update();
+  // `update_ghost()`: the same skeleton minus the v_rest / arest decays, the opoint
+  // tick table, the wait-block motionless branch and the catch / aabb tail.
+  void update_ghost();
+  // `check_fusion_dismissing()` / `dismiss_fusion(frame_id)`: the fused members follow
+  // the lead, and a split shares the hp / mp over every member and re-faces them.
+  bool check_fusion_dismissing();
+  void dismiss_fusion(const std::u16string& frame_id);
+  // `update_aabb()`: the frame's `__aabb_*` box plus the `l_len` / `r_len` reach
+  // (both flip with `facing`).
+  void update_aabb();
+  // `update_landable()`: the itr / bdy ground hits, then the land / leave / step
+  // decision (a high step leaves the ground, the rest is treated as a slope).
+  void update_landable();
+  // `update_catching()` / `update_caught()`: the two halves of the catch relation.
+  // Each returns whether `update()` must stop right there (`true` = stop).
+  bool update_catching();
+  bool update_caught();
+  // `world.puppets.values()` as the state layer sees it (`IStateEntity::world_puppets`):
+  // TS hands over real `Entity` objects, the port builds records the state hooks read
+  // (`team` is the one `csl_on_dead` needs today, `id` / `hp` / `position` ride along).
+  Value world_puppets() const;
+  // `Entity` 作为 `Value` 的“完整视图”（`id` / `team` / `data` / `hp` / `emitters`）：
+  // `summary_mgr.apply_damage(cer, injury, this, prev_hp)` 与 `is_boss(this.catching)`
+  // 这类把实体当对象读的调用点用它。`ref()` 只带 `id`，是回调用来自证身份的最小视图。
+  Value entity_view() const;
+  // `ctrl.update()` 之前把控制器要读的那一组值刷进 `CtrlEnv`。TS 的
+  // `BaseController.update()` 直接读 `me.frame.{hold,hit,key_down,key_up}`、
+  // `me.data.{pre_hitkeys,post_hitkeys,__pre_hitkeys_map,__post_hitkeys_map}`、
+  // `me.transforms?.[0]` 的同名映射、`frame.__seq_map` 与 `me.world.dataset.*`；端口把这些
+  // 收进 `CtrlEnv`，由实体负责填 —— `world.etc` / `world.team_*` 属于 World 切片（未移植），
+  // 那几个钩子留在空位（`BaseController` 调用处都做空检查）。
+  void refresh_ctrl_env();
+
   // --- stat helpers ----------------------------------------------------------
   void reset_armor();
   Entity& set_catching(Entity* v);
   Entity& add_catch_time(double value);
   Entity& set_catch_time(double value);
   Value dataset(const std::u16string& name) const;
+  // 只读世界那一层（TS 的状态代码写 `this.world.dataset.X`，端口的状态缝是
+  // `e.world_dataset("X")`）。
+  Value world_dataset(const std::u16string& name) const;
   Value itr_fall(const Value& itr) const;
 
   // --- per-tick recovery (`update()` calls these) ------------------------------
@@ -509,6 +565,11 @@ class Entity {
   // `_motionless_ticks` — `set_frame` zeroes it; the decay lives in `update()`.
   double motionless_ticks() const { return _motionless_ticks; }
   void set_motionless_ticks(double v) { _motionless_ticks = v; }
+  // `_temp_v` / `_prev_cpoint_a` — the landing payload `update_landable` hands to
+  // `state.on_landing`, and the cpoint object identity `update_caught` compares.  TS
+  // keeps both private; the harness reads them back through here.
+  const Vector3& temp_v() const { return _temp_v; }
+  const Value& prev_cpoint_a() const { return _prev_cpoint_a; }
   // `this._next_frame_by_id` — the record `enter_frame_by_id` reuses.
   const Value& next_frame_by_id() const { return _next_frame_by_id; }
 
@@ -579,6 +640,9 @@ class Entity {
   Value _prev_frame;
   Value _next_frame_by_id;
   Value _prev_cpoint_a = Value(NullTag{});
+  // `_temp_v = Ditto.vec3(0, 0, 0)` — the velocity snapshot `update_landable` copies
+  // out before zeroing `velocity.y` and hands to `state.on_landing`.
+  Vector3 _temp_v;
   std::u16string _team;
   state::States* states_ = nullptr;
   // `this._state?.on_dead?.(this)` / `this._state?.get_gravity?.(this)` / … — the hooks
@@ -588,6 +652,8 @@ class Entity {
   state::State_Base* _state = nullptr;
   std::unique_ptr<EntityStateView> state_view_;
   controller::BaseController* ctrl_ = nullptr;
+  // `ctrl.update()` 的环境（见 `refresh_ctrl_env`）。
+  controller::CtrlEnv _ctrl_env;
   IEntityHost* host_ = nullptr;
 
   Value ctrl_ref(controller::BaseController* ctrl) const;

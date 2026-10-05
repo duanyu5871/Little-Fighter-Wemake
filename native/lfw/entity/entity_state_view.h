@@ -70,6 +70,26 @@ class EntityStateView : public state::IStateEntity {
   Value team() const override;
   Value data_type() const override;
   Value jumping_x() const override;
+  // `this.dismiss_fusion(frame_id)` — the fusion split (`character_state_falling` 与
+  // `Entity.check_fusion_dismissing` 各有一条调用）。
+  void dismiss_fusion(const Value& frame_id) override;
+  // `this.world.puppets` — the state hooks read it as records (see `Entity::world_puppets`).
+  Value world_puppets() const override;
+  // 状态代码里的 `e.dataset(key)` / `e.world_dataset(key)`：前者是实体那一串回落
+  // （帧 `dataset` → `data.base` → 背景 → 世界），后者只读世界那层。这两条不接线的话
+  // 状态钩子读到的全是 `undefined`（`CharacterState_Base.get_caught_end_frame` 就会
+  // 把 `-1 * undefined * facing` 写进速度）。
+  Value dataset(const std::u16string& key) const override;
+  Value world_dataset(const std::u16string& key) const override;
+  // `this.facing` / `this.enter_frame(...)` / `this.drop_holding()` /
+  // `this.handle_ground_velocity_decay(...)` —— `CharacterState_Base` 的六个钩子要用到
+  // 的那几条（其余的 `e.data_indexes_*` / `e.frame_on_landing` / `e.holding_base_type`
+  // 等要等数据索引切片接线）。
+  Value facing() const override;
+  void enter_frame(const Value& frame) override;
+  void drop_holding() override;
+  void handle_ground_velocity_decay() override;
+  void handle_ground_velocity_decay(double factor) override;
 
  private:
   Entity& _e;

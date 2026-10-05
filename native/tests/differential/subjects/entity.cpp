@@ -59,6 +59,13 @@ Entity* g_last_spawn = nullptr;
 // 世界里的实体，所以这里也必须每次现查（存裸指针会留下悬垂项）。
 std::vector<std::string> g_candidate_tokens;
 bool g_ball_ctrl = false;
+// `world.puppets.values()`（`env puppets …`，token 与 `env ents` 同款）、`world.stage.<key>`
+// （`env stage <key> <值>`）、`world.ground.step`（`env groundstep <值>`）与
+// `lfw.survival_rank_mode`（`env rankmode b 1`）——`update()` 的四个宿主输入。
+std::vector<std::string> g_puppet_tokens;
+std::vector<std::pair<std::u16string, Value>> g_stage;
+double g_ground_step = 10;
+bool g_rank_mode = false;
 
 Entity* candidate_of(const std::string& tok) {
   if (tok == "self") return g_entity.get();
@@ -72,6 +79,8 @@ Entity* candidate_of(const std::string& tok) {
 
 std::string render(const Value& v) { return to_ascii(render_value(v)); }
 std::string s_of(const std::u16string& s) { return to_ascii(s); }
+// Defined with the `run` vocabulary further down; the `Host` seams above need it too.
+std::string join(const std::vector<std::string>& xs);
 
 // --- state registry + the fake state (the 9g wiring) -------------------------
 // The state hooks are no longer injected into the entity: they live on a state
@@ -103,6 +112,18 @@ struct HookConfig {
   bool view_frame = false;
   bool view_enter = false;
   bool view_busy = false;
+  // `run hook viewdata|viewdismiss`: the two lookup forwards (`dataset` /
+  // `world_dataset`) and the fusion-split forward (`dismiss_fusion`) that only the real
+  // state code reaches.  `viewdata` logs both lookups side by side so the frame /
+  // world fallback split stays observable.
+  bool view_data = false;
+  bool view_dismiss = false;
+  // `update()` 走的那四个状态钩子：`pre_update` / `update` / `on_landing` /
+  // `on_leave_ground`（`run hook preupdate|stateupdate|landing|leaveground`）。
+  bool pre_update = false;
+  bool state_update = false;
+  bool landing = false;
+  bool leave_ground = false;
 };
 HookConfig g_hooks;
 
@@ -144,6 +165,14 @@ struct HarnessState : lfw::state::State_Base {
           e.set_frame(Value(std::make_shared<lfw::Object>(copy)));
         }
         if (g_hooks.view_enter) e.enter_frame_by_id(u"auto");
+        if (g_hooks.view_data) {
+          g_log.push_back("state_view_dataset:" + render(e.dataset(u"probe_key")) +
+                          ":world=" + render(e.world_dataset(u"probe_key")));
+        }
+        if (g_hooks.view_dismiss) {
+          e.dismiss_fusion(Value(std::u16string(u"112")));
+          g_log.push_back("state_view_dismiss:" + fid(e.frame_info()));
+        }
         g_hooks.view_busy = false;
       }
     };
@@ -172,6 +201,23 @@ struct HarnessState : lfw::state::State_Base {
       if (!g_hooks.caught) return Value();
       return g_hooks.caught_value;
     };
+    pre_update = [](lfw::state::IStateEntity& e) {
+      if (!g_hooks.pre_update) return;
+      g_log.push_back("state_pre_update:" + s_of(e.id()) + ":" + render(e.hp()));
+    };
+    on_landing = [](lfw::state::IStateEntity& e, const Value& v) {
+      if (!g_hooks.landing) return;
+      g_log.push_back("state_on_landing:" + s_of(e.id()) + ":" + render(v));
+    };
+    on_leave_ground = [](lfw::state::IStateEntity& e) {
+      if (!g_hooks.leave_ground) return;
+      g_log.push_back("state_on_leave_ground:" + s_of(e.id()));
+    };
+  }
+
+  void update(lfw::state::IStateEntity& e) override {
+    if (!g_hooks.state_update) return;
+    g_log.push_back("state_update:" + s_of(e.id()) + ":" + render(e.hp()));
   }
 
   void on_restrict(lfw::state::IStateEntity& e, double x, double y, double z) override {
@@ -297,6 +343,31 @@ Value id_ref(const Entity* e) {
   return Value(std::make_shared<lfw::Object>(o));
 }
 
+// `run keys` / `run bkeys` 尾部可以再跟任意个单键名（`a` / `j` / `d` / …）：`update` 的
+// `check_fusion_dismissing` 要 `sametime_keys_test("dja")` / `sequence_keys_test("ja")`，
+// 它需要的 `a` 用 `lr/ud/jd` 三个参数表达不了。返回拼好的命令后缀（`" a j"`）。
+bool hit_extra_keys(lfw::controller::BaseController* c, const std::vector<std::string>& t,
+                    std::size_t& i, int lineno, std::string& out) {
+  while (i < t.size()) {
+    const std::string& name = t[i++];
+    lfw::controller::KeyStatus* slot = nullptr;
+    if (name == "L") slot = &c->keys.L;
+    else if (name == "R") slot = &c->keys.R;
+    else if (name == "U") slot = &c->keys.U;
+    else if (name == "D") slot = &c->keys.D;
+    else if (name == "d") slot = &c->keys.d;
+    else if (name == "j") slot = &c->keys.j;
+    else if (name == "a") slot = &c->keys.a;
+    if (slot == nullptr) {
+      std::fprintf(stderr, "unknown key '%s' at line %d\n", name.c_str(), lineno);
+      return false;
+    }
+    slot->hit(Value(1.0), 0.0);
+    out += " " + name;
+  }
+  return true;
+}
+
 std::u16string ctrl_mark(const Value& v) {
   if (std::holds_alternative<std::monostate>(v)) return u"u";
   if (lfw::truthy(field_of(v, u"__is_human_ctrl__"))) return u"human";
@@ -399,6 +470,32 @@ class Host : public lfw::IEntityHost {
 
   // `world.entities.length + world.ghosts.length`（`spawn` 的 unimportant 门）
   double entity_count() const override { return g_ecount; }
+
+  // `world.puppets.values()`：`env puppets …` 指的名单（`self` / `buddy` / `sp<N>`）。
+  std::vector<Entity*> puppets() override {
+    std::vector<Entity*> out;
+    for (const std::string& tok : g_puppet_tokens) {
+      Entity* e = candidate_of(tok);
+      if (e != nullptr) out.push_back(e);
+    }
+    g_log.push_back("puppets:" + join(g_puppet_tokens));
+    return out;
+  }
+
+  // `world.stage.player_l` / `player_r` / `far` / `near`（`env stage <key> <值>`；没设过
+  // 就是 `undefined`，与 TS 里缺字段同形）。
+  Value stage_value(const std::u16string& key) const override {
+    for (const auto& kv : g_stage) {
+      if (kv.first == key) return kv.second;
+    }
+    return Value();
+  }
+
+  // `world.ground.step`（TS 的 `Ground.step` 是 `readonly = 10`）
+  double ground_step() const override { return g_ground_step; }
+
+  // `lfw.survival_rank_mode`
+  bool survival_rank_mode() const override { return g_rank_mode; }
 
   // `world.add_entities(this)`（`attach`）——把实体挂进世界的那一刻，`_spawn_time`
   // 已经写好，所以日志里带上它。
@@ -641,9 +738,70 @@ std::string dump_spawn(const Entity* e) {
          " chasing=" + render(id_ref(ctrl == nullptr ? nullptr : ctrl->chasing));
 }
 
+// `run update` / `run updateg` 的观察点：`update` 自己写的槽位（时钟、五组计数、
+// 记账表、落地帧、抓人关系）+ `dump_spawn` 的那一组。
+std::string dump_opoints(const std::vector<std::pair<Value, double>>& ops);
+// `landing_frame`：`null` 打成 `z`（TS 的 `null`），帧对象打成它的 `id`。
+std::string fid_or_null(const Value& f) {
+  return std::holds_alternative<lfw::NullTag>(f) ? "z" : fid(f);
+}
+std::string dump_tick(const Entity& e) {
+  const auto id_ref = [](const Entity* p) -> Value {
+    if (p == nullptr) return Value(lfw::NullTag{});
+    lfw::Object o;
+    o.set(u"id", Value(p->id));
+    return Value(std::make_shared<lfw::Object>(o));
+  };
+  const Value prev_cp = e.prev_cpoint_a();
+  return "at=" + render(Value(e.atom_time())) + " life=" + render(Value(e.lifetime())) +
+         " wait=" + render(Value(e.wait)) + " mticks=" + render(Value(e.motionless_ticks())) +
+         " blink=" + render(Value(e.blinking())) + " after=" +
+         render(e.after_blink().has_value() ? Value(*e.after_blink()) : Value(lfw::NullTag{})) +
+         " inv=" + render(Value(e.invisible())) + " invu=" + render(Value(e.invulnerable())) +
+         " arest=" + render(Value(e.arest())) + " catch=" + render(Value(e.catch_time())) +
+         " throwinj=" + render(Value(e.throwinjury)) +
+         " fallinj=" + render(Value(e.fallinjury)) +
+         " on_ground=" + render(Value(e.is_on_ground)) +
+         " landing=" + fid_or_null(e.landing_frame()) + " prev_cp=" +
+         render(std::holds_alternative<lfw::NullTag>(prev_cp) ? Value(lfw::NullTag{})
+                                                             : prev_cp) +
+         " fuse=" + render(Value(static_cast<double>(e.fuse_bys.size()))) +
+         " aabb=" + render(Value(e.aabb_min_x)) + "," + render(Value(e.aabb_max_x)) + "," +
+         render(Value(e.aabb_min_z)) + "," + render(Value(e.aabb_max_z)) +
+         " lr=" + render(Value(e.l_len)) + "," + render(Value(e.r_len)) +
+         " frame=" + render(lfw::field_or(e.frame, u"id")) +
+         " pos=" + render(vec3_value(e.position)) +
+         " pv=" + render(vec3_value(e.prev_position)) +
+         " v=" + render(vec3_value(e.velocity)) +
+         " pvv=" + render(vec3_value(e.prev_velocity)) +
+         " hp=" + render(e.hp()) + " hp_r=" + render(e.hp_r()) + " mp=" + render(e.mp()) +
+         " team=" + render(Value(e.team())) + " facing=" + render(Value(e.facing)) +
+         " motionless=" + render(Value(e.motionless)) + " shaking=" + render(Value(e.shaking)) +
+         " catcher=" + render(id_ref(e.catcher)) + " catching=" + render(id_ref(e.catching)) +
+         " fromwait=" + render(Value(e.from_wait_block())) +
+         " n=" + std::to_string(e.opoints.size()) + " itv=" + dump_opoints(e.opoints);
+}
+
+// 第二个实体的观察点：`update` 里只写对方的那几处（`check_fusion_dismissing` /
+// `dismiss_fusion` 的成员循环、`update_catching` 的 `caught->*`、`follow_catcher`）。
+std::string dump_buddy(const Entity* b) {
+  if (b == nullptr) return "z";
+  const Value prev_cp = b->prev_cpoint_a();
+  return "hp=" + render(b->hp()) + " hp_r=" + render(b->hp_r()) + " mp=" + render(b->mp()) +
+         " frame=" + render(lfw::field_or(b->frame, u"id")) +
+         " pos=" + render(vec3_value(b->position)) +
+         " v=" + render(vec3_value(b->velocity)) +
+         " facing=" + render(Value(b->facing)) + " inv=" + render(Value(b->invisible())) +
+         " invu=" + render(Value(b->invulnerable())) +
+         " ml=" + render(Value(b->motionless)) +
+         " prev_cp=" + render(std::holds_alternative<lfw::NullTag>(prev_cp)
+                                  ? Value(lfw::NullTag{})
+                                  : prev_cp) +
+         " catcher=" + render(id_ref(b->catcher)) + " catching=" + render(id_ref(b->catching));
+}
+
 // `this._opoints` 的记账转储：`interval_id:tick` 对（`interval_id` 缺失写成 `-`）。
-std::string dump_opoints(const std::vector<std::pair<Value, double>>& ops) {
-  std::string out;
+std::string dump_opoints(const std::vector<std::pair<Value, double>>& ops) {  std::string out;
   for (std::size_t i = 0; i < ops.size(); ++i) {
     if (i > 0) out += ",";
     const Value id = lfw::field_or(ops[i].first, u"interval_id");
@@ -687,6 +845,7 @@ bool get_num(const Entity& e, const std::string& name, double& out) {
   else if (name == "invisible") out = e.invisible();
   else if (name == "invulnerable") out = e.invulnerable();
   else if (name == "arest") out = e.arest();
+  else if (name == "catch_time") out = e.catch_time();
   else if (name == "gravity") out = e.gravity();
   else if (name == "itr_motionless") out = e.itr_motionless();
   else if (name == "weight") out = e.weight();
@@ -797,6 +956,7 @@ bool set_num(Entity& e, const std::string& name, double v) {
   else if (name == "invisible") e.set_invisible(v);
   else if (name == "invulnerable") e.set_invulnerable(v);
   else if (name == "arest") e.set_arest(v);
+  else if (name == "catch_time") e.set_catch_time(v);
   else if (name == "variant") e.variant = v;
   else if (name == "wait") e.wait = v;
   else if (name == "stat_bar") e.stat_bar = v;
@@ -906,6 +1066,29 @@ int main(int argc, char** argv) {
         const std::string& flag = t[i++];
         const std::string& v = t[i++];
         g_ball_ctrl = flag == "b" && v == "1";
+      } else if (sub == "puppets") {
+        // `world.puppets.values()` 的名单（token 与 `env ents` 同款）。
+        g_puppet_tokens.assign(t.begin() + static_cast<std::ptrdiff_t>(i), t.end());
+        g_log.push_back("puppets:" + join(g_puppet_tokens));
+      } else if (sub == "stage") {
+        // `env stage <key> <值>`：舞台边界（`player_l` / `player_r` / `far` / `near`）。
+        const std::u16string key = text_of(parse_value(t, i));
+        const Value v = parse_value(t, i);
+        bool replaced = false;
+        for (auto& kv : g_stage) {
+          if (kv.first == key) {
+            kv.second = v;
+            replaced = true;
+            break;
+          }
+        }
+        if (!replaced) g_stage.emplace_back(key, v);
+      } else if (sub == "groundstep") {
+        g_ground_step = to_number(parse_value(t, i));
+      } else if (sub == "rankmode") {
+        const std::string& flag = t[i++];
+        const std::string& v = t[i++];
+        g_rank_mode = flag == "b" && v == "1";
       } else {
         std::fprintf(stderr, "unknown env '%s' at line %d\n", sub.c_str(), lineno);
         return 2;
@@ -1044,8 +1227,28 @@ int main(int argc, char** argv) {
                     join(g_log).c_str(),
                     render(Value(g_entity->bearer != nullptr)).c_str(),
                     render(Value(g_entity->catcher != nullptr)).c_str());
-      } else if (what == "linkb") {
-        const std::string& field = t[i++];
+      } else if (what == "fuseby") {
+        // `this.fuse_bys`（`check_fusion_dismissing` / `dismiss_fusion` 的成员链）。
+        const std::string& tok = t[i++];
+        Entity* e = candidate_of(tok);
+        if (e == nullptr) {
+          std::fprintf(stderr, "unknown fuseby '%s' at line %d\n", tok.c_str(), lineno);
+          return 2;
+        }
+        g_entity->fuse_bys.push_back(e);
+        g_entity->has_fuse_bys = true;
+        std::printf("run fuseby %s || %s | n=%d\n", tok.c_str(), join(g_log).c_str(),
+                    static_cast<int>(g_entity->fuse_bys.size()));
+      } else if (what == "fuseclear") {
+        g_entity->fuse_bys.clear();
+        g_entity->has_fuse_bys = false;
+        std::printf("run fuseclear || %s | n=0\n", join(g_log).c_str());
+      } else if (what == "buddyframe") {
+        const Value v = parse_value(t, i);
+        g_buddy->set_frame(v);
+        std::printf("run buddyframe %s || %s | f=%s\n", render(v).c_str(), join(g_log).c_str(),
+                    fid(g_buddy->frame).c_str());
+      } else if (what == "linkb") {        const std::string& field = t[i++];
         const std::string& to = t[i++];
         Entity* v = to == "self" ? g_entity.get() : to == "buddy" ? g_buddy.get() : nullptr;
         if (field == "bearer") g_buddy->bearer = v;
@@ -1124,12 +1327,13 @@ int main(int argc, char** argv) {
         else if (ud < 0) c->keys.U.hit(Value(1.0), 0.0);
         if (jd > 0) c->keys.j.hit(Value(1.0), 0.0);
         else if (jd < 0) c->keys.d.hit(Value(1.0), 0.0);
+        std::string extra;
+        if (!hit_extra_keys(c, t, i, lineno, extra)) return 2;
         g_entity->set_ctrl(c);
-        std::printf("run keys %s %s %s || %s | lr=%d ud=%d jd=%d\n",
+        std::printf("run keys %s %s %s%s || %s | lr=%d ud=%d jd=%d\n",
                     render(Value(lr)).c_str(), render(Value(ud)).c_str(),
-                    render(Value(jd)).c_str(), join(g_log).c_str(), c->LR(), c->UD(),
-                    c->jd());
-      } else if (what == "bkeys") {
+                    render(Value(jd)).c_str(), extra.c_str(), join(g_log).c_str(), c->LR(),
+                    c->UD(), c->jd());      } else if (what == "bkeys") {
         // `keys` for the buddy: `follow_catcher` / `follow_bearer` scale one velocity
         // term by the *other* entity's controller direction.
         const double lr = trace::to_double(t[i++]);
@@ -1142,11 +1346,13 @@ int main(int argc, char** argv) {
         else if (ud < 0) c->keys.U.hit(Value(1.0), 0.0);
         if (jd > 0) c->keys.j.hit(Value(1.0), 0.0);
         else if (jd < 0) c->keys.d.hit(Value(1.0), 0.0);
+        std::string extra;
+        if (!hit_extra_keys(c, t, i, lineno, extra)) return 2;
         if (g_buddy != nullptr) g_buddy->set_ctrl(c);
-        std::printf("run bkeys %s %s %s || %s | lr=%d ud=%d jd=%d\n",
+        std::printf("run bkeys %s %s %s%s || %s | lr=%d ud=%d jd=%d\n",
                     render(Value(lr)).c_str(), render(Value(ud)).c_str(),
-                    render(Value(jd)).c_str(), join(g_log).c_str(), c->LR(), c->UD(),
-                    c->jd());
+                    render(Value(jd)).c_str(), extra.c_str(), join(g_log).c_str(), c->LR(),
+                    c->UD(), c->jd());
       } else if (what == "buddy") {
         // Replacing the buddy would leave the entity pointing at a freed object, so the
         // four relation slots are detached first (the TS side would keep the old object
@@ -1420,6 +1626,18 @@ int main(int argc, char** argv) {
           g_hooks.view_frame = true;
         } else if (sub == "viewenter") {
           g_hooks.view_enter = true;
+        } else if (sub == "viewdata") {
+          g_hooks.view_data = true;
+        } else if (sub == "viewdismiss") {
+          g_hooks.view_dismiss = true;
+        } else if (sub == "preupdate") {
+          g_hooks.pre_update = true;
+        } else if (sub == "stateupdate") {
+          g_hooks.state_update = true;
+        } else if (sub == "landing") {
+          g_hooks.landing = true;
+        } else if (sub == "leaveground") {
+          g_hooks.leave_ground = true;
         } else if (sub == "none") {
           g_hooks = HookConfig{};
         } else {
@@ -1520,6 +1738,9 @@ int main(int argc, char** argv) {
             render(vec3_value(g_entity->position)).c_str(),
             g_buddy != nullptr ? render(vec3_value(g_buddy->position)).c_str() : "z",
             rel_probe().c_str());
+      } else if (what == "buddydump") {
+        std::printf("run buddydump || %s | %s\n", join(g_log).c_str(),
+                    dump_buddy(g_buddy.get()).c_str());
       } else if (what == "vrestdump") {
         std::printf("run vrestdump || %s | n=%s b=%s s=%s\n", join(g_log).c_str(),
                     dump_collisions(g_entity->vrests).c_str(),
@@ -1653,6 +1874,14 @@ int main(int argc, char** argv) {
                     render(vec3_value(g_entity->position)).c_str(),
                     render(vec3_value(g_entity->prev_velocity)).c_str(),
                     render(vec3_value(g_entity->velocity)).c_str());
+      } else if (what == "update") {
+        g_entity->update();
+        std::printf("run update || %s | %s\n", join(g_log).c_str(),
+                    dump_tick(*g_entity).c_str());
+      } else if (what == "updateg") {
+        g_entity->update_ghost();
+        std::printf("run updateg || %s | %s\n", join(g_log).c_str(),
+                    dump_tick(*g_entity).c_str());
       } else if (what == "seedop") {
         // 直接塞 `_opoints`（9i 的 `set_frame` 区间过滤场景用），不走 `apply_opoints`。
         const Value list = parse_value(t, i);

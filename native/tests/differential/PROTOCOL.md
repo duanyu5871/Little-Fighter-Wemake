@@ -3293,7 +3293,7 @@ harness op：
 - `Entity::apply_opoints`（opoint 列表的消费方，含 `world.list_entities` / multi / spreading /
   ball ctrl `chasing`）留下一刀；占位缝 `IEntityHost::apply_opoints` 仍在。
 
-### 6.9.100 `Entity::apply_opoints`（opoint 列表的消费方）（`entity` 2587 行 = main 2326 + mt_probe 37 + opoints 108 + spawn 116；变异 864/864 全杀，其中 9m 新增 44 条 + 1 条按构造等价）
+### 6.9.100 `Entity::apply_opoints`（opoint 列表的消费方）（`entity` 2587 行 = main 2326 + mt_probe 37 + opoints 108 + spawn 116；变异 863/863 全杀，其中 9m 新增 43 条 + 1 条按构造等价（不列））
 
 - 新用例 `cases/entity/opoints.txt`（138 行源文件 / 108 行 trace），13 个场景：interval
   记账的四个分支（新条目 / mode=0 重复 / mode=1 命中后按 tick 早退或放行 / `interval_mode n 2`
@@ -3343,3 +3343,58 @@ harness op：
   `is_fighter(c.attacker)`），暂时不可观察，随各自的刀再过一遍。
 - `IEntityHost::apply_opoints` 占位缝**已删除**（`State_Frozen` / `set_frame` / `set_hp` 全走
   真方法）；9i 那条锚在占位缝调用上的变异（`set_frame skips the frame opoints`）已更新锚点。
+
+### 6.9.101 `Entity::update` / `update_ghost` 与它们的下游（`entity` 3163 行 = main 2326 + mt_probe 37 + opoints 108 + spawn 116 + update 576；变异 955/955 全杀，其中 9n 新增 92 条、另有 5 条原理可观察但本主题场景到不了；全量重跑时曾暴露 9m 名单里 1 条按构造等价的误列、已撤出）
+
+- 新用例 `cases/entity/update.txt`（642 行源文件 / 576 行 trace），19 组场景：时钟 /
+  `_lifetime` / 帧朝向 / 帧 hp·mp 消耗、`mt.case` 标记（debugging 开 / 关）、融合解散
+  （成员位置同步 / `dismiss_time` 到点 / `y != 0` / ctrl 按键 / 解散后清空）、v_rest 掩码与
+  整项删除、arest / invisible / invulnerable 递减、闪烁四支（只递减 / Gone / Respawn 的三条
+  子路）、opoint 计时表、恢复层（stat / toughness）、wait / motionless 记账、
+  wait=0 的 next / auto、子步切分（`1 / 4 / 8 / 9 / 2.5 / 0.5 / 0`）、抓人、被抓、
+  控制器结果、落地判定（落 / 斜坡 / 离地 / 不可站立 / 落地伤 / 命中地面 / 关系挂起）、
+  AABB（默认 / 自定义 / 朝向翻转 / facing 0）、`update_ghost`，以及本刀补的边界组
+  （恢复层的可见槽位 / `blinking` 减成负数 / Respawn 的友军分支 / `dismiss_fusion` 的成员
+  复位 / opoint 的字符串 `interval` / `is_on_ground` 已在岸上 / `y - ground == step` /
+  `decrease * atom_time` / 被抓的五个分支 / `caught` 跟 catcher / `holding` 跟 bearer /
+  三个视图转发 / ghost 的子步与 `bearer` 门）。
+- 新增 / 复用的 op：
+  * `env puppets <token>…`（`world.puppets.values()`，token 同 `env ents`）、
+    `env stage <key> <值>`（`player_l` / `player_r` / `far` / `near`）、
+    `env groundstep <值>`、`env rankmode b 0|1`；
+  * `run update` / `run updateg`（真调 `Entity::update` / `update_ghost`，打印 `dump_tick`）；
+  * `run buddy` / `run buddyframe` / `run buddyset <字段> <值>` / `run linkb <字段> <token>` /
+    `run bkeys`（第二个实体的帧 / 字段 / 关系 / 控制器方向）、`run buddydump`
+    （hp / hp_r / mp / frame / pos / v / facing / inv / invu / ml / prev_cp / catcher / catching）；
+  * `run fuseby <token>` / `run fuseclear`（`fuse_bys` 链）；
+  * `run get` / `run set` 的 `resting` / `toughness_resting` / `hp_r` / `catch_time` /
+    `throwinjury` / `motionless` / `blinking` / `invisible` / `invulnerable` 等槽位。
+- `run hook preupdate|stateupdate|landing|leaveground`：`update()` 走的四个状态钩子
+  （假状态的日志）。`run hook viewdata|viewdismiss`（**本刀新增**）：让假状态去读
+  `EntityStateView::dataset` / `world_dataset` 两个查找与 `dismiss_fusion` 转发 ——
+  这三个只有真实状态代码才走得到。`viewdata` 把两个查找并排打进日志
+  （`state_view_dataset:<帧层>:world=<世界层>`：帧的 `dataset` 子对象给 7、世界 dataset 给 9，
+  两侧互换即漂移），`viewdismiss` 调 `dismiss_fusion("112")` 后打当时的帧 id。
+- **观察面**：`dump_tick`（`at` / `life` / `wait` / `mticks` / `blink` / `after` / `inv` /
+  `invu` / `arest` / `catch` / `throwinj` / `fallinj` / `on_ground` / `landing` / `prev_cp` /
+  `fuse` / `aabb` / `lr` / `frame` / `pos` / `pv` / `v` / `pvv` / `hp` / `hp_r` / `mp` /
+  `team` / `facing` / `motionless` / `shaking` / `catcher` / `catching` / `fromwait` /
+  `n` / `itv`）钉住绝大部分；`buddydump` 钉住「只写对方」的那几处；
+  宿主日志（`create_entity_with_bot` / `play_sound` / `add_entities` / `state_on_restrict` /
+  `on_mp_changed` / `state_on_dead`）与钩子日志（`>enter:` / `>leave:` / `state_pre_update`
+  等）钉住副作用。
+- ⚠️ **`run keys` 每次都装一台新控制器**：`KeyStatus::hit` 只写当次控制器的按键状态，
+  `_key_list` 攒不出 `d` + 序列 ⇒ `frame.__seq_map` 的命中序列路径在本主题里测不出来
+  （`refresh_ctrl_env` 的 `seq_map` 来源因此不可观察，见 spec 头部）。
+- ⚠️ **`position.x` 被 Respawn 分支写成 `NaN` 之后不会自己恢复**：`stage` 缺键时
+  `max/min` 得 `NaN`；下面所有以 `x` 为观察点的场景（AABB 尤其）要先 `run pos` 复位。
+  `update_ghost` 不刷新 AABB ⇒ ghost 段落打印的是上一 tick 的残留。
+- ⚠️ **`spawnv` 生成体的位置来自 opoint 的 `x` / `y` / `z`**（缺字段 ⇒ `NaN`），
+  `spawnv` 的后四个参数是偏移与朝向；用例里不要拿这种实体当位置观察点。
+- ⚠️ 对象字面量的对数必须与 `o <n>` 一致：多写会被静默忽略（`run frame o 3 … dataset o 1 …`
+  里 `dataset` 就被丢掉了 ⇒ 帧层查找读不到），少写会报
+  `value literal truncated in object`。
+- 不可观察项（记录在 `mutations/entity.mjs` 头部）：`collision_list` / `collided_list` 的清空
+  （tick 内无回读）、`refresh_ctrl_env` 的 `__seq_map` 来源与 `transforms[0]` 的 pre/post
+  映射对（见上）、`world_puppets` 的 `team` 槽与 `entity_view` 的 `emitters`（消费者只有
+  状态钩子与 `summary_mgr.apply_damage`，本主题一个都不走）。

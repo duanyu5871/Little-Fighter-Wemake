@@ -93,6 +93,13 @@ export default {
 //    恰好给出等价结果（可用不同种子区分，但要固定一条与 TS 一致的序列）。
 //  * `follow_*` / `drop_holding` 的 15 条：一半是「两式在该场景同值」（居中项为 0、
 //    权重为 1、facing 相同），一半依赖 harness 还没有的探针（被放下侧的帧/位置）。
+//  * 9n 全量重跑（当时名单 956 条）唯一存活的一条：`apply_opoints` 的
+//    `Spreading` 偏移回落值 `sp.x` → 字面量 `0`（见本文件开头 9m 那条 note）。
+//    这里给出证据：`Vector3 sp;` 在 `for (i < count)` 循环体内**刚构造**
+//    （`defines/i_vector3.h` 三个分量默认 0），而 `Spreading` 分支里 `sp.x` 先被读作
+//    回落值、之后才被写入 ⇒ 读到的恒是 0；`sp.y` / `sp.z` 同构（TS 的 `?? v.x`
+//    同理）。即它是**按构造等价**，任何用例都杀不死 —— 原先误列在名单里，9n 全量跑
+//    把它暴露出来，按约定撤出名单（名单 956 → 955）。
 //  * `transform` / `transfrom_to_another` 的 10 条：`player_id` 需要「基控制器带非空
 //    pid」而 harness 只有 `""`；回调载荷没有统计；`copies` 用 `copyself` 时是自引用，
 //    `transform` 的结果与主实体相同。
@@ -105,6 +112,16 @@ export default {
 
 //  * `pick_value` 的「从另一头取」：本主题里所有 `pick_value` 调用都落在单元素数组或
 //    下标恰好是中间的位置上（`(size-1-i) == i`），换头取回同一个元素。
+//  * 9n（`update` / `update_ghost` / 融合解散 / AABB / 落地 / 抓人）的 5 条候选在原理上
+//    可观察，但本主题的场景到不了，按上面的惯例记录在这里而不列进 mutations：
+//    - `collision_list.clear()` / `collided_list.clear()`：tick 里没有任何地方回读这两张表
+//      （它们由碰撞切片消费），所以「不清空」看不见。
+//    - `refresh_ctrl_env` 的 `env.seq_map = frame.__seq_map` 与
+//      `transforms[0].__pre|__post_hitkeys_map` 那一对：`__seq_map` 分支要控制器有一份
+//      按键历史（`_key_list`），而 `run keys` 每次都装一台新控制器、攒不出历史；
+//      `transforms` 也不能从 harness 里写。场景里两处都是缺字段时，互换是空操作。
+//    - `world_puppets` 的 `team` 槽与 `entity_view` 的 `emitters`：消费者只有真实状态钩子
+//      （`csl_on_dead`）和 `summary_mgr.apply_damage`（只读 `id` / `hp`），tick 切片一个都不走。
 
   mutations: [
     {
@@ -260,8 +277,8 @@ export default {
         {
       "note": "reset starts the catch time at zero",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "  set_catch_time(catch_time_max());",
-      "to": "  set_catch_time(0.0);"
+      "from": "  _mp = mp_max();\n  set_catch_time(catch_time_max());",
+      "to": "  _mp = mp_max();\n  set_catch_time(0.0);"
     },
         {
       "note": "reset uses another outline alpha",
@@ -3842,8 +3859,8 @@ export default {
         {
       "note": "set_frame lets the held weapon catch instead of following",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "  if (holding != nullptr) holding->follow_bearer();",
-      "to": "  if (holding != nullptr) holding->follow_catcher();"
+      "from": "  if (holding != nullptr) holding->follow_bearer();\n  if (catching != nullptr) catching->follow_catcher();",
+      "to": "  if (holding != nullptr) holding->follow_catcher();\n  if (catching != nullptr) catching->follow_catcher();"
     },
         {
       "note": "enter_frame reads the gone marker off the requested frame",
@@ -5242,12 +5259,6 @@ export default {
       to: `        sp.z = (i - (count - 1) / 2) * 2.0;`,
     },
     {
-      note: "apply_opoints：Spreading 的偏移回落值写成 0",
-      file: "native/lfw/entity/entity.cpp",
-      from: `        sp.x = num_of(gen_or(opoint, u"__gen_spread_x", Value(sp.x)));`,
-      to: `        sp.x = num_of(gen_or(opoint, u"__gen_spread_x", Value(0.0)));`,
-    },
-    {
       note: "apply_opoints：Spreading 不再用生成器（sp 全是 0）",
       file: "native/lfw/entity/entity.cpp",
       from: `      } else if (strict_equals(spreading,
@@ -5366,6 +5377,812 @@ export default {
       file: "native/lfw/utils/container_help/find.h",
       from: `    if (pred(pair)) return pair;`,
       to: `    if (!pred(pair)) continue;`,
+    },
+
+    // --- 9n：`update` / `update_ghost` + 融合解散 + AABB + 落地 + 抓人 ---
+    {
+      note: "update：lifetime 按 1 加（不乘 atom_time）",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  _lifetime += _atom_time;
+  const Value frame_facing = field_or(frame, u"facing");
+  if (truthy(frame_facing)) facing = handle_facing_flag(frame_facing);
+  // 控制器要读的那一组值`,
+      to: `  _lifetime += 1.0;
+  const Value frame_facing = field_or(frame, u"facing");
+  if (truthy(frame_facing)) facing = handle_facing_flag(frame_facing);
+  // 控制器要读的那一组值`,
+    },
+    {
+      note: "update：原子时间恒 1（不读 world.dataset）",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  _atom_time = num_of(dataset(u"atom_time"));
+  _lifetime += _atom_time;
+  const Value frame_facing = field_or(frame, u"facing");
+  if (truthy(frame_facing)) facing = handle_facing_flag(frame_facing);
+  // 控制器要读的那一组值`,
+      to: `  _atom_time = 1.0;
+  _lifetime += _atom_time;
+  const Value frame_facing = field_or(frame, u"facing");
+  if (truthy(frame_facing)) facing = handle_facing_flag(frame_facing);
+  // 控制器要读的那一组值`,
+    },
+    {
+      note: "update：帧朝向标志不处理",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  if (truthy(frame_facing)) facing = handle_facing_flag(frame_facing);
+  // 控制器要读的那一组值`,
+      to: `  (void)frame_facing;
+  // 控制器要读的那一组值`,
+    },
+    {
+      note: "update：进 tick 前不刷控制器环境",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  refresh_ctrl_env();
+  if (check_fusion_dismissing()) return;`,
+      to: `  if (check_fusion_dismissing()) return;`,
+    },
+    {
+      note: "update：融合解散后不提前收手",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  if (check_fusion_dismissing()) return;`,
+      to: `  (void)check_fusion_dismissing();`,
+    },
+    {
+      note: "update：hp_recovering 不调",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  hp_recovering();
+  mp_recovering();`,
+      to: `  mp_recovering();`,
+    },
+    {
+      note: "update：mp_recovering 不调",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  hp_recovering();
+  mp_recovering();`,
+      to: `  hp_recovering();`,
+    },
+    {
+      note: "update：帧 hp / mp 消耗少乘 atom_time",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  if (truthy(frame_hp)) set_hp(hp() - to_number(frame_hp) * _atom_time);
+  const Value frame_mp = field_or(frame, u"mp");
+  if (truthy(frame_mp)) set_mp(mp() - to_number(frame_mp) * _atom_time);
+
+  if (!(shaking > 0)`,
+      to: `  if (truthy(frame_hp)) set_hp(hp() - to_number(frame_hp));
+  const Value frame_mp = field_or(frame, u"mp");
+  if (truthy(frame_mp)) set_mp(mp() - to_number(frame_mp));
+
+  if (!(shaking > 0)`,
+    },
+    {
+      note: "update：帧 hp 的 truthy 守卫恒真（hp 为 0 的帧也扣）",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  const Value frame_hp = field_or(frame, u"hp");
+  if (truthy(frame_hp)) set_hp(hp() - to_number(frame_hp) * _atom_time);
+  const Value frame_mp = field_or(frame, u"mp");
+  if (truthy(frame_mp)) set_mp(mp() - to_number(frame_mp) * _atom_time);
+
+  if (!(shaking > 0)`,
+      to: `  const Value frame_hp = field_or(frame, u"hp");
+  if (true) set_hp(hp() - to_number(frame_hp) * _atom_time);
+  const Value frame_mp = field_or(frame, u"mp");
+  if (truthy(frame_mp)) set_mp(mp() - to_number(frame_mp) * _atom_time);
+
+  if (!(shaking > 0)`,
+    },
+    {
+      note: "update：v_rest 掩码用 and（shaking>0 时也递减）",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  if (!(shaking > 0) || equals(Value(0.0), dataset(u"vrest_after_shaking"))) {`,
+      to: `  if (!(shaking > 0) && equals(Value(0.0), dataset(u"vrest_after_shaking"))) {`,
+    },
+    {
+      note: "update：v_rest 到点不删（留 0 项）",
+      file: "native/lfw/entity/entity.cpp",
+      from: `        const std::u16string key = it->first;
+        del_v_rest(key);
+        it = vrests.upper_bound(key);`,
+      to: `        ++it;`,
+    },
+    {
+      note: "update：v_rest 递减不减（不续时）",
+      file: "native/lfw/entity/entity.cpp",
+      from: `        v.rest = round_float(v.rest - _atom_time);`,
+      to: `        v.rest = round_float(v.rest);`,
+    },
+    {
+      note: "update：arest 掩码用 and",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  if (equals(Value(0.0), dataset(u"arest_after_motionless")) || !(motionless > 0)) {`,
+      to: `  if (equals(Value(0.0), dataset(u"arest_after_motionless")) && !(motionless > 0)) {`,
+    },
+    {
+      note: "update：arest 不递减（有值就清零）",
+      file: "native/lfw/entity/entity.cpp",
+      from: `    if (arest() > 0) {
+      set_arest(round_float(arest() - _atom_time));
+      if (arest() < 0) set_arest(0);
+    } else {
+      set_arest(0);
+    }`,
+      to: `    set_arest(0);`,
+    },
+    {
+      note: "update：invisible 递减用 +",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  if (_invisible > 0) {
+    _invisible = round_float(_invisible - _atom_time);
+    if (_invisible <= 0) _invisible = 0;
+  }
+  if (_invulnerable > 0) {`,
+      to: `  if (_invisible > 0) {
+    _invisible = round_float(_invisible + _atom_time);
+    if (_invisible <= 0) _invisible = 0;
+  }
+  if (_invulnerable > 0) {`,
+    },
+    {
+      note: "update：invulnerable 不递减",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  if (_invulnerable > 0) {
+    _invulnerable = round_float(_invulnerable - _atom_time);
+    if (_invulnerable < 0) _invulnerable = 0;
+  }
+  if (_blinking > 0) {`,
+      to: `  if (_invulnerable > 0) {
+    if (_invulnerable < 0) _invulnerable = 0;
+  }
+  if (_blinking > 0) {`,
+    },
+    {
+      note: "update：blink 到点不归零（Gone / Respawn 不触发）",
+      file: "native/lfw/entity/entity.cpp",
+      from: `      _blinking = 0;
+      if (_after_blink.has_value() && *_after_blink == frame_id::kGone) {`,
+      to: `      if (_after_blink.has_value() && *_after_blink == frame_id::kGone) {`,
+    },
+    {
+      note: "update：Gone 分支不写 GONE_FRAME_INFO",
+      file: "native/lfw/entity/entity.cpp",
+      from: `        const Value* gone = defines::find(u"GONE_FRAME_INFO");
+        frame = gone != nullptr ? *gone : Value();
+        set_arest(0);`,
+      to: `        set_arest(0);`,
+    },
+    {
+      note: "update：Respawn 不回满 hp（只补 hp_r）",
+      file: "native/lfw/entity/entity.cpp",
+      from: `        set_hp(hp_max());
+        set_hp_r(hp_max());`,
+      to: `        set_hp_r(hp_max());`,
+    },
+    {
+      note: "update：Respawn 的最近友军不过滤 hp<=0",
+      file: "native/lfw/entity/entity.cpp",
+      from: `          if (e == nullptr || !(e->hp() > 0)) continue;`,
+      to: `          if (e == nullptr) continue;`,
+    },
+    {
+      note: "update：Respawn 的最近友军比较用 <",
+      file: "native/lfw/entity/entity.cpp",
+      from: `          if (d > max_distance) continue;`,
+      to: `          if (d < max_distance) continue;`,
+    },
+    {
+      note: "update：Respawn 的 x 夹紧 max/min 传反",
+      file: "native/lfw/entity/entity.cpp",
+      from: `          const double x = host_->mt().range(
+              max(round(friend_entity->position.x - 100),
+                  to_number(host_->stage_value(u"player_l"))),
+              min(round(friend_entity->position.x + 100),
+                  to_number(host_->stage_value(u"player_r"))));`,
+      to: `          const double x = host_->mt().range(
+              min(round(friend_entity->position.x - 100),
+                  to_number(host_->stage_value(u"player_l"))),
+              max(round(friend_entity->position.x + 100),
+                  to_number(host_->stage_value(u"player_r"))));`,
+    },
+    {
+      note: "update：Respawn 的位置 y 写成 0",
+      file: "native/lfw/entity/entity.cpp",
+      from: `          set_position(Value(x), Value(300.0), Value(z));`,
+      to: `          set_position(Value(x), Value(0.0), Value(z));`,
+    },
+    {
+      note: "update：Respawn 后进的 auto 帧写成 gone",
+      file: "native/lfw/entity/entity.cpp",
+      from: `          set_position(Value(NullTag{}), Value(300.0), Value());
+        }
+        const Value* auto_frame = defines::find(u"Defines.NEXT_FRAME_AUTO");
+        enter_frame(auto_frame != nullptr ? *auto_frame : Value());`,
+      to: `          set_position(Value(NullTag{}), Value(300.0), Value());
+        }
+        const Value* auto_frame = defines::find(u"GONE_FRAME_INFO");
+        enter_frame(auto_frame != nullptr ? *auto_frame : Value());`,
+    },
+    {
+      note: "update：opoint 到点不 apply_opoints（只归零）",
+      file: "native/lfw/entity/entity.cpp",
+      from: `      apply_opoints(Value(std::make_shared<Array>(std::vector<Value>{opoint})));`,
+      to: `      (void)opoint;`,
+    },
+    {
+      note: "update：opoint 计时比较用宽松相等",
+      file: "native/lfw/entity/entity.cpp",
+      from: `    if (strict_equals(Value(opoints[i].second), field_or(opoint, u"interval"))) {`,
+      to: `    if (equals(Value(opoints[i].second), field_or(opoint, u"interval"))) {`,
+    },
+    {
+      note: "update：opoint 未到点不 +1",
+      file: "native/lfw/entity/entity.cpp",
+      from: `      opoints[i].second = opoints[i].second + 1;`,
+      to: `      opoints[i].second = opoints[i].second;`,
+    },
+    {
+      note: "update：stat_recovering 不调",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  stat_recovering();
+  toughness_recovering();`,
+      to: `  toughness_recovering();`,
+    },
+    {
+      note: "update：toughness_recovering 不调",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  stat_recovering();
+  toughness_recovering();`,
+      to: `  stat_recovering();`,
+    },
+    {
+      note: "update：state.pre_update 不调",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  if (_state != nullptr && _state->pre_update) _state->pre_update(*state_view_);
+  _from_wait_block = true;
+  if (wait > 0) {
+    if (!(motionless > 0) && !(shaking > 0) && catcher == nullptr && bearer == nullptr) {`,
+      to: `  _from_wait_block = true;
+  if (wait > 0) {
+    if (!(motionless > 0) && !(shaking > 0) && catcher == nullptr && bearer == nullptr) {`,
+    },
+    {
+      note: "update：wait 块不置 _from_wait_block",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  _from_wait_block = true;
+  if (wait > 0) {
+    if (!(motionless > 0) && !(shaking > 0) && catcher == nullptr && bearer == nullptr) {`,
+      to: `  _from_wait_block = false;
+  if (wait > 0) {
+    if (!(motionless > 0) && !(shaking > 0) && catcher == nullptr && bearer == nullptr) {`,
+    },
+    {
+      note: "update：wait 递减不减",
+      file: "native/lfw/entity/entity.cpp",
+      from: `      set_motionless_ticks(0);
+      wait = round_float(wait - _atom_time);
+      if (wait < 0) wait = 0;
+    } else if (motionless > 0 && catcher == nullptr && bearer == nullptr) {`,
+      to: `      set_motionless_ticks(0);
+      if (wait < 0) wait = 0;
+    } else if (motionless > 0 && catcher == nullptr && bearer == nullptr) {`,
+    },
+    {
+      note: "update：wait 分支的 motionless 守卫去掉",
+      file: "native/lfw/entity/entity.cpp",
+      from: `    } else if (motionless > 0 && catcher == nullptr && bearer == nullptr) {`,
+      to: `    } else if (catcher == nullptr && bearer == nullptr) {`,
+    },
+    {
+      note: "update：motionless tick 加 1（不乘 atom_time）",
+      file: "native/lfw/entity/entity.cpp",
+      from: `      set_motionless_ticks(round_float(motionless_ticks() + _atom_time));`,
+      to: `      set_motionless_ticks(round_float(motionless_ticks() + 1.0));`,
+    },
+    {
+      note: "update：MotionlessWaitTicks 判定用 >",
+      file: "native/lfw/entity/entity.cpp",
+      from: `      if (motionless_ticks() >= kMotionlessWaitTicks) {`,
+      to: `      if (motionless_ticks() > kMotionlessWaitTicks) {`,
+    },
+    {
+      note: "update：wait=0 时 next / auto 两支互换",
+      file: "native/lfw/entity/entity.cpp",
+      from: `        if (wait < 0) wait = 0;
+      }
+    }
+  } else if (truthy(field_or(frame, u"next"))) {
+    enter_frame(field_or(frame, u"next"));
+  } else {
+    set_frame(find_auto_frame());
+  }
+  _from_wait_block = false;`,
+      to: `        if (wait < 0) wait = 0;
+      }
+    }
+  } else if (truthy(field_or(frame, u"next"))) {
+    set_frame(find_auto_frame());
+  } else {
+    enter_frame(field_or(frame, u"next"));
+  }
+  _from_wait_block = false;`,
+    },
+    {
+      note: "update：子步上界用 < 8",
+      file: "native/lfw/entity/entity.cpp",
+      from: `                               ? tick_atom_time
+                               : 1.0;
+  if (sub_steps > 1) _atom_time = round_float(tick_atom_time / sub_steps);
+  for (double i = 0; i < sub_steps; ++i) {
+    handle_gravity();
+    update_velocity(frame);
+    if (i == 0 && _state != nullptr) _state->update(*state_view_);
+    update_position();
+  }
+  _atom_time = tick_atom_time;
+
+  if (motionless > 0) {`,
+      to: `                               ? tick_atom_time
+                               : 1.0;
+  if (sub_steps > 1) _atom_time = round_float(tick_atom_time / sub_steps);
+  for (double i = 0; i < sub_steps; ++i) {
+    handle_gravity();
+    update_velocity(frame);
+    if (i == 0 && _state != nullptr) _state->update(*state_view_);
+    update_position();
+  }
+  _atom_time = tick_atom_time;
+
+  if (shaking > 0) {`,
+    },
+    {
+      note: "update：子步后不还原 atom_time",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  _atom_time = tick_atom_time;
+
+  if (motionless > 0) {`,
+      to: `  if (motionless > 0) {`,
+    },
+    {
+      note: "update：state.update 每个子步都调",
+      file: "native/lfw/entity/entity.cpp",
+      from: `    if (i == 0 && _state != nullptr) _state->update(*state_view_);
+    update_position();
+  }
+  _atom_time = tick_atom_time;
+
+  if (motionless > 0) {`,
+      to: `    if (_state != nullptr) _state->update(*state_view_);
+    update_position();
+  }
+  _atom_time = tick_atom_time;
+
+  if (motionless > 0) {`,
+    },
+    {
+      note: "update：motionless 不递减",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  if (motionless > 0) {
+    motionless = round_float(motionless - _atom_time);
+    if (motionless < 0) motionless = 0;
+  }
+  if (shaking > 0) {`,
+      to: `  if (motionless > 0) {
+    if (motionless < 0) motionless = 0;
+  }
+  if (shaking > 0) {`,
+    },
+    {
+      note: "update：shaking 不递减",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  if (shaking > 0) {
+    shaking = round_float(shaking - _atom_time);
+    if (shaking < 0) shaking = 0;
+  }
+
+  if (update_catching()) return;`,
+      to: `  if (shaking > 0) {
+    if (shaking < 0) shaking = 0;
+  }
+
+  if (update_catching()) return;`,
+    },
+    {
+      note: "update：update_catching / caught 的提前收手去掉",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  if (update_catching()) return;
+  if (update_caught()) return;`,
+      to: `  update_catching();
+  update_caught();`,
+    },
+    {
+      note: "update：Entered 判定用 >",
+      file: "native/lfw/entity/entity.cpp",
+      from: `      if (static_cast<int>(r) >= static_cast<int>(EnterFrameResult::Entered) &&
+          res.keys() != std::u16string(gk::ka)) {`,
+      to: `      if (static_cast<int>(r) > static_cast<int>(EnterFrameResult::Entered) &&
+          res.keys() != std::u16string(gk::ka)) {`,
+    },
+    {
+      note: "update：命中后不重置抓人时间",
+      file: "native/lfw/entity/entity.cpp",
+      from: `        set_catch_time(catch_time_max());`,
+      to: `        set_catch_time(0.0);`,
+    },
+    {
+      note: "update：控制器结果不处理",
+      file: "native/lfw/entity/entity.cpp",
+      from: `    if (truthy(res.result())) {
+      const EnterFrameResult r = handle_next_frame_result(res.result());`,
+      to: `    if (false) {
+      const EnterFrameResult r = handle_next_frame_result(res.result());`,
+    },
+    {
+      note: "update：落地判定的 shaking / motionless 守卫去掉",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  if (!truthy(Value(shaking)) && !truthy(Value(motionless)) && bearer == nullptr &&
+      catcher == nullptr) {
+    update_landable();
+  }
+  if (holding != nullptr) holding->follow_bearer();`,
+      to: `  update_landable();
+  if (holding != nullptr) holding->follow_bearer();`,
+    },
+    {
+      note: "update：holding 不跟 bearer",
+      file: "native/lfw/entity/entity.cpp",
+      from: `    update_landable();
+  }
+  if (holding != nullptr) holding->follow_bearer();`,
+      to: `    update_landable();
+  }
+  if (holding != nullptr) holding->follow_catcher();`,
+    },
+    {
+      note: "update：prev_position 不记",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  prev_position = position;
+  update_aabb();
+  if (host_->mt().debugging) {
+    host_->mt().log_case({Value(u"e_" + id + u"_" + to_string(name()) + u"_end")});`,
+      to: `  update_aabb();
+  if (host_->mt().debugging) {
+    host_->mt().log_case({Value(u"e_" + id + u"_" + to_string(name()) + u"_end")});`,
+    },
+    {
+      note: "update：不刷新 AABB",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  prev_position = position;
+  update_aabb();
+  if (host_->mt().debugging) {`,
+      to: `  prev_position = position;
+  if (host_->mt().debugging) {`,
+    },
+    {
+      note: "update：mt.case end 标记不写",
+      file: "native/lfw/entity/entity.cpp",
+      from: `    host_->mt().log_case({Value(u"e_" + id + u"_" + to_string(name()) + u"_end")});`,
+      to: `    (void)0;`,
+    },
+    {
+      note: "update_ghost：wait 递减不减",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  _from_wait_block = true;
+  if (wait > 0) {
+    wait = round_float(wait - _atom_time);
+    if (wait < 0) wait = 0;
+  } else if (truthy(field_or(frame, u"next"))) {`,
+      to: `  _from_wait_block = true;
+  if (wait > 0) {
+    if (wait < 0) wait = 0;
+  } else if (truthy(field_or(frame, u"next"))) {`,
+    },
+    {
+      note: "update_ghost：子步不切分 atom_time",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  if (sub_steps > 1) _atom_time = round_float(tick_atom_time / sub_steps);
+  for (double i = 0; i < sub_steps; ++i) {
+    handle_gravity();
+    update_velocity(frame);
+    if (i == 0 && _state != nullptr) _state->update(*state_view_);
+    update_position();
+  }
+  _atom_time = tick_atom_time;
+
+  if (bearer == nullptr && catcher == nullptr) update_landable();`,
+      to: `  if (sub_steps > 1) _atom_time = tick_atom_time;
+  for (double i = 0; i < sub_steps; ++i) {
+    handle_gravity();
+    update_velocity(frame);
+    if (i == 0 && _state != nullptr) _state->update(*state_view_);
+    update_position();
+  }
+  _atom_time = tick_atom_time;
+
+  if (bearer == nullptr && catcher == nullptr) update_landable();`,
+    },
+    {
+      note: "update_ghost：落地判定用 ||",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  if (bearer == nullptr && catcher == nullptr) update_landable();
+  prev_position = position;`,
+      to: `  if (bearer == nullptr || catcher == nullptr) update_landable();
+  prev_position = position;`,
+    },
+    {
+      note: "update_ghost：prev_position 不记",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  if (bearer == nullptr && catcher == nullptr) update_landable();
+  prev_position = position;
+}`,
+      to: `  if (bearer == nullptr && catcher == nullptr) update_landable();
+}`,
+    },
+    {
+      note: "check_fusion_dismissing：成员位置不同步",
+      file: "native/lfw/entity/entity.cpp",
+      from: `    fighter->position.set(x, y, z);`,
+      to: `    fighter->position.set(x, y, x);`,
+    },
+    {
+      note: "check_fusion_dismissing：dismiss_time 递增",
+      file: "native/lfw/entity/entity.cpp",
+      from: `    dismiss_time = round_float(*dismiss_time - _atom_time);`,
+      to: `    dismiss_time = round_float(*dismiss_time + _atom_time);`,
+    },
+    {
+      note: "check_fusion_dismissing：去掉 y == 0 条件",
+      file: "native/lfw/entity/entity.cpp",
+      from: `      y == 0;
+  if (should_dismiss) dismiss_fusion(u"112");`,
+      to: `      true;
+  if (should_dismiss) dismiss_fusion(u"112");`,
+    },
+    {
+      note: "check_fusion_dismissing：sametime 判定换成 sequence",
+      file: "native/lfw/entity/entity.cpp",
+      from: `       (ctrl_ != nullptr && ctrl_->sametime_keys_test(u"dja")) ||`,
+      to: `       (ctrl_ != nullptr && ctrl_->sequence_keys_test(u"dja")) ||`,
+    },
+    {
+      note: "check_fusion_dismissing：解散帧 id 写错",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  if (should_dismiss) dismiss_fusion(u"112");`,
+      to: `  if (should_dismiss) dismiss_fusion(u"111");`,
+    },
+    {
+      note: "dismiss_fusion：hp 不再按人数均分",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  const double hp_v = round(hp() / size);`,
+      to: `  const double hp_v = round(hp());`,
+    },
+    {
+      note: "dismiss_fusion：朝向不翻转",
+      file: "native/lfw/entity/entity.cpp",
+      from: `    f = to_number(entity::turn_face(Value(f)));`,
+      to: `    (void)0;`,
+    },
+    {
+      note: "dismiss_fusion：成员不重置 invisible / motionless / invulnerable",
+      file: "native/lfw/entity/entity.cpp",
+      from: `    fighter->set_invisible(0);
+    fighter->motionless = 0;
+    fighter->set_invulnerable(0);`,
+      to: `    (void)0;`,
+    },
+    {
+      note: "dismiss_fusion：不清 fuse_bys",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  dismiss_data = Value(NullTag{});
+  fuse_bys.clear();
+  has_fuse_bys = false;
+}`,
+      to: `  dismiss_data = Value(NullTag{});
+  has_fuse_bys = false;
+}`,
+    },
+    {
+      note: "update_aabb：x1 不随朝向翻",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  aabb_min_x = round(position.x + (facing > 0 ? bx1 : -fx1));`,
+      to: `  aabb_min_x = round(position.x + (facing > 0 ? bx1 : fx1));`,
+    },
+    {
+      note: "update_aabb：z2 默认值写成 -12",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  const double bz2 = num_destructured(field_or(frame, u"__aabb_z2"), 12.0);`,
+      to: `  const double bz2 = num_destructured(field_or(frame, u"__aabb_z2"), -12.0);`,
+    },
+    {
+      note: "update_aabb：l_len / r_len 写反",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  l_len = facing > 0 ? centerx : width - centerx;
+  r_len = facing > 0 ? width - centerx : centerx;`,
+      to: `  l_len = facing > 0 ? width - centerx : centerx;
+  r_len = facing > 0 ? centerx : width - centerx;`,
+    },
+    {
+      note: "update_landable：hit_ground 的 itrs 不处理",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  if (truthy(hit_bdys)) update_itr_bdy_hit_ground(hit_bdys);
+  if (truthy(hit_itrs)) update_itr_bdy_hit_ground(hit_itrs);`,
+      to: `  if (truthy(hit_bdys)) update_itr_bdy_hit_ground(hit_bdys);`,
+    },
+    {
+      note: "update_landable：landable 守卫去掉",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  if (!truthy(field_or(frame, u"landable"))) return;`,
+      to: `  if (false) return;`,
+    },
+    {
+      note: "update_landable：just_land 不看 is_on_ground",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  const bool just_land = !was_on_ground && (position.y <= ground);`,
+      to: `  const bool just_land = (position.y <= ground);`,
+    },
+    {
+      note: "update_landable：落地不写 is_on_ground",
+      file: "native/lfw/entity/entity.cpp",
+      from: `    is_on_ground = true;
+    position.y = ground;`,
+      to: `    position.y = ground;`,
+    },
+    {
+      note: "update_landable：落地不把 velocity.y 归零",
+      file: "native/lfw/entity/entity.cpp",
+      from: `    velocity.y = 0;
+    prev_velocity.y = 0;`,
+      to: `    prev_velocity.y = 0;`,
+    },
+    {
+      note: "update_landable：temp_v 在归零之后才拷",
+      file: "native/lfw/entity/entity.cpp",
+      from: `    _temp_v.x = velocity.x;
+    _temp_v.y = velocity.y;
+    _temp_v.z = velocity.z;
+    velocity.y = 0;`,
+      to: `    velocity.y = 0;
+    _temp_v.x = velocity.x;
+    _temp_v.y = velocity.y;
+    _temp_v.z = velocity.z;`,
+    },
+    {
+      note: "update_landable：throwinjury 不结算",
+      file: "native/lfw/entity/entity.cpp",
+      from: `    if (truthy(Value(throwinjury))) {`,
+      to: `    if (false) {`,
+    },
+    {
+      note: "update_landable：fallinjury 不减 hp_r",
+      file: "native/lfw/entity/entity.cpp",
+      from: `      set_hp_r(hp_r() - round(fallinjury * (1 - num_of(dataset(u"hp_recoverability")))));`,
+      to: `      set_hp_r(hp_r());`,
+    },
+    {
+      note: "update_landable：离地判定用 >=",
+      file: "native/lfw/entity/entity.cpp",
+      from: `    if (position.y - ground > host_->ground_step()) {`,
+      to: `    if (position.y - ground >= host_->ground_step()) {`,
+    },
+    {
+      note: "update_landable：离地钩子不调",
+      file: "native/lfw/entity/entity.cpp",
+      from: `      leave_ground();
+      if (_state != nullptr && _state->on_leave_ground) _state->on_leave_ground(*state_view_);`,
+      to: `      leave_ground();`,
+    },
+    {
+      note: "update_catching：没有 cpoint 时不放手",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  const Value cpoint_a = field_or(frame, u"cpoint");
+  if (!truthy(cpoint_a)) {`,
+      to: `  const Value cpoint_a = field_or(frame, u"cpoint");
+  if (false) {`,
+    },
+    {
+      note: "update_catching：throwinjury 上界用 -2",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  if (cp_throwinjury < -1) {`,
+      to: `  if (cp_throwinjury < -2) {`,
+    },
+    {
+      note: "update_catching：survival_rank_mode 判定取反",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  if (cp_throwinjury == -1 &&
+      (!host_->survival_rank_mode() || !entity::is_boss(caught->entity_view()))) {`,
+      to: `  if (cp_throwinjury == -1 &&
+      (host_->survival_rank_mode() || !entity::is_boss(caught->entity_view()))) {`,
+    },
+    {
+      note: "update_catching：decrease 不乘 atom_time",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  if (truthy(Value(decrease))) add_catch_time(decrease * _atom_time);`,
+      to: `  if (truthy(Value(decrease))) add_catch_time(decrease);`,
+    },
+    {
+      note: "update_catching：throwv 三轴判定整块丢掉",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  if (truthy(tix) || truthy(tiy) || truthy(tiz)) {
+    set_catching(nullptr);
+    return false;
+  }`,
+      to: `  if (false) {
+    set_catching(nullptr);
+    return false;
+  }`,
+    },
+    {
+      note: "update_catching：caught 不跟 catcher",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  caught->follow_catcher();
+  return false;`,
+      to: `  return false;`,
+    },
+    {
+      note: "update_caught：cp 未变也结算",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  if (!strict_equals(_prev_cpoint_a, cp_a)) {`,
+      to: `  if (true) {`,
+    },
+    {
+      note: "update_caught：injury 不调 apply_damage",
+      file: "native/lfw/entity/entity.cpp",
+      from: `      summary_mgr().apply_damage(cer->entity_view(), injury, entity_view(), Value(prev_hp));`,
+      to: `      (void)prev_hp;`,
+    },
+    {
+      note: "update_caught：cp_motionless 写给自己",
+      file: "native/lfw/entity/entity.cpp",
+      from: `    if (truthy(cp_motionless)) cer->motionless = max(to_number(cp_motionless), cer->motionless);`,
+      to: `    if (truthy(cp_motionless)) motionless = max(to_number(cp_motionless), motionless);`,
+    },
+    {
+      note: "update_caught：throwinjury 的下界用 0",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  if (ti > 0) throwinjury = ti;`,
+      to: `  if (ti >= 0) throwinjury = ti;`,
+    },
+    {
+      note: "update_caught：throwv 不放手",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  if (truthy(tx) || truthy(ty) || truthy(tz)) {
+    follow_catcher();
+    catcher = nullptr;
+    _prev_cpoint_a = Value(NullTag{});
+  }`,
+      to: `  if (false) {
+    follow_catcher();
+    catcher = nullptr;
+    _prev_cpoint_a = Value(NullTag{});
+  }`,
+    },
+    {
+      note: "update_caught：vaction 不进帧",
+      file: "native/lfw/entity/entity.cpp",
+      from: `    return static_cast<int>(enter_frame(vaction)) >= static_cast<int>(EnterFrameResult::Entered);`,
+      to: `    return false;`,
+    },
+    {
+      note: "state view：dismiss_fusion 的帧 id 写死",
+      file: "native/lfw/entity/entity_state_view.cpp",
+      from: `  _e.dismiss_fusion(to_string(frame_id));`,
+      to: `  _e.dismiss_fusion(u"0");`,
+    },
+    {
+      note: "state view：dataset 转发到 world_dataset",
+      file: "native/lfw/entity/entity_state_view.cpp",
+      from: `Value EntityStateView::dataset(const std::u16string& key) const { return _e.dataset(key); }`,
+      to: `Value EntityStateView::dataset(const std::u16string& key) const { return _e.world_dataset(key); }`,
+    },
+    {
+      note: "state view：world_dataset 转发到 dataset",
+      file: "native/lfw/entity/entity_state_view.cpp",
+      from: `  return _e.world_dataset(key);`,
+      to: `  return _e.dataset(key);`,
+    },
+    {
+      note: "state view：facing 取反",
+      file: "native/lfw/entity/entity_state_view.cpp",
+      from: `Value EntityStateView::facing() const { return Value(_e.facing); }`,
+      to: `Value EntityStateView::facing() const { return Value(-_e.facing); }`,
     },
   ],
 };

@@ -114,7 +114,29 @@ const worldStub = {
     log.push("list_entities:" + key + ":" + out.length);
     return out;
   },
+  // `update()` 的四个宿主输入：puppets 名单、舞台边界、`ground.step`、
+  // `lfw.survival_rank_mode`（后者挂在 `lfwStub` 上）。
+  puppets: new Map<string, Entity>(),
+  stage: {} as Record<string, unknown>,
+  ground: { step: 10 },
 };
+
+// `world.puppets.values()`：`env puppets …` 指的名单（token 与 `env ents` 同款）。
+let puppetTokens: string[] = [];
+let groundStep = 10;
+let rankMode = false;
+Object.defineProperty(worldStub, "puppets", {
+  get: () => {
+    log.push("puppets:" + puppetTokens.join(","));
+    const m = new Map<string, Entity>();
+    for (const tok of puppetTokens) {
+      const e = candidateOf(tok);
+      if (e) m.set(e.id, e);
+    }
+    return m;
+  },
+});
+Object.defineProperty(worldStub.ground, "step", { get: () => groundStep });
 
 // `env ents …` 的候选名单（`self` / `buddy` / `sp<N>`）与 `env ballctrl b 1` 的开关。
 let candidateTokens: string[] = [];
@@ -149,6 +171,28 @@ let gSnapStrs: unknown[] = new Array<unknown>(Number(SSlot.COUNT));
 
 // `{id}` (or `null`) so `catching` / `catcher` / `bearer` / `holding` print the same
 // thing as the port without dumping a whole entity.
+// `run keys` / `run bkeys` 的尾部单键名（`a` / `j` / `d` / …）：`check_fusion_dismissing`
+// 的 `sametime_keys_test("dja")` / `sequence_keys_test("ja")` 需要 `a`，三个方向参数
+// 表达不了它。返回拼好的命令后缀（`" a j"`）。
+const KEY_NAMES = new Set(["L", "R", "U", "D", "d", "j", "a"]);
+function hitExtraKeys(
+  keys: Record<string, { hit: (t?: number) => void }>,
+  t: string[],
+  i: number,
+): string {
+  let out = "";
+  for (; i < t.length; i++) {
+    const name = t[i]!;
+    if (!KEY_NAMES.has(name)) {
+      process.stderr.write(`unknown key '${name}'\n`);
+      process.exit(2);
+    }
+    keys[name]!.hit(1);
+    out += " " + name;
+  }
+  return out;
+}
+
 const idRef = (e: Entity | null | undefined): unknown => (e ? { id: e.id } : null);
 
 // `marks` is a `Map`, so the dump keeps the insertion order the port's `std::map`
@@ -196,6 +240,10 @@ const relProbe = (): string =>
 const lfwStub = {
   players: new Map<string, Any>(),
   mt: new MersenneTwister(0),
+  // `lfw.survival_rank_mode`（`env rankmode b 1`；`update_catching` 的 -1 投掷分支）。
+  get survival_rank_mode(): boolean {
+    return rankMode;
+  },
   broadcast: (m: unknown): void => {
     log.push("broadcast:" + r(m));
   },
@@ -240,7 +288,13 @@ const lfwStub = {
 // `Entity.set_position` reads the ground height through `world.ground.y(terrain, x, z)`;
 // `y` is a pure by-segment lookup, so the real `Ground` answers it and the case only has
 // to supply the terrain.
-(worldStub as unknown as { ground: unknown }).ground = new Ground(worldStub as never);
+//
+// `world.ground.step` 在端口侧是 `IEntityHost::ground_step`（harness 的 `env groundstep`），
+// 但真 `Ground` 的 `step` 是个 `readonly` 字段 ⇒ 这里按实例重定义成读 harness 变量，
+// 否则 `update_landable` 会一直用 `Ground` 自带的 10。
+const groundObj = new Ground(worldStub as never);
+Object.defineProperty(groundObj, "step", { get: () => groundStep });
+(worldStub as unknown as { ground: unknown }).ground = groundObj;
 
 // `Ditto.warn` is a console warning; the port drops it (no trace effect), so the stub
 // only has to exist.
@@ -305,6 +359,61 @@ const dumpOpoints = (e: Entity): string =>
     .map((pair) => `${pair[0]?.interval_id === void 0 ? "-" : r(pair[0].interval_id)}:${r(pair[1])}`)
     .join(",");
 
+// `run update` / `run updateg` 的观察点（与 C++ 侧 `dump_tick` 逐字段对齐）。
+const fidOrNull = (f: unknown): string =>
+  f === null ? "z" : r((f as { id?: unknown } | undefined)?.id);
+const dumpTick = (e: Entity): string => {
+  const priv = e as unknown as {
+    _atom_time: number;
+    _lifetime: number;
+    _motionless_ticks: number;
+    _invisible: number;
+    _invulnerable: number;
+    _after_blink: string | null;
+    prev_cpoint_a: unknown;
+    fuse_bys: unknown[] | null;
+  };
+  return (
+    // `_atom_time` 在 TS 里可以保持 `null`（`dataset.atom_time` 是 `null` 时）；端口是
+    // `double` + `num_of`（nullish ⇒ 0）⇒ 这一格按 0 归一化（两者的算术、比较都同值）。
+    `at=${r(priv._atom_time ?? 0)} life=${r(priv._lifetime)} wait=${r(e.wait)} mticks=${r(
+      priv._motionless_ticks,
+    )} blink=${r(e.blinking)} after=${priv._after_blink === null ? "z" : r(priv._after_blink)}` +
+    ` inv=${r(priv._invisible)} invu=${r(priv._invulnerable)} arest=${r(e.arest)} catch=${r(
+      (e as unknown as { _catch_time: number })._catch_time,
+    )} throwinj=${r(e.throwinjury)} fallinj=${r(e.fallinjury)} on_ground=${r(e.is_on_ground)}` +
+    ` landing=${fidOrNull((e as unknown as { _landing_frame: unknown })._landing_frame)} prev_cp=${r(
+      priv.prev_cpoint_a,
+    )} fuse=${r(priv.fuse_bys?.length ?? 0)}` +
+    ` aabb=${r(e.aabb_min_x)},${r(e.aabb_max_x)},${r(e.aabb_min_z)},${r(e.aabb_max_z)} lr=${r(
+      e.l_len ?? NaN,
+    )},${r(e.r_len ?? NaN)}` +
+    ` frame=${r((e.frame as { id?: unknown }).id)} pos=${r(e.position)} pv=${r(
+      e.prev_position,
+    )} v=${r(e.velocity)} pvv=${r(e.prev_velocity)}` +
+    ` hp=${r(e.hp)} hp_r=${r(e.hp_r)} mp=${r(e.mp)} team=${r(e.team)} facing=${r(e.facing)}` +
+    ` motionless=${r(e.motionless)} shaking=${r(e.shaking)} catcher=${r(idRef(e.catcher))}` +
+    ` catching=${r(idRef(e.catching))} fromwait=${r(
+      (e as unknown as { _from_wait_block: boolean })._from_wait_block,
+    )}` +
+    ` n=${(e as unknown as { _opoints: unknown[] })._opoints.length} itv=${dumpOpoints(e)}`
+  );
+};
+
+// 第二个实体的观察点（与 C++ 侧 `dump_buddy` 逐字段对齐）：`update` 里只写对方的那几处
+// （`check_fusion_dismissing` / `dismiss_fusion` 的成员循环、`update_catching` 的
+// `caught->*`、`follow_catcher`）。
+const dumpBuddy = (b: Entity | null): string => {
+  if (!b) return "z";
+  const priv = b as unknown as { _invisible: number; _invulnerable: number; prev_cpoint_a: unknown };
+  return (
+    `hp=${r(b.hp)} hp_r=${r(b.hp_r)} mp=${r(b.mp)} frame=${r((b.frame as { id?: unknown }).id)}` +
+    ` pos=${r(b.position)} v=${r(b.velocity)} facing=${r(b.facing)} inv=${r(priv._invisible)}` +
+    ` invu=${r(priv._invulnerable)} ml=${r(b.motionless)} prev_cp=${r(priv.prev_cpoint_a)}` +
+    ` catcher=${r(idRef(b.catcher))} catching=${r(idRef(b.catching))}`
+  );
+};
+
 // `opoint.__gen_x?.get(emitter)`：TS 侧是真函数对象，场景用 `env gen` 注册常量。
 function applyGens(opoint: unknown): void {
   const o = opoint as Record<string, unknown>;
@@ -341,6 +450,16 @@ const hooks = {
   view_frame: false,
   view_enter: false,
   view_busy: false,
+  // `run hook viewdata|viewdismiss`: the lookup forwards (`dataset` / `world_dataset`)
+  // and the fusion-split forward (`dismiss_fusion`) that only the real state code
+  // reaches; `viewdata` logs both lookups side by side.
+  view_data: false,
+  view_dismiss: false,
+  // `update()` 走的那四个状态钩子（`run hook preupdate|stateupdate|landing|leaveground`）。
+  pre_update: false,
+  state_update: false,
+  landing: false,
+  leave_ground: false,
 };
 
 const fid = (frame: unknown): string =>
@@ -371,6 +490,17 @@ class HarnessState extends State_Base {
           e.set_frame({ ...(e.frame as Record<string, unknown>), id: "w2" } as never);
         }
         if (hooks.view_enter) e.enter_frame_by_id("auto");
+        if (hooks.view_data) {
+          const lookup = e as unknown as { dataset(k: string): unknown };
+          const world = (e as unknown as { world: { dataset: Record<string, unknown> } }).world;
+          log.push(
+            `state_view_dataset:${r(lookup.dataset("probe_key"))}:world=${r(world.dataset.probe_key)}`,
+          );
+        }
+        if (hooks.view_dismiss) {
+          (e as unknown as { dismiss_fusion(id: string): void }).dismiss_fusion("112");
+          log.push(`state_view_dismiss:${fid(e.frame)}`);
+        }
         hooks.view_busy = false;
       }
     };
@@ -390,10 +520,28 @@ class HarnessState extends State_Base {
       hooks.sudden ? hooks.sudden_value : undefined;
     this.get_caught_end_frame = (): unknown =>
       hooks.caught ? hooks.caught_value : undefined;
+    // `update()` 走的那四个状态钩子（与 C++ `HarnessState` 对齐）。
+    this.pre_update = (e: Entity): void => {
+      if (!hooks.pre_update) return;
+      log.push(`state_pre_update:${e.id}:${r(e.hp)}`);
+    };
+    this.on_landing = (e: Entity, v: unknown): void => {
+      if (!hooks.landing) return;
+      log.push(`state_on_landing:${e.id}:${r(v)}`);
+    };
+    this.on_leave_ground = (e: Entity): void => {
+      if (!hooks.leave_ground) return;
+      log.push(`state_on_leave_ground:${e.id}`);
+    };
   }
 
   leave(e: Entity, next: unknown): void {
     log.push(`${r(this.state)}>leave:${e.id}:${fid(next)}`);
+  }
+
+  update(e: Entity): void {
+    if (!hooks.state_update) return;
+    log.push(`state_update:${e.id}:${r(e.hp)}`);
   }
 }
 
@@ -538,7 +686,7 @@ const NUMERIC_FIELDS = new Set([
   "facing", "motionless", "shaking", "fallinjury", "throwinjury", "name_visible",
   "wakeup_invuln", "dead_gone", "ctrl_visible", "puppet", "is_on_ground",
   "jumping.x", "jumping.y", "jumping.z", "jumping.t", "aabb_min_x", "aabb_max_x",
-  "l_len", "r_len", "atom_time", "from_wait_block",
+  "l_len", "r_len", "atom_time", "from_wait_block", "catch_time",
 ]);
 
 const VALUE_FIELDS = new Set([
@@ -617,6 +765,8 @@ const getNum = (e: Entity, name: string): number => {
       return e.invulnerable;
     case "arest":
       return e.arest;
+    case "catch_time":
+      return (e as unknown as { _catch_time: number })._catch_time;
     case "gravity":
       return e.gravity;
     case "itr_motionless":
@@ -849,6 +999,9 @@ const setNum = (e: Entity, name: string, v: number): boolean => {
     case "arest":
       e.arest = v;
       return true;
+    case "catch_time":
+      e.set_catch_time(v as never);
+      return true;
     case "variant":
       e.variant = v;
       return true;
@@ -993,6 +1146,21 @@ function main(): void {
         const flag = t[i++]!;
         const v = t[i++]!;
         ballCtrl = flag === "b" && v === "1";
+      } else if (sub === "puppets") {
+        // `world.puppets.values()` 的名单（token 与 `env ents` 同款）。
+        puppetTokens = t.slice(i);
+        log.push("puppets:" + puppetTokens.join(","));
+      } else if (sub === "stage") {
+        // `env stage <key> <值>`：舞台边界（`player_l` / `player_r` / `far` / `near`）。
+        const idx = [i];
+        const key = String(parseValue(t, idx));
+        (worldStub.stage as Record<string, unknown>)[key] = parseValue(t, idx);
+      } else if (sub === "groundstep") {
+        groundStep = Number(parseValue(t, [i]));
+      } else if (sub === "rankmode") {
+        const flag = t[i++]!;
+        const v = t[i++]!;
+        rankMode = flag === "b" && v === "1";
       } else {
         process.stderr.write(`unknown env '${sub}'\n`);
         process.exit(2);
@@ -1106,6 +1274,27 @@ function main(): void {
         out.push(
           `run link ${field} ${to} || ${log.join(",")} | b=${r(!!ent!.bearer)} c=${r(!!ent!.catcher)}`,
         );
+      } else if (what === "fuseby") {
+        const tok = t[i++]!;
+        const e = candidateOf(tok);
+        if (!e) {
+          process.stderr.write(`unknown fuseby '${tok}'\n`);
+          process.exit(2);
+        }
+        const fus = (ent as unknown as { fuse_bys: Entity[] | null }).fuse_bys;
+        if (fus) fus.push(e);
+        else (ent as unknown as { fuse_bys: Entity[] }).fuse_bys = [e];
+        const len = (ent as unknown as { fuse_bys: Entity[] | null }).fuse_bys?.length ?? 0;
+        out.push(`run fuseby ${tok} || ${log.join(",")} | n=${len}`);
+      } else if (what === "fuseclear") {
+        (ent as unknown as { fuse_bys: Entity[] | null }).fuse_bys = null;
+        out.push(`run fuseclear || ${log.join(",")} | n=0`);
+      } else if (what === "buddyframe") {
+        const v = parseValue(t, [i]);
+        buddy!.set_frame(v as never);
+        out.push(
+          `run buddyframe ${r(v)} || ${log.join(",")} | f=${r((buddy!.frame as { id?: unknown }).id)}`,
+        );
       } else if (what === "linkb") {
         const field = t[i++]!;
         const to = t[i++]!;
@@ -1178,9 +1367,10 @@ function main(): void {
         else if (ud < 0) keys.U!.hit(1);
         if (jd > 0) keys.j!.hit(1);
         else if (jd < 0) keys.d!.hit(1);
+        const extra = hitExtraKeys(keys, t, i);
         ent!.ctrl = c;
         out.push(
-          `run keys ${r(lr)} ${r(ud)} ${r(jd)} || ${log.join(",")} | lr=${c.LR} ud=${c.UD} jd=${c.jd}`,
+          `run keys ${r(lr)} ${r(ud)} ${r(jd)}${extra} || ${log.join(",")} | lr=${c.LR} ud=${c.UD} jd=${c.jd}`,
         );
       } else if (what === "bkeys") {
         // `keys` for the buddy: `follow_catcher` / `follow_bearer` scale one velocity
@@ -1197,9 +1387,10 @@ function main(): void {
         else if (ud < 0) keys.U!.hit(1);
         if (jd > 0) keys.j!.hit(1);
         else if (jd < 0) keys.d!.hit(1);
+        const extra = hitExtraKeys(keys, t, i);
         if (buddy) buddy.ctrl = c;
         out.push(
-          `run bkeys ${r(lr)} ${r(ud)} ${r(jd)} || ${log.join(",")} | lr=${c.LR} ud=${c.UD} jd=${c.jd}`,
+          `run bkeys ${r(lr)} ${r(ud)} ${r(jd)}${extra} || ${log.join(",")} | lr=${c.LR} ud=${c.UD} jd=${c.jd}`,
         );
       } else if (what === "buddy") {
         // Replacing the buddy detaches every relation that pointed at the old one, so the
@@ -1454,6 +1645,18 @@ function main(): void {
           hooks.view_frame = true;
         } else if (sub === "viewenter") {
           hooks.view_enter = true;
+        } else if (sub === "viewdata") {
+          hooks.view_data = true;
+        } else if (sub === "viewdismiss") {
+          hooks.view_dismiss = true;
+        } else if (sub === "preupdate") {
+          hooks.pre_update = true;
+        } else if (sub === "stateupdate") {
+          hooks.state_update = true;
+        } else if (sub === "landing") {
+          hooks.landing = true;
+        } else if (sub === "leaveground") {
+          hooks.leave_ground = true;
         } else if (sub === "none") {
           hooks.dead = false;
           hooks.gravity = false;
@@ -1465,6 +1668,12 @@ function main(): void {
           hooks.view_position = false;
           hooks.view_frame = false;
           hooks.view_enter = false;
+          hooks.view_data = false;
+          hooks.view_dismiss = false;
+          hooks.pre_update = false;
+          hooks.state_update = false;
+          hooks.landing = false;
+          hooks.leave_ground = false;
         } else {
           process.stderr.write(`unknown hook '${sub}'\n`);
           process.exit(2);
@@ -1572,6 +1781,8 @@ function main(): void {
             ent!.position,
           )} bp=${buddy ? r(buddy.position) : "z"} ${relProbe()}`,
         );
+      } else if (what === "buddydump") {
+        out.push(`run buddydump || ${log.join(",")} | ${dumpBuddy(buddy)}`);
       } else if (what === "vrestdump") {
         out.push(
           `run vrestdump || ${log.join(",")} | n=${dumpCollisions(ent!, "vrests")} b=${dumpCollisions(
@@ -1688,6 +1899,12 @@ function main(): void {
             ent!.velocity,
           )}`,
         );
+      } else if (what === "update") {
+        ent!.update();
+        out.push(`run update || ${log.join(",")} | ${dumpTick(ent!)}`);
+      } else if (what === "updateg") {
+        ent!.update_ghost();
+        out.push(`run updateg || ${log.join(",")} | ${dumpTick(ent!)}`);
       } else if (what === "seedop") {
         // 直接塞 `_opoints`（9i 的 `set_frame` 区间过滤场景用），不走 `apply_opoints`。
         const list = parseValue(t, [i]);

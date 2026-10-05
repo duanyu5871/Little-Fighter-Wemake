@@ -5668,7 +5668,9 @@ TS 的 `State_Base.on_restrict` 结尾是 `e.position.x = x; …`（**直写**�
 
 ### 56.4 变异与结果
 
-- 本刀新增 44 条变异，**43 条被杀 + 1 条按构造等价**（`entity` 从 820 涨到 864）。
+- 本刀新增 44 条候选，**43 条列入名单并全部被杀**；另 1 条（`Spreading` 分支的 `sp.x`
+  回落值 → 字面量 0）经查证按构造等价（`Vector3 sp;` 在循环体内刚构造、`sp.x` 先读后写
+  ⇒ 读到恒为 0）故不列，已记录在 `mutations/entity.mjs` 头部（`entity` 从 820 涨到 **863**）。
 - 分布：interval 6、`multi` 谓词与边界 16、spreading / FloatRange 6、chasing 4、
   inherit_speed 3、调用点 2（`set_hp` 的死亡分支 + `find` 的 pair 回落）、其他 7。
 - 不可观察项（记录在 `mutations/entity.mjs` 头部，不列）：`Spreading` 分支里
@@ -5687,3 +5689,142 @@ TS 的 `State_Base.on_restrict` 结尾是 `e.position.x = x; …`（**直写**�
 - 另外把 9i 留下的一条锚点失效的变异（`set_frame skips the frame opoints`：占位缝
   `host_->apply_opoints(...)` 被真方法取代 ⇒ 锚点文本消失）更新到新调用点，
   并补上 `set_hp` 死亡分支那条调用点的变异（9l 只钉了守卫、没钉调用）。
+
+## 57. 切片 9n：`Entity` 的每 tick 主体（`update` / `update_ghost`）
+
+**背景**：9a–9m 把 `Entity` 的每一层（构造 / 速度 / 帧查找 / 快照 / 恢复 / 标记 / 状态 /
+v_rest / 帧进入链 / opoint 生成与消费）都铺好了，但**没有任何东西把它们按顺序调起来**：
+`update()` 是那个调用者。这一刀搬 `update()` / `update_ghost()`，以及它们独占的下游
+`check_fusion_dismissing` / `dismiss_fusion` / `update_aabb` / `update_landable` /
+`update_catching` / `update_caught`，并把状态层要用的三个视图（`state_view_` 的新转发、
+`Entity::world_puppets` / `entity_view` / `refresh_ctrl_env`）一次接齐。
+
+### 57.1 保真要点
+
+1. **顺序就是语义**：`update()` 里 `hp_recovering` / `mp_recovering` 在帧 hp·mp 消耗之前、
+   `stat_recovering` / `toughness_recovering` 在 `state.pre_update` 之前、`state.update` 只在
+   **第一个子步**调用、`motionless` / `shaking` 的递减在子步循环**之后**、
+   `update_catching` / `update_caught` 在控制器之前、`update_landable` 在控制器之后。
+   每一处错位都有一条变异钉住（`state.update 每个子步都调`、`motionless 不递减`、
+   `update_catching / caught 的提前收手去掉` 等）。
+2. **`_atom_time` 会被子步临时改写**：`Number.isInteger(t) && 1 < t <= 8` 时切成 `t` 个子步，
+   循环里 `_atom_time = round_float(t / 子步)`，循环**之后必须还原**（`子步后不还原 atom_time`
+   一条变异钉住）；`_lifetime` / 各层递减用的都是**还原前**的 tick 值。`update_ghost` 同款。
+3. **`_motionless_ticks` 累加的是 `_atom_time` 而不是 1**（`wait` 那一支：
+   `motionless > 0 && !catcher && !bearer` 时 `_motionless_ticks += _atom_time`，
+   到 `MotionlessWaitTicks` 才归零并扣 `wait`）。第一版写成 `+ 1`，`entity/update` 的
+   `mticks=` 当场漂移（atom_time = 8 时差 8 倍）—— 这条就是本刀的第一个漂移。
+4. **闪烁的两支都是「先归零再看标记」**：`_blinking = round_float(_blinking - _atom_time)`，
+   `<= 0` 时**先写 0**，再按 `_after_blink` 分 Gone（**直写字段** `GONE_FRAME_INFO`，不走
+   `set_frame`，并清 `arest`）与 Respawn（`hp`/`hp_r` 回满、最近友军扫描、舞台夹紧、
+   `NEXT_FRAME_AUTO`）。「不写 0」那条变异只有在 `_blinking` 减成**负数**时才可观察
+   （用例特意用 `1.5` 让它走 `1.5 → 0.5 → -0.5`）。
+5. **Respawn 的「最近友军」是曼哈顿距离 + 严格 `>`**：`d = |round(dx)| + |round(dz)|`，
+   `if (d > max_distance) continue;` ⇒ **先到的候选占住 `max_distance`**，
+   `hp <= 0` 的先被 `continue` 掉；`max_distance` 初值是 `Number.MAX_SAFE_INTEGER`。
+   找不到友军时 `set_position(null, 300)`（**z 省略** ⇒ `undefined`）。
+6. **`dismiss_fusion` 的均分与成员循环**：`size = fuse_bys.length + 1`，hp / hp_r / mp 都
+   `round(x / size)` 后**先写自己**再逐成员写；成员 `facing` 由 `turn_face` 逐次翻转（是
+   **累加**的，不是各自算）；`invisible` / `motionless` / `invulnerable` 清零；
+   `dismiss_data` 走 `transform`；最后 `fuse_bys` 清空 + `dismiss_time`/`dismiss_data` 复位。
+7. **`check_fusion_dismissing` 的两个门**：`dismiss_time <= 0` **或** ctrl 的同时按键
+   `dja` **或** 序列按键 `ja`，**并且** `position.y === 0`；命中才 `dismiss_fusion("112")`。
+8. **`update_catching` / `update_caught` 是「谁先到谁收手」**：两个方法各自返回 `bool`，
+   `update()` 里 `if (update_catching()) return;` 一样照做。抓人侧的 `decrease` 乘
+   `_atom_time`；`throwinjury < -1` 进 `NEXT_FRAME_GONE`、`== -1` 时 `survival_rank_mode`
+   或非 boss 才 `transfrom_to_another(caught.data)` + 放手 + 对方进 `get_caught_end_frame()`；
+   被抓侧的 `injury` / `shaking` / `motionless` 只在 **cpoint 换了对象**（严格比较）时结算，
+   `throwinjury > 0` 才写自己的 `throwinjury`，`vaction` 命中要 `enter_frame` 并按其结果收手。
+9. **`update_landable` 的 `just_land` 不是「y <= ground」**：是
+   `!is_on_ground && position.y <= _ground_y`；已经在岸上时走 `else if (was_on_ground)`：
+   `y - ground > ground.step` ⇒ `leave_ground()`（+ 钩子），否则**贴回** `ground`
+   （斜坡 / 楼梯）。`throwinjury` / `fallinjury` 各自结算 `hp` 与
+   `hp_r -= round(injury * (1 - hp_recoverability))`；`_temp_v` 必须在
+   `velocity.y = 0` **之前**抓拍（`on_landing` 拿的是落地瞬间的速度）。
+10. **`update()` 的收尾三件**：`holding->follow_bearer()`、`collision_list`/`collided_list`
+    清空、`prev_position = position` + `update_aabb()`；`update_ghost` **不做** aabb 刷新，
+    只做 `bearer && catcher` 都为空时的落地判定与 `prev_position`。
+11. **`refresh_ctrl_env` 是端口特有的「控制器环境」落点**：TS 的控制器直接读 `me.frame.*` /
+    `me.data.*` / `me.world.*`，端口把这些收进 `CtrlEnv`，由实体在**每次**控制器调用前
+    （`check_fusion_dismissing` 之前、`ctrl_->update()` 之前、以及 ctrl 结果处理之后）
+    重新填。`world.etc` / `world.team_*` 属 World 切片，留在空位。
+
+### 57.2 harness 扩充
+
+- `IEntityHost` 新增 4 缝：`puppets()`（`world.puppets.values()`，Respawn 扫描）、
+  `stage_value(key)`（`world.stage.*`）、`ground_step()`（`Ground.step`，默认 10）、
+  `survival_rank_mode()`（`lfw.survival_rank_mode`）。
+- `EntityStateView` 新增 9 个转发：`dismiss_fusion`（**另有一条 `to_string(Value)` 的口径**）、
+  `world_puppets` / `dataset` / `world_dataset` / `facing` / `enter_frame` /
+  `drop_holding` / `handle_ground_velocity_decay`（两个重载）。`Entity` 侧补
+  `world_dataset`（只读世界那层）与 `Entity::dataset` 的四层回落。
+- `Entity` 公开两个只读访问器 `temp_v()` / `prev_cpoint_a()`（TS 里是私有字段，
+  harness 要读回）。
+- 新 op：`env puppets <token>…`（`world.puppets.values()`）、`env stage <key> <值>`、
+  `env groundstep <值>`、`env rankmode b 0|1`；`run update` / `run updateg`
+  （真调 `Entity::update` / `update_ghost`，打印 `dump_tick`）、`run buddydump`
+  （第二个实体的槽位：hp / hp_r / mp / frame / pos / v / facing / inv / invu / ml /
+  prev_cp / catcher / catching）、`run buddy` / `run buddyframe` / `run buddyset` /
+  `run linkb`（对 buddy 的 `link`）、`run bkeys`（buddy 的控制器方向）、
+  `run fuseby` / `run fuseclear`，以及 `run get` / `run set` 的 `catch_time` 等。
+- `run hook preupdate|stateupdate|landing|leaveground`（`update()` 走的四个状态钩子）与
+  `run hook viewdata|viewdismiss`（本刀补的：让假状态去读 `dataset` / `world_dataset`
+  两个查找与 `dismiss_fusion` —— 这三个转发只有真实状态代码才走得到）。`viewdata` 把两个
+  查找**并排**打进日志（`state_view_dataset:<帧层>:world=<世界层>`），`viewdismiss` 调完
+  `dismiss_fusion("112")` 再打当时的帧 id。
+- 新用例 `cases/entity/update.txt`（642 行源文件 / 576 行 trace），19 组场景：
+  时钟 / 帧朝向 / 帧 hp·mp 消耗、`mt.case` 标记、融合解散（位置同步 / 到点 / `y != 0` /
+  按键 / 清空）、v_rest 掩码、arest / invisible / invulnerable、闪烁四支、opoint 计时表、
+  恢复层（stat / toughness）、wait / motionless 记账、wait=0 的 next / auto、
+  **子步切分（1 / 4 / 8 / 9 / 2.5 / 0.5 / 0）**、抓人、被抓、控制器结果、落地判定
+  （落 / 斜坡 / 离地 / 不可站立 / 落地伤 / 命中地面 / 关系挂起）、AABB（默认 / 自定义 /
+  朝向 / facing 0）、`update_ghost`，以及本刀补的边界组（见 57.3）。
+
+### 57.3 已知偏差 / 有意不覆盖
+
+1. **`collision_list` / `collided_list` 的清空**：tick 里没有任何地方回读这两张表
+   （它们由碰撞切片消费），所以「不清空」在本主题的用例里不可观察；记录在
+   `mutations/entity.mjs` 头部，等碰撞切片接上消费者。
+2. **`refresh_ctrl_env` 的两处来源**：`env.seq_map = frame.__seq_map`（而不是
+   `data.__seq_map`）与 `transforms[0].__pre|__post_hitkeys_map` 那一对。`__seq_map` 分支要
+   控制器持有一份按键历史（`_key_list`），而 harness 的 `run keys` 每次都装一台**新**控制器
+   ⇒ 攒不出历史（`ja` 序列测不出来）；`transforms` 也不能从 harness 写。场景里两处都缺字段
+   ⇒ 互换是空操作。两条都记录在 spec 头部，等控制器切片的键序列场景。
+3. **`world_puppets` 的 `team` 槽与 `entity_view` 的 `emitters`**：消费者只有真实状态钩子
+   （`csl_on_dead` 读 `team`）与 `summary_mgr.apply_damage`（只读 `id` / `hp`），本主题
+   一个都不走。两条记录在 spec 头部。
+4. ⚠️ **用例里 `position.x` 会被 Respawn 分支写成 `NaN`**（`stage` 未设时 `max/min` 得
+   `NaN`），而 `update_aabb` 的 `round(NaN + x)` 也是 `NaN` ⇒ 它下面所有拿 x 做观察的
+   变异都会被「NaN == NaN」遮住。补 `run pos` 复位 + 给 `__aabb_x2` 一个非 0 值之后
+   `aabb_min_x` 的写法才可分辨（`update_aabb：x1 不随朝向翻` 一条就是这么补杀的）。
+   `update_ghost` **不刷新 AABB**，所以 ghost 段落里看到的 `aabb=` 是上一 tick 的残留。
+5. ⚠️ **落地判定要「恰好卡在 `ground.step` 上」才分得出 `>` 与 `>=`**：`handle_gravity` 只
+   在 `position.y > _ground_y` 时加竖直速度 ⇒ 直接把 y 摆到 `ground + step` 会被这一 tick 的
+   重力挪走。用例改成 `frame.gravity_enabled = 0`（关掉重力）+ `setvel 0`，
+   让 `y - ground` 真的等于 `step`。
+6. ⚠️ **Respawn 的「最近友军」要「死人更近」才分得出 `hp > 0` 过滤**：`d > max_distance`
+   是严格比较 ⇒ 先到且 `d = 0` 的候选会把 `max_distance` 定成 0，后面任何 `d > 0` 的都被跳过
+   ⇒ 「活人更近、死人更远」时两条路同结果。用例改成 `env puppets buddy` + buddy `hp = 0`
+   （基线 ⇒ 无友军 ⇒ `set_position(null, 300)`；变异 ⇒ 用死 buddy 的位置）。
+7. `spawn` 出的 opoint 实体位置：opoint 的 `x` / `y` / `z` 缺字段时 `num_of(undefined)` 是
+   `NaN` ⇒ 生成体位置也是 `NaN`（用例里的 `spawnv` 场景因此不拿它当观察点）。
+
+### 57.4 变异与结果
+
+- 本刀新增 97 条候选，**92 条被杀**，5 条原理可观察但本主题的场景到不了（见 57.3 的
+  1–3），已记录在 `mutations/entity.mjs` 头部；`entity` 从 863 涨到 **955**。
+- 分布：时钟 / 帧消耗 / 恢复层 13、融合解散与 `dismiss_fusion` 12、闪烁（含 Respawn 扫描与
+  夹紧）10、opoint 计时 3、wait / motionless 8、子步与状态钩子 7、抓人 / 被抓 13、
+  控制器结果 3、落地判定 10、AABB 3、`update_ghost` 4、视图转发与控制器环境 6、其他 5。
+- 首轮 32 条存活 → 补 19 组场景后 11 条 → 再补边界（位置复位 / 重力关闭 / 死友军 /
+  假状态的三个视图转发）后 5 条；剩下的 5 条即 57.3 的 1–3。
+- 新补的 `run hook viewdata|viewdismiss` 两个钩子是本刀唯一为「观察面」加的 harness 口子：
+  `dataset` / `world_dataset` / `dismiss_fusion` 三个转发在真实数据里只被状态代码调用，
+  假状态不主动读就永远不可观察（`viewdata` 把「帧 `dataset` 层」与「世界层」并排打出来，
+  `dismiss_fusion` 那支打调用后的帧 id）。
+- **全量重跑**（串行、956 条、0 编译失败）：**955 条被杀、1 条存活**，存活的就是上面
+  撤出的那条按构造等价项（`Spreading` 的 `sp.x` 回落值，9m 误列进名单）。撤出后名单
+  **955 条全杀**，即 `entity` 的最终口径。
+- 顺手修掉本刀新增代码里的一个 `C4458`（`update_catching` 的局部 `throwinjury` 遮蔽同名
+  成员）⇒ 改名 `cp_throwinjury`（照 §4.58 那次 `expression.h` 的处理），同时把两条锚在该局部
+  上的变异（`throwinjury 上界用 -2` / `survival_rank_mode 判定取反`）更新到新文本。

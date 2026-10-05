@@ -93,4 +93,32 @@ Value EntityStateView::data_type() const { return field_or(_e.data(), u"type"); 
 
 Value EntityStateView::jumping_x() const { return Value(_e.jumping.x); }
 
+void EntityStateView::dismiss_fusion(const Value& frame_id) {
+  // TS 的 `dismiss_fusion(frame_id: string)`；状态层给的是帧 id（字符串），端口按
+  // `String(v)` 的口径转一次。
+  _e.dismiss_fusion(to_string(frame_id));
+}
+
+Value EntityStateView::world_puppets() const { return _e.world_puppets(); }
+
+Value EntityStateView::dataset(const std::u16string& key) const { return _e.dataset(key); }
+
+Value EntityStateView::world_dataset(const std::u16string& key) const {
+  return _e.world_dataset(key);
+}
+
+Value EntityStateView::facing() const { return Value(_e.facing); }
+
+void EntityStateView::enter_frame(const Value& frame) { _e.enter_frame(frame); }
+
+void EntityStateView::drop_holding() { _e.drop_holding(); }
+
+void EntityStateView::handle_ground_velocity_decay() {
+  _e.handle_ground_velocity_decay();
+}
+
+void EntityStateView::handle_ground_velocity_decay(double factor) {
+  _e.handle_ground_velocity_decay(factor);
+}
+
 }

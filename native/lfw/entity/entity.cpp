@@ -50,6 +50,16 @@ namespace {
 
 // `Number.MIN_SAFE_INTEGER`, written out because the port has no such constant yet.
 constexpr double kMinSafeInteger = -9007199254740991.0;
+// `Number.MAX_SAFE_INTEGER` — `update`'s respawn branch seeds its "nearest friend" scan.
+constexpr double kMaxSafeInteger = 9007199254740991.0;
+
+// `Number.isInteger`
+bool is_integer(double x) { return std::isfinite(x) && std::floor(x) == x; }
+
+// `const { a = 0 } = o` —— 解构默认值只对 `undefined`（缺字段）生效，`null` 不算。
+double num_destructured(const Value& v, double fallback) {
+  return std::holds_alternative<std::monostate>(v) ? fallback : to_number(v);
+}
 
 bool nullish(const Value& v) {
   return std::holds_alternative<std::monostate>(v) || std::holds_alternative<NullTag>(v);
@@ -1018,6 +1028,10 @@ Value Entity::dataset(const std::u16string& name) const {
   if (nullish(v)) v = host_->bg_dataset(name);
   if (nullish(v)) v = host_->world_dataset(name);
   return v;
+}
+
+Value Entity::world_dataset(const std::u16string& name) const {
+  return host_->world_dataset(name);
 }
 
 Value Entity::itr_fall(const Value& itr) const {
@@ -2416,6 +2430,549 @@ void Entity::apply_opoints(const Value& opoints_value) {
                            : Value(NullTag{});
       e->set_velocity(vx, vy, vz);
     }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// `update()` / `update_ghost()`: the per-tick body.  Everything they call is already
+// ported (`handle_gravity` / `update_velocity` / `update_position`, the recovery
+// layers, the enter-frame chain, `apply_opoints`); the host supplies the tick length
+// (`world.dataset.atom_time`), the puppet list, the stage bounds, `ground.step` and
+// `lfw.survival_rank_mode`.
+// ---------------------------------------------------------------------------
+void Entity::update() {
+  if (host_->mt().debugging) {
+    host_->mt().log_case({Value(u"e_" + id + u"_" + to_string(name()) + u"_start")});
+  }
+  _atom_time = num_of(dataset(u"atom_time"));
+  _lifetime += _atom_time;
+  const Value frame_facing = field_or(frame, u"facing");
+  if (truthy(frame_facing)) facing = handle_facing_flag(frame_facing);
+  // 控制器要读的那一组值在任何控制器调用之前就得是新的：`check_fusion_dismissing`
+  // 会问 `ctrl.sametime_keys_test` / `sequence_keys_test`（TS 直接读 `me.facing` 等）。
+  refresh_ctrl_env();
+  if (check_fusion_dismissing()) return;
+  hp_recovering();
+  mp_recovering();
+
+  const Value frame_hp = field_or(frame, u"hp");
+  if (truthy(frame_hp)) set_hp(hp() - to_number(frame_hp) * _atom_time);
+  const Value frame_mp = field_or(frame, u"mp");
+  if (truthy(frame_mp)) set_mp(mp() - to_number(frame_mp) * _atom_time);
+
+  if (!(shaking > 0) || equals(Value(0.0), dataset(u"vrest_after_shaking"))) {
+    // TS 迭代的是 `Map`（插入序）、端口是 `std::map`（键序）：每次迭代只动自己那一项
+    // （要么续时、要么整项删掉），所以顺序不可观察。`del_v_rest` 会 erase 当前项，
+    // 删完用 `upper_bound` 接上。
+    for (auto it = vrests.begin(); it != vrests.end();) {
+      collision::Collision& v = it->second;
+      if (v.rest > 0) {
+        v.rest = round_float(v.rest - _atom_time);
+        if (v.rest < 0) v.rest = 0;
+        ++it;
+      } else {
+        const std::u16string key = it->first;
+        del_v_rest(key);
+        it = vrests.upper_bound(key);
+      }
+    }
+  }
+
+  if (equals(Value(0.0), dataset(u"arest_after_motionless")) || !(motionless > 0)) {
+    if (arest() > 0) {
+      set_arest(round_float(arest() - _atom_time));
+      if (arest() < 0) set_arest(0);
+    } else {
+      set_arest(0);
+    }
+  }
+
+  if (_invisible > 0) {
+    _invisible = round_float(_invisible - _atom_time);
+    if (_invisible <= 0) _invisible = 0;
+  }
+  if (_invulnerable > 0) {
+    _invulnerable = round_float(_invulnerable - _atom_time);
+    if (_invulnerable < 0) _invulnerable = 0;
+  }
+  if (_blinking > 0) {
+    _blinking = round_float(_blinking - _atom_time);
+    if (_blinking <= 0) {
+      _blinking = 0;
+      if (_after_blink.has_value() && *_after_blink == frame_id::kGone) {
+        // `this.frame = GONE_FRAME_INFO` 直写字段（不走 `set_frame`）。
+        const Value* gone = defines::find(u"GONE_FRAME_INFO");
+        frame = gone != nullptr ? *gone : Value();
+        set_arest(0);
+      } else if (_after_blink.has_value() && *_after_blink == frame_id::kRespawn) {
+        set_hp(hp_max());
+        set_hp_r(hp_max());
+        double max_distance = kMaxSafeInteger;
+        Entity* friend_entity = nullptr;
+        for (Entity* e : host_->puppets()) {
+          if (e == nullptr || !(e->hp() > 0)) continue;
+          const double d = abs(round(e->position.x - position.x)) +
+                           abs(round(e->position.z - position.z));
+          if (d > max_distance) continue;
+          max_distance = d;
+          friend_entity = e;
+        }
+        if (friend_entity != nullptr) {
+          host_->mt().mark = u"u_1";
+          // 舞台值缺键时 TS 读到 `undefined` ⇒ 参与 `Math.max/min` 得 `NaN`（`to_number`
+          // 就是这么映射的）；显式的 `null` 则是 0。
+          const double x = host_->mt().range(
+              max(round(friend_entity->position.x - 100),
+                  to_number(host_->stage_value(u"player_l"))),
+              min(round(friend_entity->position.x + 100),
+                  to_number(host_->stage_value(u"player_r"))));
+          host_->mt().mark = u"u_2";
+          const double z = host_->mt().range(
+              min(round(friend_entity->position.z - 100),
+                  to_number(host_->stage_value(u"far"))),
+              max(round(friend_entity->position.z + 100),
+                  to_number(host_->stage_value(u"near"))));
+          set_position(Value(x), Value(300.0), Value(z));
+        } else {
+          set_position(Value(NullTag{}), Value(300.0), Value());
+        }
+        const Value* auto_frame = defines::find(u"Defines.NEXT_FRAME_AUTO");
+        enter_frame(auto_frame != nullptr ? *auto_frame : Value());
+      }
+    }
+  }
+
+  // 索引循环（不是 range-for）：`apply_opoints` 可能往 `opoints` 里 push，TS 的
+  // `for...of` 会继续看到新项，`std::vector` 的迭代器则会失效。
+  for (std::size_t i = 0; i < opoints.size(); ++i) {
+    const Value& opoint = opoints[i].first;
+    if (strict_equals(Value(opoints[i].second), field_or(opoint, u"interval"))) {
+      apply_opoints(Value(std::make_shared<Array>(std::vector<Value>{opoint})));
+      opoints[i].second = 0;
+    } else {
+      opoints[i].second = opoints[i].second + 1;
+    }
+  }
+
+  stat_recovering();
+  toughness_recovering();
+
+  if (_state != nullptr && _state->pre_update) _state->pre_update(*state_view_);
+  _from_wait_block = true;
+  if (wait > 0) {
+    if (!(motionless > 0) && !(shaking > 0) && catcher == nullptr && bearer == nullptr) {
+      set_motionless_ticks(0);
+      wait = round_float(wait - _atom_time);
+      if (wait < 0) wait = 0;
+    } else if (motionless > 0 && catcher == nullptr && bearer == nullptr) {
+      set_motionless_ticks(round_float(motionless_ticks() + _atom_time));
+      if (motionless_ticks() >= kMotionlessWaitTicks) {
+        set_motionless_ticks(0);
+        wait = round_float(wait - _atom_time);
+        if (wait < 0) wait = 0;
+      }
+    }
+  } else if (truthy(field_or(frame, u"next"))) {
+    enter_frame(field_or(frame, u"next"));
+  } else {
+    set_frame(find_auto_frame());
+  }
+  _from_wait_block = false;
+
+  const double tick_atom_time = _atom_time;
+  const double sub_steps = is_integer(tick_atom_time) && tick_atom_time > 1 && tick_atom_time <= 8
+                               ? tick_atom_time
+                               : 1.0;
+  if (sub_steps > 1) _atom_time = round_float(tick_atom_time / sub_steps);
+  for (double i = 0; i < sub_steps; ++i) {
+    handle_gravity();
+    update_velocity(frame);
+    if (i == 0 && _state != nullptr) _state->update(*state_view_);
+    update_position();
+  }
+  _atom_time = tick_atom_time;
+
+  if (motionless > 0) {
+    motionless = round_float(motionless - _atom_time);
+    if (motionless < 0) motionless = 0;
+  }
+  if (shaking > 0) {
+    shaking = round_float(shaking - _atom_time);
+    if (shaking < 0) shaking = 0;
+  }
+
+  if (update_catching()) return;
+  if (update_caught()) return;
+
+  if (ctrl_ != nullptr) {
+    refresh_ctrl_env();
+    const controller::ControllerResult& res = ctrl_->update();
+    if (truthy(res.result())) {
+      const EnterFrameResult r = handle_next_frame_result(res.result());
+      if (static_cast<int>(r) >= static_cast<int>(EnterFrameResult::Entered) &&
+          res.keys() != std::u16string(gk::ka)) {
+        set_catch_time(catch_time_max());
+      }
+    }
+  }
+  refresh_ctrl_env();
+
+  if (!truthy(Value(shaking)) && !truthy(Value(motionless)) && bearer == nullptr &&
+      catcher == nullptr) {
+    update_landable();
+  }
+  if (holding != nullptr) holding->follow_bearer();
+  collision_list.clear();
+  collided_list.clear();
+  prev_position = position;
+  update_aabb();
+  if (host_->mt().debugging) {
+    host_->mt().log_case({Value(u"e_" + id + u"_" + to_string(name()) + u"_end")});
+  }
+}
+
+void Entity::update_ghost() {
+  _atom_time = num_of(dataset(u"atom_time"));
+  _lifetime += _atom_time;
+  const Value frame_facing = field_or(frame, u"facing");
+  if (truthy(frame_facing)) facing = handle_facing_flag(frame_facing);
+  const Value frame_hp = field_or(frame, u"hp");
+  if (truthy(frame_hp)) set_hp(hp() - to_number(frame_hp) * _atom_time);
+  const Value frame_mp = field_or(frame, u"mp");
+  if (truthy(frame_mp)) set_mp(mp() - to_number(frame_mp) * _atom_time);
+  if (_invisible > 0) {
+    _invisible = round_float(_invisible - _atom_time);
+    if (_invisible <= 0) _invisible = 0;
+  }
+  if (_blinking > 0) {
+    _blinking = round_float(_blinking - _atom_time);
+    if (_blinking <= 0) _blinking = 0;
+  }
+
+  if (_state != nullptr && _state->pre_update) _state->pre_update(*state_view_);
+  _from_wait_block = true;
+  if (wait > 0) {
+    wait = round_float(wait - _atom_time);
+    if (wait < 0) wait = 0;
+  } else if (truthy(field_or(frame, u"next"))) {
+    enter_frame(field_or(frame, u"next"));
+  } else {
+    set_frame(find_auto_frame());
+  }
+  _from_wait_block = false;
+
+  const double tick_atom_time = _atom_time;
+  const double sub_steps = is_integer(tick_atom_time) && tick_atom_time > 1 && tick_atom_time <= 8
+                               ? tick_atom_time
+                               : 1.0;
+  if (sub_steps > 1) _atom_time = round_float(tick_atom_time / sub_steps);
+  for (double i = 0; i < sub_steps; ++i) {
+    handle_gravity();
+    update_velocity(frame);
+    if (i == 0 && _state != nullptr) _state->update(*state_view_);
+    update_position();
+  }
+  _atom_time = tick_atom_time;
+
+  if (bearer == nullptr && catcher == nullptr) update_landable();
+  prev_position = position;
+}
+
+bool Entity::check_fusion_dismissing() {
+  if (fuse_bys.empty()) return false;
+
+  const double x = position.x;
+  const double y = position.y;
+  const double z = position.z;
+  for (Entity* fighter : fuse_bys) {
+    if (fighter == nullptr) continue;
+    fighter->position.set(x, y, z);
+  }
+  if (dismiss_time.has_value()) {
+    dismiss_time = round_float(*dismiss_time - _atom_time);
+  }
+
+  const bool should_dismiss =
+      ((dismiss_time.has_value() && *dismiss_time <= 0) ||
+       (ctrl_ != nullptr && ctrl_->sametime_keys_test(u"dja")) ||
+       (ctrl_ != nullptr && ctrl_->sequence_keys_test(u"ja"))) &&
+      y == 0;
+  if (should_dismiss) dismiss_fusion(u"112");
+  return should_dismiss;
+}
+
+void Entity::dismiss_fusion(const std::u16string& frame_id) {
+  if (fuse_bys.empty()) return;
+  const double size = static_cast<double>(fuse_bys.size() + 1);
+  const double hp_v = round(hp() / size);
+  const double hp_r_v = round(hp_r() / size);
+  const double mp_v = round(mp() / size);
+  double f = facing;
+  set_hp(hp_v);
+  set_mp(mp_v);
+  set_hp_r(hp_r_v);
+  // TS 的 `for (const fighter of this.fuse_bys)` 跑完才把 `fuse_bys` 置空，所以先拷一份
+  // （成员自己也可能在 `enter_frame_by_id` 里动到这条链）。
+  const std::vector<Entity*> members = fuse_bys;
+  for (Entity* fighter : members) {
+    if (fighter == nullptr) continue;
+    fighter->set_hp(hp_v);
+    fighter->set_mp(mp_v);
+    fighter->set_hp_r(hp_r_v);
+    f = to_number(entity::turn_face(Value(f)));
+    fighter->facing = f;
+    fighter->enter_frame_by_id(Value(frame_id), true);
+    fighter->set_invisible(0);
+    fighter->motionless = 0;
+    fighter->set_invulnerable(0);
+  }
+  if (truthy(dismiss_data)) transform(dismiss_data);
+  enter_frame_by_id(Value(frame_id), true);
+  dismiss_time = std::nullopt;
+  dismiss_data = Value(NullTag{});
+  fuse_bys.clear();
+  has_fuse_bys = false;
+}
+
+void Entity::update_aabb() {
+  // 解构默认值只对 `undefined` 生效（`width` / `centerx` 没有默认值 ⇒ 缺字段是 `NaN`）。
+  const double bx1 = num_destructured(field_or(frame, u"__aabb_x1"), 0.0);
+  const double fx1 = num_destructured(field_or(frame, u"__aabb_x2"), 0.0);
+  const double bz1 = num_destructured(field_or(frame, u"__aabb_z1"), -12.0);
+  const double bz2 = num_destructured(field_or(frame, u"__aabb_z2"), 12.0);
+  const double width = to_number(field_or(frame, u"width"));
+  const double centerx = to_number(field_or(frame, u"centerx"));
+  aabb_min_x = round(position.x + (facing > 0 ? bx1 : -fx1));
+  aabb_max_x = round(position.x + (facing > 0 ? fx1 : -bx1));
+  aabb_min_z = round(position.z + bz1);
+  aabb_max_z = round(position.z + bz2);
+  l_len = facing > 0 ? centerx : width - centerx;
+  r_len = facing > 0 ? width - centerx : centerx;
+}
+
+void Entity::update_landable() {
+  const double ground = _ground_y;
+  const bool was_on_ground = is_on_ground;
+
+  // TS 是 `const { __hit_ground_bdys, __hit_ground_itrs } = this.frame` —— 两个都先取出来：
+  // 第一次 `enter_frame` 会换掉当前帧，第二遍不能再从 `frame` 上现读。
+  const Value hit_bdys = field_or(frame, u"__hit_ground_bdys");
+  const Value hit_itrs = field_or(frame, u"__hit_ground_itrs");
+  if (truthy(hit_bdys)) update_itr_bdy_hit_ground(hit_bdys);
+  if (truthy(hit_itrs)) update_itr_bdy_hit_ground(hit_itrs);
+
+  // `if (!this.frame.landable) return;` —— 缺字段 / `false` 都提前退出。
+  if (!truthy(field_or(frame, u"landable"))) return;
+
+  // `!is_on_ground && position.y <= _ground_y`：不能只看 `velocity.y <= 0`（斜面上
+  // y 速度向上也可能已经落到地面线以下）。
+  const bool just_land = !was_on_ground && (position.y <= ground);
+  if (just_land) {
+    is_on_ground = true;
+    position.y = ground;
+    _temp_v.x = velocity.x;
+    _temp_v.y = velocity.y;
+    _temp_v.z = velocity.z;
+    velocity.y = 0;
+    prev_velocity.y = 0;
+    if (_state != nullptr && _state->on_landing) {
+      _state->on_landing(*state_view_, position_value(_temp_v));
+    }
+    host_->play_sound(field_or(base_of(_data), u"drop_sounds"), position_value(position));
+    if (truthy(Value(throwinjury))) {
+      set_hp(hp() - throwinjury);
+      set_hp_r(hp_r() - round(throwinjury * (1 - num_of(dataset(u"hp_recoverability")))));
+      throwinjury = 0;
+    }
+    if (truthy(Value(fallinjury))) {
+      set_hp(hp() - fallinjury);
+      set_hp_r(hp_r() - round(fallinjury * (1 - num_of(dataset(u"hp_recoverability")))));
+      fallinjury = 0;
+    }
+    _landing_frame = frame;
+  } else if (was_on_ground) {
+    if (position.y - ground > host_->ground_step()) {
+      leave_ground();
+      if (_state != nullptr && _state->on_leave_ground) _state->on_leave_ground(*state_view_);
+    } else {
+      // 视为斜坡 / 楼梯
+      position.y = ground;
+    }
+  }
+}
+
+bool Entity::update_catching() {
+  Entity* caught = catching;
+  if (caught == nullptr) return false;
+  if (!truthy(Value(_catch_time))) {
+    set_catching(nullptr);
+    const Value* auto_frame = defines::find(u"Defines.NEXT_FRAME_AUTO");
+    enter_frame(auto_frame != nullptr ? *auto_frame : Value());
+    return true;
+  }
+  const Value cpoint_a = field_or(frame, u"cpoint");
+  if (!truthy(cpoint_a)) {
+    set_catching(nullptr);
+    const Value* auto_frame = defines::find(u"Defines.NEXT_FRAME_AUTO");
+    enter_frame(auto_frame != nullptr ? *auto_frame : Value());
+    return true;
+  }
+
+  const Value tix = field_or(cpoint_a, u"throwvx");
+  const Value tiy = field_or(cpoint_a, u"throwvy");
+  const Value tiz = field_or(cpoint_a, u"throwvz");
+  // 名字带 `cp_` 前缀是为了不遮蔽同名成员 `throwinjury`（TS 里那个同名局部 const
+  // 本就是另一份绑定，`update_caught` 的 `ti` 是同一处理）。
+  const double cp_throwinjury = num_destructured(field_or(cpoint_a, u"throwinjury"), 0.0);
+  const double decrease = num_destructured(field_or(cpoint_a, u"decrease"), 0.0);
+
+  if (truthy(Value(decrease))) add_catch_time(decrease * _atom_time);
+
+  if (cp_throwinjury < -1) {
+    const Value* gone = defines::find(u"Defines.NEXT_FRAME_GONE");
+    enter_frame(gone != nullptr ? *gone : Value());
+    return true;
+  }
+  if (cp_throwinjury == -1 &&
+      (!host_->survival_rank_mode() || !entity::is_boss(caught->entity_view()))) {
+    transfrom_to_another(caught->_data);
+    drop_catching();
+    caught->catcher = nullptr;
+    caught->_prev_cpoint_a = Value(NullTag{});
+    caught->enter_frame(caught->get_caught_end_frame());
+    return true;
+  }
+  if (truthy(tix) || truthy(tiy) || truthy(tiz)) {
+    set_catching(nullptr);
+    return false;
+  }
+
+  caught->follow_catcher();
+  return false;
+}
+
+bool Entity::update_caught() {
+  Entity* cer = catcher;
+  if (cer == nullptr) return false;
+  follow_catcher();
+  if (!truthy(Value(cer->_catch_time))) {
+    catcher = nullptr;
+    _prev_cpoint_a = Value(NullTag{});
+    enter_frame(get_caught_end_frame());
+    return true;
+  }
+
+  const Value cp_a = field_or(cer->frame, u"cpoint");
+  if (!truthy(cp_a)) {
+    catcher = nullptr;
+    _prev_cpoint_a = Value(NullTag{});
+    set_velocity(Value(NullTag{}), Value(3.0), Value());
+    if (position.y <= ground_y()) position.y = ground_y() + 1;
+    const Value* auto_frame = defines::find(u"Defines.NEXT_FRAME_AUTO");
+    enter_frame(auto_frame != nullptr ? *auto_frame : Value());
+    return true;
+  }
+
+  if (!strict_equals(_prev_cpoint_a, cp_a)) {
+    const Value injury = field_or(cp_a, u"injury");
+    if (truthy(injury)) {
+      const double prev_hp = hp();
+      set_hp(hp() - to_number(injury));
+      set_hp_r(hp_r() - to_number(injury) * (1 - num_of(dataset(u"hp_recoverability"))));
+      summary_mgr().apply_damage(cer->entity_view(), injury, entity_view(), Value(prev_hp));
+    }
+    const Value cp_shaking = field_or(cp_a, u"shaking");
+    const Value cp_motionless = field_or(cp_a, u"motionless");
+    if (truthy(cp_shaking)) shaking = max(to_number(cp_shaking), shaking);
+    if (truthy(cp_motionless)) cer->motionless = max(to_number(cp_motionless), cer->motionless);
+  }
+  _prev_cpoint_a = cp_a;
+
+  const double ti = num_destructured(field_or(cp_a, u"throwinjury"), 0.0);
+  if (ti > 0) throwinjury = ti;
+  const Value tx = field_or(cp_a, u"throwvx");
+  const Value ty = field_or(cp_a, u"throwvy");
+  const Value tz = field_or(cp_a, u"throwvz");
+  if (truthy(tx) || truthy(ty) || truthy(tz)) {
+    follow_catcher();
+    catcher = nullptr;
+    _prev_cpoint_a = Value(NullTag{});
+  }
+  const Value vaction = field_or(cp_a, u"vaction");
+  if (truthy(vaction)) {
+    return static_cast<int>(enter_frame(vaction)) >= static_cast<int>(EnterFrameResult::Entered);
+  }
+  return false;
+}
+
+Value Entity::entity_view() const {
+  // TS 把 `Entity` 当普通对象读的那些调用点（`summary_mgr.apply_damage(cer, …)` 读
+  // `id` / `team` / `data` / `hp` / `emitters`，`is_boss(this.catching)` 读 `data.base.group`）
+  // 需要一份“完整视图”；`ref()` 只带 `id`，是回调自证身份用的最小视图。
+  Object o;
+  o.set(u"id", Value(id));
+  o.set(u"team", Value(team()));
+  o.set(u"data", _data);
+  o.set(u"hp", Value(hp()));
+  std::vector<Value> em;
+  for (const std::u16string& e : emitters) em.push_back(Value(e));
+  o.set(u"emitters", Value(std::make_shared<Array>(std::move(em))));
+  return Value(std::make_shared<Object>(std::move(o)));
+}
+
+Value Entity::world_puppets() const {
+  // `world.puppets.values()`：状态层只需要 `team`（`csl_on_dead`），`id` / `hp` /
+  // `position` 一起给出去，省得后面每个消费者再补一次缝。
+  std::vector<Value> out;
+  for (Entity* e : host_->puppets()) {
+    if (e == nullptr) continue;
+    Object rec;
+    rec.set(u"id", Value(std::u16string(e->id)));
+    rec.set(u"team", Value(std::u16string(e->team())));
+    rec.set(u"hp", Value(e->hp()));
+    rec.set(u"position", position_value(e->position));
+    out.push_back(Value(std::make_shared<Object>(std::move(rec))));
+  }
+  return Value(std::make_shared<Array>(std::move(out)));
+}
+
+void Entity::refresh_ctrl_env() {
+  controller::CtrlEnv& env = _ctrl_env;
+  env.key_hit_duration = num_of(dataset(u"key_hit_duration"));
+  env.double_click_interval = num_of(dataset(u"double_click_interval"));
+  env.facing = facing;
+  env.alive = truthy(Value(hp()));
+  env.team = team();
+  env.px = position.x;
+  env.py = position.y;
+  env.pz = position.z;
+  env.frame_state = to_number(field_or(frame, u"state"));
+  env.hld = field_or(frame, u"hold");
+  env.hit = field_or(frame, u"hit");
+  env.kd = field_or(frame, u"key_down");
+  env.ku = field_or(frame, u"key_up");
+  env.pre_hitkeys = field_or(_data, u"pre_hitkeys");
+  env.post_hitkeys = field_or(_data, u"post_hitkeys");
+  // `me.transforms?.[0].__pre_hitkeys_map ?? me.data.__pre_hitkeys_map`
+  const Array* tr = as_array(transforms);
+  const Value* first = (tr != nullptr && !tr->empty()) ? &tr->at(0) : nullptr;
+  env.transform_pre_seq_map = first != nullptr ? field_or(*first, u"__pre_hitkeys_map") : Value();
+  env.transform_post_seq_map = first != nullptr ? field_or(*first, u"__post_hitkeys_map") : Value();
+  env.data_pre_seq_map = field_or(_data, u"__pre_hitkeys_map");
+  env.data_post_seq_map = field_or(_data, u"__post_hitkeys_map");
+  env.seq_map = field_or(frame, u"__seq_map");
+  // `world.etc` / `world.team_come|stay|move|follow` 属于 World / LFW 切片（未移植）。
+  env.world_etc = nullptr;
+  env.team_come = nullptr;
+  env.team_stay = nullptr;
+  env.team_move = nullptr;
+  env.team_follow = nullptr;
+  if (ctrl_ != nullptr) {
+    ctrl_->set_env(&_ctrl_env);
+    // TS 的 `ControllerResult.fire` 会调 `this.owner.entity.get_next_frame(nf)`；端口把
+    // 它做成一个回调，控制器自己看不到实体 ⇒ 由实体在刷环境时绑上。不绑的话 `fire`
+    // 恒返回 false，控制器永远给不出结果（帧切换 / 抓人时间都写不出来）。
+    ctrl_->result.set_resolver([this](const Value& nf) { return get_next_frame(nf); });
   }
 }
 
