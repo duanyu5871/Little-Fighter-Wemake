@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cstdlib>
 #include <cstdio>
 #include <fstream>
 #include <memory>
@@ -52,6 +53,22 @@ double g_gtime = 0;
 std::vector<std::pair<std::u16string, Value>> g_gen;
 std::vector<std::unique_ptr<Entity>> g_spawns;
 Entity* g_last_spawn = nullptr;
+// `apply_opoints` 的 `world.list_entities` 候选名单（`env ents …`）与「新实体的控制器是不是
+// ball ctrl」（`env ballctrl b 1`，读 `lfw.factory.acquire_ctrl`）。
+// 名单只存 token：`run make` / `run buddy` 会换掉实体，而真实 `World` 每次筛的是「当前」
+// 世界里的实体，所以这里也必须每次现查（存裸指针会留下悬垂项）。
+std::vector<std::string> g_candidate_tokens;
+bool g_ball_ctrl = false;
+
+Entity* candidate_of(const std::string& tok) {
+  if (tok == "self") return g_entity.get();
+  if (tok == "buddy") return g_buddy.get();
+  if (tok.rfind("sp", 0) == 0) {
+    const std::size_t n = static_cast<std::size_t>(std::atoi(tok.c_str() + 2));
+    return n < g_spawns.size() ? g_spawns[n].get() : nullptr;
+  }
+  return nullptr;
+}
 
 std::string render(const Value& v) { return to_ascii(render_value(v)); }
 std::string s_of(const std::u16string& s) { return to_ascii(s); }
@@ -317,7 +334,9 @@ class Host : public lfw::IEntityHost {
 
   lfw::controller::BaseController* acquire_ctrl() override {
     g_log.push_back("acquire_ctrl");
-    return make_ctrl(0);
+    lfw::controller::BaseController* c = make_ctrl(0);
+    if (g_ball_ctrl) c->set_ball(true);
+    return c;
   }
 
   void release_ctrl(lfw::controller::BaseController* c) override {
@@ -364,8 +383,18 @@ class Host : public lfw::IEntityHost {
     return make_ctrl(0);
   }
 
-  void apply_opoints(const Value& opoints) override {
-    g_log.push_back("apply_opoints:" + render(opoints));
+  // `world.list_entities(key, predicate)`（`apply_opoints` 的 multi 计数）：候选实体由
+  // `env ents …`（`self` / `buddy` / `sp<N>`）指定，谓词由端口提供；`World` 那层按 key
+  // 缓存一份数组的行为属于 World 切片，这里每次真筛（两侧一致即可）。
+  std::vector<Entity*> list_entities(const std::u16string& key,
+                                     const std::function<bool(Entity&)>& predicate) override {
+    std::vector<Entity*> out;
+    for (const std::string& tok : g_candidate_tokens) {
+      Entity* e = candidate_of(tok);
+      if (e != nullptr && predicate(*e)) out.push_back(e);
+    }
+    g_log.push_back("list_entities:" + s_of(key) + ":" + std::to_string(out.size()));
+    return out;
   }
 
   // `world.entities.length + world.ghosts.length`（`spawn` 的 unimportant 门）
@@ -588,6 +617,7 @@ std::string dump_spawn(const Entity* e) {
   };
   lfw::Array emitters;
   for (const std::u16string& id : e->emitters) emitters.push_back(Value(id));
+  const lfw::controller::BaseController* ctrl = e->ctrl();
   return "id=" + s_of(e->id) + " pos=" + render(vec3_value(e->position)) +
          " pv=" + render(vec3_value(e->prev_position)) +
          " v=" + render(vec3_value(e->velocity)) +
@@ -604,7 +634,24 @@ std::string dump_spawn(const Entity* e) {
          " ghosted=" + render(Value(e->ghosted())) +
          " spawn_time=" + render(Value(e->spawn_time())) +
          " ground_y=" + render(Value(e->ground_y())) +
-         " on_ground=" + render(Value(e->is_on_ground));
+         " on_ground=" + render(Value(e->is_on_ground)) +
+         // `is_ball_ctrl(ctrl)` 与 `ctrl.chasing`：两个都打（`chasing` 不因「不是 ball ctrl」
+         // 而隐藏，否则「往基控制器上写 chasing」这类变异看不见）。
+         " ball=" + render(Value(ctrl != nullptr && ctrl->is_ball_ctrl())) +
+         " chasing=" + render(id_ref(ctrl == nullptr ? nullptr : ctrl->chasing));
+}
+
+// `this._opoints` 的记账转储：`interval_id:tick` 对（`interval_id` 缺失写成 `-`）。
+std::string dump_opoints(const std::vector<std::pair<Value, double>>& ops) {
+  std::string out;
+  for (std::size_t i = 0; i < ops.size(); ++i) {
+    if (i > 0) out += ",";
+    const Value id = lfw::field_or(ops[i].first, u"interval_id");
+    out += std::holds_alternative<std::monostate>(id) ? "-" : render(id);
+    out += ":";
+    out += render(Value(ops[i].second));
+  }
+  return out;
 }
 
 bool get_num(const Entity& e, const std::string& name, double& out) {
@@ -850,6 +897,15 @@ int main(int argc, char** argv) {
         if (!replaced) g_gen.emplace_back(kind, v);
       } else if (sub == "genclear") {
         g_gen.clear();
+      } else if (sub == "ents") {
+        // `world.list_entities` 的候选名单：`self` / `buddy` / `sp<N>`（只记 token，
+        // 实体在筛的时候现查，见 `candidate_of`）。
+        g_candidate_tokens.assign(t.begin() + static_cast<std::ptrdiff_t>(i), t.end());
+        g_log.push_back("ents:" + join(g_candidate_tokens));
+      } else if (sub == "ballctrl") {
+        const std::string& flag = t[i++];
+        const std::string& v = t[i++];
+        g_ball_ctrl = flag == "b" && v == "1";
       } else {
         std::fprintf(stderr, "unknown env '%s' at line %d\n", sub.c_str(), lineno);
         return 2;
@@ -1597,7 +1653,8 @@ int main(int argc, char** argv) {
                     render(vec3_value(g_entity->position)).c_str(),
                     render(vec3_value(g_entity->prev_velocity)).c_str(),
                     render(vec3_value(g_entity->velocity)).c_str());
-      } else if (what == "opoints") {
+      } else if (what == "seedop") {
+        // 直接塞 `_opoints`（9i 的 `set_frame` 区间过滤场景用），不走 `apply_opoints`。
         const Value list = parse_value(t, i);
         g_entity->opoints.clear();
         const lfw::Array* arr = lfw::as_array(list);
@@ -1606,8 +1663,17 @@ int main(int argc, char** argv) {
             g_entity->opoints.push_back(std::make_pair(arr->at(k), 0.0));
           }
         }
-        std::printf("run opoints %s || %s | n=%zu\n", render(list).c_str(), join(g_log).c_str(),
-                    g_entity->opoints.size());
+        std::printf("run seedop %s || %s | n=%zu itv=%s\n", render(list).c_str(),
+                    join(g_log).c_str(), g_entity->opoints.size(),
+                    dump_opoints(g_entity->opoints).c_str());
+      } else if (what == "opoints") {
+        // `this.apply_opoints(list)`：记账 + multi 计数 + spreading + 逐个 spawn。
+        const Value list = parse_value(t, i);
+        g_last_spawn = nullptr;
+        g_entity->apply_opoints(list);
+        std::printf("run opoints %s || %s | n=%zu itv=%s | %s\n", render(list).c_str(),
+                    join(g_log).c_str(), g_entity->opoints.size(),
+                    dump_opoints(g_entity->opoints).c_str(), dump_spawn(g_last_spawn).c_str());
       } else if (what == "enter" || what == "enternext" || what == "enterid") {
         Value arg;
         bool fallback = false;

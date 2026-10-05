@@ -5,9 +5,32 @@
 #include <optional>
 #include <vector>
 
+#include "lfw/core/js_string.h"
 #include "lfw/core/value.h"
 
 namespace lfw {
+
+// TS 的 `find`（`utils/container_help/find.ts`）在可迭代对象上扫完元素之后**还会**跑一遍
+// `for (const k in p0) if (p1([k, p0[k]])) return [k, p0[k]]`（两个循环之间没有 `else`）。
+// 对数组来说这一步会把 `["0", v0]`… 交给同一个谓词；谓词按字段读时
+// （`o => o.interval_id === x`）从 pair 上读到 `undefined` ⇒ 「拿 `undefined` 去比」的谓词
+// 会在元素一个都不匹配时拿到真值。这里把该回落显式建模出来（元素扫完没命中就把 pair
+// 视图再喂同一个谓词），否则 `set_frame` 的 opoint 压实这类调用点会与 TS 分叉。
+inline std::optional<Value> find_array(const Array& a,
+                                       const std::function<bool(const Value&)>& pred) {
+  if (a.empty()) return std::nullopt;
+  for (size_t i = 0; i < a.size(); ++i) {
+    if (pred(a.at(i))) return a.at(i);
+  }
+  for (size_t i = 0; i < a.size(); ++i) {
+    std::vector<Value> items;
+    items.push_back(Value(number_to_string(static_cast<double>(i))));
+    items.push_back(a.at(i));
+    const Value pair(std::make_shared<Array>(std::move(items)));
+    if (pred(pair)) return pair;
+  }
+  return std::nullopt;
+}
 
 inline size_t find_value_index(const Array* a, const std::function<bool(const Value&)>& pred) {
   if (a == nullptr) return SIZE_MAX;

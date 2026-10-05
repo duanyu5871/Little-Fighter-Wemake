@@ -2287,12 +2287,12 @@ run set atom_time n 0
 # --- set_frame: the gone reset, the interval filter, the flags ----------------
 run make o 5 id s "i3" type n 1 name s "I3" base o 1 name s "Base" frames o 4 "0" o 3 id s "0" state n 1 wait n 2 "k1" o 2 id s "k1" wait n 3 "k2" o 2 id s "k2" wait n 4 "k3" o 4 id s "k3" state n 3 wait n 5 next o 1 id s "k4"
 run frame o 3 id s "0" state n 1 wait n 2
-run opoints a 3 o 3 interval_mode n 1 interval_id s "k1" interval n 0 o 3 interval_mode n 1 interval_id s "k2" interval n 0 o 3 interval_mode n 2 interval_id s "k3" interval n 0
+run seedop a 3 o 3 interval_mode n 1 interval_id s "k1" interval n 0 o 3 interval_mode n 1 interval_id s "k2" interval n 0 o 3 interval_mode n 2 interval_id s "k3" interval n 0
 run setframe o 4 id s "k1" state n 1 wait n 3 opoint a 2 o 3 interval_id s "k1" interval n 0 interval_mode n 1 o 3 interval_id s "k3" interval n 0 interval_mode n 1
 run setframe o 1 id s "gone"
-run opoints a 1 o 3 interval_mode n 1 interval_id s "k1" interval n 0
+run seedop a 1 o 3 interval_mode n 1 interval_id s "k1" interval n 0
 run setframe o 1 id s "gone"
-run opoints a 2 o 3 interval_mode n 1 interval_id s "k1" interval n 0 o 3 interval_mode n 1 interval_id s "k2" interval n 0
+run seedop a 2 o 3 interval_mode n 1 interval_id s "k1" interval n 0 o 3 interval_mode n 1 interval_id s "k2" interval n 0
 run setframe o 3 id s "k1" state n 1 wait n 3
 run setframe o 4 id s "k1" itr a 1 o 1 kind n 0 state n 1 wait n 3
 run setframe o 4 id s "k1" itr a 0 state n 1 wait n 3

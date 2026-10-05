@@ -18,6 +18,8 @@
 #include "lfw/defines/hit_flag.h"
 #include "lfw/defines/itr_kind.h"
 #include "lfw/defines/opoint_kind.h"
+#include "lfw/defines/opoint_multi_enum.h"
+#include "lfw/defines/opoint_spreading.h"
 #include "lfw/defines/speed_ctrl.h"
 #include "lfw/defines/speed_mode.h"
 #include "lfw/defines/state_enum.h"
@@ -32,6 +34,7 @@
 #include "lfw/state/entity_states.h"
 #include "lfw/state/state_base.h"
 #include "lfw/utils/container_help/field_or.h"
+#include "lfw/utils/container_help/find.h"
 #include "lfw/utils/math/base.h"
 #include "lfw/utils/math/clamp.h"
 #include "lfw/utils/math/clamp_add.h"
@@ -506,7 +509,7 @@ void Entity::set_hp(double v) {
     if (!strict_equals(state(), Value(static_cast<double>(StateEnum::Gone))) &&
         frame_id_of(*this) != std::u16string(frame_id::kGone) &&
         array_length(brokens) > 0) {
-      host_->apply_opoints(brokens);
+      apply_opoints(brokens);
       host_->play_sound(field_or(base_of(_data), u"dead_sounds"), position_value(position));
     }
     const Value nf = next_frame_of(field_or(frame, u"on_dead"), field_or(_data, u"on_dead"));
@@ -1355,14 +1358,13 @@ void Entity::set_frame(const Value& v) {
       if (!strict_equals(field_or(opoint, u"interval_mode"), Value(1.0))) continue;
       const Value interval_id = field_or(opoint, u"interval_id");
       const Array* next_opoints = as_array(field_or(v, u"opoint"));
+      // `find(v.opoint, o => o.interval_id === interval_id)` —— 见 `find_array`：TS 的
+      // `find` 在元素全不匹配时还有一遍 pair 回落（谓词读到 `undefined` 的字段）。
       bool exists = false;
       if (next_opoints != nullptr) {
-        for (std::size_t i = 0; i < next_opoints->size(); ++i) {
-          if (strict_equals(field_or(next_opoints->at(i), u"interval_id"), interval_id)) {
-            exists = true;
-            break;
-          }
-        }
+        exists = find_array(*next_opoints, [&](const Value& o) {
+                   return strict_equals(field_or(o, u"interval_id"), interval_id);
+                 }).has_value();
       }
       if (!exists) continue;
       opoints[slow++] = opoints[fast];
@@ -1384,7 +1386,7 @@ void Entity::set_frame(const Value& v) {
   const Value invulnerable = field_or(v, u"invulnerable");
   if (truthy(invulnerable)) _invulnerable = to_number(invulnerable);
   const Value opoint = field_or(v, u"opoint");
-  if (truthy(opoint)) host_->apply_opoints(opoint);
+  if (truthy(opoint)) apply_opoints(opoint);
   if (!truthy(field_or(v, u"cpoint"))) {
     set_catching(nullptr);
     catcher = nullptr;
@@ -2261,6 +2263,160 @@ Entity& Entity::attach(const Value& ghost) {
     enter_frame(auto_frame_value());
   }
   return *this;
+}
+
+// ---------------------------------------------------------------------------
+// `apply_opoints(opoints)`: per-opoint interval bookkeeping, the `multi` count, the
+// `spreading` offset, one `spawn` per count, then the ball-controller `chasing` target
+// and the `inherit_speed_*` velocity write.
+// ---------------------------------------------------------------------------
+void Entity::apply_opoints(const Value& opoints_value) {
+  const Array* list = as_array(opoints_value);
+  if (list == nullptr) return;
+  for (std::size_t k = 0; k < list->size(); ++k) {
+    const Value opoint = list->at(k);
+    // `const { interval = 0, interval_id, interval_mode } = opoint` — the default only
+    // applies to `undefined`, so the raw field is kept for the tick comparison below.
+    const Value interval_field = field_or(opoint, u"interval");
+    const Value interval =
+        std::holds_alternative<std::monostate>(interval_field) ? Value(0.0) : interval_field;
+    const Value interval_id = field_or(opoint, u"interval_id");
+    const bool interval_mode_1 = strict_equals(field_or(opoint, u"interval_mode"), Value(1.0));
+
+    std::size_t found = opoints.size();
+    for (std::size_t i = 0; i < opoints.size(); ++i) {
+      if (strict_equals(field_or(opoints[i].first, u"interval_id"), interval_id)) {
+        found = i;
+        break;
+      }
+    }
+    if (found != opoints.size() && interval_mode_1) {
+      // 已有同 `interval_id` 的记账项：只有「记下的帧号 == 本次的 interval」才继续。
+      if (!strict_equals(Value(opoints[found].second), interval_field)) continue;
+    } else if (to_number(interval) > 0) {
+      opoints.push_back({opoint, 0});
+    }
+
+    std::vector<Entity*> enemies;
+    std::vector<Entity*> allies;
+    Value multi_type = Value();
+    double count = 0;
+    const Value multi_field = field_or(opoint, u"multi");
+    const Value multi =
+        std::holds_alternative<std::monostate>(multi_field) ? Value(1.0) : multi_field;
+    if (is_num(multi)) {
+      count = to_number(multi);
+    } else if (truthy(multi)) {
+      const Value type = field_or(multi, u"type");
+      const Value min_field = field_or(multi, u"min");
+      const Value min =
+          std::holds_alternative<std::monostate>(min_field) ? Value(0.0) : min_field;
+      const Value max_field = field_or(multi, u"max");
+      const Value max =
+          std::holds_alternative<std::monostate>(max_field) ? Value(355.0) : max_field;
+      const Value skip_zero = field_or(multi, u"skip_zero");
+      multi_type = type;
+      if (strict_equals(type, Value(static_cast<double>(OpointMultiEnum::AccordingEnemies)))) {
+        enemies = host_->list_entities(u"ef_" + team(), [this](Entity& o) {
+          return entity::is_fighter_data(o.data()) && team() != o.team() && o.hp() > 0;
+        });
+        // TS 的 `if (skip_zero && !enemies.length) break;` 只跳出 switch ⇒ `count` 保持
+        // 0、后面的循环一次都不跑。
+        if (!(truthy(skip_zero) && enemies.empty())) {
+          count = clamp(static_cast<double>(enemies.size()), to_number(min), to_number(max));
+        }
+      } else if (strict_equals(type,
+                               Value(static_cast<double>(OpointMultiEnum::AccordingAllies)))) {
+        allies = host_->list_entities(u"af_" + team(), [this](Entity& o) {
+          if (!entity::is_fighter_data(o.data())) return false;
+          if (team() != o.team()) return false;
+          if (!(o.hp() > 0)) return false;
+          if (&o == this) return false;
+          const std::u16string* src = src_emitter();
+          if (src != nullptr && o.id == *src) return false;
+          return true;
+        });
+        if (!(truthy(skip_zero) && allies.empty())) {
+          count = clamp(static_cast<double>(allies.size()), to_number(min), to_number(max));
+        }
+      } else if (strict_equals(type, Value(static_cast<double>(OpointMultiEnum::Emitter)))) {
+        const std::u16string* emitter_id = emitter();
+        // `if (!emitter) break;` —— 空串也算「没有」（JS 真值）。
+        if (emitter_id != nullptr && !emitter_id->empty()) {
+          Entity* target = host_->find_entity(*emitter_id);
+          if (target != nullptr) {
+            allies.push_back(target);
+            count = 1;
+          }
+        }
+      }
+    }
+
+    double facing_now = facing;
+    for (double i = 0; i < count; ++i) {
+      Vector3 sp;
+      const Value spreading = field_or(opoint, u"spreading");
+      if (std::holds_alternative<std::monostate>(spreading) ||
+          strict_equals(spreading, Value(static_cast<double>(OpointSpreading::Normal)))) {
+        sp.z = (i - (count - 1) / 2) * 2.5;
+      } else if (strict_equals(spreading,
+                               Value(static_cast<double>(OpointSpreading::Spreading)))) {
+        sp.x = num_of(gen_or(opoint, u"__gen_spread_x", Value(sp.x)));
+        sp.y = num_of(gen_or(opoint, u"__gen_spread_y", Value(sp.y)));
+        sp.z = num_of(gen_or(opoint, u"__gen_spread_z", Value(sp.z)));
+        facing_now = sp.x < 0 ? -1 : sp.x > 0 ? 1 : facing_now;
+      }
+      Entity* e = spawn(opoint, sp, facing_now);
+      // TS 的 `if (!e) return;`：失败就整段收手，剩下的 opoint 与次数都不再处理。
+      if (e == nullptr) return;
+
+      if (strict_equals(spreading, Value(static_cast<double>(OpointSpreading::FloatRange)))) {
+        Value x = Value(e->velocity.x);
+        Value y = Value(e->velocity.y);
+        Value z = Value(e->velocity.z);
+        const Value gx = gen_or(opoint, u"__gen_spread_x", x);
+        const Value gy = gen_or(opoint, u"__gen_spread_y", y);
+        const Value gz = gen_or(opoint, u"__gen_spread_z", z);
+        if (!nullish(gx)) x = gx;
+        if (!nullish(gy)) y = gy;
+        if (!nullish(gz)) z = gz;
+        e->set_velocity(x, y, z);
+      }
+
+      controller::BaseController* ctrl = e->ctrl();
+      if (ctrl != nullptr && ctrl->is_ball_ctrl()) {
+        if (strict_equals(multi_type,
+                          Value(static_cast<double>(OpointMultiEnum::AccordingEnemies)))) {
+          ctrl->chasing = enemies.empty()
+                              ? nullptr
+                              : enemies[static_cast<std::size_t>(std::fmod(i, enemies.size()))];
+        } else if (strict_equals(
+                       multi_type,
+                       Value(static_cast<double>(OpointMultiEnum::AccordingAllies)))) {
+          ctrl->chasing = allies.empty()
+                              ? nullptr
+                              : allies[static_cast<std::size_t>(std::fmod(i, allies.size()))];
+        } else if (strict_equals(multi_type,
+                                 Value(static_cast<double>(OpointMultiEnum::Emitter)))) {
+          ctrl->chasing = allies.empty() ? nullptr : allies[0];
+        }
+      }
+
+      const Value inherit_x = field_or(opoint, u"inherit_speed_x");
+      const Value inherit_y = field_or(opoint, u"inherit_speed_y");
+      const Value inherit_z = field_or(opoint, u"inherit_speed_z");
+      const Value vx = truthy(inherit_x)
+                           ? Value(e->velocity.x + velocity.x * to_number(inherit_x))
+                           : Value(NullTag{});
+      const Value vy = truthy(inherit_y)
+                           ? Value(e->velocity.y + velocity.y * to_number(inherit_y))
+                           : Value(NullTag{});
+      const Value vz = truthy(inherit_z)
+                           ? Value(e->velocity.z + velocity.z * to_number(inherit_z))
+                           : Value(NullTag{});
+      e->set_velocity(vx, vy, vz);
+    }
+  }
 }
 
 }

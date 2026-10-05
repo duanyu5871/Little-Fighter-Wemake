@@ -5521,7 +5521,7 @@ TS 的 `State_Base.on_restrict` 结尾是 `e.position.x = x; …`（**直写**�
   `entity_count()`（`world.list_entities().length`）、`add_entities(Entity&)`（`world.add_entities`）、
   `game_time()`（`world.game_time`）、`create_entity_with_bot(Value)`（`lfw.factory.create_entity_with_bot`）、
   `gen_field(holder, kind, emitter)`（`__gen_*` 表达式字段，见 55.1-1）。
-  9l 之前占位注入的 `apply_opoints` 缝**保留**（`State_Frozen` 还在用），下一刀换成真方法。
+  9l 之前占位注入的 `apply_opoints` 缝**保留到 9m**（`State_Frozen` 还在用），§56 换成真方法。
 - C++ 侧新增全局 `g_ecount` / `g_gtime` / `g_gen` / `g_spawns` / `g_last_spawn` 与
   `bind_entity_factory()`（让 Host 能在建实体时把新实体登记进 `g_spawns`），
   `dump_spawn()` 打印新实体的关键槽位（id/pos/pv/v/pvv/team/facing/frame/motionless/
@@ -5562,3 +5562,128 @@ TS 的 `State_Base.on_restrict` 结尾是 `e.position.x = x; …`（**直写**�
   `Ball_Rebounding` 需要 `run reg 3003` + 一张 `state: 3003` 的帧、
   `Pick` 的 kind 要用 2、`__gen_facing` 的回落要先 `genclear`。
   改完这 7 处，13 条全杀。
+
+## 56. 切片 9m：`Entity::apply_opoints`（opoint 列表的消费方）
+
+**背景**：9l 把「一个 opoint ⇒ 一个实体」的三件套搬完，但**谁来遍历 opoint 列表**一直没搬：
+`apply_opoints(opoints)` 负责逐条 opoint 的 interval 记账、`multi` 计数（按敌人 / 按友军 /
+按发射者）、`spreading` 偏移、按计数逐个 `spawn`、以及给 ball ctrl 写 `chasing`、
+给新实体按 `inherit_speed_*` 写速度。它是 `set_frame`（帧数据里的 `opoint` 字段）、
+`set_hp`（hp 归零时的 `base.brokens`）与 `State_Frozen::leave`（`ice_piece_opoints`）
+的共同下游。这一刀把 `IEntityHost::apply_opoints` 占位缝删掉、换成 `Entity::apply_opoints`
+真方法（两个调用点都是真的了），并补上它依赖的 `world.list_entities(key, predicate)` 缝。
+
+### 56.1 保真要点
+
+1. **interval 记账是「先查再记」**：`opoints` 里按 `interval_id` **严格比较**找已有条目
+   （`find`，找不到就当没有）。命中且 `interval_mode` **严格等于 1** 时，只有
+   「记下的帧号 `=== interval` 的原始字段」才继续（`continue` 掉这一条 opoint），
+   否则照常往下走；命中但 mode 不是 1 ⇒ 落到 `else if (interval > 0)` 那一支 ⇒ **仍会 push**
+   （`if/else if` 的两个条件都只看「命中 + mode」，不看别的）；没命中且 `interval > 0`
+   也 push `{opoint, 0}`。三个分支各有用例，`interval_mode n 2` 那种「非 0/1 的值」也在其中。
+2. **`interval` 的默认值只对 `undefined` 生效**：`const { interval = 0 } = opoint` 的默认
+   是 `undefined` 才有用 ⇒ 端口把**原始字段**留着给 tick 比较用，另存一个 `interval ?? 0`
+   给「> 0」的判断（`interval: null` 在 TS 里既不等于 0 也不 > 0 ⇒ 不 push，但 tick 比较
+   仍要看到 `null`）。
+3. **`multi` 的默认是 `1` 而不是「没有」**：`multi ?? 1` ⇒ 数字直接当 count（`2.5` 走的是
+   `for (i < 2.5)` 的浮点条件，所以用例里有一条 `multi n 2.5`）；对象才走
+   `type` + `min ?? 0` + `max ?? 355` + `clamp(count, min, max)`。
+4. **`skip_zero` 只 `break` 掉 switch**：`if (skip_zero && !list.length) break;` 跳出的是
+   `switch (multi.type)` 而不是整条 opoint ⇒ `count` 保持 0、后面的循环一次都不跑，
+   但 interval 记账**照做**。端口照着写（`count` 初值 0 + `if (!(...))` 守卫）。
+5. **三个谓词的差别是这一刀的核心**：敌人 = `is_fighter_data(o.data()) && team() != o.team()
+   && o.hp() > 0`；友军 = fighter + 同队 + `hp() > 0` + 不是自己 + 不是 `src_emitter`；
+   Emitter = `this.emitter`（`emitters` **末位**）非空且能在 `world.find_entity` 里找到。
+   谓词里的每一项都有一条变异（去掉 `is_fighter`、去掉队伍比较、去掉 `hp > 0`、
+   去掉「不是自己」、去掉 `src_emitter`、`emitter` 取首位），全部被用例杀掉。
+6. **`spreading` 三态**：`undefined` 与 `Normal` 同支（`z = (i - (count-1)/2) * 2.5`）；
+   `Spreading` 走 `__gen_spread_{x,y,z}`（`?? sp.{x,y,z}` 回落），并用 `sp.x` 的正负改
+   `facing`；`FloatRange` 不改偏移，而是**生成之后**用生成器覆盖新实体的速度
+   （`?? e.velocity.{x,y,z}`，且只覆盖**非 nullish** 的值 —— 与 `__gen_*` 的「回 undefined」
+   语义配合）。三支各有用例，`x` 轴的 `facing` 也有正 / 负两种情况。
+7. **`if (!e) return;` 是整段收手**：`spawn` 失败时不仅当前这次循环结束，**后面的 opoint
+   连 interval 记账都不做**（用例末尾专门造一条：`opoints a 3`，中间那条的 oid 不存在，
+   第三条的 interval 不应出现在 `itv=` 里）。
+8. **ball ctrl 的 `chasing` 用 `i % list.length` 取模**：端口里 `fmod(i, size())`；
+   名单为空时是 `nullptr`（TS `allies[i % allies.length]` 会得到 `undefined`，
+   而 `undefined` 与 `null` 在转储里同形）。`Emitter` 那支写的是 `allies[0]`（不是取模）。
+   用例用 `env ballctrl b 1` 让新实体的控制器是 ball ctrl，再用 `dump_spawn` 的
+   `ball=` / `chasing=` 观察 —— **两个都打**才能看出「往基控制器上写 chasing」这件事。
+9. **`inherit_speed_*` 是「三轴各自独立」**：`opoint.inherit_speed_x ? 新速度 : null`，
+   `null` 交给 `set_velocity` 跳过该轴（不是写 0）⇒ `0` 与「缺失」在加法上同值、但在
+   「跳过 vs 写 0」上可分（用例里 z 轴专门用 `0` 和缺失各一条）。
+
+### 56.2 harness 扩充
+
+- `IEntityHost`：**删掉** `apply_opoints` 占位缝（`set_frame` / `set_hp` 死亡分支现在都走
+  真方法；`State_Frozen::leave` 那条走 `IStateEntity::apply_opoints` 转发），**新增**
+  `list_entities(key, predicate)`（`world.list_entities`）。
+- `BaseController` 新增 `set_ball(bool)` / `is_ball_ctrl()` 与公开的 `Entity* chasing`：
+  `BallController` 未移植（等它的刀再把字段搬进子类），所以 `__is_ball_ctrl__` /
+  `chasing` 暂时落在基类上。
+- C++ 侧新 op：`env ents self|buddy|sp<N>…`（`env ents` 无参数 = 空名单）、
+  `env ballctrl b 1`、`run opoints <数组字面量>`（**真调** `Entity::apply_opoints`，
+  打印 `n=`（记账长度）/`itv=`（`interval_id:tick` 列表）/宿主日志/最后一次生成的实体）、
+  `run seedop <数组字面量>`（原 `run opoints` 改名：只往记账表里塞条目，给 9i 的场景用）。
+- `dump_spawn()` 增加 `ball=` 与 `chasing=`（`chasing` 打 `{"id":…}` 或 `z`）。
+- 新用例 `cases/entity/opoints.txt`（138 行源文件 / 108 行 trace），用会话侧生成器
+  （JS 对象 + 自动计数）产出：手写嵌套的 `o <n>` / `a <n>` 计数必错。末尾两条场景
+  专门覆盖**两个调用点**：帧里带 `opoint` 的 `run setframe`（顺带把这条 opoint 的
+  interval 记账在 `op=` 里露出来）与「`base.brokens` + `run set hp n 0`」的死亡分支。
+- ⚠️ **候选名单只记 token、筛的时候现查**：`run make` / `run buddy` 会换掉实体，而真实
+  `World` 每次筛的是「当前」世界里的实体。第一版在 `env ents` 时快照裸指针 ⇒ `run buddy`
+  重建后 `g_candidates` 里是悬垂指针 ⇒ 谓词读到释放后的内存 ⇒ 恰好返回 false，
+  把「友军谓词不看 `hp`」这条**真变异遮成了存活**。两侧同时改成 token + 现查
+  （`candidate_of(tok)`）后该条立即被杀。
+- ⚠️ TS 侧镜像：`worldStub.list_entities`（同样的 token 现查）、`worldStub.find_entity`、
+  `acquire_ctrl` 按 `ballCtrl` 打标；`run opoints` 打印前**先取 `r(list)`**，
+  否则 `applyGens` 挂上去的生成器会污染当行的字面量转储。
+- ⚠️ TS 的 `get_next_frame(undefined)` 会抛异常 ⇒ 用例里**每个 opoint 都必须带
+  `action: {id:"0"}`**（生成器自动补）。
+
+### 56.3 已知偏差 / 有意不覆盖
+
+1. **`World.list_entities` 的按 key 缓存**：真实 `World` 会把「同名 key 的筛选结果」缓存
+   一份数组，第二次调用**不再过谓词**。缓存层属于 World 切片 ⇒ 差分 harness 每次真筛，
+   PROTOCOL 里注明；端口只依赖缝的语义（`key` 只用来拼缓存键，端口照传）。
+2. **`BallController` 未移植**（同 56.2）：`is_ball_ctrl` / `chasing` 暂放 `BaseController`，
+   等 `BallController` 的刀再搬进去；本主题的观察面因此用 `ball=` + `chasing=` 双打。
+3. `spawn` 失败分支里的 `Ditto.warn` + `debugger`（§4.57 约定）不移植（9l 已记）。
+4. ⚠️ **`find` 的数组版应带一遍 pair 回落**（本刀发现并修掉）：TS 的
+   `find`（`utils/container_help/find.ts`）在可迭代对象上扫完元素后**还会**跑
+   `for (const k in p0) if (p1([k, p0[k]])) return [k, p0[k]]`（两个循环之间没有 `else`）。
+   对数组来说这会把 `["0", v0]`… 交给同一个谓词；谓词按字段读时
+   （`o => o.interval_id === interval_id`）从 pair 上读到 `undefined` ⇒ 「拿 `undefined`
+   去比」的谓词会在元素一个都不匹配时**拿到真值**。`set_frame` 的 opoint 压实正是这种
+   谓词，端口原来的内联循环会丢掉 TS 保留的那条记账项 ⇒ 端口新增
+   `lfw::find_array`（元素扫完没命中就把 pair 视图再喂同一个谓词），`set_frame` 改用它。
+   其余数组版 `find` 调用点的谓词对 pair 都为假（如 `is_fighter(c.attacker)`），
+   暂时不可观察，随各自的刀再过一遍。
+5. `State_Frozen::leave` 里对 `StateBase_Proxy::leave` 的**第二次调用**：TS 只调一次
+   `super.leave(e, next_frame)`，端口多了一次收尾调用（`state_base_proxy.cpp`）。
+   本刀的 `apply_opoints(ice_piece_opoints())` 顺序与 TS 一致，所以不影响 9m 的保真；
+   这条属于状态切片，已记进 README 的已知偏差表待复核（当前用例观察不到）。
+   另注：`Entity::apply_opoints` 的调用点一共三处（`set_frame`、`set_hp` 死亡分支、
+   `State_Frozen::leave`），后者的差分归状态切片。
+
+### 56.4 变异与结果
+
+- 本刀新增 44 条变异，**43 条被杀 + 1 条按构造等价**（`entity` 从 820 涨到 864）。
+- 分布：interval 6、`multi` 谓词与边界 16、spreading / FloatRange 6、chasing 4、
+  inherit_speed 3、调用点 2（`set_hp` 的死亡分支 + `find` 的 pair 回落）、其他 7。
+- 不可观察项（记录在 `mutations/entity.mjs` 头部，不列）：`Spreading` 分支里
+  `sp.x = __gen_spread_x ?? sp.x` 的**回落值恒等于 0**（`sp` 是刚构造的 `(0,0,0)`，
+  且这一支里 `sp.x` 只被这一行赋值）⇒ 把回落写成字面量 0 与写 `sp.x` 不可分。
+- 首轮 6 条存活 → 扩场景后 3 条 → 2 条；最后 2 条里 1 条是上面那条等价项，
+  另 1 条（「友军谓词不看 `hp`」）是 **harness 的悬垂候选指针**遮蔽（见 56.2 ⚠️），
+  修完 harness 立即被杀。
+- 「`set_frame` 跳过帧 `opoint`」（9i 留下的变异）在 9i 时靠宿主缝的日志观察，
+  缝换成真方法之后日志没了 ⇒ 本刀第一次全量跑时它**存活**；补上「帧里带 `opoint`」
+  的场景（含这条 opoint 的 interval 记账在 `op=` 里可见）后被杀。
+- 这条新场景还暴露出 **`find` 的保真缺口**（见 56.3-⚠️）：TS 的 `find` 在数组上扫完元素
+  还有一遍 `for..in` 的 pair 回落 ⇒ 「拿 `undefined` 字段去比」的谓词会拿到真值
+  （`set_frame` 的压实正好是这种谓词）。端口补 `lfw::find_array` 后两侧一致，
+  并新增一条变异（去掉 pair 回落）钉住它。
+- 另外把 9i 留下的一条锚点失效的变异（`set_frame skips the frame opoints`：占位缝
+  `host_->apply_opoints(...)` 被真方法取代 ⇒ 锚点文本消失）更新到新调用点，
+  并补上 `set_hp` 死亡分支那条调用点的变异（9l 只钉了守卫、没钉调用）。

@@ -55,6 +55,17 @@
 //    （对齐帧一定带 id ⇒ `get_next_frame` 的 id 分支必然再写 `gnf_1`），
 //    而中间没有任何抽取 ⇒ 改字符串 / 删掉都不可观察，故不列（端口照抄保留）。
 
+// 9m（apply_opoints）补充说明：
+//  * 不可观察项（按构造等价，故不列）：`Spreading` 分支里 `sp.x` 只由
+//    `__gen_spread_x ?? sp.x` 赋值，而 `sp` 是刚构造的 (0,0,0) ⇒ 回落值恒等于 0，
+//    把回落写成字面量 0 与写 `sp.x` 不可分（TS 的 `?? v.x` 同理）。
+//  * harness 的候选名单（`env ents`）只记 token、筛的时候现查：真实 `World` 每次筛
+//    的是「当前」世界里的实体，而 `run make` / `run buddy` 会换掉实体 —— 快照裸指针
+//    会留下悬垂项，曾把「友军谓词不看 hp」这条真变异遮成存活。
+//  * 两个调用点（`set_frame` 的帧 `opoint`、`set_hp` 死亡分支的 `base.brokens`）
+//    在用例末尾各有一条场景；前者顺带钉住 `find` 在数组上的 pair 回落
+//    （见 `lfw::find_array`，去掉那一遍回落是可被杀掉的变异）。
+
 export default {
   subject: "entity",
 
@@ -3801,7 +3812,7 @@ export default {
         {
       "note": "set_frame skips the frame opoints",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "  if (truthy(opoint)) host_->apply_opoints(opoint);",
+      "from": "  if (truthy(opoint)) apply_opoints(opoint);",
       "to": "  (void)opoint;"
     },
         {
@@ -5074,6 +5085,287 @@ export default {
       to: `  if (false) {
     enter_frame(auto_frame_value());
   }`,
+    },
+    {
+      note: "apply_opoints：interval 的默认值写成 1",
+      file: "native/lfw/entity/entity.cpp",
+      from: `        std::holds_alternative<std::monostate>(interval_field) ? Value(0.0) : interval_field;`,
+      to: `        std::holds_alternative<std::monostate>(interval_field) ? Value(1.0) : interval_field;`,
+    },
+    {
+      note: "apply_opoints：mode=1 命中后不再按 tick 早退",
+      file: "native/lfw/entity/entity.cpp",
+      from: `      if (!strict_equals(Value(opoints[found].second), interval_field)) continue;`,
+      to: `      if (false) continue;`,
+    },
+    {
+      note: "apply_opoints：mode=1 命中后一律早退",
+      file: "native/lfw/entity/entity.cpp",
+      from: `      if (!strict_equals(Value(opoints[found].second), interval_field)) continue;`,
+      to: `      if (true) continue;`,
+    },
+    {
+      note: "apply_opoints：interval>0 写成 >=0",
+      file: "native/lfw/entity/entity.cpp",
+      from: `    } else if (to_number(interval) > 0) {`,
+      to: `    } else if (to_number(interval) >= 0) {`,
+    },
+    {
+      note: "apply_opoints：interval_mode 比较的是 2",
+      file: "native/lfw/entity/entity.cpp",
+      from: `    const bool interval_mode_1 = strict_equals(field_or(opoint, u"interval_mode"), Value(1.0));`,
+      to: `    const bool interval_mode_1 = strict_equals(field_or(opoint, u"interval_mode"), Value(2.0));`,
+    },
+    {
+      note: "apply_opoints：interval_id 的查找恒不命中",
+      file: "native/lfw/entity/entity.cpp",
+      from: `      if (strict_equals(field_or(opoints[i].first, u"interval_id"), interval_id)) {`,
+      to: `      if (false) {`,
+    },
+    {
+      note: "apply_opoints：push 的 tick 写成 1",
+      file: "native/lfw/entity/entity.cpp",
+      from: `      opoints.push_back({opoint, 0});`,
+      to: `      opoints.push_back({opoint, 1});`,
+    },
+    {
+      note: "apply_opoints：multi 的默认值写成 0",
+      file: "native/lfw/entity/entity.cpp",
+      from: `        std::holds_alternative<std::monostate>(multi_field) ? Value(1.0) : multi_field;`,
+      to: `        std::holds_alternative<std::monostate>(multi_field) ? Value(0.0) : multi_field;`,
+    },
+    {
+      note: "apply_opoints：multi 的数字分支并进对象分支",
+      file: "native/lfw/entity/entity.cpp",
+      from: `    if (is_num(multi)) {
+      count = to_number(multi);`,
+      to: `    if (false) {
+      count = to_number(multi);`,
+    },
+    {
+      note: "apply_opoints：multi.min 的默认值写成 1",
+      file: "native/lfw/entity/entity.cpp",
+      from: `          std::holds_alternative<std::monostate>(min_field) ? Value(0.0) : min_field;`,
+      to: `          std::holds_alternative<std::monostate>(min_field) ? Value(1.0) : min_field;`,
+    },
+    {
+      note: "apply_opoints：multi.max 的默认值写成 1",
+      file: "native/lfw/entity/entity.cpp",
+      from: `          std::holds_alternative<std::monostate>(max_field) ? Value(355.0) : max_field;`,
+      to: `          std::holds_alternative<std::monostate>(max_field) ? Value(1.0) : max_field;`,
+    },
+    {
+      note: "apply_opoints：敌人的 skip_zero 不生效",
+      file: "native/lfw/entity/entity.cpp",
+      from: `        if (!(truthy(skip_zero) && enemies.empty())) {`,
+      to: `        if (true) {`,
+    },
+    {
+      note: "apply_opoints：友军的 skip_zero 不生效",
+      file: "native/lfw/entity/entity.cpp",
+      from: `        if (!(truthy(skip_zero) && allies.empty())) {`,
+      to: `        if (true) {`,
+    },
+    {
+      note: "apply_opoints：敌人的谓词不看 is_fighter",
+      file: "native/lfw/entity/entity.cpp",
+      from: `          return entity::is_fighter_data(o.data()) && team() != o.team() && o.hp() > 0;`,
+      to: `          return team() != o.team() && o.hp() > 0;`,
+    },
+    {
+      note: "apply_opoints：敌人的谓词不看队伍",
+      file: "native/lfw/entity/entity.cpp",
+      from: `          return entity::is_fighter_data(o.data()) && team() != o.team() && o.hp() > 0;`,
+      to: `          return entity::is_fighter_data(o.data()) && o.hp() > 0;`,
+    },
+    {
+      note: "apply_opoints：敌人的谓词不看 hp",
+      file: "native/lfw/entity/entity.cpp",
+      from: `          return entity::is_fighter_data(o.data()) && team() != o.team() && o.hp() > 0;`,
+      to: `          return entity::is_fighter_data(o.data()) && team() != o.team();`,
+    },
+    {
+      note: "apply_opoints：multi_type 不记下来（chasing 分支永不命中）",
+      file: "native/lfw/entity/entity.cpp",
+      from: `      multi_type = type;`,
+      to: `      multi_type = Value();`,
+    },
+    {
+      note: "apply_opoints：友军谓词不排除自己",
+      file: "native/lfw/entity/entity.cpp",
+      from: `          if (&o == this) return false;`,
+      to: `          if (false) return false;`,
+    },
+    {
+      note: "apply_opoints：友军谓词不排除 src_emitter",
+      file: "native/lfw/entity/entity.cpp",
+      from: `          if (src != nullptr && o.id == *src) return false;`,
+      to: `          if (false) return false;`,
+    },
+    {
+      note: "apply_opoints：友军谓词不看 is_fighter",
+      file: "native/lfw/entity/entity.cpp",
+      from: `          if (!entity::is_fighter_data(o.data())) return false;`,
+      to: `          if (false) return false;`,
+    },
+    {
+      note: "apply_opoints：友军谓词不看队伍",
+      file: "native/lfw/entity/entity.cpp",
+      from: `          if (team() != o.team()) return false;`,
+      to: `          if (false) return false;`,
+    },
+    {
+      note: "apply_opoints：友军谓词不看 hp",
+      file: "native/lfw/entity/entity.cpp",
+      from: `          if (!(o.hp() > 0)) return false;`,
+      to: `          if (false) return false;`,
+    },
+    {
+      note: "apply_opoints：Emitter 分支的 count 写成 2",
+      file: "native/lfw/entity/entity.cpp",
+      from: `            allies.push_back(target);
+            count = 1;`,
+      to: `            allies.push_back(target);
+            count = 2;`,
+    },
+    {
+      note: "apply_opoints：Emitter 分支不记目标（chasing 拿不到）",
+      file: "native/lfw/entity/entity.cpp",
+      from: `            allies.push_back(target);
+            count = 1;`,
+      to: `            count = 1;`,
+    },
+    {
+      note: "apply_opoints：Normal spreading 的系数写成 2.0",
+      file: "native/lfw/entity/entity.cpp",
+      from: `        sp.z = (i - (count - 1) / 2) * 2.5;`,
+      to: `        sp.z = (i - (count - 1) / 2) * 2.0;`,
+    },
+    {
+      note: "apply_opoints：Spreading 的偏移回落值写成 0",
+      file: "native/lfw/entity/entity.cpp",
+      from: `        sp.x = num_of(gen_or(opoint, u"__gen_spread_x", Value(sp.x)));`,
+      to: `        sp.x = num_of(gen_or(opoint, u"__gen_spread_x", Value(0.0)));`,
+    },
+    {
+      note: "apply_opoints：Spreading 不再用生成器（sp 全是 0）",
+      file: "native/lfw/entity/entity.cpp",
+      from: `      } else if (strict_equals(spreading,
+                               Value(static_cast<double>(OpointSpreading::Spreading)))) {
+        sp.x`,
+      to: `      } else if (false) {
+        sp.x`,
+    },
+    {
+      note: "apply_opoints：FloatRange 段整段不生效",
+      file: "native/lfw/entity/entity.cpp",
+      from: `      if (strict_equals(spreading, Value(static_cast<double>(OpointSpreading::FloatRange)))) {
+        Value x`,
+      to: `      if (false) {
+        Value x`,
+    },
+    {
+      note: "apply_opoints：FloatRange 读的是 opoint 字段而不是生成器",
+      file: "native/lfw/entity/entity.cpp",
+      from: `        const Value gx = gen_or(opoint, u"__gen_spread_x", x);`,
+      to: `        const Value gx = field_or(opoint, u"__gen_spread_x");`,
+    },
+    {
+      note: "apply_opoints：FloatRange 把 x 的生成器写进 y",
+      file: "native/lfw/entity/entity.cpp",
+      from: `        if (!nullish(gx)) x = gx;`,
+      to: `        if (!nullish(gx)) y = gx;`,
+    },
+    {
+      note: "apply_opoints：spawn 失败后继续处理下一个 opoint",
+      file: "native/lfw/entity/entity.cpp",
+      from: `      if (e == nullptr) return;`,
+      to: `      if (e == nullptr) continue;`,
+    },
+    {
+      note: "apply_opoints：次数循环写成 i <= count",
+      file: "native/lfw/entity/entity.cpp",
+      from: `    for (double i = 0; i < count; ++i) {`,
+      to: `    for (double i = 0; i <= count; ++i) {`,
+    },
+    {
+      note: "apply_opoints：不带 spreading 偏移地生成",
+      file: "native/lfw/entity/entity.cpp",
+      from: `      Entity* e = spawn(opoint, sp, facing_now);`,
+      to: `      Entity* e = spawn(opoint);`,
+    },
+    {
+      note: "apply_opoints：chasing 对非 ball ctrl 也写",
+      file: "native/lfw/entity/entity.cpp",
+      from: `      if (ctrl != nullptr && ctrl->is_ball_ctrl()) {`,
+      to: `      if (ctrl != nullptr) {`,
+    },
+    {
+      note: "apply_opoints：敌人的 chasing 不写目标",
+      file: "native/lfw/entity/entity.cpp",
+      from: `          ctrl->chasing = enemies.empty()
+                              ? nullptr
+                              : enemies[static_cast<std::size_t>(std::fmod(i, enemies.size()))];`,
+      to: `          ctrl->chasing = nullptr;`,
+    },
+    {
+      note: "apply_opoints：友军的 chasing 不写目标",
+      file: "native/lfw/entity/entity.cpp",
+      from: `          ctrl->chasing = allies.empty()
+                              ? nullptr
+                              : allies[static_cast<std::size_t>(std::fmod(i, allies.size()))];`,
+      to: `          ctrl->chasing = nullptr;`,
+    },
+    {
+      note: "apply_opoints：Emitter 的 chasing 不写目标",
+      file: "native/lfw/entity/entity.cpp",
+      from: `          ctrl->chasing = allies.empty() ? nullptr : allies[0];`,
+      to: `          ctrl->chasing = nullptr;`,
+    },
+    {
+      note: "apply_opoints：inherit_speed 丢了生成后的速度项",
+      file: "native/lfw/entity/entity.cpp",
+      from: `      const Value vx = truthy(inherit_x)
+                           ? Value(e->velocity.x + velocity.x * to_number(inherit_x))
+                           : Value(NullTag{});`,
+      to: `      const Value vx = truthy(inherit_x) ? Value(e->velocity.x * to_number(inherit_x))
+                                          : Value(NullTag{});`,
+    },
+    {
+      note: "apply_opoints：inherit_speed_x 恒不写",
+      file: "native/lfw/entity/entity.cpp",
+      from: `      const Value vx = truthy(inherit_x)`,
+      to: `      const Value vx = false`,
+    },
+    {
+      note: "apply_opoints：inherit_speed 的 x/y 写反",
+      file: "native/lfw/entity/entity.cpp",
+      from: `      e->set_velocity(vx, vy, vz);`,
+      to: `      e->set_velocity(vy, vx, vz);`,
+    },
+    {
+      note: "apply_opoints：clamp 的 min/max 传反（敌人）",
+      file: "native/lfw/entity/entity.cpp",
+      from: `          count = clamp(static_cast<double>(enemies.size()), to_number(min), to_number(max));`,
+      to: `          count = clamp(static_cast<double>(enemies.size()), to_number(max), to_number(min));`,
+    },
+    {
+      note: "apply_opoints：clamp 的 min/max 传反（友军）",
+      file: "native/lfw/entity/entity.cpp",
+      from: `          count = clamp(static_cast<double>(allies.size()), to_number(min), to_number(max));`,
+      to: `          count = clamp(static_cast<double>(allies.size()), to_number(max), to_number(min));`,
+    },
+    {
+      note: "apply_opoints：set_hp 的死亡分支不再处理 brokens",
+      file: "native/lfw/entity/entity.cpp",
+      from: `      apply_opoints(brokens);`,
+      to: `      (void)brokens;`,
+    },
+    {
+      note: "find 的 pair 回落被去掉（set_frame 的 opoint 压实）",
+      file: "native/lfw/utils/container_help/find.h",
+      from: `    if (pred(pair)) return pair;`,
+      to: `    if (!pred(pair)) continue;`,
     },
   ],
 };

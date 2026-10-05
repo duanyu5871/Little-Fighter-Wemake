@@ -14,6 +14,9 @@
 #include "lfw/utils/times.h"
 
 namespace lfw {
+
+class Entity;
+
 namespace controller {
 
 enum class Status { UP = 0, DOWN = 1, HOLD = 2 };
@@ -61,6 +64,12 @@ class BaseController {
   }
   bool is_human() const { return _is_human; }
   bool is_bot() const { return _is_bot; }
+  // `is_ball_ctrl(this)`（`ctrl.__is_ball_ctrl__ === true`）与 `BallController.chasing`：
+  // `BallController` 模块还没移植，先把这两个面放在基类上（`set_kind` 同款），
+  // 等它的刀再把 `chasing` 搬进子类。
+  void set_ball(bool v) { _is_ball = v; }
+  bool is_ball_ctrl() const { return _is_ball; }
+  Entity* chasing = nullptr;
 
   double time() const { return _time.value(); }
 
@@ -123,6 +132,7 @@ class BaseController {
   std::u16string _readable_key_list;
   bool _is_human = false;
   bool _is_bot = false;
+  bool _is_ball = false;
   SeqKeys _seq_djdj;
   SeqKeys _seq_dddd;
   SeqKeys _seq_dada;

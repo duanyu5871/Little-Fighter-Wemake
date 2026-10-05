@@ -102,7 +102,31 @@ const worldStub = {
   add_entities: (e: Entity): void => {
     log.push("add_entities:" + e.id + ":" + r(e.spawn_time));
   },
+  // `world.list_entities(key, predicate)`：候选名单由 `env ents …` 指定，谓词由端口侧
+  // （TS 这里是真实 `Entity.apply_opoints`）提供。真实 `World` 按 key 缓存一份数组、
+  // 同名第二次不再过谓词 —— 那层属于 World 切片，差分里不建模。
+  // 名单只记 token：`run make` / `run buddy` 会换掉实体，而真实 `World` 每次筛的是
+  // 「当前」世界里的实体，所以这里也必须每次现查。
+  list_entities: (key: string, predicate: (o: Entity) => boolean): Entity[] => {
+    const out = candidateTokens
+      .map((tok) => candidateOf(tok))
+      .filter((e): e is Entity => !!e && predicate(e));
+    log.push("list_entities:" + key + ":" + out.length);
+    return out;
+  },
 };
+
+// `env ents …` 的候选名单（`self` / `buddy` / `sp<N>`）与 `env ballctrl b 1` 的开关。
+let candidateTokens: string[] = [];
+let ballCtrl = false;
+const spawnedList: Entity[] = [];
+
+function candidateOf(tok: string): Entity | undefined {
+  if (tok === "self") return ent;
+  if (tok === "buddy") return buddy;
+  if (tok.startsWith("sp")) return spawnedList[Number(tok.slice(2))];
+  return undefined;
+}
 
 // `world.entity_map.get(id)` must always see the current ids, so it is answered from
 // the live harness entities instead of a table that `reset` would invalidate.
@@ -111,6 +135,10 @@ worldStub.entity_map.get = ((id: string) => {
   if (buddy !== undefined && buddy.id === id) return buddy;
   return undefined;
 }) as never;
+
+// `world.find_entity(id)` 就是 `entity_map.get(id)`（`World.ts:925`），所以同一个实现。
+(worldStub as unknown as { find_entity: (id: string) => unknown }).find_entity = (id: string) =>
+  worldStub.entity_map.get(id);
 
 // `lfw.datas.find(id)`, filled by `env data`.
 const dataTable = new Map<string, Any>();
@@ -182,7 +210,10 @@ const lfwStub = {
   factory: {
     acquire_ctrl: (cls: new (pid: string, e: Any) => BaseController, pid: string, e: Any) => {
       log.push("acquire_ctrl");
-      return new cls(pid, e);
+      const c = new cls(pid, e);
+      // `env ballctrl b 1` ⇒ 新实体的控制器声称自己是 ball ctrl（`__is_ball_ctrl__`）。
+      if (ballCtrl) (c as unknown as { __is_ball_ctrl__: boolean }).__is_ball_ctrl__ = true;
+      return c;
     },
     release_ctrl: (c: BaseController | undefined): void => {
       log.push("release_ctrl:" + ctrlMark(c));
@@ -198,6 +229,7 @@ const lfwStub = {
       // 否则生成出来的实体走的是真实 `play_sound`（什么都不记）。回调不绑：端口侧生成出来的
       // 实体在宿主里没人注册回调，保持两侧观测面一致。
       bindHostSpies(spawned);
+      spawnedList.push(spawned);
       return spawned;
     },
   },
@@ -259,9 +291,19 @@ function spawnDump(e: Entity | undefined): string {
     `hp_max=${r(e.hp_max)} mp=${r(e.mp)} mp_max=${r(e.mp_max)} emitters=${r([...e.emitters])} ` +
     `bearer=${r(idRef(e.bearer))} holding=${r(idRef(e.holding))} mounted=${r(e.mounted)} ` +
     `ghosted=${r(e.ghosted)} spawn_time=${r(e.spawn_time)} ground_y=${r(e.ground_y)} ` +
-    `on_ground=${r(e.is_on_ground)}`
+    `on_ground=${r(e.is_on_ground)} ` +
+    // `is_ball_ctrl(ctrl)` 与 `ctrl.chasing`：两个都打（`chasing` 不因「不是 ball ctrl」
+    // 而隐藏，否则「往基控制器上写 chasing」这类变异看不见）。
+    `ball=${r(!!(e as unknown as { ctrl?: { __is_ball_ctrl__?: boolean } }).ctrl?.__is_ball_ctrl__)} ` +
+    `chasing=${r(idRef((e as unknown as { ctrl?: { chasing?: Entity } }).ctrl?.chasing))}`
   );
 }
+
+// `this._opoints` 的记账转储：`interval_id:tick` 对（`interval_id` 缺失写成 `-`）。
+const dumpOpoints = (e: Entity): string =>
+  (e as unknown as { _opoints: [Record<string, unknown>, number][] })._opoints
+    .map((pair) => `${pair[0]?.interval_id === void 0 ? "-" : r(pair[0].interval_id)}:${r(pair[1])}`)
+    .join(",");
 
 // `opoint.__gen_x?.get(emitter)`：TS 侧是真函数对象，场景用 `env gen` 注册常量。
 function applyGens(opoint: unknown): void {
@@ -395,9 +437,6 @@ const makeCtrl = (kind: string): BaseController | undefined => {
 // side spies them on each instance it creates — the buddy included.
 function bindHostSpies(e: Entity): void {
   const spies = e as unknown as Record<string, unknown>;
-  spies.apply_opoints = (o: unknown): void => {
-    log.push("apply_opoints:" + r(o));
-  };
   // `play_sound(sounds, pos = this.position)`: the spy stands in for the real method,
   // so it repeats that default parameter (the port passes the position explicitly).
   spies.play_sound = (s: unknown, pos: unknown = (e as unknown as { position: unknown }).position): void => {
@@ -947,6 +986,13 @@ function main(): void {
         gens.set(kind, parseValue(t, idx));
       } else if (sub === "genclear") {
         gens.clear();
+      } else if (sub === "ents") {
+        candidateTokens = t.slice(i);
+        log.push("ents:" + candidateTokens.join(","));
+      } else if (sub === "ballctrl") {
+        const flag = t[i++]!;
+        const v = t[i++]!;
+        ballCtrl = flag === "b" && v === "1";
       } else {
         process.stderr.write(`unknown env '${sub}'\n`);
         process.exit(2);
@@ -1642,11 +1688,27 @@ function main(): void {
             ent!.velocity,
           )}`,
         );
-      } else if (what === "opoints") {
+      } else if (what === "seedop") {
+        // 直接塞 `_opoints`（9i 的 `set_frame` 区间过滤场景用），不走 `apply_opoints`。
         const list = parseValue(t, [i]);
         const pairs = Array.isArray(list) ? list.map((o) => [o, 0]) : [];
         (ent as unknown as { _opoints: unknown })._opoints = pairs;
-        out.push(`run opoints ${r(list)} || ${log.join(",")} | n=${pairs.length}`);
+        out.push(`run seedop ${r(list)} || ${log.join(",")} | n=${pairs.length} itv=${dumpOpoints(ent!)}`);
+      } else if (what === "opoints") {
+        // `this.apply_opoints(list)`：记账 + multi 计数 + spreading + 逐个 spawn。
+        const list = parseValue(t, [i]);
+        // 打印用的是**原始**字面量（`env gen` 会往对象上挂生成器，挂完再渲染就多出字段）。
+        const listText = r(list);
+        // `__gen_*` 是端口侧的宿主缝（常驻 `g_gen`）⇒ TS 侧要逐个 opoint 挂一次生成器，
+        // 否则 `spawn` / `apply_opoints` 读不到（`run spawn` 分支就是这么做的）。
+        if (Array.isArray(list)) for (const o of list) applyGens(o);
+        spawned = undefined;
+        ent!.apply_opoints(list as never);
+        out.push(
+          `run opoints ${listText} || ${log.join(",")} | n=${
+            (ent as unknown as { _opoints: unknown[] })._opoints.length
+          } itv=${dumpOpoints(ent!)} | ${spawnDump(spawned)}`,
+        );
       } else if (what === "enter" || what === "enternext" || what === "enterid") {
         const idx = [i];
         let arg: unknown;

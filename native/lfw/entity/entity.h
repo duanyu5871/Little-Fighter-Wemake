@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <map>
 #include <memory>
 #include <optional>
@@ -72,13 +73,19 @@ class IEntityHost {
     (void)id;
     return Value();
   }
+  // `world.list_entities(key, predicate)`（`apply_opoints` 的 multi 计数）。返回的实体是
+  // 借用；TS 的 `World` 会按 key 缓存一份数组（同名第二次调用不再过谓词），那层在宿主侧。
+  virtual std::vector<Entity*> list_entities(const std::u16string& key,
+                                            const std::function<bool(Entity&)>& predicate) {
+    (void)key;
+    (void)predicate;
+    return {};
+  }
   // `world.entity_map.get(id)` — the TS side writes `?? null`, so a miss is `nullptr`.
   virtual Entity* find_entity(const std::u16string& id) const {
     (void)id;
     return nullptr;
   }
-  // `this.apply_opoints(this._data.base.brokens)`
-  virtual void apply_opoints(const Value& opoints) { (void)opoints; }
   // `world.entities.length + world.ghosts.length`（`spawn` 的 unimportant 门）。
   virtual double entity_count() const { return 0.0; }
   // `world.add_entities(this)`（`attach`）。
@@ -401,6 +408,10 @@ class Entity {
                    double facing);
   // `attach(ghost = false): this`
   Entity& attach(const Value& ghost = Value(false));
+  // `apply_opoints(opoints)`: the interval bookkeeping, the `multi` count, the three
+  // `spreading` offsets, one `spawn` per count, then the ball-controller `chasing` and
+  // the `inherit_speed_*` velocity write.
+  void apply_opoints(const Value& opoints);
 
   // --- stat helpers ----------------------------------------------------------
   void reset_armor();
