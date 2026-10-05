@@ -6504,3 +6504,101 @@ Fighter + Falling（1）—— 两侧各有一个 1 与一个 0，两道门的�
 
 这一刀**没有**打出端口 bug：86 个 getter 都是「读哪一边」的直译，第一次跑用例就全过；
 前两刀修过的保真缺口（`update_lookup` 的 `self_ref`、`reidentify`）在这一刀又各被间接覆盖了一次。
+
+## 64. 切片 3ac：`loader/preprocess_bdy` + `loader/preprocess_itr`（+ `action.tester` 落地）
+
+步骤 3 尾段的判定器装配层：把 `bdy` / `itr` / `action` 上「缺省的条件串」补出来（`test` 的
+CondMaker 默认值、`??=` 的数值默认、`hit_flag` 兜底），再把 `bdy.actions` / `itr.actions`
+逐条交给 `preprocess_action`。三处调用点（`preprocess_frame.ts` 的 `l[i] = preprocess_bdy(…)` /
+`preprocess_itr(…)`、`preprocess_entity_data.ts` 的 prefab 预热）都靠**返回值**回写。
+
+### 64.1 移植面
+
+| TS | 端口 |
+|---|---|
+| `preprocess_bdy(ctx)` / `preprocess_itr(ctx)`，`ctx = { lfw, data, jobs, frame?, bdy\|itr }` | `preprocess_bdy(Value& ctx, u16string& error)` / `preprocess_itr(...)`：从 `ctx` 读 `data` / `frame` / `bdy`\|`itr`，**成功时把结果写回 `ctx.bdy` / `ctx.itr`**（= TS 调用点的 `l[i] = …`），失败返回 `false` |
+| `lfw` / `jobs` | 不落地：端口 `preprocess_action(Value&)` 不接收它们（`A_SOUND` 的加载任务在端口是「只校验 path 可迭代」，见 §36 起的既有约定） |
+| `throw prefab_error('preprocess_bdy', data.id, 'bdy', merged)` | `error = prefab_error_message(...)` + `return false`；`data.id` 缺省时 `to_string(undefined)` 给 `"undefined"`，与 TS 模板串一致 |
+| `resolve_prefab(bdy, data.bdy_prefabs)` | 同名（`loader/resolve_prefab.{h,cpp}`，本刀第一个消费者），`prefabs` 缺省 = `undefined` ⇒ `prefabs?.[ref]` 恒 miss |
+| `bdy.__tester = bdy.test ? new Expression(...) : void 0` | `b->set(u"__tester", truthy(test) ? test : Value())`（见 64.2；**两种形态都会建出键**） |
+| `if (itr.test) itr.__tester = new Expression(...)` | `if (truthy(test)) it->set(u"__tester", test)`（**只有有 test 时才建键** —— 探针专门区分这两处） |
+| `action.tester = action.test ? new Expression(...) : void 0` | `a->set(u"tester", truthy(test) ? test : Value())`，位置在 `action.type` 大写化**之前**（同 TS） |
+| `between(kind, OLD_BDY_KIND_GOTO_MIN, OLD_BDY_KIND_GOTO_MAX)` | `ge(kind, n(1000)) && le(kind, n(1999))` —— 用 `core/value.h` 的**关系比较**（带 JS 的 `ToPrimitive` / `ToNumber`）：`"1005"` 会被数字化命分支，而 `switch (kind)` 那侧是 `strict_equals`（`"1"` 不命中任何 case）。两个常量就地定义（`defines/BdyKind.ts` 的 `OLD_BDY_KIND_GOTO_*` 不在生成的枚举表里） |
+| `set_hit_flag(info, v)` / `set_bdy_kind(bdy, v)` | `dat_translator::{set_hit_flag,set_bdy_kind}`（`hit_flag_name` / `kind_name` 一并写，顺带成为观察点） |
+| `ensure(actions, item, ...items)` | `lfw::ensure(acts, items)` + **三处调用点前的护栏**：`acts` 非假值又不是数组时 TS 的 `output.push` 不是函数 ⇒ 先 `return false`（`bdy` 的老式 goto、`itr` 的 Pick、`itr` 的 Heal-dvx） |
+| `itr.actions?.forEach((n,i,l) => l[i] = preprocess_action(lfw, n, jobs))` | 先 `truthy(actions)`、再 `as_array` 判空（TS 的 `?.forEach` 对非数组会抛），逐条 `preprocess_action(item)` 并把它的 `false` 往上抛 |
+| `get_next_frame_by_raw_id(itr.dvx, 'frame')` | `dat_translator::get_next_frame_by_raw_id(dvx, u"frame")`（`zero_as` 只在 id 为 `0`/`"0"` 时有区别，用例里 `n 0` 进不了这支、`s "0"` 才进） |
+
+`itr.kind` 的 14 个分支按 TS 的 `switch` 顺序照抄（Catch / ForceCatch / Normal×effect /
+Pick / PickSecretly / SuperPunchMe / MagicFlute+MagicFlute2 / Block / JohnShield / Heal /
+Freeze / Whirlwind / CharacterThrew），`??=` 一律翻成 `is_nullish(...) ? 写默认值 : 保持`
+（`null` 与 `undefined` 都算，`0` / `""` / `false` **不算**）。
+
+### 64.2 `__tester` / `action.tester`：编译产物装不进 `Value`
+
+TS 在这三处把 `new Expression(test, get_val_geter_from_collision)` 的**编译结果**挂到记录上
+（`bdy.__tester` / `itr.__tester` / `action.tester`，`preprocess_next_frame` 还有一个 `__judger`）。
+端口 `Value` 只有 7 种类型（§4.40 起的老结论），装不下一个带函数字段的 C++ 对象 ⇒
+
+1. **端口存源串**（`test` 不是字符串时存原值）：`__tester` / `tester` 的语义是「这里有一份
+   判定器源串」，消费侧（`collision.cpp` 的 `bdy.__tester`、`collision/keeper.cpp` 的
+   `action.tester`，两边都走 `CollisionCoreEnv::tester_run`）拿源串**按需编译**（`Expression` +
+   `get_val_getter_from_collision` 都在手）。宿主缝本来就把 `tester` 当不透明值转交，
+   所以这条约定不需要改任何消费侧签名。
+2. **加载期不再编译**：TS 的 `new Expression(...)` 在加载期会解析源串，两端词都不认识时还会
+   `Ditto.warn`（未装 sink 时是 `not a function`）—— 那是副作用不是数据，端口不产生。
+   `Expression` 的解析结果（`is_expression` / `children` / `err` …）本来就带函数字段、两端不可比
+   （§63 的 `__judger` 同款）。
+3. **差分对齐**：两侧都先记「键在不在、值真不真」（`-` / `u` / `s`）的探针，再把
+   `__tester` / `__judger` / `tester` 递归剥掉后比较其余字段。探针是必须的 —— 否则
+   §64.1 里「两种形态都会建键」与「只有有 test 才建键」这处差别完全不可见。
+
+### 64.3 保真要点
+
+1. **两处 `===` 与一处 `==`**：`kind === BdyKind.Normal`、`frame?.state === StateEnum.Caught` 是
+   **严格**比较（`"0"` / `"10"` 都不成立），而 `bdy.hit_flag == void 0` 是**松散**比较
+   （`null` 也算空 ⇒ 会补 `AllBoth`）。`frame` 不是对象时 `frame?.state` 读成 `undefined`。
+2. **关系比较 vs `switch`**：`between` 会数字化字符串 kind，`switch` 不会 —— 同一份
+   `kind: "1005"` 的数据因此「走老式 goto、但一个 kind 分支都不进」。
+3. **`vrest → arest` 是搬 + 删**：`itr.vrest` 为真值时 `arest = vrest` 且**删掉** `vrest`
+   （`0` / `null` 不动，键序上 `arest` 先出现）。Whirlwind 的 `injury = injury ?? void 0`
+   则是**建出键并给 undefined**（探针/渲染都看得见 `injury:u`）。
+4. **`hit_flag` 是「原值兜底」不是 `??=`**：五个分支写的是 `set_hit_flag(itr, itr.hit_flag ?? AllBoth)`
+   ⇒ 即使已有 `hit_flag` 也会**重写**一遍（连带 `hit_flag_name`），顺序上先于同分支的其它默认值。
+5. **Pick 的两条 pretest 动作**：`test_1` / `test_2` 是**在 ensure 之前**现造的串（`and_one_of`
+   与 id `115`/`117`），两个动作的键序不同（`desc` 在前 / `pretest` 在前）—— 照抄。
+6. **非对象 `bdy` 一律失败**（TS 在严格模式下给标量挂属性会抛 `TypeError`），而**非对象 `itr`
+   是「成功且无副作用」**（标量上读不到任何字段 ⇒ 没有分支命中、也没有写入）；
+   `null` / `undefined` 的 `bdy` / `itr` 都失败（TS 在 `obj.ref` 上抛）。
+7. **`ensure` 的 `output` 不是数组时 TS 会抛**（`output.push` 不是函数）：三处调用点前各加一道
+   `truthy(x) && as_array(x) == nullptr ⇒ return false` 的护栏，且护栏放在**同一位置**（Pick 的
+   `test ??=` 之后、Heal 的 `set_hit_flag` 之后）—— 失败时已发生的写入要与 TS 一致。
+
+### 64.4 有意不覆盖 / 等价
+
+1. **`bdy` / `itr` 是数组**：TS 能往数组实例上挂 `__tester`（数组是对象），端口的 `Array` 只有
+   元素没有键位 ⇒ `bdy` 侧按失败处理（这类数据没有意义）。`itr` 侧没有分支会命中 ⇒
+   两边都是「成功、无副作用」，用例里有 `a()` 这种输入。
+2. **`ctx` 不是对象**：端口 `return false`；用例总是给对象 ctx，TS 侧也表达不出「ctx 是标量」
+   （它读的是 `ctx.bdy`，抛的是 TypeError）。
+3. **CondMaker 每组首项的 `.add` ↔ `.and_` / `.or_` ↔ `.and_` / `wrap` ↔ `add`**：在空 maker /
+   空组上生成的串完全相同（`bdy` 的两组首项、`itr` 的 MFire2 / Pick 首项、Whirlwind 外层
+   `wrap`）⇒ 按构造等价，不进变异名单；**组内第二项起**的同类改写都在名单里。
+4. **`set_default` 的 `is_nullish` → `!truthy` 一族**：`motionless` / `shaking` / `dvx` 这些键的
+   默认值本身就是 `0`，两种判法结果相同；只有 `vrest ??= 1` 能区分，已单独列。
+5. **`get_next_frame_by_raw_id(dvx, 'frame' | 'repeat')`**：`dvx` 为真值 ⇒ 进不到 `id == 0` 那一支，
+   `zero_as` 只在 `s "0"` / `s "-0"` 这种「字符串零」（真值、但 `"" + id === "0"`）时可区分，
+   用例补了这两行。
+
+### 64.5 harness 与变异
+
+新 subject `loader_frames`（`subjects/loader_frames.{ts,cpp}`）只有两个 op：`bdy` / `itr`，
+参数是一个 ctx 字面量。TS 侧要补 `lfw`（`sounds` stub）与 `jobs` 并把**返回值**写回 ctx；
+两侧都先探针、后剥键，输出形如
+`bdy ok <data> [<frame>] <结果> t=<探针>`，失败再跟 `msg=<文本>`（**只有**以 `[` 开头的
+prefab 错误才比文本，TypeError 的文本两端不可能相同）。用例 `cases/loader_frames/all.txt`
+222 行（12 组场景）；变异名单 `mutations/loader_frames.mjs` 166 条 **166/166 全杀**
+（52 条打在 `preprocess_bdy.cpp`、97 条打在 `preprocess_itr.cpp`、17 条打在
+`preprocess_action.cpp` 的 `tester`；`cases: ["all"]` 过滤）。顺带把 `loader_actions` 的
+harness 对齐：`pa` / `pnf` 现在也要把编译产物剥掉（`preprocess_action` 落 `tester` 之后才对得上），
+那份 spec 重跑仍全杀。

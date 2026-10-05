@@ -50,6 +50,11 @@ bool sound_path_iterable(const Value& data) {
 bool preprocess_action(Value& action) {
   Object* a = as_object(action);
   if (a == nullptr) return false;
+  // TS：`action.tester = action.test ? new Expression(action.test, ...) : void 0`。
+  // `Value` 里没有放编译对象的槽，端口存**源串**（没有 `test` 时存 undefined，与 TS 的
+  // `= void 0` 一样会建出键），消费侧（`collision/keeper.cpp` 的 `core->tester_run`）按时机编译。
+  const Value test = field_of(action, u"test");
+  a->set(u"tester", truthy(test) ? test : Value());
   const Value* tv = a->get(u"type");
   if (tv == nullptr || !is_str(*tv)) return false;
   const std::u16string type = to_upper_ascii(std::get<std::u16string>(*tv));

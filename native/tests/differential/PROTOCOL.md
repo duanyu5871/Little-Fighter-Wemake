@@ -1086,6 +1086,8 @@ P.S. TS 侧那个 `Times.lifes` 的无限递归（`return this.lifes`）就是�
 ### 6.9.32 `loader_actions`（33/33；无等价变异）
 
 - subject `loader_actions`（op `bd` / `pa` / `pnf`）**68 行全对**，变异 **33/33 全杀**。
+  （3ac 起 `pa` / `pnf` 也会把编译产物剥掉：`preprocess_action` 现在会写 `action.tester`
+  （端口存源串），TS 侧一份编译对象 ⇒ 两边都删掉再比；那份 spec 重跑仍 33/33 全杀。）
 - **抛出路径也要渲染数据**：三个 op 的输出统一是 `<op> ok|throw <render(value)>`。
   如果抛出不渲染，就分不清"抛在 frames 还是 states" —— `if (!expand_comma_keys(holder))
   return false;` 的传播变异会活下来。渲染之后，"删了原键、新键没建成"这种**部分变更**
@@ -3626,3 +3628,47 @@ harness op：
   `same_team` 的两个参数交换（`is_ally` 对称）、`with_both` 的 `Value()` / `Value(0.0)`。
 - ⚠️ `tools/mutate.mjs` 新增可选字段 `cases: [...]`：只跑这几份用例（一份变异通常只有一两份
   用例看得见）。不写就照旧跑该 subject 的全部用例，既有 spec 不受影响。
+
+### 6.9.108 `loader/preprocess_bdy` + `loader/preprocess_itr`（新 subject `loader_frames`，222 行；变异 **166/166** 全杀）
+
+- 移植：`loader/preprocess_bdy.{h,cpp}`、`loader/preprocess_itr.{h,cpp}`（14 个 `itr.kind` 分支的
+  `??=` 默认条件 / `set_hit_flag` 兜底 / Pick 的两条 `pretest` 动作 / Heal 的 `dvx` 进帧 /
+  Whirlwind 的 `injury = injury ?? void 0`），外加 `loader/preprocess_action.cpp` 补 `action.tester`。
+- 函数形态：`bool preprocess_bdy(Value& ctx, std::u16string& error)`，`preprocess_itr` 同款。
+  从 `ctx` 读 `data` / `frame` / `bdy`|`itr`，**成功时把结果写回 `ctx.bdy` / `ctx.itr`**
+  （= TS 调用点的 `l[i] = preprocess_bdy({...ctx, bdy: n})`），失败返回 `false`；
+  `error` 只在 prefab 解析失败时是 TS `prefab_error(...)` 的 message。
+  `lfw` / `jobs` 不落地（端口 `preprocess_action` 不接收它们，`A_SOUND` 只校验 path 可迭代）。
+- 新增 subject `loader_frames`（`subjects/loader_frames.{ts,cpp}`）两个 op，参数是一个 ctx 字面量：
+  * `bdy <ctx>` → `bdy <ok|throw> <data> <frame> <结果> t=<探针>`，失败再跟 `msg=<文本>`
+    （`<frame>` 位置也印出来：`kind 0` + `frame.state 10` 那条路会改 `bdy`，`frame` 自己不该变）。
+  * `itr <ctx>` → `itr <ok|throw> <data> <结果> t=<探针>`（+ 同样的 `msg=`）。
+  * TS 侧：ctx 里补 `lfw`（`sounds` stub）与 `jobs`，并把 `preprocess_bdy` / `preprocess_itr` 的
+    **返回值写回** `ctx.bdy` / `ctx.itr`（真实调用点就是这么写的）；
+    `Ditto.error` / `Ditto.warn` 要换成空实现 —— `new Expression(...)` 在两端词都不认识时会调
+    它们（默认实现是 `not a function`，会直接把这一行变成 `throw`）。
+- ⚠️ **`__tester` / `action.tester` 的值两端不可比**：TS 挂的是编译好的 `Expression`（内部含函数
+  字段），端口存的是**源串**（见 DESIGN §64.2）。所以两侧都先探针、再剥键：
+  * 探针 `t=`：`__tester` 与**每条** `action.tester` 的 `-`（键不在）/ `u`（在、值假）/ `s`（在、值真），
+    逗号分隔（`bdy` / `itr` 自己的在前，然后是 `actions` 里逐条）。
+    这三位是**必须**的：`bdy.__tester = test ? … : void 0` 两种形态都会建键，而 `itr` 侧
+    `if (itr.test)` 只在有 test 时建键 —— 只看渲染（剥掉后）这处差别完全不可见。
+  * 剥键：递归删 `__tester` / `__judger` / `tester`（`__judger` 只有 TS 侧会写，
+    端口 `preprocess_next_frame` 不写，同 6.9.x 的既有约定）。
+- ⚠️ `msg=` 只比以 `[` 开头的文本：`prefab_error` 的 message 两端逐字相同，而其它失败
+  （`bdy` 是标量、`actions` 不是数组、动作缺 `type`、`A_SOUND` 的 `path` 不是字符串/数组……）
+  在 TS 里是 TypeError，文本不可能一致 ⇒ 只比 `throw` 这一位，`-` 表示“不比文本”。
+- 观察点：`set_hit_flag` / `set_bdy_kind` 会连带写 `hit_flag_name` / `kind_name`；
+  `test` 是**字符串数据**，CondMaker 的括号与 `&&`/`||` 顺序全在字符串里（错一个就差分出来）。
+- ⚠️ **关系比较与 `switch` 不同**：`between(kind, 1000, 1999)` 是 JS 的 `>=` / `<=`
+  （`"1005"` 会被数字化 ⇒ 进老式 goto），而 `switch (itr.kind)` 是 `===`（`"1"` 不命中任何分支）。
+  用例里 `kind s "1005"` 与 `kind s "1"` 各有一行。
+- ⚠️ `set_default` 那一族（`??=`）要用 `is_nullish`：`null` / `undefined` 才写默认值，
+  `0` / `""` / `false` **不写**。反过来 `hit_flag ?? AllBoth` 是“兜底重写”，已有值时也会重写一遍
+  （连带 `hit_flag_name`）。Whirlwind 的 `injury = injury ?? void 0` 会**建出键并给 undefined**
+  ⇒ 渲染里看得见 `injury:u`。
+- 不可观察 / 有意不覆盖（另见 DESIGN §64.4 与 `mutations/loader_frames.mjs` 头部）：
+  `bdy` / `itr` 是**数组**时（TS 能往数组上挂 `__tester`，端口的 `Array` 没有键位；
+  `itr` 侧两边一致所以用例里有 `a()`，`bdy` 侧端口按失败处理故不写）、`ctx` 不是对象、
+  CondMaker **每组首项**的 `.add` ↔ `.and_` / `.or_` ↔ `.and_` / `wrap` ↔ `add`（空 maker / 空组上
+  生成的串完全相同）、`motionless` / `shaking` / `dvx` 的 `is_nullish` → `!truthy`（默认值本身就是 `0`）。
