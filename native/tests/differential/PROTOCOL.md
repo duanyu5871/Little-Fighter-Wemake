@@ -3257,3 +3257,38 @@ harness op：
   `ice_piece_x` / `ice_piece_y` / `ice_piece_vx`、`r1`（`Randoming` 自带 name）、
   `drink_drop`（`CharacterState_Drink` 掉落分支）。
 - `dh_1` 不可观察（原因见 DESIGN §54.1-3），已记录在 `mutations/entity.mjs` 头部。
+
+### 6.9.99 `Entity` 的 opoint 生成簇 `spawn` / `on_spawn` / `attach`（`entity` 2479 行 = main 2326 + mt_probe 37 + spawn 116；变异 820/820 全杀，其中 9l 新增 61 条）
+
+- 新用例 `cases/entity/spawn.txt`（116 行），16 个场景：正常生成（`se_1` → `pick(oid)`
+  → `find_data` → `create_entity_with_bot` → `on_spawn` → `attach`）、同 id 进 `copies`、
+  `unimportant` × `entity_count` 355/356 边界、`oid` 缺失 / `datas` 里没有这个 oid、
+  `pos_type` 两支（需要非零 `centerx`/`centery` 才分得开）、`__gen_{x,y,z}` 的三态
+  （有生成器 / 生成器回 undefined / 根本没有这个字段）、`__gen_{dvx,dvy,dvz,facing}`、
+  hp·mp 四档覆盖（含「`max_hp` 不是数字」「只有 `max_hp`」两条）、Fixed/Extra 速度模式、
+  `spawnv` 的 offset+facing、`OpointKind.Pick` 的丢弃与双向链接、`Ball_Rebounding` 的
+  `lastest_collided` 替换、`attach` 的三支（ghost 标记、mounted 守卫、`frame.id == ""` → auto 帧）。
+- 新增 op：
+  * `env ecount <值>` / `env gtime <值>`（`world.list_entities().length` / `world.game_time` 的桩值）；
+  * `env gen <kind 字面量> <值字面量>` / `env genclear`（注册 / 清空 `__gen_*` 常量发生器，
+    同时挂到 opoint 与它的 `action` 上）；
+  * `run spawn <opoint 字面量>` / `run spawnv <opoint 字面量> <4 个值字面量>`
+    （后者给 `offset_velocity`（x/y/z）与 facing）；
+  * `run spawndump`（转储**最后一次生成尝试**的实体；失败时是 `none`）；
+  * `run attach <值字面量>`（对当前实体 `attach` 并转储它自己）；
+  * `run lastcollided <id 字面量> <队伍字面量>`（写 `lastest_collided.attacker`）。
+- **观察面**：每次生成都打印「宿主日志 + 新实体关键槽位 + 父实体的 `copies`」，
+  日志里的 `create_entity_with_bot:<数据转储>` / `play_sound:<sounds>@<pos>` /
+  `add_entities:<id>:<spawn_time>` 分别钉住「用了哪份数据」「进帧时的音效与位置」
+  「attach 的时机与时间戳」。
+- ⚠️ TS 侧工厂建出来的实体也要 `bindHostSpies`（否则它的 `play_sound` 走真实实现，
+  日志里少一条）；但**不绑回调** —— 端口侧生成的实体在宿主里没有回调注册。
+- ⚠️ `Ball_Rebounding` 判定读的是发射者**帧**的 `state`（`Entity.state` = `frame.state`）
+  ⇒ 场景里先用 `run frame` 换成 `state: 3003` 的帧；`run setstate` 只动状态机的 `_state`。
+- ⚠️ `ud = ctrl.UD()` 只在发射者 `type == 8`（`HitFlag.Fighter`）时生效 ⇒ 用例末尾把发射者
+  换成 `type n 8` 的实体，并用 `run keys 0 ±1 0` 给出 `ud = 1 / -1`，否则
+  `o_speedz * ud` 永远不可观察。
+- 已知偏差：端口 `Entity::_team` 是 `std::u16string`，数字队伍会被字符串化（TS 保持原值）
+  ⇒ `run lastcollided` 只喂字符串队伍（README 已知偏差表）。
+- `Entity::apply_opoints`（opoint 列表的消费方，含 `world.list_entities` / multi / spreading /
+  ball ctrl `chasing`）留下一刀；占位缝 `IEntityHost::apply_opoints` 仍在。

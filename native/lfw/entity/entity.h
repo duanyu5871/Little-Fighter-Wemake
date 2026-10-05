@@ -79,6 +79,29 @@ class IEntityHost {
   }
   // `this.apply_opoints(this._data.base.brokens)`
   virtual void apply_opoints(const Value& opoints) { (void)opoints; }
+  // `world.entities.length + world.ghosts.length`（`spawn` 的 unimportant 门）。
+  virtual double entity_count() const { return 0.0; }
+  // `world.add_entities(this)`（`attach`）。
+  virtual void add_entities(Entity& e) { (void)e; }
+  // `world.game_time`（`attach` 写 `_spawn_time`）。
+  virtual double game_time() const { return 0.0; }
+  // `world.lfw.factory.create_entity_with_bot("", this.world, data)`（`spawn`）。
+  // 所有权留在宿主（端口侧由宿主持有 `unique_ptr`），这里是借用；失败返回 `nullptr`
+  // （对应 TS 的 `undefined`，`spawn` 随之早退）。
+  virtual Entity* create_entity_with_bot(const Value& data) {
+    (void)data;
+    return nullptr;
+  }
+  // `opoint.__gen_x?.get(emitter)` / `nf.__gen_facing?.get(emitter)` 这类表达式字段：
+  // 函数对象按既有约定不移植（DESIGN §4.57），宿主按 `(holder, kind, emitter)` 回答；
+  // `nullopt` 表示没有该字段 ⇒ 调用方回落到 `holder.<kind 去掉 __gen_ 前缀>`。
+  virtual std::optional<Value> gen_field(const Value& holder, const std::u16string& kind,
+                                        Entity& emitter) {
+    (void)holder;
+    (void)kind;
+    (void)emitter;
+    return std::nullopt;
+  }
   // `this.play_sound(this._data.base.dead_sounds)` 等：真实实现（Message 状态的相机
   // 钳制、`lfw.sounds.play`）属于音频/相机切片，宿主只拿到 `(sounds, pos)`。
   virtual void play_sound(const Value& sounds, const Value& pos) {
@@ -368,6 +391,17 @@ class Entity {
   void transform(const Value& data);
   bool transfrom_to_another(const std::optional<Value>& data = std::nullopt);
 
+  // --- opoint spawning (`spawn` / `on_spawn` / `attach`) ---------------------------
+  // `spawn(opoint, offset_velocity = vec3(0,0,0), facing = this.facing)`：返回 `nullptr`
+  // 对应 TS 的 `undefined`（TS 在三个失败分支里打日志 + `debugger`，端口只早退）。
+  Entity* spawn(const Value& opoint);
+  Entity* spawn(const Value& opoint, const Vector3& offset_velocity, double facing);
+  // `on_spawn(emitter, opoint, offset_velocity = vec3(0,0,0), facing): this`
+  Entity& on_spawn(Entity& emitter, const Value& opoint, const Vector3& offset_velocity,
+                   double facing);
+  // `attach(ghost = false): this`
+  Entity& attach(const Value& ghost = Value(false));
+
   // --- stat helpers ----------------------------------------------------------
   void reset_armor();
   Entity& set_catching(Entity* v);
@@ -473,6 +507,10 @@ class Entity {
   Value ref() const;
 
  private:
+  // `(holder.__gen_x ? holder.__gen_x.get(emitter) : holder.x)`：`emitter` 是接收者
+  // （TS 的调用读的是 `emitter` 自己的表达式字段）。
+  Value gen_or(const Value& holder, const std::u16string& kind, const Value& fallback) const;
+
   double _lifetime = 0;
   double _spawn_time = 0;
   double _render_effect_time = 0;

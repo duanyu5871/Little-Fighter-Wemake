@@ -44,6 +44,14 @@ std::unique_ptr<Entity> g_buddy;
 Value g_restrict_result;
 // The harness MT: `run mtseed` reseeds it (both sides draw from the same stream).
 lfw::MersenneTwister g_mt(0.0);
+// `spawn` / `attach` host seams: `world.entities.length + world.ghosts.length`,
+// `world.game_time`, `world.add_entities`, `lfw.factory.create_entity_with_bot` and
+// the `__gen_*` expression-field stand-ins (`env ecount|gtime|gen`).
+double g_ecount = 0;
+double g_gtime = 0;
+std::vector<std::pair<std::u16string, Value>> g_gen;
+std::vector<std::unique_ptr<Entity>> g_spawns;
+Entity* g_last_spawn = nullptr;
 
 std::string render(const Value& v) { return to_ascii(render_value(v)); }
 std::string s_of(const std::u16string& s) { return to_ascii(s); }
@@ -360,6 +368,41 @@ class Host : public lfw::IEntityHost {
     g_log.push_back("apply_opoints:" + render(opoints));
   }
 
+  // `world.entities.length + world.ghosts.length`（`spawn` 的 unimportant 门）
+  double entity_count() const override { return g_ecount; }
+
+  // `world.add_entities(this)`（`attach`）——把实体挂进世界的那一刻，`_spawn_time`
+  // 已经写好，所以日志里带上它。
+  void add_entities(Entity& e) override {
+    g_log.push_back("add_entities:" + s_of(e.id) + ":" +
+                    render(Value(e.spawn_time())));
+  }
+
+  // `world.game_time`
+  double game_time() const override { return g_gtime; }
+
+  // `lfw.factory.create_entity_with_bot("", this.world, data)`：新实体的 id 来自
+  // `new_id()`（与 TS 的 `lfw.new_id` 同一个计数器）。真正的构造挂在 `make_entity`
+  // 上（`Host` 定义时 `g_host` 还不存在）。
+  std::function<Entity*(const Value&)> make_entity;
+
+  Entity* create_entity_with_bot(const Value& data) override {
+    g_log.push_back("create_entity_with_bot:" + render(data));
+    return make_entity != nullptr ? make_entity(data) : nullptr;
+  }
+
+  // `opoint.__gen_x?.get(emitter)` 这类表达式字段：TS 里是编译出来的函数对象，
+  // 端口按既有约定不移植（DESIGN §4.57）⇒ 场景用 `env gen` 注册一个常量生成器。
+  std::optional<Value> gen_field(const Value& holder, const std::u16string& kind,
+                                 Entity& emitter) override {
+    (void)holder;
+    (void)emitter;
+    for (const auto& kv : g_gen) {
+      if (kv.first == kind) return kv.second;
+    }
+    return std::nullopt;
+  }
+
   void play_sound(const Value& sounds, const Value& pos) override {
     g_log.push_back("play_sound:" + render(sounds) + "@" + render(pos));
   }
@@ -402,6 +445,17 @@ class Host : public lfw::IEntityHost {
 };
 
 std::unique_ptr<Host> g_host;
+
+// `Host::create_entity_with_bot` 的实体：id 走 `new_id()`，与 TS 的 `lfw.new_id` 同一个计数器。
+void bind_entity_factory() {
+  g_host->make_entity = [](const Value& data) -> Entity* {
+    auto e = std::make_unique<Entity>(*g_host, data, &g_states);
+    Entity* raw = e.get();
+    g_spawns.push_back(std::move(e));
+    g_last_spawn = raw;
+    return raw;
+  };
+}
 
 void bind_callbacks(Entity& e) {
   e.callbacks.on(u"on_hp_changed", [&e](const lfw::Callbacks::Payloads& a) {
@@ -520,6 +574,37 @@ Value vec3_value(const lfw::Vector3& v) {
   o.set(u"y", Value(v.y));
   o.set(u"z", Value(v.z));
   return Value(std::make_shared<lfw::Object>(o));
+}
+
+// `run spawn|spawnv|attach` 的观察点：被创建/挂载的那个实体的关键槽位。
+// 关系用 `{id}`（与 `idRef` 的 TS 侧一致），没有就是 `null`。
+std::string dump_spawn(const Entity* e) {
+  if (e == nullptr) return "none";
+  const auto id_ref = [](const Entity* p) -> Value {
+    if (p == nullptr) return Value(lfw::NullTag{});
+    lfw::Object o;
+    o.set(u"id", Value(p->id));
+    return Value(std::make_shared<lfw::Object>(o));
+  };
+  lfw::Array emitters;
+  for (const std::u16string& id : e->emitters) emitters.push_back(Value(id));
+  return "id=" + s_of(e->id) + " pos=" + render(vec3_value(e->position)) +
+         " pv=" + render(vec3_value(e->prev_position)) +
+         " v=" + render(vec3_value(e->velocity)) +
+         " pvv=" + render(vec3_value(e->prev_velocity)) +
+         " team=" + render(Value(e->team())) + " facing=" + render(Value(e->facing)) +
+         " frame=" + render(lfw::field_or(e->frame, u"id")) +
+         " motionless=" + render(Value(e->motionless)) +
+         " hp=" + render(e->hp()) + " hp_r=" + render(e->hp_r()) +
+         " hp_max=" + render(e->hp_max()) + " mp=" + render(e->mp()) +
+         " mp_max=" + render(e->mp_max()) +
+         " emitters=" + render(Value(std::make_shared<lfw::Array>(emitters))) +
+         " bearer=" + render(id_ref(e->bearer)) + " holding=" + render(id_ref(e->holding)) +
+         " mounted=" + render(Value(e->mounted())) +
+         " ghosted=" + render(Value(e->ghosted())) +
+         " spawn_time=" + render(Value(e->spawn_time())) +
+         " ground_y=" + render(Value(e->ground_y())) +
+         " on_ground=" + render(Value(e->is_on_ground));
 }
 
 bool get_num(const Entity& e, const std::string& name, double& out) {
@@ -718,6 +803,7 @@ int main(int argc, char** argv) {
 
   g_dataset = std::make_unique<lfw::WorldDataset>();
   g_host = std::make_unique<Host>();
+  bind_entity_factory();
   {
     lfw::Object o;
     g_bg_dataset = Value(std::make_shared<lfw::Object>(o));
@@ -747,6 +833,23 @@ int main(int argc, char** argv) {
         const std::u16string id = text_of(parse_value(t, i));
         lfw::Object* o = lfw::as_object(g_datas);
         o->set(id, parse_value(t, i));
+      } else if (sub == "ecount") {
+        g_ecount = lfw::to_number(parse_value(t, i));
+      } else if (sub == "gtime") {
+        g_gtime = lfw::to_number(parse_value(t, i));
+      } else if (sub == "gen") {
+        const std::u16string kind = text_of(parse_value(t, i));
+        const Value v = parse_value(t, i);
+        bool replaced = false;
+        for (auto& kv : g_gen) {
+          if (kv.first == kind) {
+            kv.second = v;
+            replaced = true;
+          }
+        }
+        if (!replaced) g_gen.emplace_back(kind, v);
+      } else if (sub == "genclear") {
+        g_gen.clear();
       } else {
         std::fprintf(stderr, "unknown env '%s' at line %d\n", sub.c_str(), lineno);
         return 2;
@@ -1284,6 +1387,16 @@ int main(int argc, char** argv) {
         }
         std::printf("run %s %s || %s | n=%zu\n", what.c_str(), render(key).c_str(),
                     join(g_log).c_str(), g_states.size());
+      } else if (what == "lastcollided") {
+        const std::u16string aid = text_of(parse_value(t, i));
+        const Value team = parse_value(t, i);
+        g_entity->lastest_collided = lfw::collision::Collision{};
+        g_entity->lastest_collided->attacker.id = aid;
+        g_entity->lastest_collided->attacker.team = team;
+        std::printf("run lastcollided %s %s || %s | a=%s t=%s\n", render(Value(aid)).c_str(),
+                    render(team).c_str(), join(g_log).c_str(),
+                    render(Value(g_entity->lastest_collided->attacker.id)).c_str(),
+                    render(g_entity->lastest_collided->attacker.team).c_str());
       } else if (what == "setstate" || what == "setstateb") {
         const double code = trace::to_double(t[i++]);
         Entity* target = what == "setstateb" ? g_buddy.get() : g_entity.get();
@@ -1427,6 +1540,32 @@ int main(int argc, char** argv) {
         std::printf("run mtcases || %s | text=%s n=%s\n", join(g_log).c_str(),
                     render(Value(text)).c_str(),
                     render(Value(static_cast<double>(lfw::mt_cases().cases().size()))).c_str());
+      } else if (what == "spawn" || what == "spawnv") {
+        const Value opoint = parse_value(t, i);
+        lfw::Vector3 off;
+        double fv = g_entity->facing;
+        if (what == "spawnv") {
+          off.x = lfw::to_number(parse_value(t, i));
+          off.y = lfw::to_number(parse_value(t, i));
+          off.z = lfw::to_number(parse_value(t, i));
+          fv = lfw::to_number(parse_value(t, i));
+        }
+        g_last_spawn = nullptr;
+        Entity* made = (what == "spawnv") ? g_entity->spawn(opoint, off, fv)
+                                          : g_entity->spawn(opoint);
+        lfw::Array copy_ids;
+        for (const std::u16string& cid : g_entity->copies) copy_ids.push_back(Value(cid));
+        std::printf("run %s || %s | %s | copies=%s\n", what.c_str(), join(g_log).c_str(),
+                    dump_spawn(made).c_str(),
+                    render(Value(std::make_shared<lfw::Array>(copy_ids))).c_str());
+      } else if (what == "spawndump") {
+        std::printf("run spawndump || %s | %s\n", join(g_log).c_str(),
+                    dump_spawn(g_last_spawn).c_str());
+      } else if (what == "attach") {
+        const Value ghost = parse_value(t, i);
+        Entity& e = g_entity->attach(ghost);
+        std::printf("run attach %s || %s | %s\n", render(ghost).c_str(), join(g_log).c_str(),
+                    dump_spawn(&e).c_str());
       } else if (what == "setpos") {
         const Value x = parse_value(t, i);
         const Value y = parse_value(t, i);

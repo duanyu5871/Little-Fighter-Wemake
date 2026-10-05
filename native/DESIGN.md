@@ -5467,5 +5467,98 @@ TS 的 `State_Base.on_restrict` 结尾是 `e.position.x = x; …`（**直写**�
 - `mt_random` 里 8 条旧变异的锚点因为 `random_in` / `ice_piece_*` 插入了 mark 行而失配，
   已按新代码重写（语义不变）。
 
+## 55. 切片 9l：Entity 的 opoint 生成簇（`spawn` / `on_spawn` / `attach`）
 
+**背景**：9f 移植了 `get_opoint_speed_z`，7c 的 `State_Frozen` 会产 `ice_piece_opoints`，
+但**消费这些 opoint 的三件套一直没搬**：`Entity::spawn` 负责「从 opoint 造出一个新实体」，
+`on_spawn` 负责新实体的位置 / 朝向 / 速度 / hp·mp / Pick 关系，`attach` 负责把它挂进世界。
+这一刀把三件套搬完（`apply_opoints` 与 `world.list_entities` 的联动留下一刀）。
 
+### 55.1 保真要点
+
+1. **`__gen_*` 表达式字段用宿主缝代替**：TS 的 `opoint.__gen_x?.get(emitter)` 是一个
+   **函数对象**，`src/` 里由 `ValExpression` 提供（模块未移植，§4.57 约定不引入）。
+   端口把它建模成 `IEntityHost::gen_field(holder, kind, emitter) -> std::optional<Value>`：
+   `nullopt` = 「这个对象上没有 `__gen_*` 字段」⇒ 走 `field_or(holder, kind)` 回落；
+   `Value()` = 「生成器存在但返回 undefined」⇒ 走 `?? 默认`。**两种"没有"必须分开**，
+   用例里各有一条场景（`env gen … u` 与 `env genclear`）。
+2. **`pick(oid)` 的输入可以是数组**：TS 的 `mt.pick(oid)` 对数组取一个元素、对字符串取一个
+   字符 ⇒ 用例第一条就是 `oid a 2 s "w1" s "nope"`，让「不 pick」这种变异必死。
+3. **门限是「`> 355` 且 unimportant」**：两个条件都在用例里各有对照
+   （`env ecount 355/356` × `unimportant` 有/无），否则 `>` 与 `>=` 分不开。
+4. **`attach` 是 `spawn` 的一部分**：`spawn` 的返回是
+   `on_spawn(...).attach(opoint.ghost)`，所以 `mounted` / `_spawn_time` / `add_entities`
+   都在 `spawn` 的日志里；把 `.attach` 去掉是第一条变异。
+5. **`Ball_Rebounding` 分支读的是发射者**帧**的 `state`**：`Entity.state` 就是
+   `frame.state`（9c 的口径），不是状态机的 code ⇒ 用例里先 `run frame` 换一张
+   `state: 3003` 的帧，再生成，才能真正走到那一支。
+6. **`z_disabled` 只在帧 state 是 `Normal`(15) / `Burning`(18) 时为真**：
+   `data.frames` 里的 state 值决定了「`o_speedz * ud` 看不看得见」，所以用例里
+   专门有一份 state 18 的数据（速度被清零）与 state 0 的数据（速度保留）。
+7. **`ud` 要求发射者是 fighter**：`is_fighter_data(emitter.data())` 比较的是
+   `HitFlag.Fighter`(8) 而不是 1 ⇒ 用例末尾专门 `run make` 一个 `type n 8` 的发射者，
+   否则 `ud` 恒 0、`o_speedz * ud` 这一项永远不可观察。
+8. **`o_speedz` 的三条来源**：opoint 里的 `speedz`、`get_opoint_speed_z` 的
+   「发射者是 fighter 且自身 state 在 Ball_Flying/Ball_3006/Weapon_Throwing/HeavyWeapon_InTheSky 里」
+   ⇒ `Defines.DEFAULT_OPOINT_SPEED_Z`(3.5)、否则 0。用例第三条路（`oid "w3"`
+   state 1002 且不写 `speedz`）就是为它准备的。
+9. **`pos_type` 两支要分得开需要非零中心点**：`centerx == 0` 时两支等价 ⇒
+   用例里把带 `centerx 7 / centery 3` 的帧**放在 pos_type 场景之前**。
+10. **`OpointKind::Pick`(2) 不只是设 bearer**：它先 `emitter.drop_holding()`，
+    再双向链接 `this.bearer = emitter; emitter.holding = this`。用例用
+    `run link holding self` 让发射者持着**自己**，于是 `drop_holding` 的清空
+    在后面的 `attach` 转储里看得见。
+11. **`Fixed`(6) / `Extra`(5) 速度模式读的是**进入后的帧**：opoint 里的 `dvx/vdy/dvz`
+    是 `o_dv*`（先除以 weight、再按 `abs(ovz/2)` 修正符号），而 `vxm/vym/vzm` 与
+    `dvx/dvy/dvz` 取自 `data.frames` 解析出来的帧对象 ⇒ 用例里用 `env data` 造了
+    `f1`（Fixed，且 `dvy` 带 `fvy_f` 系数）与 `f2`（Extra，三个 acc 同时给）。
+12. **`weight` 影响 `o_dvy` 与 `o_dvx`**：用例把 `p1` 数据的 base 设成 `weight 2`，
+    并让 UD 场景的 opoint 带 `dvy 8` ⇒ 「除以 weight」与「不除」分得开。
+
+### 55.2 harness 扩充
+
+- `IEntityHost` 新增 5 个缝（都是"宿主供给"而不是行为）：
+  `entity_count()`（`world.list_entities().length`）、`add_entities(Entity&)`（`world.add_entities`）、
+  `game_time()`（`world.game_time`）、`create_entity_with_bot(Value)`（`lfw.factory.create_entity_with_bot`）、
+  `gen_field(holder, kind, emitter)`（`__gen_*` 表达式字段，见 55.1-1）。
+  9l 之前占位注入的 `apply_opoints` 缝**保留**（`State_Frozen` 还在用），下一刀换成真方法。
+- C++ 侧新增全局 `g_ecount` / `g_gtime` / `g_gen` / `g_spawns` / `g_last_spawn` 与
+  `bind_entity_factory()`（让 Host 能在建实体时把新实体登记进 `g_spawns`），
+  `dump_spawn()` 打印新实体的关键槽位（id/pos/pv/v/pvv/team/facing/frame/motionless/
+  hp·hp_r·hp_max/mp·mp_max/emitters/bearer/holding/mounted/ghosted/spawn_time/ground_y/on_ground）。
+- 新 op：`env ecount|gtime <值>`、`env gen <kind 字面量> <值字面量>`、`env genclear`、
+  `run spawn <opoint>` / `run spawnv <opoint> <4 个值>`（带 offset_velocity 与 facing）、
+  `run spawndump`（转储最后一次生成的实体 + 当前日志）、`run attach <值字面量>`、
+  `run lastcollided <id> <team>`（写 `lastest_collided`，为 Ball_Rebounding 那一支）。
+- ⚠️ TS 侧的实体是**每个宿主方法一个 spy**（`bindHostSpies`）：工厂建出来的实体也要绑一次，
+  否则它走真实 `play_sound`（什么都不记）⇒ 第一版差分就卡在这里
+  （C++ 多一条 `play_sound:u@…`）。回调**不绑**：端口侧生成出来的实体在宿主里没人注册回调，
+  两侧观测面必须一致。
+- ⚠️ `run spawn` 的「本次结果」在 TS 侧要显式赋值给 `spawned`（失败时留旧值会让
+  `spawndump` 打出上一个实体），端口侧是 `g_last_spawn = nullptr` 起手。
+
+### 55.3 已知偏差 / 有意不覆盖
+
+1. **`Entity::_team` 是 `std::u16string`**（9a 起的设计），TS 的 `team` 保持原值 ⇒
+   `on_spawn` 的 Ball_Rebounding 分支若拿到**数字**队伍，两边表示不同（TS 存 `3`、
+   端口存 `"3"`）。用例只喂字符串队伍；这条偏差记进 README 的已知偏差表。
+2. `spawn` 失败分支里的 `Ditto.warn` + `debugger`（§4.57 约定）不移植。
+3. `fallback`（`States::fallback` 造出来的状态对象）在`on_spawn` 里只被 `state()` 读
+   ⇒ 没有额外的观察点。
+4. `spawn` 尾部的 `vrests` 复制循环：需要 `collision_clone`（碰撞工厂未移植）⇒
+   端口按 9i 约定原样复制记录，本主题的用例里 `vrests` 为空 ⇒ 不可观测。
+5. `as_key_role(false)` 的调用：`key_role` 只影响 `ctrl`/`player_id` 的后续路径，
+   本主题的转储里没有它的观察点（随控制器相关的刀补）。
+
+### 55.4 变异与结果
+
+- 本刀新增 61 条变异，**全部被杀**（`entity` 从 759 涨到 820）。
+- 分布：`spawn` 10、`on_spawn` 47、`attach` 4；其中 6 条是「观察面」变异
+  （`.__gen_*` 忽略、门限的两种写法、Pick 的 kind 值、Fixed 的逐轴覆盖），
+  其余是符号 / 键名 / 顺序 / 默认值。
+- 首轮 13 条存活，逐条查证后**全部是"用例没喂到那个分支"**，为此扩了场景：
+  `pos_type` 需要非零中心点、`o_dvx > 0` 的 `abs` 符号需要带 offset 的 `spawn`、
+  `Fixed` 的 `vy` 需要 offset 的 y、`max_hp` 需要没有 `hp` 的场景、
+  `Ball_Rebounding` 需要 `run reg 3003` + 一张 `state: 3003` 的帧、
+  `Pick` 的 kind 要用 2、`__gen_facing` 的回落要先 `genclear`。
+  改完这 7 处，13 条全杀。

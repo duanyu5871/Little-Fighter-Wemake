@@ -17,6 +17,7 @@
 #include "lfw/defines/game_key.h"
 #include "lfw/defines/hit_flag.h"
 #include "lfw/defines/itr_kind.h"
+#include "lfw/defines/opoint_kind.h"
 #include "lfw/defines/speed_ctrl.h"
 #include "lfw/defines/speed_mode.h"
 #include "lfw/defines/state_enum.h"
@@ -2060,6 +2061,206 @@ bool Entity::add_copy(const std::u16string& copy_id) {
   }
   copies.push_back(copy_id);
   return true;
+}
+
+// --- opoint spawning -----------------------------------------------------------
+
+// `(holder.__gen_x ? holder.__gen_x.get(emitter) : holder.x)`
+Value Entity::gen_or(const Value& holder, const std::u16string& kind,
+                     const Value& fallback) const {
+  const std::optional<Value> gen = host_->gen_field(holder, kind, const_cast<Entity&>(*this));
+  return gen.has_value() ? *gen : fallback;
+}
+
+namespace {
+// `Defines.NEXT_FRAME_AUTO`
+Value auto_frame_value() {
+  const Value* v = defines::find(u"Defines.NEXT_FRAME_AUTO");
+  return v != nullptr ? *v : Value();
+}
+}
+
+Entity* Entity::spawn(const Value& opoint) {
+  return spawn(opoint, Vector3{}, facing);
+}
+
+Entity* Entity::spawn(const Value& opoint, const Vector3& offset_velocity, double facing_value) {
+  if (truthy(field_or(opoint, u"unimportant")) && host_->entity_count() > 355) return nullptr;
+  host_->mt().mark = u"se_1";
+  const Value oid = host_->mt().pick_value(field_or(opoint, u"oid"));
+  if (!truthy(oid)) return nullptr;
+  const Value data = host_->find_data(to_string(oid));
+  if (std::holds_alternative<std::monostate>(data)) return nullptr;
+  Entity* entity = host_->create_entity_with_bot(data);
+  if (entity == nullptr) return nullptr;
+  entity->on_spawn(*this, opoint, offset_velocity, facing_value).attach(field_or(opoint, u"ghost"));
+  if (strict_equals(field_or(entity->data(), u"id"), field_or(_data, u"id"))) {
+    add_copy(entity->id);
+  }
+  entity->as_key_role(Value(false));
+  // TS `collision_clone(v)` 会向碰撞工厂要一个新 id；端口按 9i 的约定原样复制记录。
+  for (const auto& kv : vrests) entity->add_v_rest(kv.second);
+  return entity;
+}
+
+Entity& Entity::on_spawn(Entity& emitter, const Value& opoint, const Vector3& offset_velocity,
+                         double facing_value) {
+  const Value emitter_frame = emitter.frame;
+  if (equals(emitter.state(), Value(static_cast<double>(StateEnum::Ball_Rebounding)))) {
+    std::u16string attacker_id = emitter.id;
+    Value attacker_team = Value(emitter.team());
+    if (emitter.lastest_collided.has_value()) {
+      attacker_id = emitter.lastest_collided->attacker.id;
+      attacker_team = emitter.lastest_collided->attacker.team;
+    }
+    emitters.clear();
+    emitters.push_back(attacker_id);
+    set_team(to_string(attacker_team));
+    facing = emitter.facing;
+  } else {
+    emitters.insert(emitters.end(), emitter.emitters.begin(), emitter.emitters.end());
+    emitters.push_back(emitter.id);
+    set_team(emitter.team());
+    facing = emitter.facing;
+  }
+
+  double pos_x = emitter.position.x;
+  double pos_y = emitter.position.y;
+  const double pos_z = emitter.position.z;
+  const double opoint_y = num_of(or_nullish(emitter.gen_or(opoint, u"__gen_y", field_or(opoint, u"y")),
+                                            Value(0.0)));
+  const double opoint_x = num_of(or_nullish(emitter.gen_or(opoint, u"__gen_x", field_or(opoint, u"x")),
+                                            Value(0.0)));
+  const double opoint_z =
+      num_of(or_nullish(emitter.gen_or(opoint, u"__gen_z", field_or(opoint, u"z")), Value(2.0)));
+
+  if (equals(field_or(opoint, u"pos_type"), Value(1.0))) {
+    pos_y = pos_y - opoint_y;
+    pos_x = pos_x + emitter.facing * opoint_x;
+  } else {
+    pos_y = pos_y + to_number(field_or(emitter_frame, u"centery")) - opoint_y;
+    pos_x = pos_x - emitter.facing * (to_number(field_or(emitter_frame, u"centerx")) - opoint_x);
+  }
+  prev_position = emitter.position;
+  set_position(Value(pos_x), Value(pos_y), Value(pos_z + opoint_z));
+
+  const Value result = get_next_frame(field_or(opoint, u"action"));
+  const Value which = field_or(result, u"which");
+  const Value nf_facing =
+      emitter.gen_or(which, u"__gen_facing", field_or(which, u"facing"));
+  facing_value = truthy(nf_facing) ? handle_facing_flag(nf_facing) : emitter.facing;
+
+  if (truthy(result)) {
+    enter_frame(which);
+  } else {
+    enter_frame(auto_frame_value());
+  }
+
+  const Value speedz_field = field_or(opoint, u"speedz");
+  const double o_speedz = std::holds_alternative<std::monostate>(speedz_field)
+                              ? to_number(get_opoint_speed_z(&emitter, opoint))
+                              : to_number(speedz_field);
+  double o_dvx =
+      num_of(or_nullish(emitter.gen_or(opoint, u"__gen_dvx", field_or(opoint, u"dvx")), Value(0.0)));
+  double o_dvy =
+      num_of(or_nullish(emitter.gen_or(opoint, u"__gen_dvy", field_or(opoint, u"dvy")), Value(0.0)));
+  const double o_dvz =
+      num_of(or_nullish(emitter.gen_or(opoint, u"__gen_dvz", field_or(opoint, u"dvz")), Value(0.0)));
+
+  const double weight = this->weight();
+  o_dvy = o_dvy / weight;
+  const controller::BaseController* ctrl = emitter.ctrl();
+  const double ud =
+      entity::is_fighter_data(emitter.data()) && ctrl != nullptr ? static_cast<double>(ctrl->UD())
+                                                                : 0.0;
+
+  const Value max_hp = field_or(opoint, u"max_hp");
+  if (is_num(max_hp)) {
+    const double v = to_number(max_hp);
+    set_hp_max(v);
+    set_hp_r(v);
+    set_hp(v);
+  }
+  const Value hp_field = field_or(opoint, u"hp");
+  if (is_num(hp_field)) {
+    const double v = to_number(hp_field);
+    set_hp_r(v);
+    set_hp(v);
+  }
+  const Value max_mp = field_or(opoint, u"max_mp");
+  if (is_num(max_mp)) {
+    const double v = to_number(max_mp);
+    set_mp_max(v);
+    set_mp(v);
+  }
+  const Value mp_field = field_or(opoint, u"mp");
+  if (is_num(mp_field)) set_mp(to_number(mp_field));
+
+  const double dvy_now = num_of(dvy());
+  const double dvz_now = num_of(dvz());
+  const double dvx_now = num_of(dvx());
+  const Value vxm = field_or(frame, u"vxm");
+  const Value vym = field_or(frame, u"vym");
+  const Value vzm = field_or(frame, u"vzm");
+  const double acc_x = num_of(field_or(frame, u"acc_x"));
+  const double acc_y = num_of(field_or(frame, u"acc_y"));
+  const double acc_z = num_of(field_or(frame, u"acc_z"));
+
+  const Value result_state = field_or(field_or(result, u"frame"), u"state");
+  const bool z_disabled = equals(result_state, Value(static_cast<double>(StateEnum::Normal))) ||
+                          equals(result_state, Value(static_cast<double>(StateEnum::Burning)));
+
+  const Value ovx = Value(offset_velocity.x);
+  const Value ovy = Value(offset_velocity.y);
+  const Value ovz = Value(offset_velocity.z);
+  if (o_dvx > 0) o_dvx = o_dvx / weight - std::abs(offset_velocity.z / 2);
+  else o_dvx = o_dvx / weight + std::abs(offset_velocity.z / 2);
+  double vx = to_number(ovx) + o_dvx * facing_value;
+  double vy = to_number(ovy) + o_dvy + dvy_now;
+  double vz = z_disabled ? 0 : to_number(ovz) + o_dvz + o_speedz * ud;
+  if (equals(vxm, Value(static_cast<double>(SpeedMode::Fixed)))) vx = dvx_now;
+  if (equals(vym, Value(static_cast<double>(SpeedMode::Fixed)))) vy = dvy_now;
+  if (equals(vzm, Value(static_cast<double>(SpeedMode::Fixed)))) vz = dvz_now;
+  if (equals(vxm, Value(static_cast<double>(SpeedMode::Extra))) && acc_x != 0) vx += acc_x;
+  if (equals(vym, Value(static_cast<double>(SpeedMode::Extra))) && acc_y != 0) vy += acc_y;
+  if (equals(vzm, Value(static_cast<double>(SpeedMode::Extra))) && acc_z != 0) vz += acc_z;
+
+  prev_velocity.x = velocity.x = round_float(vx);
+  prev_velocity.y = velocity.y = round_float(vy);
+  prev_velocity.z = velocity.z = round_float(vz);
+
+  if (equals(field_or(opoint, u"kind"), Value(static_cast<double>(OpointKind::Pick)))) {
+    emitter.drop_holding();
+    bearer = &emitter;
+    bearer->holding = this;
+  }
+  motionless = to_number(or_nullish(field_or(opoint, u"motionless"), Value(2.0)));
+  return *this;
+}
+
+Entity& Entity::attach(const Value& ghost) {
+  if (truthy(Value(_mounted))) return *this;
+  _spawn_time = host_->game_time();
+  _mounted = 1;
+  _ghosted = truthy(ghost) ? 1 : 0;
+  if (truthy(Value(_ghosted))) {
+    motionless = 0;
+    shaking = 0;
+  }
+  host_->add_entities(*this);
+
+  set_state(field_or(frame, u"state"));
+
+  set_position(Value(position.x), Value(position.y), Value(position.z));
+  if (position.y > ground_y()) {
+    leave_ground();
+  } else {
+    is_on_ground = true;
+  }
+  if (strict_equals(field_or(frame, u"id"), Value(std::u16string(frame_id::kNone)))) {
+    enter_frame(auto_frame_value());
+  }
+  return *this;
 }
 
 }

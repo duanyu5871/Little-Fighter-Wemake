@@ -94,6 +94,14 @@ const worldStub = {
   },
   sounds: { play: (): void => undefined },
   entity_map: new Map<string, Any>(),
+  // `spawn` 的三个世界读点：`entities.length + ghosts.length`（unimportant 门）、
+  // `world.add_entities(this)`（attach）与 `world.game_time`（`_spawn_time`）。
+  entities: [] as unknown[],
+  ghosts: [] as unknown[],
+  game_time: 0,
+  add_entities: (e: Entity): void => {
+    log.push("add_entities:" + e.id + ":" + r(e.spawn_time));
+  },
 };
 
 // `world.entity_map.get(id)` must always see the current ids, so it is answered from
@@ -183,6 +191,15 @@ const lfwStub = {
       log.push("create_ctrl:" + r(id) + ":" + r(pid));
       return new BaseController("", e);
     },
+    create_entity_with_bot: (_bot: string, world: unknown, data: unknown): Entity | undefined => {
+      log.push("create_entity_with_bot:" + r(data));
+      spawned = new Entity(world as never, data as never, states as never);
+      // 端口侧的实体天然带宿主缝；TS 实例是把宿主方法替换成 spy，所以这里也要绑一次，
+      // 否则生成出来的实体走的是真实 `play_sound`（什么都不记）。回调不绑：端口侧生成出来的
+      // 实体在宿主里没人注册回调，保持两侧观测面一致。
+      bindHostSpies(spawned);
+      return spawned;
+    },
   },
 };
 
@@ -229,6 +246,36 @@ let buddy: Entity | undefined = undefined;
 // `run hook ...` can be observed — exactly like the real game, where `set_state` is
 // the only way a state becomes active.
 const states = new States();
+// `spawn` / `attach` 的双件状态：最后创建的实体、`env gen` 注册的表达式字段常量。
+let spawned: Entity | undefined = undefined;
+const gens = new Map<string, unknown>();
+
+function spawnDump(e: Entity | undefined): string {
+  if (!e) return "none";
+  return (
+    `id=${e.id} pos=${r(e.position)} pv=${r(e.prev_position)} v=${r(e.velocity)} ` +
+    `pvv=${r(e.prev_velocity)} team=${r(e.team)} facing=${r(e.facing)} ` +
+    `frame=${r(e.frame?.id)} motionless=${r(e.motionless)} hp=${r(e.hp)} hp_r=${r(e.hp_r)} ` +
+    `hp_max=${r(e.hp_max)} mp=${r(e.mp)} mp_max=${r(e.mp_max)} emitters=${r([...e.emitters])} ` +
+    `bearer=${r(idRef(e.bearer))} holding=${r(idRef(e.holding))} mounted=${r(e.mounted)} ` +
+    `ghosted=${r(e.ghosted)} spawn_time=${r(e.spawn_time)} ground_y=${r(e.ground_y)} ` +
+    `on_ground=${r(e.is_on_ground)}`
+  );
+}
+
+// `opoint.__gen_x?.get(emitter)`：TS 侧是真函数对象，场景用 `env gen` 注册常量。
+function applyGens(opoint: unknown): void {
+  const o = opoint as Record<string, unknown>;
+  for (const [kind, v] of gens) {
+    const gen = { get: (): unknown => v };
+    o[kind] = gen;
+    const action = o["action"];
+    if (action && typeof action === "object") {
+      (action as Record<string, unknown>)[kind] = gen;
+    }
+  }
+}
+
 
 // What `run hook ...` configures.  A hook that is "off" returns `undefined` without
 // logging, which is what a missing TS callback does (`this._state?.get_gravity?.(…)`).
@@ -889,6 +936,17 @@ function main(): void {
         const idx = [i];
         const id = String(parseValue(t, idx));
         dataTable.set(id, parseValue(t, idx));
+      } else if (sub === "ecount") {
+        const n = Number(parseValue(t, [i]));
+        (worldStub as unknown as { entities: unknown[] }).entities = new Array<unknown>(n);
+      } else if (sub === "gtime") {
+        (worldStub as unknown as { game_time: number }).game_time = Number(parseValue(t, [i]));
+      } else if (sub === "gen") {
+        const idx = [i];
+        const kind = String(parseValue(t, idx));
+        gens.set(kind, parseValue(t, idx));
+      } else if (sub === "genclear") {
+        gens.clear();
       } else {
         process.stderr.write(`unknown env '${sub}'\n`);
         process.exit(2);
@@ -1374,6 +1432,14 @@ function main(): void {
           (bare ? new State_Base(key as never) : new HarnessState(key as never)) as never,
         );
         out.push(`run ${what} ${r(key)} || ${log.join(",")} | n=${states.map.size}`);
+      } else if (what === "lastcollided") {
+        const idx = [i];
+        const aid = parseValue(t, idx);
+        const team = parseValue(t, idx);
+        (ent as Any).lastest_collided = { attacker: { id: aid, team } };
+        out.push(
+          `run lastcollided ${r(aid)} ${r(team)} || ${log.join(",")} | a=${r(aid)} t=${r(team)}`,
+        );
       } else if (what === "setstate" || what === "setstateb") {
         const code = Number(t[i++]!);
         const e = (what === "setstateb" ? buddy : ent)!;
@@ -1526,6 +1592,34 @@ function main(): void {
         out.push(
           `run mtcases || ${log.join(",")} | text=${r(text)} n=${r(mt_cases.cases.length)}`,
         );
+      } else if (what === "spawn" || what === "spawnv") {
+        const idx = [i];
+        const opoint = parseValue(t, idx);
+        applyGens(opoint);
+        let made: Entity | undefined;
+        if (what === "spawnv") {
+          const ox = Number(parseValue(t, idx));
+          const oy = Number(parseValue(t, idx));
+          const oz = Number(parseValue(t, idx));
+          const facing = Number(parseValue(t, idx));
+          made = ent!.spawn(
+            opoint as never,
+            Ditto.vec3(ox, oy, oz) as never,
+            facing as never,
+          );
+        } else {
+          made = ent!.spawn(opoint as never);
+        }
+        spawned = made;
+        out.push(
+          `run ${what} || ${log.join(",")} | ${spawnDump(made)} | copies=${r([...ent!.copies])}`,
+        );
+      } else if (what === "spawndump") {
+        out.push(`run spawndump || ${log.join(",")} | ${spawnDump(spawned)}`);
+      } else if (what === "attach") {
+        const ghost = parseValue(t, [i]);
+        ent!.attach(ghost as never);
+        out.push(`run attach ${r(ghost)} || ${log.join(",")} | ${spawnDump(ent)}`);
       } else if (what === "setpos") {
         const idx = [i];
         const x = parseValue(t, idx);

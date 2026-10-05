@@ -43,6 +43,13 @@
 //  * The mutation runner rebuilds and compares whole traces, so a wrong literal, a
 //    dropped notification, an inverted clamp or a swapped `??` all surface as drift.
 
+// 9l（spawn / on_spawn / attach）补充说明：
+//  * 端口把 `Entity::_team` 建模成 `std::u16string`（9a 起的设计），而 TS 的 `team`
+//    保持原值。碰撞攻击者带**数字**队伍时两边表示不同（TS 存 3、端口存 "3"）⇒ 用例里
+//    的 `run lastcollided` 只喂字符串队伍；这条偏差记录在 README 的已知偏差表。
+//  * `spawn` 失败分支里 TS 的 `Ditto.warn` + `debugger`（§4.57 约定）不移植。
+//  * `collision_clone(v)` 需要碰撞工厂（未移植）⇒ 端口按 9i 约定原样复制 vrest 记录，
+//    用例里 vrests 为空 ⇒ `spawn` 尾部的复制循环在本主题不可观测。
 // 9k（mt.mark 探针）不可观察项：
 //  * `drop_holding` 的 `mark = "dh_1"` 在 TS 里被紧随其后的 `enter_frame` 链覆盖
 //    （对齐帧一定带 id ⇒ `get_next_frame` 的 id 分支必然再写 `gnf_1`），
@@ -4642,6 +4649,431 @@ export default {
       file: "native/lfw/entity/entity.cpp",
       from: `    host_->mt().mark = u\"gnf_1\";\n    found_frame = find_frame_by_id(host_->mt().pick_value(id_value));`,
       to: `    found_frame = find_frame_by_id(host_->mt().pick_value(id_value));\n    host_->mt().mark = u\"gnf_1\";`,
+    },
+
+    {
+      note: "spawn(opoint)：单参重载丢掉 offset",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  return spawn(opoint, Vector3{}, facing);`,
+      to: `  return spawn(opoint, Vector3{1, 0, 0}, facing);`,
+    },
+    {
+      note: "spawn：unimportant 门整条去掉",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  if (truthy(field_or(opoint, u"unimportant")) && host_->entity_count() > 355) return nullptr;`,
+      to: `  if (false) return nullptr;`,
+    },
+    {
+      note: "spawn：实体数门限写成 >= 355",
+      file: "native/lfw/entity/entity.cpp",
+      from: `host_->entity_count() > 355) return nullptr;`,
+      to: `host_->entity_count() >= 355) return nullptr;`,
+    },
+    {
+      note: "spawn：unimportant 判定取反",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  if (truthy(field_or(opoint, u"unimportant")) && host_->entity_count() > 355) return nullptr;`,
+      to: `  if (!truthy(field_or(opoint, u"unimportant")) && host_->entity_count() > 355) return nullptr;`,
+    },
+    {
+      note: "spawn：mark 写成 se_x",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  host_->mt().mark = u"se_1";`,
+      to: `  host_->mt().mark = u"se_x";`,
+    },
+    {
+      note: "spawn：oid 不做 pick，直接用数组",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  const Value oid = host_->mt().pick_value(field_or(opoint, u"oid"));`,
+      to: `  const Value oid = field_or(opoint, u"oid");`,
+    },
+    {
+      note: "spawn：不调用 attach",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  entity->on_spawn(*this, opoint, offset_velocity, facing_value).attach(field_or(opoint, u"ghost"));`,
+      to: `  entity->on_spawn(*this, opoint, offset_velocity, facing_value);`,
+    },
+    {
+      note: "spawn：ghost 参数恒为真",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  entity->on_spawn(*this, opoint, offset_velocity, facing_value).attach(field_or(opoint, u"ghost"));`,
+      to: `  entity->on_spawn(*this, opoint, offset_velocity, facing_value).attach(Value(true));`,
+    },
+    {
+      note: "spawn：同 id 也不进 copies",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  if (strict_equals(field_or(entity->data(), u"id"), field_or(_data, u"id"))) {`,
+      to: `  if (false) {`,
+    },
+    {
+      note: "spawn：copies 记自己而不是新实体",
+      file: "native/lfw/entity/entity.cpp",
+      from: `    add_copy(entity->id);`,
+      to: `    add_copy(id);`,
+    },
+    {
+      note: "on_spawn：不合并发射者已有的 emitters",
+      file: "native/lfw/entity/entity.cpp",
+      from: `    emitters.insert(emitters.end(), emitter.emitters.begin(), emitter.emitters.end());`,
+      to: `    (void)0;`,
+    },
+    {
+      note: "on_spawn：emitters 里写常量",
+      file: "native/lfw/entity/entity.cpp",
+      from: `    emitters.push_back(emitter.id);`,
+      to: `    emitters.push_back(u"x");`,
+    },
+    {
+      note: "on_spawn：team 不跟发射者",
+      file: "native/lfw/entity/entity.cpp",
+      from: `    emitters.push_back(emitter.id);
+    set_team(emitter.team());`,
+      to: `    emitters.push_back(emitter.id);
+    set_team(u"9");`,
+    },
+    {
+      note: "on_spawn：朝向不跟发射者（普通分支）",
+      file: "native/lfw/entity/entity.cpp",
+      from: `    emitters.push_back(emitter.id);
+    set_team(emitter.team());
+    facing = emitter.facing;`,
+      to: `    emitters.push_back(emitter.id);
+    set_team(emitter.team());
+    facing = 1;`,
+    },
+    {
+      note: "on_spawn：Ball_Rebounding 分支用发射者而不是 attacker",
+      file: "native/lfw/entity/entity.cpp",
+      from: `      attacker_id = emitter.lastest_collided->attacker.id;`,
+      to: `      attacker_id = emitter.id;`,
+    },
+    {
+      note: "on_spawn：Ball_Rebounding 分支的 team 用发射者",
+      file: "native/lfw/entity/entity.cpp",
+      from: `      attacker_team = emitter.lastest_collided->attacker.team;`,
+      to: `      attacker_team = Value(emitter.team());`,
+    },
+    {
+      note: "on_spawn：Ball_Rebounding 分支不看 lastest_collided",
+      file: "native/lfw/entity/entity.cpp",
+      from: `    if (emitter.lastest_collided.has_value()) {`,
+      to: `    if (false) {`,
+    },
+    {
+      note: "on_spawn：Ball_Rebounding 分支不清空 emitters",
+      file: "native/lfw/entity/entity.cpp",
+      from: `    emitters.clear();
+    emitters.push_back(attacker_id);`,
+      to: `    emitters.push_back(u"z");
+    emitters.push_back(attacker_id);`,
+    },
+    {
+      note: "on_spawn：opoint_y 的 ?? 回落到 1",
+      file: "native/lfw/entity/entity.cpp",
+      from: `                                            Value(0.0)));
+  const double opoint_x`,
+      to: `                                            Value(1.0)));
+  const double opoint_x`,
+    },
+    {
+      note: "on_spawn：opoint_z 的 ?? 回落到 0",
+      file: "native/lfw/entity/entity.cpp",
+      from: `      num_of(or_nullish(emitter.gen_or(opoint, u"__gen_z", field_or(opoint, u"z")), Value(2.0)));`,
+      to: `      num_of(or_nullish(emitter.gen_or(opoint, u"__gen_z", field_or(opoint, u"z")), Value(0.0)));`,
+    },
+    {
+      note: "on_spawn：x 不看 opoint.x，只走生成器",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  const double opoint_x = num_of(or_nullish(emitter.gen_or(opoint, u"__gen_x", field_or(opoint, u"x")),
+                                            Value(0.0)));`,
+      to: `  const double opoint_x = num_of(or_nullish(emitter.gen_or(opoint, u"__gen_x", Value(0.0)), Value(0.0)));`,
+    },
+    {
+      note: "on_spawn：pos_type 比较的是 2",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  if (equals(field_or(opoint, u"pos_type"), Value(1.0))) {`,
+      to: `  if (equals(field_or(opoint, u"pos_type"), Value(2.0))) {`,
+    },
+    {
+      note: "on_spawn：pos_type=1 分支的 y 加号",
+      file: "native/lfw/entity/entity.cpp",
+      from: `    pos_y = pos_y - opoint_y;
+    pos_x = pos_x + emitter.facing * opoint_x;`,
+      to: `    pos_y = pos_y + opoint_y;
+    pos_x = pos_x + emitter.facing * opoint_x;`,
+    },
+    {
+      note: "on_spawn：pos_type=1 分支的 x 减号",
+      file: "native/lfw/entity/entity.cpp",
+      from: `    pos_x = pos_x + emitter.facing * opoint_x;`,
+      to: `    pos_x = pos_x - emitter.facing * opoint_x;`,
+    },
+    {
+      note: "on_spawn：else 分支读错 centerx/centery",
+      file: "native/lfw/entity/entity.cpp",
+      from: `    pos_y = pos_y + to_number(field_or(emitter_frame, u"centery")) - opoint_y;`,
+      to: `    pos_y = pos_y + to_number(field_or(emitter_frame, u"centerx")) - opoint_y;`,
+    },
+    {
+      note: "on_spawn：else 分支的中心偏移符号",
+      file: "native/lfw/entity/entity.cpp",
+      from: `    pos_x = pos_x - emitter.facing * (to_number(field_or(emitter_frame, u"centerx")) - opoint_x);`,
+      to: `    pos_x = pos_x - emitter.facing * (to_number(field_or(emitter_frame, u"centerx")) + opoint_x);`,
+    },
+    {
+      note: "on_spawn：prev_position 不清成发射者位置",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  prev_position = emitter.position;`,
+      to: `  prev_position = Vector3{};`,
+    },
+    {
+      note: "on_spawn：z 用 pos_z - opoint_z",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  set_position(Value(pos_x), Value(pos_y), Value(pos_z + opoint_z));`,
+      to: `  set_position(Value(pos_x), Value(pos_y), Value(pos_z - opoint_z));`,
+    },
+    {
+      note: "on_spawn：__gen_facing 的回落不走 which.facing",
+      file: "native/lfw/entity/entity.cpp",
+      from: `      emitter.gen_or(which, u"__gen_facing", field_or(which, u"facing"));`,
+      to: `      emitter.gen_or(which, u"__gen_facing", Value(1.0));`,
+    },
+    {
+      note: "on_spawn：result 与 auto 帧的分支写反",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  if (truthy(result)) {
+    enter_frame(which);
+  } else {
+    enter_frame(auto_frame_value());
+  }`,
+      to: `  if (truthy(result)) {
+    enter_frame(auto_frame_value());
+  } else {
+    enter_frame(which);
+  }`,
+    },
+    {
+      note: "on_spawn：speedz 不看 get_opoint_speed_z",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  const double o_speedz = std::holds_alternative<std::monostate>(speedz_field)
+                              ? to_number(get_opoint_speed_z(&emitter, opoint))
+                              : to_number(speedz_field);`,
+      to: `  const double o_speedz = to_number(speedz_field);`,
+    },
+    {
+      note: "on_spawn：__gen_dvx 被忽略",
+      file: "native/lfw/entity/entity.cpp",
+      from: `      num_of(or_nullish(emitter.gen_or(opoint, u"__gen_dvx", field_or(opoint, u"dvx")), Value(0.0)));`,
+      to: `      num_of(or_nullish(field_or(opoint, u"dvx"), Value(0.0)));`,
+    },
+    {
+      note: "on_spawn：__gen_dvz 的回落值为 1",
+      file: "native/lfw/entity/entity.cpp",
+      from: `      num_of(or_nullish(emitter.gen_or(opoint, u"__gen_dvz", field_or(opoint, u"dvz")), Value(0.0)));`,
+      to: `      num_of(or_nullish(emitter.gen_or(opoint, u"__gen_dvz", field_or(opoint, u"dvz")), Value(1.0)));`,
+    },
+    {
+      note: "on_spawn：dvy 不除以 weight",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  o_dvy = o_dvy / weight;`,
+      to: `  o_dvy = o_dvy;`,
+    },
+    {
+      note: "on_spawn：ud 恒为 1",
+      file: "native/lfw/entity/entity.cpp",
+      from: `      entity::is_fighter_data(emitter.data()) && ctrl != nullptr ? static_cast<double>(ctrl->UD())
+                                                                : 0.0;`,
+      to: `      entity::is_fighter_data(emitter.data()) && ctrl != nullptr ? 1.0 : 0.0;`,
+    },
+    {
+      note: "on_spawn：o_dvx>0 分支的 abs 符号",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  if (o_dvx > 0) o_dvx = o_dvx / weight - std::abs(offset_velocity.z / 2);`,
+      to: `  if (o_dvx > 0) o_dvx = o_dvx / weight + std::abs(offset_velocity.z / 2);`,
+    },
+    {
+      note: "on_spawn：o_dvx<=0 分支的 abs 符号",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  else o_dvx = o_dvx / weight + std::abs(offset_velocity.z / 2);`,
+      to: `  else o_dvx = o_dvx / weight - std::abs(offset_velocity.z / 2);`,
+    },
+    {
+      note: "on_spawn：z_disabled 恒为假",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  const bool z_disabled = equals(result_state, Value(static_cast<double>(StateEnum::Normal))) ||
+                          equals(result_state, Value(static_cast<double>(StateEnum::Burning)));`,
+      to: `  const bool z_disabled = false;`,
+    },
+    {
+      note: "on_spawn：z_disabled 只看 Normal",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  const bool z_disabled = equals(result_state, Value(static_cast<double>(StateEnum::Normal))) ||
+                          equals(result_state, Value(static_cast<double>(StateEnum::Burning)));`,
+      to: `  const bool z_disabled = equals(result_state, Value(static_cast<double>(StateEnum::Normal)));`,
+    },
+    {
+      note: "on_spawn：result_state 读错来源",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  const Value result_state = field_or(field_or(result, u"frame"), u"state");`,
+      to: `  const Value result_state = field_or(which, u"state");`,
+    },
+    {
+      note: "on_spawn：max_hp 不做 is_num 守卫",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  const Value max_hp = field_or(opoint, u"max_hp");
+  if (is_num(max_hp)) {`,
+      to: `  const Value max_hp = field_or(opoint, u"max_hp");
+  if (truthy(max_hp)) {`,
+    },
+    {
+      note: "on_spawn：max_hp 不动 hp_r",
+      file: "native/lfw/entity/entity.cpp",
+      from: `    const double v = to_number(max_hp);
+    set_hp_max(v);
+    set_hp_r(v);
+    set_hp(v);`,
+      to: `    const double v = to_number(max_hp);
+    set_hp_max(v);
+    set_hp(v);`,
+    },
+    {
+      note: "on_spawn：hp 不动 hp_r",
+      file: "native/lfw/entity/entity.cpp",
+      from: `    const double v = to_number(hp_field);
+    set_hp_r(v);
+    set_hp(v);`,
+      to: `    const double v = to_number(hp_field);
+    set_hp(v);`,
+    },
+    {
+      note: "on_spawn：max_mp 不动 mp",
+      file: "native/lfw/entity/entity.cpp",
+      from: `    const double v = to_number(max_mp);
+    set_mp_max(v);
+    set_mp(v);`,
+      to: `    const double v = to_number(max_mp);
+    set_mp_max(v);`,
+    },
+    {
+      note: "on_spawn：mp 写进 mp_max",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  if (is_num(mp_field)) set_mp(to_number(mp_field));`,
+      to: `  if (is_num(mp_field)) set_mp_max(to_number(mp_field));`,
+    },
+    {
+      note: "on_spawn：Fixed 模式不覆盖 vx",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  if (equals(vxm, Value(static_cast<double>(SpeedMode::Fixed)))) vx = dvx_now;`,
+      to: `  (void)vxm;`,
+    },
+    {
+      note: "on_spawn：Fixed 模式不覆盖 vy",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  if (equals(vym, Value(static_cast<double>(SpeedMode::Fixed)))) vy = dvy_now;`,
+      to: `  (void)vym;`,
+    },
+    {
+      note: "on_spawn：Fixed 模式不覆盖 vz",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  if (equals(vzm, Value(static_cast<double>(SpeedMode::Fixed)))) vz = dvz_now;`,
+      to: `  (void)vzm;`,
+    },
+    {
+      note: "on_spawn：Extra 模式的 acc_x 取负",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  if (equals(vxm, Value(static_cast<double>(SpeedMode::Extra))) && acc_x != 0) vx += acc_x;`,
+      to: `  if (equals(vxm, Value(static_cast<double>(SpeedMode::Extra))) && acc_x != 0) vx -= acc_x;`,
+    },
+    {
+      note: "on_spawn：Extra 模式的 acc_y 取负",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  if (equals(vym, Value(static_cast<double>(SpeedMode::Extra))) && acc_y != 0) vy += acc_y;`,
+      to: `  if (equals(vym, Value(static_cast<double>(SpeedMode::Extra))) && acc_y != 0) vy -= acc_y;`,
+    },
+    {
+      note: "on_spawn：Extra 模式的 acc_z 取负",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  if (equals(vzm, Value(static_cast<double>(SpeedMode::Extra))) && acc_z != 0) vz += acc_z;`,
+      to: `  if (equals(vzm, Value(static_cast<double>(SpeedMode::Extra))) && acc_z != 0) vz -= acc_z;`,
+    },
+    {
+      note: "on_spawn：Pick 判定用 kind=0",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  if (equals(field_or(opoint, u"kind"), Value(static_cast<double>(OpointKind::Pick)))) {`,
+      to: `  if (equals(field_or(opoint, u"kind"), Value(0.0))) {`,
+    },
+    {
+      note: "on_spawn：Pick 不放下持有物",
+      file: "native/lfw/entity/entity.cpp",
+      from: `    emitter.drop_holding();
+    bearer = &emitter;`,
+      to: `    bearer = &emitter;`,
+    },
+    {
+      note: "on_spawn：Pick 不设 bearer",
+      file: "native/lfw/entity/entity.cpp",
+      from: `    bearer = &emitter;`,
+      to: `    bearer = nullptr;`,
+    },
+    {
+      note: "on_spawn：motionless 的默认值写成 0",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  motionless = to_number(or_nullish(field_or(opoint, u"motionless"), Value(2.0)));`,
+      to: `  motionless = to_number(or_nullish(field_or(opoint, u"motionless"), Value(0.0)));`,
+    },
+    {
+      note: "attach：mounted 守卫去掉",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  if (truthy(Value(_mounted))) return *this;`,
+      to: `  if (false) return *this;`,
+    },
+    {
+      note: "attach：spawn_time 不取 game_time",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  _spawn_time = host_->game_time();`,
+      to: `  _spawn_time = 0;`,
+    },
+    {
+      note: "attach：ghost 标记取反",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  _ghosted = truthy(ghost) ? 1 : 0;`,
+      to: `  _ghosted = truthy(ghost) ? 0 : 1;`,
+    },
+    {
+      note: "attach：ghost 时不重置 motionless/shaking",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  if (truthy(Value(_ghosted))) {
+    motionless = 0;
+    shaking = 0;
+  }`,
+      to: `  if (false) {
+    motionless = 0;
+    shaking = 0;
+  }`,
+    },
+    {
+      note: "attach：落地判定的两支写反",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  if (position.y > ground_y()) {
+    leave_ground();
+  } else {
+    is_on_ground = true;
+  }`,
+      to: `  if (position.y > ground_y()) {
+    is_on_ground = true;
+  } else {
+    leave_ground();
+  }`,
+    },
+    {
+      note: "attach：frame.id 为空时不进 auto 帧",
+      file: "native/lfw/entity/entity.cpp",
+      from: `  if (strict_equals(field_or(frame, u"id"), Value(std::u16string(frame_id::kNone)))) {
+    enter_frame(auto_frame_value());
+  }`,
+      to: `  if (false) {
+    enter_frame(auto_frame_value());
+  }`,
     },
   ],
 };
