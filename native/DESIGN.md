@@ -1445,6 +1445,9 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
   `preprocess_bot_data.judger`、`make_buring_smoke.action.__gen_facing`。`Value` 只有 7 种类型装不下函数，
   而这些字段**只被运行时**（`Entity.ts` 等）读取 ⇒ C++ 侧一律**不生成**，差分时由 TS harness 侧
   删掉同名字段对齐。等步骤 4 移植运行时再补。
+  **（58 已开始补这一条：`base/ValExpression` 与 `preprocess_opoint` 的**编译**侧落地，
+  编译结果交还调用方而不是写进 `Value`；`__judger` / `__end_testers` / `__gen_facing` 等同款字段
+  仍按本条的「不生成」处理。）**
 - **已知差异（浮点）**：`__cos_r`/`__sin_r` 用 `std::cos`/`std::sin`，与 V8 的 `Math.cos`/`Math.sin`
   在个别角度上会差 **1 ULP**（例如 45° 时 `sin` 的尾位不同）。这是库实现差异，不是移植错误；
   差分用例里避开这类角度（90° 时 `cos`/`sin` 完全一致）。
@@ -1525,6 +1528,9 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
     （数字/字符串/数组）时 `data.actions` 只是 `undefined` ⇒ 不抛、原样返回。
 - `preprocess_opoint`（26 行）**没有任何数据可见行为**（只写 `__gen_*` 的 `ValExpression`）
   ⇒ 不建文件，与 `make_buring_smoke.action.__gen_facing` 同类处理。
+  **（58 已推翻「不建文件」这半条：`__gen_*` 的编译语义本身是可差分的（`err` 文案 +
+  `get()` 结果 + 告警顺序），端口已落地 `native/lfw/loader/preprocess_opoint.h`；
+  仍然成立的是「不写回记录」——`Value` 装不下函数对象。）**
 ---
 
 ### 4.44 V44 `dat_translator/bots` 的动作构建层
@@ -5828,3 +5834,91 @@ v_rest / 帧进入链 / opoint 生成与消费）都铺好了，但**没有任�
 - 顺手修掉本刀新增代码里的一个 `C4458`（`update_catching` 的局部 `throwinjury` 遮蔽同名
   成员）⇒ 改名 `cp_throwinjury`（照 §4.58 那次 `expression.h` 的处理），同时把两条锚在该局部
   上的变异（`throwinjury 上界用 -2` / `survival_rank_mode 判定取反`）更新到新文本。
+
+## 58. 切片 9o：`base/ValExpression` + `loader/preprocess_opoint`
+
+**背景**：§4.40 把「TS 往数据上挂 `Expression`/`ValExpression` 实例字段」记成已知偏差，并
+承诺「等步骤 4 移植运行时再补」；§54.4 的待办表里也挂着 `base/ValExpression`（4 处 `mt.mark`）。
+9l 已经把**读** `__gen_*` 的一侧做成宿主缝（`IEntityHost::gen_field`），这一刀把**产生**那一侧
+搬完：`ValExpression` 的解析器 + `preprocess_opoint` 的九组编译落点 —— 它是 §4.40 那句承诺的
+第一笔兑现（兑现方式见 58.4 的第 2 条）。
+
+### 58.1 单元边界
+
+| 单元 | 位置 | 说明 |
+|---|---|---|
+| `ValExpression<Ctx>` | `native/lfw/base/val_expression.h` | `text` / `tag` / `err` / `has_err` / `get(e)` + 递归下降解析器（`ParseExpr` / `ParseTerm` / `ParseUnary` / `ParsePrimary` / `ParseNumber` / `ParseIdent` / `ParseCall`） |
+| `ValExpressionOptions` / `val_expr_detail` | 同上 | `tag` / `vars`；`is_digit` / `is_ident_char` / `flip_values` / `undefined_number` / `dec` |
+| `preprocess_opoint` | `native/lfw/loader/preprocess_opoint.h` | 九组 `gen_*` → `__gen_*` 的编译；`opoint_gen_fields()` 是九组的**原顺序**（告警顺序与差分打印顺序的唯一来源） |
+
+模板参数 `Ctx` 取代 TS 的 `Entity`（照 `base/Expression<Ctx>` 的既有约定）；两处新文件都是
+header-only（不加 CMake 登记，靠 `#include` 传递）。
+
+### 58.2 保真要点
+
+1. **求值顺序就是行为**（本刀唯一的漂移，也是「真链路」暴露出来的）：TS 的 `(e) => l(e) + r(e)`
+   与 `rand(a, b)` 都是**先左后右**；C++ 的 `l(e) + r(e)` 求值顺序**未指定**（MSVC 先算右边）
+   ⇒ 第一版 `round(rand(0,10))*flip()` 两侧的随机数消耗顺序不同、取值整段漂移。四处二元运算
+   与 `rand` 的两个实参都显式定序（`const double a = l(e); const double b = r(e);`），各配一条变异。
+2. **空白剥离用 JS 的 `\s`**：`(source ?? "").replace(/\s/g, "")` 复现为 `is_str_white_space`
+   过滤（U+3000 / U+00A0 / U+2028 / U+2029 / U+FEFF / `\v` / `\f` 都在表里，用例用 `xw <hex…>`
+   逐个钉住）。`text` 是**剥离后**的串，错误文案里引用的也是它。
+3. **`err` 文案是协议**：`[ValExpression] <tag>: <message> @<index> in "<text>"`；`index` 是
+   `fail` 的**那一刻**（不是最终位置）。十三种 message 与 `@0` / `@1` / `@13` 这类具体下标
+   都各配一条变异 —— 按仓库既有口径，这类「文本即协议」的地方逐字钉。
+4. **解析停在第一个错误处**：`has_err` 一置位，各层立刻返回；`_get` 保持 TS 的回落 `() => 0`
+   （报错后 `get` 仍可调、且不写 `mark`），用例里 `x foo` + `get 2` 钉住。
+5. **`bag` 是两级状态**：`cur`（当前袋）+ `taken`（上一次抽到的值）。重填只在 `args.length > 1`
+   时按 `v !== taken`（**严格**比较）过滤；`taken` 初值 `undefined` ⇒ 首次重填**不过滤**；
+   过滤后为空再回落到整份 `scratch`。抽空才重填 ⇒ 不放回语义；`bag(1,1)` 正好走「过滤后为空」的兜底。
+6. **`pick` / `flip` 的空数组回落**：TS 的 `mt.pick([])` 返回 `undefined`，后续算术变 `NaN`；
+   端口回 `undefined_number()`（`NaN`），位模式一致。`flip` 的候选表是**模块级共享**的 `[-1, 1]`
+   （`pick` 不改数组，所以能共享）。
+7. **默认变量与自定义变量的覆盖顺序**：`{...DEFAULT_VARS, ...vars}` ⇒ 自定义**覆盖**同名默认；
+   端口先铺默认表再逐项赋值（换成 `emplace` 就退化成「不覆盖」，有变异）。默认变量只在
+   **无括号**的标识符路径上查表 ⇒ `rand` / `round` / `bag` 当标识符用会报 `unknown identifier`。
+8. **`round` 是 `Math.round`**：走 `lfw::round`（`js_round`），`round(-0.5)` 得 `-0`、
+   `round(0/0)` 得 `NaN`、`round(1/0)` 得 `Infinity`，全部按位模式对拍。
+9. **`preprocess_opoint` 的告警顺序 = 九条 `if` 的顺序**：编译失败的字段 `warn(expr.err)`
+   （TS 的 `Ditto.warn`）且**不进结果表** —— 这正是 TS 的 `compile_gen(...) ?? opoint.__gen_x`
+   （保持原值 / `undefined`）。`ps` 里预置的 `__gen_x` 会被保持下来（用例专门有一条）。
+10. **非字符串的 `gen_*`**：TS 的 `(source ?? "").replace(...)` 对数字会抛 `TypeError`（没有
+    `replace`）⇒ 端口 `continue` 跳过；这条分支在 TS 侧没有可观察 trace，记在 58.4。
+
+### 58.3 harness 扩充
+
+- `subjects/base.{cpp,ts}` 新增：`x` / `xt <tag>` / `xw <hex…>`（造表达式并打
+  `D <idx> <esc(text)> <esc(tag)> <esc(err)|->`）、`get [<n>]`（对**最近**一个表达式调 n 次，
+  打 `G <idx> <n> <esc(mark)> <bits16>…`，位模式 + **调用后**的 `mark`）、`mtseed` / `mdraw` /
+  `mmark`（观察消耗与 mark）、`frame` / `var` / `varclr`（假宿主）、`po` / `ps` / `pc` / `pkeys`。
+- `get` 取「最近一个」而不是按下标：用例里表达式是逐行造的，按下标引用要人工数行 ——
+  首版就是数错的（`get 30` 打的是常量 `1+2`，六个 `3.0` 看上去还挺像样）。
+- `pc` 的输出是 `PC <成功条数>` + 九行 `PG <__gen_* 名> <成功?> <err|-> <get 位模式|-> <保持的原值|->`；
+  两侧都**把记录里的 `__gen_*` 删掉**（§4.40 的对齐约定）⇒ 随后的 `pkeys` 才能对上键序。
+
+### 58.4 已知偏差 / 有意不覆盖
+
+1. **Ctx 概念取代 `Entity`**：`frame_var(name)` + `mt()`（另见 README 偏差表）。取数器给 `double`：
+   帧**缺字段**时 TS 的 `undefined` 支（`range(undefined, undefined)` 提前返回不消耗、
+   `pick` / `bag` 的 `v !== undefined` 过滤）端口不复现，用例只喂有值的帧。
+2. **`preprocess_opoint` 不写回记录**：编译结果以 `std::map<__gen_* 名, ValExpression>` 交还调用方
+   （`Value` 只有 7 种类型装不下函数，§4.40）；差分时 TS 侧 harness 删 `__gen_*` 对齐。
+3. **非字符串的 `gen_*`**：TS 抛 `TypeError`（无 trace），端口跳过 ⇒ 不可差分，不覆盖。
+4. **`mt.mark` 写在抽取之前的「顺序」**：把 `mark` 挪到两个实参**之后**，外层调用的 `mark`
+   最终值不变（内层调用写的 mark 也会被外层覆盖）⇒ 该写法按构造等价，不列。`mmark` 只钉
+   「写没写」与「tag 对不对」。
+5. **`truthy` 的边界**：`gen_*` 为 `0` / 空串 / `undefined` 时两侧都不编译（falsy）；数字 /
+   对象这类**真值非字符串**走上面第 3 条的抛异常分支，不覆盖。
+
+### 58.5 变异与结果
+
+- 本刀新增 66 条候选，**全杀**；`base` 从 21 涨到 **87**（`base/core` 21 + 本刀 66）。
+- 分布：空白与结构 5（剥离 / tag 的两支 / 空表达式 / 尾部残留）、二元运算与定序 5、
+  括号与一元 4、数字与标识符 9、调用与实参 4、五个调用与 `mark` 12、
+  `_get` 与 `fail` 文案（含 `dec` 的十进制化）21、`preprocess_opoint` 6。
+- 差分**先**抓到一处真漂移（58.2 的第 1 条，求值顺序），补完定序后首轮变异就 0 存活 ——
+  这一刀的观察面（位模式 + `mark` + 消耗探针 + 逐字错误文案）是够的。
+- 唯一的一条存活是「`pick` 不写 `mark`」：它要求调用**前**的 `mark` 与 `tag` 不同，
+  而首版用例里 `pick` 前面正好是同 tag 的表达式（`mark` 已被写成一模一样的值）⇒
+  加一段 `mtseed` 把 `mark` 清空后再 `pick`，这条立刻被杀（`mmark` 从 `""` 变 `"val_expr"`）。
+  **教训同 §6.9.1**：存活先看「是不是被同值遮住」，再决定补用例还是换变异点。

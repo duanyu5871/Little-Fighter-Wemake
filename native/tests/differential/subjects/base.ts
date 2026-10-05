@@ -1,9 +1,12 @@
 import { Callbacks } from "../../../../src/LFW/base/Callbacks";
 import type { FSM as FSMType, IState } from "../../../../src/LFW/base/FSM";
 import { FSM } from "../../../../src/LFW/base/FSM";
+import { ValExpression } from "../../../../src/LFW/base/ValExpression";
 import { Ditto } from "../../../../src/LFW/ditto/Instance";
+import { preprocess_opoint } from "../../../../src/LFW/loader/preprocess_opoint";
+import { MersenneTwister } from "../../../../src/LFW/utils/math/MersenneTwister";
 
-import { esc, parseValue, readCaseLines, renderValue, splitWs } from "./trace_util";
+import { bitsHex, esc, parseValue, readCaseLines, renderValue, splitWs } from "./trace_util";
 
 const out: string[] = [];
 const line = (...p: (string | number)[]): string => p.map((x) => String(x)).join(" ");
@@ -17,6 +20,66 @@ let snap: ReturnType<FSMType<string, IState<string>>["to_snapshot"]> | undefined
 let selfAddId = "";
 let selfAddKey = "";
 
+// --- `base/ValExpression` + `loader/preprocess_opoint` 的假宿主 ---------------
+// 端口按 `ValExpression` 的 Ctx 概念给的是 `frame_var(name)` + `mt()`；TS 侧是
+// `{ frame: {width,height,centerx,centery}, lfw: { mt } }` 这样的结构体对象。
+
+const mt = new MersenneTwister(0);
+const frame = { width: 0, height: 0, centerx: 0, centery: 0 };
+const fake = { frame, lfw: { mt } } as never;
+const customVars: Record<string, (e: unknown) => number> = {};
+const vexprs: ValExpression[] = [];
+let opoint: Record<string, unknown> = {};
+
+const GEN_FIELDS: [string, string][] = [
+  ["gen_x", "__gen_x"],
+  ["gen_y", "__gen_y"],
+  ["gen_z", "__gen_z"],
+  ["gen_dvx", "__gen_dvx"],
+  ["gen_dvy", "__gen_dvy"],
+  ["gen_dvz", "__gen_dvz"],
+  ["gen_spread_x", "__gen_spread_x"],
+  ["gen_spread_y", "__gen_spread_y"],
+  ["gen_spread_z", "__gen_spread_z"],
+];
+
+function veDump(idx: number): void {
+  const e = vexprs[idx]!;
+  out.push(line("D", idx, esc(e.text), esc(e.tag), e.err === undefined ? "-" : esc(e.err)));
+}
+
+function veGet(idx: number, times: number): void {
+  const e = vexprs[idx]!;
+  const parts: (string | number)[] = ["G", idx, times, esc(mt.mark)];
+  for (let i = 0; i < times; i++) parts.push(bitsHex(e.get(fake)));
+  out.push(parts.join(" "));
+}
+
+function opointCompile(): void {
+  preprocess_opoint(opoint as never);
+  let present = 0;
+  const rows: string[] = [];
+  for (const [genKey, dstKey] of GEN_FIELDS) {
+    const v = opoint[dstKey];
+    const ok = v instanceof ValExpression;
+    if (ok) present++;
+    const kept = ok ? "-" : esc(renderValue(v));
+    rows.push(
+      line(
+        "PG",
+        esc(dstKey),
+        ok ? 1 : 0,
+        ok ? (v.err === undefined ? "-" : esc(v.err)) : "-",
+        ok ? bitsHex(v.get(fake)) : "-",
+        kept,
+      ),
+    );
+    // §4.40 的对齐约定：TS 把函数对象挂在记录上，端口不挂 ⇒ 差分时 TS 侧删掉。
+    delete opoint[dstKey];
+  }
+  out.push(line("PC", present));
+  out.push(...rows);
+}
 function keyValue(tok: string): string | number {
   return /^-?\d+(\.\d+)?$/.test(tok) ? Number(tok) : tok;
 }
@@ -117,6 +180,54 @@ function main(): void {
       selfAddKey = t[idx[0]!++]!;
     } else if (op === "stoploop") {
       reemitKey = "";
+    } else if (op === "mtseed") {
+      mt.reset(Number(t[idx[0]!++]!));
+    } else if (op === "mdraw") {
+      const lo = Number(t[idx[0]!++]!);
+      const hi = Number(t[idx[0]!++]!);
+      out.push(line("MD", bitsHex(mt.range(lo, hi))));
+    } else if (op === "mmark") {
+      out.push("MM " + esc(mt.mark));
+    } else if (op === "frame") {
+      frame.width = Number(t[idx[0]!++]!);
+      frame.height = Number(t[idx[0]!++]!);
+      frame.centerx = Number(t[idx[0]!++]!);
+      frame.centery = Number(t[idx[0]!++]!);
+    } else if (op === "var") {
+      const name = t[idx[0]!++]!;
+      const v = Number(t[idx[0]!++]!);
+      customVars[name] = () => v;
+    } else if (op === "varclr") {
+      for (const k of Object.keys(customVars)) delete customVars[k];
+    } else if (op === "x" || op === "xt") {
+      const tag = op === "xt" ? t[idx[0]!++]! : undefined;
+      const src = t.slice(idx[0]!).join(" ");
+      vexprs.push(
+        new ValExpression(src, tag === undefined ? { vars: customVars } : { tag, vars: customVars }),
+      );
+      veDump(vexprs.length - 1);
+    } else if (op === "xw") {
+      let src = "";
+      while (idx[0]! < t.length) src += String.fromCharCode(parseInt(t[idx[0]!++]!, 16));
+      vexprs.push(new ValExpression(src, { vars: customVars }));
+      veDump(vexprs.length - 1);
+    } else if (op === "get") {
+      const times = idx[0]! < t.length ? Number(t[idx[0]!++]!) : 1;
+      veGet(vexprs.length - 1, times);
+    } else if (op === "dump") {
+      veDump(Number(t[idx[0]!++]!));
+    } else if (op === "po") {
+      opoint = {};
+      out.push("PO");
+    } else if (op === "ps") {
+      const key = t[idx[0]!++]!;
+      const v = parseValue(t, idx);
+      opoint[key] = v;
+      out.push(line("PS", esc(key), renderValue(v)));
+    } else if (op === "pc") {
+      opointCompile();
+    } else if (op === "pkeys") {
+      out.push(line("PK", ...Object.keys(opoint).map((k) => esc(k))));
     } else if (op === "fsm") {
       const sub = t[idx[0]!++]!;
       if (sub === "init") {

@@ -3398,3 +3398,35 @@ harness op：
   （tick 内无回读）、`refresh_ctrl_env` 的 `__seq_map` 来源与 `transforms[0]` 的 pre/post
   映射对（见上）、`world_puppets` 的 `team` 槽与 `entity_view` 的 `emitters`（消费者只有
   状态钩子与 `summary_mgr.apply_damage`，本主题一个都不走）。
+
+### 6.9.102 `base/ValExpression` + `loader/preprocess_opoint`（`base` 用例 3127 → 3426 行 = core 3127 + val_expr 299；变异 87/87 全杀，其中本刀新增 66 条）
+
+- 新用例 `cases/base/val_expr.txt`：解析结构（空白剥离 / `text` / `tag` / 数字与小数点的
+  边角）、逐字错误文案与 `@下标`、四则的优先级与结合性、一元负号的递归、括号、
+  DEFAULT_VARS（`w`/`h`/`cx`/`cy`）与自定义变量的覆盖、五个调用（`rand`/`pick`/`bag`/`flip`/
+  `round`）的取值与 `mark`、`bag` 的重填与兜底、`preprocess_opoint` 的九组字段
+  （成功 / 全失败 / 保持原值 / 部分字段 / 混合）。
+- 新增 op：
+  * `x <src…>` / `xt <tag> <src…>` / `xw <hex16>…`：造一个 `ValExpression` 并打
+    `D <idx> <esc(text)> <esc(tag)> <esc(err)|->`。`x` 把 token 用**空格**拼起来当源
+    （空白由被解析方剥离）；`xw` 用 4 位十六进制**码元**拼源，用来打 U+3000 / U+00A0 /
+    U+FEFF 这类用例文件里写不出来的空白。
+  * `get [<n>]`：对**最近创建**的那个表达式连调 n 次（缺省 1）：
+    `G <idx> <n> <esc(mark)> <bits16>…`（结果是位模式；`mark` 是**调用之后**的）。
+  * `mtseed <n>` / `mdraw <min> <max>` / `mmark`：`MD <bits16>` / `MM <esc(mark)>`。
+    `mdraw` 是「抽一次看消耗了几个随机数」的老办法（§4.57）。
+  * `frame <w> <h> <cx> <cy>` / `var <name> <v>` / `varclr`：假宿主的帧与自定义变量（静默 op）。
+  * `po` / `ps <field> <valueLiteral>` / `pc` / `pkeys`：`preprocess_opoint` 的单条记录。
+    `pc` 打 `PC <成功条数>` + 九行 `PG <__gen_* 名> <成功?> <err|-> <get 位模式|-> <保持的原值|->`，
+    打完之后把记录里的 `__gen_*` **删掉**（§4.40 的对齐约定：TS 侧把函数对象挂在记录上，
+    端口不挂）⇒ `pkeys` 才能对上键序。
+- ⚠️ **`get` 取「最近一个」而不是按下标**：用例里表达式是逐行造的，按下标引用要人工数行
+  （首版就数错了：`get 30` 打的是常量 `1+2`，六个 `3.0` 看上去还挺正常）。
+- ⚠️ **`x` 的 token 是用空格拼的**：`x 1 + 2` 与 `x 1+2` 的源都是「剥离空白后等价」的
+  `1+2`；想构造**有意义的**空白（或 `1 2` 这种想测「拼接」的地方）必须用 `xw`。
+- ⚠️ **宿主面是 Ctx 概念**：TS 侧给的是 `{ frame: {width,height,centerx,centery}, lfw: { mt } }`，
+  端口给的是 `frame_var(name)` + `mt()`（见 README 偏差表）。帧**缺字段**时 TS 拿到
+  `undefined`，那一支（`range(undefined, undefined)` 提前返回、`pick`/`bag` 的
+  `v !== undefined` 过滤）不复现 ⇒ 用例只喂有值的帧。
+- 不可观察 / 有意不覆盖（另见 DESIGN §58.4）：非字符串的 `gen_*`（TS 抛 `TypeError`，无 trace）、
+  `mark` 挪到实参之后的等价写法、`gen_*` 为真值非字符串的分支。
