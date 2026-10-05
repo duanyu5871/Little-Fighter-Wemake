@@ -3475,3 +3475,27 @@ harness op：
   `_tick` 的 `finally`、`_schedule` 守卫里的 `_pending` 因子、`_tick` 的 `!_running` 早返回、
   `dt` 夹取的下界、`IClock.del` 收到未知句柄。（守卫的另两个因子 `!_running` / `_paused`
   用 `tk inside stop` / `tk inside pause` 已覆盖。）
+
+### 6.9.104 `base` 的三个叶子助手 + `core` 的 `toFixed(1)`（`core` 用例 10558+98+116+197 → +`to_fixed` 487 行；`base` 用例 3660 → 3905 行；变异 core 127/127、base 163/163 全杀，其中本刀新增 core 15 条 + base 22 条；core 另有 1 条按构造等价、撤出名单）
+
+- 新用例：
+  * `cases/core/to_fixed.txt`（487 行）：`0 / -0 / .25·.75 系（恰好 .5 的尾数）/ 整数 / 2^53 /
+    .95 进位边界 / 小于 0.05 的极小值 / 次正规数 / 1e21 分界（含 `|x| ≥ 1e21` 走 ToString 的
+    `"1.0075e+21"`）/ NaN 与 ±Infinity`，再加 **400 条固定种子的随机位模式**。
+  * `cases/base/color_size.txt`（245 行）：八个真实队伍 + Independent(空串) + 六个查不到的键、
+    text/outline 两套 fallback 语义的对照（`gtt 9 ""` vs `gto 9`）、B/KB/MB/GB 四段分界、
+    `.replace(".0","")` 的「只替第一处」、`/1024` 与 `/1000` 分辨得出来的取值，以及三种量级的随机取值。
+- 新增 op：
+  * `core`：`to_fixed <bits16>` → `to_fixed <bits16> <结果串>`（不转义，与 `to_string` 同款；
+    TS 侧就是真 JS 的 `.toFixed(1)`）。
+  * `base`：`gtt <team> [<fallback>]` → `GTT "<team>" "<fallback|->" "<color>"`、
+    `gto <team>` → `GTO "<team>" "<color>"`、`gsf <bits16>` → `GSF <bits16> "<text>"`。
+- ⚠️ **队伍名/fallback 按 JS 字符串字面量读**：`""` 就是 `TeamEnum.Independent` 的键
+  （它在数据里的 key 就是空串）；`gtt` 的 fallback **省略**才等于 TS 的 `undefined`（走默认参数），
+  写 `""` 是显式空串 —— 这一格语义差别正是 60.2 第 7 条要钉的东西。
+- ⚠️ **`gsf` / `to_fixed` 吃的是 16 位十六进制位模式**（`bits_from_hex` / `f64FromBits(BigInt("0x"+…))`）：
+  负数、NaN、1e30 这种值用十进制 token 表达不了。**生成用例时别写 `hi & 0xffffffff`** ——
+  JS 的 `&` 会把高位变成负数，再 `BigInt(...)` 就会得到 `-f60494f` 这种 token（生成器踩过一次）。
+- 不可观察 / 有意不覆盖（另见 DESIGN §60.4 与 `mutations/base.mjs` / `mutations/core.mjs` 的头部）：
+  颜色字段恒为非空字符串（`!color->empty()` 那一半、TS 的 `0` 假值与数字原样返回分支都不可达）、
+  `toFixed` 只做 f = 1、`team` 只收字符串。

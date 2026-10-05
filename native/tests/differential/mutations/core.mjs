@@ -4,11 +4,20 @@
  * 覆盖 subject: core
  *   core/js_num.cpp   —— js_round / js_floor / js_ceil / js_abs / js_to_uint32 / js_to_int32 / f64_bits
  *   core/js_string.cpp —— is_str_white_space / digit_value / parse_radix / scan_decimal /
- *                         string_to_number / shortest_digits / number_to_string
+ *                         string_to_number / shortest_digits / number_to_string /
+ *                         number_to_fixed_1
  *
- * 用例：js_num 85→124 行、to_number 152→185 行、number_to_string 98 行、number_to_string_fuzz 10558 行。
+ * 用例（**文件行数**）：js_num 116 行、to_number 197 行、number_to_string 98 行、
+ *       number_to_string_fuzz 10558 行、to_fixed 487 行（其中 400 条是固定种子的随机位模式）。
  *
  * 已删除 / 未注入的变异（不算覆盖缺口，理由记在此处以免以后重复尝试）：
+ *  0. number_to_fixed_1 的非零下界 `if (k <= 58)`：|x| ≥ 0.05 时 k ≤ 57，|x| < 0.05 时
+ *     n 本来就该是 0 ⇒ 上界取 57 或 58 **等价**（列的是收到 56 的那条，因为 k = 57 的取值
+ *     确实存在，如 0.06 与 0.0625）。
+ *  0b. number_to_fixed_1 的 `const bool neg = v < 0;` 改成 `v <= 0` —— **按构造等价，已撤出**：
+ *     走到 `if (neg) out.push_back(u'-');` 时必有 `a > 0`（`a == 0` 那支提前 return 了），
+ *     而 `a > 0` 时 `v <= 0` 与 `v < 0` 同真同假。`-0` 的「没有负号」是**那条提前 return**
+ *     给的（它写死了 "0.0"），不是比较符给的 ⇒ 这条永远杀不掉（首轮 127/128 的唯一存活）。
  *  1. js_num.cpp `js_round` 首行 `std::isnan(x)` 与 `std::isinf(x)` 两个条件 —— 去掉它们后
  *     走的是同一个 `std::floor(x + 0.5)` 路径：NaN ⇒ floor(NaN)=NaN、NaN-NaN=NaN、`NaN > 0.5` 假 ⇒ 返回 NaN；
  *     inf ⇒ floor(inf)=inf、inf-inf=NaN ⇒ 返回 inf。与早退分支同值 ⇒ 恒等（只有 `x == 0.0`
@@ -620,8 +629,8 @@ export default {
     {
       note: "number_to_string: NaN 拼成小写",
       file: "native/lfw/core/js_string.cpp",
-      from: "  if (std::isnan(v)) return u\"NaN\";",
-      to: "  if (std::isnan(v)) return u\"nan\";",
+      from: "  if (std::isnan(v)) return u\"NaN\";\n  if (v == 0.0) return u\"0\";",
+      to: "  if (std::isnan(v)) return u\"nan\";\n  if (v == 0.0) return u\"0\";",
     },
     {
       note: "number_to_string: 零返回空串",
@@ -632,8 +641,8 @@ export default {
     {
       note: "number_to_string: Infinity 符号取反",
       file: "native/lfw/core/js_string.cpp",
-      from: "  if (std::isinf(v)) return v < 0 ? u\"-Infinity\" : u\"Infinity\";",
-      to: "  if (std::isinf(v)) return v < 0 ? u\"Infinity\" : u\"-Infinity\";",
+      from: "  if (v == 0.0) return u\"0\";\n  if (std::isinf(v)) return v < 0 ? u\"-Infinity\" : u\"Infinity\";",
+      to: "  if (v == 0.0) return u\"0\";\n  if (std::isinf(v)) return v < 0 ? u\"Infinity\" : u\"-Infinity\";",
     },
     {
       note: "number_to_string: 小数点位置少 1",
@@ -722,8 +731,8 @@ export default {
     {
       note: "number_to_string: 负号条件取反",
       file: "native/lfw/core/js_string.cpp",
-      from: "  if (neg) out.push_back(u'-');",
-      to: "  if (!neg) out.push_back(u'-');",
+      from: "  if (neg) out.push_back(u'-');\n\n  const auto push_digits",
+      to: "  if (!neg) out.push_back(u'-');\n\n  const auto push_digits",
     },
 
     // ---- js_string.cpp: shortest_digits ----
@@ -750,6 +759,98 @@ export default {
       file: "native/lfw/core/js_string.cpp",
       from: "  exp10 = eneg ? -e : e;",
       to: "  exp10 = eneg ? e : -e;",
+    },
+
+    // ---- number_to_fixed_1（JS `Number.prototype.toFixed(1)`）------------------
+    {
+      note: "toFixed(1): NaN 不走 Number::toString",
+      file: "native/lfw/core/js_string.cpp",
+      from: "  if (std::isnan(v)) return u\"NaN\";\n  if (std::isinf(v)) return v < 0 ? u\"-Infinity\" : u\"Infinity\";",
+      to: "  if (std::isinf(v)) return v < 0 ? u\"-Infinity\" : u\"Infinity\";",
+    },
+    {
+      note: "toFixed(1): ±Infinity 的符号取反",
+      file: "native/lfw/core/js_string.cpp",
+      from: "  if (std::isnan(v)) return u\"NaN\";\n  if (std::isinf(v)) return v < 0 ? u\"-Infinity\" : u\"Infinity\";",
+      to: "  if (std::isnan(v)) return u\"NaN\";\n  if (std::isinf(v)) return v < 0 ? u\"Infinity\" : u\"-Infinity\";",
+    },
+    {
+      note: "toFixed(1): 1e21 分界的 >= 写成 >",
+      file: "native/lfw/core/js_string.cpp",
+      from: "  if (a >= 1e21) return number_to_string(v);",
+      to: "  if (a > 1e21) return number_to_string(v);",
+    },
+    {
+      note: "toFixed(1): 1e21 分界的阈值写成 1e20",
+      file: "native/lfw/core/js_string.cpp",
+      from: "  if (a >= 1e21) return number_to_string(v);",
+      to: "  if (a >= 1e20) return number_to_string(v);",
+    },
+    {
+      note: "toFixed(1): ≥1e21 时丢掉符号",
+      file: "native/lfw/core/js_string.cpp",
+      from: "  if (a >= 1e21) return number_to_string(v);",
+      to: "  if (a >= 1e21) return number_to_string(a);",
+    },
+    {
+      note: "toFixed(1): 零支写成 \"0\"（少一位小数）",
+      file: "native/lfw/core/js_string.cpp",
+      from: "  if (a == 0.0) return u\"0.0\";",
+      to: "  if (a == 0.0) return u\"0\";",
+    },
+    {
+      note: "toFixed(1): 整数支不补 \".0\"",
+      file: "native/lfw/core/js_string.cpp",
+      from: "    for (const char* p = buf; p != r.ptr; ++p) out.push_back(static_cast<char16_t>(*p));\n    out.push_back(u'.');\n    out.push_back(u'0');\n    return out;",
+      to: "    for (const char* p = buf; p != r.ptr; ++p) out.push_back(static_cast<char16_t>(*p));\n    return out;",
+    },
+    {
+      note: "toFixed(1): 整数支用最短往返格式（大数会变指数串）",
+      file: "native/lfw/core/js_string.cpp",
+      from: "    const std::to_chars_result r =\n        std::to_chars(buf, buf + sizeof buf, a, std::chars_format::fixed, 0);",
+      to: "    const std::to_chars_result r = std::to_chars(buf, buf + sizeof buf, a);",
+    },
+    {
+      note: "toFixed(1): 隐式 1 位没算进尾数",
+      file: "native/lfw/core/js_string.cpp",
+      from: "  const uint64_t m = ex == 0 ? frac : frac | (1ull << 52);",
+      to: "  const uint64_t m = frac;",
+    },
+    {
+      note: "toFixed(1): 指数偏移少 1（ex - 1075 → ex - 1074）",
+      file: "native/lfw/core/js_string.cpp",
+      from: "  const int e = ex == 0 ? -1074 : ex - 1075;",
+      to: "  const int e = ex == 0 ? -1074 : ex - 1074;",
+    },
+    {
+      note: "toFixed(1): 进位公式少了 2N（用 N 顶替）",
+      file: "native/lfw/core/js_string.cpp",
+      from: "    const uint64_t num = m * 20ull + (1ull << k);",
+      to: "    const uint64_t num = m * 10ull + (1ull << k);",
+    },
+    {
+      note: "toFixed(1): 进位公式的右移少 1 位",
+      file: "native/lfw/core/js_string.cpp",
+      from: "    n = num >> (k + 1);",
+      to: "    n = num >> k;",
+    },
+    {
+      note: "toFixed(1): 非零下界收到 k <= 56（.06 这类值会掉成 0.0）",
+      file: "native/lfw/core/js_string.cpp",
+      from: "  if (k <= 58) {",
+      to: "  if (k <= 56) {",
+    },
+    {
+      note: "toFixed(1): 一位数字少了前导 0",
+      file: "native/lfw/core/js_string.cpp",
+      from: "  if (digits.size() == 1) {\n    out.push_back(u'0');",
+      to: "  if (digits.size() == 0) {\n    out.push_back(u'0');",
+    },
+    {
+      note: "toFixed(1): 小数点插到最前面",
+      file: "native/lfw/core/js_string.cpp",
+      from: "  digits.insert(digits.size() - 1, 1, '.');",
+      to: "  digits.insert(0, 1, '.');",
     },
   ],
 };

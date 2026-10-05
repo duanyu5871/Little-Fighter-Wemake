@@ -2,13 +2,16 @@ import { Callbacks } from "../../../../src/LFW/base/Callbacks";
 import { FPS } from "../../../../src/LFW/base/FPS";
 import type { FSM as FSMType, IState } from "../../../../src/LFW/base/FSM";
 import { FSM } from "../../../../src/LFW/base/FSM";
+import { get_short_file_size_txt } from "../../../../src/LFW/base/get_short_file_size_txt";
+import { get_team_outline_color } from "../../../../src/LFW/base/get_team_shadow_color";
+import { get_team_text_color } from "../../../../src/LFW/base/get_team_text_color";
 import { Ticker } from "../../../../src/LFW/base/Ticker";
 import { ValExpression } from "../../../../src/LFW/base/ValExpression";
 import { Ditto } from "../../../../src/LFW/ditto/Instance";
 import { preprocess_opoint } from "../../../../src/LFW/loader/preprocess_opoint";
 import { MersenneTwister } from "../../../../src/LFW/utils/math/MersenneTwister";
 
-import { bitsHex, esc, parseValue, readCaseLines, renderValue, splitWs } from "./trace_util";
+import { bitsHex, esc, f64FromBits, parseJsStringLiteral, parseValue, readCaseLines, renderValue, splitWs } from "./trace_util";
 
 const out: string[] = [];
 const line = (...p: (string | number)[]): string => p.map((x) => String(x)).join(" ");
@@ -483,6 +486,21 @@ function main(): void {
         process.stderr.write(`unknown fsm sub '${sub}'\n`);
         process.exit(2);
       }
+    } else if (op === "gtt") {
+      // `gtt <team> [<fallback>]`：team 是 JS 字符串字面量（`""` = Independent 的键）；
+      // fallback 不写 = TS 的「没传」（走默认值），写了就是显式值（`""` 也算显式）。
+      const team = parseJsStringLiteral(t[idx[0]!++]!);
+      const hasFallback = idx[0]! < t.length;
+      const fallback = hasFallback ? parseJsStringLiteral(t[idx[0]!++]!) : undefined;
+      const color =
+        fallback === undefined ? get_team_text_color(team) : get_team_text_color(team, fallback);
+      out.push(line("GTT", esc(team), fallback === undefined ? "-" : esc(fallback), esc(color)));
+    } else if (op === "gto") {
+      const team = parseJsStringLiteral(t[idx[0]!++]!);
+      out.push(line("GTO", esc(team), esc(get_team_outline_color(team))));
+    } else if (op === "gsf") {
+      const hex = t[idx[0]!++]!;
+      out.push(line("GSF", hex, esc(get_short_file_size_txt(f64FromBits(BigInt("0x" + hex))))));
     } else {
       process.stderr.write(`unknown op '${op}'\n`);
       process.exit(2);

@@ -7,6 +7,8 @@
 #include <limits>
 #include <string>
 
+#include "js_num.h"
+
 namespace lfw {
 namespace {
 
@@ -290,6 +292,63 @@ std::u16string number_to_string(double v) {
     while (ti > 0) out.push_back(static_cast<char16_t>(tmp[--ti]));
   }
 
+  return out;
+}
+
+std::u16string number_to_fixed_1(double v) {
+  if (std::isnan(v)) return u"NaN";
+  if (std::isinf(v)) return v < 0 ? u"-Infinity" : u"Infinity";
+
+  const bool neg = v < 0;
+  const double a = neg ? -v : v;
+  // JS: `x ≥ 1e21` 时直接 ToString(x)（x 已取过绝对值，符号另加）
+  if (a >= 1e21) return number_to_string(v);
+  // 含 -0：JS 的 `x < 0` 对 -0 为假 ⇒ 输出 "0.0"
+  if (a == 0.0) return u"0.0";
+
+  std::u16string out;
+  if (neg) out.push_back(u'-');
+
+  const uint64_t bits = f64_bits(a);
+  const int ex = static_cast<int>((bits >> 52) & 0x7ffull);
+  const uint64_t frac = bits & 0x000fffffffffffffull;
+  const uint64_t m = ex == 0 ? frac : frac | (1ull << 52);
+  const int e = ex == 0 ? -1074 : ex - 1075;
+
+  char buf[40];
+  if (e >= 0) {
+    // |x| 本身是整数（且 < 1e21）⇒ 没有小数要进位，定点 0 位就是精确的整数位，补 ".0"
+    const std::to_chars_result r =
+        std::to_chars(buf, buf + sizeof buf, a, std::chars_format::fixed, 0);
+    if (r.ec != std::errc()) return number_to_string(v);
+    for (const char* p = buf; p != r.ptr; ++p) out.push_back(static_cast<char16_t>(*p));
+    out.push_back(u'.');
+    out.push_back(u'0');
+    return out;
+  }
+
+  // |x| = m * 2^e（e < 0）⇒ |x|*10 = 10m / 2^k，k = -e。
+  // n = floor(|x|*10 + 1/2) 用整数精确算：n = (2*(10m) + 2^k) >> (k + 1)。
+  // 尾数恰好是 .5 时这一步把 n 取到大的那侧 —— 这正是 JS 的规矩（to_chars/printf 会取偶数侧）。
+  // |x|*10 ≥ 0.5 ⟺ |x| ≥ 0.05 ⇒ k ≤ 57 才会得到非零的 n（更小的 |x| 一律 "0.0"）。
+  uint64_t n = 0;
+  const int k = -e;
+  if (k <= 58) {
+    const uint64_t num = m * 20ull + (1ull << k);
+    n = num >> (k + 1);
+  }
+
+  const std::to_chars_result r = std::to_chars(buf, buf + sizeof buf, n);
+  if (r.ec != std::errc()) return number_to_string(v);
+  std::string digits(buf, static_cast<size_t>(r.ptr - buf));
+  if (digits.size() == 1) {
+    out.push_back(u'0');
+    out.push_back(u'.');
+    out.push_back(static_cast<char16_t>(digits[0]));
+    return out;
+  }
+  digits.insert(digits.size() - 1, 1, '.');
+  for (const char c : digits) out.push_back(static_cast<char16_t>(c));
   return out;
 }
 

@@ -10,7 +10,9 @@
 #include "lfw/base/clock.h"
 #include "lfw/base/fps.h"
 #include "lfw/base/fsm.h"
+#include "lfw/base/get_short_file_size_txt.h"
 #include "lfw/base/no_emit_callbacks.h"
+#include "lfw/base/team_color.h"
 #include "lfw/base/ticker.h"
 #include "lfw/base/val_expression.h"
 #include "lfw/loader/preprocess_opoint.h"
@@ -638,6 +640,34 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "line %d: unknown fps sub '%s'\n", lineno, sub.c_str());
         return 2;
       }
+
+    } else if (op == "gtt") {
+      // `gtt <team> [<fallback>]`：team 是 JS 字符串字面量（`""` = Independent 的键）；
+      // fallback 不写 = TS 的「没传」（走默认值），写了就是显式值（`""` 也算显式）。
+      const std::u16string team = trace::parse_js_string_literal(t[i++]);
+      const bool has_fallback = i < t.size();
+      const std::u16string fallback =
+          has_fallback ? trace::parse_js_string_literal(t[i++]) : std::u16string();
+      Line out;
+      out.add(std::string_view("GTT")).add(esc(team));
+      out.add(has_fallback ? esc(fallback) : std::string("-"));
+      out.add(esc(lfw::get_team_text_color(team, has_fallback ? &fallback : nullptr)));
+      out.out();
+
+    } else if (op == "gto") {
+      const std::u16string team = trace::parse_js_string_literal(t[i++]);
+      Line out;
+      out.add(std::string_view("GTO")).add(esc(team)).add(esc(lfw::get_team_outline_color(team)));
+      out.out();
+
+    } else if (op == "gsf") {
+      // 输入是 16 位十六进制的位模式（负数 / NaN / 超大值都要能喂）
+      const std::string hex = t[i++];
+      Line out;
+      out.add(std::string_view("GSF"))
+          .add(hex)
+          .add(esc(lfw::get_short_file_size_txt(trace::bits_from_hex(hex))));
+      out.out();
 
     } else {
       std::fprintf(stderr, "line %d: unknown op '%s'\n", lineno, op.c_str());

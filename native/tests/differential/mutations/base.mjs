@@ -4,6 +4,16 @@
 // harness (FSM / Callbacks / NoEmitCallbacks / ValExpression / Ticker / FPS).
 //
 // Notes recorded up front (unobservable-by-design items, not silently skipped):
+//  * Slice 2g (`base/team_color.h` + `base/get_short_file_size_txt.h` + `core` 的
+//    `toFixed(1)`):
+//    - `get_team_text_color` 里 `!color->empty()` 这一半不可观察：出货数据（`Defines.TeamInfoMap`）
+//      每个队伍的 `txt_color` 都是非空字符串，而两侧读的是同一份数据、harness 也注入不了。
+//    - 两个颜色函数对「字段缺失 / 非字符串」的分支不可达（同一原因）：TS 侧 `0` 会被当假值走
+//      fallback、`1` 会原样返回数字，端口只认字符串。
+//    - `get_team_outline_color` 的 `info.txt_outline_color` **没有** `?.`：Independent 那一项
+//      缺字段时 TS 会抛 TypeError，端口回空串（数据里字段恒在 ⇒ 不可达）。
+//    - `.replace(".0", "")` 用 `find` 还是 `rfind` 等价：`toFixed(1)` 的定点串与
+//      `String(number)` 的指数串里 ".0" 最多出现一次。
 //  * Slice 2f (`base/clock.h` + `Ticker` + `FPS`):
 //    - `Ticker._schedule`'s `_pending` term in the guard is unobservable: every caller
 //      either just cleared `_pending` (`start` / `_tick` / `resync` via `cancel`) or
@@ -1029,6 +1039,153 @@ export default {
       file: "native/lfw/base/clock.h",
       from: `  return timeout() != nullptr ? timeout()->add(std::move(handler), delay) : 0;`,
       to: `  return timeout() != nullptr ? timeout()->add(std::move(handler), 0) : 0;`,
+    },
+
+    // ---- 2g：base/team_color.h（两队色）-----------------------------------------
+    {
+      note: "text 色：team 的查表退化成恒查 Independent",
+      file: "native/lfw/base/team_color.h",
+      from: `      team_color_detail::team_info(team), u"txt_color");`,
+      to: `      team_color_detail::team_info(std::u16string(team_enum::kIndependent)), u"txt_color");`,
+    },
+    {
+      note: "text 色：队色字段名取成描边色",
+      file: "native/lfw/base/team_color.h",
+      from: `      team_color_detail::team_info(team), u"txt_color");`,
+      to: `      team_color_detail::team_info(team), u"txt_outline_color");`,
+    },
+    {
+      note: "text 色：默认 fallback 的字段名取成描边色",
+      file: "native/lfw/base/team_color.h",
+      from: `      team_color_detail::team_info(std::u16string(team_enum::kIndependent)), u"txt_color");`,
+      to: `      team_color_detail::team_info(std::u16string(team_enum::kIndependent)), u"txt_outline_color");`,
+    },
+    {
+      note: "text 色：默认 fallback 拿的不是 Independent 而是 team 自己",
+      file: "native/lfw/base/team_color.h",
+      from: `      team_color_detail::team_info(std::u16string(team_enum::kIndependent)), u"txt_color");`,
+      to: `      team_color_detail::team_info(team), u"txt_color");`,
+    },
+    {
+      note: "text 色：fallback 优先于查表结果（`||` 的短路顺序反了）",
+      file: "native/lfw/base/team_color.h",
+      from: `  if (color != nullptr && !color->empty()) return *color;
+  if (fallback != nullptr) return *fallback;`,
+      to: `  if (fallback != nullptr) return *fallback;
+  if (color != nullptr && !color->empty()) return *color;`,
+    },
+    {
+      note: "描边色：丢掉「回落到 Independent」这一步",
+      file: "native/lfw/base/team_color.h",
+      from: `
+  if (info == nullptr) info = team_color_detail::team_info(std::u16string(team_enum::kIndependent));`,
+      to: ``,
+    },
+    {
+      note: "描边色：字段名取成文字色",
+      file: "native/lfw/base/team_color.h",
+      from: `  const std::u16string* color = team_color_detail::team_field(info, u"txt_outline_color");`,
+      to: `  const std::u16string* color = team_color_detail::team_field(info, u"txt_color");`,
+    },
+    {
+      note: "描边色：team 的查表退化成恒查 Independent",
+      file: "native/lfw/base/team_color.h",
+      from: `  const Object* info = team_color_detail::team_info(team);`,
+      to: `  const Object* info = team_color_detail::team_info(std::u16string(team_enum::kIndependent));`,
+    },
+    {
+      note: "两队色：查的是别的 Defines 表",
+      file: "native/lfw/base/team_color.h",
+      from: `  const Value* map = defines::find(u"Defines.TeamInfoMap");`,
+      to: `  const Value* map = defines::find(u"Defines.TeamEnum");`,
+    },
+
+    // ---- 2g：base/get_short_file_size_txt.h --------------------------------------
+    {
+      note: "文件大小：B 支的 < 写成 <=",
+      file: "native/lfw/base/get_short_file_size_txt.h",
+      from: `  if (bytes < 1024) return number_to_string(bytes) + u"B";`,
+      to: `  if (bytes <= 1024) return number_to_string(bytes) + u"B";`,
+    },
+    {
+      note: "文件大小：KB 支的 < 写成 <=",
+      file: "native/lfw/base/get_short_file_size_txt.h",
+      from: `  if (bytes < 1024) return strip_dot_zero(number_to_fixed_1(bytes)) + u"KB";`,
+      to: `  if (bytes <= 1024) return strip_dot_zero(number_to_fixed_1(bytes)) + u"KB";`,
+    },
+    {
+      note: "文件大小：MB 支的 < 写成 <=",
+      file: "native/lfw/base/get_short_file_size_txt.h",
+      from: `  if (bytes < 1024) return strip_dot_zero(number_to_fixed_1(bytes)) + u"MB";`,
+      to: `  if (bytes <= 1024) return strip_dot_zero(number_to_fixed_1(bytes)) + u"MB";`,
+    },
+    {
+      note: "文件大小：B 支用 toFixed(1) 而不是 ToString",
+      file: "native/lfw/base/get_short_file_size_txt.h",
+      from: `  if (bytes < 1024) return number_to_string(bytes) + u"B";`,
+      to: `  if (bytes < 1024) return number_to_fixed_1(bytes) + u"B";`,
+    },
+    {
+      note: "文件大小：第一段除的是 1000",
+      file: "native/lfw/base/get_short_file_size_txt.h",
+      from: `  if (bytes < 1024) return number_to_string(bytes) + u"B";
+  bytes /= 1024;`,
+      to: `  if (bytes < 1024) return number_to_string(bytes) + u"B";
+  bytes /= 1000;`,
+    },
+    {
+      note: "文件大小：第二段除的是 1000",
+      file: "native/lfw/base/get_short_file_size_txt.h",
+      from: `  if (bytes < 1024) return strip_dot_zero(number_to_fixed_1(bytes)) + u"KB";
+  bytes /= 1024;`,
+      to: `  if (bytes < 1024) return strip_dot_zero(number_to_fixed_1(bytes)) + u"KB";
+  bytes /= 1000;`,
+    },
+    {
+      note: "文件大小：第三段除的是 1000",
+      file: "native/lfw/base/get_short_file_size_txt.h",
+      from: `  if (bytes < 1024) return strip_dot_zero(number_to_fixed_1(bytes)) + u"MB";
+  bytes /= 1024;`,
+      to: `  if (bytes < 1024) return strip_dot_zero(number_to_fixed_1(bytes)) + u"MB";
+  bytes /= 1000;`,
+    },
+    {
+      note: "文件大小：KB 支的尾巴写成 B",
+      file: "native/lfw/base/get_short_file_size_txt.h",
+      from: ` + u"KB";`,
+      to: ` + u"B";`,
+    },
+    {
+      note: "文件大小：MB 支的尾巴写成 KB",
+      file: "native/lfw/base/get_short_file_size_txt.h",
+      from: ` + u"MB";`,
+      to: ` + u"KB";`,
+    },
+    {
+      note: "文件大小：GB 支的尾巴写成 MB",
+      file: "native/lfw/base/get_short_file_size_txt.h",
+      from: ` + u"GB";`,
+      to: ` + u"MB";`,
+    },
+    {
+      note: "文件大小：不做 `.replace(\".0\", \"\")`",
+      file: "native/lfw/base/get_short_file_size_txt.h",
+      from: `    if (at == std::u16string::npos) return s;
+    return s.substr(0, at) + s.substr(at + 2);`,
+      to: `    if (at == std::u16string::npos) return s;
+    return s;`,
+    },
+    {
+      note: "文件大小：replace 多删一位（`at + 2` → `at + 3`）",
+      file: "native/lfw/base/get_short_file_size_txt.h",
+      from: `    return s.substr(0, at) + s.substr(at + 2);`,
+      to: `    return s.substr(0, at) + s.substr(at + 3);`,
+    },
+    {
+      note: "文件大小：GB 支忘了 strip",
+      file: "native/lfw/base/get_short_file_size_txt.h",
+      from: `  return strip_dot_zero(number_to_fixed_1(bytes)) + u"GB";`,
+      to: `  return number_to_fixed_1(bytes) + u"GB";`,
     },
   ],
 };

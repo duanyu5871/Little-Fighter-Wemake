@@ -70,6 +70,10 @@ int main(int argc, char** argv) {
     } else if (op == "to_string_bits") {
       Line().add(op).add(to_ascii(lfw::number_to_string(bits_from_hex(tok[1])))).out();
 
+    } else if (op == "to_fixed") {
+      // `to_fixed <bits16>`：JS `Number.prototype.toFixed(1)`（走位模式输入，好喂极值/NaN）
+      Line().add(op).add(tok[1]).add(to_ascii(lfw::number_to_fixed_1(bits_from_hex(tok[1])))).out();
+
     } else {
       std::fprintf(stderr, "line %d: unknown op '%s'\n", lineno, op.c_str());
       return 2;

@@ -6067,3 +6067,99 @@ TS `ditto/IClock` + `ditto/ITimeout` 的原样，再把 `Ticker` / `FPS` 搬进�
   这一刀 6 条存活里有 5 条是这两类，只有 1 条是真等价。
 - 最终用例 231 行、16 个场景；`base` 三个用例合计 3660 行。
 
+## 60. 切片 2g：`base` 的三个叶子助手 + `core` 的 `toFixed(1)`
+
+**背景**：`base/` 里还剩五个没搬的小文件，其中 `dedup.ts`（Promise 去重）、`Debugging.ts`
+（`Object.getPrototypeOf(obj).constructor` 的原型反射）、`IActionHandler.ts`（纯类型）都不是可移植对象；
+剩下三个真·叶子助手（两队色 + 文件大小文案）里，`get_short_file_size_txt` 需要
+`Number.prototype.toFixed(1)` 的**字符串**形式 —— 端口此前只有 `number_to_string`
+（JS ToString(number)），所以这一刀顺带在 `core` 补一个 `number_to_fixed_1`。
+
+### 60.1 单元边界
+
+| 单元 | 位置 | 说明 |
+|---|---|---|
+| `number_to_fixed_1` | `native/lfw/core/js_string.{h,cpp}` | JS `Number.prototype.toFixed(1)`（**只做 f = 1**，见 60.4 第 1 条） |
+| `get_team_text_color` | `native/lfw/base/team_color.h` | TS `base/get_team_text_color.ts` |
+| `get_team_outline_color` | 同上 | TS `base/get_team_shadow_color.ts`（**文件名与导出名不一致**） |
+| `get_short_file_size_txt` | `native/lfw/base/get_short_file_size_txt.h` | TS `base/get_short_file_size_txt.ts` |
+
+`team_color.h` 与 `get_short_file_size_txt.h` 都是 header-only（`base/` 的既有做法）；
+`number_to_fixed_1` 落在 `js_string.cpp`（与 `number_to_string` 同一个文件，共用十进制那套设施）。
+
+### 60.2 保真要点
+
+1. **`toFixed(1)` 的语义边界**（spec 的第 6–9 步）：非有限 ⇒ `ToString`；取绝对值并记符号；
+   `|x| ≥ 1e21` ⇒ `ToString(绝对值)` 前补符号；否则取 n 使 `n/10` 最接近 `|x|`，**平局取较大的 n**。
+   注意「先取绝对值再 half-up」—— 所以 `(-0.25).toFixed(1)` 是 `"-0.3"` ✓。
+2. **不是 ties-to-even**：`to_chars` / `printf` 在 `0.25` 这种恰好 .5 的尾数上取偶数侧（"0.2"），
+   JS 取大的一侧（"0.3"）⇒ 不能直接借 `to_chars` 的定点输出。用例专门铺了一组 `.25 / .75` 的值。
+3. **整数支直接借 `to_chars`**：`|x| < 1e21` 且 `|x|` 是整数（`e ≥ 0`）时没有小数要进位，
+   `to_chars(..., chars_format::fixed, 0)` 给的就是精确的整数位，再补 `".0"` ✓（用最短往返格式会
+   在 1e16 以上变成指数串 ⇒ 有变异钉住）。
+4. **小数支用整数精确算**：把 `|x|` 分解成 `m·2^e`（`e < 0`）后
+   `n = (2·(10m) + 2^k) >> (k + 1)`（`k = -e`）—— 不用浮点乘法，因为 `|x|·10 ≥ 2^53` 时
+   浮点乘积连整数位都会偏（`p = |x|*10` 的 ulp 已经大于 1）。`m·20 < 2^58`、`k ≤ 58` 时才需要算，
+   其余（更小的 `|x|`）一律 `n = 0`。
+5. **`-0` 归零**：JS 的 `x < 0` 对 `-0` 为假 ⇒ `(-0).toFixed(1) === "0.0"`（不是 `"-0.0"`）。
+6. **两队色的两处不同**（别当成重复代码去合并）：
+  * text：`info?.txt_color || fallback` —— 查不到队伍时**没有**回落 Independent，直接用 fallback；
+  * outline：`TeamInfoMap[team] || TeamInfoMap[Independent]` —— **先**回落 Independent，再取字段。
+7. **`fallback` 用指针表达 TS 的默认参数**：`nullptr` = 「没传」（此时**每次调用**现取
+   `TeamInfoMap[Independent].txt_color`）；传 `u""` 是显式值（TS 的默认参数只在 `undefined` 时生效）。
+8. **`.replace(".0", "")` 只替第一处**，而 `|x| ≥ 1e21` 走 ToString 时 ".0" 会落在尾数**中间**：
+   `(1.0075e21).toFixed(1)` = `"1.0075e+21"` ⇒ 去掉第一处 ".0" 得 `"1075e+21"`。用例把这条钉住了
+   （`GSF ... "1075e+21GB"`）—— 这也是不能用「先转成数字再 `number_to_string`」抄近路的原因：
+   那样会把 `9.1e20` 的定点长串变成 `"9.1e+20"`。
+9. **B 那一支没有 `toFixed`**：`` `${bytes}B` `` 是 JS 的 `ToString(number)`（17 位有效数字的最短往返），
+   所以 `1023.5` 走 B 支、`270.55379486083984B` 这种长尾串也必须原样输出。
+
+### 60.3 harness 扩充
+
+- `core` subject 新增 `to_fixed <bits16>` → `to_fixed <bits16> <结果串>`（与 `to_string` 同款：不转义）；
+  TS 侧就是 **真 JS 的 `.toFixed(1)`**（标准答案）。
+- `base` subject 新增三个 op：
+  * `gtt <team> [<fallback>]` → `GTT "<team>" "<fallback|->" "<color>"`（fallback 省略 = TS 的 undefined）；
+  * `gto <team>` → `GTO "<team>" "<color>"`；
+  * `gsf <bits16>` → `GSF <bits16> "<text>"`。
+    队伍名按 JS 字符串字面量读（`""` 就是 Independent 的键）；颜色/大小都走 `esc` 转义（虽然全是 ASCII）。
+- 新用例 `cases/core/to_fixed.txt`（**487 行**）与 `cases/base/color_size.txt`（**245 行**）：
+  前者把 `0 / -0 / .25 系 / 整数 / 2^53 / .95 进位 / 次正规数 / 1e21 分界 / NaN / ±Infinity`
+  以及 **400 条固定种子的随机位模式**喂给 `toFixed(1)`；后者铺八个真实队伍 + Independent + 六个找不到的
+  键 + 显式 fallback（含空串），以及 B/KB/MB/GB 四段的分界、`/1024` 与 `/1000` 分辨得出来的取值。
+
+### 60.4 已知偏差 / 有意不覆盖
+
+1. **只做 `toFixed(1)`**：唯一的调用点就是 `get_short_file_size_txt`。一般化的 `to_fixed(v, f)`
+   要精确就得有 `10^f·m` 的大整数尾数（f ≤ 22 才装得进 128 位），而 `f ≥ 2` 现在没有调用点 ⇒
+   不提前做。**不要**用 `dat_translator` 的 `fixed_float`（3c，返回**数值**、走 `half_away_scaled` 的
+   浮点路径）来顶替这里的字符串输出：两者只在 `|x|·10^f < 2^53` 的小区间里等价。
+2. **`neg = v < 0` 写成 `v <= 0` 抓不到**：零（含 `-0`）被 `a == 0.0` 那条提前 return 兜掉了，
+   能走到加负号那一句时必有 `a > 0` ⇒ 两个比较等价（`-0` 不带负号是那条 return 写死的 `"0.0"`）。
+   `mutations/core.mjs` 头部第 0b 条记着这条构造性等价，别再试图杀它。
+3. **颜色字段的「缺失 / 非字符串」分支不可达**：两侧读的是同一份 `Defines.TeamInfoMap`（harness 注入不了），
+   数据里 `txt_color` / `txt_outline_color` 恒为非空字符串 ⇒ TS 的 `0`（假值）/数字（原样返回）
+   与 `undefined.txt_outline_color`（TypeError）这些分支都不复现（端口只认字符串）。
+4. **`team` 只收 `std::u16string`**：TS 签名是 `string | number`，但 JS 的对象键终究是字符串
+   （`TeamInfoMap[3]` 与 `TeamInfoMap["3"]` 是同一把键），而端口的 `Entity::team` 本来就是
+   `u16string`（README 偏差表那条）⇒ 数字队伍在进这个函数之前就已经字符串化了。
+5. **TS 文件名与导出名不一致**（`get_team_shadow_color.ts` 导出 `get_team_outline_color`）：
+   端口按**导出名**写函数、把两个函数放在 `team_color.h` 里（它们共享 `TeamInfoMap` 的查表）。
+
+### 60.5 变异与结果
+
+- `core` 新增 15 条（`number_to_fixed_1`，另 **1 条按构造等价、撤出名单**），`base` 新增 22 条
+  （`team_color.h` 9 + `get_short_file_size_txt.h` 13）；两边都是 **全杀**（core 127/127、base 163/163）。
+- 首轮跑之前先做了差分（`to_fixed` 461 行、`color_size` 240 行**一次全对**），随后按「哪儿会被同值遮住」
+  补了两批取值才开跑变异：`to_fixed` 补 `0.05` 附近的 7 个值（把「非零下界」那条变成可杀的，
+  否则 `k ≤ 56/57/58` 三种写法等价 —— 见 `mutations/core.mjs` 头部第 0 条）、
+  `color_size` 补 `1024·1.04 / 1.04MB / 1.04GB` 等（把 `/1024` 写成 `/1000` 的变异变成可杀的）。
+- **唯一一条存活是「`const bool neg = v < 0;` 改成 `v <= 0`」**：它被 `a == 0.0` 那条**提前 return**
+  遮住了 —— 能走到 `if (neg) out.push_back(u'-');` 时必有 `a > 0`，而 `a > 0` 时两个比较同真同假；
+  `-0` 的「不带负号」是那条提前 return 写死的 `"0.0"` 给的。⇒ 按构造等价、撤出名单
+  （与 `2f` 撤出 `want` 上界那条同一处理口径）。
+- 踩到的两个**工程**坑（不是端口语义）：新文件被 `create` 工具写成 CRLF ⇒ 多行变异锚点全部匹配失败
+  （`base` 首版 preflight 6 条 `count=0`）；`number_to_fixed_1` 里与 `number_to_string` 同款的几行
+  （`if (std::isnan(v))` / `if (std::isinf(v))` / `const bool neg = v < 0;`）让 core 的 3 条**既有**锚点
+  变成 `count=2` ⇒ 锚点都得带上相邻行才唯一（`core` 首版 preflight 5 条 `count=2`）。
+

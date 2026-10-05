@@ -67,6 +67,11 @@ function main(): void {
         out.push(line(op, String(f64FromBits(BigInt("0x" + tok[1]!)))));
         break;
 
+      case "to_fixed":
+        // 真 JS 的 `toFixed(1)` 就是标准答案
+        out.push(line(op, tok[1]!, f64FromBits(BigInt("0x" + tok[1]!)).toFixed(1)));
+        break;
+
       default:
         process.stderr.write(`line ${lineno}: unknown op '${op}'\n`);
         process.exit(2);
