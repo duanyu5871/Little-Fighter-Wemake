@@ -3499,3 +3499,41 @@ harness op：
 - 不可观察 / 有意不覆盖（另见 DESIGN §60.4 与 `mutations/base.mjs` / `mutations/core.mjs` 的头部）：
   颜色字段恒为非空字符串（`!color->empty()` 那一半、TS 的 `0` 假值与数字原样返回分支都不可达）、
   `toFixed` 只做 f = 1、`team` 只收字符串。
+
+### 6.9.105 `loader/get_val_from_entity`（+ 惰性的 `get_val_from_lf2` / `get_val_from_world`）（`entity` 用例 2326+37+108+116+576 → +`get_val` **319** 行 = 3482；变异 54/54 全杀，全部为本刀新增）
+
+- 移植：`loader/get_val_from_entity.{h,cpp}`（39 条表项 + `get_val_getter_from_entity` 查表）、
+  `loader/get_val_from_lf2.h` / `loader/get_val_from_world.h`（TS 里就是只有 `default` 的 switch ⇒
+  两处恒 `nullptr`，注释里写明「等 `LF2Val` 有实现时只改这两个文件」）。
+  `IEntityHost` 新增两缝（都带默认实现，旧 harness 一行不用改）：`is_cheat(name)`（`lfw.is_cheat`）、
+  `survival_rank_available()`（`world.lfw.survival_rank_available`，与既有 `survival_rank_mode` 是两个字段）；
+  `Entity` 新增 `host()` 访问器（自由函数要问宿主）。
+- 新增 op（`entity`）：
+  * `run gv <词>` → `run gv s"<词>" || <日志> | has=<0|1> v=<值>`（`has=0` 时 `v=-`：
+    TS 的 `undefined` 不能被调用，所以查不到就**不调用**）。词按 JS 字符串字面量读。
+  * `run supern <n>` → `e.superpunchs` 清空后塞 n 条（只关心条数）。
+  * `run buffset <kind…>` → `e.buffs` 清空后按行尾的 kind 字面量逐个插入（TS 侧是 `Buff` 的最小
+    子类 `FakeBuff`，`HitByMagicFlute` 只读 `kind`）。
+  * `run addcoll <collided|collision> <attacker type> <victim type> <aframe> <itr> <bframe>` →
+    两条碰撞链各追加一项；`aframe` / `itr` / `bframe` 用**对象字面量**（`o 1 state n 3` / `o 0`），
+    `type` 是 `data.type`（4/8/16/32 = Entity/Fighter/Weapon/Ball）。
+  * `run collclear <collided|collision|both>`。
+  * `env cheat <名字> b 0|1`、`env rankavail b 0|1`（两个宿主接缝）。
+  * `run set transform_index <v>`（`NUMERIC_FIELDS` / `get_num` / `set_num` 两侧都补了这一格）。
+- 新用例 `cases/entity/get_val.txt`（**319 行**，11 个场景）：39 个词全过一遍 + 5 个查不到的词；
+  `trend_x` / `press_*` 的 `-0`（`facing = -1` 且方向键 0 ⇒ `n0:8000000000000000`）；`hp_p` 的
+  `hp_max = 0`（`Infinity` 与 `NaN`）与恰好 `.5` 的 round；`?.length` 的八种类型（含**字符串算长度**）；
+  `holding*` 的四种 buddy 与解链；`super_punch` 的 0/1/3/2；`hit_by_magic_flute` 的字符串 kind
+  （TS 的 `==` 是松散的 ⇒ `"10" == 10` 为真）；碰撞两条链的空/单条/多条/缺字段/四种 type。
+- ⚠️ **`o <n>` 的对数必须写对**：`run buddy o 2 … base …` 少写一对 ⇒ TS 的 `reset` 直接读
+  `data.base.resting_max` 抛 TypeError（差分台面先崩、看不出是语义问题）。每次 `run make` / `run buddy`
+  都要给 `base` 记录。
+- ⚠️ **`gv` 的词必须是「自有的键」**：TS 的 `entity_val_getters[word]` 是属性查找，
+  `constructor` / `toString` / `__proto__` 会命中原型链拿到函数而不是 `undefined`（差分里会真去调用它、
+  然后爆栈）。用例只用普通拼错的词（`no_such_word` / `""` / `"TrendX"` / `"trend_X"`），
+  原型链那条差异记在 DESIGN §61.4 第 1 条。
+- 不可观察 / 有意不覆盖（另见 DESIGN §61.4 与 `mutations/get_val.mjs` 的头部）：
+  `get_val_from_lf2` / `get_val_from_world`（死分支）、`IEntityHost` 两个默认实现（被替身覆盖）、
+  记忆 Map、`Holding_W_Type` 的不可达 `?? 0`、`length_of` 的非数组/非字符串分支（同值）。
+- 未搬：`get_val_from_collision`（~90 条，要「两个真实实体的碰撞」台面）、
+  `get_val_from_bot_ctrl` / `get_val_getter_from_stage`（要 `BotController` / `Stage`）。

@@ -9,12 +9,14 @@
 #include <vector>
 
 #include "lfw/cases.h"
+#include "lfw/buff/buff.h"
 #include "lfw/controller/base_controller.h"
 #include "lfw/core/js_num.h"
 #include "lfw/core/value.h"
 #include "lfw/entity/entity.h"
 #include "lfw/entity/entity_snapshot.h"
 #include "lfw/entity/summary_mgr.h"
+#include "lfw/loader/get_val_from_entity.h"
 #include "lfw/state/state_base.h"
 #include "lfw/state/states.h"
 #include "lfw/utils/container_help/field_or.h"
@@ -30,6 +32,7 @@ using trace::parse_value;
 using trace::render_value;
 using trace::split_ws;
 using trace::to_ascii;
+using trace::to_u16;
 
 std::vector<std::string> g_log;
 std::unique_ptr<lfw::WorldDataset> g_dataset;
@@ -66,6 +69,12 @@ std::vector<std::string> g_puppet_tokens;
 std::vector<std::pair<std::u16string, Value>> g_stage;
 double g_ground_step = 10;
 bool g_rank_mode = false;
+// `world.lfw.survival_rank_available`（`env rankavail b 1`，`survial_rank_mode` getter 用）
+// 与 `lfw.is_cheat(name)` 的开关集合（`env cheat <名字> b 1`，三个 `*_ON` getter 用）。
+bool g_rank_avail = false;
+std::vector<std::u16string> g_cheats;
+// `e.buffs` 的宿主所有权（`run buffset` 造的）。
+std::vector<std::unique_ptr<lfw::buff::Buff>> g_buffs;
 
 Entity* candidate_of(const std::string& tok) {
   if (tok == "self") return g_entity.get();
@@ -497,6 +506,18 @@ class Host : public lfw::IEntityHost {
   // `lfw.survival_rank_mode`
   bool survival_rank_mode() const override { return g_rank_mode; }
 
+  // `lfw.is_cheat(name)`：TS 是 `is_cheat_type(name) && !!world.dataset[name]`，
+  // 名字只可能是 `LF2_NET` / `HERO_FT` / `GIM_INK`（表里写死的），所以这里只查开关。
+  bool is_cheat(const std::u16string& name) const override {
+    for (const std::u16string& n : g_cheats) {
+      if (n == name) return true;
+    }
+    return false;
+  }
+
+  // `world.lfw.survival_rank_available`
+  bool survival_rank_available() const override { return g_rank_avail; }
+
   // `world.add_entities(this)`（`attach`）——把实体挂进世界的那一刻，`_spawn_time`
   // 已经写好，所以日志里带上它。
   void add_entities(Entity& e) override {
@@ -865,6 +886,7 @@ bool get_num(const Entity& e, const std::string& name, double& out) {
   else if (name == "ctrl_visible") out = e.ctrl_visible;
   else if (name == "puppet") out = e.puppet ? 1.0 : 0.0;
   else if (name == "is_on_ground") out = e.is_on_ground ? 1.0 : 0.0;
+  else if (name == "transform_index") out = e.transform_index;
   else if (name == "jumping.x") out = e.jumping.x;
   else if (name == "jumping.y") out = e.jumping.y;
   else if (name == "jumping.z") out = e.jumping.z;
@@ -971,6 +993,7 @@ bool set_num(Entity& e, const std::string& name, double v) {
   else if (name == "ctrl_visible") e.ctrl_visible = v;
   else if (name == "puppet") e.puppet = lfw::truthy(Value(v));
   else if (name == "is_on_ground") e.is_on_ground = lfw::truthy(Value(v));
+  else if (name == "transform_index") e.transform_index = v;
   else if (name == "jumping.x") e.jumping.x = v;
   else if (name == "jumping.y") e.jumping.y = v;
   else if (name == "jumping.z") e.jumping.z = v;
@@ -1089,6 +1112,24 @@ int main(int argc, char** argv) {
         const std::string& flag = t[i++];
         const std::string& v = t[i++];
         g_rank_mode = flag == "b" && v == "1";
+      } else if (sub == "rankavail") {
+        const std::string& flag = t[i++];
+        const std::string& v = t[i++];
+        g_rank_avail = flag == "b" && v == "1";
+      } else if (sub == "cheat") {
+        // `lfw.is_cheat(name)` 的第二段：`world.dataset` 里有没有这个作弊键。
+        const std::u16string name = text_of(parse_value(t, i));
+        const std::string& flag = t[i++];
+        const std::string& v = t[i++];
+        const bool on = flag == "b" && v == "1";
+        for (std::size_t k = 0; k < g_cheats.size();) {
+          if (g_cheats[k] == name) {
+            g_cheats.erase(g_cheats.begin() + static_cast<std::ptrdiff_t>(k));
+          } else {
+            ++k;
+          }
+        }
+        if (on) g_cheats.push_back(name);
       } else {
         std::fprintf(stderr, "unknown env '%s' at line %d\n", sub.c_str(), lineno);
         return 2;
@@ -1261,6 +1302,74 @@ int main(int argc, char** argv) {
         }
         std::printf("run linkb %s %s || %s | %s\n", field.c_str(), to.c_str(),
                     join(g_log).c_str(), rel_probe().c_str());
+      } else if (what == "gv") {
+        // `get_val_getter_from_entity(word)` 查表再调用。`has` 区分表里有没有这一项
+        // （TS 的 `undefined` 不能被调用，所以表里没有时只能印 `v=-`）。
+        const std::u16string word = text_of(parse_value(t, i));
+        const lfw::ValGetter<Entity> getter = lfw::loader::get_val_getter_from_entity(word);
+        if (getter == nullptr) {
+          std::printf("run gv %s || %s | has=0 v=-\n", render(Value(word)).c_str(),
+                      join(g_log).c_str());
+        } else {
+          const Value v = getter(*g_entity, word, lfw::BinOp{});
+          std::printf("run gv %s || %s | has=1 v=%s\n", render(Value(word)).c_str(),
+                      join(g_log).c_str(), render(v).c_str());
+        }
+      } else if (what == "supern") {
+        // `e.superpunchs.size`（`RequireSuperPunch`）：清空后塞 n 条。
+        const double n = lfw::to_number(parse_value(t, i));
+        g_entity->superpunchs.clear();
+        for (int k = 0; k < static_cast<int>(n); ++k) {
+          const std::u16string key = u"s" + to_u16(std::to_string(k));
+          g_entity->superpunchs[key] = lfw::collision::Collision{};
+        }
+        std::printf("run supern %s || %s | n=%d\n", render(Value(n)).c_str(),
+                    join(g_log).c_str(), static_cast<int>(g_entity->superpunchs.size()));
+      } else if (what == "buffset") {
+        // `e.buffs.values()`（`HitByMagicFlute`）：清空后按行尾给出的 kind 逐个插入。
+        g_buffs.clear();
+        g_entity->buffs.clear();
+        int k = 0;
+        while (i < t.size()) {
+          const std::u16string id = u"b" + to_u16(std::to_string(k));
+          g_buffs.push_back(
+              std::make_unique<lfw::buff::Buff>(nullptr, id, parse_value(t, i)));
+          g_entity->buffs[id] = g_buffs.back().get();
+          ++k;
+        }
+        std::printf("run buffset || %s | n=%d\n", join(g_log).c_str(),
+                    static_cast<int>(g_entity->buffs.size()));
+      } else if (what == "addcoll") {
+        // `collided_list` / `collision_list` 追加一项。`aframe` / `itr` / `bframe` 用对象
+        // 字面量（`o 1 state n 3` / `o 0`），`attacker` / `victim` 只给 `data.type`：
+        // `CollisionActor` 是快照，只保留了这个字段。
+        const std::string& which = t[i++];
+        lfw::collision::Collision c;
+        c.attacker.data_type = lfw::to_number(parse_value(t, i));
+        c.victim.data_type = lfw::to_number(parse_value(t, i));
+        c.aframe = parse_value(t, i);
+        c.itr = parse_value(t, i);
+        c.bframe = parse_value(t, i);
+        if (which == "collided") g_entity->collided_list.push_back(std::move(c));
+        else if (which == "collision") g_entity->collision_list.push_back(std::move(c));
+        else {
+          std::fprintf(stderr, "unknown addcoll '%s' at line %d\n", which.c_str(), lineno);
+          return 2;
+        }
+        std::printf("run addcoll %s || %s | nc=%d no=%d\n", which.c_str(), join(g_log).c_str(),
+                    static_cast<int>(g_entity->collided_list.size()),
+                    static_cast<int>(g_entity->collision_list.size()));
+      } else if (what == "collclear") {
+        const std::string& which = t[i++];
+        if (which == "collided" || which == "both") g_entity->collided_list.clear();
+        if (which == "collision" || which == "both") g_entity->collision_list.clear();
+        if (which != "collided" && which != "collision" && which != "both") {
+          std::fprintf(stderr, "unknown collclear '%s' at line %d\n", which.c_str(), lineno);
+          return 2;
+        }
+        std::printf("run collclear %s || %s | nc=%d no=%d\n", which.c_str(),
+                    join(g_log).c_str(), static_cast<int>(g_entity->collided_list.size()),
+                    static_cast<int>(g_entity->collision_list.size()));
       } else if (what == "setvel") {
         const Value x = parse_value(t, i);
         const Value y = parse_value(t, i);

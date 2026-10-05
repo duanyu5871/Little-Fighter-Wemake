@@ -97,6 +97,7 @@ add_library(lfw_core STATIC
   bot/is_ray_hit.cpp
   bot/dummy_enum.cpp
   bot/nearest_targets.cpp
+  loader/get_val_from_entity.cpp
   loader/preprocess_pic.cpp
   loader/preprocess_stage.cpp
   loader/preprocess_ball_frame.cpp

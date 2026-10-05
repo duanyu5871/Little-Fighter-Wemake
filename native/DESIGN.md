@@ -6163,3 +6163,139 @@ TS `ditto/IClock` + `ditto/ITimeout` 的原样，再把 `Ticker` / `FPS` 搬进�
   （`if (std::isnan(v))` / `if (std::isinf(v))` / `const bool neg = v < 0;`）让 core 的 3 条**既有**锚点
   变成 `count=2` ⇒ 锚点都得带上相邻行才唯一（`core` 首版 preflight 5 条 `count=2`）。
 
+
+## 61. 切片 3aa：`loader/get_val_from_entity`（+ 惰性的 `get_val_from_lf2` / `get_val_from_world`）
+
+`loader/get_val_*` 是计划里的步骤 3（README 里写的「103 条 getter 表」）。真正看下来，
+**这一步现在只搬得动三分之一**，所以本刀只做 entity 段并把其余部分的依赖写清楚：
+
+| 文件 | 条数 | 能不能搬 |
+|---|---|---|
+| `get_val_from_entity.ts` | 39 | ✅ 本刀（`Entity` 已整块移植） |
+| `get_val_from_collision.ts` | ~90 | ⏳ 下一刀：`Collision` 已移植，但要能造出「两个真实实体撞出来的碰撞」的用例台面 |
+| `get_val_from_bot_ctrl.ts` | ? | ✗ 要 `BotController`（未移植） |
+| `get_val_getter_from_stage.ts` | ? | ✗ 要 `Stage`（未移植） |
+| `get_val_from_lf2.ts` | 0 | ✅ 本刀（但它是个**死文件**，见 61.1） |
+| `get_val_from_world.ts` | 0 | ✅ 本刀（同上） |
+
+### 61.1 惰性链条：`lf2` → `world` → `entity`
+
+`get_val_from_lf2.ts` 是个只有 `default` 分支的 `switch`（`LF2Val` 一个实现都没有）⇒ 恒 `undefined`。
+`get_val_from_world.ts` 查 `WorldVal` 表（同样没有一项）后向它回落 ⇒ 也恒 `undefined`。
+`get_val_from_entity.ts` 查完自己的表再向 `get_val_from_world` 回落，于是那层回落
+**今天永远拿不到东西**：端口照搬形状（`loader/get_val_from_lf2.h` / `loader/get_val_from_world.h`），
+两个文件都恒 `nullptr`，并在注释里写明「等 `LF2Val` 有实现时只改这两个文件」。
+
+TS 的回落还会包一层**投影**：`(e, ...arg) => fallback(e.world, ...arg)`（把实体换成世界）。
+端口的 `ValGetter<Ctx>` 是**裸函数指针**（`base/expression.h`），捕获不了 `world → world.lfw` 这一步 ⇒
+这层投影**不可表示**，等 `LF2Val` 真有了实现，需要一个「按 getter 生成的静态适配器」。
+本刀不预造（现在造就是死代码）。
+
+### 61.2 39 条逐项对照
+
+表本身按 TS 的声明顺序放在 `entity_val_getters()`（`std::vector<std::pair<u16string, ValGetter<Entity>>>`，
+键是 `defines/entity_val.h` 的 `entity_val::k*`）。`ValGetter` 的 `word` / `op` 两个参数表里一项都用不上
+（TS 的箭头函数也只吃 `e`），函数签名里一律写成无名参数。
+
+| `E_Val` | TS | 端口 |
+|---|---|---|
+| `TrendX` | `vx < 0 ? -facing : vx > 0 ? facing : 0` | 同（`-facing` 的 `-0` 照留：`facing = 0` 且 `vx < 0` 给 `-0`，差分在位模式上盯住了它） |
+| `PressFB` / `PressUD` / `PressLR` | `ctrl.LR * facing` / `ctrl.UD` / `ctrl.LR` | 同；`ctrl` 为空指针时按 0 处理（TS 的 `ctrl` 恒为真控制器，没设备时是 `NoneController`，也是 0 ⇒ 等价，同 `entity.cpp` 既有写法） |
+| `Holding_W_Type` | `holding?.base_type ?? 0` | `holding ? base_type() : 0`（`?? 0` 不可达，见 61.4） |
+| `HP_P` | `clamp(round(100 * hp / hp_max), 0, 100)` | 同（`hp_max === 0` 时的 `±Infinity` / `NaN` 原样走 JS 语义，用例专门喂了这两格） |
+| `LF2_NET_ON` / `HERO_FT_ON` / `GIM_INK_ON` | `lfw.is_cheat(CheatEnum.X) ? 1 : 0` | 宿主缝 `IEntityHost::is_cheat(name)`（新增，默认 `false`） |
+| `HAS_TRANSFORM_DATA` | `transforms?.length ? 1 : 0` | `length_of(transforms)` 有值且非 0 |
+| `Catching` / `CAUGHT` | `catching ? 1 : 0` / `catcher ? 1 : 0` | 判空 |
+| `RequireSuperPunch` | `superpunchs.size` | `superpunchs.size()` |
+| `HitByCharacter` / `HitByWeapon` / `HitByBall` | `find(collided_list, c => is_x(c.attacker))` | `find_flag(collided_list, …)` + `is_x_actor(c.attacker)` |
+| `HitByState` / `HitByItrKind` / `HitByItrEffect` | `collided_list.map(i => i.aframe.state / i.itr.kind / i.itr.effect)` | `field_or(c.aframe, u"state")` / `field_or(c.itr, u"kind"/u"effect")` 组数组 |
+| `HitOnCharacter` / `HitOnWeapon` / `HitOnBall` | 同上，看 `c.victim` 与 `collision_list` | 同 |
+| `HitOnState` | `collision_list.map(i => i.bframe.state)` | `field_or(c.bframe, u"state")` |
+| `HitOnSth` | `collision_list.length` | `collision_list.size()` |
+| `HP` / `MP` / `VX` / `VY` / `VZ` | `hp` / `mp` / `velocity.{x,y,z}` | 同 |
+| `FrameState` | `e.state` | `e.state()`（TS 是 `get state() { return this.frame.state }`，端口同款 `field_or(frame, u"state")`） |
+| `Shaking` | `shaking` | 同 |
+| `Holding` / `HoldingHeavy` | `holding ? 1 : 0` / `holding?.base_type == WeaponEnum.Heavy` | 判空；`!holding` 时 TS 的 `undefined == 2` 是 `false`（端口同样给 `false`，返回的是**布尔** `Value` 而不是 0/1） |
+| `HoldingOID` | `holding?.data.id` | 没有武器给 `Value()`（= TS 的 `undefined`），否则 `field_or(holding->data(), u"id")` |
+| `HpRecoverable` | `hp_r - hp` | 同 |
+| `HitByMagicFlute` | 遍历 `buffs.values()`，`buf.kind == ItrKind.MagicFlute \|\| == MagicFlute2` | 遍历 `buffs`，用 `equals`（TS 用的是**松散** `==` ⇒ `"10" == 10` 为真，用例喂了字符串 kind 钉住这一点） |
+| `TransformListSize` | `transforms?.length \|\| 0` | `length_of(transforms).value_or(0)` |
+| `IsOnGround` | `is_on_ground ? 1 : 0` | 同 |
+| `TransformIndex` | `transform_index` | 同 |
+| `IsSurvialRankMode` | `world.lfw.survival_rank_available ? 1 : 0` | 宿主缝 `IEntityHost::survival_rank_available()`（新增，默认 `false`；和既有的 `survival_rank_mode` 是**两个字段**） |
+
+`?.length` 的「四种类型」这一格值得单独记：`length_of` 按 JS 的规矩——数组给元素个数、**字符串给码元数**、
+其它类型没有 `length`（⇒ `undefined`）。用例把 null / undefined / 空数组 / 数组 / 字符串 / 数字 / 布尔 /
+对象都喂了一遍（`"abc"` ⇒ 3、数字 5 ⇒ 0），否则「字符串也算长度」这条会被同值遮住。
+
+### 61.3 未移植部分（为什么）
+
+- `get_val_from_collision`（~90 条）：`Collision` / `is_armor_work` / 控制器的 `is_hit` / `is_start` /
+  `is_db_hit` 都已移植，缺的只是**用例台面**——`collision_core` 现在用假实体驱动核心，
+  要观察这张表需要「两个真实实体撞出来的 `Collision`」。
+- `get_val_from_bot_ctrl` / `get_val_getter_from_stage`：要 `BotController` / `Stage`（步骤 4）。
+- `LFW` / `World` 两个类型没有移植 ⇒ `is_cheat` 与 `survival_rank_available` 走宿主缝
+  （`IEntityHost` 的既有约定：默认实现给「没有这个服务」，旧 harness 一行都不用改）。
+  `LFW.is_cheat` 里的 `is_cheat_type(name)` 那一段也就留在宿主侧（见 61.4）。
+
+### 61.4 已知偏差 / 有意不覆盖
+
+1. **`Object.prototype` 的属性查找 vs 查表**：TS 的 `entity_val_getters[word]` 是**属性查找**，
+   `word` 撞上原型链（`constructor` / `toString` / `__proto__` …）时会拿到一个**函数**而不是
+   `undefined`（`Expression` 随后会把它当 getter 调用）。端口是向量查表，查不到就给 `nullptr`。
+   这条差异**不复现**：那是原型污染的产物、数据文件里也写不出这种词，而且复现了只能崩在同一个地方。
+   用例里只用「自有的键」和普通拼错（`no_such_word` / `""` / `"TrendX"` / `"trend_X"`），
+   都在两侧同为 `undefined`。
+2. **`entity_world_val_getters` 记忆 Map 不移植**：它是纯缓存（命中与未命中的结果与「重新查一遍」
+   完全同值），端口每次走一遍回落函数。
+3. **`Holding_W_Type` 的 `?? 0` 不可达**：`Entity::base_type()` 返回 `double`
+   （TS 也是 `get base_type(): number`）⇒ `undefined` 那一支进不来。
+4. **`length_of` 的非数组/非字符串分支**：`nullopt` 与 `0.0` 在
+   `has_transform_data`（`0 != 0` 为假）和 `transform_list_size`（`|| 0`）里同值 ⇒ 构造上等价。
+5. **`is_x(c.attacker)` 的载体**：TS 读的是活实体（`c.attacker.data.type`），端口的 `Collision`
+   里是**快照**（`CollisionActor`），只留了 `data.type`（`data_type`）⇒ 表里按 `data_type` 判。
+   成立的前提是「造碰撞的一方把 `data.type` 写进 `data_type`」——`collision_core` 的差分台子
+   （9 刀的 `collision_core.ts` 里 `type: this.data_type`）就是这个约定。
+6. **`IEntityHost::is_cheat` / `survival_rank_available` 的默认实现**：返回 `false`，
+   等价于「宿主没有这个服务」。`entity` 用例里两个接缝都被测试替身覆盖 ⇒ 默认值不可观察
+   （也不在变异名单里）。
+7. **`get_val_from_world` 的投影层**：见 61.1，函数指针装不下 `world → world.lfw`。
+
+### 61.5 用例
+
+新用例 `cases/entity/get_val.txt`（**319 行**，11 个场景）：
+
+1. 默认实体：39 个词一个不落地过一遍 + 5 个「表里没有」的词；
+2. `trend_x`：`vx` 的正负零、`facing` 的 `1 / -1 / 0`、`-0` 的速度；
+3. `press_*`：`ctrl none` / `keys` 的三个方向 / `base_released`，以及 `facing = -1` 时的 `-0`；
+4. `hp_p`：`33.4 / 0.5 / 1/3 / 2/3 / 1.5/3 / 1/8`（恰好 `.5` 的 round）、`hp_max = 0`
+   的 `Infinity` 与 `NaN`、负 hp、超上限 hp；
+5. `HAS_TRANSFORM_DATA` / `transform_list_size`：null / undefined / 空数组 / 数组 / 字符串 /
+   数字 / 布尔 / 对象，`transform_index` 的 3 与 -1.5；
+6. `frame_state` / `is_on_ground` / `shaking` / `hp` / `mp` / `hp_recoverable`；
+7. `holding*` / `catching` / `CAUGHT`：四种 buddy（有 `base.type` 的武器 / 没有 `base.type` 的武器 /
+   别的武器类型 / 没有 `id` 的 fighter）+ `run link … none` 解链；
+8. `super_punch`：0 / 1 / 3 / 2 条；
+9. `hit_by_magic_flute`：`10 / 11 / 9 / "10" / "11" / null / undefined` 各种 kind 组合；
+10. 碰撞两条链：空 / 单条 / 两条 / 缺 `state`/`kind`/`effect` 字段 / 四种 `data.type` /
+    `collclear collided|both`；
+11. 两个宿主接缝：作弊开关各自开关、`rankavail`，以及「另一个字段」的对照。
+
+harness（`entity` subject）新增：`run gv <词>`（查表 + 调用，印 `has=0|1`；表里没有时**不调用**）、
+`run supern <n>`、`run buffset <kind…>`、`run addcoll <collided|collision> <attacker type> <victim type>
+<aframe> <itr> <bframe>`、`run collclear <collided|collision|both>`、`env cheat <名字> b 0|1`、
+`env rankavail b 0|1`，以及 `run set transform_index`。
+
+### 61.6 变异与结果
+
+新增 `mutations/get_val.mjs`（**54 条**，subject 仍是 `entity`）⇒ **54/54 全杀，一条不剩**（首轮即全杀）。
+每条都钉在一个具体的表项或表本身（三个 `is_x_actor` 的枚举、`find_flag` / `flag_of` / `length_of` /
+`ctrl_lr` / `ctrl_ud` 五个助手、39 项里除纯直读之外的每一项、表里的键与指针、查表的相等判断）。
+
+头部记了 6 条**有意不覆盖**：两个惰性文件（死分支）、`IEntityHost` 的两个默认实现（被替身覆盖）、
+原型链差异、记忆 Map、`Holding_W_Type` 的不可达分支、`length_of` 的构造等价分支。
+
+用例台面的两处工程细节：`run make` / `run buddy` 的 `base` 记录必须给（TS 的 `reset` 直接读
+`data.base.resting_max`，没有 `base` 会 TypeError），以及对象字面量的**对数**要写对
+（`o 2` 后给了三对 ⇒ TS 那边 `base` 丢掉、直接崩；两处都踩过）。
+

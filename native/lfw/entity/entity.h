@@ -99,6 +99,16 @@ class IEntityHost {
   virtual double ground_step() const { return 10.0; }
   // `lfw.survival_rank_mode`（`update_catching` 的 `throwinjury === -1` 分支）。
   virtual bool survival_rank_mode() const { return false; }
+  // `lfw.is_cheat(name)` —— `LF2_NET_ON` / `HERO_FT_ON` / `GIM_INK_ON` 三个 getter 用。
+  // TS 的 `is_cheat` 先过 `is_cheat_type(name)` 再查 `world.dataset[name]`，那两步都属于
+  // `LFW`（未移植），所以整件事交给宿主回答。
+  virtual bool is_cheat(const std::u16string& name) const {
+    (void)name;
+    return false;
+  }
+  // `world.lfw.survival_rank_available`（`survial_rank_mode` getter 用；和上面的
+  // `survival_rank_mode` 是两个字段）。
+  virtual bool survival_rank_available() const { return false; }
   // `world.entities.length + world.ghosts.length`（`spawn` 的 unimportant 门）。
   virtual double entity_count() const { return 0.0; }
   // `world.add_entities(this)`（`attach`）。
@@ -342,6 +352,9 @@ class Entity {
   Value bot_ignore() const;
   controller::BaseController* ctrl() const { return ctrl_; }
   void set_ctrl(controller::BaseController* v);
+  // 宿主服务（TS 里的 `this.world` / `this.lfw` 读）：`loader/get_val_from_entity`
+  // 这类自由函数需要向宿主问 `lfw.is_cheat` / `world.lfw.survival_rank_available`。
+  IEntityHost& host() const { return *host_; }
   void as_key_role(const Value& v);
   void auto_key_role();
   double gravity() const;

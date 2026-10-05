@@ -1,5 +1,6 @@
 import { BaseController } from "../../../../src/LFW/controller/BaseController";
 import { Ditto } from "../../../../src/LFW/ditto";
+import { Buff } from "../../../../src/LFW/buff/Buff";
 import { Entity } from "../../../../src/LFW/entity/Entity";
 import { NSlot, SSlot } from "../../../../src/LFW/entity/EntitySnapshot";
 import { summary_mgr } from "../../../../src/LFW/entity/SummaryMgr";
@@ -9,11 +10,20 @@ import { WorldDataset } from "../../../../src/LFW/WorldDataset";
 import { MersenneTwister } from "../../../../src/LFW/utils/math/MersenneTwister";
 import { Ground } from "../../../../src/LFW/Ground";
 import { mt_cases } from "../../../../src/LFW/cases_instances";
+import { get_val_getter_from_entity } from "../../../../src/LFW/loader/get_val_from_entity";
 import { readCaseLines, parseValue as parseValueRaw, renderValue, splitWs } from "./trace_util";
 
 type Any = never;
 
 const r = (v: unknown): string => renderValue(v);
+
+// TS 的 `Buff` 是抽象类（没有抽象成员），而 `HitByMagicFlute` 只读 `kind`，所以差分里
+// 用一个最小子类充当「某个 kind 的 buff」；`run buffset` 会把它塞进 `e.buffs`。
+class FakeBuff extends Buff {
+  constructor(id: string, kind: unknown) {
+    super({ world: worldStub } as never, id, kind as never);
+  }
+}
 
 // `nf.__judger`: the real loader (`preprocess_next_frame`) attaches a compiled
 // `Expression`.  The harness carries the marker in `__judge` (a plain key, so both
@@ -125,6 +135,10 @@ const worldStub = {
 let puppetTokens: string[] = [];
 let groundStep = 10;
 let rankMode = false;
+// `world.lfw.survival_rank_available`（`env rankavail b 1`）与 `lfw.is_cheat(name)` 的
+// 开关集合（`env cheat <名字> b 1`）。
+let rankAvail = false;
+const cheatSet = new Set<string>();
 Object.defineProperty(worldStub, "puppets", {
   get: () => {
     log.push("puppets:" + puppetTokens.join(","));
@@ -244,6 +258,13 @@ const lfwStub = {
   get survival_rank_mode(): boolean {
     return rankMode;
   },
+  // `world.lfw.survival_rank_available`（`survial_rank_mode` getter 用）。
+  get survival_rank_available(): boolean {
+    return rankAvail;
+  },
+  // `lfw.is_cheat(name)`：`is_cheat_type(name) && !!world.dataset[name]`；名字只可能是
+  // `LF2_NET` / `HERO_FT` / `GIM_INK`（表里写死的），dataset 用开关集合代替。
+  is_cheat: (name: string): boolean => cheatSet.has(name),
   broadcast: (m: unknown): void => {
     log.push("broadcast:" + r(m));
   },
@@ -685,6 +706,7 @@ const NUMERIC_FIELDS = new Set([
   "itr_motionless", "weight", "base_type", "type", "variant", "wait", "stat_bar",
   "facing", "motionless", "shaking", "fallinjury", "throwinjury", "name_visible",
   "wakeup_invuln", "dead_gone", "ctrl_visible", "puppet", "is_on_ground",
+  "transform_index",
   "jumping.x", "jumping.y", "jumping.z", "jumping.t", "aabb_min_x", "aabb_max_x",
   "l_len", "r_len", "atom_time", "from_wait_block", "catch_time",
 ]);
@@ -805,6 +827,8 @@ const getNum = (e: Entity, name: string): number => {
       return e.puppet ? 1 : 0;
     case "is_on_ground":
       return e.is_on_ground ? 1 : 0;
+    case "transform_index":
+      return e.transform_index;
     case "jumping.x":
       return e.jumping.x;
     case "jumping.y":
@@ -1044,6 +1068,9 @@ const setNum = (e: Entity, name: string, v: number): boolean => {
     case "is_on_ground":
       e.is_on_ground = !!v;
       return true;
+    case "transform_index":
+      e.transform_index = v;
+      return true;
     case "jumping.x":
       e.jumping.x = v;
       return true;
@@ -1161,6 +1188,18 @@ function main(): void {
         const flag = t[i++]!;
         const v = t[i++]!;
         rankMode = flag === "b" && v === "1";
+      } else if (sub === "rankavail") {
+        const flag = t[i++]!;
+        const v = t[i++]!;
+        rankAvail = flag === "b" && v === "1";
+      } else if (sub === "cheat") {
+        // `lfw.is_cheat(name)` 的第二段：`world.dataset` 里有没有这个作弊键。
+        const idx = [i];
+        const name = String(parseValue(t, idx));
+        const flag = t[idx[0]++]!;
+        const v = t[idx[0]++]!;
+        if (flag === "b" && v === "1") cheatSet.add(name);
+        else cheatSet.delete(name);
       } else {
         process.stderr.write(`unknown env '${sub}'\n`);
         process.exit(2);
@@ -1308,6 +1347,71 @@ function main(): void {
           process.exit(2);
         }
         out.push(`run linkb ${field} ${to} || ${log.join(",")} | ${relProbe()}`);
+      } else if (what === "gv") {
+        // `get_val_getter_from_entity(word)` 查表再调用；`has` 区分表里有没有这一项
+        // （TS 那边的 `undefined` 不能被调用，所以表里没有时只能印 `v=-`）。
+        const word = String(parseValue(t, [i]));
+        const getter = get_val_getter_from_entity(word);
+        if (!getter) {
+          out.push(`run gv ${r(word)} || ${log.join(",")} | has=0 v=-`);
+        } else {
+          const v = getter(ent! as never, word as never, undefined as never);
+          out.push(`run gv ${r(word)} || ${log.join(",")} | has=1 v=${r(v)}`);
+        }
+      } else if (what === "supern") {
+        // `e.superpunchs.size`（`RequireSuperPunch`）：清空后塞 n 条。
+        const n = Number(parseValue(t, [i]));
+        ent!.superpunchs.clear();
+        for (let k = 0; k < n; ++k) ent!.superpunchs.set("s" + k, {} as never);
+        out.push(`run supern ${r(n)} || ${log.join(",")} | n=${ent!.superpunchs.size}`);
+      } else if (what === "buffset") {
+        // `e.buffs.values()`（`HitByMagicFlute`）：清空后按行尾给出的 kind 逐个插入。
+        ent!.buffs.clear();
+        const idx = [i];
+        let k = 0;
+        while (idx[0] < t.length) {
+          const id = "b" + k;
+          ent!.buffs.set(id, new FakeBuff(id, parseValue(t, idx)));
+          ++k;
+        }
+        out.push(`run buffset || ${log.join(",")} | n=${ent!.buffs.size}`);
+      } else if (what === "addcoll") {
+        // `collided_list` / `collision_list` 追加一项：`aframe` / `itr` / `bframe` 用对象
+        // 字面量，`attacker` / `victim` 只给 `data.type`（TS 的 type_check 只读它）。
+        const which = t[i++]!;
+        const idx = [i];
+        const dtA = Number(parseValue(t, idx));
+        const dtV = Number(parseValue(t, idx));
+        const aframe = parseValue(t, idx);
+        const itr = parseValue(t, idx);
+        const bframe = parseValue(t, idx);
+        const item = {
+          attacker: { data: { type: dtA } },
+          victim: { data: { type: dtV } },
+          aframe,
+          itr,
+          bframe,
+        };
+        if (which === "collided") ent!.collided_list.push(item as never);
+        else if (which === "collision") ent!.collision_list.push(item as never);
+        else {
+          process.stderr.write(`unknown addcoll '${which}'\n`);
+          process.exit(2);
+        }
+        out.push(
+          `run addcoll ${which} || ${log.join(",")} | nc=${ent!.collided_list.length} no=${ent!.collision_list.length}`,
+        );
+      } else if (what === "collclear") {
+        const which = t[i++]!;
+        if (which === "collided" || which === "both") (ent!.collided_list as unknown[]).length = 0;
+        if (which === "collision" || which === "both") (ent!.collision_list as unknown[]).length = 0;
+        if (which !== "collided" && which !== "collision" && which !== "both") {
+          process.stderr.write(`unknown collclear '${which}'\n`);
+          process.exit(2);
+        }
+        out.push(
+          `run collclear ${which} || ${log.join(",")} | nc=${ent!.collided_list.length} no=${ent!.collision_list.length}`,
+        );
       } else if (what === "setvel") {
         const idx = [i];
         const x = parseValue(t, idx);
