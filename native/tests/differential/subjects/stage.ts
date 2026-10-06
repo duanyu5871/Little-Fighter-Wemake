@@ -9,6 +9,11 @@
 // `resetcopy` 传一份内容相同的新数组 ⇒ 走「清空再灌」。两边都实现成 `reset(list)`。
 import { Background } from "../../../../src/LFW/bg/Background";
 import type { Layer } from "../../../../src/LFW/bg/Layer";
+import { Callbacks } from "../../../../src/LFW/base/Callbacks";
+import type { IEntityCallbacks } from "../../../../src/LFW/entity/IEntityCallbacks";
+import { Randoming } from "../../../../src/LFW/helper/Randoming";
+import { Item } from "../../../../src/LFW/stage/Item";
+import { MersenneTwister } from "../../../../src/LFW/utils/math/MersenneTwister";
 import { Expressions } from "../../../../src/LFW/stage/Expressions";
 import { Status } from "../../../../src/LFW/stage/Status";
 
@@ -123,6 +128,184 @@ function dump_layer(index: number): void {
   );
 }
 
+// ---------------------------------------------------------------- Item 侧
+
+// 假实体：`Item` 用到的那一面（属性写走 setter，方法照抄）。
+class FakeItemEntity {
+  readonly label: string;
+  readonly data: unknown;
+  readonly ref: unknown;
+  readonly callbacks = new Callbacks<IEntityCallbacks>();
+  constructor(label: string, data: unknown) {
+    this.label = label;
+    this.data = data;
+    this.ref = { data }; // `is_fighter(e)` / `is_weapon(e)` 读的是 `e.data`
+  }
+  set outline_color(v: unknown) {
+    log.push(`${this.label}:outline=${vstr(v)}`);
+  }
+  set stat_bar(v: number) {
+    log.push(`${this.label}:stat_bar=${num(v)}`);
+  }
+  set wakeup_invuln(v: number) {
+    log.push(`${this.label}:wakeup_invuln=${num(v)}`);
+  }
+  set dead_gone(v: number) {
+    log.push(`${this.label}:dead_gone=${num(v)}`);
+  }
+  set reserve(v: unknown) {
+    log.push(`${this.label}:reserve=${vstr(v)}`);
+  }
+  set hp(v: number) {
+    log.push(`${this.label}:hp=${num(v)}`);
+  }
+  set hp_r(v: number) {
+    log.push(`${this.label}:hp_r=${num(v)}`);
+  }
+  set hp_max(v: number) {
+    log.push(`${this.label}:hp_max=${num(v)}`);
+  }
+  set mp(v: number) {
+    log.push(`${this.label}:mp=${num(v)}`);
+  }
+  set mp_max(v: number) {
+    log.push(`${this.label}:mp_max=${num(v)}`);
+  }
+  set name(v: unknown) {
+    log.push(`${this.label}:name=${vstr(v)}`);
+  }
+  set team(v: unknown) {
+    log.push(`${this.label}:team=${vstr(v)}`);
+  }
+  set facing(v: unknown) {
+    log.push(`${this.label}:facing=${vstr(v)}`);
+  }
+  set dead_join(v: unknown) {
+    log.push(`${this.label}:dead_join=${vstr(v)}`);
+  }
+  set_position(x: unknown, y: unknown, z: unknown): void {
+    log.push(`${this.label}:pos=${vstr(x)},${vstr(y)},${vstr(z)}`);
+  }
+  attach(): void {
+    log.push(`${this.label}:attach`);
+  }
+  enter_frame_by_id(v: unknown): void {
+    log.push(`${this.label}:frame_id=${vstr(v)}`);
+  }
+  enter_frame(v: unknown): void {
+    log.push(`${this.label}:frame=${vstr(v)}`);
+  }
+  // 台面自己触发那两件事（`Item` 靠它们出列）。
+  fire_dead(): void {
+    this.callbacks.call("on_dead", this as never);
+  }
+  fire_team_changed(): void {
+    this.callbacks.call("on_team_changed", this as never, "", "");
+  }
+}
+
+const host_state = {
+  far: 0,
+  near: 0,
+  team: "" as unknown,
+  aboss: false,
+  diff: 2 as unknown,
+  mt: new MersenneTwister(0),
+  datas: new Map<unknown, unknown>(),
+  groups: new Map<string, Randoming<unknown>>(),
+  entities: [] as FakeItemEntity[],
+};
+
+const fakeLfw = {
+  mt: host_state.mt,
+  datas: {
+    find(oid: unknown): unknown {
+      if (host_state.datas.has(oid)) {
+        const v = host_state.datas.get(oid);
+        log.push(`h:find=${vstr(v)}`);
+        return v;
+      }
+      log.push("h:find=u");
+      return undefined;
+    },
+    get_randoming_by_group(oid: unknown): Randoming<unknown> {
+      const key = String(oid);
+      const hit = host_state.groups.get(key);
+      if (hit) {
+        log.push(`h:group=${key}:${hit.src.length}`);
+        return hit;
+      }
+      log.push(`h:group=${key}:0`);
+      return Randoming.create(key, [], host_state.mt);
+    },
+  },
+  factory: {
+    create_entity_with_bot(_player_id: string, _world: unknown, data: unknown): FakeItemEntity {
+      const label = `e${host_state.entities.length}`;
+      log.push(`h:create=${vstr(data)}`);
+      const e = new FakeItemEntity(label, data);
+      host_state.entities.push(e);
+      return e;
+    },
+  },
+};
+
+const fakeWorld = {
+  dataset: {
+    get difficulty(): unknown {
+      log.push(`h:diff=${vstr(host_state.diff)}`);
+      return host_state.diff;
+    },
+  },
+};
+
+const fakeStage = {
+  get far(): number {
+    log.push("h:far");
+    return host_state.far;
+  },
+  get near(): number {
+    log.push("h:near");
+    return host_state.near;
+  },
+  get team(): unknown {
+    log.push("h:team");
+    return host_state.team;
+  },
+  all_boss_dead(): boolean {
+    log.push("h:aboss");
+    return host_state.aboss;
+  },
+  lfw: fakeLfw,
+  world: fakeWorld,
+};
+
+let item: Item | undefined;
+let phase: unknown = undefined;
+let info: unknown = undefined;
+
+function by_label(label: string): FakeItemEntity | undefined {
+  return host_state.entities.find((e) => e.label === label);
+}
+
+function dump_item(): void {
+  if (!item) {
+    log.push("item|none");
+    return;
+  }
+  const objs = [...item.objects].map((e) => (e as unknown as FakeItemEntity).label).join(",");
+  const delay = item.end_delay.value;
+  log.push(
+    `item|rel=${flag(item.released)}` +
+      `|f=${flag(item.is_fighter)}` +
+      `|times=${item.times === undefined ? "u" : num(item.times)}` +
+      `|data=${vstr(item.data)}` +
+      `|objs=${objs === "" ? "-" : objs}` +
+      `|delay=${num(delay)}` +
+      `|rq=${flag(!!item.randoming)}`,
+  );
+}
+
 function main(): void {
   const casePath = process.argv[2];
   if (!casePath) fail("usage: lfw_trace_stage.mjs <case-file>");
@@ -175,6 +358,49 @@ function main(): void {
       const field = t[i[0]!++]!;
       const value = parseValue(t, i);
       data.layers[index]![field] = value;
+    } else if (op === "mtseed") {
+      host_state.mt.reset(number_of(t, i, op));
+    } else if (op === "datas") {
+      const oid = parseValue(t, i);
+      host_state.datas.set(oid, parseValue(t, i));
+    } else if (op === "datasgroup") {
+      const oid = t[i[0]!++]!;
+      const name = t[i[0]!++]!;
+      const src: unknown[] = [];
+      while (i[0]! < t.length) src.push(parseValue(t, i));
+      host_state.groups.set(oid, Randoming.create(name, src, host_state.mt));
+    } else if (op === "far") {
+      host_state.far = number_of(t, i, op);
+    } else if (op === "near") {
+      host_state.near = number_of(t, i, op);
+    } else if (op === "team") {
+      host_state.team = parseValue(t, i);
+    } else if (op === "aboss") {
+      host_state.aboss = !!parseValue(t, i);
+    } else if (op === "diff") {
+      host_state.diff = parseValue(t, i);
+    } else if (op === "phase") {
+      phase = parseValue(t, i);
+    } else if (op === "info") {
+      info = parseValue(t, i);
+    } else if (op === "newitem") {
+      item = new Item(fakeStage as never, phase as never, info as never);
+    } else if (op === "upd") {
+      item?.update();
+    } else if (op === "updn") {
+      const n = number_of(t, i, op);
+      for (let k = 0; k < n; k++) item?.update();
+    } else if (op === "spawn") {
+      log.push(`spawn=${flag(!!item?.spawn())}`);
+    } else if (op === "rel") {
+      item?.release();
+    } else if (op === "itemdump") {
+      dump_item();
+    } else if (op === "dead" || op === "teamchg") {
+      const e = by_label(t[i[0]!++]!);
+      if (!e) fail(`no such entity '${t[1]}`);
+      if (op === "dead") e!.fire_dead();
+      else e!.fire_team_changed();
     } else {
       fail(`unknown op '${op}'`);
     }

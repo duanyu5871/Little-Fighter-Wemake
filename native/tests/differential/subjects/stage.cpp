@@ -12,6 +12,7 @@
 #include "lfw/bg/background.h"
 #include "lfw/core/value.h"
 #include "lfw/stage/expressions.h"
+#include "lfw/stage/item.h"
 #include "lfw/stage/status.h"
 #include "lfw/utils/container_help/field_or.h"
 
@@ -127,6 +128,149 @@ void dump_layer(double index) {
        flag(l.is_static()));
 }
 
+// ---------------------------------------------------------------- Item 侧
+
+// 假实体：`IItemEntity` 正好是 `Item` 用到的那一面 ⇒ 只把每次设置记进日志。
+class FakeItemEntity : public lfw::stage::IItemEntity {
+ public:
+  FakeItemEntity(std::string label, lfw::Value data)
+      : _label(std::move(label)), _data(std::move(data)) {
+    auto ref = std::make_shared<lfw::Object>();
+    ref->set(u"data", _data);  // `is_fighter(e)` / `is_weapon(e)` 读的是 `e.data`
+    _ref = lfw::Value(ref);
+  }
+
+  const std::string& label() const { return _label; }
+
+  lfw::Value ref() const override { return _ref; }
+  const lfw::Value& data() const override { return _data; }
+  lfw::Callbacks& callbacks() override { return _callbacks; }
+
+  void set_outline_color(const lfw::Value& v) override { push(_label + ":outline=" + vstr(v)); }
+  void set_stat_bar(double v) override { push(_label + ":stat_bar=" + num(v)); }
+  void set_wakeup_invuln(double v) override { push(_label + ":wakeup_invuln=" + num(v)); }
+  void set_dead_gone(double v) override { push(_label + ":dead_gone=" + num(v)); }
+  void set_reserve(const lfw::Value& v) override { push(_label + ":reserve=" + vstr(v)); }
+  void set_hp(double v) override { push(_label + ":hp=" + num(v)); }
+  void set_hp_r(double v) override { push(_label + ":hp_r=" + num(v)); }
+  void set_hp_max(double v) override { push(_label + ":hp_max=" + num(v)); }
+  void set_mp(double v) override { push(_label + ":mp=" + num(v)); }
+  void set_mp_max(double v) override { push(_label + ":mp_max=" + num(v)); }
+  void set_name(const lfw::Value& v) override { push(_label + ":name=" + vstr(v)); }
+  void set_team(const lfw::Value& v) override { push(_label + ":team=" + vstr(v)); }
+  void set_facing(const lfw::Value& v) override { push(_label + ":facing=" + vstr(v)); }
+  void set_dead_join(lfw::Value v) override { push(_label + ":dead_join=" + vstr(v)); }
+  void set_position(const lfw::Value& x, const lfw::Value& y, const lfw::Value& z) override {
+    push(_label + ":pos=" + vstr(x) + "," + vstr(y) + "," + vstr(z));
+  }
+  void attach() override { push(_label + ":attach"); }
+  void enter_frame_by_id(const lfw::Value& v) override { push(_label + ":frame_id=" + vstr(v)); }
+  void enter_frame(const lfw::Value& v) override { push(_label + ":frame=" + vstr(v)); }
+
+  // 台面自己触发那两件事（`Item` 靠它们出列）。
+  void fire_dead() { _callbacks.call(u"on_dead", {_ref}); }
+  void fire_team_changed() { _callbacks.call(u"on_team_changed", {_ref, lfw::Value(), lfw::Value()}); }
+
+ private:
+  std::string _label;
+  lfw::Value _data;
+  lfw::Value _ref;
+  lfw::Callbacks _callbacks;
+};
+
+class FakeItemHost : public lfw::stage::IItemHost {
+ public:
+  double far_value = 0.0;
+  double near_value = 0.0;
+  lfw::Value team_value = lfw::Value(std::u16string());
+  bool aboss = false;
+  lfw::Value diff_value = lfw::Value(2.0);
+  lfw::MersenneTwister mt_value{0.0};
+  std::vector<std::pair<lfw::Value, lfw::Value>> datas;
+  std::vector<std::pair<std::u16string, std::shared_ptr<lfw::Randoming>>> groups;
+  std::vector<std::unique_ptr<FakeItemEntity>> entities;
+
+  double far_plane() const override {
+    push("h:far");
+    return far_value;
+  }
+  double near_plane() const override {
+    push("h:near");
+    return near_value;
+  }
+  lfw::Value team() const override {
+    push("h:team");
+    return team_value;
+  }
+  bool all_boss_dead() override {
+    push("h:aboss");
+    return aboss;
+  }
+  lfw::Value difficulty() const override {
+    push("h:diff=" + vstr(diff_value));
+    return diff_value;
+  }
+  lfw::MersenneTwister* mt() override { return &mt_value; }
+
+  lfw::Value datas_find(const lfw::Value& oid) override {
+    for (const std::pair<lfw::Value, lfw::Value>& kv : datas) {
+      if (lfw::strict_equals(kv.first, oid)) {
+        push("h:find=" + vstr(kv.second));
+        return kv.second;
+      }
+    }
+    push("h:find=u");
+    return lfw::Value();
+  }
+
+  std::shared_ptr<lfw::Randoming> datas_randoming_by_group(const lfw::Value& oid) override {
+    const std::u16string key = lfw::to_string(oid);
+    for (const std::pair<std::u16string, std::shared_ptr<lfw::Randoming>>& kv : groups) {
+      if (kv.first == key) {
+        push("h:group=" + to_ascii(key) + ":" + std::to_string(kv.second->src().size()));
+        return kv.second;
+      }
+    }
+    push("h:group=" + to_ascii(key) + ":0");
+    return lfw::Randoming::create(key, {}, &mt_value);
+  }
+
+  lfw::stage::IItemEntity* create_entity_with_bot(const lfw::Value& data) override {
+    const std::string label = "e" + std::to_string(entities.size());
+    push("h:create=" + vstr(data));
+    entities.push_back(std::make_unique<FakeItemEntity>(label, data));
+    return entities.back().get();
+  }
+
+  FakeItemEntity* by_label(const std::string& label) {
+    for (const std::unique_ptr<FakeItemEntity>& e : entities) {
+      if (e->label() == label) return e.get();
+    }
+    return nullptr;
+  }
+};
+
+FakeItemHost g_host;
+std::unique_ptr<lfw::stage::Item> g_item;
+lfw::Value g_phase;
+lfw::Value g_info;
+
+void dump_item() {
+  if (!g_item) {
+    push("item|none");
+    return;
+  }
+  std::string objs;
+  for (const lfw::stage::IItemEntity* e : g_item->objects()) {
+    if (!objs.empty()) objs += ",";
+    objs += static_cast<const FakeItemEntity*>(e)->label();
+  }
+  push("item|rel=" + flag(g_item->released()) + "|f=" + flag(g_item->is_fighter()) + "|times=" +
+       (g_item->times.has_value() ? num(*g_item->times) : std::string("u")) + "|data=" +
+       vstr(g_item->data) + "|objs=" + (objs.empty() ? std::string("-") : objs) + "|delay=" +
+       num(g_item->end_delay().value()) + "|rq=" + flag(static_cast<bool>(g_item->randoming)));
+}
+
 }
 
 int main(int argc, char** argv) {
@@ -212,6 +356,60 @@ int main(int argc, char** argv) {
         return 2;
       }
       o->set(to_u16(field), value);
+    } else if (op == "mtseed") {
+      const lfw::Value seed_v = number_of(t, i, op, lineno);
+      g_host.mt_value.reset(*std::get_if<double>(&seed_v));
+    } else if (op == "datas") {
+      const lfw::Value oid = parse_value(t, i);
+      const lfw::Value v = parse_value(t, i);
+      g_host.datas.push_back({oid, v});
+    } else if (op == "datasgroup") {
+      const std::string oid = t[i++];
+      const std::string name = t[i++];
+      std::vector<lfw::Value> src;
+      while (i < t.size()) src.push_back(parse_value(t, i));
+      g_host.groups.push_back(
+          {to_u16(oid), lfw::Randoming::create(to_u16(name), src, &g_host.mt_value)});
+    } else if (op == "far") {
+      const lfw::Value far_v = number_of(t, i, op, lineno);
+      g_host.far_value = *std::get_if<double>(&far_v);
+    } else if (op == "near") {
+      const lfw::Value near_v = number_of(t, i, op, lineno);
+      g_host.near_value = *std::get_if<double>(&near_v);
+    } else if (op == "team") {
+      g_host.team_value = parse_value(t, i);
+    } else if (op == "aboss") {
+      g_host.aboss = truthy(parse_value(t, i));
+    } else if (op == "diff") {
+      g_host.diff_value = parse_value(t, i);
+    } else if (op == "phase") {
+      g_phase = parse_value(t, i);
+    } else if (op == "info") {
+      g_info = parse_value(t, i);
+    } else if (op == "newitem") {
+      g_item = std::make_unique<lfw::stage::Item>(&g_host, g_phase, g_info);
+    } else if (op == "upd") {
+      if (g_item) g_item->update();
+    } else if (op == "updn") {
+      const lfw::Value n_v = number_of(t, i, op, lineno);
+      const double n = *std::get_if<double>(&n_v);
+      for (double k = 0.0; k < n; k += 1.0) {
+        if (g_item) g_item->update();
+      }
+    } else if (op == "spawn") {
+      push(std::string("spawn=") + flag(g_item && g_item->spawn()));
+    } else if (op == "rel") {
+      if (g_item) g_item->release();
+    } else if (op == "itemdump") {
+      dump_item();
+    } else if (op == "dead" || op == "teamchg") {
+      FakeItemEntity* const e = g_host.by_label(t[i++]);
+      if (e == nullptr) {
+        std::fprintf(stderr, "no such entity at line %d\n", lineno);
+        return 2;
+      }
+      if (op == "dead") e->fire_dead();
+      else e->fire_team_changed();
     } else {
       std::fprintf(stderr, "unknown op '%s' at line %d\n", op.c_str(), lineno);
       return 2;

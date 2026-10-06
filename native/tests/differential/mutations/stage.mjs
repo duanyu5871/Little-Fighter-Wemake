@@ -1,16 +1,24 @@
-// `stage/Expressions` + `stage/Status` + `bg/Background` + `bg/Layer`。
+// `stage/Expressions` + `stage/Status` + `bg/Background` + `bg/Layer` + `stage/Item`
+// （外加 `helper/Randoming` 的模板化）。
 //
-// 用例：`cases/stage/expr.txt`、`cases/stage/bg.txt`（本文件把两个都跑）。
+// 用例：`cases/stage/expr.txt`、`cases/stage/bg.txt`、`cases/stage/item.txt`。
 //
 // 有意不覆盖（不可观察或按构造等价）：
 //   * `Status` 三个常量与 `status_entries()`：只是字符串表，用例里逐个对过值；
 //   * `Expressions::index()`：TS 的 `_index` 是 `protected`（台面只能从 `is_first` / `is_last`
 //     与 `run` 的日志反推），端口这个只读口只是给台面观测用；
 //   * `flow` 里 `is_last` 取在 `run` 之前还是之后：`run` 既不碰 `_index` 也不碰 `_items` ⇒ 等价；
-//   * `Background` 的 `world` 字段：TS 只存不读，端口同样只存。
+//   * `Background` 的 `world` 字段：TS 只存不读，端口同样只存；
+//   * `Item::forget` 里「按实体找 `_watches`」那条：找不到也只是少摘一个监听，日志看不见
+//     （出列本身由 `_objects.erase` 决定）；
+//   * `Item::spawn` 的 `_objects` 判重：同一实体不会被 `create_entity_with_bot` 给两次；
+//   * `Item::spawn` 的 `mt.range(min, max)` 里 `min` / `max` 是**非数字**时 TS 的 JS 语义
+//     （`max - min` 强转 + `floor(...) + min` 的字符串拼接）；端口 `range(double,double)`
+//     只吃数字 ⇒ 台面不喂这种输入（`x z` 这种 null 档两边一致，已覆盖）；
+//   * harness 层的 op 与回显行：那是台面自己的输出。
 export default {
   subject: "stage",
-  cases: ["expr", "bg"],
+  cases: ["expr", "bg", "item"],
   mutations: [
     // ---------------------------------------------------------------- stage/Expressions
     {
@@ -301,6 +309,315 @@ export default {
       file: "native/lfw/bg/background.cpp",
       from: `  _layer_data_index = 0.0;`,
       to: `  (void)0;`,
+    },
+
+    // ---------------------------------------------------------------- stage/Item
+    {
+      note: "Item: times 一律是 undefined",
+      file: "native/lfw/stage/item.cpp",
+      from: `  times = truthy(times_v) ? std::optional<double>(round(to_number(times_v))) : std::nullopt;`,
+      to: `  times = std::nullopt;`,
+    },
+    {
+      note: "Item: 字符串 id 不认",
+      file: "native/lfw/stage/item.cpp",
+      from: `  if (is_str(id)) {`,
+      to: `  if (false) {`,
+    },
+    {
+      note: "Item: 数组 id 不认",
+      file: "native/lfw/stage/item.cpp",
+      from: `  } else if (is_array(id)) {`,
+      to: `  } else if (false) {`,
+    },
+    {
+      note: "Item: 单条 data 时不判 is_fighter",
+      file: "native/lfw/stage/item.cpp",
+      from: `      _is_fighter = _is_fighter || entity::is_fighter_data(data_v);`,
+      to: `      _is_fighter = _is_fighter || false;`,
+    },
+    {
+      note: "Item: 命中 data 也不收进 data_list",
+      file: "native/lfw/stage/item.cpp",
+      from: `      if (truthy(data_v)) {
+        data_list.push_back(data_v);
+        continue;
+      }`,
+      to: `      if (false) {
+        data_list.push_back(data_v);
+        continue;
+      }`,
+    },
+    {
+      note: "Item: 空分组也算一条来源",
+      file: "native/lfw/stage/item.cpp",
+      from: `      if (rd->src().empty()) continue;`,
+      to: `      if (false) continue;`,
+    },
+    {
+      note: "Item: 分组里的 is_fighter 不再累加",
+      file: "native/lfw/stage/item.cpp",
+      from: `      for (const Value& item : rd->src()) {
+        if (entity::is_fighter_data(item)) {`,
+      to: `      for (const Value& item : rd->src()) {
+        if (false) {`,
+    },
+    {
+      note: "Item: 只有一条 data 时也走 randoming",
+      file: "native/lfw/stage/item.cpp",
+      from: `    if (data_list.size() == 1 && randoming_list.empty()) {`,
+      to: `    if (data_list.size() >= 1) {`,
+    },
+    {
+      note: "Item: 多条 data 不建内层 randoming",
+      file: "native/lfw/stage/item.cpp",
+      from: `    } else if (!data_list.empty()) {`,
+      to: `    } else if (false) {`,
+    },
+    {
+      note: "Item: 外层 randoming 的来源空掉",
+      file: "native/lfw/stage/item.cpp",
+      from: `    randoming = RandomingOfItems::create(u"stage_item_oids_randoming", randoming_list,
+                                        _stage->mt());`,
+      to: `    randoming = RandomingOfItems::create(u"stage_item_oids_randoming", {},
+                                        _stage->mt());`,
+    },
+    {
+      note: "Item: 不建外层 randoming",
+      file: "native/lfw/stage/item.cpp",
+      from: `  if (!randoming_list.empty()) {
+    randoming = RandomingOfItems::create(u"stage_item_oids_randoming", randoming_list,`,
+      to: `  if (false) {
+    randoming = RandomingOfItems::create(u"stage_item_oids_randoming", randoming_list,`,
+    },
+    {
+      note: "Item: release 之后还继续跑",
+      file: "native/lfw/stage/item.cpp",
+      from: `  if (_released) return;`,
+      to: `  if (false) return;`,
+    },
+    {
+      note: "Item: 有存活实体时不复位 end_delay",
+      file: "native/lfw/stage/item.cpp",
+      from: `  if (!_objects.empty()) {`,
+      to: `  if (false) {`,
+    },
+    {
+      note: "Item: end_delay 没过也照样刷",
+      file: "native/lfw/stage/item.cpp",
+      from: `  if (!_end_delay.add()) return;`,
+      to: `  if (true) return;`,
+    },
+    {
+      note: "Item: times 缺省写成 0（soldier 会提前收工）",
+      file: "native/lfw/stage/item.cpp",
+      from: `  const double times_v = times.has_value() ? *times : -1.0;  // \`const { times = -1 } = this\``,
+      to: `  const double times_v = times.has_value() ? *times : 0.0;`,
+    },
+    {
+      note: "Item: 不看 is_soldier",
+      file: "native/lfw/stage/item.cpp",
+      from: `  if (truthy(field_or(_info, u"is_soldier"))) {`,
+      to: `  if (false) {`,
+    },
+    {
+      note: "Item: soldier 的 times == 0 判定改成 == 1",
+      file: "native/lfw/stage/item.cpp",
+      from: `    if (_stage->all_boss_dead() || times_v == 0.0) {`,
+      to: `    if (_stage->all_boss_dead() || times_v == 1.0) {`,
+    },
+    {
+      note: "Item: 非 soldier 的 times >= 1 判定改成 > 1",
+      file: "native/lfw/stage/item.cpp",
+      from: `  } else if (times_v >= 1.0) {`,
+      to: `  } else if (times_v > 1.0) {`,
+    },
+    {
+      note: "Item: spawn 不看 this.data（永远走 randoming）",
+      file: "native/lfw/stage/item.cpp",
+      from: `  if (truthy(data)) {
+    data_v = data;
+  } else if (randoming) {`,
+      to: `  if (false) {
+    data_v = data;
+  } else if (randoming) {`,
+    },
+    {
+      note: "Item: spawn 拿到空 data 也往下走",
+      file: "native/lfw/stage/item.cpp",
+      from: `  if (!truthy(data_v)) return false;`,
+      to: `  if (false) return false;`,
+    },
+    {
+      note: "Item: x 的缺省判定用 nullish",
+      file: "native/lfw/stage/item.cpp",
+      from: `  const Value x = is_undefined(x_v)`,
+      to: `  const Value x = is_nullish(x_v)`,
+    },
+    {
+      note: "Item: z 的 is_num 判定读 y",
+      file: "native/lfw/stage/item.cpp",
+      from: `  const bool z_is_num = is_num(z);`,
+      to: `  const bool z_is_num = is_num(y);`,
+    },
+    {
+      note: "Item: weapon 缺省 y 不是 300",
+      file: "native/lfw/stage/item.cpp",
+      from: `  const double y_default = entity::is_weapon(e->ref()) ? 300.0 : 0.0;`,
+      to: `  const double y_default = entity::is_weapon(e->ref()) ? 0.0 : 0.0;`,
+    },
+    {
+      note: "Item: max_y 用 range_x",
+      file: "native/lfw/stage/item.cpp",
+      from: `  const Value max_y = y_is_num ? js_add(y, range_y) : Value(y_default);`,
+      to: `  const Value max_y = y_is_num ? js_add(y, range_x) : Value(y_default);`,
+    },
+    {
+      note: "Item: px 的上下界颠倒",
+      file: "native/lfw/stage/item.cpp",
+      from: `  const double px = _stage->mt()->range(to_number(min_x), to_number(max_x));`,
+      to: `  const double px = _stage->mt()->range(to_number(max_x), to_number(min_x));`,
+    },
+    {
+      note: "Item: 空 outline_color 不是空串",
+      file: "native/lfw/stage/item.cpp",
+      from: `  e->set_outline_color(is_nullish(outline_color) ? Value(std::u16string()) : outline_color);`,
+      to: `  e->set_outline_color(is_nullish(outline_color) ? Value(std::u16string(u"#000000"))
+                                                  : outline_color);`,
+    },
+    {
+      note: "Item: fighter 的兜底描边色改了",
+      file: "native/lfw/stage/item.cpp",
+      from: `    e->set_outline_color(is_nullish(outline_color) ? Value(std::u16string(u"#FF0000"))`,
+      to: `    e->set_outline_color(is_nullish(outline_color) ? Value(std::u16string(u"#00FF00"))`,
+    },
+    {
+      note: "Item: dead_gone 不是 1",
+      file: "native/lfw/stage/item.cpp",
+      from: `  e->set_dead_gone(1.0);`,
+      to: `  e->set_dead_gone(2.0);`,
+    },
+    {
+      note: "Item: reserve 的缺省不是 0",
+      file: "native/lfw/stage/item.cpp",
+      from: `  e->set_reserve(is_nullish(reserve) ? Value(0.0) : reserve);`,
+      to: `  e->set_reserve(is_nullish(reserve) ? Value(1.0) : reserve);`,
+    },
+    {
+      note: "Item: hp 的赋值顺序反了（hp 先写）",
+      file: "native/lfw/stage/item.cpp",
+      from: `    e->set_hp_max(to_number(hp_value));
+    e->set_hp_r(to_number(hp_value));
+    e->set_hp(to_number(hp_value));`,
+      to: `    e->set_hp(to_number(hp_value));
+    e->set_hp_r(to_number(hp_value));
+    e->set_hp_max(to_number(hp_value));`,
+    },
+    {
+      note: "Item: mp 的两个 setter 顺序反了",
+      file: "native/lfw/stage/item.cpp",
+      from: `    e->set_mp_max(to_number(mp));
+    e->set_mp(to_number(mp));`,
+      to: `    e->set_mp(to_number(mp));
+    e->set_mp_max(to_number(mp));`,
+    },
+    {
+      note: "Item: hp_map 命中时也走难度分支",
+      file: "native/lfw/stage/item.cpp",
+      from: `  if (!is_num(hp_value) && is_num(hp)) {`,
+      to: `  if (!is_num(hp_value) || is_num(hp)) {`,
+    },
+    {
+      note: "Item: Easy 分支按 Crazy 算",
+      file: "native/lfw/stage/item.cpp",
+      from: `    if (strict_equals(difficulty, Value(static_cast<double>(Difficulty::Easy)))) {`,
+      to: `    if (strict_equals(difficulty, Value(static_cast<double>(Difficulty::Crazy)))) {`,
+    },
+    {
+      note: "Item: Easy 的系数写成 1/2",
+      file: "native/lfw/stage/item.cpp",
+      from: `      hp_value = Value(round(to_number(hp) * 3.0 / 4.0));`,
+      to: `      hp_value = Value(round(to_number(hp) * 3.0 / 2.0));`,
+    },
+    {
+      note: "Item: hp_map 的键用常量 1（不读 difficulty）",
+      file: "native/lfw/stage/item.cpp",
+      from: `  if (!is_nullish(hp_map)) hp_value = indexed(hp_map, _stage->difficulty());`,
+      to: `  if (!is_nullish(hp_map)) hp_value = indexed(hp_map, Value(1.0));`,
+    },
+    {
+      note: "Item: mp 的缺省不做 mp_map 查表",
+      file: "native/lfw/stage/item.cpp",
+      from: `  if (is_undefined(mp)) mp = is_nullish(mp_map) ? Value() : indexed(mp_map, difficulty);`,
+      to: `  if (is_undefined(mp)) mp = Value();`,
+    },
+    {
+      note: "Item: is_num(mp) 的门去掉",
+      file: "native/lfw/stage/item.cpp",
+      from: `  if (is_num(mp)) {`,
+      to: `  if (true) {`,
+    },
+    {
+      note: "Item: name 读 data.name（不是 data.base.name）",
+      file: "native/lfw/stage/item.cpp",
+      from: `    e->set_name(field_or(field_or(e->data(), u"base"), u"name"));`,
+      to: `    e->set_name(field_or(e->data(), u"name"));`,
+    },
+    {
+      note: "Item: facing 只认 1（丢了 -1）",
+      file: "native/lfw/stage/item.cpp",
+      from: `  if (equals(facing, Value(1.0)) || equals(facing, Value(-1.0))) e->set_facing(facing);`,
+      to: `  if (equals(facing, Value(1.0))) e->set_facing(facing);`,
+    },
+    {
+      note: "Item: act 是字符串也不进帧",
+      file: "native/lfw/stage/item.cpp",
+      from: `  if (is_str(act)) {`,
+      to: `  if (false) {`,
+    },
+    {
+      note: "Item: fighter 的缺省帧不是 running_0",
+      file: "native/lfw/stage/item.cpp",
+      from: `    e->enter_frame_by_id(Value(std::u16string(u"running_0")));`,
+      to: `    e->enter_frame_by_id(Value(std::u16string(u"running_1")));`,
+    },
+    {
+      note: "Item: 非 fighter 走的是 enter_frame_by_id",
+      file: "native/lfw/stage/item.cpp",
+      from: `    e->enter_frame(auto_frame != nullptr ? *auto_frame : Value());`,
+      to: `    e->enter_frame_by_id(auto_frame != nullptr ? *auto_frame : Value());`,
+    },
+    {
+      note: "Item: times 到 0 也继续减（变负数）",
+      file: "native/lfw/stage/item.cpp",
+      from: `  if (times.has_value() && truthy(Value(*times))) *times = *times - 1.0;`,
+      to: `  if (times.has_value()) *times = *times - 1.0;`,
+    },
+    {
+      note: "Item: join 的对象不建了",
+      file: "native/lfw/stage/item.cpp",
+      from: `  if (truthy(join)) {`,
+      to: `  if (false) {`,
+    },
+    {
+      note: "Item: join 的队伍缺省不是 Team_1",
+      file: "native/lfw/stage/item.cpp",
+      from: `    dead_join->set(u"team", or_undefined(field_or(_info, u"join_team"),
+                                         Value(std::u16string(team_enum::kTeam_1))));`,
+      to: `    dead_join->set(u"team", or_undefined(field_or(_info, u"join_team"),
+                                         Value(std::u16string(team_enum::kTeam_2))));`,
+    },
+    {
+      note: "Item: join 的 reserve 写死 0",
+      file: "native/lfw/stage/item.cpp",
+      from: `    dead_join->set(u"reserve", field_or(_info, u"join_reserve"));`,
+      to: `    dead_join->set(u"reserve", Value(0.0));`,
+    },
+    {
+      note: "Item: release 不置位",
+      file: "native/lfw/stage/item.cpp",
+      from: `void Item::release() { _released = true; }`,
+      to: `void Item::release() { _released = false; }`,
     },
   ],
 };

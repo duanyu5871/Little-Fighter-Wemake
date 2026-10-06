@@ -52,17 +52,17 @@ export default {
     {
       note: "create 丢掉 duplicate 实参",
       file: "native/lfw/helper/randoming.cpp",
-      from: `  return std::make_shared<Randoming>(std::move(name), std::move(src), mt,
-                                     duplicate_or_default(duplicate));`,
-      to: `  return std::make_shared<Randoming>(std::move(name), std::move(src), mt,
-                                     Value(false));`,
+      from: `  return std::make_shared<RandomingT<T>>(std::move(name), std::move(src), mt,
+                                         duplicate_or_default(duplicate));`,
+      to: `  return std::make_shared<RandomingT<T>>(std::move(name), std::move(src), mt,
+                                         Value(false));`,
     },
     {
       note: "set_src 顺手清空 cur",
       file: "native/lfw/helper/randoming.cpp",
-      from: `Randoming& Randoming::set_src(std::vector<Value> src) {
+      from: `RandomingT<T>& RandomingT<T>::set_src(std::vector<T> src) {
   _src = std::move(src);`,
-      to: `Randoming& Randoming::set_src(std::vector<Value> src) {
+      to: `RandomingT<T>& RandomingT<T>::set_src(std::vector<T> src) {
   _src = std::move(src);
   _cur.clear();`,
     },
@@ -81,27 +81,27 @@ export default {
     {
       note: "random_get 的取值下界从 0 变 1",
       file: "native/lfw/helper/randoming.cpp",
-      from: `Value Randoming::random_get() {
+      from: `T RandomingT<T>::random_get() {
   const size_t idx = static_cast<size_t>(random_in(0.0, static_cast<double>(_src.size())));`,
-      to: `Value Randoming::random_get() {
+      to: `T RandomingT<T>::random_get() {
   const size_t idx = static_cast<size_t>(random_in(1.0, static_cast<double>(_src.size())));`,
     },
     {
       note: "random_get 越界时返回 null",
       file: "native/lfw/helper/randoming.cpp",
       from: `  const size_t idx = static_cast<size_t>(random_in(0.0, static_cast<double>(_src.size())));
-  if (idx >= _src.size()) return Value();
+  if (idx >= _src.size()) return RandomingItem<T>::out_of_range();
   return _src[idx];`,
       to: `  const size_t idx = static_cast<size_t>(random_in(0.0, static_cast<double>(_src.size())));
-  if (idx >= _src.size()) return Value(NullTag{});
+  if (idx >= _src.size()) return RandomingItem<T>::null_taken();
   return _src[idx];`,
     },
     {
       note: "random_take 每次都重填 cur",
       file: "native/lfw/helper/randoming.cpp",
-      from: `Value Randoming::random_take() {
+      from: `T RandomingT<T>::random_take() {
   if (_cur.empty()) {`,
-      to: `Value Randoming::random_take() {
+      to: `T RandomingT<T>::random_take() {
   if (true) {`,
     },
     {
@@ -125,20 +125,20 @@ export default {
     {
       note: "random_take 的过滤条件取反",
       file: "native/lfw/helper/randoming.cpp",
-      from: `        if (!equals(item, _taken)) kept.push_back(item);`,
-      to: `        if (equals(item, _taken)) kept.push_back(item);`,
+      from: `        if (RandomingItem<T>::loose_ne(item, _taken)) kept.push_back(item);`,
+      to: `        if (!RandomingItem<T>::loose_ne(item, _taken)) kept.push_back(item);`,
     },
     {
       note: "random_take 的过滤用严相等",
-      file: "native/lfw/helper/randoming.cpp",
-      from: `        if (!equals(item, _taken)) kept.push_back(item);`,
-      to: `        if (!strict_equals(item, _taken)) kept.push_back(item);`,
+      file: "native/lfw/helper/randoming.h",
+      from: `  static bool loose_ne(const Value& a, const Value& b) { return !equals(a, b); }`,
+      to: `  static bool loose_ne(const Value& a, const Value& b) { return !strict_equals(a, b); }`,
     },
     {
       note: "random_take 取值下标固定 0",
       file: "native/lfw/helper/randoming.cpp",
-      from: `  const Value taken = _cur[idx];`,
-      to: `  const Value taken = _cur[0];`,
+      from: `  const T taken = _cur[idx];`,
+      to: `  const T taken = _cur[0];`,
     },
     {
       note: "random_take 删除首元素而不是抽中元素",
@@ -149,19 +149,19 @@ export default {
     {
       note: "random_take 空 cur 时返回 null",
       file: "native/lfw/helper/randoming.cpp",
-      from: `  if (idx >= _cur.size()) return Value();
-  const Value taken = _cur[idx];`,
-      to: `  if (idx >= _cur.size()) return Value(NullTag{});
-  const Value taken = _cur[idx];`,
+      from: `  if (idx >= _cur.size()) return RandomingItem<T>::out_of_range();
+  const T taken = _cur[idx];`,
+      to: `  if (idx >= _cur.size()) return RandomingItem<T>::null_taken();
+  const T taken = _cur[idx];`,
     },
     {
       note: "random_in 的上界写成 0",
       file: "native/lfw/helper/randoming.cpp",
-      from: `double Randoming::random_in(double l, double r) {
+      from: `double RandomingT<T>::random_in(double l, double r) {
   _mt->mark = _name;
   return _mt->range(l, r);
 }`,
-      to: `double Randoming::random_in(double l, double r) {
+      to: `double RandomingT<T>::random_in(double l, double r) {
   _mt->mark = _name;
   return _mt->range(l, 0.0);
 }`,
@@ -169,8 +169,8 @@ export default {
     {
       note: "初始 taken 是 false 而不是 null",
       file: "native/lfw/helper/randoming.h",
-      from: `  Value _taken = Value(NullTag{});`,
-      to: `  Value _taken = Value(false);`,
+      from: `  static Value null_taken() { return Value(NullTag{}); }`,
+      to: `  static Value null_taken() { return Value(false); }`,
     },
 
     {

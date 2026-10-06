@@ -3970,3 +3970,47 @@ harness op：
   ⇒ 拆成两条），一条按构造等价（`flow` 里 `is_last` 的取值时机）⇒ 撤出名单。
 - **一条不变式**：端口 `Expressions` 存的是**副本**，`reset` 的同一性改成「传进来的正是
   `list()` 返回的那一份」⇒ 记在偏差表与 DESIGN §73.3。
+
+### 6.9.118 `stage/Item`（+ `helper/Randoming` 模板化）（`stage` 增用例 `item`，622 行；变异 **93/93** 全杀）
+
+- **移植面**：`native/lfw/stage/item.{h,cpp}`（`IItemEntity` / `IItemHost` / `Item`）、
+  `native/lfw/helper/randoming.{h,cpp}`（`RandomingT<T>` + `RandomingItem<T>` +
+  `randoming_default_mt()`；`Randoming` 仍是别名）；`CMakeLists.txt` 415 → 416。
+- **Item 侧 op**：`mtseed <n>`（给假宿主一个可复现的 MT）、`datas <id> <info>`（登记一条 data）、
+  `datasgroup <名> <src…>`（登记一个 oid 分组）、`far <x>` / `near <x>` / `team <n>` /
+  `aboss <b>` / `diff <值>`（假宿主五面）、`phase <n>`（推进 MT）、`info <键> <值>…`（给下一条
+  `newitem` 的 `info`）、`newitem`（按 `info` 构造 `Item`）、`upd` / `updn <次数>`、
+  `spawn`（直接调一次，绕过 `update` 的门）、`rel`（`release`）、`itemdump`
+  （`rel` / `f` / `times` / `data` / `objs` / `delay` / `rq`）、`dead <标签>` /
+  `teamchg <标签>`（对着假实体触发回调）。
+- **假实体是「日志式」的**：每个 setter（`hp` / `hp_max` / `hp_r` / `mp` / `mp_max` / `pos` 三个分量 /
+  `dead_join` / `enter_frame*` / `outline_color` / `reserve` …）都往日志里打一行
+  ⇒ **赋值的顺序与次数**都成了可比量。本刀两次真·漂移（`hp = hp_r = hp_max` 的**从右往左**
+  赋值序、`x` 缺省要不要抽随机）就是被这个抓出来的。
+- **假宿主把每次读也打进日志**（`h:far` / `h:near` / `h:team` / `h:aboss` / `h:diff=<值>` /
+  `h:find=<oid>` / `h:group=<名>` / `h:create=<oid>`）⇒ 「读了几次 `difficulty`」这种
+  TS 的 `?.` / 默认参数**惰性求值**语义也可观测（`hp_map?.[difficulty]` 只在 `hp_map`
+  非 nullish 时才读 `difficulty`）。
+- **两个入口都要用**：`upd <n>` 走 `update`（有 `end_delay` 那道 120 拍的门 + `times` 分支），
+  `spawn` 直接调（能把「`times` 递减」「soldier 的 `times >= 1` 判定」单独钉住 ——
+  只靠 `update` 到不了那几个分支）。
+- **`dead` / `teamchg` 是 C++ 侧才会踩的坑**：`Item` 被 `newitem` 覆盖后，实体上还挂着捕获
+  悬空 `this` 的回调 ⇒ 端口必须 `~Item()` 摘监听（TS 没有析构所以看不出差别；不摘就是
+  `0xC0000005`）。
+- **`mtseed` 的位置很关键**：`Item` 的两次 `Randoming::get()` 都会推进同一个 MT ⇒ 用例里
+  每次「抽随机」之前都把种子重置到同一个值，才能让两边对上（也才能让变异可观察）。
+- **用例**：`cases/stage/item.txt` **622** 行（10 组：单条 data + 120 拍刷新与出列 / 未命中 /
+  数组与数值 id / 空分组与内外两层 randoming / hp·mp 的四种 difficulty 与 `hp_map`·`mp_map` /
+  `times` 减到 0 / 位置六档 / `facing`·`act`·`join`·`outline_color`·`reserve` / soldier 五档 /
+  出列与 `release`）。
+- **变异**：`mutations/stage.mjs` 从 46 条扩到 **93/93 全杀**（本刀新增 48 条）。第一轮 8 条存活，
+  三个成因：① 用例没喂到（`hp_map` / `mp_map` 被我写进了 **data** 而不是 `info`；`join` 没喂
+  「缺 `join_team`」那档；`z` 的 `is_num` 要「`y` 有、`z` 没有」）；② 语义上到不了（`times == 0`
+  的 item 在构造里就已是 `undefined`；soldier 的 `times == 0` 会先 `release` ⇒ 递减不到；
+  `times` 递减那条必须**直接调 `spawn`**）；③ 一条用例写错（`times` 那组引用的 id 在那一刻
+  还没 `datas` 登记 ⇒ `spawn` 直接早退，变异不可观察）。
+- **模板化的连带**：`Randoming` 的定义文本变了 ⇒ `mutations/mt_random.mjs` 的 8 条锚点跟着改名，
+  另有 3 条的 `to` 文本在 `RandomingT<std::shared_ptr<Randoming>>` 下**无法实例化**
+  （往模板里塞 `Value(NullTag{})` / `strict_equals`）⇒ 改成 `RandomingItem<T>::null_taken()`
+  与 `RandomingItem<Value>::loose_ne` 内的 `!strict_equals`（语义等价、两边都能编译）。
+  `mt_random` 仍 **全杀 0 compile-error**。

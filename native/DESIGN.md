@@ -7410,3 +7410,97 @@ C++ 用**真** `Entity`（`IEntityHost` 没有纯虚函数 ⇒ 假宿主极简�
   第一轮 3 条存活：① 两条用例没喂到（`is_static` 只看 `cc` 那一条要「cc 缺 + c1/c2 都有」的层；
   名字那条被 `o 2 name … name …` 的**重复键**吃掉了 ⇒ 拆成两条用例）；② 一条按构造等价
   （`flow` 里 `is_last` 的取值时机）⇒ 撤出名单并记在 §73.4。
+
+## 74. 切片 4H：`stage/Item`（+ `helper/Randoming` 模板化）
+
+步骤 4「主干」（宿主层）的第八刀：`src/LFW/stage/Item.ts`（186 行）是**舞台物件** ——
+按 `times` 与 120 拍的 `end_delay` 刷怪（`spawn`），刷出来的实体登记进 `objects`；实体
+「换队」或「死亡」就出列。它要 `LFW.datas`（`find` / `get_randoming_by_group`）、`LFW.mt`、
+`LFW.factory.create_entity_with_bot`、`World.dataset.difficulty` 与 `Stage` 的
+`far` / `near` / `team` / `all_boss_dead`；而 `Item.randoming` 的类型是
+`Randoming<Randoming<IEntityData>>` ⇒ 顺带把 `helper/Randoming` 模板化。
+
+### 74.1 移植面
+
+- `native/lfw/stage/item.{h,cpp}`：`IItemEntity`（`ref` / `data` / `callbacks` + 18 个
+  setter / 方法）、`IItemHost`（`Stage` 五面 + `difficulty` + `LFW` 四面）、`class Item`
+  （`times` / `data` / `randoming` 三个公开字段 + `update` / `spawn` / `release` / `~Item`）。
+- `native/lfw/helper/randoming.{h,cpp}`：`RandomingT<T>` + `RandomingItem<T>`
+  （`Value` 与 `shared_ptr` 两个特化）+ `randoming_default_mt()`；`Randoming` 仍是别名。
+- 进 `native/lfw/CMakeLists.txt`（C++ 源 415 → 416）。
+
+### 74.2 保真要点
+
+1. **构造**：`times = info.times ? round(info.times) : void 0`（**真值**判定：`0` / `NaN` 都当没有）；
+   `id` 只认「字符串」与「数组」两种，其他（数字、对象）⇒ 空表；每个 oid 先 `datas.find`：
+   命中 ⇒ `data_list` + `is_fighter_data` 累加，**未命中**才去看分组（`src` 空就 `continue`，
+   否则 `.some(is_fighter_data)` 也累加）；收尾三分支：**只有一条 data 且没有分组** ⇒ 直接落
+   `data`、有多条 data ⇒ 建内层 `Randoming("stage_item_oid_randoming")`、有分组 ⇒ 再套一层
+   外层 `Randoming("stage_item_oids_randoming")`（内层 `Randoming` 当元素 ⇒ 这就是要模板化的原因）。
+2. **`update`**：`_released` 直接返回；**有存活实体** ⇒ `end_delay.reset()` 后返回；
+   `end_delay.add()`（`Times(0, 120)` ⇒ 要 **120 拍**才真）没过就返回；`times` 缺省 **-1**；
+   soldier ⇒ `all_boss_dead() || times == 0` 就 `release`，否则 `spawn`；非 soldier ⇒ `times >= 1`
+   才 `spawn`，否则 `release`。
+3. **`spawn`**：`data || randoming?.get().get()`（外层抽到 `undefined` 时 TS 读 `.get` 会抛 ⇒
+   端口给 `undefined`，记偏差）；`data` 假值 ⇒ 返回 `false`（TS 那里有个 `debugger`）；
+   `enemy_l` / `enemy_r` 是**解构默认**（只吞 `undefined`）；`difficulty` 在**这里读第二次**
+   （`hp_map` 非 nullish 才读，`?.` 短路）；`x` 的缺省要**抽一次随机**
+   （`mt.float() < 0.5 ? enemy_l : enemy_r`）—— 默认值只在 `undefined` 时求值，所以两种写法
+   （先求值再 `??` / `is_undefined` 三元）会差一次随机抽取，本刀踩过；
+   `mp = mp_map?.[difficulty]` 同理（`mp` 是 `undefined` 且 `mp_map` 非 nullish 才查表）。
+4. **数值语义**：`max_x = js_add(x, range_x)`（JS 的 `+`，字符串会拼接）；`is_num(z)` / `is_num(y)`
+   决定用 `z + range_z` 还是 `stage.far` / `stage.near`；weapon 的缺省 y 是 **300**；
+   `times` 递减走**真值**判定（减到 `0` 之后不再减）；hp 的三段 `round(hp * 3/4)` /
+   `round(hp * 3/2)` / 原值按 `strict_equals(difficulty, Easy|Crazy)` 选（`difficulty` 是
+   `"2"` 这种字符串时落 `default`）；`e.hp = e.hp_r = e.hp_max = _hp` 是**从右往左**赋值
+   （`hp_max` → `hp_r` → `hp`），`e.mp = e.mp_max` 同理（台面把每次 setter 都打进日志，
+   顺序可见）。
+5. **实体面**：`is_fighter(e)` / `is_weapon(e)` 走 `ref()`（形状 `{ data: … }`，与
+   `entity::is_fighter(const Value&)` 的入参一致）；`facing == 1 || facing == -1` 是**松散相等**
+   （`"1"` 也算）；进帧三路：`act` 是字符串 ⇒ `enter_frame_by_id(act)`、fighter ⇒ `"running_0"`、
+   否则 `enter_frame(Defines.NEXT_FRAME_AUTO)`（那是 `{ id: "auto" }` **对象**，不是数字 ⇒
+   走 `defines::find`）。
+6. **监听与出列**：TS 是一个共享的 `entity_callback` 对象挂到每个实体上；端口按实体各建一份
+   （`Callbacks::on` 两个键 + `Remover`），`~Item` **必须**把它们都摘掉 —— TS 里那个对象会被
+   实体强引用、永远不会析构，端口不摘就是悬空 `this`（本刀踩过：`dead` 之后下一次分配就崩）。
+
+### 74.3 偏差（同时登记在 README 的偏差表）
+
+本刀在 README 加了 5 行：`Randoming` 模板化（+ `RandomingItem<T>`）、`default_mt()` 的落点、
+`Item` 的两条缝、`entity_callback` 按实体各建一份、`~Item` 会摘监听、`mt.range` 的入参强转。
+
+### 74.4 有意不覆盖 / 等价
+
+1. `forget` 里「按实体找 `_watches`」那条：找不到也只是少摘一个监听，日志看不见（出列本身由
+   `_objects.erase` 决定）。
+2. `spawn` 里 `_objects` 的 `Set` 判重：`create_entity_with_bot` 不会给同一个实体两次。
+3. `mt.range(min, max)` 的入参是非数字时的 JS 语义（见偏差表）⇒ 台面不喂。
+4. `spawn` 里的两个 `debugger` 语句（端口没有对应物）。
+5. `Item.data` / `info` 非对象、`id` 是数字/对象这几档：TS 读属性会抛 ⇒ 端口给 `undefined`。
+
+### 74.5 harness 与变异
+
+subject `stage` 新增用例 `item`（`subjects/stage.{cpp,ts}` 里加了 `FakeItemEntity` +
+`FakeItemHost`），op：`mtseed` / `datas` / `datasgroup` / `far` / `near` / `team` / `aboss` /
+`diff` / `phase` / `info` / `newitem` / `upd` / `updn` / `spawn` / `rel` / `itemdump` /
+`dead <标签>` / `teamchg <标签>`。假实体把每次 setter 都打进日志（含 `pos` 三个分量、
+`dead_join` 的对象、`enter_frame*`）；假宿主把每次读也打进日志（`h:far` / `h:near` /
+`h:team` / `h:aboss` / `h:diff=` / `h:find=` / `h:group=` / `h:create=`）⇒ **读的顺序与次数**
+都是可比的（本刀两次 drift 都是靠这个抓出来的）。
+- 用例 `cases/stage/item.txt` **622** 行（10 组：单条 data + 120 拍刷新与出列 / 未命中 /
+  数组与数值 id / 空分组与内外两层 randoming / hp·mp 的四种 difficulty 与 `hp_map`·`mp_map` /
+  `times` 减到 0 / 位置六档 / facing·act·join·outline_color·reserve / soldier 五档 /
+  出列与 `release`）。
+- 变异 `mutations/stage.mjs` 扩到 **93/93 全杀**（本刀新增 48 条）。第一轮 8 条存活，成因：
+  ① 用例没喂到（`hp_map` / `mp_map` 被我写进了 **data** 而不是 `info`；`join` 没喂「缺 `join_team`」
+  的那档；`z` 的 `is_num` 判定要「`y` 有、`z` 没有」）；
+  ② 语义上到不了（`times == 0` 的 item 在构造里就已经是 `undefined`；soldier 的 `times == 0` 会先
+  `release` ⇒ 递减不到；`times` 递减那条要**直接调 `spawn`** 才能观察到）；
+  ③ 一个用例写错：`times` 那组引用的 id 在那一刻还没 `datas` 登记 ⇒ `spawn` 直接早退。
+- 顺带：`Randoming` 模板化改了定义文本 ⇒ 同步修了 `mutations/mt_random.mjs` 的 8 条锚点，
+  并修掉模板化引入的一处真·漂移（`taken` 的缺省是 `null`、越界返回是 `undefined`
+  ⇒ 拆成 `null_taken()` 与 `out_of_range()` 两个特化）；另有 3 条的 `to` 文本在
+  `RandomingT<std::shared_ptr<Randoming>>` 下**无法实例化**（往模板里塞 `Value(NullTag{})`
+  与 `strict_equals(shared_ptr, shared_ptr)` ⇒ `C2440`）⇒ 改成 `RandomingItem<T>::null_taken()`
+  与 `RandomingItem<Value>::loose_ne` 里的 `!strict_equals`（语义等价、两种元素都能编译）。
+  `mt_random` 仍 **64/64 全杀 0 compile-error**。
