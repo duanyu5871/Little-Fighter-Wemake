@@ -520,7 +520,7 @@ std::string dump_entity(const lfw::Entity& e) {
          num(static_cast<double>(e.vrests.size())) + ":" +
          num(static_cast<double>(e.collided_list.size())) + ":" +
          num(static_cast<double>(e.collision_list.size())) + ":" + num(e.resting()) + ":" +
-         num(e.fall_value()) + ":" + flag(e.is_on_ground);
+         num(e.fall_value()) + ":" + flag(e.is_on_ground) + ":" + num(e.arest());
 }
 
 std::string join_ids(const std::vector<lfw::Entity*>& list) { return list_of(list); }

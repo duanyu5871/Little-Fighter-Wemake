@@ -4182,7 +4182,7 @@ harness op：
   重写 `position` 导致相机 z 求和恒 0、`update_once` 里 `worker != nullptr` 那一段（假时钟推不动
   `Ticker` 的步进）。
 
-### 6.9.122 `World` 的碰撞配对与 `collision/` 的 82 条缝（`cases/world/collision.txt`，137 行；变异 **25/25** 全杀）
+### 6.9.122 `World` 的碰撞配对与 `collision/` 的 82 条缝（`cases/world/collision.txt`，215 行；变异 **29/29** 全杀）
 
 - **台面**：不新增 subject —— 这一刀的两侧都是**真代码**。TS 侧跑真 `World.step`（真
   `collision_get` / 真 `collisions_keeper`），C++ 侧跑端口 `World::step` + `WorldCollisionHost`
@@ -4193,13 +4193,14 @@ harness op：
   `is_ally` 为假 ⇒ `ally_flag = Enemy` 也被命中、双向 `emission` 为空 ⇒ 队伍那条不拦。
   观测量：`pc=1`（配对比次）、`col=1`（本帧加入的碰撞）、受击方 `hp` 从 20 掉到 15（走
   `handle_itr_normal_bdy_normal` → `handle_injury`）；另有 `h:warn` 的 `spark` 缺数据告警。
-- **用例结构**（一个世界、六组实体，x 分段：0 / 3000 / 6000 / 9000 / 12000 / 15000）：单向
-  （`A` 带 `itr`、`B` 带 `bdy`）锁「配对 + 伤害」；双向（`C`/`D` 都带 `itr` 与 `bdy`）锁 `c1` 与
-  `c2` 两条都 `add_collision`；`hit_flag 16` 那一组锁 `itr_flag & victim.data.type` 的失败路径
-  （`pc` 加一但 `col` 不增）；同队（`went G team t1` / `went H team t1`）那一组是给
+- **用例结构**（一个世界、十组实体，x 分段：0 / 3000 / 6000 / 9000 / 12000 / 15000 / 1000×2 /
+  24000 / 27000）：单向（`A` 带 `itr`、`B` 带 `bdy`）锁「配对 + 伤害」；双向（`C`/`D` 都带 `itr` 与
+  `bdy`）锁 `c1` 与 `c2` 两条都 `add_collision`；`hit_flag 16` 那一组锁 `itr_flag & victim.data.type`
+  的失败路径（`pc` 加一但 `col` 不增）；同队（`went G team t1` / `went H team t1`）那一组是给
   `attacker_is_ally` 留的观测位；`SuperPunchMe`（itr kind 6）那一组锁 `handle_super_punch_me`
   → `victim.add_v_rest`（`vrests` 从 0 变 1）；`Catch`（itr kind 1）那一组锁 `handle_itr_catch`
-  （`catching` / `catcher` 互指 + 两条 `catchingact` / `caughtact` 告警）。
+  （`catching` / `catcher` 互指 + 两条 `catchingact` / `caughtact` 告警）；`Pick` / `Pick 的 bot 门` /
+  `Block`（`handle_rest`）/ `Freeze` 那四组见下面的「十组实体 = 十条支路」。
 - **帧里的 `itr` / `bdy` 必须是数组**（`a 1 o 7 …`）：写成 `o 1 0 …` 会得到 Object，
   `collision_get` 的 `itr?.length` 判空直接返回 `null`（本例第一次跑就是 `col=0`）。
 - **台面补的两条假面**（TS `subjects/world.ts`）：`lfw.acquire_collision()` 必须**存在且静默**
@@ -4226,6 +4227,23 @@ harness op：
 - ⚠️ **`renderValue(数字)` 打的是 `n<十进制>:<十六进制位模式>`**：`st=n1:3ff0000000000000` 是
   **一个**字段（state），不是两个。按 `:` 切 dump 行做分析时会多算一段（本次差点据此以为
   「dump 多了一个观测量」；用带标签的临时 dump 对了一次才确认）。
+- **十组实体 = 十条支路**（4L 收尾第二批）：除第 1–6 组外又加了四组 ——
+  - `x=1000` **Pick**（itr kind 2）：攻击方 `M`（`ctrl base`）捡起躺在地上的武器 `N`
+    （`type 16` + 帧 `state 1004`）⇒ `handle_weapon_picked` → `attacker.pick(weapon)`，
+    观测是 **`M.holding` 从 `-` 变成武器 id**（同时武器被挂到手上 ⇒ 它的 `x` 变 `nan`，两侧一致）。
+  - `x=1000` **Pick 的 bot 门**：`S` 用 `ctrl bot`、`T` 的**帧**里带 `bot_ignore: 1` ⇒
+    `collision_test` 里 `bot_ignore == 1 && is_bot_ctrl` 这条门。⚠️ 实测这条门在本用例里
+    **不可观察**（手工把 `a.bot_ignore` 置 `Value()` / `a.is_bot_ctrl` 置恒假，输出逐行不变）——
+    带 `bot_ignore` 的那件武器和 `Weapon_OnGround` 的状态机纠缠，配对要么没成、要么成了但
+    keeper 那一趟没有配置命中 ⇒ 观测全为零。所以变异档里**没有**这两条（理由写在档头）。
+  - `x=24000` **Block**（itr kind 14）：`handle_rest`（这次 `rest` 为 0）⇒
+    `attacker_set_arest(max(dataset.min_arest, itr_arest + arest_offset))` ⇒ dump 补了 `arest`
+    这一列后 `arest = 20` 可观测。
+  - `x=27000` **Freeze**（itr kind 16）：`fall_value` 递减 + `injury 1` + `handle_rest` +
+    `handle_stiffness`（`motionless = 8`）+ `enter_frame_by_id(data.indexes.ice)`。
+- **`arest` 也进了 dump**（`dump_entity` 末尾，两侧同序）：`resting` / `fall_value` /
+  `is_on_ground` 之后。变异档随之 25 → **29 条**（新增 Pick 分发 / Freeze 分发 /
+  `attacker_pick_victim` / `attacker_set_arest`）。
 - ⚠️ **六组实体并不互相隔离**：`step` 里地图边界的回中逻辑会把 x ≥ 3000 的实体挪到地图中心
   （x = 1588），而这一步发生在**实体推进之后、配对之前** ⇒ 第 2–6 组在配对那一瞬全在同一 x
   （受击方 `collided_list` 到 5）。x 分段只决定配对前的排序，别指望它隔离；好处是交叉配对让

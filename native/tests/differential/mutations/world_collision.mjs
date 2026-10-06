@@ -1,7 +1,8 @@
 // `World::step` 的碰撞配对（`native/lfw/world.cpp`）与 `WorldCollisionHost` 的 Env 接线
 // （`native/lfw/world_collision.cpp`）的变异档。用例是 `cases/world/collision.txt`
-// （一个世界、六组实体：x=0 单向、x=3000 双向、x=6000 `hit_flag` 不匹配、x=9000 同队、
-// x=12000 `SuperPunchMe`、x=15000 `Catch`）。
+// （一个世界、十组实体：x=0 单向 / 3000 双向 / 6000 `hit_flag` 不匹配 / 9000 同队 /
+// 12000 `SuperPunchMe` / 15000 `Catch` / 1000 Pick / 1000 Pick 的 bot 门 /
+// 24000 Block（`handle_rest`）/ 27000 Freeze）。
 //
 // 有意不覆盖（不可观察 / 按构造等价 / 要等「dump 扩展 + 更多 handler 路径用例」那一刀）：
 //
@@ -21,9 +22,10 @@
 // 【宿主缝】这一刀的用例观测 `pc=`（配对比次）、`col=`（本帧加入的碰撞数）、受击方 `hp`，以及
 // `dump_entity` 里的碰撞观测量（`motionless` / `shaking` / `catching` / `catcher` / `holding` /
 // `vrests.size` / `collided_list.length` / `collision_list.length` / `resting` / `fall_value` /
-// `is_on_ground`）。用例扩到六组实体之后，这 11 个字段在两个封面上都取到了非零值（`motionless`
-// = 8、`shaking` = 8、`vrests` = 1、`collided_list` = 1/5、`collision_list` = 1、`resting` = 5、
-// `fall_value` = 100、`catching` / `catcher` 互指）⇒ 回写类的缝都能锁住了：
+// `is_on_ground` / `arest`）。用例扩到十组实体之后，这些字段都取到了可分辨的非零值
+// （`motionless` = 8、`shaking` = 8、`vrests` = 1、`collided_list` = 1/5/7、`collision_list`
+// = 1、`resting` = 5、`fall_value` = 0/100/140、`catching` / `catcher` 互指、`holding` = 武器 id、
+// `arest` = 20）⇒ 回写类的缝都能锁住了：
 //   * `bot_ignore`（只在 Pick 系的 itr kind 上读）、`is_bot_ctrl`、`team` / `emitter` /
 //     `spawn_time`（用例里三者的组合本来就放行）、`catcher_hurtable`（`has_catcher` 为假时不读）、
 //     `marks_group_attack` / `itr_prefabs` / `bear_wpoint_attacking`（`rest` 仍是 0）、
@@ -40,6 +42,13 @@
 //   * `HandlersEnv` 的其余几条（`attacker_pick_victim` 要 Pick 系 itr kind —— 用例里
 //     `holding` 全是 `-`；`attacker_set_arest` 的结果 dump 里没有；`buff_*` 要 `magic_flute`
 //     或 `Electrify` 才走）；
+//   * **Pick 的 bot 门那两条缝（`bot_ignore` / `is_bot_ctrl`）**：用例第 8 组是「bot 攻击方 +
+//     帧里 `bot_ignore: 1` 的武器」，但**实测不可观察** —— 手工把 `a.bot_ignore` 置 `Value()`、
+//     把 `a.is_bot_ctrl` 置恒假，两次 `build` + `test` 输出**逐行不变**。原因是那件武器的
+//     `bot_ignore` 写在**帧**里、又和 `Weapon_OnGround` 的状态机纠缠：第 7 组的普通武器（同样
+//     形状、同样 x）会被捡起（`holding` 变 id），带 `bot_ignore` 的那件不会 ⇒ Pick 的配对要么
+//     没成、要么成了但 keeper 那一趟没有配置命中（两边的观测都为零）。要锁它们得先找到一组
+//     「bot 攻击方 + 真能走完 `collision_test` → 配置命中 → `pick`」的实体（留给 Pick 专属用例）。
 //   * `ActionEnv` / `Handlers2-4Env` 里没被这条路径调用的那些（`Handlers2Env` 只走了
 //     `find_entity` / `hp_recoverability` / `summary_apply_damage` / `is_fighter` / `calc_velocity`
 //     / `buff_env`，其中 `hp_recoverability` 与 `calc_velocity` 的结果进了 `hp_r` / 速度，
@@ -223,6 +232,31 @@ export default {
         "  _e.catcher = entity_of_handler(v);\n" +
         "}",
       to: "void EntityHandlerView::set_catcher(collision::IHandlerEntity* v) { (void)v; }",
+    },
+    // ───────────── Pick / `handle_rest` / Freeze 这三条支路（用例第 7–10 组） ─────────────
+    {
+      note: "keeper: 丢掉 Pick 那一支（武器不再被捡起）",
+      file: "native/lfw/world_collision.cpp",
+      from: "    } else if (fn == u\"handle_weapon_picked\") {",
+      to: "    } else if (false && fn == u\"handle_weapon_picked\") {",
+    },
+    {
+      note: "keeper: 丢掉 Freeze 那一支",
+      file: "native/lfw/world_collision.cpp",
+      from: "    } else if (fn == u\"handle_itr_kind_freeze\") {",
+      to: "    } else if (false && fn == u\"handle_itr_kind_freeze\") {",
+    },
+    {
+      note: "handlers: attacker_pick_victim 空实现（`holding` 不写）",
+      file: "native/lfw/world_collision.cpp",
+      from: "    if (a != nullptr && v != nullptr) a->pick(*v);",
+      to: "    (void)a; (void)v;",
+    },
+    {
+      note: "handlers: attacker_set_arest 空实现（`arest` 不写）",
+      file: "native/lfw/world_collision.cpp",
+      from: "    if (_cur_a != nullptr) _cur_a->set_arest(v);",
+      to: "    (void)v;",
     },
   ],
 };

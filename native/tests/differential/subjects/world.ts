@@ -415,7 +415,7 @@ function dump_entity(e: Entity | null): string {
     `:${num(b.motionless)}:${num(b.shaking)}:${id_ref(b.catching)}:${id_ref(b.catcher)}` +
     `:${id_ref(b.holding)}:${num((b.vrests as Bag)?.size)}:${num(b.collided_list?.length)}` +
     `:${num(b.collision_list?.length)}:${num(b.resting)}:${num(b.fall_value)}` +
-    `:${flag(e.is_on_ground)}`
+    `:${flag(e.is_on_ground)}:${num(b.arest)}`
   );
 }
 

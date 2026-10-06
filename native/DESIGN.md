@@ -7965,15 +7965,20 @@ differential **155/155**。
 
 ### 78.7 待办（下一刀的入口）
 
-1. ~~变异档 `mutations/world_collision.mjs`~~ 已做：**25/25 全杀**（配对循环 6 条 +
-   `CollisionActor` 投影 6 条 + handler 分发 3 条 + `handle` 补的 `c.dataset` 1 条 +
-   `KeeperEnv` 回写 2 条 + `HandlersEnv` 回写 4 条 + 三个视图方法 3 条）。用例同一世界六组实体：
-   单向 / 双向 / `hit_flag` 不匹配 / 同队 / `SuperPunchMe` / `Catch`。
-   其余缝（`get_bounding` 的六个字段、`rest` 与 `Pick` 支、buff 支、`ball_frozen` …）的变异要等
-   更多 handler 路径用例（第 2 条）与一组「部分重叠」的判定框。
-2. handler 路径的用例：目前 `world/collision` 只走了 `handle_itr_normal_bdy_normal` → `handle_injury`
-   → `handle_fall` 这一条；`catch` / `freeze` / `whirlwind` / `weapon_is_hit` / `ball_*` / `healing`
-   各要一段（尤其 `ball_frozen` 与 `john_shield`，它们各自有独立的 `IFrozenEntity` 视图）。
+1. ~~变异档 `mutations/world_collision.mjs`~~ 已做：**29/29 全杀**（配对循环 6 条 +
+   `CollisionActor` 投影 6 条 + handler 分发 5 条 + `handle` 补的 `c.dataset` 1 条 +
+   `KeeperEnv` 回写 2 条 + `HandlersEnv` 回写 6 条 + 三个视图方法 3 条）。
+   用例同一世界十组实体：单向 / 双向 / `hit_flag` 不匹配 / 同队 / `SuperPunchMe` / `Catch` /
+   Pick / Pick 的 bot 门 / Block（`handle_rest`）/ Freeze。
+   仍未锁的缝：`get_bounding` 的六个字段（要「部分重叠」的对照）、Pick 的 bot 门
+   （`bot_ignore` / `is_bot_ctrl`：实测在本用例里不可观察，见 PROTOCOL §6.9.122）、
+   `rest` 支（itr 带 `vrest` 时走 `victim_add_v_rest` 那条）、buff 支（`magic_flute` / `Electrify` /
+   `Healing`）、`ball_*` 与 `john_shield`。
+2. handler 路径的用例：`world/collision` 现在走到 `handle_itr_normal_bdy_normal` → `handle_injury`
+   → `handle_fall`、`handle_super_punch_me`、`handle_itr_catch`、`handle_weapon_picked`、
+   `handle_rest`、`handle_itr_kind_freeze` 六条；还差 `whirlwind` / `weapon_is_hit` / `ball_*` /
+   `healing`（要 `buff::grant_buff` + `Buff_Healing`，与帧几何那层纠缠）/ `john_shield`
+   （后两个还要 `IFrozenEntity` 视图面）。
 3. `collision_to_snapshot` / `from_snapshot` 在宿主上的往返。
 4. ~~观测量扩展~~ 已做一半：`dump_entity` 两侧补了 `motionless` / `shaking` / `catching` /
    `catcher` / `holding` / `vrests.size` / `collided_list.length` / `collision_list.length` /
