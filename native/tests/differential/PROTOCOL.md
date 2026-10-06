@@ -3826,3 +3826,33 @@ harness op：
 - **两个坑**：`const Value lowered(std::u16string(*k));` 会被解析成函数声明（most vexing parse）
   ⇒ 变异体里写 `{...}`；payload 的 `keys` 装数字时第一个下标就会抛，想杀「数组下标读错」得把
   数组元素换成字符串。
+
+### 6.9.113 `ZipMgr`（+ `ditto/zip` 的 `IZip` / `IZipObject`、`defines/IDataInfo`）（新 subject `zip_mgr`，114 行；变异 **33/33** 全杀）
+
+- **移植面**：`native/lfw/zip_mgr.{h,cpp}`（`IZipResult` / `ILoadedZip` / `class ZipMgr`）；
+  `ditto/zip/i_zip.h` + `ditto/zip/i_zip_object.h`（各只有本刀读得到的方法）；`defines/i_data_info.h`
+  （8 个字段，一律 `Value`）；`CMakeLists.txt` 409 → 410。
+- **`zip <zid> <name>`** / **`zfile <zid> <path> miss|hit <fname>`**：造一个假数据包并脚本化它的
+  `file(path)`。每次调用都推一条 `call:<zipname>|<path>` ⇒ `find` 的两重循环顺序与候选名表的
+  顺序/去重都能从日志上看出来（这是本刀最值钱的观测面）。
+- **`info <iid>`** / **`imd5 <iid> u|z|s "md5"`**：造一份 `IDataInfo`；`u` = 没有 `md5` 这个键、
+  `z` = 显式 `null`（两者在 `?? ''` 下同结果，但能钉住端口 `is_nullish` 的写法）。
+- **`add <zid> <iid>`** / **`clear`**：`add` 走 `unshift`（后加载优先），`clear` 原地清空。
+- **`dump`**：`len` / `all`（按列表序打 zip 名）/ `zips` / `md5s`（`renderValue` 的数组）/ `infos`
+  （个数 + 每份 info 的 `md5` 原样渲染）—— 三个 getter 的顺序与元素来源都钉住。
+- **`find <0|1> p <n> <path…>`**：`find` 的结果条数与每条的 `origin` / `file.name` / `zip.name`。
+  `origin` 打的是**原样字符串**（`[zip.name]file.name`），专门杀格式串变异。
+- **TS 侧**：两个假类实现 `IZip` / `IZipObject`（`file` 每次返回新对象，端口返回同一份对象 ——
+  台面只比较 `name` 文本，不比较对象身份）。
+- **四处容易写错的语义**（详见 DESIGN §69.2）：① 候选名表的顺序是「原名（按输入序）→ 各路径的
+  备选名（按路径序）」，且去重是**全局**的；② `exact === true` 时既不去重也不扩展（重复路径
+  命中两次）；③ 两重循环是「数据包（后加载优先）× 候选名」；④ `md5s` 的 `?? ''` 只吞
+  `null` / `undefined`（`md5: 0` / `''` 原样给）。
+- **用例**：`cases/zip_mgr/all.txt` **114** 行（空表 / 单包命中与未命中 / 多路径顺序 / `exact` 的
+  去重差别 / `origin` 与查询路径不同 / 图片与音频后缀的回退扩展 / 多包后加载优先 / `all` 返回
+  内部数组 / `clear` 后重载 / `md5` 的三种形态 / 带空格的路径，共 12 组）。
+- **变异**：`mutations/zip_mgr.mjs` **33/33 全杀**（`zip_mgr.cpp` 31 条、`zip_mgr.h` 2 条；分五个
+  组：三个 getter / `add`·`clear` / 候选名表 / 两重循环与 `origin` / `length`）。顺序类变异靠
+  「同一路径多个回退名都命中」与「两个包 × 两条路径」两组用例杀。
+- **一个坑**：新建的源文件必须是 **LF**。变异脚本的多行锚点写在模板字面量里，而 JS 会把
+  `CRLF` 规范化成 `LF`；Windows 上新建的文件是 `CRLF` ⇒ 多行锚点报 `anchor occurs 0 times`。

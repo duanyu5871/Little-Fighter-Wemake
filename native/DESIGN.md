@@ -6991,3 +6991,79 @@ op 分三组：
   `const Value lowered(std::u16string(*k));` 会被解析成**函数声明**（most vexing parse）⇒ 变异体
   里得写成 `{...}`；②「数组下标一律读第 0 个」一开始杀不掉 —— payload 的 `keys` 装数字时，
   第一个下标就因为 `key.toLowerCase` 不是函数抛掉了，把数组元素换成字符串才看见第二个下标。
+
+## 69. 切片 4C：`ZipMgr`
+
+步骤 4「主干」（宿主层）的第三刀：`src/LFW/ZipMgr.ts`（65 行）管「已加载数据包」的列表 ——
+`add`（`unshift`，后加载优先）、`clear`、四个 getter，以及 `find(paths, exact)`：在已加载的包里
+查路径，`exact` 为 false 时先对每个路径做备选名扩展（复用 4A 的 `loader/get_import_fallbacks`）。
+顺带开出宿主层第一批「数据包」接口：`ditto/zip/IZip` / `IZipObject` 与 `defines/IDataInfo`。
+
+### 69.1 移植面
+
+- `native/lfw/zip_mgr.{h,cpp}`：`IZipResult`（`origin` / `file` / `zip`）、`ILoadedZip`
+  （`zip` / `info`）与 `class ZipMgr`（`length()` / `all()` / `zips()` / `md5s()` /
+  `data_infos()` / `add` / `clear` / `find`）。
+- `native/lfw/ditto/zip/i_zip.h`（`name()` + `file(path)`）、`ditto/zip/i_zip_object.h`
+  （`name()`）：TS 是宿主给的 zip 对象（`Ditto` 平台包），端口只开本刀读得到的两个方法。
+- `native/lfw/defines/i_data_info.h`：`IDataInfo` 的 8 个字段（`type` / `url` / `title` /
+  `description` / `author` / `version` / `time` / `md5`），一律 `Value`。
+- 进 `native/lfw/CMakeLists.txt`（C++ 源 409 → 410）。
+
+### 69.2 保真要点
+
+1. **`add` 是 `unshift`**：后加载的数据包排在前面，`find` 与 `zips()` / `md5s()` /
+   `data_infos()` 的顺序都跟着它走（`find` 的「先命中谁」由此决定）。`clear` 是
+   `list.length = 0`（原地清空，`all()` 拿到的还是同一份数组）。
+2. **`find` 的候选名表**（`exact === false`）：先 `new Set(paths)`（按插入序去重），再按
+   `paths` 的顺序对每个路径调 `get_import_fallbacks(path)[0]` 把备选名逐个 `add` 进去 ——
+   去重是**全局**的（跨路径、跨回退名），且顺序是「原名在前（按输入序）→ 各路径的备选名
+   （按路径序、按备选序）」。端口用 `std::vector` 保序 + `std::set` 判重实现同一个语义。
+   `exact === true` 时**不**扩展也不去重（`paths` 原样进两重循环，重复路径会命中两次）。
+3. **`find` 的两重循环顺序**是「数据包（外层，后加载优先）× 候选名（内层）」，每条命中推一个
+   `{ file, zip, origin: `[${zip.name}]${file.name}` }` —— `origin` 用的是**命中文件自己的名字**
+   （可以和查询路径不同），方括号与 `]` 一个都不能少。
+4. **`md5s` 的 `?? ''`**：只有 `null` / `undefined` 落回空串（`md5: 0` / `''` 原样给出）；TS 声明
+   是 `string[]`，但运行时给的就是 `info.md5` 本身 ⇒ 端口给 `Value[]`，不丢信息。
+5. **`IZip.file` 是纯查表**：未命中回 `null` ⇒ 端口 `nullptr`（`if (!file) continue`）。TS 的
+   `IZip.file` 还有 `RegExp` 重载与 `files` / `md5` / `set` / `blob`，`IZipObject` 还有七个
+   `async` 读取方法 —— 本刀都不需要，记在偏差表里等 `Resources` 那刀。
+
+### 69.3 偏差（同时登记在 README 的偏差表）
+
+本刀在 README 加了 6 行：`IZip` 只建模两个成员、`file` 不给抛错面、`IZipObject` 只有 `name`、
+`ILoadedZip` 按值存（TS 存引用）、`md5s()` 给 `Value[]`、`IDataInfo` 只建模声明内的字段且
+`info` 必须非空。
+
+### 69.4 有意不覆盖 / 等价
+
+1. 三个 getter 里的 `out.reserve(_list.size())`：只影响扩容，不改结果。
+2. `get_import_fallbacks` 的失败面：端口的 `paths` 已经是 `std::u16string` ⇒ 走不到「名字不是
+   字符串」那条（TS 的 `paths: string[]` 同理）。
+3. `IZip::file` 的抛错面：真实 zip 是纯查表，不会抛；台面也没脚本化「宿主自己抛」。
+4. `ILoadedZip` 按值存与 TS 存引用的差别：宿主在 `add` 之后改自己那份结构体才会显现，台面不造
+   （真实调用点 `LFW.ts` 是现造现加）。
+5. `md5s()` 里空串写成 `Value(std::u16string())` 还是 `Value(u"")`：同一个值。
+6. harness 层的脚本 op 与 `dump` / `find` 回显行：那是台面自己的输出。
+
+### 69.5 harness 与变异
+
+新 subject `zip_mgr`（`subjects/zip_mgr.{cpp,ts}` + `cases/zip_mgr/all.txt`），op：
+- `zip <zid> <name>` / `zfile <zid> <path> miss|hit <fname>`：造一个假数据包并脚本化它的
+  `file(path)`（命中给一个带 `name` 的对象、未命中给 `null`）；每次调用都记一条
+  `call:<zipname>|<path>` ⇒ 候选名表的**顺序与去重**都能从日志上看出来；
+- `info <iid>` / `imd5 <iid> u|z|s "md5"`：造一份 `IDataInfo`（`u` = 没有这个键、`z` = `null`）；
+- `add <zid> <iid>` / `clear`；
+- `dump`：`len` / `all`（按列表序打 zip 名）/ `zips` / `md5s`（走 `renderValue` 的数组）/ `infos`
+  （个数 + 每份 info 的 `md5` 原样渲染，专门盯 `data_infos` 的顺序与 `?? ''`）；
+- `find <0|1> p <n> <path…>`：`find` 的条数与每条的 `origin` / `file.name` / `zip.name`。
+- TS 侧用两个假类实现 `IZip` / `IZipObject`（`file` 每次返回新对象，端口返回同一份 ⇒ 两侧的
+  `name` 文本一致，台面不比较对象身份）。
+- 用例 `cases/zip_mgr/all.txt` **114** 行（空表 / 单包命中与未命中 / 多路径顺序 / `exact` 的去重
+  差别 / `origin` 与查询路径不同 / 图片与音频后缀的回退扩展 / 多包后加载优先 / `all` 返回内部
+  数组 / `clear` 后重载 / `md5` 的三种形态 / 带空格的路径，共 12 组）。
+- 变异 `mutations/zip_mgr.mjs` **33/33 全杀**（其中「候选名表反序」「回退名表反序」「两重循环
+  调换」这类顺序变异，靠的是「同一路径多个回退名都命中」与「两个包 × 两条路径」两组用例）。
+- 踩到的坑：**新建的源文件必须用 LF**。变异脚本里的多行锚点写在模板字面量里，JS 会把
+  `CRLF` 规范化成 `LF`，而 Windows 上新建的文件是 `CRLF` ⇒ 多行锚点会「anchor occurs 0 times」；
+  写成 LF 后才对得上。
