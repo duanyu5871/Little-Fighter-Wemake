@@ -16,6 +16,8 @@
 namespace lfw {
 
 class Entity;
+// `Factory` 的控制器注册表键：TS 用的是「类本身」，端口用接口指针身份（见 `factory.h`）。
+class ICtrlCreator;
 
 namespace controller {
 
@@ -63,6 +65,9 @@ class BaseController {
 
   void set_env(const CtrlEnv* env) { _env = env; }
   const CtrlEnv* env() const { return _env; }
+  // `Factory` 的归池键（TS 是 `ctrl.constructor`）。
+  void set_creator(const ICtrlCreator* creator) { _creator = creator; }
+  const ICtrlCreator* creator() const { return _creator; }
   void set_kind(bool human, bool bot) {
     _is_human = human;
     _is_bot = bot;
@@ -134,6 +139,9 @@ class BaseController {
   KeyStatus* slot(const std::u16string& k) { return keys.slot(k); }
 
   const CtrlEnv* _env = nullptr;
+  // TS 用 `ctrl.constructor` 当 `Factory` 对象池的键（`release_ctrl`）⇒ 端口在基类上留一个
+  // creator 身份（`Factory::acquire_ctrl` / `create_ctrl` 负责写）。
+  const ICtrlCreator* _creator = nullptr;
   Times _time{10, 9007199254740991.0};
   std::u16string _key_list;
   std::u16string _readable_key_list;

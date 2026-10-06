@@ -7228,3 +7228,94 @@ op 分三组：
   **名字**而不是「被查询的路径」⇒ 读取直接抛，`file` / `origin` 那几条变异根本走不到；
   ② `XML.parse` 的「假值 ⇒ 抛」那条路只在宿主文本也失败时才被压到 ⇒ 补了「文本来自命中文件」
   的一组用例（`x/a.xml`）才把文案类变异杀掉。
+
+## 72. 切片 4F：`Factory`
+
+步骤 4「主干」（宿主层）的第六刀：`src/LFW/Factory.ts`（166 行）是宿主层的**登记处** ——
+四张静态表（实体 creator / 控制器 creator / buff creator / buff 分组）加三张**对象池**
+（实体 / buff / 控制器），一共 14 个公开方法。本刀做 12 个（`register_entity` /
+`register_ctrl` / `register_buff` / `create_buff` / `recycle_buff` / `recycle_entity` /
+`acquire_entity` / `create_entity` / `create_ctrl` / `acquire_ctrl` / `release_ctrl` /
+`create_entity_with_bot`）；`create_entity_with_player` 要 `LocalController`（依赖 `LFW.player()`），
+`register_component` / `create_components` 是 UI 层 ⇒ 都推迟。
+
+### 72.1 移植面
+
+- `native/lfw/factory.{h,cpp}`：`FactoryKey`（= `Value`）、`IEntityCreators`（`std::function`）、
+  `ICtrlCreator` / `IBuffCreator` 两个接口、`FactoryWarn` sink、`class Factory`（四张静态表访问器 +
+  三张池成员 + 12 个方法）。
+- `native/lfw/controller/base_controller.h`：新增 `class ICtrlCreator;` 前向声明与
+  `creator()` / `set_creator()`，加成员 `const ICtrlCreator* _creator = nullptr;`。
+- 进 `native/lfw/CMakeLists.txt`（C++ 源 412 → 413）。
+
+### 72.2 保真要点
+
+1. **四张表的顺序语义**：JS 的 `Map` / `Set` 迭代是**插入序**，且 `Map.set` 覆盖已有键时
+   **位置不变**（`Set.add` 是判重后追加到末尾）。端口用 `std::vector<std::pair<…>>` 自己实现
+   `map_set` / `set_add`，**不用** `std::map` / `std::set`（那会按键序重排）。
+2. **键相等**：`FactoryKey`（`Value`）走 `strict_equals` —— JS `Map` 的 SameValueZero 在
+   `Number` / `String` 这一档等价（`1` 与 `"1"` 分开、`NaN` 与 `NaN` 相同）。控制器注册表与池的
+   键是 `const ICtrlCreator*`（**指针身份**）⇒ 单开一个 `index_of` 重载走指针比较
+   （`Value` 的 `operator==` 在 MSVC 上还会撞 `std::variant` 的 `equal_to` 编译不过）。
+3. **`register_*` 的顺序**：先判重告警、再写表；`register_buff` 是「告警 → 遍历 `GROUPS`
+   逐个登记 → 最后才写 `buff_creators`」，分组里 `Set` 的**加入顺序**就是 `GROUPS` 的顺序。
+4. **`create_buff` 的三段**：① 表里没有 ⇒ `undefined`（端口 `nullptr`）；②
+   `buff_graves_maps.get(kind)?.take() ?? new B(lfw, id, B.KIND)` —— 端口拆成
+   「池不存在 ⇒ 不 take」与「take 到 `nullopt` ⇒ 新建」两步；③ 无论新建还是复用都要
+   `reset(id)` 再 `init()`（复用路径上这两个都会**再跑一次**，台面能观察到）。
+5. **归池键不对称**：`recycle_buff` 用**实例自己的** `buff.kind`（不是创建时用的那个 kind）、
+   `recycle_entity` 用 `e.data.type`、`release_ctrl` 用 `ctrl.constructor`。
+6. **`acquire_ctrl` 的池键是类本身**：TS 靠语言自带的 `ctrl.constructor`；端口让 `ICtrlCreator`
+   是接口对象、**指针身份**当键，`acquire_ctrl` 新建时 `set_creator(cls)`，`release_ctrl` 从
+   `ctrl->creator()` 取回 ⇒ 注册点与归池点是同一个指针。
+7. **`create_entity_with_bot` 的两次查表**：creator 用 `data.type`、控制器 oid 用 `data.id`；
+   creator 给假值就**原样返回**（不建控制器）。
+8. **`release_ctrl(undefined)`**：TS 的 `if (!ctrl) return this` 是既有语义 ⇒ 端口保留
+   （`nullptr` 直接返回）。
+
+### 72.3 偏差（同时登记在 README 的偏差表）
+
+本刀在 README 加了 7 行：`FactoryKey` 用 `Value` + `vector` 代替 `Map` / `Set`、
+`ICtrlCreator` 用指针身份代替「类本身」、`BaseController` 新增 `creator()` / `set_creator()`、
+`acquire_ctrl` 的 `reset(player_id, entity)` 无参化、`Factory::set_warn` 是进程级 sink、
+`IEntityCreators` / `IBuffCreator` 的形状（`World` / `LFW` 只前置声明）、
+`create_entity_with_player` 与 UI 相关不移植。
+
+### 72.4 有意不覆盖 / 等价
+
+1. `create_buff` 里 `new B(lfw, id, B.KIND)` 的第三个实参写成 `b->kind()`：`register_buff` 就是
+   按 `KIND` 建索引的 ⇒ 与查表用的 `kind` 恒等。
+2. `map_set` / `index_of` 返回的索引：表里不会出现重复键（`map_set` 自己保证），
+   「取第一个」与「取最后一个」等价。
+3. `acquire_entity` 的 `?.take()` 与 `create_entity` / `create_ctrl` 的 `undefined`：端口统一是
+   `nullptr`。
+4. `register_component` 里的 `debugger` 语句、`components` 与 `_usedALIAS` 两张表：随 UI 层推迟
+   （`_usedALIAS` 全仓库没有调用点）。
+5. `symbol` 键与「`NaN` 当键」：`Value` 装不下 `symbol`；`NaN` 在 `strict_equals` 与
+   SameValueZero 上不同（记在偏差表）。
+6. `create_entity` / `create_entity_with_bot` 的 `states` 实参：台面两侧都不传（端口是
+   `state::States*`）。
+
+### 72.5 harness 与变异
+
+新 subject `factory`（`subjects/factory.{cpp,ts}` + `cases/factory/all.txt`），op：
+- `regent <key> <label>` / `regctrl <key> <label>`：登记一个 creator，`label` 回显在日志里
+  （`label == miss` 表示这个 creator 返回 `undefined`）；
+- `regbuff <kind> <group>…`：登记一个 buff creator（`GROUPS` 就是 op 的剩余 token）；
+- `ce <key> <data>` / `cebot <pid> <key> <data>`：`create_entity` / `create_entity_with_bot`；
+- `acq-e <key>` / `rec-e <label>` / `newctrl <oid> <pid>` / `acq-ctrl <label> <pid>` /
+  `rel-ctrl <label> <pid>` / `cbuff <kind> <id>` / `rec-buff <label>`：其余入口；
+- `dump`：打三张注册表的**键列表**、`buff_groups`（扁平 `g=[k,…]`）与三个池的「键 = 条数」
+  （`cgraves` 的键渲染成 creator label、未知打 `?`；`bgraves` 的键是 kind 值）。
+两侧的假对象：TS 用 duck-typed 假类 / 假对象（控制器 creator 必须是**类**，`new Cls(...)`），
+C++ 用**真** `Entity`（`IEntityHost` 没有纯虚函数 ⇒ 假宿主极简）、`buff::Buff` 子类
+（只统计 `init`，因为基类的 `reset` 不是虚函数）与 `BaseController` 子类（统计 `reset` 次数与
+`player_id`）。
+- 用例 `cases/factory/all.txt` **92** 行（注册与重复告警 / 实体创建三态 / 实体池与 LIFO /
+  `create_entity_with_bot` / 控制器命中·未命中·复用 / buff 命中·未命中·复用 / 数值键与分组去重 /
+  数值 oid / 数值 KIND / **键同一性**（`s "1"` 与 `n 1` 是两张键）/ 两实体回收后的取出顺序，
+  共 12 组）。
+- 变异 `mutations/factory.mjs` **35/35 全杀**（注册告警 3 条 + warn sink 1 条 + 文案 3 条 +
+  表语义 9 条 + `create_buff` 5 条 + 实体与实体池 8 条 + 控制器 6 条）。其中
+  一条 `pool_of(..., nullptr)` 的写法因模板推导失败算作 `compile-error`（`K` 只能从 vector 推）
+  ⇒ 改成显式 `static_cast<const ICtrlCreator*>(nullptr)` 后全绿。

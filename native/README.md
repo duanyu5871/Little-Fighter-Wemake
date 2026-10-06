@@ -263,7 +263,7 @@ VS Code 里也已经指好（`.vscode/settings.json`）：
 | 3 | `loader/get_val_*` 余下部分（`get_val_from_bot_ctrl` / `get_val_getter_from_stage` 要等 `BotController` / `Stage`） | 待做 |
 | 4r | `controller/BallController` + `helper/closer_one` | ✅ 通过（`entity/ball_ctrl` 174 行；49 条变异全杀） |
 | 4 | `entity` + `collision` + `buff` + `state` + `controller` + `bot` + `World` | 待做（**必须整块搬**，见下） |
-| 4主干 | 步骤 4 **主干**（宿主层：`stage/` 与 `World` / `LFW` / `Factory` / `Resources` / `Camera` / `Keys` **之前**能单独搬的部分，按依赖序：`I18N` → `loader/get_import_fallbacks` → `PlayerInfo` → `Camera` → `ZipMgr` → `Resources` → `Factory` → `stage/*` → `World` → `LFW`） | 进行中（`I18N` + `loader/get_import_fallbacks` ✅ 262 行 / 67 全杀；`PlayerInfo` ✅ 270 行 / 76 全杀；`ZipMgr` ✅ 114 行 / 33 全杀；`Camera` ✅ 369 行 / 93 全杀；`Resources` ✅ 136 行 / 44 全杀） |
+| 4主干 | 步骤 4 **主干**（宿主层：`stage/` 与 `World` / `LFW` / `Factory` / `Resources` / `Camera` / `Keys` **之前**能单独搬的部分，按依赖序：`I18N` → `loader/get_import_fallbacks` → `PlayerInfo` → `Camera` → `ZipMgr` → `Resources` → `Factory` → `stage/*` → `World` → `LFW`） | 进行中（`I18N` + `loader/get_import_fallbacks` ✅ 262 行 / 67 全杀；`PlayerInfo` ✅ 270 行 / 76 全杀；`ZipMgr` ✅ 114 行 / 33 全杀；`Camera` ✅ 369 行 / 93 全杀；`Resources` ✅ 136 行 / 44 全杀；`Factory` ✅ 92 行 / 35 全杀） |
 
 **步骤 2–4 是修正过的。** 把 `import type` 排除后算运行时依赖图，得到两个关键事实：
 
@@ -362,6 +362,13 @@ VS Code 里也已经指好（`.vscode/settings.json`）：
 | `Ditto.XML.parse` 的结果是 `Value` 标记 | TS 是 `IXMLElement`（`tag` / `children` / `attrs` / `text` / `parent` + 一批方法） | 本刀只判它的真值；`IXMLElement` 的成员随用到的刀再补 |
 | `Resources` 的 `ImportResult.file` / `origin` 是 `Value` | TS 里是 `file?: string` / `origin?: string` | 回退那条路**不写** `origin`、`import_image_bitmap` 回退时 `file` 是 `paths[0]` ⇒ 用 `Value` 才能把「缺席」与空串分开 |
 | `Resources` 的五个 `import_*` 是同步 + `bool` 失败出参 | TS 是 `async`，宿主失败靠 promise reject 往外传 | 端口无异常/无 promise；失败面用 `bool` + `error`，文案与 TS 的 `Error.message` 逐字对齐 |
+| `FactoryKey` 是 `Value`，表与池用 `std::vector<pair<…>>` 而不是 `Map` / `Set` | TS 的 `Key = string \| number \| symbol`，`Map` / `Set` 按 SameValueZero 判键（`NaN` 也是合法键） | `Value` 装不下 `symbol` 与「`NaN` 当键」；用 `std::vector` 是因为 JS 的 `Map` / `Set` 迭代是**插入序**且覆盖时位置不变（`std::map` / `std::set` 会按键序重排） |
+| `ICtrlCreator` 用**指针身份**当键 | TS 直接拿 `ctrl.constructor`（类本身）当 `Map` 键 | `Value` 装不下类；注册点（`register_ctrl`）与归池点（`BaseController::creator()`）用的是同一个指针 ⇒ 等价 |
+| `BaseController` 新增 `creator()` / `set_creator()` | TS 靠 `ctrl.constructor` 反查（语言自带反射） | C++ 无反射：`acquire_ctrl` 新建时记下 creator，`release_ctrl` 从实例取回 |
+| `acquire_ctrl` 复用时不带参 `reset()`（`player_id` 单独写） | TS 是 `ret.reset(player_id, entity)` | 端口 `BaseController::reset()` 无参（既有约定）；顺序仍是先写 `player_id` 再 `reset()` |
+| `Factory::set_warn` 是进程级 sink | TS 是全局 `Ditto.warn` | 端口没有单例容器；机制同 `IPlayerInfoHost::warn` 等既有缝 |
+| `IEntityCreators` 是 `std::function<Entity*(World*, const Value&, state::States*)>`，`World` / `LFW` 只前置声明；`IBuffCreator::create` 返回 `buff::Buff*` | TS 是 `(world, data, states) => Entity` 与带 `static KIND` / `static GROUPS` 的类 | 本刀不构造世界；creator / 注册信息由宿主提供，端口只透传 |
+| `create_entity_with_player` / `create_components` / `register_component` / `components` / `_usedALIAS` 不移植 | 前两者要 `LocalController`（依赖 `LFW.player()`），后两者是 UI 层 | 随 `LFW` 那刀与最后一段 `ui/` 再补；`_usedALIAS` 全仓库没有调用点 |
 
 > `native.mjs all` 里的 `coverage` 步骤会跑 `tools/check_defines_coverage.mjs`：
 > 它用「运行时枚举 TS 导出」这条**独立于生成器**的路径，检查 TS 里的枚举/字段表有没有漏搬。
@@ -481,3 +488,4 @@ VS Code 里也已经指好（`.vscode/settings.json`）：
 | 4C | 切片 4C（**步骤 4 主干第三刀**）：`ZipMgr` + `ditto/zip` 的 `IZip` / `IZipObject` 与 `defines/IDataInfo`（宿主层里的数据包管理层：`add` 的 `unshift`、`find` 的「数据包（后加载优先）× 候选名」两重循环、`Set` 去重保序与 `[zip.name]file.name` 来源标签；候选名表复用 4A 的 `loader/get_import_fallbacks`） | ✅ 通过（`zip_mgr` 新 subject，114 行；变异 **33/33 全杀**） |
 | 4D | 切片 4D（**步骤 4 主干第四刀**）：`Camera` + `ditto/instance.h` 的 `vec2` 与 `defines/i_vector2.h`（镜头跟随：`_locked` 直接跳、两个 `do{...}while(0)` 块各自的 `break`、`_dested?.x ?? destination.x` 的目标夹取、acc 线性增长与 `max_vx_ratio` 封顶、y 块的 `height <= MODERN_SCREEN_HEIGHT` 门与 `cam_max_y = min(-0.5 * far, height - MODERN/(zoom_y ?? 1))`；宿主缝只给 `world.stage` / `bg` / `dataset` 三个对象，字段读走 `field_or` + `to_number` 复刻 JS 强转） | ✅ 通过（`camera` 新 subject，369 行；变异 **93/93 全杀**） |
 | 4E | 切片 4E（**步骤 4 主干第五刀**）：`Resources` + `base/dedup.h`（资源导入的五个入口：`exact ? [path] : get_import_fallbacks(path)[0]` 的候选名、`find(paths, true).at(0) || {}` 的命中判断、命中走 `file.json()`/`text()`/`blob_url()`/`array_buffer()`/`image_bitmap()`、未命中把整表交给宿主 `Importer.import_as_*`；回退时 `origin` 缺席、`import_image_bitmap` 用 `paths[0]`、`import_xml` 用 `file?.name || paths[0]` 且解析结果假值要抛「failed to parse」；宿主缝 `IResourcesHost` 把 `Ditto.Importer` / `Ditto.XML` 收成同步 `bool` + `error`） | ✅ 通过（`resources` 新 subject，136 行；变异 **44/44 全杀**） |
+| 4F | 切片 4F（**步骤 4 主干第六刀**）：`Factory`（+ `controller/base_controller.h` 的 creator 身份）（四张静态表 `entity_creators` / `ctrl_creators` / `buff_creators` / `buff_groups` 与三张对象池 `graves_maps` / `ctrl_graves_maps` / `buff_graves_maps`；表的**插入序**与**覆盖时位置不变**、`register_*` 的重复告警、`create_buff` 的「没登记 ⇒ 缺席」与 `pool.take() ?? new B(lfw, id, B.KIND)` + `reset(id)` + `init()`、`recycle_buff` 用 **`buff.kind`** 当归池键、`recycle_entity` 用 **`data.type`**、`acquire_entity` 从池取出、`create_entity` 用 `data.type` 查表、`create_ctrl` 的「没登记 ⇒ 缺席」、`acquire_ctrl` 用**类本身**当池键（空池 `new Cls(player_id, entity)` / 命中 `reset(player_id, entity)`）、`release_ctrl` 用 `ctrl.constructor` 归池、`create_entity_with_bot` 里再用 `data.id` 建控制器） | ✅ 通过（`factory` 新 subject，92 行；变异 **35/35 全杀**） |

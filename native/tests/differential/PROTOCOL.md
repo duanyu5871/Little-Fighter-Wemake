@@ -3915,3 +3915,33 @@ harness op：
   「假值 ⇒ 抛」只在宿主文本也失败时才被压到。
 - **一个不变式**：`base/dedup.h` 是**直通**（TS 的并发去重同步端口观察不到）⇒ 连带键字符串
   不参与逻辑，变异名单里没有它们（记在偏差表与 DESIGN §71.4）。
+
+### 6.9.116 `Factory`（+ `controller/base_controller.h` 的 creator 身份）（新 subject `factory`，92 行；变异 **35/35** 全杀）
+
+- **移植面**：`native/lfw/factory.{h,cpp}`（`FactoryKey` / `IEntityCreators` / `ICtrlCreator` /
+  `IBuffCreator` / `FactoryWarn` / `class Factory`）；`controller/base_controller.h` 加
+  `creator()` / `set_creator()`；`CMakeLists.txt` 412 → 413。
+- **`regent <key> <label>` / `regctrl <key> <label>`**：登记一个 creator，`label` 只回显在日志里。
+  `label == miss` 表示这个 creator 返回 `undefined` ⇒ 用来验 `create_entity` 的「creator 给假值」
+  与 `create_entity_with_bot` 的提前返回。
+- **`regbuff <kind> <group>…`**：op 的剩余 token 就是 `GROUPS`（用来验分组登记的顺序与去重）。
+- **`ce` / `cebot <pid> …` / `acq-e` / `rec-e` / `newctrl` / `acq-ctrl` / `rel-ctrl` / `cbuff` /
+  `rec-buff`**：其余入口；实体 / buff / 控制器的**池取出顺序**与「复用时会再跑一次
+  `reset` / `init`」都从日志里看得到（后进先出）。
+- **`dump`**：三张注册表的**键列表** + `buff_groups`（扁平 `g=[k,…]`）+ 三个池的「键 = 条数」
+  （`cgraves` 的键渲染成 creator label；`bgraves` 的键是 kind 值）⇒ 表的**插入序**、覆盖语义与
+  归池键都能逐行比对。
+- **四处容易写错的语义**（详见 DESIGN §72.2）：① 表是插入序 + 覆盖时**位置不变**
+  （端口 `std::vector` + `map_set`）；② `create_buff` 的
+  `get(kind)?.take() ?? new B(lfw, id, B.KIND)` 拆成「池不存在」与「take 到 `nullopt`」两步，
+  两条路都要 `reset(id)` + `init()`；③ 归池键不对称（`recycle_buff` 用 `buff.kind`、
+  `recycle_entity` 用 `data.type`、`release_ctrl` 用 `ctrl.constructor`）；④
+  `create_entity_with_bot` 是 `data.type` 查 creator、`data.id` 查控制器 oid。
+- **用例**：`cases/factory/all.txt` **92** 行（注册与重复告警 / 实体三态 / 实体池 LIFO /
+  `create_entity_with_bot` / 控制器命中·未命中·复用 / buff 命中·未命中·复用 / 数值键与分组去重 /
+  数值 oid / 数值 KIND / 键同一性 / 两实体回收后的取出顺序，共 12 组）。
+- **变异**：`mutations/factory.mjs` **35/35 全杀**。一条 `pool_of(..., nullptr)` 因模板推导失败
+  算过 `compile-error`（`K` 只能从 vector 推）⇒ 显式 `static_cast<const ICtrlCreator*>(nullptr)`。
+- **一个不变式**：`FactoryKey` 是 `Value`，表的键相等走 `strict_equals`（`1` 与 `"1"` 分开）；
+  控制器表的键是**指针身份**（`ICtrlCreator*`）而不是 TS 的「类本身」⇒ 记在偏差表与
+  DESIGN §72.3。
