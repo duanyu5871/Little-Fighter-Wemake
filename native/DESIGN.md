@@ -6702,3 +6702,113 @@ harness 对齐：`pa` / `pnf` 现在也要把编译产物剥掉（`preprocess_ac
 - `indicator_info` 的 harness 也跟着改：`cfi` 现在输出 `cfi <ok|throw> <帧>`（TS 侧 try/catch），
   用例 16 → **69** 行（补的全是新失败路径），变异 23 → **40** 条 **40/40 全杀**；那条
   「`bdy` 列表之后不检查 `ok`」是等价的（末尾那次检查兜住了），只在名单头部记了一句。
+## 66. 切片 3ae：`loader/preprocess_entity_data`
+
+`src/LFW/loader/preprocess_entity_data.ts`（130 行，`async`）是**步骤 3 的总装入口**：一份 dat
+解析出来的实体数据，从「字段齐不齐都不知道」的形状被它补齐成运行时形状（四路 special 的默认值、
+`bdy`/`itr` prefab 逐条预处理、`hitkeys` 索引、`portraits`·`frames` 的加工、`__pics` 统计、
+bot 数据的展开）。`DatMgr` 直接调它，`loader/` 这一层到它为止就只剩 `DatMgr` 与几个 getter 了。
+
+### 66.1 移植面
+
+- `native/lfw/loader/preprocess_entity_data.{h,cpp}`：
+  `bool preprocess_entity_data(Value& ctx, std::u16string& error)` —— 从 `ctx` 读
+  `data` / `lfw` / `jobs` / `errors`，**就地改** `ctx.data`（TS 返回的就是同一个对象 ⇒ 端口不
+  用它做写回通道）。
+- 内部顺序**照抄** TS：四路 special → `itr_prefabs` / `bdy_prefabs` 逐条 → `lfw` 与
+  `data.base` 的两道解构 → `small`/`head` 与三张音效表 → `pre_hitkeys` / `post_hitkeys` 的
+  `__*_map` → `on_dead` / `on_exhaustion` → `files` 与 `jobs.length` → `portraits` →
+  `frames`（含 `__pics`）→ `base.bot` / `make_entity_special` → `processed = true` →
+  `errors`。
+- 进 `native/lfw/CMakeLists.txt`（C++ 源 405 → 406）。
+- 顺带两处共享文件的小改：
+  - `utils/container_help/traversal.h`：**值版** `traversal` 补上字符串分支
+    （`Object.keys("ab")` 是 `["0","1"]`，值是那一个字符）。此前值版对字符串直接返回 ⇒
+    `base.files` 是字符串时端口少走回调（`traversal_write` 那边早就有这条规则，值版漏了）。
+  - `utils/type_check.h`：新增 `is_non_blank_str`（`is_str(v) && v.trim().length > 0`，
+    空白集用现成的 `is_str_white_space`）。
+
+### 66.2 保真要点
+
+1. **`data.base` 的两道解构在各种怪值上的差别**：`const { small, head } = data.base` 与
+   `const { base: { files, portraits } } = data` 只在 `data.base` 是 `null` / `undefined` 时抛；
+   标量（数字 / 字符串 / 布尔）照样解构成 `undefined`，所以端口只对 nullish 失败。
+2. **`?.forEach` 的短路只认 nullish**：`data.base.dead_sounds?.forEach(...)` 在
+   `""` / `0` / `false` 上照样抛（`?.` 不拦假值），只有 `null` / `undefined` 才是「跳过」。
+   同理 `frame.pics?.length`：`""` 走到 `.length`（0），`null` 才是 `undefined`。
+3. **`pre_hitkeys` / `post_hitkeys` 的字符串怪癖**：`traversal` 对字符串给的是下标键，回调里
+   `map.set(k, o[k] = nf)` 的 `o[k] = nf` 会抛 —— 但回调**先**过 `if (!truthy(v)) return;`
+   `if (k.length < 2) return;` `if (k[0] == k[1]) return;` 三道门，所以
+   `pre_hitkeys: "ab"`（键 `"0"` / `"1"`，长度 1）**不抛**，而 11 位以上（出现键 `"10"`）才抛。
+   端口因此**不能**直接用 `traversal_write` 的「非空字符串直接失败」，在 `build_hitkeys_map`
+   里单独判一遍字符串分支（见 §65.2 第 4 条的反面情形）。
+4. **`__pics` 的累加读的是回调参数**：`o[fid] = preprocess_frame({ ...ctx, frame })` 之后紧接着
+   `const pics = frame.pics?.length;` —— `frame` 还是**回调那个**（命中 prefab 时
+   `resolve_prefab` 拼的是新对象，写回的是新对象，但 `frame` 这个绑定没变）。端口保留
+   `raw_frame` 副本再读它的 `pics`。
+5. **`data.__pics = max(pics, data.__pics || 0)` 的 `|| 0`**：`prev` 是 `NaN` 时（`NaN || 0`
+   ⇒ `0`）与「直接 `to_number(prev)`」差一个 `NaN`，端口用 `truthy(prev)` 决定。
+6. **`jobs` / `errors` 的失败面**：`jobs.push(...)`（`small` / `head` / `files` 三处）、
+   `jobs.length`（缺 `jobs` ⇒ 抛）、`Promise.all(jobs)`（`jobs` 不可迭代 ⇒ 抛）、
+   `errors.length`（缺 `errors` ⇒ 抛）—— 端口都不落地真正的加载任务，只保留这四种「抛」，
+   而且**失败点必须对得上**（前面几步的 `data` 改动会被 harness 渲染出来）。`files` 那处是
+   「每个键都 push 一次」，所以字符串 `files` 会 push 多次（值版 `traversal` 的字符串分支）。
+7. **`itr_prefabs` 里那个模块级常量**：`weapon_on_hand_dont_hit_falling_guy` =
+   `new CondMaker().add(C_Val.VFALLING, '==', 0).done()` ⇒ `"v_falling==0"`；只在
+   `is_weapon_data(data)` 且 `itr.test` 是 nullish 时写。
+8. **四路 special 全都可能真的改数据**：`make_ball_special` / `make_weapon_special` /
+   `make_fighter_special` 都是按 `data.id`（fighter 还要看 `alias_id`）查表，用例得挑表里
+   真能写东西的 id，否则「分支换错 / 不再调用」这类变异会幸存（第一轮就踩了）。
+
+### 66.3 偏差（同时登记在 README 的偏差表）
+
+1. `__pre_hitkeys_map` / `__post_hitkeys_map` 用普通 `Object` 顶替 TS 的 `Map`
+   （`renderValue` 对两者同形；键序在本 subject 里都是短下标）。
+2. 加载任务（`images.load_img` / `load_by_pic_info` / `sounds.load`）与末尾的
+   `data.xml = () => …` 都不落地（前者是副作用、后者是函数 ⇒ `Value` 装不下）。
+3. `errors` 只做「缺失就失败」：TS 那边是数组 + `Ditto.warn(errors)`，端口沿用
+   `preprocess_bdy` / `preprocess_itr` / `preprocess_frame` 的 `bool` + `error` 出参约定。
+4. 两个**遗留**偏差会在这一层暴露（都不在本刀修）：
+   `make_ball_special` 对稀疏输入（缺 `frames`）TS 抛、端口跳过；
+   `make_fighter_special` 的 `ensure(data.base.group, …)` 对非数组真值 TS 抛、端口换新数组。
+   用例挑能跑通的输入，两条都记在 `mutations/preprocess_entity_data.mjs` 头部。
+
+### 66.4 有意不覆盖 / 等价
+
+1. `if (is_nullish(ctx))` / `if (is_nullish(data))` 两道入口：去掉后会在后面同一批
+   「读不到字段 ⇒ 失败」的地方兜住，且中间没有任何写操作 ⇒ 失败时渲染出来的 `data` 一样。
+2. `pre_hitkeys` / `post_hitkeys` 的 `truthy(...)` 门：去掉后 `build_hitkeys_map` 对假值照样
+   不遍历、不失败。
+3. `build_hitkeys_map` 字符串分支里的 `if (!truthy(v)) continue;` 与
+   `if (!preprocess_next_frame(v)) return false;`：`v` 是单个字符 ⇒ 恒真值、恒没有
+   `expression` ⇒ 不可达。
+4. `value_length` 的字符串分支：`jobs` 是字符串时真假都成功；`frame.pics` 是字符串会先被
+   `preprocess_frame` 的 `pics?.forEach` 抛掉 ⇒ 看不见。
+5. `on_dead` / `on_exhaustion` 的写回、`data.base.bot` 的写回、`make_entity_special(data)`：
+   `preprocess_next_frame` / `preprocess_bot_data` 就地改并返回同一个对象（写回恒等），
+   `make_entity_special` 两端都是空函数。
+6. `traversal` 值版字符串分支里「值是那个字符」：本 subject 只有 `base.files` 用它，
+   而它的回调不看值。
+7. `spread_assign` 的方向（`{ itr, ...ctx }` 写成 `{ ...ctx, itr }`）：用例的 ctx 里没有
+   `itr` / `bdy` / `frame` 这些键，两种写法给下游的字段一样。
+8. `portraits` 的写回：`preprocess_pic` 就地改并返回同一个对象。
+
+### 66.5 harness 与变异
+
+新 subject `loader_entity`（`subjects/loader_entity.{cpp,ts}` + `cases/loader_entity/all.txt`），
+只有一个 op：`ed <ctx>`。
+- 输出 = `ed` + `ok`/`throw` + 渲染出来的 `ctx.data`；失败再补 `msg=`（规矩照旧：只有以 `[`
+  开头的文本两端可比 —— 本刀起 `[preprocess_itr] …` / `[preprocess_bdy] …` /
+  `[preprocess_frame] …` 都会透出来）。
+- TS 侧 `await preprocess_entity_data(ctx)`（它是 `async`）；`ctx` 里没有 `lfw` 时补一个桩
+  （`images.load_img` / `load_by_pic_info` / `sounds.load` 返回 `undefined`，`jobs.push` 照收）；
+  `Ditto.warn` / `Ditto.error` 换成空实现；`data.xml` 在渲染前删掉。
+- 剥键表复用 `__tester` / `__judger` / `tester` / 九个 `__gen_*`，并**加上 bot 动作的
+  `judger`**（`preprocess_bot_data` 挂的编译产物）与 `Map` 值的递归（两张 `hitkeys` 表是
+  `Map`，里面的帧和 `data.<x>_hitkeys` 是同一批对象）。
+- 用例 387 行；变异 `mutations/preprocess_entity_data.mjs` **121** 条 **121/121 全杀**
+  （全部为本刀新增，含 2 条打在 `traversal.h`、2 条打在 `type_check.h`）。
+- 差分里踩到的两个**用例**坑（值得记住）：① prefab 表要挂在 `data.frame_prefabs` /
+  `data.itr_prefabs` 上（不是 ctx 上），否则 `resolve_prefab` 找不到 ⇒ 用例变成「两边都抛」
+  的哑弹；② `deg 45` 的 `Math.sin` 与 UCRT `std::sin` 差 1 ULP
+  （`preprocess_pic` 会算 `__sin_r`，位模式不同）⇒ 用例避开 `45°`（README 的 libm 一节）。

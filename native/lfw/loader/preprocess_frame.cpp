@@ -31,6 +31,7 @@
 #include "lfw/utils/container_help/ensure.h"
 #include "lfw/utils/container_help/field_or.h"
 #include "lfw/utils/container_help/spread_assign.h"
+#include "lfw/utils/container_help/traversal.h"
 #include "lfw/utils/js_add.h"
 #include "lfw/utils/math/base.h"
 #include "lfw/utils/read_nums.h"
@@ -77,35 +78,9 @@ void set_if_nullish(Object& o, const char16_t* key, const Value& v) {
   if (is_nullish(field_or(o, key))) o.set(std::u16string(key), v);
 }
 
-// `traversal(r, (k, v, o) => …)` 的等价物：对象按 `Object.keys` 序、数组按下标序，
-// 其它类型没有键（不遍历）。`cb` 就地改值；返回 false ⇒ 整体失败（TS 那边是抛）。
-bool each_entry(Value& r, const std::function<bool(const std::u16string&, Value&)>& cb) {
-  // TS 的 `traversal(r, …)`：`r` 是假值就没有键；真值但既不是对象也不是数组时，
-  // `Object.keys` 对数字 / 布尔给空表（不遍历），对字符串给下标（回调的 `o[k] = …`
-  // 在严格模式下给字符串赋值会抛 ⇒ 失败）。
-  if (const std::u16string* const text = std::get_if<std::u16string>(&r)) return text->empty();
-  if (Object* const o = as_object(r)) {
-    const std::vector<std::u16string> keys = o->keys();
-    for (const std::u16string& k : keys) {
-      const Value* p = o->get(k);
-      if (p == nullptr) continue;
-      Value v = *p;
-      if (!cb(k, v)) return false;
-      o->set(k, v);
-    }
-    return true;
-  }
-  if (Array* const a = as_array(r)) {
-    for (size_t i = 0; i < a->size(); ++i) {
-      if (!cb(to_string(Value(static_cast<double>(i))), a->at(i))) return false;
-    }
-  }
-  return true;
-}
-
 // `if (v) o[k] = preprocess_next_frame(v)`。
 bool each_next_frame(Value& r) {
-  return each_entry(r, [](const std::u16string&, Value& v) {
+  return traversal_write(r, [](const std::u16string&, Value& v) {
     if (!truthy(v)) return true;
     return preprocess_next_frame(v);
   });
@@ -278,7 +253,7 @@ bool preprocess_frame(Value& ctx, std::u16string& error) {
     Value seq_map = Value(std::make_shared<Object>(Object()));
     f->set(u"__seq_map", seq_map);
     Value seqs_local = seqs;
-    const bool ok = each_entry(seqs_local, [&](const std::u16string& key, Value& v) {
+    const bool ok = traversal_write(seqs_local, [&](const std::u16string& key, Value& v) {
       if (!truthy(v)) return true;
       if (!preprocess_next_frame(v)) return false;
       as_mut(seq_map)->set(key, v);

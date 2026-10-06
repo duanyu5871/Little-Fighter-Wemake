@@ -3716,3 +3716,39 @@ harness op：
   写回（就地改同一个对象 ⇒ 恒等；命中 prefab 时是新对象，用例专门钉住这条）、`fold_aabb` 前
   那段不可达的 `else { return false; }`、`breakfall` 里不可达的 `o == nullptr`、
   `preprocess_ball_frame` 里 `data.base` 缺失（V41 遗留，用例一律给 `base`）。
+### 6.9.110 `loader/preprocess_entity_data`（新 subject `loader_entity`，387 行；变异 **121/121** 全杀）
+
+步骤 3 的**总装入口**：`DatMgr` 拿到的实体数据在这里补齐成运行时形状。端口
+`bool preprocess_entity_data(Value& ctx, std::u16string& error)`，从 `ctx` 读
+`data` / `lfw` / `jobs` / `errors`，成功时**就地改** `ctx.data`（TS 返回的就是同一个对象）。
+
+- **顺序**（照抄 TS）：四路 special（`make_ball_special` / `make_weapon_special` /
+  `make_fighter_special`，fighter 还要 `data.pre_hitkeys ??= {ja:{reset_keys,transfrom_to_another,
+  expression}}`，`make_fighter_special` 的返回值**丢掉**）→ `itr_prefabs` 逐条（weapon 时
+  `itr.test ??= "v_falling==0"`）+ 写回 → `bdy_prefabs` 逐条 + 写回 → `lfw` / `data.base` 两道
+  解构 → `small`/`head`（`is_non_blank_str`）与三张音效表（`?.forEach`）→
+  `__pre_hitkeys_map` / `__post_hitkeys_map` → `on_dead` / `on_exhaustion` → `files` 与
+  `jobs.length` / `Promise.all` → `portraits` → `frames` + `__pics` → `base.bot` →
+  `processed = true` → `errors.length`。
+- **`ed` op**：`ed <ctx>`，输出 = `ed` + `ok`/`throw` + `ctx.data` 的渲染，失败再补
+  `msg=`（只比较以 `[` 开头的文本）。TS 侧 `await` 这个 async 函数，`lfw` 缺失时补桩
+  （`images.load_img` / `load_by_pic_info` / `sounds.load` 返回 `undefined`），`Ditto.warn` /
+  `Ditto.error` 空实现，渲染前删掉 `data.xml`。
+- **剥键**：`__tester` / `__judger` / `tester` / 九个 `__gen_*`，外加 bot 动作的 `judger`；
+  `Map`（两张 `hitkeys` 表）的值要递归进去（里面的帧和 `data.<x>_hitkeys` 是同一批对象）。
+- **四处「绕不过去」的细节**（详见 DESIGN §66.2）：
+  1. `traversal` 值版对字符串也要给下标（`base.files` 是字符串时每个字符都 push 一次）；
+  2. `pre_hitkeys` 的字符串回调有 `k.length < 2` 提前 return ⇒ **短字符串不抛、≥ 11 位才抛**，
+     端口在 `build_hitkeys_map` 里单独判，不能套用 `traversal_write` 的「非空字符串直接失败」；
+  3. `__pics` 读的是**回调参数**的 `frame.pics?.length`，不是 `preprocess_frame` 的返回值；
+  4. `data.__pics = max(pics, data.__pics || 0)` 的 `|| 0` 会把 `NaN` 归一成 0。
+- **用例**：`cases/loader_entity/all.txt` **387** 行（14 组：入口 / `processed` 空门 / 四路 special
+  （含 `make_*_special` 表里真会写东西的 id）/ `pre_hitkeys ??=` / 两张 prefab 表 / `small`·`head`
+  / 三张音效表 / `jobs` 失败面 / 两张 `hitkeys` 表的三道门（含 11 位字符串与 11 元素数组）/
+  `on_dead`·`on_exhaustion` / `portraits` / `files` / `frames`·`__pics` / `base.bot` /
+  `lfw`·`errors` / 组合与失败点）。
+- **变异**：`mutations/preprocess_entity_data.mjs` **121/121 全杀**（其中 2 条打在
+  `traversal.h` 的值版字符串分支、2 条打在 `type_check.h` 的 `is_non_blank_str`）；8 类
+  按构造等价 / 不可达 / 遗留偏差记在该名单头部与 DESIGN §66.4。
+- **用例层的两个坑**：prefab 表必须挂在 `data.frame_prefabs` / `data.itr_prefabs` 上
+  （挂在 ctx 上 = 哑弹）；`deg 45` 的 `Math.sin` 与 UCRT `std::sin` 差 1 ULP，用例避开。

@@ -113,6 +113,7 @@ add_library(lfw_core STATIC
   loader/preprocess_itr.cpp
   loader/preprocess_bot_data.cpp
   loader/preprocess_next_frame.cpp
+  loader/preprocess_entity_data.cpp
   base/predicate.cpp
   utils/math/mersenne_twister.cpp
   utils/math/normalize_plane.cpp

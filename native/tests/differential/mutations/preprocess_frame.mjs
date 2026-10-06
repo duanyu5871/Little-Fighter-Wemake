@@ -8,7 +8,7 @@
 //     标量 ctx 会在 harness 里就抛，用例表达不出来；
 //   * weapon 分支里的 `if (d == nullptr) return false;`：`is_weapon_data(data)` 为真就说明
 //     `data` 是对象，这一支不可达；
-//   * `each_entry` 里 `Object*` / `Array*` 两个分支的先后：对象和数组在端口里是不同类型；
+//   * `traversal_write` 里 `Object*` / `Array*` 两个分支的先后：对象和数组在端口里是不同类型；
 //   * `breakfall` 里 `edit` 的 `if (o == nullptr) return;`：能命中 id 100/108 的 `j` 一定是对象；
 //   * `preprocess_next_frame` 的调用点本身只在「值是含 nullish 的数组」时才有可观察差异
 //     （它只往值上挂 `__judger`，而 `__judger` 两端都剥掉），`seqs` 的 `preprocess_next_frame`
@@ -672,8 +672,8 @@ export default {
     },
     {
       note: "frame: traversal 给字符串也当没键",
-      file: "native/lfw/loader/preprocess_frame.cpp",
-      from: `  if (const std::u16string* const text = std::get_if<std::u16string>(&r)) return text->empty();`,
+      file: "native/lfw/utils/container_help/traversal.h",
+      from: `  if (const std::u16string* const text = std::get_if<std::u16string>(&obj)) return text->empty();`,
       to: `  if (std::get_if<std::u16string>(&r) != nullptr) return true;`,
     },
     // ---------------------------------------------------------------- next / on_dead / ...
