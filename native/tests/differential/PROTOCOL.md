@@ -4182,7 +4182,7 @@ harness op：
   重写 `position` 导致相机 z 求和恒 0、`update_once` 里 `worker != nullptr` 那一段（假时钟推不动
   `Ticker` 的步进）。
 
-### 6.9.122 `World` 的碰撞配对与 `collision/` 的 82 条缝（`cases/world/collision.txt`，215 行；变异 **29/29** 全杀）
+### 6.9.122 `World` 的碰撞配对与 `collision/` 的 82 条缝（`cases/world/collision.txt`，261 行；变异 **34/34** 全杀）
 
 - **台面**：不新增 subject —— 这一刀的两侧都是**真代码**。TS 侧跑真 `World.step`（真
   `collision_get` / 真 `collisions_keeper`），C++ 侧跑端口 `World::step` + `WorldCollisionHost`
@@ -4193,14 +4193,14 @@ harness op：
   `is_ally` 为假 ⇒ `ally_flag = Enemy` 也被命中、双向 `emission` 为空 ⇒ 队伍那条不拦。
   观测量：`pc=1`（配对比次）、`col=1`（本帧加入的碰撞）、受击方 `hp` 从 20 掉到 15（走
   `handle_itr_normal_bdy_normal` → `handle_injury`）；另有 `h:warn` 的 `spark` 缺数据告警。
-- **用例结构**（一个世界、十组实体，x 分段：0 / 3000 / 6000 / 9000 / 12000 / 15000 / 1000×2 /
+- **用例结构**（一个世界、十二组实体，x 分段：0 / 3000 / 6000 / 9000 / 12000 / 15000 / 1000×4 /
   24000 / 27000）：单向（`A` 带 `itr`、`B` 带 `bdy`）锁「配对 + 伤害」；双向（`C`/`D` 都带 `itr` 与
   `bdy`）锁 `c1` 与 `c2` 两条都 `add_collision`；`hit_flag 16` 那一组锁 `itr_flag & victim.data.type`
-  的失败路径（`pc` 加一但 `col` 不增）；同队（`went G team t1` / `went H team t1`）那一组是给
-  `attacker_is_ally` 留的观测位；`SuperPunchMe`（itr kind 6）那一组锁 `handle_super_punch_me`
+  的失败路径（`pc` 加一但 `col` 不增）；同队（`went G team t1` / `went H team t1`）那一组锁
+  `attacker_is_ally`；`SuperPunchMe`（itr kind 6）那一组锁 `handle_super_punch_me`
   → `victim.add_v_rest`（`vrests` 从 0 变 1）；`Catch`（itr kind 1）那一组锁 `handle_itr_catch`
   （`catching` / `catcher` 互指 + 两条 `catchingact` / `caughtact` 告警）；`Pick` / `Pick 的 bot 门` /
-  `Block`（`handle_rest`）/ `Freeze` 那四组见下面的「十组实体 = 十条支路」。
+  `Block`（`handle_rest`）/ `Freeze` / `rest` 支 / 部分重叠的判定框 见下面的分批清单。
 - **帧里的 `itr` / `bdy` 必须是数组**（`a 1 o 7 …`）：写成 `o 1 0 …` 会得到 Object，
   `collision_get` 的 `itr?.length` 判空直接返回 `null`（本例第一次跑就是 `col=0`）。
 - **台面补的两条假面**（TS `subjects/world.ts`）：`lfw.acquire_collision()` 必须**存在且静默**
@@ -4244,6 +4244,22 @@ harness op：
 - **`arest` 也进了 dump**（`dump_entity` 末尾，两侧同序）：`resting` / `fall_value` /
   `is_on_ground` 之后。变异档随之 25 → **29 条**（新增 Pick 分发 / Freeze 分发 /
   `attacker_pick_victim` / `attacker_set_arest`）。
+- ⚠️ **帧里必须给 `centerx` / `centery`，否则判定框全是 `NaN`**（4O 抓到的台面坑）：
+  `world.get_bounding(e, frame, box)` 用 `frame.centerx` / `frame.centery` 算 `left` / `top`，
+  帧里没有这两项 ⇒ `to_number(undefined)` = `NaN` ⇒ **每个立方体都成了 `NaN`** ⇒
+  `collision_test` 的重叠判定（`ac.left > bc.right || …`）全都不成立 ⇒ 判定形同虚设
+  （表现：所有同 x 的实体都能配对、`collided_list` 能到 7）。补上 `centerx n 0 centery n 0`
+  之后几何才真的生效（用例输出不变 —— 因为同 x 的框本来就重叠 —— 但 `get_bounding` 的
+  left/right、bottom/top 两条变异从 SURVIVED 变成 killed）。
+- **第 11 组：`rest` 支**（itr kind 14 + `vrest n 5`、没有 `arest`）⇒
+  `collision_get` 算出 `rest = max(dataset.min_vrest, 5 + dataset.vrest_offset)` ≠ 0 ⇒
+  碰撞 `id` 换成 `core.new_id()`，`handle_rest` 走 `if (c.rest) { victim_add_v_rest; return; }`
+  ⇒ 受害方 `vrests` 变 1。这一组把 `victim_get_v_rest`（`collision_test` 里的 `rest` 重复门）
+  与 `core.new_id` 两条缝也变成可观察。
+- **第 12 组：部分重叠的判定框**（itr 框 `x=-40 w=80`、bdy 框 `x=20 y=20 w=80 h=80`）⇒
+  left/right、bottom/top 互换会真的把某一对挤成不相交 ⇒ 两条变异 killed（前十一组两组框
+  完全重合，左右上下互换是对称的 ⇒ 观察不到）。z 方向（`near` / `far`）两组框都是默认值
+  ⇒ 仍然观察不到（要 `z` / `l` 不同的框）。
 - ⚠️ **六组实体并不互相隔离**：`step` 里地图边界的回中逻辑会把 x ≥ 3000 的实体挪到地图中心
   （x = 1588），而这一步发生在**实体推进之后、配对之前** ⇒ 第 2–6 组在配对那一瞬全在同一 x
   （受击方 `collided_list` 到 5）。x 分段只决定配对前的排序，别指望它隔离；好处是交叉配对让

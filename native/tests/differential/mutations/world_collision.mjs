@@ -258,5 +258,47 @@ export default {
       from: "    if (_cur_a != nullptr) _cur_a->set_arest(v);",
       to: "    (void)v;",
     },
+    // ───── `rest` 支与 `get_bounding`（用例第 11/12 组：`vrest` 与「部分重叠」的判定框） ─────
+    {
+      note: "core: get_bounding 的 left / right 互换（两个框的区间反了）",
+      file: "native/lfw/world_collision.cpp",
+      from:
+        "    cube.left = to_number(field_or(b, u\"left\"));\n" +
+        "    cube.right = to_number(field_or(b, u\"right\"));",
+      to:
+        "    cube.left = to_number(field_or(b, u\"right\"));\n" +
+        "    cube.right = to_number(field_or(b, u\"left\"));",
+    },
+    {
+      note: "core: get_bounding 的 bottom / top 互换（同上，y 方向）",
+      file: "native/lfw/world_collision.cpp",
+      from:
+        "    cube.bottom = to_number(field_or(b, u\"bottom\"));\n" +
+        "    cube.top = to_number(field_or(b, u\"top\"));",
+      to:
+        "    cube.bottom = to_number(field_or(b, u\"top\"));\n" +
+        "    cube.top = to_number(field_or(b, u\"bottom\"));",
+    },
+    {
+      note: "core: victim_get_v_rest 恒真（`rest` 碰撞一律被拦）",
+      file: "native/lfw/world_collision.cpp",
+      from: "    return truthy(Value(_cur_v->get_v_rest(aid)));",
+      to: "    return true;",
+    },
+    {
+      note: "core: new_id 恒 `1`（`rest` 碰撞的 id 撞车 ⇒ add_collision 去重）",
+      file: "native/lfw/world_collision.cpp",
+      from: "  _core.new_id = [this]() { return _world->lfw().new_id(); };",
+      to:
+        "  _core.new_id = [this]() {\n" +
+        "    return _world->lfw().dev() ? std::u16string(u\"1\") : std::u16string(u\"1\");\n" +
+        "  };",
+    },
+    {
+      note: "core: attacker_is_ally 恒真（`ally_flag` 全变）",
+      file: "native/lfw/world_collision.cpp",
+      from: "    return _cur_a->is_ally(*_cur_v);",
+      to: "    return true;",
+    },
   ],
 };

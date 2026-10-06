@@ -7965,15 +7965,16 @@ differential **155/155**。
 
 ### 78.7 待办（下一刀的入口）
 
-1. ~~变异档 `mutations/world_collision.mjs`~~ 已做：**29/29 全杀**（配对循环 6 条 +
+1. ~~变异档 `mutations/world_collision.mjs`~~ 已做：**34/34 全杀**（配对循环 6 条 +
    `CollisionActor` 投影 6 条 + handler 分发 5 条 + `handle` 补的 `c.dataset` 1 条 +
-   `KeeperEnv` 回写 2 条 + `HandlersEnv` 回写 6 条 + 三个视图方法 3 条）。
-   用例同一世界十组实体：单向 / 双向 / `hit_flag` 不匹配 / 同队 / `SuperPunchMe` / `Catch` /
-   Pick / Pick 的 bot 门 / Block（`handle_rest`）/ Freeze。
-   仍未锁的缝：`get_bounding` 的六个字段（要「部分重叠」的对照）、Pick 的 bot 门
+   `KeeperEnv` 回写 2 条 + `HandlersEnv` 回写 6 条 + 三个视图方法 3 条 + `get_bounding` 两条互换 +
+   `victim_get_v_rest` / `new_id` / `attacker_is_ally` 各 1 条）。
+   用例同一世界十二组实体：单向 / 双向 / `hit_flag` 不匹配 / 同队 / `SuperPunchMe` / `Catch` /
+   Pick / Pick 的 bot 门 / Block（`handle_rest`）/ Freeze / `rest` 支 / 部分重叠的判定框。
+   仍未锁的缝：`get_bounding` 的 `near` / `far`（z 框都是默认值 ⇒ 对称）、Pick 的 bot 门
    （`bot_ignore` / `is_bot_ctrl`：实测在本用例里不可观察，见 PROTOCOL §6.9.122）、
-   `rest` 支（itr 带 `vrest` 时走 `victim_add_v_rest` 那条）、buff 支（`magic_flute` / `Electrify` /
-   `Healing`）、`ball_*` 与 `john_shield`。
+   `_core.dataset` 恒空（实测等价：`min_vrest` / `vrest_offset` 取 0 与真值同结论）、
+   buff 支（`magic_flute` / `Electrify` / `Healing`）、`ball_*` 与 `john_shield`。
 2. handler 路径的用例：`world/collision` 现在走到 `handle_itr_normal_bdy_normal` → `handle_injury`
    → `handle_fall`、`handle_super_punch_me`、`handle_itr_catch`、`handle_weapon_picked`、
    `handle_rest`、`handle_itr_kind_freeze` 六条；还差 `whirlwind` / `weapon_is_hit` / `ball_*` /

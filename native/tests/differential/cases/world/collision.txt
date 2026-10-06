@@ -15,12 +15,12 @@ wnew
 wplayer 7
 
 # ── 1. x=0：单向（`A` 带 `itr`、`B` 带 `bdy`）⇒ 一条碰撞 + 受击方掉血 ──
-wmk A o 4 id s "A" type n 8 base o 2 name s "AB" resting_max n 5 frames o 1 0 o 4 id s "0" state n 1 wait n 30 itr a 1 o 7 kind n 0 hit_flag n 61 x n -40 y n 0 w n 80 h n 80 injury n 5
+wmk A o 4 id s "A" type n 8 base o 2 name s "AB" resting_max n 5 frames o 1 0 o 6 id s "0" centerx n 0 centery n 0 state n 1 wait n 30 itr a 1 o 7 kind n 0 hit_flag n 61 x n -40 y n 0 w n 80 h n 80 injury n 5
 went A ctrl base
 went A hp n 20
 went A pos n 0 n 0 n 0
 wreadd A
-wmk B o 4 id s "B" type n 8 base o 2 name s "BB" resting_max n 5 frames o 1 0 o 4 id s "0" state n 1 wait n 30 bdy a 1 o 6 kind n 0 hit_flag n 61 x n -40 y n 0 w n 80 h n 80
+wmk B o 4 id s "B" type n 8 base o 2 name s "BB" resting_max n 5 frames o 1 0 o 6 id s "0" centerx n 0 centery n 0 state n 1 wait n 30 bdy a 1 o 6 kind n 0 hit_flag n 61 x n -40 y n 0 w n 80 h n 80
 went B ctrl base
 went B hp n 20
 went B pos n 0 n 0 n 0
@@ -28,12 +28,12 @@ wreadd B
 
 # ── 2. x=3000：双向（两边都带 `itr` 与 `bdy`）⇒ `collision_get(a,b)` 与 `(b,a)` 都成
 #        ⇒ 两条碰撞，优先级相同（同类型）⇒ 两条都 `add_collision`，双方各掉 5 点血 ──
-wmk C o 4 id s "C" type n 8 base o 2 name s "CB" resting_max n 5 frames o 1 0 o 5 id s "0" state n 1 wait n 30 itr a 1 o 7 kind n 0 hit_flag n 61 x n -40 y n 0 w n 80 h n 80 injury n 5 bdy a 1 o 6 kind n 0 hit_flag n 61 x n -40 y n 0 w n 80 h n 80
+wmk C o 4 id s "C" type n 8 base o 2 name s "CB" resting_max n 5 frames o 1 0 o 7 id s "0" centerx n 0 centery n 0 state n 1 wait n 30 itr a 1 o 7 kind n 0 hit_flag n 61 x n -40 y n 0 w n 80 h n 80 injury n 5 bdy a 1 o 6 kind n 0 hit_flag n 61 x n -40 y n 0 w n 80 h n 80
 went C ctrl base
 went C hp n 20
 went C pos n 3000 n 0 n 0
 wreadd C
-wmk D o 4 id s "D" type n 8 base o 2 name s "DB" resting_max n 5 frames o 1 0 o 5 id s "0" state n 1 wait n 30 itr a 1 o 7 kind n 0 hit_flag n 61 x n -40 y n 0 w n 80 h n 80 injury n 5 bdy a 1 o 6 kind n 0 hit_flag n 61 x n -40 y n 0 w n 80 h n 80
+wmk D o 4 id s "D" type n 8 base o 2 name s "DB" resting_max n 5 frames o 1 0 o 7 id s "0" centerx n 0 centery n 0 state n 1 wait n 30 itr a 1 o 7 kind n 0 hit_flag n 61 x n -40 y n 0 w n 80 h n 80 injury n 5 bdy a 1 o 6 kind n 0 hit_flag n 61 x n -40 y n 0 w n 80 h n 80
 went D ctrl base
 went D hp n 20
 went D pos n 3000 n 0 n 0
@@ -41,12 +41,12 @@ wreadd D
 
 # ── 3. x=6000：`hit_flag` 不匹配（`E` 的 `itr` 只打武器 16）⇒ `itr_flag & victim.data.type`（8）
 #        为 0 ⇒ 判定失败：`pc` 仍然加一，但 `col` 不增、血量不动 ──
-wmk E o 4 id s "E" type n 8 base o 2 name s "EB" resting_max n 5 frames o 1 0 o 4 id s "0" state n 1 wait n 30 itr a 1 o 7 kind n 0 hit_flag n 16 x n -40 y n 0 w n 80 h n 80 injury n 5
+wmk E o 4 id s "E" type n 8 base o 2 name s "EB" resting_max n 5 frames o 1 0 o 6 id s "0" centerx n 0 centery n 0 state n 1 wait n 30 itr a 1 o 7 kind n 0 hit_flag n 16 x n -40 y n 0 w n 80 h n 80 injury n 5
 went E ctrl base
 went E hp n 20
 went E pos n 6000 n 0 n 0
 wreadd E
-wmk F o 4 id s "F" type n 8 base o 2 name s "FB" resting_max n 5 frames o 1 0 o 4 id s "0" state n 1 wait n 30 bdy a 1 o 6 kind n 0 hit_flag n 61 x n -40 y n 0 w n 80 h n 80
+wmk F o 4 id s "F" type n 8 base o 2 name s "FB" resting_max n 5 frames o 1 0 o 6 id s "0" centerx n 0 centery n 0 state n 1 wait n 30 bdy a 1 o 6 kind n 0 hit_flag n 61 x n -40 y n 0 w n 80 h n 80
 went F ctrl base
 went F hp n 20
 went F pos n 6000 n 0 n 0
@@ -55,13 +55,13 @@ wreadd F
 # ── 4. x=9000：**同队**（`team` 都是 `"t1"`）⇒ `attacker.is_ally(victim)` 为真 ⇒ `ally_flag`
 #        取 `Ally`(2)，而两条 `hit_flag` 都是 61（AllEnemy）⇒ `!(61 & 2) && !(61 & 2)` 为真
 #        ⇒ 判定失败（`pc` 加一，`col` 不增）── 这也是 `attacker_is_ally` 这条缝唯一的观测点 ──
-wmk G o 4 id s "G" type n 8 base o 2 name s "GB" resting_max n 5 frames o 1 0 o 4 id s "0" state n 1 wait n 30 itr a 1 o 7 kind n 0 hit_flag n 61 x n -40 y n 0 w n 80 h n 80 injury n 5
+wmk G o 4 id s "G" type n 8 base o 2 name s "GB" resting_max n 5 frames o 1 0 o 6 id s "0" centerx n 0 centery n 0 state n 1 wait n 30 itr a 1 o 7 kind n 0 hit_flag n 61 x n -40 y n 0 w n 80 h n 80 injury n 5
 went G ctrl base
 went G team t1
 went G hp n 20
 went G pos n 9000 n 0 n 0
 wreadd G
-wmk H o 4 id s "H" type n 8 base o 2 name s "HB" resting_max n 5 frames o 1 0 o 4 id s "0" state n 1 wait n 30 bdy a 1 o 6 kind n 0 hit_flag n 61 x n -40 y n 0 w n 80 h n 80
+wmk H o 4 id s "H" type n 8 base o 2 name s "HB" resting_max n 5 frames o 1 0 o 6 id s "0" centerx n 0 centery n 0 state n 1 wait n 30 bdy a 1 o 6 kind n 0 hit_flag n 61 x n -40 y n 0 w n 80 h n 80
 went H ctrl base
 went H team t1
 went H hp n 20
@@ -69,24 +69,24 @@ went H pos n 9000 n 0 n 0
 wreadd H
 
 # -- 5. x=12000: SuperPunchMe (itr kind 6) => handle_super_punch_me -> victim.add_v_rest
-wmk I o 4 id s "I" type n 8 base o 2 name s "IB" resting_max n 5 frames o 1 0 o 4 id s "0" state n 1 wait n 30 itr a 1 o 7 kind n 6 hit_flag n 61 x n -40 y n 0 w n 80 h n 80 injury n 0
+wmk I o 4 id s "I" type n 8 base o 2 name s "IB" resting_max n 5 frames o 1 0 o 6 id s "0" centerx n 0 centery n 0 state n 1 wait n 30 itr a 1 o 7 kind n 6 hit_flag n 61 x n -40 y n 0 w n 80 h n 80 injury n 0
 went I ctrl base
 went I hp n 20
 went I pos n 12000 n 0 n 0
 wreadd I
-wmk J o 4 id s "J" type n 8 base o 2 name s "JB" resting_max n 5 frames o 1 0 o 4 id s "0" state n 1 wait n 30 bdy a 1 o 6 kind n 0 hit_flag n 61 x n -40 y n 0 w n 80 h n 80
+wmk J o 4 id s "J" type n 8 base o 2 name s "JB" resting_max n 5 frames o 1 0 o 6 id s "0" centerx n 0 centery n 0 state n 1 wait n 30 bdy a 1 o 6 kind n 0 hit_flag n 61 x n -40 y n 0 w n 80 h n 80
 went J ctrl base
 went J hp n 20
 went J pos n 12000 n 0 n 0
 wreadd J
 
 # -- 6. x=15000: Catch (itr kind 1) => handle_itr_catch (catching/catcher/resting + 2 warns)
-wmk K o 4 id s "K" type n 8 base o 2 name s "KB" resting_max n 5 frames o 1 0 o 4 id s "0" state n 1 wait n 30 itr a 1 o 7 kind n 1 hit_flag n 61 x n -40 y n 0 w n 80 h n 80 injury n 0
+wmk K o 4 id s "K" type n 8 base o 2 name s "KB" resting_max n 5 frames o 1 0 o 6 id s "0" centerx n 0 centery n 0 state n 1 wait n 30 itr a 1 o 7 kind n 1 hit_flag n 61 x n -40 y n 0 w n 80 h n 80 injury n 0
 went K ctrl base
 went K hp n 20
 went K pos n 15000 n 0 n 0
 wreadd K
-wmk L o 4 id s "L" type n 8 base o 2 name s "LB" resting_max n 5 frames o 1 0 o 4 id s "0" state n 1 wait n 30 bdy a 1 o 6 kind n 0 hit_flag n 61 x n -40 y n 0 w n 80 h n 80
+wmk L o 4 id s "L" type n 8 base o 2 name s "LB" resting_max n 5 frames o 1 0 o 6 id s "0" centerx n 0 centery n 0 state n 1 wait n 30 bdy a 1 o 6 kind n 0 hit_flag n 61 x n -40 y n 0 w n 80 h n 80
 went L ctrl base
 went L hp n 20
 went L pos n 15000 n 0 n 0
@@ -94,12 +94,12 @@ wreadd L
 
 # -- 7. x=1000: Pick (itr kind 2) vs 一件躺在地上的武器 (type 16 / state 1004) =>
 #        handle_weapon_picked -> attacker.pick(weapon)（`M.holding` 从 `-` 变武器 id）
-wmk M o 4 id s "M" type n 8 base o 2 name s "MB" resting_max n 5 frames o 1 0 o 4 id s "0" state n 1 wait n 30 itr a 1 o 7 kind n 2 hit_flag n 61 x n -40 y n 0 w n 80 h n 80 injury n 0
+wmk M o 4 id s "M" type n 8 base o 2 name s "MB" resting_max n 5 frames o 1 0 o 6 id s "0" centerx n 0 centery n 0 state n 1 wait n 30 itr a 1 o 7 kind n 2 hit_flag n 61 x n -40 y n 0 w n 80 h n 80 injury n 0
 went M ctrl base
 went M hp n 20
 went M pos n 1000 n 0 n 0
 wreadd M
-wmk N o 4 id s "N" type n 16 base o 2 name s "NB" resting_max n 5 frames o 1 0 o 4 id s "0" state n 1004 wait n 30 bdy a 1 o 6 kind n 0 hit_flag n 61 x n -40 y n 0 w n 80 h n 80
+wmk N o 4 id s "N" type n 16 base o 2 name s "NB" resting_max n 5 frames o 1 0 o 6 id s "0" centerx n 0 centery n 0 state n 1004 wait n 30 bdy a 1 o 6 kind n 0 hit_flag n 61 x n -40 y n 0 w n 80 h n 80
 went N ctrl base
 went N hp n 20
 went N pos n 1000 n 0 n 0
@@ -107,12 +107,12 @@ wreadd N
 
 # -- 8. x=1000: 同一件武器上带 `bot_ignore: 1`（写在帧里）、攻击方是 bot
 #        => collision_test 的 Pick 门（bot_ignore == 1 && is_bot_ctrl）拦掉 => `S.holding` 保持 `-`
-wmk S o 4 id s "S" type n 8 base o 2 name s "SB" resting_max n 5 frames o 1 0 o 4 id s "0" state n 1 wait n 30 itr a 1 o 7 kind n 2 hit_flag n 61 x n -40 y n 0 w n 80 h n 80 injury n 0
+wmk S o 4 id s "S" type n 8 base o 2 name s "SB" resting_max n 5 frames o 1 0 o 6 id s "0" centerx n 0 centery n 0 state n 1 wait n 30 itr a 1 o 7 kind n 2 hit_flag n 61 x n -40 y n 0 w n 80 h n 80 injury n 0
 went S ctrl bot
 went S hp n 20
 went S pos n 1000 n 0 n 0
 wreadd S
-wmk T o 4 id s "T" type n 16 base o 2 name s "TB" resting_max n 5 frames o 1 0 o 5 id s "0" state n 1004 wait n 30 bot_ignore n 1 bdy a 1 o 6 kind n 0 hit_flag n 61 x n -40 y n 0 w n 80 h n 80
+wmk T o 4 id s "T" type n 16 base o 2 name s "TB" resting_max n 5 frames o 1 0 o 7 id s "0" centerx n 0 centery n 0 state n 1004 wait n 30 bot_ignore n 1 bdy a 1 o 6 kind n 0 hit_flag n 61 x n -40 y n 0 w n 80 h n 80
 went T ctrl base
 went T hp n 20
 went T pos n 1000 n 0 n 0
@@ -120,12 +120,12 @@ wreadd T
 
 # -- 9. x=24000: Block (itr kind 14) => handle_rest（没有 rest）=> attacker_set_arest(
 #        max(dataset.min_arest, dataset.itr_arest + dataset.arest_offset)) => `O.arest` 变非零
-wmk O o 4 id s "O" type n 8 base o 2 name s "OB" resting_max n 5 frames o 1 0 o 4 id s "0" state n 1 wait n 30 itr a 1 o 7 kind n 14 hit_flag n 61 x n -40 y n 0 w n 80 h n 80 injury n 0
+wmk O o 4 id s "O" type n 8 base o 2 name s "OB" resting_max n 5 frames o 1 0 o 6 id s "0" centerx n 0 centery n 0 state n 1 wait n 30 itr a 1 o 7 kind n 14 hit_flag n 61 x n -40 y n 0 w n 80 h n 80 injury n 0
 went O ctrl base
 went O hp n 20
 went O pos n 24000 n 0 n 0
 wreadd O
-wmk P2 o 4 id s "P2" type n 8 base o 2 name s "P2B" resting_max n 5 frames o 1 0 o 4 id s "0" state n 1 wait n 30 bdy a 1 o 6 kind n 0 hit_flag n 61 x n -40 y n 0 w n 80 h n 80
+wmk P2 o 4 id s "P2" type n 8 base o 2 name s "P2B" resting_max n 5 frames o 1 0 o 6 id s "0" centerx n 0 centery n 0 state n 1 wait n 30 bdy a 1 o 6 kind n 0 hit_flag n 61 x n -40 y n 0 w n 80 h n 80
 went P2 ctrl base
 went P2 hp n 20
 went P2 pos n 24000 n 0 n 0
@@ -133,16 +133,44 @@ wreadd P2
 
 # -- 10. x=27000: Freeze (itr kind 16) => handle_itr_kind_freeze（fall_value 递减 +
 #         injury 1 + rest + stiffness + 换成 data.indexes.ice 那一帧）
-wmk Q o 4 id s "Q" type n 8 base o 2 name s "QB" resting_max n 5 frames o 1 0 o 4 id s "0" state n 1 wait n 30 itr a 1 o 7 kind n 16 hit_flag n 61 x n -40 y n 0 w n 80 h n 80 injury n 0
+wmk Q o 4 id s "Q" type n 8 base o 2 name s "QB" resting_max n 5 frames o 1 0 o 6 id s "0" centerx n 0 centery n 0 state n 1 wait n 30 itr a 1 o 7 kind n 16 hit_flag n 61 x n -40 y n 0 w n 80 h n 80 injury n 0
 went Q ctrl base
 went Q hp n 20
 went Q pos n 27000 n 0 n 0
 wreadd Q
-wmk R o 4 id s "R" type n 8 base o 2 name s "RB" resting_max n 5 frames o 1 0 o 4 id s "0" state n 1 wait n 30 bdy a 1 o 6 kind n 0 hit_flag n 61 x n -40 y n 0 w n 80 h n 80
+wmk R o 4 id s "R" type n 8 base o 2 name s "RB" resting_max n 5 frames o 1 0 o 6 id s "0" centerx n 0 centery n 0 state n 1 wait n 30 bdy a 1 o 6 kind n 0 hit_flag n 61 x n -40 y n 0 w n 80 h n 80
 went R ctrl base
 went R hp n 20
 went R pos n 27000 n 0 n 0
 wreadd R
+
+# -- 11. x=1000: `rest` 支 —— itr kind 14 且带 `vrest n 5`（没有 `arest`）=> collision_get 算出
+#        `rest = max(dataset.min_vrest, 5 + dataset.vrest_offset)` != 0 => 碰撞 id 换成 new_id，
+#        且 handle_rest 走 `if (c.rest) { victim_add_v_rest; return; }` => 受害方 `vrests` 变 1
+wmk U o 4 id s "U" type n 8 base o 2 name s "UB" resting_max n 5 frames o 1 0 o 6 id s "0" centerx n 0 centery n 0 state n 1 wait n 30 itr a 1 o 7 kind n 14 hit_flag n 61 x n -40 y n 0 w n 80 h n 80 vrest n 5
+went U ctrl base
+went U hp n 20
+went U pos n 1000 n 0 n 0
+wreadd U
+wmk V o 4 id s "V" type n 8 base o 2 name s "VB" resting_max n 5 frames o 1 0 o 6 id s "0" centerx n 0 centery n 0 state n 1 wait n 30 bdy a 1 o 6 kind n 0 hit_flag n 61 x n -40 y n 0 w n 80 h n 80
+went V ctrl base
+went V hp n 20
+went V pos n 1000 n 0 n 0
+wreadd V
+
+# -- 12. x=1000: **部分重叠**的判定框（itr 框 x=-40 w=80、bdy 框 x=20 y=20 w=80 h=80）
+#        => `get_bounding` 的 left / right / bottom / top 四个字段一变就分岔（第 1–11 组两组框
+#        完全重合，左右上下互换是对称的 ⇒ 观察不到）
+wmk W o 4 id s "W" type n 8 base o 2 name s "WB" resting_max n 5 frames o 1 0 o 6 id s "0" centerx n 0 centery n 0 state n 1 wait n 30 itr a 1 o 7 kind n 0 hit_flag n 61 x n -40 y n 0 w n 80 h n 80 injury n 5
+went W ctrl base
+went W hp n 20
+went W pos n 1000 n 0 n 0
+wreadd W
+wmk X o 4 id s "X" type n 8 base o 2 name s "XB" resting_max n 5 frames o 1 0 o 6 id s "0" centerx n 0 centery n 0 state n 1 wait n 30 bdy a 1 o 6 kind n 0 hit_flag n 61 x n 20 y n 20 w n 80 h n 80
+went X ctrl base
+went X hp n 20
+went X pos n 1000 n 0 n 0
+wreadd X
 
 wdump
 wstep
