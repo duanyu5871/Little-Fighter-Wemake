@@ -109,6 +109,8 @@ add_library(lfw_core STATIC
   factory.cpp
   resources.cpp
   zip_mgr.cpp
+  bg/layer.cpp
+  bg/background.cpp
   loader/preprocess_pic.cpp
   loader/preprocess_stage.cpp
   loader/preprocess_ball_frame.cpp

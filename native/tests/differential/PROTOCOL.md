@@ -3945,3 +3945,28 @@ harness op：
 - **一个不变式**：`FactoryKey` 是 `Value`，表的键相等走 `strict_equals`（`1` 与 `"1"` 分开）；
   控制器表的键是**指针身份**（`ICtrlCreator*`）而不是 TS 的「类本身」⇒ 记在偏差表与
   DESIGN §72.3。
+
+### 6.9.117 `stage/Expressions` + `stage/Status` + `bg/{Background,Layer}`（新 subject `stage`，`expr` 70 行 + `bg` 83 行；变异 **46/46** 全杀）
+
+- **移植面**：`native/lfw/stage/expressions.h`（`IExpression<T>` + `Expressions<T>`）、
+  `native/lfw/stage/status.h`、`native/lfw/bg/layer.{h,cpp}`、`native/lfw/bg/background.{h,cpp}`；
+  `CMakeLists.txt` 413 → 415。
+- **Expressions 侧 op**：`it <b…>`（假表达式按脚本吐真假值、日志记 `call:<i>:arg=<值>`）、
+  `arg <值>` / `run` / `flow` / `next`、`resetsame`（传 `exp.list` ⇒ 走同一性早退）、
+  `resetcopy`（传新数组 ⇒ 清空再灌）、`expdump`（`n` / `i` / `is_first` / `is_last`）、`status`。
+- **Background 侧 op**：`data <值>` / `new` / `bgdump` / `layer <n i>` / `upd` / `disp` /
+  `lset <n i> <字段> <值>`。
+- **`lset` 是本刀的关键观测手段**：它改的是**数据里**那层（不是层实例的 `info`）⇒
+  非 loop 层的 `info` 与数据**同一个对象**（改得动）、loop 副本是 `{...info, x}` 的**浅拷贝**
+  （改不动）——把「副本是不是共享」钉死。
+- **四处容易写错的语义**（详见 DESIGN §73.2）：① `reset` 的**同一性早退**（TS 的 `_list` 就是内部
+  数组；端口只能判「传进来的正是 `list()` 返回的那份」，**不能比地址** ⇒ 临时量的栈地址会复用）；
+  ② `flow` 里 `is_last` 必须在 `run` 之前取，循环条件是 `!pass || is_last`；③ `Layer` 的
+  `cc`/`c1`/`c2` 是**严格 `undefined`**（`null` 不算）、`offsetAnim*` / `absolute` 是**真值**判定；
+  ④ `Background` 的 `?? 0` / `?? 1` **只吞 nullish**（`zoom_y: 0` / `false` 保留成 0）。
+- **用例**：`cases/stage/expr.txt` **70** 行（11 组）、`cases/stage/bg.txt` **83** 行（10 组）。
+- **变异**：`mutations/stage.mjs` **46/46 全杀**。第一轮 3 条存活：两条是**用例没喂到**
+  （`is_static` 只看 `cc` 那条要「cc 缺 + c1/c2 都有」的层；名字那条被对象的**重复键**吃掉了
+  ⇒ 拆成两条），一条按构造等价（`flow` 里 `is_last` 的取值时机）⇒ 撤出名单。
+- **一条不变式**：端口 `Expressions` 存的是**副本**，`reset` 的同一性改成「传进来的正是
+  `list()` 返回的那一份」⇒ 记在偏差表与 DESIGN §73.3。

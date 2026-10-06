@@ -7319,3 +7319,94 @@ C++ 用**真** `Entity`（`IEntityHost` 没有纯虚函数 ⇒ 假宿主极简�
   表语义 9 条 + `create_buff` 5 条 + 实体与实体池 8 条 + 控制器 6 条）。其中
   一条 `pool_of(..., nullptr)` 的写法因模板推导失败算作 `compile-error`（`K` 只能从 vector 推）
   ⇒ 改成显式 `static_cast<const ICtrlCreator*>(nullptr)` 后全绿。
+
+## 73. 切片 4G：`stage/Expressions` + `stage/Status` + `bg/Background` + `bg/Layer`
+
+步骤 4「主干」（宿主层）的第七刀，也是 `stage/*` 的第一块。本刀搬的是两块**不依赖
+`LFW` / `World` / `Stage` 具体实现**的东西：`stage/Expressions.ts`（35 行，表达式游标）、
+`stage/Status.ts`（5 行，字符串枚举）、`bg/Background.ts`（81 行）+ `bg/Layer.ts`（33 行）
+（舞台背景与它的图层）。`stage/Item.ts`（要 `LFW.datas` / `Factory` / `Stage` 三条缝）、
+`stage/IStageCallbacks.ts`（纯接口）、`stage/Stage.ts`（487 行）留到后面各自开刀。
+
+### 73.1 移植面
+
+- `native/lfw/stage/expressions.h`：`IExpression<T>`（只保留 `run`）与模板 `Expressions<T>`
+  （`list` / `is_first` / `is_last` / `index` / `reset` / `run` / `next` / `flow`）。
+- `native/lfw/stage/status.h`：`status::kRunning` / `kCompleted` / `kEnd` + `status_entries()`
+  （字符串枚举的既有写法，同 `team_enum`）。
+- `native/lfw/bg/layer.{h,cpp}`：`Layer`（`bg` / `info` / `data_index` / `loop_index` / `visible`
+  + `is_static()` / `update(count)`）。
+- `native/lfw/bg/background.{h,cpp}`：`Background`（`Middle` 小结构 + 全部字段访问器 +
+  `layers()` / `update()` / `dispose()` + 私有 `add_layer`）。
+- 进 `native/lfw/CMakeLists.txt`（C++ 源 413 → 415）。
+
+### 73.2 保真要点
+
+1. **`Expressions::reset` 的同一性早退**：TS 是
+   ```ts
+   this._index = 0;
+   if (this._list === list) return;   // `list` 就是内部那个数组（调用方把 `list` 取回来再传）
+   this._list.length = 0;
+   if (list?.length) this._list.push(...list);
+   ```
+   没有这行早退，「传回自己的 list」会把列表**清空**（先清后灌，灌的是空数组）。端口的
+   `_items` 是**副本**，所以同一性只能按「传进来的正是 `list()` 返回的那一份」判 ——
+   **不能比地址**：调用方传临时量时栈地址会复用，会误判成同一份（本刀踩过：`resetcopy` 的
+   临时量正好落在上一次的栈格上 ⇒ 提前返回 ⇒ 列表没更新）。
+2. **`run` / `next` / `flow`**：`next()` 是 `min(_index + 1, _list.length - 1)`（空表 ⇒ -1，
+   于是 `run` 的 `i < 0` 守卫生效）；`flow` 里 `is_last` **必须在 `run` 之前取**（TS 是先解构），
+   且循环条件是 `!pass || is_last`。
+3. **`Layer::update`**：`if (cc !== void 0 && c1 !== void 0 && c2 !== void 0)` 是**严格
+   `undefined`**（`null` 不算）⇒ 三件齐全才做 `now = count % cc`，否则**恒可见**；`cc` 为 `0`
+   时 `count % 0` 是 NaN ⇒ 两个比较都假 ⇒ 不可见。
+4. **`Layer::is_static`**：`(cc === void 0 || c1 === void 0 || c2 === void 0)`（严格 undefined）
+   且 `!offsetAnimX`、`!offsetAnimY`（**真值**判定，`0` / `""` 都算「没有动画」）且 `!!absolute`。
+5. **`Background` 构造**：`left` / `right` / `near` / `far` / `height` 走 `?? 0`、
+   `zoom_x` / `zoom_y` / `zoom_z` 走 `?? 1` —— **只吞 nullish**（`zoom_y: 0` 或 `false` 会保留成
+   0，`||` 会写成 1）；`name = info.name ?? id`（`""` 与数字都保留）；`width = right - left`、
+   `depth = near - far`、`middle = {(right+left)/2, (far+near)/2}`；`layers` 是**真值**才遍历。
+6. **`add_layer`**：`data_index` 取的是**自增前**的 `_layer_data_index`（一个 `layers` 入口一个号，
+   loop 副本共享）；`loop <= 0`（含 `undefined` ⇒ 0）走单层、`loop_index = -1`；否则
+   `right = width + loop`，从 `x - loop` 起步按 `loop` 铺到 `x < right`，每个副本是
+   `{ ...info, x }`（**浅拷贝**：端口必须显式复制 `Object`，`Value` 是共享 `shared_ptr`，
+   直接改 `x` 会连原对象一起改），`loop_index` 从 0 起逐个 +1。
+7. **`update` / `dispose`**：`update` 先 `_update_times++` 再把**同一个**计数传给每层；
+   `dispose` 清层并把 `_layer_data_index` 归零。
+
+### 73.3 偏差（同时登记在 README 的偏差表）
+
+本刀在 README 加了 6 行：`Expressions` 存副本（同一性按「传回 `list()`」判）、
+`index()` 是端口新增的只读口、`bg` 的 `info` / `data` 是 `Value`（浅拷贝要显式复制 `Object`）、
+`middle` 用小结构、`near` / `far` 访问器改名（`<windows.h>` 宏）、`field_or` 对 nullish 的宽容。
+
+### 73.4 有意不覆盖 / 等价
+
+1. `flow` 里 `is_last` 取在 `run` 之前还是之后：`run` 既不碰 `_index` 也不碰 `_items` ⇒ 等价
+   （变异名单里没有这条）。
+2. `Status` 的三个常量与 `status_entries()`：只是字符串表，用例里逐个对过值。
+3. `Expressions::index()`：TS 的 `_index` 是 `protected`，只给台面观测用。
+4. `Background` 的 `world` 字段：TS 只存不读（端口同样只存，构造传 `nullptr`）。
+5. `data` / `info` 非对象、`data.layers` 非数组这几种形态：TS 会抛 `TypeError`
+   （读 `undefined` 的属性 / `for...of` 不可迭代），端口给 `undefined` 或跳过 ⇒ 台面只喂合法形态。
+
+### 73.5 harness 与变异
+
+新 subject `stage`（`subjects/stage.{cpp,ts}` + 两个用例），op：
+- **Expressions 侧**：`it <b…>`（追加假表达式，`run` 按脚本吐真假值、跑完最后一个就重复，
+  并把 `call:<i>:arg=<值>` 记进日志）、`arg <值>`、`run` / `flow` / `next`、
+  `resetsame`（传 `exp.list` ⇒ 走同一性早退）、`resetcopy`（传一份新数组 ⇒ 清空再灌）、
+  `expdump`（`n` / `i` / `is_first` / `is_last`）、`status`。
+- **Background 侧**：`data <值>`、`new`、`bgdump`（全部尺寸 + `middle` + `zoom` + 层数 +
+  `_update_times` / `_layer_data_index`）、`layer <n i>`（`data_index` / `loop_index` / `x` / `y` /
+  `file` / `visible` / `is_static`）、`upd`、`disp`、`lset <n i> <字段> <值>`（改**数据里**那层；
+  TS 的 loop 副本是浅拷贝 ⇒ 改原对象看不到，非 loop 层看得到 —— 这一条正好把「副本是不是共享」
+  钉死）。
+- 用例 `cases/stage/expr.txt` **70** 行（11 组：空表 / 全假 / 全真 / 真真假 / 假真真 / 单格 /
+  同一性早退 / 清空再灌 / 参数渲染 / 负游标 / Status）、`cases/stage/bg.txt` **83** 行
+  （10 组：最小数据 / 全字段 / 名字三态 / zoom 的 nullish 与 falsy / layers nullish 与空数组 /
+  单层与 `layers` 下标 / `loop` 正数与其它档 / `x` 缺失 ⇒ NaN ⇒ 0 副本 / `cc` 三态与边界 /
+  `is_static` 十一种 / `lset` 的别名效应 / `dispose`）。
+- 变异 `mutations/stage.mjs` **46/46 全杀**（Expressions 9 条 + Layer 10 条 + Background 27 条）。
+  第一轮 3 条存活：① 两条用例没喂到（`is_static` 只看 `cc` 那一条要「cc 缺 + c1/c2 都有」的层；
+  名字那条被 `o 2 name … name …` 的**重复键**吃掉了 ⇒ 拆成两条用例）；② 一条按构造等价
+  （`flow` 里 `is_last` 的取值时机）⇒ 撤出名单并记在 §73.4。
