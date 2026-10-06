@@ -27,6 +27,27 @@ void push(const std::string& line) { g_log.push_back(line); }
 struct FakeZipObject : lfw::IZipObject {
   std::u16string name_text;
   const std::u16string& name() const override { return name_text; }
+  // `ZipMgr` 不会读文件内容（那是 `Resources` 的事）⇒ 这里只满足接口。
+  bool json(lfw::Value&, std::u16string& error) override {
+    error = u"zip_mgr harness does not read file contents";
+    return false;
+  }
+  bool text(lfw::Value&, std::u16string& error) override {
+    error = u"zip_mgr harness does not read file contents";
+    return false;
+  }
+  bool blob_url(lfw::Value&, std::u16string& error) override {
+    error = u"zip_mgr harness does not read file contents";
+    return false;
+  }
+  bool array_buffer(lfw::Value&, std::u16string& error) override {
+    error = u"zip_mgr harness does not read file contents";
+    return false;
+  }
+  bool image_bitmap(lfw::Value&, std::u16string& error) override {
+    error = u"zip_mgr harness does not read file contents";
+    return false;
+  }
 };
 
 class FakeZip : public lfw::IZip {

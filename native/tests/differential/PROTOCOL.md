@@ -3887,3 +3887,31 @@ harness op：
   `vel n 0 n 500` 让 `|v| >= |max_v|`）。
 - **一个台面坑**：`dest(number_of(...), number_of(...))` 的两次调用会推进同一个 token 游标，而
   C++ 不保证实参求值顺序（MSVC 右到左）⇒ 读成 `(y, x)`；TS 是左到右。差分第一轮就抓到了。
+
+### 6.9.115 `Resources`（+ `base/dedup.h`、`IZipObject` 的五个读取方法）（新 subject `resources`，136 行；变异 **44/44** 全杀）
+
+- **移植面**：`native/lfw/resources.{h,cpp}`（`ImportResult`、`IResourcesHost`、`class Resources`）；
+  `base/dedup.h` 的 `deduped`；`ditto/zip/i_zip_object.h` 补五个读取方法；`CMakeLists.txt` 411 → 412。
+- **`zip` / `zfile <zid> <path> miss|hit <name>`**：假数据包。**`zval` / `zfail` 的 key 是「被查询的
+  路径」**，不是命中对象的名字（命中对象的名字可以不同，用来验 `file` 与 `origin` 的写法）。
+- **`zval <zid> <path> <method> <value>` / `zfail <zid> <path> <method> <msg>`**：命中文件的某个读取
+  方法返回什么 / reject。没脚本化就**报错退出**（TS 侧同样），避免「两边都没报却对不上」。
+- **`netval <method> <value> <hit>` / `netfail <method> <msg>`**：宿主 `Importer.import_as_*`。
+- **`xmlparse <value> | null | fail <msg>`**：`Ditto.XML.parse` 的返回；`null` / `u` 是「解析出假值」
+  ⇒ 走 `[Resources::import_xml] failed to parse` 那条。
+- **`rjson` / `rres` / `rimg` / `rabuf` / `rxml <path> [1|0]`**：调对应入口，打 `data` / `file` /
+  `origin`，失败打 `throw:<文案>`。台面把 `zip.file` 的每次调用、`Importer.*` 的调用（含候选表）
+  与 `XML.parse` 的入参都记进日志 ⇒ 候选名表顺序与「走包还是走网络」可验。
+- **四处容易写错的语义**（详见 DESIGN §71.2）：① `find(paths, true)` 的第二个参数恒为 **true**
+  （备选名扩展在前面已经做过）；② 回退那条路的 `origin` **缺席**，而 `import_image_bitmap` 的
+  回退用 `paths[0]`（不是宿主给的命中 URL）；③ `import_xml` 的 `file` 是 `file?.name || paths[0]`
+  （空名也退回）、`origin` 仍写 `tag`，且解析结果假值必须抛；④ 宿主失败原样往外传（端口是
+  `bool` + `error`，文案逐字对齐）。
+- **用例**：`cases/resources/all.txt` **136** 行（空包回退 / 五个方法的命中 / 非 exact 的回退扩展 /
+  回退名也没命中 / `paths[0]` 的三处差别 / xml 的 `file` 三态 / 命中文件读取失败 / 宿主失败 /
+  `XML.parse` 三态与命中文本路径 / 假值 `data` / 后加载优先 / 名字与路径不同 / 带空格路径，共 13 组）。
+- **变异**：`mutations/resources.mjs` **44/44 全杀**。第一轮 7 条存活全是**用例写错**：`zval` 的
+  key 写成了命中对象的名字（读取直接抛 ⇒ `file` / `origin` 的变异走不到），以及 `XML.parse` 的
+  「假值 ⇒ 抛」只在宿主文本也失败时才被压到。
+- **一个不变式**：`base/dedup.h` 是**直通**（TS 的并发去重同步端口观察不到）⇒ 连带键字符串
+  不参与逻辑，变异名单里没有它们（记在偏差表与 DESIGN §71.4）。

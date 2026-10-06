@@ -263,7 +263,7 @@ VS Code 里也已经指好（`.vscode/settings.json`）：
 | 3 | `loader/get_val_*` 余下部分（`get_val_from_bot_ctrl` / `get_val_getter_from_stage` 要等 `BotController` / `Stage`） | 待做 |
 | 4r | `controller/BallController` + `helper/closer_one` | ✅ 通过（`entity/ball_ctrl` 174 行；49 条变异全杀） |
 | 4 | `entity` + `collision` + `buff` + `state` + `controller` + `bot` + `World` | 待做（**必须整块搬**，见下） |
-| 4主干 | 步骤 4 **主干**（宿主层：`stage/` 与 `World` / `LFW` / `Factory` / `Resources` / `Camera` / `Keys` **之前**能单独搬的部分，按依赖序：`I18N` → `loader/get_import_fallbacks` → `PlayerInfo` → `Camera` → `ZipMgr` → `Resources` → `Factory` → `stage/*` → `World` → `LFW`） | 进行中（`I18N` + `loader/get_import_fallbacks` ✅ 262 行 / 67 全杀；`PlayerInfo` ✅ 270 行 / 76 全杀；`ZipMgr` ✅ 114 行 / 33 全杀；`Camera` ✅ 369 行 / 93 全杀） |
+| 4主干 | 步骤 4 **主干**（宿主层：`stage/` 与 `World` / `LFW` / `Factory` / `Resources` / `Camera` / `Keys` **之前**能单独搬的部分，按依赖序：`I18N` → `loader/get_import_fallbacks` → `PlayerInfo` → `Camera` → `ZipMgr` → `Resources` → `Factory` → `stage/*` → `World` → `LFW`） | 进行中（`I18N` + `loader/get_import_fallbacks` ✅ 262 行 / 67 全杀；`PlayerInfo` ✅ 270 行 / 76 全杀；`ZipMgr` ✅ 114 行 / 33 全杀；`Camera` ✅ 369 行 / 93 全杀；`Resources` ✅ 136 行 / 44 全杀） |
 
 **步骤 2–4 是修正过的。** 把 `import type` 排除后算运行时依赖图，得到两个关键事实：
 
@@ -356,6 +356,12 @@ VS Code 里也已经指好（`.vscode/settings.json`）：
 | `ICameraWorld` 的三个方法必须回对象 | TS 里 `world.stage` / `bg` / `dataset` 是 nullish 时读属性会抛 `TypeError`；端口的 `field_or` 对非对象给 `undefined` | 台面只喂对象（`undefined` 字段走的是 `to_number` ⇒ NaN） |
 | `modern_screen_height()` 找不到键时回 0 | TS 的 `Defines.MODERN_SCREEN_HEIGHT` 是模块常量（450），不可能缺 | 端口走运行时表，缺键时 `defines::num` 给 0（`to_number(undefined)` 会给 NaN） |
 | `IVector2` 只实现 `x` / `y` / `set` | TS 的 three.js `Vector2` 还有 `add` / `sub` / `length` / `clone` / `normalize` / `equals` | `Camera` 只读写两项；随用到的物理刀再补 |
+| `base/dedup.h` 是直通 | TS 的 `deduped` 用模块级 `Map<string, Promise>` 做**并发**去重（同 key 的调用共享同一次执行，settle 后删条目） | 同步端口没有交错 ⇒ 共享观察不到；连带 `dedup_key` 拼出的键字符串在端口里不参与逻辑（台面只做顺序调用） |
+| `IZipObject` 的 `array_buffer()` 给字节数组 | TS 是 `ArrayBuffer`（宿主对象） | 端口的 `Value` 装不下宿主二进制类型；台面把两边都渲染成字节列表 |
+| `IZipObject` 的 `image_bitmap()` 给 `Value` 标记 | TS 是 `ImageBitmap`（GPU 资源） | 同上；真实数据由后续渲染刀决定怎么接 |
+| `Ditto.XML.parse` 的结果是 `Value` 标记 | TS 是 `IXMLElement`（`tag` / `children` / `attrs` / `text` / `parent` + 一批方法） | 本刀只判它的真值；`IXMLElement` 的成员随用到的刀再补 |
+| `Resources` 的 `ImportResult.file` / `origin` 是 `Value` | TS 里是 `file?: string` / `origin?: string` | 回退那条路**不写** `origin`、`import_image_bitmap` 回退时 `file` 是 `paths[0]` ⇒ 用 `Value` 才能把「缺席」与空串分开 |
+| `Resources` 的五个 `import_*` 是同步 + `bool` 失败出参 | TS 是 `async`，宿主失败靠 promise reject 往外传 | 端口无异常/无 promise；失败面用 `bool` + `error`，文案与 TS 的 `Error.message` 逐字对齐 |
 
 > `native.mjs all` 里的 `coverage` 步骤会跑 `tools/check_defines_coverage.mjs`：
 > 它用「运行时枚举 TS 导出」这条**独立于生成器**的路径，检查 TS 里的枚举/字段表有没有漏搬。
@@ -474,3 +480,4 @@ VS Code 里也已经指好（`.vscode/settings.json`）：
 | 4B | 切片 4B（**步骤 4 主干第二刀**）：`PlayerInfo` + `core/js_string.h` 的 `to_lower_case` + `defines` 的 `get_default_keys_value`（宿主层第一块**有状态**的东西：`_info = {id,name,keys,version,ctrl}` 用 `Value` 装；`keys` 是 `default_keys_map` 里那个**共享对象**（改一个玩家会改到同表的所有玩家 —— TS 原文如此）；`load()` 在 TS 里是 `async` ⇒ 端口把「构造函数那次 load」**挂起**到第一次 `loaded()`/`load()`，好让构造后注册的监听者也能收到回调（与 await 时序一致）；`save()` 走 `Ditto.Cache` 宿主缝（`del` + **不 await** 的 `put`，字节是 `JSON.stringify(_info)` 的 UTF-8）；`load` 的完整失败面（`get` 抛 / 没有缓存 / `data` 空 / `blob` 空 / `blob.arrayBuffer` 抛 / `data` 真值非字节 / JSON5 语法 / 解构 nullish / 版本门 / `set_key` 在非对象上写或非字符串键）与四种回调（`on_name_changed` / `on_ctrl_changed`(少第 3 参) / `on_is_com_changed` / `on_key_changed`）；JS 属性读写语义单独建模（`o[k]` 对 nullish 抛、字符串有 `length` 与下标、写只认对象/数组、下标写入自动补洞）；`to_lower_case` 覆盖 ASCII / Latin-1（除 `×`）/ Latin Extended-A / 希腊 / 西里尔 + `U+0130` 两码点特例） | ✅ 通过（`player_info` 新 subject，270 行；变异 **76/76 全杀**） |
 | 4C | 切片 4C（**步骤 4 主干第三刀**）：`ZipMgr` + `ditto/zip` 的 `IZip` / `IZipObject` 与 `defines/IDataInfo`（宿主层里的数据包管理层：`add` 的 `unshift`、`find` 的「数据包（后加载优先）× 候选名」两重循环、`Set` 去重保序与 `[zip.name]file.name` 来源标签；候选名表复用 4A 的 `loader/get_import_fallbacks`） | ✅ 通过（`zip_mgr` 新 subject，114 行；变异 **33/33 全杀**） |
 | 4D | 切片 4D（**步骤 4 主干第四刀**）：`Camera` + `ditto/instance.h` 的 `vec2` 与 `defines/i_vector2.h`（镜头跟随：`_locked` 直接跳、两个 `do{...}while(0)` 块各自的 `break`、`_dested?.x ?? destination.x` 的目标夹取、acc 线性增长与 `max_vx_ratio` 封顶、y 块的 `height <= MODERN_SCREEN_HEIGHT` 门与 `cam_max_y = min(-0.5 * far, height - MODERN/(zoom_y ?? 1))`；宿主缝只给 `world.stage` / `bg` / `dataset` 三个对象，字段读走 `field_or` + `to_number` 复刻 JS 强转） | ✅ 通过（`camera` 新 subject，369 行；变异 **93/93 全杀**） |
+| 4E | 切片 4E（**步骤 4 主干第五刀**）：`Resources` + `base/dedup.h`（资源导入的五个入口：`exact ? [path] : get_import_fallbacks(path)[0]` 的候选名、`find(paths, true).at(0) || {}` 的命中判断、命中走 `file.json()`/`text()`/`blob_url()`/`array_buffer()`/`image_bitmap()`、未命中把整表交给宿主 `Importer.import_as_*`；回退时 `origin` 缺席、`import_image_bitmap` 用 `paths[0]`、`import_xml` 用 `file?.name || paths[0]` 且解析结果假值要抛「failed to parse」；宿主缝 `IResourcesHost` 把 `Ditto.Importer` / `Ditto.XML` 收成同步 `bool` + `error`） | ✅ 通过（`resources` 新 subject，136 行；变异 **44/44 全杀**） |

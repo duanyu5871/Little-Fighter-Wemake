@@ -7142,3 +7142,89 @@ op 分三组：
 - 踩到一个**台面**坑：`g_camera->dest(number_of(...), number_of(...))` 里的两个 `number_of` 会
   推进同一个 token 游标，而 C++ 不保证实参求值顺序（MSVC 是右到左）⇒ 读成 `(y, x)`。
   差分第一轮就抓到了（TS 是左到右），改成两句局部变量后才对。
+
+## 71. 切片 4E：`Resources`
+
+步骤 4「主干」（宿主层）的第五刀：`src/LFW/Resources.ts`（79 行）是「资源导入」的统一入口 ——
+`import_json` / `import_resource` / `import_image_bitmap` / `import_array_buffer` / `import_xml`
+五个方法都要先算出**候选路径表**，在已加载的数据包里查第一个命中；命中就读包里的文件
+（`file.json()` / `text()` / `blob_url()` / `array_buffer()` / `image_bitmap()`），
+否则把整张表交给宿主的 `Ditto.Importer.import_as_*`（网络回退）。顺带补上
+`native/lfw/base/dedup.h`（`base/dedup.ts` 的 promise 去重）。
+
+### 71.1 移植面
+
+- `native/lfw/resources.{h,cpp}`：`ImportResult`（`data` / `file` / `origin`）、
+  `IResourcesHost`（五个 `import_as_*` + `xml_parse`）与 `class Resources`（`kTag` /
+  `zip_mgr()` / 五个 `import_*`）。
+- `native/lfw/base/dedup.h`：`deduped(key, body)`。
+- `native/lfw/ditto/zip/i_zip_object.h`：补上五个读取方法（`json` / `text` / `blob_url` /
+  `array_buffer` / `image_bitmap`），形状是 `bool` + 失败出参。
+- 进 `native/lfw/CMakeLists.txt`（C++ 源 411 → 412）。
+
+### 71.2 保真要点
+
+1. **候选路径表**：`exact ? [path] : get_import_fallbacks(path)[0]` —— 注意 `[0]` 取的是
+   「备选名数组」本身（`get_import_fallbacks` 返回的是 `[备选名数组, 命中的后缀]`），所以
+   `exact=false` 时是**整张**备选名表交给宿主。
+2. **`this.find(paths, true).at(0) || {}`**：`find` 的 `exact` 参数恒为 **true**（备选名扩展上一步
+   已经做过了）；没命中就退化成 `{}` ⇒ `file` 与 `origin` 都是 `undefined`。
+3. **`if (file && tag)`**：TS 用的是真值判断。工具链上 `origin` 的格式是
+   `` `[${zip.name}]${file.name}` `` ⇒ **恒带方括号** ⇒ 只要有命中就一定真值，所以这一半与
+   「只看 `file`」等价（记在「有意不覆盖」里）。
+4. **命中与回退的返回值不一样**，逐条对齐：
+   - `import_json` / `import_resource` / `import_array_buffer`：命中 ⇒
+     `{ data, file: file.name, origin: tag }`；回退 ⇒ `{ data, file: hit }`（**没有** `origin`）。
+   - `import_image_bitmap`：命中同上；回退 ⇒ `{ data, file: paths[0] }` —— 用的是**候选表第一项**，
+     不是宿主给的命中 URL（三个方法里只有它是这样，最容易被「统一成 `hit`」写错）。
+   - `import_xml`：命中 ⇒ 文本来自 `file.text()`，回退 ⇒ 来自 `Importer.import_as_text(paths)`；
+     两头都要过 `Ditto.XML.parse`，而且**结果是假值就抛**（`[Resources::import_xml] failed to
+     parse: ${path}`）；`file` 用 `file?.name || paths[0]`（空名也退回 `paths[0]`），
+     `origin` 仍然用 `tag`（回退时是 `undefined`）。
+5. **`deduped` 是并发去重，同步端口观察不到**：TS 用一个模块级 `Map<string, Promise>`，同 key 的
+   **并发**调用共享同一次执行、promise settle 时删条目 ⇒ 端口没有交错，直通即可。连带那次 key
+   字符串的拼接也不参与端口逻辑（记在偏差表与「有意不覆盖」里）。
+6. **失败面**：`Resources` 自己不 catch ⇒ 宿主的失败（`file.json()` reject / `Importer` reject /
+   `XML.parse` 抛）原样往外传。端口给 `bool` + `error`，文案与 TS 的 `Error.message` 逐字相同。
+
+### 71.3 偏差（同时登记在 README 的偏差表）
+
+本刀在 README 加了 6 行：`base/dedup.h` 是直通、`array_buffer` 给字节数组、`image_bitmap` 给
+`Value` 标记、`XML.parse` 给 `Value` 标记、`ImportResult.file` / `origin` 用 `Value`、
+五个 `import_*` 改成同步 + `bool` 失败出参。
+
+### 71.4 有意不覆盖 / 等价
+
+1. `base/dedup.h` 的整个实现：TS 的并发共享在同步端口观察不到（台面也只做顺序调用）。
+2. `dedup_key` 拼出来的键字符串：同上，不参与端口逻辑。
+3. `if (file != nullptr && truthy(tag))` 里 `truthy(tag)` 那一半：`origin` 恒带方括号 ⇒ 等价于
+   只看 `file`。
+4. `find_first` 里 `hits` 非空时的其它元素：端口只取第一个。
+5. 回退分支把 `out.origin = Value()` 写成 `tag`：回退时 `tag` 本来就是 `undefined`。
+6. `get_import_fallbacks` 对非字符串 `path` 抛出的失败面：端口的 `path` 是 `std::u16string`。
+7. `IZipObject` 的 `uint8_array` / `blob`：本刀没有调用点。
+
+### 71.5 harness 与变异
+
+新 subject `resources`（`subjects/resources.{cpp,ts}` + `cases/resources/all.txt`），op：
+- `zip <zid> <name>` / `zfile <zid> <path> miss|hit <name>`：假数据包与它的成员表
+  （**注意 script 是按「被查询的路径」存的**，命中对象的名字可以不同）；
+- `zval <zid> <path> <method> <value>` / `zfail <zid> <path> <method> <msg>`：命中文件的某个
+  读取方法返回什么 / reject（没脚本化就报错退出，避免「两边都没报但对不上」）；
+- `add <zid>`：加进 `ZipMgr`（`info` 用空表，`Resources` 不读它）；
+- `netval <method> <value> <hit>` / `netfail <method> <msg>`：宿主 `Importer` 的某个方法；
+- `xmlparse <value> | null | fail <msg>`：`Ditto.XML.parse` 的返回（`null` / `u` ⇒ 触发「解析失败」）；
+- `rjson` / `rres` / `rimg` / `rabuf` / `rxml <path> [1|0]`：调 `Resources.import_*`，打
+  `data` / `file` / `origin`（失败打 `throw:<文案>`）。
+  台面把 `zip.file` 的每次调用、`Importer.*` 的每次调用（含候选表）与 `XML.parse` 的入参都记进
+  日志 ⇒ 候选名表的**顺序**与「走包还是走网络」都能验。
+- 用例 `cases/resources/all.txt` **136** 行（空包回退 / 五个方法的命中 / 非 exact 的回退扩展 /
+  回退名也没命中 / `paths[0]` 的三处差别 / xml 的 `file` 三态 / 命中文件读取失败 / 宿主失败 /
+  `XML.parse` 三态与**命中文本**路径 / 假值 `data` / 后加载优先 / 名字与路径不同 / 带空格路径，
+  共 13 组）。
+- 变异 `mutations/resources.mjs` **44/44 全杀**（候选表与 `find_first` / `import_json` /
+  `import_resource` / `import_image_bitmap` / `import_array_buffer` / `import_xml` / 名字回退
+  七组）。第一轮有 7 条存活，两个原因都是**用例写错**：① `zval` 的 key 写成了命中对象的
+  **名字**而不是「被查询的路径」⇒ 读取直接抛，`file` / `origin` 那几条变异根本走不到；
+  ② `XML.parse` 的「假值 ⇒ 抛」那条路只在宿主文本也失败时才被压到 ⇒ 补了「文本来自命中文件」
+  的一组用例（`x/a.xml`）才把文案类变异杀掉。
