@@ -29,6 +29,7 @@
 
 namespace lfw {
 
+class ITickerOptions;
 class Ticker;
 class World;
 
@@ -92,6 +93,16 @@ class IWorldLfw : public stage::IStageLfw {
                                                  const std::u16string& player_id) = 0;
   // `lfw.cmds`（`handle_cmds` 的 `if (!cmds.length) return;`）
   virtual bool has_cmds() const = 0;
+  // `lfw.cmds.length = 0` / `lfw.broadcasts.length = 0`（`update_once` / `catch_up` 每步清空）
+  virtual void clear_cmds() = 0;
+  virtual void clear_broadcasts() = 0;
+  // `ctrl.update_lookup(i, entities)`（`step` 的每两帧一次；`BotController` / `BallController`
+  // 都未移植 ⇒ 宿主回答）
+  virtual void ctrl_update_lookup(controller::BaseController& ctrl, double index,
+                                  std::vector<Entity*>& entities) = 0;
+  // `Ditto.DEV` / `Ditto.debug(msg)`（`step` 里那个实体数超限的调试打印）
+  virtual bool dev() const = 0;
+  virtual void debug(const std::u16string& msg) = 0;
   // `lfw.survival_rank_mode` / `lfw.survival_rank_available`（`IEntityHost` 转发）
   virtual bool survival_rank_mode() const = 0;
   virtual bool survival_rank_available() const = 0;
@@ -218,8 +229,7 @@ class World : public ICameraWorld {
   World* world_ptr() { return this; }
 
   // ---- TS 的方法 ----
-  void on_dataset_change(const std::u16string& key, const Value& curr, const Value& prev);
-  void team_come(const std::u16string& team, double x, double y, double z);
+  void on_dataset_change(const std::u16string& key, const Value& curr, const Value& prev);  void team_come(const std::u16string& team, double x, double y, double z);
   void team_move(const std::u16string& team);
   void team_stay(const std::u16string& team);
   void team_follow(Entity& target);
@@ -238,6 +248,14 @@ class World : public ICameraWorld {
   double base_step_ms();
   // `on_step_error(e)`：`Ticker` 的 `on_step` 里 catch 到异常时调（端口由台面/宿主调）。
   void on_step_error(const std::u16string& message, bool has_errors);
+  // ---- `step` / `update_once` / `catch_up` / `start_update` ----
+  void step();
+  void update_once(double dt);
+  void catch_up();
+  void start_update();
+  // TS 的公开钩子字段（`this.before_update?.()` / `this.after_update?.()`）。
+  std::function<void()> before_update;
+  std::function<void()> after_update;
   std::vector<double> get_bound(Entity& e);
   const Vector3& restrict(Entity& e);
   void update_ui();
@@ -274,8 +292,10 @@ class World : public ICameraWorld {
   size_t alive_players_size() const { return alive_players_.size(); }
   const std::vector<buff::Buff*>& dead_buffs() const { return dead_buffs_; }
   double step_error_count() const { return step_error_count_; }
+  // TS 的 `this._step_error_count = 0`（`Ticker` 的 `on_step` 成功后复位）。
+  void set_step_error_count(double v) { step_error_count_ = v; }
 
-  // `step()` 那一半（实体推进 / 碰撞 / 相机目标）在下一刀，这里先留出内部用的挂点。
+  // `step()` 那一半的挂点（台面写，TS 里是公开字段）。
   void set_need_fps(bool v) { need_FPS_ = v; }
   void set_need_ups(bool v) { need_UPS_ = v; }
 
@@ -307,6 +327,8 @@ class World : public ICameraWorld {
   double render_prev_time_ = 0.0;
   double render_fix_radio_ = 1.0;
   std::unique_ptr<Ticker> update_worker_;
+  // `new Ticker({step_ms, on_step})` 的那个 options 对象（`World` 持有，`Ticker` 借用）。
+  std::unique_ptr<ITickerOptions> update_options_;
   std::map<std::u16string, std::vector<Entity*>> entities_map_;
   std::vector<buff::Buff*> dead_buffs_;
   Times game_time_;

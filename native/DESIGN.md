@@ -7688,8 +7688,8 @@ subject `stage` 新增用例 `item`（`subjects/stage.{cpp,ts}` 里加了 `FakeI
 ### 76.3 与 TS 的偏差（本刀新增）
 
 - **`render_worker_id_` 用 0 表示 TS 的 `undefined`**：`Ditto.Render.add` 的句柄在端口里走
-  `clock_add`（槽空时回 0）⇒ dump / 日志里把 0 打成 `u`（台面的 `handle_str`），否则 TS 的
-  `undefined` 与端口的 0 无法对齐。
+  `render_add`（槽空时回 0，4K 起改成独立的渲染槽，见 §77.4）⇒ dump / 日志里把 0 打成 `u`
+  （台面的 `handle_str`），否则 TS 的 `undefined` 与端口的 0 无法对齐。
 - **`fps_value()` 落空回 `NaN`**：TS 的 `get FPS()` 在 `sync_render` 不是五个枚举值时返回
   `undefined`（后续算术成 `NaN`）；端口的分量是 `double` ⇒ 用 `NaN` 顶替，台面把二者都打 `u`。
 - **`on_step_error` 的两处收窄**：TS 读 `Date.now()` 且参数是异常对象（`Ditto.warn(e)` +
@@ -7773,3 +7773,108 @@ bool is_fighter(const Value& v) { return is_fighter_data(field_or(v, u"data")); 
 `Stage::change_bg` 自己也有「同 id 早退」，打不打这个电话分辨不出来），以及
 `SyncRenderEnum` 的取值顺序（Unlimited 0 / Half 1 / Sync 2 / FPS_60 3 / FPS_120 4）——
 写 `render` 用例时最容易错。
+
+## 77. 切片 4K：`World` 的 `step` / `update_once` / `catch_up` / `start_update`
+
+步骤 4「主干」的第十一刀：`World` 剩下的一半 —— **每帧推进**。`step` 是 `World.ts` 里最长的
+一个方法（587–767），把实体推进、碰撞配对、相机目标、垃圾清运、舞台推进串成一条链。这一刀
+**只搬「非碰撞配对」那半**：`get_bound` 的边界与配对（`collision_get` / `collisions_keeper.handle`）
+要绑八十来个 Env 缝函数，留给 4L；`step` 里留了注释。
+
+### 77.1 移植面
+
+- `native/lfw/world.{h,cpp}`：`step` / `update_once` / `catch_up` / `start_update`、
+  `WorldUpdateOptions : ITickerOptions`（匿名命名空间，对应 TS `new Ticker({step_ms, on_step})`
+  那个字面量）、公开钩子 `before_update` / `after_update`、`set_step_error_count`；
+  `IWorldLfw` 增 `clear_cmds` / `clear_broadcasts` / `ctrl_update_lookup` / `dev` / `debug`。
+- `native/lfw/entity/entity.{h,cpp}`：`IEntityHost::del_entity`（`world.del_entity(this)`）与
+  `Entity::release()`（挂载门 → `drop_holding` / `drop_catching` → `clean_holding` /
+  `clean_catching` → `_mounted = 0` → `on_disposed` → `callbacks.clear()` → `reset(_data, states_)`
+  → `host_->del_entity`）。
+- `native/lfw/base/render_scheduler.h`（**新**）：`IRenderScheduler` + 全局槽
+  `render_scheduler_slot()` / `set_render_scheduler()` / `render_add()` / `render_del()`。
+
+### 77.2 结构上的决定：渲染槽与时钟槽分开
+
+4J 把 `Ditto.Render.add` 接在**时钟**槽上（`clock_add`），4K 才现形：真 `Ditto.Clock` 的 `add`
+是**一次性**的（`Clock.ts` 的 `flush` 把待发批次跑一遍就清空），而 `Ditto.Render` 是 **raf** 式
+**重复**的（回调里再 `requestAnimationFrame`）。`World::start_render` 的循环按后者写 ⇒ 挂在
+时钟槽上时，`Ticker` 每次 `tick` 都会重新 `clock_add`、旧句柄永不撤销：`stop_update()` 删掉
+`Ticker` 之后，假时钟里还留着指向它的回调 ⇒ **heap-use-after-free**。所以：
+`render_scheduler.h` 开一个独立槽（`render_add` / `render_del`），`start_render` / `stop_render`
+改用它；假件里时钟保持一次性、渲染槽保持重复。
+
+### 77.3 与 TS 的偏差（本刀新增）
+
+- **`world_pause` 的是访问器不是属性**：TS 里 `World` 没有 `world_pause`，读的是
+  `world.stage.world_pause`；端口给了一个转发访问器（台面 dump 里读 `stage.world_pause` 对齐）。
+- **`Ticker` 的 `on_step` 不装 `try/catch`**：TS 的 `Ticker` 在 `on_step` 里 `catch` 到异常后
+  交给 `World.on_step_error(e)`；端口不装异常（`lfw` 的规矩）⇒ 这一层由**宿主**在驱动 `on_step`
+  时做（台面 / `LFW` 那一刀）。`on_step_error(message, has_errors)` 的参数收窄见 §76.3。
+- **`IWorldLfw::dev` / `debug` 收成一对方法**：TS 是 `Ditto.DEV`（可写全局）与 `Ditto.debug`；
+  端口按宿主缝处理（`IWorldLfw::dev()` / `debug(msg)`），`step` 里那句实体数超限的打印据此开。
+
+### 77.4 ASAN 抓出来的真 bug：`Ticker` 的 heap-use-after-free
+
+4K 的用例写完先随机崩（约三成，node 记 `0xC0000005`）。用一次**临时 ASAN 构建**拿到栈：
+
+```
+== 某次 tick =================================
+ERROR: AddressSanitizer: heap-use-after-free ... in WorldUpdateOptions::on_step
+```
+
+栈底是 `Ticker` 的 `tick` → `_opt->on_step` → `update_once`：`stop_update()` 已经删掉
+`Ticker`（`update_options_` 也跟着换），可假时钟里那个「渲染回调」还指着它。根因见 §77.2
+（4J 把渲染接在时钟槽上，而时钟是一次性的）。修法就是拆槽；改完 `Wnew` 连跑 40 次 0 崩溃。
+记下来的手法：`native/build/gen/vsenv.json` 里的环境 + `-DCMAKE_CXX_FLAGS="/fsanitize=address
+/Zi /Od"` 到 `native/build/asan`，把 `clang_rt.asan_dynamic-x86_64.dll` 拷到产物 `bin/`，
+`ASAN_OPTIONS=detect_leaks=0`。
+
+### 77.5 台面（`world` subject 扩展）的坑
+
+- **`Ditto.Clock` 一次性 vs `Ditto.Render` 重复**（见 §77.2）：假件照真件语义写，时钟 `tick`
+  顺带把到点的一次性定时器与渲染帧跑掉。
+- **`wtick` 的粒度**：`16ms` 还不到一步的 `step_ms`（`1000/60`），`Ticker` 只会重新排期 ⇒
+  想让它真的步进要推够（用例里用 `50ms`）；即便如此，`update_once` 里 `worker != nullptr`
+  那一段（`TU` / `on_ups_update`）依旧够不着，逐条验证过「改了没漂」后写进变异档头。
+- **`Entity::update` 每帧都用 state 快照重写 `position`**：台面 `went ... pos` 设进去的
+  `z` 下一帧就被冲成 0 ⇒ 相机那三项 z 求和恒 0（`-0.5 * round(...)` 的那些变异分辨不出来，
+  记在档头）；`x` 之所以留得住，是因为快照里的 `x` 就是 0、`restrict` 把它 clamp 回原处。
+- **没有 `frames` 的实体在 TS 直接抛**（`_data.frames["0"]`）⇒ 想给实体「只设位置」的路子走不通。
+- **两个「我的」人类玩家才看得出 `local_count` 的分母**；`hp 0` 的战士（还没 gone）才看得出
+  `hp > 0` 的两座门；`state === Gone(9998)` 的实体才看得出 `entity_is_gone` 的另一半。
+- **`stage.phase_time` 不能当 `stage.update()` 的探针**：`is_phase_end()` 在「没有 items」时
+  恒真 ⇒ `check_phase_end` 会 `enter_phase(idx+1)` ⇒ `set_phase` 把 `phase_time` 归零。改用
+  **`stage.time`**（`fsm.update(1)` 每帧 +1，与相位无关）⇒ `|sft=`。
+- **`World` 上没有 `is_stage_finish` / `is_chapter_finish`**：TS 侧 dump 一开始读的是
+  `world.is_stage_finish`（读到 `undefined` ⇒ 恒 0，正好和「没有舞台真的结束过」撞上）⇒
+  台面自己的 bug，改成读 `world.stage.*` 之后才和端口对齐。
+
+### 77.6 变异：四轮，从 133 杀 / 44 存活清到 95/95
+
+档是 `mutations/world_step.mjs`（subject `world`，只跑 `step` + `render` 两份用例，115 → 111 → 95 条）：
+
+1. **第一轮 117 条：72 杀 / 44 存活 / 1 compile-error**。逐条查，修掉三类**用例问题**：
+   - **观测点缺**：`handle_cmds` / `clear_cmds` / `clear_broadcasts`（`wcmds` + 连跑两帧）、
+     `list_entities` 缓存（`wlist` 前后夹 `wstep`）、`update_ui`（`wlayer`）、`bg.update()`
+     （dump 加 `bgu=`）、`transform.update()`（`wtrscaleto` 平滑）、`stage.update()`（dump 加
+     `sft=`）、`Entity::release` 之后的字段（新 op `wentump`）；
+   - **构造等价/分支压着**：加了第二个「我的」人类玩家之后 `local` 支一直压着 `human` / `puppet`
+     / `fighter` 三支 ⇒ 相机四支的变异集体存活，得按顺序把人一个个收掉；
+   - **锚点写错**：`kv.second = count + 1; replaced = true;` 在 `step`（12 空格）与武器分带
+     （10 空格）、`calc_alives`（8 空格）里各有一份 ⇒ 缩进写窄了会打到别的循环上。探针里加
+     「patch 在第几行」之后一眼看出来。
+2. **第二轮**：`nc`（时钟读次数）当观测点，结果 `misc` / `render` 两份用例跟端口对不上 ——
+   端口把 TS 的 `Date.now()` 收进时钟槽（`on_step_error` / `render_once`），台面数不出这一读
+   ⇒ **撤掉 `nc`**，那条「`extra_steps >= 0`」的变异按构造等价撤出。
+3. **第三/四轮**：补 `on_disposed` 回调、`wteamsame` 让多个战士（含傀儡）同队、`Gone = 9998`
+   之后，最后 19 条存活里 3 条又杀掉；剩下 16 条逐条验证「改了没漂」，按「不可观察 / 构造等价 /
+   留给下一刀」写进档头（碰撞表两清 —— 4K 没有东西往里写；buff 四句 —— 台面还没有真 `Buff`；
+   `Entity::release` 里除挂载门外的五句 —— `_mounted` 恒 0；`_gones` 清运里那次
+   `mark_players_alive` —— 冗余；`_gones` 跳过那一支 —— 同一帧就先被压实摘掉了）。
+4. **一条 compile-error**（把 `stable_sort` 的比较器反过来）是因为 lambda 形参写成
+   `const Entity*`、而 `x_sorter` 收 `Entity*` —— 改成 `Entity* const` 就能编译，而且**会漂**
+   （排序真的换了序，用例里实体的 x 互不相同才看得见）。
+
+最终 **95/95 全杀 0 compile-error**；`native/tools/native.mjs all` ⇒ lint / coverage /
+differential **155/155**。

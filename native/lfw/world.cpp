@@ -4,6 +4,7 @@
 #include <cmath>
 
 #include "lfw/base/clock.h"
+#include "lfw/base/render_scheduler.h"
 #include "lfw/base/ticker.h"
 #include "lfw/collision/keeper.h"
 #include "lfw/core/same_ref.h"
@@ -57,6 +58,29 @@ Value defines_value(const char16_t* const name) {
   const Value* const found = defines::find(std::u16string(name));
   return found != nullptr ? *found : Value();
 }
+
+// `a.frame.id === FID.Gone`
+bool frame_is_gone(const Entity& e) {
+  return strict_equals(field_or(e.frame, u"id"), Value(std::u16string(frame_id::kGone)));
+}
+
+// `a.frame.id === FID.Gone || a.state === SE.Gone`
+bool entity_is_gone(const Entity& e) {
+  if (frame_is_gone(e)) return true;
+  return strict_equals(e.state(), Value(static_cast<double>(StateEnum::Gone)));
+}
+
+// `this._gones` 是 `Set<Entity>`：`add` 判重（保插入序），`has` 看成员。
+bool gones_has(const std::vector<Entity*>& v, const Entity* const e) {
+  return std::find(v.begin(), v.end(), e) != v.end();
+}
+void gones_add(std::vector<Entity*>& v, Entity* const e) {
+  if (!gones_has(v, e)) v.push_back(e);
+}
+
+// 异常文本转 `u16string` 的工具在 4L 接 `LFW` 时再回来（TS 的 `Ticker` 在 `on_step` 里
+// `try/catch` 把异常交给 `World.on_step_error`；端口不装异常 ⇒ 这一层由宿主在驱动 `on_step`
+// 时做，见 §77.3）。
 
 Value obj_of() { return Value(std::make_shared<Object>()); }
 
@@ -249,6 +273,8 @@ class WorldEntityHost : public IEntityHost {
   }
   // `world.add_entities(this)`
   void add_entities(Entity& e) override { _world.add_entities(e); }
+  // `world.del_entity(this)`（`Entity::release`）
+  void del_entity(Entity& e) override { _world.del_entity(e); }
   // `world.game_time`
   double game_time() const override { return _world.game_time(); }
   // `world.lfw.factory.create_entity_with_bot("", this.world, data)`
@@ -654,7 +680,7 @@ Value World::get_bounding(Entity& e, const Value& f, const Value& i) {
 }
 
 void World::stop_render() {
-  if (render_worker_id_ != 0) clock_del(render_worker_id_);
+  if (render_worker_id_ != 0) render_del(render_worker_id_);
   render_worker_id_ = 0;
 }
 
@@ -682,7 +708,7 @@ void World::start_render() {
   const Value sync_render_v = dataset.get(u"sync_render");
   const double sync_render = to_number(sync_render_v);
   const double fps = fps_value();
-  if (render_worker_id_ != 0) clock_del(render_worker_id_);
+  if (render_worker_id_ != 0) render_del(render_worker_id_);
   if (sync_render == static_cast<double>(SyncRenderEnum::Sync)) return;
   if (sync_render == static_cast<double>(SyncRenderEnum::Half)) return;
   render_prev_time_ = 0.0;
@@ -706,8 +732,8 @@ void World::start_render() {
     render_fix_radio_ = 1 - clamp(6 * (fps - fps_.value()) / fps, 0, 1);
     render_prev_time_ = time;
   };
-  if (render_worker_id_ != 0) clock_del(render_worker_id_);
-  render_worker_id_ = clock_add(on_render);
+  if (render_worker_id_ != 0) render_del(render_worker_id_);
+  render_worker_id_ = render_add(on_render);
 }
 
 void World::stop_update() {
@@ -869,6 +895,323 @@ void World::update_ui() {
     if (ui == nullptr || ui->disabled()) continue;
     ui->update(uidt);
   }
+}
+
+void World::step() {
+  entities_map_.clear();
+  transform.update();
+  update_ui();
+  handle_cmds();
+  update_camera();
+  if (bg_ != nullptr) bg_->update();
+
+  if (paused_ == 1.0) return;
+  if (paused_ == 2.0) paused_ = 1.0;
+  game_time_.add();
+  team_alive_counts_.clear();
+  puppet_teams.clear();
+
+  if (stage_->world_pause()) return;
+  if (lfw_->dev() && static_cast<double>(entities.size()) > kMaxDebugEntities) {
+    lfw_->debug(u"[World::update_once]entities.size = " +
+                number_to_string(static_cast<double>(entities.size())));
+  }
+  collisions.clear();
+  pair_collisions_.clear();
+  pairs_compared = 0.0;
+  dead_buffs_.clear();
+  for (std::pair<std::u16string, buff::Buff*>& kv : buffs) {
+    if (kv.second != nullptr) collect_dead_buff(*kv.second);
+  }
+  for (buff::Buff* const b : dead_buffs_) {
+    b->unmount();
+    for (size_t i = 0; i < buffs.size(); ++i) {
+      if (buffs[i].first == b->id()) {
+        buffs.erase(buffs.begin() + static_cast<ptrdiff_t>(i));
+        break;
+      }
+    }
+    lfw_->recycle_buff(b);
+  }
+
+  double offset = 0;
+  double puppet_x_sum = 0;
+  double puppet_z_sum = 0;
+  double puppet_count = 0;
+  double local_x_sum = 0;
+  double local_z_sum = 0;
+  double human_x_sum = 0;
+  double human_z_sum = 0;
+  double fighter_x_sum = 0;
+  double fighter_z_sum = 0;
+  double local_count = 0;
+  double human_count = 0;
+  double fighter_count = 0;
+  // 可见宽度 = screen / zoom（bg 的 zoom 会缩放世界）；镜头记录的是视口左边缘。
+  const double zoom_x = bg_ != nullptr ? bg_->zoom_x() : 0.0;
+  const double zoom_y = bg_ != nullptr ? bg_->zoom_y() : 0.0;
+  const double view_w = to_number(dataset.get(u"screen_w")) / (truthy(Value(zoom_x)) ? zoom_x : 1);
+  // 前瞻量：固定世界距离（不随 zoom 缩放）。
+  const double lead = to_number(dataset.get(u"screen_w")) / 6;
+  for (size_t i = 0; i < entities.size(); ++i) {
+    Entity* const a = entities[i];
+    if (offset != 0) {
+      entities[i - static_cast<size_t>(offset)] = a;
+    }
+    if (entity_is_gone(*a)) {
+      a->set_hp(0.0);
+      a->set_hp_r(0.0);
+      gones_add(gones_, a);
+      offset += 1;
+      continue;
+    }
+    if (gones_has(gones_, a)) {
+      offset += 1;
+      continue;
+    }
+    a->update();
+
+    if (entity::is_fighter(ref_of(*a))) {
+      if (a->hp() > 0) {
+        double count = 0;
+        for (const std::pair<std::u16string, double>& kv : team_alive_counts_) {
+          if (kv.first == a->team()) {
+            count = kv.second;
+            break;
+          }
+        }
+        bool replaced = false;
+        for (std::pair<std::u16string, double>& kv : team_alive_counts_) {
+          if (kv.first == a->team()) {
+            kv.second = count + 1;
+            replaced = true;
+            break;
+          }
+        }
+        if (!replaced) team_alive_counts_.emplace_back(a->team(), count + 1);
+      }
+      const double x = a->position.x - view_w / 2 + a->facing * lead;
+      const double z = a->position.z;
+      fighter_x_sum += x;
+      fighter_z_sum += z;
+      fighter_count += 1;
+      controller::BaseController* const ctrl = a->ctrl();
+      if (is_human_ctrl_ptr(ctrl) && a->hp() > 0) {
+        if (truthy(field_or(ctrl->player, u"mine"))) {
+          local_x_sum += x;
+          local_z_sum += z;
+          local_count += 1;
+        } else {
+          human_x_sum += x;
+          human_z_sum += z;
+          human_count += 1;
+        }
+      }
+      if (a->puppet) {
+        if (!vec_has(puppet_teams, a->team())) puppet_teams.push_back(a->team());
+        puppet_x_sum += x;
+        puppet_z_sum += z;
+        puppet_count += 1;
+      }
+    }
+  }
+  entities.resize(entities.size() - static_cast<size_t>(offset));
+
+  double goffset = 0;
+  for (size_t i = 0; i < ghosts.size(); ++i) {
+    Entity* const a = ghosts[i];
+    if (goffset != 0) {
+      ghosts[i - static_cast<size_t>(goffset)] = a;
+    }
+    if (entity_is_gone(*a)) {
+      a->set_hp(0.0);
+      a->set_hp_r(0.0);
+      gones_add(gones_, a);
+      goffset += 1;
+      continue;
+    }
+    if (gones_has(gones_, a)) {
+      goffset += 1;
+      continue;
+    }
+    a->update_ghost();
+  }
+  ghosts.resize(ghosts.size() - static_cast<size_t>(goffset));
+
+  const size_t len = entities.size();
+  std::stable_sort(entities.begin(), entities.end(), x_sorter);
+  ground_weapon_counts.clear();
+
+  for (size_t i = 0; i < len; ++i) {
+    Entity* const a = entities[i];
+    if (frame_is_gone(*a)) continue;
+    if (entity::is_weapon(ref_of(*a)) && a->is_on_ground) {
+      const double section = round(a->position.x / kWeaponXSection);
+      double count = 0;
+      for (const std::pair<double, double>& kv : ground_weapon_counts) {
+        if (kv.first == section) {
+          count = kv.second;
+          break;
+        }
+      }
+      bool replaced = false;
+      for (std::pair<double, double>& kv : ground_weapon_counts) {
+        if (kv.first == section) {
+          kv.second = count + 1;
+          replaced = true;
+          break;
+        }
+      }
+      if (!replaced) ground_weapon_counts.emplace_back(section, count + 1);
+    }
+    controller::BaseController* const ctrl = a->ctrl();
+    const double lifetime = a->lifetime();
+    const bool lookingup = 0 == std::fmod(lifetime, kLookupUpdateInterval);
+    if (lookingup && (is_ball_ctrl_ptr(ctrl) || is_bot_ctrl_ptr(ctrl))) {
+      lfw_->ctrl_update_lookup(*ctrl, static_cast<double>(i), entities);
+    }
+  }
+
+  // `get_bound` 的边界 + 碰撞配对（`collision_get` / `collisions_keeper.handle`）见 4L。
+
+  // y 的偏移在写入时补（z 的采样不含半屏）；可见高度 = screen / zoom。
+  const double half_h =
+      to_number(dataset.get(u"screen_h")) / (2 * (truthy(Value(zoom_y)) ? zoom_y : 1));
+  if (truthy(Value(local_count))) {
+    camera_->destination.x = round(local_x_sum / local_count);
+    camera_->destination.y = -0.5 * round(local_z_sum / local_count) - half_h;
+  } else if (truthy(Value(human_count))) {
+    camera_->destination.x = round(human_x_sum / human_count);
+    camera_->destination.y = -0.5 * round(human_z_sum / human_count) - half_h;
+  } else if (truthy(Value(puppet_count))) {
+    camera_->destination.x = round(puppet_x_sum / puppet_count);
+    camera_->destination.y = -0.5 * round(puppet_z_sum / puppet_count) - half_h;
+  } else if (truthy(Value(fighter_count))) {
+    camera_->destination.x = round(fighter_x_sum / fighter_count);
+    camera_->destination.y = -0.5 * round(fighter_z_sum / fighter_count) - half_h;
+  }
+
+  for (Entity* const entity : gones_) {
+    for (size_t i = 0; i < entity_map.size(); ++i) {
+      if (entity_map[i].first == entity->id) {
+        entity_map.erase(entity_map.begin() + static_cast<ptrdiff_t>(i));
+        break;
+      }
+    }
+    mark_players_alive(*entity, false);
+    if (entity::is_fighter(ref_of(*entity))) {
+      callbacks.call(u"on_fighter_del",
+                     {WorldCallbackArgs{this, entity, nullptr, nullptr, Value(), Value(),
+                                        std::u16string(), 0.0, 0.0, 0.0, false}});
+    }
+    controller::BaseController* const ctrl = entity->ctrl();
+    const std::u16string player_id = ctrl != nullptr ? ctrl->player_id : std::u16string();
+    PlayerInfo* const player = lfw_->player(Value(std::u16string(player_id)));
+    if (player != nullptr) player->set_fighter(nullptr);
+    Entity* const puppet = map_get(puppets, player_id);
+    if (puppet == entity) {
+      for (size_t i = 0; i < puppets.size(); ++i) {
+        if (puppets[i].first == player_id) {
+          puppets.erase(puppets.begin() + static_cast<ptrdiff_t>(i));
+          break;
+        }
+      }
+    }
+    entity->puppet = false;
+    callbacks.call(u"on_puppet_del",
+                   {WorldCallbackArgs{this, nullptr, nullptr, nullptr, Value(), Value(),
+                                      std::u16string(player_id)}});
+    renderer_->del_entity(*entity);
+    entity->release();
+    lfw_->recycle_entity(entity);
+  }
+  gones_.clear();
+  stage_->update();
+}
+
+void World::update_once(double dt) {
+  if (sleeping_) return;
+  if (before_update) before_update();
+  if (sleeping_) return;
+  step();
+  lifetime_ += 1.0;
+  lfw_->clear_cmds();
+  lfw_->clear_broadcasts();
+  if (extra_steps > 0) catch_up();
+
+  const double sync_render = to_number(dataset.get(u"sync_render"));
+  if (sync_render == static_cast<double>(SyncRenderEnum::Sync)) {
+    render_once(dt);
+    fps_.update(dt);
+    if (need_FPS_) {
+      callbacks.call(u"on_fps_update", {WorldCallbackArgs{this, nullptr, nullptr, nullptr, Value(),
+                                                         Value(), std::u16string(), fps_.value()}});
+    }
+  } else if (sync_render == static_cast<double>(SyncRenderEnum::Half) &&
+             std::fmod(floor(lifetime_ / to_number(dataset.get(u"playrate"))), 2) != 0) {
+    render_once(dt * 2);
+    fps_.update(dt * 2);
+    if (need_FPS_) {
+      callbacks.call(u"on_fps_update", {WorldCallbackArgs{this, nullptr, nullptr, nullptr, Value(),
+                                                         Value(), std::u16string(), fps_.value()}});
+    }
+  }
+
+  Ticker* const worker = update_worker_.get();
+  if (worker != nullptr) {
+    TU = (1000 / to_number(dataset.get(u"UPS"))) * worker->span();
+    if (need_UPS_) {
+      callbacks.call(u"on_ups_update",
+                     {WorldCallbackArgs{this, nullptr, nullptr, nullptr, Value(), Value(),
+                                        std::u16string(), worker->rate(), 0.0,
+                                        1 / worker->span()}});
+    }
+  }
+  if (after_update) after_update();
+
+  if (to_number(dataset.get(u"sync_render")) != sync_render) start_render();
+}
+
+void World::catch_up() {
+  const double t0 = clock_now();
+  for (double i = 0; i < extra_steps; ++i) {
+    if (sleeping_) break;
+    if (before_update) before_update();
+    if (sleeping_) break;
+    step();
+    lifetime_ += 1.0;
+    lfw_->clear_cmds();
+    lfw_->clear_broadcasts();
+    if (after_update) after_update();
+    if (clock_now() - t0 >= extra_step_budget_ms) break;
+  }
+}
+
+namespace {
+// `new Ticker({ step_ms: () => this.base_step_ms(), on_step: dt => {...} })` 的那个 options。
+class WorldUpdateOptions : public ITickerOptions {
+ public:
+  explicit WorldUpdateOptions(World& world) : _world(&world) {}
+  double step_ms() override { return _world->base_step_ms(); }
+  // TS 的 `Ticker` 在 `on_step` 里 `try/catch` 把异常交给 `World.on_step_error`；端口不装异常
+  // （`lfw` 无异常）⇒ 这一层由宿主在驱动 `on_step` 时做（见 DESIGN §77.3）。
+  void on_step(double dt) override {
+    _world->update_once(dt);
+    _world->set_step_error_count(0);
+  }
+
+ private:
+  World* _world;
+};
+}
+
+void World::start_update() {
+  stop_update();
+  base_step_ms();
+  TU = 1000 / to_number(dataset.get(u"UPS"));
+  update_options_ = std::make_unique<WorldUpdateOptions>(*this);
+  update_worker_ = std::make_unique<Ticker>(update_options_.get());
+  update_worker_->start();
 }
 
 void World::change_bg(const Value& bg_id) {

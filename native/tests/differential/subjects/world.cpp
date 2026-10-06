@@ -16,6 +16,8 @@
 #include <vector>
 
 #include "lfw/base/clock.h"
+#include "lfw/base/render_scheduler.h"
+#include "lfw/base/ticker.h"
 #include "lfw/bg/background.h"
 #include "lfw/controller/base_controller.h"
 #include "lfw/core/value.h"
@@ -67,7 +69,15 @@ lfw::state::States g_states;
 
 // ---------------------------------------------------------------- 假件
 
-// `Ditto.Clock`：`now()` 可设、`add` / `del` 记日志。`Ditto.Render` 在端口里就是同一个槽。
+// 前向声明：`FakeClock::tick` 要顺带把到点的一次性定时器跑掉，而那个假件内部要读时钟的 `now`
+// ⇒ 定义写在时钟后面。
+void fire_due_timeouts();
+
+// 同上：渲染槽的回调也要在时钟推进时跑（raf 语义），而假件定义在时钟后面。
+void fire_render_frame();
+
+// `Ditto.Clock`：`now()` 可设、`add` / `del` 记日志。**一次性**语义（真 `Clock.ts` 的
+// `flush` 把待发批次跑一遍就清空）——`Ticker` 就靠这个：每次 `tick` 重新 `add`。
 class FakeClock : public lfw::IClock {
  public:
   double ms = 0;
@@ -92,11 +102,77 @@ class FakeClock : public lfw::IClock {
     push("clock=" + num(ms));
     std::vector<std::function<void()>> list;
     for (const std::pair<const int, std::function<void()>>& kv : handles) list.push_back(kv.second);
+    handles.clear();
     for (const std::function<void()>& h : list) h();
+    fire_due_timeouts();
+    fire_render_frame();
   }
 };
 
 FakeClock g_clock;
+
+// `Ditto.Render`（`DittoImpl/Render.ts`）：raf 式的**重复**回调 ⇒ `add` 一次、每帧都跑，
+// `del` 才摘。`World::start_render` 的渲染循环按这个语义写（`start_render` 不重新 `add`）。
+class FakeRenderScheduler : public lfw::IRenderScheduler {
+ public:
+  int next = 1;
+  std::map<int, std::function<void()>> handles;
+
+  int add(std::function<void()> handler) override {
+    const int id = next++;
+    handles.emplace(id, std::move(handler));
+    push("h:renderadd=" + std::to_string(id));
+    return id;
+  }
+  void del(int handle) override {
+    push("h:renderdel=" + std::to_string(handle));
+    handles.erase(handle);
+  }
+  void tick_frame() {
+    std::vector<std::function<void()>> list;
+    for (const std::pair<const int, std::function<void()>>& kv : handles) list.push_back(kv.second);
+    for (const std::function<void()>& h : list) h();
+  }
+};
+
+FakeRenderScheduler g_render_sched;
+
+void fire_render_frame() { g_render_sched.tick_frame(); }
+
+// `Ditto.Timeout`：`Ticker` 的 `schedule()` 走这一支（`delay > sleep_threshold` 时）。
+// `add(handler, timeout)` 是**一次性**的（TS 的 `setTimeout` 语义）⇒ 到点跑完就摘掉。
+class FakeTimeout : public lfw::ITimeout {
+ public:
+  int next = 1;
+  std::map<int, std::pair<double, std::function<void()>>> handles;
+
+  int add(std::function<void()> handler, double timeout) override {
+    const int id = next++;
+    handles.emplace(id, std::make_pair(g_clock.ms + timeout, std::move(handler)));
+    push("h:timeoutadd=" + std::to_string(id) + ":" + num(timeout));
+    return id;
+  }
+  void del(int timer_id) override {
+    push("h:timeoutdel=" + std::to_string(timer_id));
+    handles.erase(timer_id);
+  }
+  void tick_due() {
+    std::vector<std::function<void()>> list;
+    for (auto it = handles.begin(); it != handles.end();) {
+      if (it->second.first <= g_clock.ms) {
+        list.push_back(it->second.second);
+        it = handles.erase(it);
+      } else {
+        ++it;
+      }
+    }
+    for (const std::function<void()>& h : list) h();
+  }
+};
+
+FakeTimeout g_timeout;
+
+void fire_due_timeouts() { g_timeout.tick_due(); }
 
 class FakeRenderer : public lfw::IWorldRenderer {
  public:
@@ -181,6 +257,31 @@ lfw::controller::BaseController* make_ctrl(const std::string& kind) {
 
 std::vector<std::unique_ptr<lfw::Entity>> g_entities;
 std::vector<std::string> g_labels;
+
+// `wbulk` 用的最小实体数据（`base` 给 `reset`，`frames` 给 `update`）。
+const Value& bulk_data() {
+  static const Value data = []() {
+    Value frame = Value(std::make_shared<lfw::Object>());
+    lfw::Object* const f = std::get<std::shared_ptr<lfw::Object>>(frame).get();
+    f->set(u"id", Value(std::u16string(u"0")));
+    f->set(u"state", Value(1.0));
+    f->set(u"wait", Value(2.0));
+    Value frames = Value(std::make_shared<lfw::Object>());
+    lfw::Object* const fs = std::get<std::shared_ptr<lfw::Object>>(frames).get();
+    fs->set(u"0", frame);
+    Value base = Value(std::make_shared<lfw::Object>());
+    lfw::Object* const bs = std::get<std::shared_ptr<lfw::Object>>(base).get();
+    bs->set(u"name", Value(std::u16string(u"BULK")));
+    bs->set(u"resting_max", Value(5.0));
+    Value out = Value(std::make_shared<lfw::Object>());
+    lfw::Object* const o = std::get<std::shared_ptr<lfw::Object>>(out).get();
+    o->set(u"type", Value(8.0));
+    o->set(u"base", base);
+    o->set(u"frames", frames);
+    return out;
+  }();
+  return data;
+}
 std::vector<std::unique_ptr<lfw::Entity>> g_created;
 std::vector<std::unique_ptr<lfw::PlayerInfo>> g_players;
 std::vector<std::pair<std::string, lfw::PlayerInfo*>> g_player_map;
@@ -210,7 +311,9 @@ class FakeLfw : public lfw::IWorldLfw {
   std::vector<Value> randbg_script;
   size_t randbg_cursor = 0;
   std::vector<Value> broadcasts;
+  std::vector<std::string> cmds;
   bool cmds_has = false;
+  bool dev_flag = false;
   bool rank_mode = false;
   bool rank_avail = false;
   int id_counter = 0;
@@ -347,7 +450,16 @@ class FakeLfw : public lfw::IWorldLfw {
          vstr(Value(std::u16string(player_id))));
     return nullptr;
   }
-  bool has_cmds() const override { return cmds_has; }
+  bool has_cmds() const override { return !cmds.empty(); }
+  void clear_cmds() override { cmds.clear(); }
+  void clear_broadcasts() override { broadcasts.clear(); }
+  void ctrl_update_lookup(lfw::controller::BaseController& ctrl, double index,
+                          std::vector<lfw::Entity*>& entities) override {
+    (void)entities;
+    push("h:lookup=" + std::to_string(ctrl_id_of(&ctrl)) + ":" + num(index));
+  }
+  bool dev() const override { return dev_flag; }
+  void debug(const std::u16string& msg) override { push("h:debug=" + to_ascii(msg)); }
   bool survival_rank_mode() const override { return rank_mode; }
   bool survival_rank_available() const override { return rank_avail; }
   void handle_cmds(World& world) override {
@@ -397,7 +509,8 @@ std::string terr(const lfw::ITerrainInfo& t) {
 std::string dump_entity(const lfw::Entity& e) {
   return to_ascii(e.id) + ":" + esc(e.team()) + ":" + num(e.hp()) + ":" +
          vstr(lfw::field_or(e.frame, u"id")) + ":" + flag(lfw::truthy(Value(e.ghosted()))) + ":" +
-         flag(e.puppet) + ":" + num(e.position.x);
+         flag(e.puppet) + ":" + num(e.position.x) + ":" + num(e.position.y) + ":" +
+         num(e.position.z) + ":" + vstr(e.state()) + ":" + num(e.aabb_min_x);
 }
 
 std::string join_ids(const std::vector<lfw::Entity*>& list) { return list_of(list); }
@@ -463,6 +576,8 @@ void dump() {
        "|time=" + num(w.game_time()) + "|TU=" + num(w.TU) + "|es=" + num(w.extra_steps) +
        "|rc=" + num(w.render_cost) + "|pc=" + num(w.pairs_compared) + "|fps=" + num(w.fps().value()) +
        "|ticker=" + flag(w.ticker() != nullptr) + "|worker=" + handle_str(w.render_worker_id()) +
+       "|cmds=" + std::to_string(g_lfw.cmds.size()) +
+       "|bc=" + std::to_string(g_lfw.broadcasts.size()) +
        "|cnt=" + (counts.empty() ? std::string("-") : counts) +
        "|gwc=" + (gwc.empty() ? std::string("-") : gwc) +
        "|ents=" + (ents.empty() ? std::string("-") : ents) +
@@ -471,7 +586,9 @@ void dump() {
        num(w.right()) + "," + num(w.near_plane()) + "," + num(w.far_plane()) + "," +
        num(w.width()) + "," + num(w.depth()) + "," + num(w.middle().x) + "," + num(w.middle().z) +
        "|lim=" + flag(w.stage_limit()) + "|wp=" + flag(w.world_pause()) +
-       "|sf=" + flag(w.is_stage_finish()) + "|cf=" + flag(w.is_chapter_finish()));
+       "|sf=" + flag(w.is_stage_finish()) + "|cf=" + flag(w.is_chapter_finish()) +
+       "|spt=" + num(w.stage()->phase_time) + "|sft=" + num(w.stage()->time()) +
+       "|bgu=" + num(w.bg()->update_times()));
 }
 
 double number_arg(const std::vector<std::string>& t, size_t& i, const std::string& op, int lineno) {
@@ -498,6 +615,8 @@ int main(int argc, char** argv) {
   }
 
   lfw::set_clock(&g_clock);
+  lfw::set_timeout(&g_timeout);
+  lfw::set_render_scheduler(&g_render_sched);
   // `Ditto.warn(where, text)` 的两参形式（`Stage` 的那一处）。
   lfw::stage::Stage::set_warn([](const std::u16string& where, const std::u16string& text) {
     push("warn:" + to_ascii(where) + ":" + to_ascii(text));
@@ -562,6 +681,11 @@ int main(int argc, char** argv) {
       g_uis.push_back(std::make_unique<FakeUi>(index, t[i++] == "1"));
     } else if (op == "wcmds") {
       g_lfw.cmds_has = t[i++] == "1";
+      g_lfw.cmds = g_lfw.cmds_has ? std::vector<std::string>{"__probe__"}
+                                  : std::vector<std::string>();
+    } else if (op == "wbcpush") {
+      g_lfw.broadcasts.push_back(Value(to_u16(t[i++])));
+      push("bcpush=" + std::to_string(g_lfw.broadcasts.size()));
     } else if (op == "wbg") {
       g_world->change_bg(parse_value(t, i));
     } else if (op == "wstage") {
@@ -603,6 +727,15 @@ int main(int argc, char** argv) {
       else if (field == "pid") {
         lfw::controller::BaseController* const c = e->ctrl();
         if (c != nullptr) c->player_id = trace::key_of(t[i++]);
+      } else if (field == "mine") {
+        lfw::controller::BaseController* const c = e->ctrl();
+        const bool m = t[i++] == "1";
+        if (c != nullptr) {
+          if (std::shared_ptr<lfw::Object>* const obj =
+                  std::get_if<std::shared_ptr<lfw::Object>>(&c->player)) {
+            if (*obj) (*obj)->set(u"mine", Value(m));
+          }
+        }
       }
       else if (field == "frame") e->set_frame(parse_value(t, i));
       else if (field == "gone") e->set_frame(lfw::gone_frame_info());
@@ -620,6 +753,10 @@ int main(int argc, char** argv) {
         return 2;
       }
       push("ent|" + to_ascii(e->id) + "|" + field);
+    } else if (op == "wentump") {
+      // 实体被 `_gones` 清运（从 `entities` 摘掉）之后仍然要看得到它的字段
+      lfw::Entity* const e = ent_of(t[i++]);
+      push("entdump|" + to_ascii(e->id) + "|" + dump_entity(*e));
     } else if (op == "wteamsame") {
       lfw::Entity* const e = ent_of(t[i++]);
       e->set_team(vstr_string(g_world->stage()->team()));
@@ -716,6 +853,17 @@ int main(int argc, char** argv) {
       g_world->camera().destination.y = number_arg(t, i, op, lineno);
       push("camdest=" + num(g_world->camera().destination.x) + "," +
            num(g_world->camera().destination.y));
+    } else if (op == "wcamt") {
+      push("camt=" + num(g_world->camera().destination.x) + "," +
+           num(g_world->camera().destination.y));
+    } else if (op == "wtrscaleto") {
+      const double x = number_arg(t, i, op, lineno);
+      const double y = number_arg(t, i, op, lineno);
+      const double z = number_arg(t, i, op, lineno);
+      const double rate = number_arg(t, i, op, lineno);
+      g_world->transform.scale_to(x, y, z, rate);
+      push("trscale=" + num(g_world->transform.scale_x()) + "," +
+           num(g_world->transform.scale_y()) + "," + num(g_world->transform.scale_z()));
     } else if (op == "wui") {
       g_world->update_ui();
     } else if (op == "wpause") {
@@ -733,6 +881,63 @@ int main(int argc, char** argv) {
     } else if (op == "wstopupdate") {
       g_world->stop_update();
       push("ticker=" + flag(g_world->ticker() != nullptr));
+    } else if (op == "wstep") {
+      g_world->step();
+    } else if (op == "wupdate") {
+      g_world->update_once(number_arg(t, i, op, lineno));
+    } else if (op == "wcatchup") {
+      g_world->catch_up();
+    } else if (op == "wrupdate") {
+      g_world->start_update();
+      push("ticker=" + flag(g_world->ticker() != nullptr));
+    } else if (op == "wticker") {
+      lfw::Ticker* const tk = g_world->ticker();
+      if (tk == nullptr) {
+        push("tk=-");
+      } else {
+        push("tk=" + flag(tk->running()) + ":" + flag(tk->pending()) + ":" + flag(tk->paused()) +
+             ":" + num(tk->base()) + ":" + num(tk->span()) + ":" + num(tk->deadline()) + ":" +
+             num(tk->last_step()) + ":" + num(tk->rate()) + ":" + num(tk->cost) + ":" +
+             num(g_world->TU));
+      }
+    } else if (op == "whook") {
+      const std::string which = t[i++];
+      g_world->before_update = nullptr;
+      g_world->after_update = nullptr;
+      if (which != "none") {
+        g_world->before_update = []() { push("h:before"); };
+      }
+      if (which == "sleep") {
+        g_world->before_update = []() {
+          push("h:before");
+          g_world->sleep();
+        };
+      }
+      if (which == "after" || which == "both") {
+        g_world->after_update = []() { push("h:after"); };
+      }
+      if (which == "setsync") {
+        g_world->before_update = []() {
+          g_world->dataset.set(u"sync_render", Value(0.0));
+          push("h:setsync");
+        };
+      }
+      push("hook=" + which);
+    } else if (op == "wextra") {
+      g_world->extra_steps = number_arg(t, i, op, lineno);
+      push("es=" + num(g_world->extra_steps));
+    } else if (op == "wexbudget") {
+      g_world->extra_step_budget_ms = number_arg(t, i, op, lineno);
+      push("exbudget=" + num(g_world->extra_step_budget_ms));
+    } else if (op == "wdev") {
+      g_lfw.dev_flag = t[i++] == "1";
+      push("dev=" + flag(g_lfw.dev_flag));
+    } else if (op == "wneedfps") {
+      g_world->set_need_fps(t[i++] == "1");
+      push("needf=" + flag(g_world->need_fps()));
+    } else if (op == "wneedups") {
+      g_world->set_need_ups(t[i++] == "1");
+      push("needu=" + flag(g_world->need_ups()));
     } else if (op == "wrstart") {
       g_world->start_render();
       push("worker=" + handle_str(g_world->render_worker_id()));
@@ -822,6 +1027,18 @@ int main(int argc, char** argv) {
       g_world->ghosts.clear();
       for (double k = 0; k < n; k += 1.0) g_world->ghosts.push_back(nullptr);
       push("fill=" + std::to_string(g_world->ghosts.size()));
+    } else if (op == "wbulk") {
+      // 只为把 `entities` 撑过 `MAX_DEBUG_ENTITIES`（356）⇒ 造 n 个同数据的真实体，不记日志。
+      const double n = number_arg(t, i, op, lineno);
+      for (double k = 0; k < n; k += 1.0) {
+        auto e = std::make_unique<lfw::Entity>(g_world->host(), bulk_data(), &g_states);
+        lfw::Entity* const raw = e.get();
+        g_entities.push_back(std::move(e));
+        g_labels.push_back(std::string("bulk"));
+        raw->set_ctrl(make_ctrl("base"));
+        g_world->add_entities(*raw);
+      }
+      push("bulk=" + std::to_string(g_world->entities.size()));
     } else if (op == "wcol") {
       const std::u16string id = trace::key_of(t[i++]);
       const std::u16string aid = trace::key_of(t[i++]);
@@ -911,6 +1128,20 @@ int main(int argc, char** argv) {
       } else if (name == "on_counts") {
         g_world->callbacks.on(u"on_counts",
                               [](const lfw::WorldCallbacks::Payloads&) { push("cb:on_counts"); });
+      } else if (name == "on_ups_update") {
+        g_world->callbacks.on(u"on_ups_update", [](const lfw::WorldCallbacks::Payloads& a) {
+          push("cb:on_ups_update=" + num(a[0].num) + ":" + num(a[0].num2) + ":" +
+               num(a[0].num3));
+        });
+      } else if (name == "on_fighter_del") {
+        g_world->callbacks.on(u"on_fighter_del", [](const lfw::WorldCallbacks::Payloads& a) {
+          lfw::Entity* const e = a[0].entity;
+          push(std::string("cb:on_fighter_del=") + (e != nullptr ? to_ascii(e->id) : std::string("z")));
+        });
+      } else if (name == "on_puppet_del") {
+        g_world->callbacks.on(u"on_puppet_del", [](const lfw::WorldCallbacks::Payloads& a) {
+          push("cb:on_puppet_del=" + vstr(Value(a[0].key)));
+        });
       } else if (name == "on_disposed") {
         g_world->callbacks.on(u"on_disposed",
                               [](const lfw::WorldCallbacks::Payloads&) { push("cb:on_disposed"); });

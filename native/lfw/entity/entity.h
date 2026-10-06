@@ -116,6 +116,8 @@ class IEntityHost {
   virtual double entity_count() const { return 0.0; }
   // `world.add_entities(this)`（`attach`）。
   virtual void add_entities(Entity& e) { (void)e; }
+  // `world.del_entity(this)`（`release`）。
+  virtual void del_entity(Entity& e) { (void)e; }
   // `world.game_time`（`attach` 写 `_spawn_time`）。
   virtual double game_time() const { return 0.0; }
   // `world.lfw.factory.create_entity_with_bot("", this.world, data)`（`spawn`）。
@@ -437,6 +439,9 @@ class Entity {
                    double facing);
   // `attach(ghost = false): this`
   Entity& attach(const Value& ghost = Value(false));
+  // `release()`: the drop / clean of both holding and catching, the `on_disposed`
+  // callback, the reset back to the raw data, then `world.del_entity(this)`.
+  void release();
   // `apply_opoints(opoints)`: the interval bookkeeping, the `multi` count, the three
   // `spreading` offsets, one `spawn` per count, then the ball-controller `chasing` and
   // the `inherit_speed_*` velocity write.

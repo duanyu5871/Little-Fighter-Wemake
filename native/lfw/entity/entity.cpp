@@ -1232,6 +1232,19 @@ bool Entity::drop_catching() {
   return true;
 }
 
+void Entity::release() {
+  if (!truthy(Value(_mounted))) return;
+  if (bearer != nullptr) bearer->drop_holding();
+  if (catcher != nullptr) catcher->drop_catching();
+  clean_holding();
+  clean_catching();
+  _mounted = 0;
+  callbacks.call(u"on_disposed", {ref()});
+  callbacks.clear();
+  reset(_data, states_);
+  host_->del_entity(*this);
+}
+
 void Entity::blink_and_gone(double duration) {
   _blinking = duration;
   _after_blink = frame_id::kGone;

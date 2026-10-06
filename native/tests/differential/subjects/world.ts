@@ -115,9 +115,56 @@ const clock = {
     return false;
   },
 };
+
+// `Ditto.Render`（`DittoImpl/Render.ts`）：raf 式的**重复**回调 ⇒ `add` 一次、每帧都跑，
+// `del` 才摘。`World.start_render` 的渲染循环按这个语义写。
+const fakeRenderScheduler = {
+  next: 1,
+  handles: new Map<number, (time?: number) => void>(),
+  add(h: (time?: number) => void): number {
+    const id = fakeRenderScheduler.next++;
+    fakeRenderScheduler.handles.set(id, h);
+    log.push(`h:renderadd=${id}`);
+    return id;
+  },
+  del(id: number): void {
+    log.push(`h:renderdel=${id}`);
+    fakeRenderScheduler.handles.delete(id);
+  },
+  frame(): void {
+    for (const h of Array.from(fakeRenderScheduler.handles.values())) h(clock.ms);
+  },
+};
 const fakeRender = {
-  add: (h: () => void) => clock.add(h),
-  del: (id: number) => clock.del(id),
+  add: (h: () => void) => fakeRenderScheduler.add(h),
+  del: (id: number) => fakeRenderScheduler.del(id),
+};
+
+// `Ditto.Timeout`：`Ticker` 的 `schedule()` 走这一支（`delay > sleep_threshold` 时）。
+// `add(handler, timeout)` 是**一次性**的（`setTimeout` 语义）⇒ 到点跑完就摘掉。
+const fakeTimeout = {
+  next: 1,
+  handles: new Map<number, { at: number; fn: () => void }>(),
+  add(fn: () => void, timeout: number): number {
+    const id = fakeTimeout.next++;
+    fakeTimeout.handles.set(id, { at: clock.ms + timeout, fn });
+    log.push(`h:timeoutadd=${id}:${numHex(timeout)}`);
+    return id;
+  },
+  del(id: number): void {
+    log.push(`h:timeoutdel=${id}`);
+    fakeTimeout.handles.delete(id);
+  },
+  tickDue(): void {
+    const due: Array<() => void> = [];
+    for (const [id, h] of [...fakeTimeout.handles]) {
+      if (h.at <= clock.ms) {
+        due.push(h.fn);
+        fakeTimeout.handles.delete(id);
+      }
+    }
+    for (const h of due) h();
+  },
 };
 
 // `Ditto.WorldRender`：构造里只是 `new` 一下，随后就被换掉 ⇒ 什么都不做（不记日志）。
@@ -156,6 +203,7 @@ const layers: { ui: unknown }[] = [];
 let randbg_script: unknown[] = [];
 let randbg_cursor = 0;
 let cmds: string[] = [];
+let devFlag = false;
 const created: Entity[] = [];
 
 // 假控制器：`is_bot_ctrl` / `is_human_ctrl` / `is_ball_ctrl` 读的是三个布尔字段。
@@ -169,6 +217,9 @@ function make_ctrl(kind: string): unknown {
     __is_base_ctrl__: true,
     player_id: kind === "base" ? "" : "7",
     player: { id: 7, name: "P7", mine: true },
+    // `Entity.update` 会 `const { result, keys } = this.ctrl.update()`：没按键的基类控制器
+    // 给 `result = undefined`（端口那侧是真 `BaseController::update()`，同样落空）。
+    update: () => ({ result: undefined, keys: undefined }),
     come: (x: number, y: number, z: number) =>
       log.push(`h:come=${id}:${numHex(x)},${numHex(y)},${numHex(z)}`),
     move: () => log.push(`h:movectl=${id}`),
@@ -185,6 +236,15 @@ function make_ctrl(kind: string): unknown {
   ctrl_ids.set(base, id);
   ctrl_kinds.set(base, kind);
   return base;
+}
+
+// `wbulk` 用的最小实体数据（`base` 给 `reset`，`frames` 给 `update`）。
+function bulkData(): Bag {
+  return {
+    type: 8,
+    base: { name: "BULK", resting_max: 5 },
+    frames: { 0: { id: "0", state: 1, wait: 2 } },
+  };
 }
 
 function ctrl_id_of(c: unknown): string {
@@ -341,7 +401,8 @@ function dump_entity(e: Entity | null): string {
   if (!e) return "z";
   return (
     `${e.id}:${esc(String(e.team))}:${num(e.hp)}:${vstr((e.frame as Bag)?.id)}` +
-    `:${flag(e.ghosted)}:${flag(e.puppet)}:${num(e.position.x)}`
+    `:${flag(e.ghosted)}:${flag(e.puppet)}:${num(e.position.x)}:${num(e.position.y)}` +
+    `:${num(e.position.z)}:${vstr(e.state)}:${num((e as Bag).aabb_min_x)}`
   );
 }
 
@@ -375,7 +436,8 @@ function dump(): void {
       `|needf=${flag(b._need_FPS)}|needu=${flag(b._need_UPS)}` +
       `|life=${num(world.lifetime)}|time=${num(world.game_time)}|TU=${num(world.TU)}|es=${num(world.extra_steps)}` +
       `|rc=${num(world.render_cost)}|pc=${num(world.pairs_compared)}|fps=${num(b._FPS.value)}` +
-      `|ticker=${flag(!!world.ticker)}|worker=${handle_str(b._render_worker_id)}` +
+      `|ticker=${flag(!!b._update_worker)}|worker=${handle_str(b._render_worker_id)}` +
+      `|cmds=${cmds.length}|bc=${(fakeLfw.broadcasts as unknown[]).length}` +
       `|cnt=${[...counts.entries()].map(([k, v]) => `${esc(k)}:${num(v)}`).join(",") || "-"}` +
       `|gwc=${[...gwc.entries()].map(([k, v]) => `${num(k)}:${num(v)}`).join(",") || "-"}` +
       `|ents=${dump_list(world.entities)}` +
@@ -383,8 +445,9 @@ function dump(): void {
       `|bd=${num(world.player_l)},${num(world.player_r)},${num(world.left)},${num(world.right)},` +
       `${num(world.near)},${num(world.far)},${num(world.width)},${num(world.depth)},` +
       `${num(world.middle?.x)},${num(world.middle?.z)}` +
-      `|lim=${flag(world.stage_limit)}|wp=${flag(world.world_pause)}` +
-      `|sf=${flag(world.is_stage_finish)}|cf=${flag(world.is_chapter_finish)}`,
+      `|lim=${flag(world.stage_limit)}|wp=${flag(world.stage.world_pause)}` +
+      `|sf=${flag(world.stage.is_stage_finish)}|cf=${flag(world.stage.is_chapter_finish)}` +
+      `|spt=${num(world.stage.phase_time)}|sft=${num(world.stage.time)}|bgu=${num((world.bg as unknown as Bag)._update_times)}`,
   );
 }
 
@@ -417,6 +480,8 @@ function main(): void {
       list: () => new Promise(() => {}),
     },
     JSON5: { parse: (t: string) => JSON.parse(t), stringify: (v: unknown) => JSON.stringify(v) },
+    debug: (msg: unknown) => log.push(`h:debug=${String(msg)}`),
+    Timeout: fakeTimeout,
     DEV: false,
   } as never);
 
@@ -485,6 +550,9 @@ function main(): void {
     } else if (op === "wcmds") {
       cmds = t[i[0]!++]! === "1" ? ["__probe__"] : [];
       fakeLfw.cmds = cmds;
+    } else if (op === "wbcpush") {
+      (fakeLfw.broadcasts as unknown[]).push(t[i[0]!++]!);
+      log.push(`bcpush=${(fakeLfw.broadcasts as unknown[]).length}`);
     } else if (op === "wbg") {
       world.change_bg(parseValue(t, i) as never);
     } else if (op === "wstage") {
@@ -517,6 +585,7 @@ function main(): void {
         e.position.set(Number(parseValue(t, i)), Number(parseValue(t, i)), Number(parseValue(t, i)));
       } else if (field === "ctrl") e.ctrl = make_ctrl(t[i[0]!++]!) as never;
       else if (field === "pid") (e.ctrl as Bag).player_id = keyOf(t[i[0]!++]!);
+      else if (field === "mine") (e.ctrl as Bag).player.mine = t[i[0]!++]! === "1";
       else if (field === "frame") e.set_frame(parseValue(t, i) as never);
       else if (field === "gone") e.set_frame(GONE_FRAME_INFO as never);
       else if (field === "ground") e.is_on_ground = t[i[0]!++]! === "1";
@@ -530,6 +599,9 @@ function main(): void {
         (e as unknown as Bag).catcher = tok === "none" ? null : ent_of(tok);
       } else fail(`unknown entity field '${field}'`);
       log.push(`ent|${e.id}|${field}`);
+    } else if (op === "wentump") {
+      const e = ent_of(t[i[0]!++]!);
+      log.push(`entdump|${e.id}|${dump_entity(e)}`);
     } else if (op === "wteamsame") {
       const e = ent_of(t[i[0]!++]!);
       e.team = String(world.stage?.team);
@@ -603,8 +675,13 @@ function main(): void {
       const ms = Number(parseValue(t, i));
       clock.ms += ms;
       log.push(`clock=${num(clock.ms)}`);
+      // 真 `Clock.ts` 的 `flush`：待发批次跑一遍就清空（一次性）。
+      const batch = Array.from(clock.handles.values());
+      clock.handles.clear();
       // 真渲染循环把**当前时间**当第一个参数交给回调（端口侧的回调自己读时钟槽）
-      for (const h of Array.from(clock.handles.values())) h(clock.ms);
+      for (const h of batch) h(clock.ms);
+      fakeTimeout.tickDue();
+      fakeRenderScheduler.frame();
     } else if (op === "wrender") {
       world.render_once(Number(parseValue(t, i)));
       log.push(`rc=${num(world.render_cost)}`);
@@ -614,6 +691,19 @@ function main(): void {
       world.camera.destination.x = Number(parseValue(t, i));
       world.camera.destination.y = Number(parseValue(t, i));
       log.push(`camdest=${num(world.camera.destination.x)},${num(world.camera.destination.y)}`);
+    } else if (op === "wcamt") {
+      log.push(`camt=${num(world.camera.destination.x)},${num(world.camera.destination.y)}`);
+    } else if (op === "wtrscaleto") {
+      const x = Number(parseValue(t, i));
+      const y = Number(parseValue(t, i));
+      const z = Number(parseValue(t, i));
+      const rate = Number(parseValue(t, i));
+      world.transform.scale_to(x, y, z, { rate } as never);
+      log.push(
+        `trscale=${num(world.transform.scale_x)},${num(world.transform.scale_y)},${num(
+          world.transform.scale_z,
+        )}`,
+      );
     } else if (op === "wui") {
       (b().update_ui as () => void).call(world);
     } else if (op === "wpause") {
@@ -630,7 +720,67 @@ function main(): void {
       log.push(`sleep=${flag(b()._sleeping)}`);
     } else if (op === "wstopupdate") {
       world.stop_update();
-      log.push(`ticker=${flag(!!world.ticker)}`);
+      log.push(`ticker=${flag(!!b()._update_worker)}`);
+    } else if (op === "wstep") {
+      world.step();
+    } else if (op === "wupdate") {
+      (b().update_once as (dt: number) => void).call(world, Number(parseValue(t, i)));
+    } else if (op === "wcatchup") {
+      (b().catch_up as () => void).call(world);
+    } else if (op === "wrupdate") {
+      world.start_update();
+      log.push(`ticker=${flag(!!b()._update_worker)}`);
+    } else if (op === "wticker") {
+      const tk = b()._update_worker as Bag | undefined;
+      if (!tk) log.push("tk=-");
+      else
+        log.push(
+          `tk=${flag(tk._running)}:${flag(tk._pending)}:${flag(tk._paused)}` +
+            `:${num(tk._base)}:${num(tk._span)}:${num(tk._deadline)}:${num(tk._last_step)}` +
+            `:${num(tk._rate)}:${num(tk.cost)}:${num(b().TU)}`,
+        );
+    } else if (op === "whook") {
+      const which = t[i[0]!++]!;
+      b().before_update = which === "none" ? undefined : () => { log.push("h:before"); };
+      b().after_update = which === "after" || which === "both" ? () => { log.push("h:after"); } : undefined;
+      if (which === "sleep") {
+        b().before_update = () => {
+          log.push("h:before");
+          (b().sleep as () => void).call(world);
+        };
+      }
+      if (which === "setsync") {
+        b().before_update = () => {
+          (world.dataset as unknown as Bag).sync_render = 0;
+          log.push("h:setsync");
+        };
+      }
+      log.push(`hook=${which}`);
+    } else if (op === "wextra") {
+      b().extra_steps = Number(parseValue(t, i));
+      log.push(`es=${num(b().extra_steps)}`);
+    } else if (op === "wexbudget") {
+      b().extra_step_budget_ms = Number(parseValue(t, i));
+      log.push(`exbudget=${num(b().extra_step_budget_ms)}`);
+    } else if (op === "wdev") {
+      devFlag = t[i[0]!++]! === "1";
+      Ditto.DEV = devFlag;
+      log.push(`dev=${flag(devFlag)}`);
+    } else if (op === "wbulk") {
+      // 只为把 `entities` 撑过 `MAX_DEBUG_ENTITIES`（356）⇒ 造 n 个同数据的真实体，不记日志。
+      const n = Number(parseValue(t, i));
+      for (let k = 0; k < n; k++) {
+        const e = new Entity(world, bulkData(), states as never);
+        (e as Bag).ctrl = make_ctrl("base");
+        world.add_entities(e);
+      }
+      log.push(`bulk=${world.entities.length}`);
+    } else if (op === "wneedfps") {
+      b()._need_FPS = t[i[0]!++]! === "1";
+      log.push(`needf=${flag(b()._need_FPS)}`);
+    } else if (op === "wneedups") {
+      b()._need_UPS = t[i[0]!++]! === "1";
+      log.push(`needu=${flag(b()._need_UPS)}`);
     } else if (op === "wrstart") {
       world.start_render();
       log.push(`worker=${handle_str(b()._render_worker_id)}`);
@@ -789,6 +939,14 @@ function main(): void {
         cb.on(name, (k, curr, prev) =>
           log.push(`cb:on_dataset_change=${esc(String(k))}:${vstr(curr)}:${vstr(prev)}`),
         );
+      } else if (name === "on_ups_update") {
+        cb.on(name, (rate, _t, factor) =>
+          log.push(`cb:on_ups_update=${num(rate)}:${num(_t)}:${num(factor)}`),
+        );
+      } else if (name === "on_fighter_del") {
+        cb.on(name, (e) => log.push(`cb:on_fighter_del=${e ? (e as Entity).id : "z"}`));
+      } else if (name === "on_puppet_del") {
+        cb.on(name, (pid) => log.push(`cb:on_puppet_del=${vstr(pid)}`));
       } else if (name === "on_counts") {
         cb.on(name, () => log.push("cb:on_counts"));
       } else if (name === "on_disposed") {

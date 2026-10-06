@@ -4094,7 +4094,8 @@ harness op：
     `wdel` / `wdels`、`wfind <id>`、`wmark <标签> <0|1>`、`wgame <0|1>`、
     `wcount <键> <n>` / `wcountsdump`、`wcol <id> <aid> <vid> <dist>` / `wcolsdump` /
     `wcolq <aid> <vid>`。
-  - 渲染与时间：`wclockset <ms>` / `wtick <ms>`（假时钟，`Ditto.Clock` 与 `Ditto.Render` 同一个槽）、
+  - 渲染与时间：`wclockset <ms>` / `wtick <ms>`（假时钟，`Ditto.Clock` 一个槽、`Ditto.Render` 一个槽 ——
+  4K 拆开的，见 §6.9.121）、
     `wrender <dt>` / `wcam` / `wcamdest <x> <y>` / `wui` / `wbase` / `wfps` / `wrstart` / `wrstop` /
     `wstopupdate` / `wsleep` / `wawake` / `wserr <n> <0|1>`。
   - 边界与特效：`wbound <标签>` / `wrestrict <标签>` / `wbounding <标签> <frame 值> <info 值>`、
@@ -4141,3 +4142,42 @@ harness op：
   `reset_game_time` 要等 4K），8 条按不可观察列在档头 —— 其中
   「`clear` 里 bg 判等失效」是跑完第二轮才确认**按构造等价**（等号成立时 `Stage::change_bg`
   自己也有「同 id 早退」）。
+
+### 6.9.121 `World` 的 `step` / `update_once` / `catch_up` / `start_update`（`cases/world/step.txt`，315 行；变异 **95/95** 全杀）
+
+- **移植面**：`native/lfw/world.{h,cpp}`（`step` / `update_once` / `catch_up` / `start_update`、
+  `WorldUpdateOptions`、`before_update` / `after_update`、`set_step_error_count`；`IWorldLfw` 增
+  `clear_cmds` / `clear_broadcasts` / `ctrl_update_lookup` / `dev` / `debug`）、
+  `native/lfw/entity/entity.{h,cpp}`（`IEntityHost::del_entity`、`Entity::release()`）、
+  `native/lfw/base/render_scheduler.h`（**新**：`IRenderScheduler` + `render_add` / `render_del`
+  槽）；`CMakeLists.txt` 与 lint 数到 440 个源文件。
+- **换槽（4J 的坑）**：`Ditto.Clock` 一次性、`Ditto.Render` 重复 ⇒ 渲染不许再挂在时钟槽上（不然
+  `stop_update` 之后假时钟还回调已删的 `Ticker`，ASAN 报 heap-use-after-free，见 DESIGN §77.2 /
+  §77.4）。台面因此有两个槽：`FakeClock`（一次性 + 顺带跑到点定时器与渲染帧）与
+  `FakeRenderScheduler`（重复）。
+- **op 表增量**（`world` subject）：
+  - 推进：`wstep` / `wupdate <dt>` / `wcatchup` / `wrupdate`（`start_update`）/ `wstopupdate` /
+    `wticker`（把 `Ticker` 的 running / pending / base / span / deadline / last_step / rate /
+    cost 与 `world.TU` 打一行）/ `wtick <ms>`（推假时钟）/ `wextra <n>` / `wexbudget <ms>`。
+  - 钩子与休眠：`whook <none|before|after|both|sleep|setsync>`（`sleep` 会在钩子里 `sleep()`、
+    `setsync` 会把 `sync_render` 改成 0）、`wsleep` / `wawake`。
+  - 观测：`wcamt`（相机 destination）、`wtrscaleto <x> <y> <z> <rate>`（`transform.scale_to`）、
+    `wentump <标签>`（**不在 `entities` / `ghosts` 里的实体**也能打一行）、`wbcpush <s>`、
+    `wreset`。
+  - 回调：`wcb on_ups_update` / `on_fighter_del` / `on_puppet_del` / `on_disposed` 这四个是本刀
+    新用上的（`step` 的清运、`update_once` 的 UPS）。
+- **dump 增量**：`|spt=`（`stage.phase_time`）、`|sft=`（`stage.time`，`fsm.update(1)` 每帧 +1，
+  用来盯 `stage_->update()`）、`|bgu=`（`bg.update_times`）；实体行补 `pos.y` / `pos.z` /
+  `state` / `aabb_min_x`。
+- **用例要点**：三帧推进（帧名 wait → next、体力、AABB 排序、武器分带、存活计数、相机目标）、
+  暂停三支、zoom = 2 与 zoom = 0（falsy 兜底）两个后台、`world_pause` 的舞台（`step` 在实体循环
+  之前 return）、相机目标四支（local → human → puppet → fighter → 都不满足）、`_gones` 清运
+  （`frame` 写成 gone / `state` 写成 `Gone(9998)` / `hp 0` 三种进法）、幽灵两支、`update_once`
+  的 Sync / Half / need_FPS / need_UPS 门、`catch_up` 的预算、钩子（含 `sleep` 与 `setsync`）、
+  `Ticker` 与 `base_step_ms` 坏值、`Ditto.DEV` + 355 实体的调试打印。
+- **变异档**：`mutations/world_step.mjs`（`cases: ["step", "render"]`，95 条）。档头写清了 16 条
+  「不可观察 / 构造等价 / 留给下一刀」的理由：碰撞表两清（4K 没东西往里写）、buff 四句（台面还没
+  有真 `Buff`）、`Entity::release` 里除挂载门外的五句（`_mounted` 恒 0）、`_gones` 跳过那一支
+  （同一帧就先被压实摘掉）、`_gones` 清运里那次 `mark_players_alive`（冗余）、`Entity::update`
+  重写 `position` 导致相机 z 求和恒 0、`update_once` 里 `worker != nullptr` 那一段（假时钟推不动
+  `Ticker` 的步进）。
