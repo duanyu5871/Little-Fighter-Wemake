@@ -7067,3 +7067,78 @@ op 分三组：
 - 踩到的坑：**新建的源文件必须用 LF**。变异脚本里的多行锚点写在模板字面量里，JS 会把
   `CRLF` 规范化成 `LF`，而 Windows 上新建的文件是 `CRLF` ⇒ 多行锚点会「anchor occurs 0 times」；
   写成 LF 后才对得上。
+
+## 70. 切片 4D：`Camera`
+
+步骤 4「主干」（宿主层）的第四刀：`src/LFW/Camera.ts`（122 行）是镜头跟随 —— 两个
+`do { ... } while (0)` 各管一轴，`_locked` 时直接把位置与目标跳到锁定点，`_dested` 参与的
+目标是 `_dested?.x ?? destination.x` 再夹到 `[cam_l, cam_r - screen_w / zoom_x]`，速度按
+「距离线性增长、50 倍封顶」逐帧逼近。顺带开出宿主层的两个小件：`Ditto.vec2`（three.js 的
+`Vector2`）与 `IVector2`。
+
+### 70.1 移植面
+
+- `native/lfw/camera.{h,cpp}`：`ICameraWorld`（`world_stage` / `world_bg` / `world_dataset`）与
+  `class Camera`（`world()` / `locked()` / `dested()` / `destination` / `position` / `velocity` /
+  `reset` / `jump_x` / `jump_y` / `undest` / `dest` / `unlock` / `lock` / `update`）。
+- `native/lfw/ditto/instance.h`：`ditto::vec2()` 与 `ditto::vec2(x, y)`（`Ditto.vec2`）。
+- `native/lfw/defines/i_vector2.h`：`Vector2`（只有 `x` / `y` / `set`）。
+- 进 `native/lfw/CMakeLists.txt`（C++ 源 410 → 411）。
+
+### 70.2 保真要点
+
+1. **两个 `do { ... } while (0)` 是独立的**：x 块的三处 `break`（越界 / 已对齐）只跳过 x 的加速，
+   **y 块照常跑**。`break` 之前已经发生的赋值都会留下（`destination.x` 的夹取在越界判断之前）。
+2. **y 块里 `acc_y` 在「已对齐」比较之前算**：对齐时 `break` 掉，那次 `acc_y` 是白算的 ——
+   照抄（这也要靠差分确认两侧的**读取顺序**一致，见下条）。
+3. **字段读走 `field_or` + `to_number`**：TS 读的是**属性**，`undefined` / 字符串 / 缺字段都得按
+   JS 的强转与 `??` 走。缝只给 `world.stage` / `bg` / `dataset` 三个**对象**，九个字段由端口自己
+   按同一顺序读（顶层先读 `dataset.atom_time` / `screen_w` / `screen_h`，x 块里再 `cam_l` →
+   `cam_r` → `zoom_x`，y 块里 `height` → `far` → `zoom_y`）。
+4. **`world.stage` 被读两次**：顶层解构一次、y 块里 `this.world.stage.far` 一次 ⇒ 端口在 y 块里
+   再调一次 `world_stage()`（台面把这三个方法都记进了日志，读次数因此可观察）。
+5. **`bg.zoom_y ?? 1`**：只有 `null` / `undefined` 落回 1（`0` 保留 ⇒ `MODERN_SCREEN_HEIGHT / 0`
+   得 `Infinity`，`cam_max_y` 就是 `-Infinity`）。
+6. **`_locked` 分支完全不读世界**：`jump_x` / `jump_y` 会把速度清零（台面的 `w:` 日志能证明
+   `update()` 一次都没碰世界）。
+7. **`Ditto.vec2` 的默认参只吃 `undefined`**：`vec2()` ⇒ `{x: 0, y: 0}`；`vec2(x, y)` 原样写。
+   TS 里 `null` 会被原样写进 `x`，端口只收数字（见偏差表）。
+
+### 70.3 偏差（同时登记在 README 的偏差表）
+
+本刀在 README 加了 5 行：`ditto::vec2` 只收数字、`_dested` / `_locked` 的分量只能是数字、
+`ICameraWorld` 的三个方法必须回对象、`modern_screen_height()` 缺键时回 0、`IVector2` 只实现
+`x` / `y` / `set`。
+
+### 70.4 有意不覆盖 / 等价
+
+1. `defines::num` 缺键回 0 的分支：`Defines.MODERN_SCREEN_HEIGHT` 一定在运行时表里。
+2. `Vector2::set` 与 `IVector2` 里没实现的方法：本刀没有调用点。
+3. `vec2(x, y)` 的 `x` / `y` 是 `null` / `undefined`：TS 会原样写进分量，端口的分量是 `double`
+   （台面只喂数字）。
+4. `_dested` / `_locked` 的分量是 nullish 时的 `??` 分支：同上。
+5. `world.stage` / `bg` / `dataset` 是 nullish 时的 `TypeError`：端口按契约要求返回对象。
+6. harness 层的 `sf` 脚本与 `dump` / `w:` 回显行：那是台面自己的输出。
+
+### 70.5 harness 与变异
+
+新 subject `camera`（`subjects/camera.{cpp,ts}` + `cases/camera/all.txt`），op：
+- `sf <stage|bg|dataset> <field> <value>`：给假世界的某个字段赋值（值字面量，`u` / `z` /
+  `s "…"` / `n …` 都能喂 ⇒ 缺字段、字符串、`NaN` 这些 JS 强转路径都能压到）；
+- `new` / `dump`（`destination` / `position` / `velocity` / `locked` / `dested`，浮点打位模式，
+  `NaN` 打 `nan`）；
+- `reset` / `undest` / `unlock` / `jx <n>` / `jy <n>` / `dest <n> <n>` / `lock <n> <n>`；
+- `pos <n> <n>` / `dset <n> <n>` / `vel <n> <n>`：直接摆好 `position` / `destination` /
+  `velocity` 再 `update`（越界、已对齐、封顶、反向这些分支靠它精准命中）；
+- `update`。
+- 假世界那三个对象用 `Proxy` / `ICameraWorld` 记 `w:stage` / `w:bg` / `w:dataset` ⇒
+  「`world.stage` 读两次」「锁定时不读世界」都能验。
+- 用例 `cases/camera/all.txt` **369** 行（基础 API / 全空世界 / 常规推进 / 越界 / 已对齐 /
+  `_dested` 参与 / y 块与 `cam_max_y` / `zoom_y` 的四种形态 / `height` 门限三档 / 字符串与缺字段 /
+  锁定 / 反向与 `NaN` / 两段收敛循环 / `atom_time` 边界 / `screen_w` 为 0 与区间倒置，共 15 组）。
+- 变异 `mutations/camera.mjs` **93/93 全杀**（构造与复位 / 锁定分支 / 顶部三个读取 / x 块 / y 块
+  五组；其中「`cam_y` 取 `_dested.x`」「`zoom_y` 缺失时落回 2」「y 的封顶分支」三条一开始存活，
+  补了「`_dested` 的 x ≠ y」「`far` 很大使第二项取胜」「速度已超 `max_vy`」三组用例才杀掉）。
+- 踩到一个**台面**坑：`g_camera->dest(number_of(...), number_of(...))` 里的两个 `number_of` 会
+  推进同一个 token 游标，而 C++ 不保证实参求值顺序（MSVC 是右到左）⇒ 读成 `(y, x)`。
+  差分第一轮就抓到了（TS 是左到右），改成两句局部变量后才对。

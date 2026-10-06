@@ -3856,3 +3856,34 @@ harness op：
   「同一路径多个回退名都命中」与「两个包 × 两条路径」两组用例杀。
 - **一个坑**：新建的源文件必须是 **LF**。变异脚本的多行锚点写在模板字面量里，而 JS 会把
   `CRLF` 规范化成 `LF`；Windows 上新建的文件是 `CRLF` ⇒ 多行锚点报 `anchor occurs 0 times`。
+
+### 6.9.114 `Camera`（+ `ditto/instance.h` 的 `vec2`、`defines/i_vector2.h`）（新 subject `camera`，369 行；变异 **93/93** 全杀）
+
+- **移植面**：`native/lfw/camera.{h,cpp}`（`ICameraWorld` 的 `world_stage` / `world_bg` /
+  `world_dataset`，`class Camera`）；`ditto/instance.h` 的 `vec2`；`defines/i_vector2.h` 的
+  `Vector2`；`CMakeLists.txt` 410 → 411。
+- **`sf <stage|bg|dataset> <field> <value>`**：给假世界的一个字段赋值，值走值字面量（`u` / `z` /
+  `s "…"` / `n …`）⇒ `undefined`、`null`、字符串、`NaN`、缺字段这些 JS 强转路径都能压到
+  （端口的字段读是 `field_or` + `to_number`）。
+- **`new`**：`new Camera(world)`（假世界是同一份 bag，只换一个新的相机）。
+- **`dump`**：`destination` / `position` / `velocity` / `locked` / `dested`（浮点打位模式、
+  `NaN` 打 `nan`、`null` 打 `z`）。
+- **`reset` / `undest` / `unlock` / `jx <n>` / `jy <n>` / `dest <n> <n>` / `lock <n> <n>`**。
+- **`pos <n> <n>` / `dset <n> <n>` / `vel <n> <n>`**：直接摆好三个向量再 `update` ⇒「越界」
+  「已对齐」「`|v| >= |max_v|` 封顶」「反向」这些分支能精准命中。
+- **`update`**。
+- **读次数可观察**：假世界那三个对象分别走 `Proxy`（TS）与 `ICameraWorld`（端口），每次读都记
+  `w:stage` / `w:bg` / `w:dataset` ⇒「`world.stage` 被读两次」「`_locked` 时一次都不读」都能验。
+- **四处容易写错的语义**（详见 DESIGN §70.2）：① 两个 `do { ... } while (0)` 互相独立，x 块的
+  `break` 不拦 y 块；② `destination.x` 的夹取发生在越界判断**之前**；③ `bg.zoom_y ?? 1` 只吞
+  `null` / `undefined`（`0` 保留 ⇒ `cam_max_y` 得 `-Infinity`）；④ `_locked` 时 `jump_*` 会把
+  速度清零且完全不读世界。
+- **用例**：`cases/camera/all.txt` **369** 行（基础 API / 全空世界 / 常规推进 / 越界 / 已对齐 /
+  `_dested` 参与 / y 块与 `cam_max_y` / `zoom_y` 四种形态 / `height` 门限三档 / 字符串与缺字段 /
+  锁定 / 反向与 `NaN` / 两段收敛循环 / `atom_time` 边界 / `screen_w` 为 0 与区间倒置，共 15 组）。
+- **变异**：`mutations/camera.mjs` **93/93 全杀**（构造与复位 / 锁定分支 / 顶部三个读取 / x 块 /
+  y 块五组）。三条一开始存活、补用例才杀掉的：「`cam_y` 取 `_dested.x`」（补 `dest` 的 x ≠ y）、
+  「`zoom_y` 缺失时落回 2」（补 `far` 很大使 `cam_max_y` 的第二项取胜）、「y 的封顶分支」（补
+  `vel n 0 n 500` 让 `|v| >= |max_v|`）。
+- **一个台面坑**：`dest(number_of(...), number_of(...))` 的两次调用会推进同一个 token 游标，而
+  C++ 不保证实参求值顺序（MSVC 右到左）⇒ 读成 `(y, x)`；TS 是左到右。差分第一轮就抓到了。

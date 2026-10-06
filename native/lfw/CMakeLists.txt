@@ -105,6 +105,7 @@ add_library(lfw_core STATIC
   loader/get_val_from_collision.cpp
   loader/get_import_fallbacks.cpp
   player_info.cpp
+  camera.cpp
   zip_mgr.cpp
   loader/preprocess_pic.cpp
   loader/preprocess_stage.cpp

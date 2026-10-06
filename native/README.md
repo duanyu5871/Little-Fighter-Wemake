@@ -263,7 +263,7 @@ VS Code 里也已经指好（`.vscode/settings.json`）：
 | 3 | `loader/get_val_*` 余下部分（`get_val_from_bot_ctrl` / `get_val_getter_from_stage` 要等 `BotController` / `Stage`） | 待做 |
 | 4r | `controller/BallController` + `helper/closer_one` | ✅ 通过（`entity/ball_ctrl` 174 行；49 条变异全杀） |
 | 4 | `entity` + `collision` + `buff` + `state` + `controller` + `bot` + `World` | 待做（**必须整块搬**，见下） |
-| 4主干 | 步骤 4 **主干**（宿主层：`stage/` 与 `World` / `LFW` / `Factory` / `Resources` / `Camera` / `Keys` **之前**能单独搬的部分，按依赖序：`I18N` → `loader/get_import_fallbacks` → `PlayerInfo` → `Camera` → `ZipMgr` → `Resources` → `Factory` → `stage/*` → `World` → `LFW`） | 进行中（`I18N` + `loader/get_import_fallbacks` ✅ 262 行 / 67 全杀；`PlayerInfo` ✅ 270 行 / 76 全杀；`ZipMgr` ✅ 114 行 / 33 全杀） |
+| 4主干 | 步骤 4 **主干**（宿主层：`stage/` 与 `World` / `LFW` / `Factory` / `Resources` / `Camera` / `Keys` **之前**能单独搬的部分，按依赖序：`I18N` → `loader/get_import_fallbacks` → `PlayerInfo` → `Camera` → `ZipMgr` → `Resources` → `Factory` → `stage/*` → `World` → `LFW`） | 进行中（`I18N` + `loader/get_import_fallbacks` ✅ 262 行 / 67 全杀；`PlayerInfo` ✅ 270 行 / 76 全杀；`ZipMgr` ✅ 114 行 / 33 全杀；`Camera` ✅ 369 行 / 93 全杀） |
 
 **步骤 2–4 是修正过的。** 把 `import type` 排除后算运行时依赖图，得到两个关键事实：
 
@@ -351,6 +351,11 @@ VS Code 里也已经指好（`.vscode/settings.json`）：
 | `ILoadedZip` 按**值**存进列表 | TS 的 `add(zip)` 存的是同一个对象引用（`unshift`）⇒ 宿主事后改 `{zip, info}` 在 TS 里看得见、端口看不见 | 真实调用点 `LFW.ts` 是现造现加；台面不造这种情形 |
 | `ZipMgr.md5s()` 给 `Value[]` | TS 声明 `string[]`，但实际原样返回 `info.md5`（`?? '` 只吞 `null` / `undefined`） | 端口给 `Value` 不丢信息 |
 | `IDataInfo` 只建模自有 8 个字段、且 `info` 必须非空 | TS 是普通对象（可挂别的键），`info` 为 nullish 时读 `info.md5` 会抛 `TypeError` | 台面只喂 TS 声明里的字段 |
+| `ditto::vec2` 只收数字 | TS 的 `new Vector2(x, y)` 默认参只吃 `undefined`；显式 `null` 会原样写进 `x` / `y` | `Camera` 只用无参与数字形式；台面只喂数字 |
+| `_dested` / `_locked` 的分量只能是数字 | TS 里 `_dested.x` 是 nullish 时 `?? this.destination.x` 会走后半；`jump_*` 也能把 `undefined` 写进 `position.x` | 记在偏差表；台面只喂数字 |
+| `ICameraWorld` 的三个方法必须回对象 | TS 里 `world.stage` / `bg` / `dataset` 是 nullish 时读属性会抛 `TypeError`；端口的 `field_or` 对非对象给 `undefined` | 台面只喂对象（`undefined` 字段走的是 `to_number` ⇒ NaN） |
+| `modern_screen_height()` 找不到键时回 0 | TS 的 `Defines.MODERN_SCREEN_HEIGHT` 是模块常量（450），不可能缺 | 端口走运行时表，缺键时 `defines::num` 给 0（`to_number(undefined)` 会给 NaN） |
+| `IVector2` 只实现 `x` / `y` / `set` | TS 的 three.js `Vector2` 还有 `add` / `sub` / `length` / `clone` / `normalize` / `equals` | `Camera` 只读写两项；随用到的物理刀再补 |
 
 > `native.mjs all` 里的 `coverage` 步骤会跑 `tools/check_defines_coverage.mjs`：
 > 它用「运行时枚举 TS 导出」这条**独立于生成器**的路径，检查 TS 里的枚举/字段表有没有漏搬。
@@ -468,3 +473,4 @@ VS Code 里也已经指好（`.vscode/settings.json`）：
 | 4A | 切片 4A（**步骤 4 主干首刀**）：`I18N` + `loader/get_import_fallbacks`（宿主层里最先能动的两块：语言别名/三张词表与「引入名 → 备选名」；`native/lfw/i18n.{h,cpp}` 的 `set_lang`/`add`/`alias`/`canonical`/`string`/`strings` 照抄 TS 的三道门、`Map` 键语义、别名链与空串别名、`lang == ''` 的**松散**比较（复用 `core/value.h` 的 `equals`，`[null] == ''` 也为真）与 `alias(lang) ?? ''` 递归；`get_import_fallbacks` 用 `long long` 复刻 JS `substring` 的端点交换、图分支 14 个备选名逐条 `filter(v !== name)`、音分支两档 `.mp3`；新 subject `i18n`（`gif`/`new`/`add`/`lang`/`alias`/`canonical`/`str`/`strs`）并用 `langArg` 复刻 JS「默认参数只对 `undefined` 生效」；**修掉两处自测暴露的真错**：`join('\n')` 与 `'' + x` 两种字符串化混用、`.png`/`.webp` 名的候选名漏过滤） | ✅ 通过（`i18n` 新 subject，262 行；变异 **67/67 全杀**） |
 | 4B | 切片 4B（**步骤 4 主干第二刀**）：`PlayerInfo` + `core/js_string.h` 的 `to_lower_case` + `defines` 的 `get_default_keys_value`（宿主层第一块**有状态**的东西：`_info = {id,name,keys,version,ctrl}` 用 `Value` 装；`keys` 是 `default_keys_map` 里那个**共享对象**（改一个玩家会改到同表的所有玩家 —— TS 原文如此）；`load()` 在 TS 里是 `async` ⇒ 端口把「构造函数那次 load」**挂起**到第一次 `loaded()`/`load()`，好让构造后注册的监听者也能收到回调（与 await 时序一致）；`save()` 走 `Ditto.Cache` 宿主缝（`del` + **不 await** 的 `put`，字节是 `JSON.stringify(_info)` 的 UTF-8）；`load` 的完整失败面（`get` 抛 / 没有缓存 / `data` 空 / `blob` 空 / `blob.arrayBuffer` 抛 / `data` 真值非字节 / JSON5 语法 / 解构 nullish / 版本门 / `set_key` 在非对象上写或非字符串键）与四种回调（`on_name_changed` / `on_ctrl_changed`(少第 3 参) / `on_is_com_changed` / `on_key_changed`）；JS 属性读写语义单独建模（`o[k]` 对 nullish 抛、字符串有 `length` 与下标、写只认对象/数组、下标写入自动补洞）；`to_lower_case` 覆盖 ASCII / Latin-1（除 `×`）/ Latin Extended-A / 希腊 / 西里尔 + `U+0130` 两码点特例） | ✅ 通过（`player_info` 新 subject，270 行；变异 **76/76 全杀**） |
 | 4C | 切片 4C（**步骤 4 主干第三刀**）：`ZipMgr` + `ditto/zip` 的 `IZip` / `IZipObject` 与 `defines/IDataInfo`（宿主层里的数据包管理层：`add` 的 `unshift`、`find` 的「数据包（后加载优先）× 候选名」两重循环、`Set` 去重保序与 `[zip.name]file.name` 来源标签；候选名表复用 4A 的 `loader/get_import_fallbacks`） | ✅ 通过（`zip_mgr` 新 subject，114 行；变异 **33/33 全杀**） |
+| 4D | 切片 4D（**步骤 4 主干第四刀**）：`Camera` + `ditto/instance.h` 的 `vec2` 与 `defines/i_vector2.h`（镜头跟随：`_locked` 直接跳、两个 `do{...}while(0)` 块各自的 `break`、`_dested?.x ?? destination.x` 的目标夹取、acc 线性增长与 `max_vx_ratio` 封顶、y 块的 `height <= MODERN_SCREEN_HEIGHT` 门与 `cam_max_y = min(-0.5 * far, height - MODERN/(zoom_y ?? 1))`；宿主缝只给 `world.stage` / `bg` / `dataset` 三个对象，字段读走 `field_or` + `to_number` 复刻 JS 强转） | ✅ 通过（`camera` 新 subject，369 行；变异 **93/93 全杀**） |
