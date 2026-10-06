@@ -7953,8 +7953,17 @@ differential **155/155**。
 
 ### 78.7 待办（下一刀的入口）
 
-1. 变异档 `mutations/world_collision.mjs`（配对循环的每一格 + 宿主每一条缝的「回读错对象 / 返回常量」）。
+1. ~~变异档 `mutations/world_collision.mjs`~~ 已做：**14/14 全杀**（配对循环 6 条 + `CollisionActor`
+   投影 6 条 + handler 分发 2 条；用例同一世界四组实体：单向 / 双向 / `hit_flag` 不匹配 / 同队）。
+   其余缝（`get_bounding` 的六个字段、`rest` 与 `Pick` 支、buff 支、`ball_frozen` …）的变异要等
+   **观测量扩展**（见第 4 条）——它们要么不进 dump，要么要一组「部分重叠」的判定框才分岔。
 2. handler 路径的用例：目前 `world/collision` 只走了 `handle_itr_normal_bdy_normal` → `handle_injury`
    → `handle_fall` 这一条；`catch` / `freeze` / `whirlwind` / `weapon_is_hit` / `ball_*` / `healing`
    各要一段（尤其 `ball_frozen` 与 `john_shield`，它们各自有独立的 `IFrozenEntity` 视图）。
 3. `collision_to_snapshot` / `from_snapshot` 在宿主上的往返。
+4. **观测量扩展**：dump 里补 `vrests` 条数 / `catching` / `catcher` / `motionless` / `shaking` /
+   `buffs` 条数 / `collided_list` 长度 / `hit_sounds`（`play_sound` 的日志），并把对照组加上
+   「部分重叠的判定框」—— 这一批一上来，宿主剩下的缝就都能进变异档了。
+5. **世界生命周期**：一个进程里两个 `wnew` 会让第二个世界的 `step` 访问违例（`0xC0000005`）。
+   12 个 Env 挂在模块级全局槽上，旧世界宿主析构后槽里留着指向它的 lambda ⇒ 要么析构时解绑，
+   要么把 Env 从全局槽改成 `World` 自己持有（像 `IEntityHost` 那样）。

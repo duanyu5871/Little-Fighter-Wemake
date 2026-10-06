@@ -4182,7 +4182,7 @@ harness op：
   重写 `position` 导致相机 z 求和恒 0、`update_once` 里 `worker != nullptr` 那一段（假时钟推不动
   `Ticker` 的步进）。
 
-### 6.9.122 `World` 的碰撞配对与 `collision/` 的 82 条缝（`cases/world/collision.txt`，27 行）
+### 6.9.122 `World` 的碰撞配对与 `collision/` 的 82 条缝（`cases/world/collision.txt`，95 行；变异 **14/14** 全杀）
 
 - **台面**：不新增 subject —— 这一刀的两侧都是**真代码**。TS 侧跑真 `World.step`（真
   `collision_get` / 真 `collisions_keeper`），C++ 侧跑端口 `World::step` + `WorldCollisionHost`
@@ -4193,6 +4193,10 @@ harness op：
   `is_ally` 为假 ⇒ `ally_flag = Enemy` 也被命中、双向 `emission` 为空 ⇒ 队伍那条不拦。
   观测量：`pc=1`（配对比次）、`col=1`（本帧加入的碰撞）、受击方 `hp` 从 20 掉到 15（走
   `handle_itr_normal_bdy_normal` → `handle_injury`）；另有 `h:warn` 的 `spark` 缺数据告警。
+- **用例结构**（一个世界、四组实体、x 分段：0 / 3000 / 6000 / 9000）：单向（`A` 带 `itr`、`B` 带 `bdy`）
+  锁「配对 + 伤害」；双向（`C`/`D` 都带 `itr` 与 `bdy`）锁 `c1` 与 `c2` 两条都 `add_collision`；
+  `hit_flag 16` 那一组锁 `itr_flag & victim.data.type` 的失败路径（`pc` 加一但 `col` 不增）；
+  同队（`went G team t1` / `went H team t1`）那一组是给 `attacker_is_ally` 留的观测位。
 - **帧里的 `itr` / `bdy` 必须是数组**（`a 1 o 7 …`）：写成 `o 1 0 …` 会得到 Object，
   `collision_get` 的 `itr?.length` 判空直接返回 `null`（本例第一次跑就是 `col=0`）。
 - **台面补的两条假面**（TS `subjects/world.ts`）：`lfw.acquire_collision()` 必须**存在且静默**
@@ -4205,3 +4209,7 @@ harness op：
 - **`KeeperEnv` 加字段时**：`set_keeper_env(env)` 会把当时那份 `env` **拷**进全局槽 ⇒ 新缝必须在
   `set_keeper_env` **之前**绑定，否则 `handle` 调用到空的 `std::function`（`-fno-exceptions` 下
   直接 `__fastfail`，表现为二进制零输出、退出码 `0xC0000409`）。
+- ⚠️ **一个进程里只能有一个世界**：`wnew` 两次（每段各跑一次 `step`）会让第二段 `step` 访问违例
+  （`0xC0000005`），单段各跑一次都没事 —— 12 个 Env 挂在模块级全局槽上，旧世界的宿主被销毁后
+  槽里还留着指向它的 lambda。所以本用例把四组实体放在**同一个世界**里按 x 分段（段与段之间靠
+  `a_max_x < b.aabb_min_x` 的 `break` 隔开）。宿主生命周期那一刀要把它修成「析构时解绑」

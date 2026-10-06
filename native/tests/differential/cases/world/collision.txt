@@ -2,11 +2,14 @@
 # `collisions_keeper.handle` 那一趟 —— 走真实的 `WorldCollisionHost` 接线（`CollisionCoreEnv`
 # / `KeeperEnv` / `HandlersEnv` / `Handlers2-4Env` / `NbdyNormalEnv` / `FallEnv` / …）。
 #
-# 实体数据：`A` 的帧带 `itr`（kind 0 = ItrKind.Normal、hit_flag 61 = AllEnemy、injury 5），
-# `B` 的帧带 `bdy`（kind 0 = BdyKind.Normal、hit_flag 61）。两者 x 相同才进配对
-# （`a_max_x < b.aabb_min_x` 会 `break`），判定框 `x=-40/w=80` 让两颗矩形相交。
+# 一个世界、三组实体（按 x 分段：排序后段与段之间会在 `a_max_x < b.aabb_min_x` 处 `break`，
+# 所以不会互配）。帧里的 `itr`（kind 0 = ItrKind.Normal、`hit_flag` 61 = AllEnemy、injury 5）
+# 与 `bdy`（kind 0 = BdyKind.Normal、hit_flag 61）都写成数组（`a 1 …`；写成对象会让
+# `collision_get` 的 `itr?.length` 判空直接返回 null）。
 wnew
 wplayer 7
+
+# ── 1. x=0：单向（`A` 带 `itr`、`B` 带 `bdy`）⇒ 一条碰撞 + 受击方掉血 ──
 wmk A o 4 id s "A" type n 8 base o 2 name s "AB" resting_max n 5 frames o 1 0 o 4 id s "0" state n 1 wait n 30 itr a 1 o 7 kind n 0 hit_flag n 61 x n -40 y n 0 w n 80 h n 80 injury n 5
 went A ctrl base
 went A hp n 20
@@ -17,6 +20,49 @@ went B ctrl base
 went B hp n 20
 went B pos n 0 n 0 n 0
 wreadd B
+
+# ── 2. x=3000：双向（两边都带 `itr` 与 `bdy`）⇒ `collision_get(a,b)` 与 `(b,a)` 都成
+#        ⇒ 两条碰撞，优先级相同（同类型）⇒ 两条都 `add_collision`，双方各掉 5 点血 ──
+wmk C o 4 id s "C" type n 8 base o 2 name s "CB" resting_max n 5 frames o 1 0 o 5 id s "0" state n 1 wait n 30 itr a 1 o 7 kind n 0 hit_flag n 61 x n -40 y n 0 w n 80 h n 80 injury n 5 bdy a 1 o 6 kind n 0 hit_flag n 61 x n -40 y n 0 w n 80 h n 80
+went C ctrl base
+went C hp n 20
+went C pos n 3000 n 0 n 0
+wreadd C
+wmk D o 4 id s "D" type n 8 base o 2 name s "DB" resting_max n 5 frames o 1 0 o 5 id s "0" state n 1 wait n 30 itr a 1 o 7 kind n 0 hit_flag n 61 x n -40 y n 0 w n 80 h n 80 injury n 5 bdy a 1 o 6 kind n 0 hit_flag n 61 x n -40 y n 0 w n 80 h n 80
+went D ctrl base
+went D hp n 20
+went D pos n 3000 n 0 n 0
+wreadd D
+
+# ── 3. x=6000：`hit_flag` 不匹配（`E` 的 `itr` 只打武器 16）⇒ `itr_flag & victim.data.type`（8）
+#        为 0 ⇒ 判定失败：`pc` 仍然加一，但 `col` 不增、血量不动 ──
+wmk E o 4 id s "E" type n 8 base o 2 name s "EB" resting_max n 5 frames o 1 0 o 4 id s "0" state n 1 wait n 30 itr a 1 o 7 kind n 0 hit_flag n 16 x n -40 y n 0 w n 80 h n 80 injury n 5
+went E ctrl base
+went E hp n 20
+went E pos n 6000 n 0 n 0
+wreadd E
+wmk F o 4 id s "F" type n 8 base o 2 name s "FB" resting_max n 5 frames o 1 0 o 4 id s "0" state n 1 wait n 30 bdy a 1 o 6 kind n 0 hit_flag n 61 x n -40 y n 0 w n 80 h n 80
+went F ctrl base
+went F hp n 20
+went F pos n 6000 n 0 n 0
+wreadd F
+
+# ── 4. x=9000：**同队**（`team` 都是 `"t1"`）⇒ `attacker.is_ally(victim)` 为真 ⇒ `ally_flag`
+#        取 `Ally`(2)，而两条 `hit_flag` 都是 61（AllEnemy）⇒ `!(61 & 2) && !(61 & 2)` 为真
+#        ⇒ 判定失败（`pc` 加一，`col` 不增）── 这也是 `attacker_is_ally` 这条缝唯一的观测点 ──
+wmk G o 4 id s "G" type n 8 base o 2 name s "GB" resting_max n 5 frames o 1 0 o 4 id s "0" state n 1 wait n 30 itr a 1 o 7 kind n 0 hit_flag n 61 x n -40 y n 0 w n 80 h n 80 injury n 5
+went G ctrl base
+went G team t1
+went G hp n 20
+went G pos n 9000 n 0 n 0
+wreadd G
+wmk H o 4 id s "H" type n 8 base o 2 name s "HB" resting_max n 5 frames o 1 0 o 4 id s "0" state n 1 wait n 30 bdy a 1 o 6 kind n 0 hit_flag n 61 x n -40 y n 0 w n 80 h n 80
+went H ctrl base
+went H team t1
+went H hp n 20
+went H pos n 9000 n 0 n 0
+wreadd H
+
 wdump
 wstep
 wdump

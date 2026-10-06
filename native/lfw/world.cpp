@@ -1092,8 +1092,15 @@ void World::step() {
       collision::Collision* const c1 = collision_host().collision_get(*a, *b);
       collision::Collision* const c2 = collision_host().collision_get(*b, *a);
       const Value inf = Value(std::numeric_limits<double>::infinity());
-      const Value p1 = c1 != nullptr ? c1->priority : inf;
-      const Value p2 = c2 != nullptr ? c2->priority : inf;
+      // TS: `c1?.priority ?? Infinity` —— `priority` 是 `Value`（`ENTITY_PRIORITY_MAP` 未列出的
+      // 类型给 `undefined`），而 `undefined <= 5` 为假、`Infinity <= 5` 也是假、
+      // `5 <= Infinity` 为真 ⇒ `undefined` 那一侧必须补成 `Infinity` 才等价。
+      const Value p1 = (c1 != nullptr && !std::holds_alternative<std::monostate>(c1->priority))
+                           ? c1->priority
+                           : inf;
+      const Value p2 = (c2 != nullptr && !std::holds_alternative<std::monostate>(c2->priority))
+                           ? c2->priority
+                           : inf;
       if (c1 != nullptr && le(p1, p2)) add_collision(*c1);
       if (c2 != nullptr && le(p2, p1)) add_collision(*c2);
     }
@@ -1116,8 +1123,11 @@ void World::step() {
     camera_->destination.y = -0.5 * round(fighter_z_sum / fighter_count) - half_h;
   }
 
-  for (std::pair<std::u16string, collision::Collision>& kv : collisions) {
-    collision_host().handle(kv.second);
+  // `this.collisions.forEach(c => collisions_keeper.handle(c))`：TS 的 `forEach` 会**看到**遍历
+  // 期间新追加的项，所以条件每轮重读 `size()`；同时按下标取（而不是 `range-for` 的引用），
+  // 因为 handler 完全可能再往 `collisions` 里塞一条（`push_back` 会让引用悬空）。
+  for (size_t ci = 0; ci < collisions.size(); ++ci) {
+    collision_host().handle(collisions[ci].second);
   }
 
   for (Entity* const entity : gones_) {
