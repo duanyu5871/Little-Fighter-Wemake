@@ -3752,3 +3752,41 @@ harness op：
   按构造等价 / 不可达 / 遗留偏差记在该名单头部与 DESIGN §66.4。
 - **用例层的两个坑**：prefab 表必须挂在 `data.frame_prefabs` / `data.itr_prefabs` 上
   （挂在 ctx 上 = 哑弹）；`deg 45` 的 `Math.sin` 与 UCRT `std::sin` 差 1 ULP，用例避开。
+
+### 6.9.111 `I18N` + `loader/get_import_fallbacks`（新 subject `i18n`，262 行；变异 **67/67** 全杀）
+
+- **移植面**：`native/lfw/i18n.{h,cpp}`（`set_lang` / `add` / `alias` / `canonical` / `string` /
+  `strings` / `lang`）与 `native/lfw/loader/get_import_fallbacks.{h,cpp}`
+  （`bool get_import_fallbacks(const Value& name, std::vector<std::u16string>& fallbacks,
+  std::u16string& suffix)`）；进 `CMakeLists.txt`（C++ 源 406 → 408）。
+- **`gif` op**：`gif <name>`，输出 `gif ok <备选名数组> suffix=<后缀>`，`name` 不是字符串时
+  `gif throw - suffix=- msg=-`（TS 在 `path.endsWith` 上抛，不是 `[` 开头的文本 ⇒ `msg` 只记 `-`）。
+- **实例 op**：`new <id>` / `add <id> <langs>` / `lang <id> <lang>`（`set_lang`；输出
+  `ok`/`throw` + `cur=` 当前语言 + `msg=`，失败时 `cur` 必须还是旧值）/ `alias <id> [lang]` /
+  `canonical <id> [lang]` / `str <id> <name> [lang]` / `strs <id> <name> [lang]`。
+  `I18N` 的三张表是私有 `Map`、不能直接渲染 ⇒ 输出只走这些返回值。
+- **默认参数**：TS 的 `alias(lang = this._lang)` / `canonical(lang = this._lang)` /
+  `string(name, lang = this._lang)` / `strings(...)` 的默认只对 **`undefined`** 生效（显式写 `u`
+  也算）⇒ 两端都用 `langArg` 把「缺省或 `u`」换成 `it.lang`。注意 `canonical` 显式 `u` 时 TS 是
+  `alias(this._lang) ?? this._lang`：默认参数**先生效**，所以「没别名」时给的是 `this._lang`
+  （`''`）而不是 `undefined`。
+- **六处「绕不过去」的细节**（详见 DESIGN §67.2）：
+  1. `lang == ''` 是**松散**比较 ⇒ 直接复用 `core/value.h` 的 `equals`（`[null] == ''` 也是真）；
+  2. `_words.get(lang)` 是 `Map.get`（**不做** ToString：数字 `5` ≠ 字符串 `'5'`），而 `m?.[name]`
+     是对象取键（**要做** `to_string`）—— 这一条自测抓出（`str i5 n 5` 曾返回数字 `5`）；
+  3. `add` 里字符串值先记别名（**空串也算**），`alias` 的 `if (!next) break` 又把空串别名当
+     「没有别名」；
+  4. `join('\n')` 与 `'' + x` 两种字符串化不能混（前者把 `null`/`undefined` 当空串，后者给
+     `"null"`/`"undefined"`）；
+  5. `split_path` 复刻 JS `substring`（`lastIndexOf === -1` ⇔ 从 0 起；端点反了会交换）；
+  6. 图分支 14 个候选名要 `filter(v => v !== name)`（`a.png` / `a.webp` 会过滤掉最后那条）。
+- **用例**：`cases/i18n/all.txt` **262** 行（16 组：`gif` 非字符串入口 / 三种图后缀 / 目录切分
+  （`ui/a.png`、`a/.png`、`@2x/.png`、`a/@2x.png`、`a\\b.png`）/ 音分支 / 无分支；`add` 三道门 /
+  别名 + 字符串词 + 数组词 + 非对象词 / 非对象词图夹在中间；`alias` 链与空串别名、环、松散
+  `lang == ''` 各档、词键类型转换；非字符串 `lang` / `name`；`set_lang` 失败后语言不变；同名语言
+  二次 `add`；数组词的两种字符串化；空串词与空数组词）。
+- **变异**：`mutations/i18n.mjs` **67/67 全杀**（全部本刀新增，含 24 条打 `i18n.cpp`、22 条打
+  `get_import_fallbacks.cpp`）；7 类按构造等价 / 不可达记在名单头部与 DESIGN §67.4，其中
+  「基表种子」与「`substring` 端点交换」两条是**先当可杀、实测等价**后撤出的。
+- **量表坑**：`join_lines` 那条变异的锚点里 `u'\n'` 写在 JS 模板串中必须转义成 `u'\\n'`，否则
+  锚点是真换行 ⇒ `anchor occurs 0 times`。

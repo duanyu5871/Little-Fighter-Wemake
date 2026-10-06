@@ -6,6 +6,7 @@ add_library(lfw_core STATIC
   core/json5_unicode.cpp
   core/state_hash.cpp
   core/value.cpp
+  i18n.cpp
   fields.cpp
   ground.cpp
   world_dataset.cpp
@@ -102,6 +103,7 @@ add_library(lfw_core STATIC
   bot/nearest_targets.cpp
   loader/get_val_from_entity.cpp
   loader/get_val_from_collision.cpp
+  loader/get_import_fallbacks.cpp
   loader/preprocess_pic.cpp
   loader/preprocess_stage.cpp
   loader/preprocess_ball_frame.cpp

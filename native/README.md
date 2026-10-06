@@ -260,9 +260,12 @@ VS Code 里也已经指好（`.vscode/settings.json`）：
 | 3ac | `loader/preprocess_bdy` + `loader/preprocess_itr`（+ `preprocess_action` 的 `action.tester` 落地；14 个 `itr.kind` 分支的默认条件） | ✅ 通过（`loader_frames/all` 222 行；166 条变异全杀） |
 | 3ad | `loader/preprocess_frame` + `utils/read_nums`（帧装配：prefab 合并 / weapon 与 fighter 的状态默认值 / `cook_frame_indicator_info` / `fold_aabb` / `__hit_ground_*` / `center` / `pics`） | ✅ 通过（`loader_frames/all` 544 行；变异 **213/213 全杀**；顺带补上 `cook_frame_indicator_info` 的失败通道：`indicator_info` 40/40 全杀） |
 | 3ae | `loader/preprocess_entity_data`（实体数据的总装入口：四路 special / `itr_prefabs`·`bdy_prefabs` 逐条 / `base` 的图·音效 / `pre_*`·`post_hitkeys` 的 `__*_map` / `on_dead`·`on_exhaustion` / `portraits`·`frames` / `__pics` / `base.bot`） | ✅ 通过（`loader_entity` 新 subject，387 行；变异 **121/121 全杀**） |
+
+| 4A | 切片 4A（**步骤 4 主干首刀**）：`I18N` + `loader/get_import_fallbacks`（宿主层里最先能动的两块：语言别名/三张词表与「引入名 → 备选名」；`native/lfw/i18n.{h,cpp}` 的 `set_lang`/`add`/`alias`/`canonical`/`string`/`strings` 照抄 TS 的三道门、`Map` 键语义、别名链与空串别名、`lang == ''` 的**松散**比较（复用 `core/value.h` 的 `equals`，`[null] == ''` 也为真）与 `alias(lang) ?? ''` 递归；`get_import_fallbacks` 用 `long long` 复刻 JS `substring` 的端点交换、图分支 14 个备选名逐条 `filter(v !== name)`、音分支两档 `.mp3`；新 subject `i18n`（`gif`/`new`/`add`/`lang`/`alias`/`canonical`/`str`/`strs`）并用 `langArg` 复刻 JS「默认参数只对 `undefined` 生效」；**修掉两处自测暴露的真错**：`join('\n')` 与 `'' + x` 两种字符串化混用、`.png`/`.webp` 名的候选名漏过滤） | ✅ 通过（`i18n` 新 subject，262 行；变异 **67/67 全杀**） |
 | 3 | `loader/get_val_*` 余下部分（`get_val_from_bot_ctrl` / `get_val_getter_from_stage` 要等 `BotController` / `Stage`） | 待做 |
 | 4r | `controller/BallController` + `helper/closer_one` | ✅ 通过（`entity/ball_ctrl` 174 行；49 条变异全杀） |
 | 4 | `entity` + `collision` + `buff` + `state` + `controller` + `bot` + `World` | 待做（**必须整块搬**，见下） |
+| 4A | 步骤 4 **主干**（宿主层：`stage/` 与 `World` / `LFW` / `Factory` / `Resources` / `Camera` / `Keys` **之前**能单独搬的部分，按依赖序：`I18N` → `loader/get_import_fallbacks` → `PlayerInfo` → `Camera` → `ZipMgr` → `Resources` → `Factory` → `stage/*` → `World` → `LFW`） | 进行中（首刀 `I18N` + `loader/get_import_fallbacks` ✅：`i18n` 新 subject 262 行；变异 **67/67 全杀**） |
 
 **步骤 2–4 是修正过的。** 把 `import type` 排除后算运行时依赖图，得到两个关键事实：
 
@@ -334,6 +337,8 @@ VS Code 里也已经指好（`.vscode/settings.json`）：
 | `preprocess_entity_data` 的 `errors` 只做「缺失就失败」 | TS 有 `errors` 数组、末尾 `if (errors.length) Ditto.warn(errors)`；端口用 `error` 出参（单条）且不落地 `Ditto` | 与 `preprocess_bdy` / `preprocess_itr` / `preprocess_frame` 的既有约定一致（§64.5）；差分不比较 `errors` |
 | `make_ball_special` 对稀疏输入不抛（**3t 遗留**） | TS 在 `id "220"` 这类分支上读 `data.frames[50]` 抛；端口的 `make_ball_special(Value&)` 是 `void`（没有失败通道）⇒ `frames` 缺失时跳过 | 会在 `preprocess_entity_data` 的 ball 分支暴露（`ed` 用例挑表里能跑通的 id，见 `mutations/preprocess_entity_data.mjs` 头部）|
 | `make_fighter_special` 的 `ensure(data.base.group, …)`（**3y 遗留**） | TS 的 `ensure(output, item)` 对**非数组真值**（如 `group: 1`）会 `1.push(...)` 抛；端口 `ensure.h` 把非数组一律换成新数组 | 同上：`make_fighter_special(Value&)` 返回 `Value`、没有失败通道 ⇒ `preprocess_entity_data` 的 fighter 分支只能照端口语义走；`ed` 用例的 `group` 一律给数组 |
+| `I18N` 的三张表用 `std::map` 顶 `Map` | TS 是 `new Map()`；端口 `_words` / `_lists` / `_alias_map` 都是 `std::map` | `core` 没有 `Map`；三张表都只做「按键取」、从不迭代 ⇒ 序不可观察（同 `NestedMap` / `preprocess_entity_data` 的既有约定）。`Map` **不做** ToString（数字键 ≠ 字符串键）这条语义靠「语言必须是字符串」保住：`words_of` / `lists_of` / `alias_of` 对非字符串语言一律当查不到；词键那一边照 JS 做 `to_string`（`key_at`） |
+| `I18N` 不实现 `base_words` / `base_lists` 两个 getter | TS 里是 `this._words.get('')!` / `this._lists.get('')!` | `src/LFW` 里没有使用者（只有 `dist/*.d.ts` 的声明），差分用例也不观察；同其它未移植槽的约定 |
 
 > `native.mjs all` 里的 `coverage` 步骤会跑 `tools/check_defines_coverage.mjs`：
 > 它用「运行时枚举 TS 导出」这条**独立于生成器**的路径，检查 TS 里的枚举/字段表有没有漏搬。

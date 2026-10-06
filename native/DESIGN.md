@@ -6812,3 +6812,89 @@ bot 数据的展开）。`DatMgr` 直接调它，`loader/` 这一层到它为止
   `data.itr_prefabs` 上（不是 ctx 上），否则 `resolve_prefab` 找不到 ⇒ 用例变成「两边都抛」
   的哑弹；② `deg 45` 的 `Math.sin` 与 UCRT `std::sin` 差 1 ULP
   （`preprocess_pic` 会算 `__sin_r`，位模式不同）⇒ 用例避开 `45°`（README 的 libm 一节）。
+
+## 67. 切片 4A：`I18N` + `loader/get_import_fallbacks`
+
+步骤 4「主干」（宿主层）的第一刀。挑的是两片**没有宿主依赖**的叶子：`I18N`（语言别名 + 三张
+词表，96 行）与 `loader/get_import_fallbacks`（引入名 → 备选名，纯字符串，60 行）。它们不碰
+`World` / `stage` / `Factory`，所以能在宿主层开工前先把差分台面立起来（`i18n` subject）。
+
+### 67.1 移植面
+
+- `native/lfw/i18n.{h,cpp}`：`class I18N` —— `set_lang(v, error)`（返回 `bool` + 文本出参）、
+  `add(langs)`、`alias(v)` / `canonical(v)` / `string(name, lang)` / `strings(name, lang)`、
+  `lang()`。三张表 `_words` / `_lists` / `_alias_map` 都是 `std::map`（顶 TS 的 `Map`），
+  基表 `''` 在构造函数里种好（TS 的 `new Map([['', {}]])`）。
+- `native/lfw/loader/get_import_fallbacks.{h,cpp}`：
+  `bool get_import_fallbacks(const Value& name, std::vector<std::u16string>& fallbacks,
+  std::u16string& suffix)`；`name` 非字符串 ⇒ `false`（TS 在 `path.endsWith` 上抛）。
+- 进 `native/lfw/CMakeLists.txt`（C++ 源 406 → 408）。
+
+### 67.2 保真要点
+
+1. **`lang == ''` 是松散比较**：直接复用 `core/value.h` 的 `equals`（同类型走严格，否则按 JS
+   抽象相等规则），所以 `''` / `0` / `false` / `[]` / `[null]` 都算「空」，`null` /
+   `undefined` / 非空对象不算。`[null] == ''` 这一档是因为 `to_primitive` 会
+   `array_join([null]) === ""` —— 手写 `size() == 0` 就会漏。
+2. **`Map` 的键不做 ToString，JS 对象的键要**：`_words.get(lang)` 是 `Map.get` ⇒ 数字 `5`
+   与字符串 `'5'` 是两把钥匙（端口用 `std::u16string` 键 + 「语言必须是字符串」的守卫）；
+   而 `m?.[name]` 是**对象属性访问** ⇒ 键要 `ToString`（`5` ⇒ `"5"`、`null` ⇒ `"null"`、
+   `[1,2]` ⇒ `"1,2"`）—— 这一条是自测抓出来的（`str i5 n 5` 一开始返回了数字 `5`）。
+3. **`add` 的顺序与三道门**：假值 / 非对象 / 数组整块返回；逐个语言名，值是**字符串**就先记
+   别名（**空串也算别名**，`continue` 在真值判定之前）；值是假值 / 非对象 / 数组就跳过；否则
+   建/取两张表，逐词：字符串 ⇒ `strings[k]=v`、`lists[k]=[v]`；数组 ⇒
+   `strings[k]=v.join('\n')`、`lists[k]=v.map(x => '' + x)`；其它类型忽略。
+4. **`alias` 的三个出口**：沿别名表走，`visited.includes(ret)` 命中 ⇒ `undefined`（**环**）；
+   `if (!next) break` ⇒ 空串别名也当「没有别名」；循环结束后 `lang == ret`（没走动过）⇒
+   `undefined`。`canonical = alias(lang) ?? lang`。`string` / `strings` 则是「本语言表 ⇒
+   `alias(lang) ?? ''` 递归」，基表分支用 `?? name` / `?? [name]`。
+5. **两种字符串化不能混**：`join('\n')` 把 `null` / `undefined` 元素当**空串**，而
+   `'' + x` 给的是 `"null"` / `"undefined"`（端口 `join_lines` 与 `to_string` 各司其职，
+   同一批元素分别写进 `_strings` 与 `_lists`）。
+6. **`split_path` 的 JS `substring`**：`lastIndexOf('/') === -1` ⇔ `substring(0, -1 + 1)` 即从
+   0 起；`substring` 在两个端点反了时**交换**，所以端口用 `long long` 算 `begin` / `end` 再
+   条件交换（`endsWith` 保证最后一段含整个后缀 ⇒ `begin > end` 实际到不了，但照抄）。
+7. **图分支的 `filter(v => v !== name)`**：14 个候选取完再过滤，`a.png` / `a.webp` 这种名字
+   会把最后那条候选（`dir+name+".png"` / `".webp"`）过滤掉；漏了过滤就多一条与原名重复的
+   候选。音分支**不过滤**（`a.mp3` / `a.wav.mp3` 都不可能等于原名）。
+
+### 67.3 偏差（同时登记在 README 的偏差表）
+
+1. 三张表用 `std::map` 顶 `Map`（只按键取、不迭代 ⇒ 序不可观察）；`Map` 的「键不 ToString」
+   语义靠「语言必须是字符串」的守卫保住。
+2. `base_words` / `base_lists` 两个 getter 没实现（`src/LFW` 里没有使用者）。
+
+### 67.4 有意不覆盖 / 等价
+
+1. `add` 的两个假值门（`!truthy(langs)` / `!truthy(new_words)`）：去掉后 `as_object` 对同一批
+   假值返回 `nullptr`，走的是同一个「跳过」出口。
+2. `add` 里「先判字符串别名、再判真值」的顺序：唯一区别是空串别名算不算别名，而 `alias` 对
+   空串别名本来就当「没有别名」（要点 4）⇒ 两种顺序结果一样。
+3. `alias` 里 `visited.push_back(ret)` 记 `ret` 还是 `lang`：只在原地打转时才命中环检测，那种
+   情况两种记法都在第二轮命中。
+4. `string` / `strings` 里 `alias(lang) ?? ''` 的 `''` 换成 `undefined`：`words_of` 对两者都
+   查不到，递归一步后结果相同。
+5. 构造函数里给 `_words['']` / `_lists['']` 种的空表：`add` 处理任何语言名（含 `''`）时都会
+   补建这两张表，而「查不到」与「空表」在 `?.[name] ?? fallback` 下不可区分。
+6. `split_path` 的端点交换分支：见要点 6，`begin > end` 不可达。
+7. 图/音两个后缀组的先后：`endsWith` 不可能同时命中。
+
+### 67.5 harness 与变异
+
+新 subject `i18n`（`subjects/i18n.{cpp,ts}` + `cases/i18n/all.txt`），八个 op：
+`gif <name>`（`get_import_fallbacks`，非字符串 ⇒ `throw`）、`new <id>`、`add <id> <langs>`、
+`lang <id> <lang>`（`set_lang`，输出 `ok`/`throw` + `cur=` 当前语言 + `msg=`）、
+`alias <id> [lang]` / `canonical <id> [lang]`、`str <id> <name> [lang]` / `strs <id> <name> [lang]`。
+- `I18N` 内部是 `Map` / 私有字段，不能直接渲染 ⇒ 输出只走 `lang` / `alias` / `canonical` /
+  `string` / `strings` 的返回值。
+- **默认参数**：TS 的 `alias(lang = this._lang)` 等只对 `undefined` 生效（显式写 `u` 也算），
+  两端都用 `langArg` 把它换成 `it.lang`；`canonical` 显式 `u` 时 TS 给的是 `''`（默认参数生效）
+  而不是 `undefined`，这条一开始就踩到了。
+- 用例 262 行（16 组：`gif` 的非字符串入口 / 三种图后缀 / 目录切分（含 `a/.png`、`@2x/.png`、
+  `a\\b.png`）/ 音分支 / 无分支；`add` 三道门 / 别名 + 两种词 / 非对象词图夹在中间；`alias`
+  链与空串别名、环、松散 `lang == ''` 各档、词键类型转换；非字符串 `lang` / `name`；
+  `set_lang` 失败后语言不变；同名语言二次 `add`；数组词的两种字符串化；空串词与空数组词）。
+- 变异 `mutations/i18n.mjs` **67/67 全杀**（全部本刀新增；7 类按构造等价 / 不可达记在名单头部
+  与 §67.4）。踩到的两个坑：① `join_lines` 的锚点里 `u'\n'` 在 JS 模板串里必须写成 `u'\\n'`，
+  否则锚点是真换行、匹配不到；② 一开始把「不再种基表」与「端点交换」两条当可杀，实测都是
+  等价 ⇒ 改记进 §67.4。
