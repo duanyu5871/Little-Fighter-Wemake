@@ -23,6 +23,7 @@ class IItemEntity {
   virtual ~IItemEntity() = default;
   virtual Value ref() const = 0;          // `is_fighter(e)` / `is_weapon(e)` 的入参
   virtual const Value& data() const = 0;  // `e.data.base.name`
+  virtual Value team() const = 0;         // `Stage::kill_*` 的 `e.team === stage.team`
   virtual Callbacks& callbacks() = 0;     // `e.callbacks.add` / `del`
 
   virtual void set_outline_color(const Value&) = 0;

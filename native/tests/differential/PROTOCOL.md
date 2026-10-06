@@ -4014,3 +4014,64 @@ harness op：
   （往模板里塞 `Value(NullTag{})` / `strict_equals`）⇒ 改成 `RandomingItem<T>::null_taken()`
   与 `RandomingItem<Value>::loose_ne` 内的 `!strict_equals`（语义等价、两边都能编译）。
   `mt_random` 仍 **全杀 0 compile-error**。
+
+### 6.9.119 `stage/Stage`（`stage` 增用例 `stage`，1045 行；变异 **108/108** 全杀）
+
+- **移植面**：`native/lfw/stage/stage.{h,cpp}`（`IStageEntity` / `IStageWorld` / `IStageLfw` /
+  `StageCallbackArgs` + `StageCallbacks` / `Stage : IItemHost`）；`IItemEntity` 增 `team()`；
+  `CMakeLists.txt` 416 → 417。
+- **op 表**（`s` 前缀的是 Stage 侧，`squest` 是查询）：
+  - 世界：`sbg <值>`（换掉世界的 bg）、`schangebg <值>`（调 `Stage::change_bg`，用于第二次调用）、
+    `sdiff <值>`（`dataset.difficulty`）、`sbgfind <键> <值>` / `sstagefind <键> <值>`
+    （登记 `datas.backgrounds` / `datas.stages`，**按数据自己的 `id` 查、重复 id 取最后一条**）、
+    `splayer <值>`（`lfw.players`）、`stmseed <n>`。
+  - 假实体：`sent <标签>`、`sentdata <标签> <值>`、`sentce <标签> <值>`（设 `data.base.ce`）、
+    `sentteam` / `sentctrl` / `senthp` / `senthpmax` / `senthpr` / `sentmp` / `sentmpmax` /
+    `sentmounted` / `sentx` / `sentbearer`、`sentities <标签…>`、`spuppets <标签…>`、
+    `steamlike <标签>`（把 `e.team` 设成当前 `Stage.team`）。
+  - Stage：`sdata <值>` / `snew` / `sfree` / `sprop`（把 `world.stage` 指到当前 Stage）/
+    `sphase <n>` / `supd [n]` / `sdisp` / `skill <all|soldiers|boss|others>` /
+    `spushd <数组>` / `snextd` / `scleard` / `sstopbgm` / `sdump` / `squest`。
+- **`snew` 会挂五个回调监听**（`on_stage_finish` / `on_chapter_finish` /
+  `on_requrie_goto_next_stage` / `on_phase_changed` / `on_dialogs_changed`），回调里只打摘要
+  （`cb:phase=<curr id>,<prev id>` / `cb:dlg=<index>/<len>,<index>/<len>`）：整对象渲染会牵扯键序。
+- **读/写的对齐原则**：假实体**写**打日志、**读**静默（TS 那边是属性读）；假世界的每次**读**
+  都打一行（`h:bg` / `h:stage=` / `h:ents=` / `h:pupts=` / `h:diff=` / `h:camjump=`），
+  `set_bg` 连**旧 bg 的层数**一起打 ⇒ `change_bg` 里的 `prev_bg->dispose()` 才有观测手段。
+- **`squest` 是本刀的关键观测口**：一次打出 `ce` / `is_phase_end` / `is_dialog_end` /
+  `all_boss_dead` / `all_fighter_dead` / `dialog_cleared` / `should_goto_next_stage` /
+  `world_pause` / `control_disabled` / `weapon_rain_disabled` / `next_stage`。
+  ⚠️ C++ 侧那些调用**必须**先按 TS 的顺序求到局部量再拼字符串：`operator+` 是函数调用、
+  参数求值顺序未指定（MSVC 从右往左），而 TS 的模板字符串插值严格从左往右 —— 否则
+  `should_goto_next_stage()` 会抢在 `ce()` 前面跑，宿主日志顺序直接漂。
+- **`__end_testers` 两边都用数据里的 `__test`**：TS 台面在 `snew` / `spushd` 时把它就地转成
+  `__end_testers`（真的表达式实例数组），C++ 侧 `IStageLfw::end_testers(owner)` 读对象上同一个
+  字段 —— 那里存的是**序号**（`prepare_data` 把实例表塞进宿主池、序号写进对象），于是同一份
+  数据对象永远拿到同一批实例（`reset` 复用同一批实例，游标语义才一致）。
+  ⚠️ 别拿 `const Object*` 当缓存键：对象释放后地址会被复用 ⇒ 同一份用例**每次跑出来都不一样**
+  （行数在当时是 742 / 740 / 732 之间跳，`is_phase_end()` 有时跑表达式有时不跑）。定位手法：临时在
+  每个 op 前打一行标记、再在 `end_testers` 里打诊断，按 op 分组比对多个变体；改成序号后连跑
+  25 次哈希一致。
+- **用例**：`cases/stage/stage.txt` **1045** 行（23 组：构造 / `change_bg` 的早退与第二次调用 /
+  `enter_phase` 的边界 / hp·mp 恢复与复活 / `player_jump` / items 的 `spawn` 与 `update` 出列 /
+  dialog / `kill_*` 与 `dispose` / `fsm` 与三种 finish 回调 / 相位音效 / `phase.__end_testers` /
+  `next` 是空串 / `ce` 的几档 / `spawn` 的 `times`·`ratio` / `should_goto_next_stage` 的 bot；
+  16) 起的 8 组是按存活的变异补的：恢复·复活的 `>= 1` 支与 `respawn_x`、dialog 的空数组·
+  `dialog_time`·`clear` 与「结束就推对话」、空 `phases` 的 `enter_phase`、`ce` 的非 `Team_1` 与
+  未 `mounted`、非 boss 的 fighter / 非 fighter 的 item、should_goto 的 `>=` 与玩家判定、
+  `VOID_STAGE` 的早退、`id` 的 `|| ""`）。
+- **变异**：新档 `mutations/stage_main.mjs`（subject `stage`、`cases: ["stage"]`，
+  **108/108 全杀**）。第一轮 115 条里 26 条存活：6 条按构造等价或不可达撤出（`is_nullish` vs
+  `!truthy`、`hp_recovery` 的 `|| 0` vs `?? 0`、`hp_recovery_r` 与 `hp_recovery` 同源、
+  `player_facing` 的 `is_num` 守卫、`spawn_count <= 0` vs `< 0`、`update` 里 released 的再
+  `update`、`kill_*` 的队过滤恒真 —— 都记在文件头与 DESIGN §75.4），20 条补用例后杀掉
+  （旧 bg 的层数、`schangebg`、`phase.__test`、`hp_respawn_r` 表、`next s ""`、`cam_jump_to_x 0`、
+  不同队的实体、`ce` 的三档、`times`·`ratio`、bot、`dead e0`、`dispose` 的队伍/武器、`smtmark`）；
+  剩下的 109 条里又活 18 条 ⇒ 再撤出 1 条（`dispose` 的 `_disposers`：TS 里没有 push 点、恒空）
+  并用 16)~23) 那 8 组杀掉其余 17 条。
+- **另记三个 harness 侧的坑**：① TS 的 `FakeItemEntity` 原来只打 `set team` 的日志、**不存值**
+  ⇒ `Stage::kill_*` 读 `e.team` 时两边分叉（C++ 侧存了值）⇒ 补成 getter/setter；
+  ② `senthp` / `senthpr` / `sentmp` 这类「台面摆初值」的操作在 C++ 侧走的是**静默**方法
+  （`set_hp_value`），TS 侧一开始走了 `hp` 的 setter（会打日志）⇒ 补一组 `set_*_value`；
+  ③ puppets 里的假实体必须有 `data.base`（TS 的 `c.data.base.ce` 会抛），C++ 侧有 `field_or`
+  守卫 ⇒ 用例统一给 `sentdata`。

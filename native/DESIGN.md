@@ -7504,3 +7504,148 @@ subject `stage` 新增用例 `item`（`subjects/stage.{cpp,ts}` 里加了 `FakeI
   与 `strict_equals(shared_ptr, shared_ptr)` ⇒ `C2440`）⇒ 改成 `RandomingItem<T>::null_taken()`
   与 `RandomingItem<Value>::loose_ne` 里的 `!strict_equals`（语义等价、两种元素都能编译）。
   `mt_random` 仍 **64/64 全杀 0 compile-error**。
+
+## 75. 切片 4I：`stage/Stage`
+
+步骤 4「主干」（宿主层）的第九刀：`src/LFW/stage/Stage.ts`（493 行）是**一节的舞台** ——
+边界、相位（`phases`）、舞台物件（`items`）、对话框、以及收场（`dispose` / 四种 `kill_*`
+/ 三种「死绝」判定）。它把前九刀的东西全串了起来：`Background`（`change_bg`）、
+`Expressions`（`phase_end_tester` / `dialog_end_tester`）、`Item`（`spawn` 出来的物件）、
+`FSM<Status>`（`Running → Completed → End`）、`Callbacks`（五个回调）。
+
+### 75.1 移植面
+
+- `native/lfw/stage/stage.h`：`IStageEntity`（实体面：`hp` / `hp_r` / `mp` / `facing` /
+  `mounted` / `position_x` / `set_position` / `ctrl` / `team` / `data` / `bearer`）、
+  `IStageWorld`（`bg` 读写 / `stage()` / `entities` / `puppets` / `del_entities` /
+  `difficulty` / `camera_jump_x`）、`IStageLfw`（`mt` / `datas.backgrounds.find` /
+  `datas.stages.find` / `new_team` / `players` / `sounds` / `end_testers` / `Item` 侧三项）、
+  `StageCallbackArgs` + `StageCallbacks`、`class Stage : public IItemHost`。
+- `native/lfw/stage/stage.cpp`：`change_bg` / `set_phase` / `push_dialogs` / `next_dialog` /
+  `clear_dialogs` / `enter_phase` / `ce` / `spawn` / 四个 `kill_*` / `dispose` /
+  `all_boss_dead` / `all_fighter_dead` / 四个「结束判定」/ `should_goto_next_stage` / `update`
+  + `FSM` 的三个状态。
+- `native/lfw/stage/item.h`：`IItemEntity` 增 `team()`（`kill_*` 要 `e.team === stage.team`）。
+- 进 `native/lfw/CMakeLists.txt`（C++ 源 416 → 417）。
+
+### 75.2 保真要点
+
+1. **构造**：`datas.backgrounds.find(v => v.id === bid)` 没命中 ⇒ `Ditto.warn` + 回退
+   `Defines.VOID_BG`；随后的一大票边界赋值**分两处**（`change_bg` 里一份、构造里又一份），
+   构造里的那份把 `drink_l` / `drink_r` 从 `±MAX_SAFE_INTEGER` 改成 `-1200` /
+   `bg.width + 1200`；`next` 是**真值**判定（`""` 不查表）；`team` 取 `lfw.new_team`
+   （getter，**每次读都自增**，所以构造里只读一次）。
+2. **`change_bg` 的三段早退**（TS 原注释就写着 `FIXME: so messed up here...`，照抄）：
+   ① `world.bg` 存在且 id 相同 ⇒ 直接返回它；② `world.stage` 有值**且**（此时 `world.bg.data.id`
+   仍是旧对象）id 相同 ⇒ 返回旧对象。第二段里 `world.bg` 的读取是**短路**的（`world.stage`
+   为假就不读）—— 这决定了宿主日志的次数，端口写成「先取 `stage()`，再决定要不要取 `bg()`」。
+   末尾 `return this.world.bg = bg` 是**赋值表达式**（不读 `world.bg`）⇒ 端口返回刚建的对象。
+3. **`set_phase` 的八大块**：同一性早退（`phase === this.phase`，是**引用**比较）；重置
+   `phase_time` 与 `phase_end_tester`；回调 `on_phase_changed`；`player_l = 0` / `player_r =
+   bg.right`；hp/mp 的难度表恢复与复活；播相位音效；按 `objects` 刷物件；`cam_jump_to_x`；
+   七条边界；`player_jump_to_*` 的传送；`dialogs` 入列。
+4. **难度表的读取是惰性的**：`health_up?.[difficulty]` 里 `?.` 会短路（`health_up` 是 nullish
+   就**不读** `difficulty`），而 `world.dataset.difficulty` 在 TS 里**每处用都重新读**（共 6 处）
+   ⇒ 端口把它写成「只在需要时才问宿主的 `map_at` lambda」，读取次数与顺序才与 TS 一致。
+5. **`??` 的惰性**：`phase.player_r ?? phase.bound ?? this.bg.right`、`enemy_r ?? ((bound ??
+   bg.right) + 1200)`、`drink_r ?? (bg.right + 1200)` —— `this.bg` 是 getter，**每处用都重新读**
+   ⇒ 端口用 `bound_or_bg_right()` 这样的小 lambda 逐条按需调用（先缓存 `bg.right` 会少读几次，
+   台面能看见）。
+6. **复活/恢复的赋值顺序**：`f.hp = …` 先写，再算 `hp_r` 并 `f.hp_r = max(hp_r, hp)`；复活的
+   `hp` 与 `hp_r` 用的是 `hp_respawn` / `hp_respawn_r` 两张不同的表（`hp_respawn_r` 缺省回落到
+   `hp_respawn`）；`respawn_x` 命中时 `set_position(x, null, null)`（**null** 不是 undefined）。
+7. **传送**：`mt.mark = "criminal_respawn"` 在每个实体上都写；`x` / `z` 的初值是 **null**；
+   `mt.range(max(player_l, px - 50), min(player_r, px + 50))` 与 `z` 的 `far`/`near` 版本；
+   `facing` 只认 `1` / `-1`（`is_num` 先过滤，所以是严相等）。
+8. **对话框**：`_dialogs` 是 `{index, list}` 对象字面量，每次变都换一个新对象（旧的那份留给
+   回调）；`push_dialogs` 里 `index < 0` 才动 `index` / `dialog_time` / `dialog_end_tester`；
+   `next_dialog` 的结束语是 `index >= list.length`（**允许** 越界一格）；`clear_dialogs` 回到
+   `{index: -1, list: []}`。
+9. **`enter_phase`**：`this._phase_idx = idx` 是**表达式**（在取 `phases[idx]` 之前完成）；
+   收尾 `_is_stage_finish = phases.length > 0 && idx >= phases.length`；
+   `_is_chapter_finish = _is_stage_finish && next_stage?.chapter !== data.chapter`（`next_stage`
+   缺失 ⇒ 左侧是 `undefined`）。
+10. **`ce`**：先累加 `world.puppets` 每个的 `data.base.ce ?? 1`（**nullish** 兜底，`0` 保留），
+    为 0 时才去数 `world.entities` 里 `Team_1` 的、`mounted` 的、有血的 fighter；还是 0 就取 1；
+    最后 `Crazy` 难度乘 2（`Easy` / `Normal` / `Difficult` 没有分支）。
+11. **`update`**：`phase_time++` / `dialog_time++` 各自带条件；`fsm.update(1)`；
+    `id == Defines.VOID_STAGE.id`（**松散**比较）直接返回；随后「**先**把 released 的收集起来、
+    **其余**才 `update()`」，再统一从 `items` 里删（⇒ 同一拍刚被标记 released 的物件要到下一拍
+    才出列）；最后 `check_phase_end` / `check_dialog_end`。
+12. **`should_goto_next_stage`**：`is_chapter_finish || !is_stage_finish` ⇒ false；只在
+    `Completed` 状态里被问；遍历 `world.entities`，跳过非 fighter / 无血 / 已到右侧
+    （`position.x >= cam_r`）/ 是 Bot 的，剩下的如果 `players.has(ctrl.player_id)` ⇒ false。
+13. **`dispose`**：`_disposers`（TS 里是空数组）→ 所有物件 `release()` → 把**不属于玩家队伍**
+    的实体（fighter 直接看 team、weapon 看 `bearer.team`）交给 `world.del_entities` →
+    `callbacks.clear()`。
+
+### 75.3 偏差（同时登记在 README 的偏差表）
+
+本刀在 README 加了 10 行：三条缝、`CallbacksT<StageCallbackArgs>`、`end_testers` 由宿主提供、
+`DialogState` 值拷贝、`warn` 进程级 sink、`same_ref`、`_disposers` 恒空、
+`change_bg` 的 null 守卫、`IItemEntity::team()`。
+
+### 75.4 有意不覆盖 / 等价
+
+1. `_disposers` 永远为空（TS 里没有 push 点）⇒ `dispose` 的那一行无从观察。
+2. `same_ref` 的「对象比指针」这件事实本身：用例只能证明「同一份数据再传一次会早退」。
+3. `is_nullish(bdt)` vs `!truthy(bdt)`：`datas.backgrounds.find` 只可能返回对象或 undefined
+   ⇒ 两种写法在可达输入上等价。
+4. `hp_recovery` 的 `|| 0` vs `?? 0`：后续 `truthy` / `to_number` 会把假值（含 NaN）拉平。
+5. `hp_recovery_r`：TS 原文就是 `health_up?.[diff] || hp_recovery` ⇒ 与 `hp_recovery` 同源。
+6. `player_facing` 的 `is_num(...) ? ... : void 0`：`player_f` 只被拿去**严**比较 `1` / `-1`
+   ⇒ 换成 `!is_undefined` 的守卫看不出差别。
+7. `enter_phase` 里 `_phase_idx = idx` 与 `phases()` 的先后：`phases()` 不读 `_phase_idx`。
+8. `spawn_count <= 0` vs `< 0`：后面还有 `while (spawn_count > 0)` ⇒ `0` 时两边都不刷。
+9. `update` 里 `id == VOID_STAGE.id` 的松/严相等：两边都是字符串（`id` 由 `|| ""` 得来）。
+10. `update` 里 released 的物件要不要再 `update()`：`Item::update` 开头的 `_released` 门让它立刻
+    返回 ⇒ 交换两个分支的副作用不可见。
+11. `kill_*` 的 `e.team === this.team`：`Item::spawn` 里就是 `e.set_team(this.stage.team)`
+    ⇒ 物件刷出来的实体恒等于本队，这个过滤在可达输入上恒真。
+12. `change_bg` 里 `prev_bg` 为 null 时 TS 会 `TypeError`（端口有守卫）：`World` 构造里先建
+    `bg` 再建 `Stage` ⇒ 不可达。
+13. `Stage::warn` 的 sink 未安装时（`if (sink)`）不产生任何观察。
+14. `DialogState` 在端口是值语义 ⇒ 「共享 `list`」这种写法不存在（TS 那侧也不共享：
+    `[...prev.list, ...more]`）。
+
+### 75.5 harness 与变异
+
+- 台面加了三层假件：`FakeStageEntity`（**写**打日志、**读**静默 —— 与 TS 的属性读对齐）、
+  `FakeStageWorld`（`bg` 读写 / `stage()` / `entities` / `puppets` / `del_entities` /
+  `difficulty` / `camera_jump_x` 各打一行，**`set_bg` 连旧 bg 的层数一起打** ⇒
+  `prev_bg->dispose()` 才看得见）、`FakeStageLfw`（`datas` 两张表按 `data.id` 查、**重复 id 取最后
+  一条**（对齐 TS 台面用 `Map` 的覆盖语义）、`new_team` 自增、`sounds` 三个口、
+  `end_testers(owner)` 读对象上的 `__end_testers` **序号**：`prepare_data`（`snew` 时）与
+  `spushd` 把 `__test` 就地转成「实例表 + 序号」，于是同一份数据对象永远拿到同一批实例 ——
+  与 TS 的引用语义一致）。
+- op（19 个）：`sbgfind` / `sstagefind` / `sbg` / `schangebg` / `sdiff` / `splayer` / `stmseed` /
+  `sprop` / `steamlike` / `sent` / `sentdata` / `sentce` / `sentteam` / `sentctrl` / `senthp` /
+  `senthpmax` / `senthpr` / `sentmp` / `sentmpmax` / `sentmounted` / `sentx` / `sentbearer` /
+  `sentities` / `spuppets` / `sdata` / `snew` / `sprop` / `sfree` / `sdump` / `squest` / `sphase` /
+  `supd` / `sdisp` / `skill` / `spushd` / `snextd` / `scleard` / `sstopbgm`。
+- 用例 `cases/stage/stage.txt` **1045** 行（23 组：构造 / `change_bg` 的早退 / `enter_phase` 的
+  边界 / hp·mp 恢复与复活 / `player_jump` / items 的 `spawn` 与 `update` 出列 / dialog /
+  `kill_*` 与 `dispose` / `fsm` 与回调 / 相位音效 / `change_bg` 的第二次调用 /
+  `phase.__end_testers` / `next` 是空串 / `ce` 的几档 / `spawn` 的 `times`·`ratio` /
+  `should_goto_next_stage` 的 bot / —— 16) 起的 8 组是**按存活的变异补的**：恢复·复活的
+  `>= 1` 支与 `respawn_x`（16）/ dialog 的空数组·`dialog_time`·`clear`（17）/ 空 `phases` 的
+  `enter_phase`（18）/ `ce` 的非 `Team_1` 与未 `mounted`（19）/ 非 boss 的 fighter 与非
+  fighter 的 item（20）/ 右边界的 `>=` 与玩家判定（21）/ `VOID_STAGE` 的早退（22）/
+  `id` 的 `|| ""`（23））。
+- 变异 `mutations/stage_main.mjs`（subject `stage`，只跑 `stage` 用例）：**108/108 全杀**
+  （第一轮 115 条 → 89 杀 / 26 存活；6 条按构造等价或不可达撤出（清单见 §75.4）、其余 20 条
+  靠补的用例杀回（旧 bg 的层数、`schangebg` 的第二次调用、`phase.__test`、`hp_respawn_r` 表、
+  `next s ""`、`cam_jump_to_x 0`、不同队的实体、`ce` 三档、`spawn` 的 `times`·`ratio`、bot、
+  `dead e0`、`dispose` 的队伍与武器、`smtmark`）⇒ 109 条里还剩 18 条存活：再撤出 1 条
+  （`dispose` 的 `_disposers`，见 §75.4 第 1 条）、其余 17 条用用例 16)~23) 补上）。
+- **一个 C++ 侧的坑**（写进 PROTOCOL §6.9.119）：`push("..." + f() + g() + ...)` 里那些
+  有副作用的调用**不能**写在拼接链里 —— `operator+` 是函数调用、参数求值顺序**未指定**
+  （MSVC 从右往左），而 TS 的模板字符串插值严格从左往右 ⇒ 宿主日志的顺序会漂。
+  `dump_stage_quest` 就是被这个坑到的（`should_goto_next_stage()` 抢在 `ce()` 前面跑），
+  改成先按 TS 顺序求到局部量再拼接。
+- **另一个坑（差分抖动）**：台面最初拿 `const lfw::Object*` 当 `end_testers` 的缓存键 ⇒
+  **同一份用例每次跑出来行数都不同**（当时 742 / 740 / 732 乱跳，`is_phase_end()` 有时跑表达式
+  有时不跑）。对象释放后地址会被复用，于是「指针相同」有时是同一份数据、有时是另一份
+  ⇒ 命中错表。定位手法：临时在每个 op 前打一行标记 + 在 `end_testers` 里打诊断，再按 op
+  分组比对多个变体。改成「对象上挂 `__end_testers` 序号 + 宿主表」后，25 次连跑哈希一致。
+  **教训：宿主侧任何以对象地址为键的缓存都不确定**（TS 那侧天然是引用，没有这个问题）。
