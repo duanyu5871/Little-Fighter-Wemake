@@ -513,7 +513,7 @@ void Entity::set_hp(double v) {
   }
   callbacks.call(u"on_hp_changed", {ref(), Value(v), Value(o)});
   if (ctrl_ != nullptr && ctrl_->is_human() && ((o > 0) != (v > 0))) {
-    host_->mark_players_alive(v > 0);
+    host_->mark_players_alive(*this, v > 0);
   }
   if (o > 0 && v <= 0) {
     callbacks.call(u"on_dead", {ref()});
@@ -577,7 +577,7 @@ void Entity::set_ctrl(controller::BaseController* v) {
   controller::BaseController* prev = ctrl_;
   ctrl_ = v;
   callbacks.call(u"on_ctrl_changed", {ctrl_ref(v), ctrl_ref(prev), ref()});
-  host_->mark_players_alive(ctrl_->is_human() && hp() > 0);
+  host_->mark_players_alive(*this, ctrl_->is_human() && hp() > 0);
   if (prev != nullptr) host_->release_ctrl(prev);
 }
 

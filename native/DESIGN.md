@@ -7649,3 +7649,127 @@ subject `stage` 新增用例 `item`（`subjects/stage.{cpp,ts}` 里加了 `FakeI
   ⇒ 命中错表。定位手法：临时在每个 op 前打一行标记 + 在 `end_testers` 里打诊断，再按 op
   分组比对多个变体。改成「对象上挂 `__end_testers` 序号 + 宿主表」后，25 次连跑哈希一致。
   **教训：宿主侧任何以对象地址为键的缓存都不确定**（TS 那侧天然是引用，没有这个问题）。
+
+## 76. 切片 4J：`World`
+
+步骤 4「主干」（宿主层）的第十刀：`src/LFW/World.ts`（1017 行）是**世界本体** —— 实体表
+（`entity_map` / `entities` / `ghosts` / `puppets`）、边界转发、`team_*`、碰撞对表、相机、
+背景与舞台的换装、计分（`_counts` / `team_alive_counts` / `game_result`）、渲染循环与
+暂停/休眠。这一刀**只搬「状态与查询」那一半**：`step` / `update_once` / `start_update` /
+`catch_up`（实体推进、碰撞配对、相机目标）留给 4K。
+
+### 76.1 移植面
+
+- `native/lfw/world.h`：`WorldCallbackArgs` + `WorldCallbacks`（`CallbacksT<WorldCallbackArgs>`）、
+  `IWorldUi`（`lfw.layers.at(i)?.ui` 那一面）、`IWorldLfw : stage::IStageLfw`（`LFW` 未移植的
+  那一面 **加上** 世界额外要的：`player` / `get_random_bg` / `create_entity` / `recycle_*` /
+  `acquire_invalid_ctrl` / `release_ctrl` / `layer_uis` / `mt_range` / `is_cheat` / `new_id` /
+  `broadcast` / `create_ctrl` / `has_cmds` / `survival_rank_*` / `ctrl_come|move|stay|follow|goingto`
+  / `warn`）、`IWorldRenderer`（`Ditto.WorldRender` 那一面）、`class World : public ICameraWorld`。
+- `native/lfw/world.cpp`：三个视图（`WorldEntityHost : IEntityHost`、`WorldStageView :
+  stage::IStageWorld`、`StageEntityView : stage::IStageEntity`）+ 世界全部方法。
+- `native/lfw/entity/entity.{h,cpp}`：`mark_players_alive(bool)` → `mark_players_alive(Entity&, bool)`
+  （TS 是 `world.mark_players_alive(this, alive)`，宿主那面原来少了个实体参数）。
+- `native/lfw/entity/entity_ref.cpp`：`ref_of` 补 `data`（见 76.4）。
+- 进 `native/lfw/CMakeLists.txt`（C++ 源 417 → 418）。
+
+### 76.2 结构上的三个决定
+
+1. **`IWorldLfw` 继承 `IStageLfw`**：`Stage` 那一刀开的缝就是「`LFW` 未移植的那一面」，`World`
+   要的是同一个 `lfw` 对象 ⇒ 不新开一套假件，直接把那面接长。台面只需实现一个类。
+2. **`World` 直接实现 `ICameraWorld`**（`world_stage()` / `world_bg()` / `world_dataset()`）：
+   TS 里 `Camera` 读的是 `world.stage` / `world.bg` / `world.dataset` 三次**属性读**，而端口
+   的 `ICameraWorld` 是三个方法；名字与 `World` 自己的字段不撞 ⇒ 不用再包一层视图。
+   返回的是**每次新建的 `Value` 快照**（`field_or` 读属性），与「读几次就是几次」对齐。
+3. **JS `Map` / `Set` 一律用「vector + 线性查找」**（`entity_map` / `_entities_map` 缓存 /
+   `puppets` / `puppet_teams` / `collisions` / `counts` / `team_alive_counts` / `_gones`）：
+   `Map.set` 覆盖同键时**位置不变**、`Set` 判重且保插入序 —— 这两条 dump 里都看得见。
+
+### 76.3 与 TS 的偏差（本刀新增）
+
+- **`render_worker_id_` 用 0 表示 TS 的 `undefined`**：`Ditto.Render.add` 的句柄在端口里走
+  `clock_add`（槽空时回 0）⇒ dump / 日志里把 0 打成 `u`（台面的 `handle_str`），否则 TS 的
+  `undefined` 与端口的 0 无法对齐。
+- **`fps_value()` 落空回 `NaN`**：TS 的 `get FPS()` 在 `sync_render` 不是五个枚举值时返回
+  `undefined`（后续算术成 `NaN`）；端口的分量是 `double` ⇒ 用 `NaN` 顶替，台面把二者都打 `u`。
+- **`on_step_error` 的两处收窄**：TS 读 `Date.now()` 且参数是异常对象（`Ditto.warn(e)` +
+  `e?.errors`）；端口把它收进时钟槽（`clock_now()`，与 `render_once` 同一套）并把「有没有
+  `errors`」收成一个 `bool`，第二句告警的文本固定成 `[World::start_update] errors`
+  （TS 打的是 `e.errors` 本身）。台面为此把 `Date.now` 接到假时钟、并喂一个 `toString()` 给
+  消息、`errors` 给该固定文本的假错误对象。
+- **`Defines.RANDOM_BG.id` 是 `"?"`**：`change_bg` 的随机分支按它判定；`dataset.LF2_NET` 为真时
+  传两组 `BGG`（`regular` / `hidden`），否则只传 `regular`。
+- **`Ditto.warn` 的一参/两参**：世界自己发的是单参（`lfw.warn` 缝），`Stage` 那处是 `(where, text)`
+  两参（`Stage::set_warn`）⇒ 台面按参数个数分流，两条日志格式各自对齐。
+
+### 76.4 差分抓出来的真 bug：`ref_of` 少了 `data`
+
+`native/lfw/entity/entity_type_check.cpp` 里：
+
+```cpp
+bool is_fighter(const Value& v) { return is_fighter_data(field_or(v, u"data")); }
+```
+
+也就是 `is_fighter(x)` 读的是 **`x.data.type`**（TS 的 `is_fighter(e)` = `e.data.type === Fighter`）。
+而 `ref_of(e)` 当初只写了 `{ id, position, frame, team, hp, type, ghosted }` —— 顶层有 `type`、
+**没有 `data`**。于是 `world.cpp` 里四处 `entity::is_fighter(ref_of(e))` 全是恒假：战士不进
+「玩家/puppet」分支、`get_bound` 永远走默认支、`calc_alives` 一个队伍都数不出来。
+4I 没暴露它，是因为 `stage` 台面的假实体**自己**造引用（`ref()` 里塞了 `data`）；
+4J 用真 `Entity` 接线（`StageEntityView::ref()` → `ref_of`），一跑就现形。
+修法：`ref_of` 补 `data`（`o.set(u"data", e.data())`，共享同一个数据对象）。
+`is_weapon` / `is_ball` 同理，一起受益。
+
+### 76.5 台面（新 subject `world`）的坑
+
+- **TS 侧 `new World(lfw)` 会 `new Ditto.WorldRender(this)`**（渲染未移植）⇒ 台面在
+  `Ditto.setup` 里塞一个**什么都不做**的 `WorldRender` 空壳，构造完再 `world.renderer = 假件`
+  （端口侧是注入的 `IWorldRenderer&`，没有这一步）。
+- **`Stage` 会读 `lfw.world`**（`dispose` 里 `this.lfw.world.puppets`）⇒ 假 `lfw` 必须有个
+  `get world()` 指回世界（端口侧对应 `IStageWorld` 视图）。
+- **`Entity` 的向量走 `Ditto.vec3()`**：`reset` 里 `prev_position.set(...)` /
+  `prev_position.copy(...)` ⇒ 台面给的轻量 Vector3 要有 `set` / `copy`
+  （`entity` 台面同款做法）。
+- **实体数据必须给够**：`data.base`（`reset` 读 `base.resting_max` 等）与 `data.frames`
+  （`enter_frame_by_id` 要查 `frames[id]`）；`spark` / `etc` 的用例得把这两样都写上，
+  否则 TS 直接抛 `TypeError`。
+- **`data.type` 决定实体种类**（`EntityEnum`：Fighter 8 / Weapon 16 / Ball 32 / Entity 4），
+  `data.base.type` 是武器子类（`WeaponEnum.Drink` = 5）—— 想覆盖 `get_bound` 的三支、
+  `restrict` 的武器/球支、`add_entities` 的战士支，用例必须写对这两个数字（只写
+  `base o 0` 的话 `is_fighter` 恒假，四条 `is_*` 分支全部走默认）。
+- **`restrict` 的球分支（`x < left - 800 - l_len`）在 TS 与端口都够不着**：球的边界是
+  `±MAX_SAFE_INTEGER`，`clamp` 之后两边都到不了 ⇒ 记在 `mutations/world.mjs` 头部；
+  武器的 gone 支要**负的 `l_len`/`r_len`** + Drink 的 `drink_l`/`drink_r` 边界才碰得到。
+- **`spark` 的 355 门**看的是 `entities.length + ghosts.length`；`wfill <n>` 会把 `ghosts`
+  撑到 n 条 `null` ⇒ 台面的 dump 必须跳过 `null`（TS 的 dump 同样跳过）。
+
+### 76.6 变异：两轮、33 条存活全是用例问题
+
+第一轮 135 条跑出 **102 杀 / 33 存活**，逐条查完**没有一条是端口错误** —— 全是「用例没写到位」
+或「按构造等价」，改完用例 + 撤出 4 条后第二轮 131 条 **126 杀 / 5 存活**，再补 5 刀（见下）
++ 2 条新变异（`set_stage` 的 `dispose` / `enter_phase(0)`，之前因为「空世界看不出差别」被列进
+「有意不覆盖」）后 **133/133 全杀**。值得记下来的五个：
+
+1. **舞台的 `player_*` / `enemy_*` 会被 `enter_phase(0)` 覆盖**：`bound` 的舞台数据只写了顶层
+   字段，可 `set_stage` 之后紧跟的 `enter_phase(0)` → `set_phase(phases[0])` 会把
+   `player_l` / `enemy_l` 重写成阶段里的值（没有 `phases` 时两边都退回 `bg` 的左右界 ⇒
+   正好**相等**）⇒ `get_bound` 的「队内 / 队外」两支打印同一个数，`==` 翻成 `!=` 也看不出来。
+   给舞台数据补 `phases`，并补一条 `wteamsame` **之前**的 `wbound` 把两支都打出来。
+2. **`clear` 的那段循环会被 `set_stage` 的 `Stage::dispose` 盖住**：`clear` 里「舞台不是
+   VOID_STAGE 就换回 VOID_STAGE」→ `set_stage` → `Stage::dispose` 会把实体全设成 gone。
+   `bound` 的 `wclear` 恰好落在这一支 ⇒ 要看 `clear` 自己那句 `set_frame(GONE_FRAME_INFO)`，
+   得在 `wclear` 前先 `wstage s "VOID_STAGE"`（这一步同时把 `set_stage` 的 `dispose` /
+   `enter_phase(0)` 两处变成可观察的 —— 两条新变异就是这么来的）。
+3. **`add_entities` 的 `entity_map` 早退会吃掉回调**：台面先 `wadd` 再改 `ctrl`、再 `wreadd`，
+   第二次调用整体早退 ⇒ `on_puppet_add` 一次都没发过。要 `wmk`（只造实体）+ 摆好
+   `ctrl` / `pid` + `wreadd`。
+4. **默认 `hp > 0`**：`entities` 那条「hp = 0 不记账」的注释写了、`hp` 没写 ⇒ 两边都记账、
+   变异看不出来。把 `hp` 真的写成 0，再加一个 `hp 10` 的实体覆盖另一半。
+5. **「空队伍」不等于空表**：`teams` 里 `game_result` 的 `drawn` 支要求 `team_alive_counts`
+   真为空，可台面另加的 bot / puppet 都还活着（`d` 的 hp 从没设过 ⇒ 默认 > 0）⇒ 一直走的是
+   `'over'`。末尾把活着的战士全打死再 `wgame`，且**不能**是 VOID_STAGE（否则 `'drawn'` 与
+   `'over'` 又会撞在一起）。
+
+另外两条一次就杀、但值得留在脑子的：`clear` 里那个 bg 判等**按构造等价**（等号成立时
+`Stage::change_bg` 自己也有「同 id 早退」，打不打这个电话分辨不出来），以及
+`SyncRenderEnum` 的取值顺序（Unlimited 0 / Half 1 / Sync 2 / FPS_60 3 / FPS_120 4）——
+写 `render` 用例时最容易错。

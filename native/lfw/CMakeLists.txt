@@ -109,6 +109,7 @@ add_library(lfw_core STATIC
   factory.cpp
   resources.cpp
   zip_mgr.cpp
+  world.cpp
   bg/layer.cpp
   bg/background.cpp
   stage/item.cpp

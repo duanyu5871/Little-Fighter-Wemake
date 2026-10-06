@@ -4075,3 +4075,69 @@ harness op：
   （`set_hp_value`），TS 侧一开始走了 `hp` 的 setter（会打日志）⇒ 补一组 `set_*_value`；
   ③ puppets 里的假实体必须有 `data.base`（TS 的 `c.data.base.ce` 会抛），C++ 侧有 `field_or`
   守卫 ⇒ 用例统一给 `sentdata`。
+
+### 6.9.120 `World`（新 subject `world`，八份用例共 638 行；变异 **133/133** 全杀）
+
+- **移植面**：`native/lfw/world.{h,cpp}`；`entity/entity.{h,cpp}` 的
+  `mark_players_alive(Entity&, bool)`；`entity/entity_ref.cpp` 的 `ref_of` 补 `data`（真 bug，
+  见 DESIGN §76.4）；`CMakeLists.txt` 418。
+- **op 表**（都带 `w` 前缀，避免与 `stage` 台面撞名）：
+  - 世界：`wnew`（建世界）、`wdump`（一条摘要行）、`wds <键> <值>` / `wdsdump`、
+    `wbg <值>` / `wstage <值>`、`wbgdata <值>` / `wstagedata <值>`（登记假 `datas`）、
+    `wrandbg <值…>`（`get_random_bg` 的返回值脚本）、`wdatas <oid> <值>`（`datas.find`）、
+    `wplayer <id>` / `wplayerfighter <id>`、`wcheat <名> <0|1>`、`wmtseed <n>`、
+    `wlayer <0|1>`（`lfw.layers` 里的假 UI 层）、`wcmds <0|1>` / `whandle`。
+  - 实体：`wadd <标签> <值>`（真 `Entity` + `add_entities`）、`wreadd <标签>`、
+    `went <标签> <字段>`（`hp` / `hpr` / `team` / `puppet` / `ghosted` / `facing` / `pos` /
+    `ctrl` / `pid` / `frame` / `gone` / `ground` / `llen` / `rlen` / `bearer` / `catcher`）、
+    `wteamsame <标签>`（把队伍设成当前舞台的队伍）、`wlist <名>`（连调两次看缓存）、
+    `wdel` / `wdels`、`wfind <id>`、`wmark <标签> <0|1>`、`wgame <0|1>`、
+    `wcount <键> <n>` / `wcountsdump`、`wcol <id> <aid> <vid> <dist>` / `wcolsdump` /
+    `wcolq <aid> <vid>`。
+  - 渲染与时间：`wclockset <ms>` / `wtick <ms>`（假时钟，`Ditto.Clock` 与 `Ditto.Render` 同一个槽）、
+    `wrender <dt>` / `wcam` / `wcamdest <x> <y>` / `wui` / `wbase` / `wfps` / `wrstart` / `wrstop` /
+    `wstopupdate` / `wsleep` / `wawake` / `wserr <n> <0|1>`。
+  - 边界与特效：`wbound <标签>` / `wrestrict <标签>` / `wbounding <标签> <frame 值> <info 值>`、
+    `wsection <x>` / `wrandx [exclude]` / `wcnt <x>` / `wgsadd <s> <n>` / `wgsdump`、
+    `wspark <x> <y> <z> <f>` / `wetc <x> <y> <z> <f>` / `wfill <n>`（把幽灵表撑到 n 条）。
+  - 清理：`wclear` / `wdispose` / `wreset`；回调：`wcb <名>`（注册 11 个世界回调里的一个）。
+- **`wcb` 是本刀的观测主力**：`on_stage_change` / `on_cam_move` / `on_pause_change` /
+  `on_fn_locked_change` / `on_fps_update` / `on_fighter_add` / `on_puppet_add` /
+  `on_dataset_change` / `on_counts` / `on_disposed` 十个都能装监听并打一行摘要
+  （端口侧的 `WorldCallbackArgs` 把 TS 的位置参数打包成一个结构，台面各按字段打）。
+- **TS 侧要装的东西**（端口侧都是注入的假件，没有对应步骤）：
+  `Ditto.setup({ Vector2, Vector3, Clock, Render, WorldRender: 空壳, warn, Cache: 挂起的 Promise,
+  JSON5, DEV })`；`world.renderer` 换成假件；假 `lfw` 的 `get world()` 指回世界（`Stage.dispose`
+  会读 `lfw.world.puppets`）；`Date.now` 接到假时钟（`on_step_error`）；
+  `CMDS.register("__probe__", …)`（`handle_cmds` 在端口侧是宿主缝，TS 侧用它把「有没有被调到」
+  变成同一条日志）。
+- **用例**：八份，共 638 行 —— `basic` 55（构造 / `dataset` / `change_bg` 的四种入参 /
+  `change_stage` 的早退与回落 / `RANDOM_BG` 的 `LF2_NET` 两路）、`bound` 116（`get_bound` 的四支、
+  `restrict` 的夹取与三类早退、`clear`/`dispose`/`reset_game_time`）、`callbacks` 72（十个回调）、
+  `entities` 96（实体表 / puppet / 计数 / 碰撞对）、`misc` 53（`handle_cmds` / `on_step_error` /
+  `base_step_ms` / 休眠）、`render` 63（时钟 / 渲染 / 相机 / UI / 暂停 / FPS 的五支）、
+  `spark` 73（火花·杂项 / 武器分带 / `get_bounding`）、`teams` 110（`team_*` / 存活统计 /
+  `game_result` 的每一支）。
+- **变异**：新档 `mutations/world.mjs`（subject `world`，八份用例全跑，**133/133 全杀**，
+  0 compile-error）。第一轮跑出 33 条存活，逐条查完发现**全都是用例没写到位**（不是端口问题），
+  于是按下面的顺序补台面 / 改用例（每一条都对应一次「改完再跑」）：
+  1. `bound` 的舞台数据一开始只写顶层 `player_l` / `enemy_l`，可 `set_stage` 之后紧跟的
+     `enter_phase(0)` 会用 `phases[0]` **覆盖**它们（没有 `phases` 时两边都退回 `bg` 的左右界、
+     反而**相等**）⇒ `get_bound` 的「队内 / 队外」两支打印出同一个数，翻不翻转都看不出来。
+     给舞台数据补 `phases a 1 o 4 player_l … enemy_l …`（值再和顶层错开），并补一条
+     `wbound`（`wteamsame` 之前）把两支都打出来；
+  2. `bound` 的 `wclear` 落在「舞台不是 VOID_STAGE」那一支 ⇒ `set_stage` → `Stage::dispose`
+     先把实体全设成 gone，把 `clear` 自己那段 `set_frame(GONE_FRAME_INFO)` 盖住。
+     在 `wclear` 前加一句 `wstage s "VOID_STAGE"`（顺带把 `set_stage` 的 `dispose` /
+     `enter_phase(0)` 两处暴露出来，两条变异一起进档）；
+  3. `callbacks` 里先 `wadd` 再改 `ctrl` ⇒ `wreadd` 时 `entity_map` 已命中、整体早退，
+     `on_puppet_add` 从没发过。改成 `wmk`（只造实体）+ `went … ctrl/pid` + `wreadd`，
+     并把「再挂一次」单独留一行；
+  4. `entities` 的「hp = 0 不记账」那条只写了注释没写 `hp`（默认 hp > 0，两边都记账）⇒
+     补 `went f4 hp n 0`；另加一个 `hp 10` 的新实体走「human + hp > 0 ⇒ 记账」那半；
+  5. `teams` 的「空队伍 ⇒ drawn」其实队伍里还有活人（另加的 `d` / `p1` / `p2`）⇒ 末尾补一段
+     把活着的战士全打死再 `wgame 1` / `wgame 0`（空表 + 真舞台才能和 `'over'` 分开）。
+  另外 4 条变异按构造等价 / 暂时够不着撤出（构造里的 bg 数据、构造里的 `set_scale`、`set_paused` 的同值早退、
+  `reset_game_time` 要等 4K），8 条按不可观察列在档头 —— 其中
+  「`clear` 里 bg 判等失效」是跑完第二轮才确认**按构造等价**（等号成立时 `Stage::change_bg`
+  自己也有「同 id 早退」）。

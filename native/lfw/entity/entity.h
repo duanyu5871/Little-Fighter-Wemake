@@ -67,7 +67,10 @@ class IEntityHost {
   // `world.lfw.factory.release_ctrl(ctrl)`
   virtual void release_ctrl(controller::BaseController* ctrl) { (void)ctrl; }
   // `world.mark_players_alive(this, alive)`
-  virtual void mark_players_alive(bool alive) { (void)alive; }
+  virtual void mark_players_alive(Entity& e, bool alive) {
+    (void)e;
+    (void)alive;
+  }
   // `world.lfw.datas.find(id)`
   virtual Value find_data(const std::u16string& id) const {
     (void)id;

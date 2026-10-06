@@ -537,7 +537,8 @@ class Host : public lfw::IEntityHost {
     g_log.push_back("release_ctrl:" + s_of(ctrl_mark(c)));
   }
 
-  void mark_players_alive(bool alive) override {
+  void mark_players_alive(Entity& e, bool alive) override {
+    (void)e;
     g_log.push_back("mark_players_alive:" + render(Value(alive)));
   }
 
