@@ -1,6 +1,7 @@
 // `World::step` 的碰撞配对（`native/lfw/world.cpp`）与 `WorldCollisionHost` 的 Env 接线
 // （`native/lfw/world_collision.cpp`）的变异档。用例是 `cases/world/collision.txt`
-// （一个世界、三组实体：x=0 单向、x=3000 双向、x=6000 `hit_flag` 不匹配）。
+// （一个世界、六组实体：x=0 单向、x=3000 双向、x=6000 `hit_flag` 不匹配、x=9000 同队、
+// x=12000 `SuperPunchMe`、x=15000 `Catch`）。
 //
 // 有意不覆盖（不可观察 / 按构造等价 / 要等「dump 扩展 + 更多 handler 路径用例」那一刀）：
 //
@@ -17,8 +18,12 @@
 //     Infinity」在 `<=` 下等价（`undefined <= undefined` 与 `Infinity <= Infinity` 都假，
 //     而只有一侧为 `undefined` 时才分岔 —— 那要一组跨类型的实体，留给下一刀）。
 //
-// 【宿主缝】这一刀的用例只观测三件东西：`pc=`（配对比次）、`col=`（本帧加入的碰撞数）、
-// 受击方 `hp`。所以只保留「改了就会让这三者变」的缝；其余一律等观测量扩展：
+// 【宿主缝】这一刀的用例观测 `pc=`（配对比次）、`col=`（本帧加入的碰撞数）、受击方 `hp`，以及
+// `dump_entity` 里的碰撞观测量（`motionless` / `shaking` / `catching` / `catcher` / `holding` /
+// `vrests.size` / `collided_list.length` / `collision_list.length` / `resting` / `fall_value` /
+// `is_on_ground`）。用例扩到六组实体之后，这 11 个字段在两个封面上都取到了非零值（`motionless`
+// = 8、`shaking` = 8、`vrests` = 1、`collided_list` = 1/5、`collision_list` = 1、`resting` = 5、
+// `fall_value` = 100、`catching` / `catcher` 互指）⇒ 回写类的缝都能锁住了：
 //   * `bot_ignore`（只在 Pick 系的 itr kind 上读）、`is_bot_ctrl`、`team` / `emitter` /
 //     `spawn_time`（用例里三者的组合本来就放行）、`catcher_hurtable`（`has_catcher` 为假时不读）、
 //     `marks_group_attack` / `itr_prefabs` / `bear_wpoint_attacking`（`rest` 仍是 0）、
@@ -30,12 +35,11 @@
 //     `dev` 为假），要么结果与改动无关；
 //   * `KeeperEnv` 的 `attacker_state` / `victim_state`（配置里没有 `a_state` / `v_state` 过滤）、
 //     `ball_frozen`（`handle_ball_frozen` 是给气功波的）、`run_action`（用例的 `itr` / `bdy`
-//     没有 `actions`）、`victim_push_collided` / `attacker_push_collision`（写进实体的
-//     `collided_list` / `collision_list`，dump 里没有）、`victim_play_sound` 与 `victim_data`
-//     （台面的 `play_sound` 不记日志）；
-//   * `HandlersEnv` 的 12 条（`victim_add_v_rest` / `attacker_pick_victim` / `attacker_set_arest`
-//     是 `rest` / `Pick` 那一支的；`attacker_itr_motionless` / `attacker_set_motionless` /
-//     `victim_set_shaking` 的结果 dump 里没有；`buff_*` 要 `magic_flute` 或 `Electrify` 才走）；
+//     没有 `actions`）、`victim_play_sound` 与 `victim_data`（台面的 `play_sound` 不记日志，
+//     两条缝的效果都不进输出）；
+//   * `HandlersEnv` 的其余几条（`attacker_pick_victim` 要 Pick 系 itr kind —— 用例里
+//     `holding` 全是 `-`；`attacker_set_arest` 的结果 dump 里没有；`buff_*` 要 `magic_flute`
+//     或 `Electrify` 才走）；
 //   * `ActionEnv` / `Handlers2-4Env` 里没被这条路径调用的那些（`Handlers2Env` 只走了
 //     `find_entity` / `hp_recoverability` / `summary_apply_damage` / `is_fighter` / `calc_velocity`
 //     / `buff_env`，其中 `hp_recoverability` 与 `calc_velocity` 的结果进了 `hp_r` / 速度，
@@ -137,6 +141,88 @@ export default {
       file: "native/lfw/world_collision.cpp",
       from: "      collision::handle_itr_normal_bdy_normal(c);",
       to: "      collision::handle_rest(c);",
+    },
+    {
+      note: "keeper: 丢掉 Catch 那一支（`catching` / `catcher` 不再互相指）",
+      file: "native/lfw/world_collision.cpp",
+      from: "    if (fn == u\"handle_itr_catch\") {",
+      to: "    if (false && fn == u\"handle_itr_catch\") {",
+    },
+    // ───────────── 宿主在 `handle` 里补的三个字段（4C 留的行为缝） ─────────────
+    {
+      note: "handle: 不补 c.dataset（`handle_stiffness` 的 itr_shaking 回退读到 undefined）",
+      file: "native/lfw/world_collision.cpp",
+      from: "  c.dataset = _world->world_dataset();",
+      to: "  c.dataset = Value();",
+    },
+    // ───────────── `KeeperEnv` 的回写（`collided_list` / `collision_list` 已进 dump） ─────────────
+    {
+      note: "keeper: victim_push_collided 空实现（`collided_list` 不长）",
+      file: "native/lfw/world_collision.cpp",
+      from: "    v->lastest_collided = c;\n    v->collided_list.push_back(c);",
+      to: "    (void)v;",
+    },
+    {
+      note: "keeper: attacker_push_collision 空实现（`collision_list` 不长）",
+      file: "native/lfw/world_collision.cpp",
+      from: "    if (a != nullptr) a->collision_list.push_back(c);",
+      to: "    (void)a;",
+    },
+    // ───────────── `HandlersEnv` 的回写（`motionless` / `shaking` / `vrests` 已进 dump） ─────────────
+    {
+      note: "handlers: victim_add_v_rest 空实现（受害方的 `vrests` 不长）",
+      file: "native/lfw/world_collision.cpp",
+      from: "    if (v != nullptr) v->add_v_rest(c);",
+      to: "    (void)v;",
+    },
+    {
+      note: "handlers: attacker_itr_motionless 恒 undefined",
+      file: "native/lfw/world_collision.cpp",
+      from: "    return _cur_a == nullptr ? Value() : Value(_cur_a->itr_motionless());",
+      to: "    return Value();",
+    },
+    {
+      note: "handlers: attacker_set_motionless 空实现（攻击方的 `motionless` 不进实体）",
+      file: "native/lfw/world_collision.cpp",
+      from: "    if (_cur_a != nullptr) _cur_a->motionless = to_number(v);",
+      to: "    (void)v;",
+    },
+    {
+      note: "handlers: victim_set_shaking 空实现（受害方的 `shaking` 不进实体）",
+      file: "native/lfw/world_collision.cpp",
+      from: "    if (_cur_v != nullptr) _cur_v->shaking = to_number(v);",
+      to: "    (void)v;",
+    },
+    // ───────────── `handle_itr_catch` 走的那三个视图方法 ─────────────
+    {
+      note: "view: EntityHandlerView::catcher() 恒非空（`handle_itr_catch` 直接放弃）",
+      file: "native/lfw/entity/entity_collision_view.cpp",
+      from:
+        "collision::IHandlerEntity* EntityHandlerView::catcher() const {\n" +
+        "  return _e.catcher == nullptr ? nullptr : _host.handler_view(_e.catcher);\n" +
+        "}",
+      to:
+        "collision::IHandlerEntity* EntityHandlerView::catcher() const {\n" +
+        "  return _host.handler_view(&_e);\n" +
+        "}",
+    },
+    {
+      note: "view: EntityHandlerView::set_catching 空实现（攻击方不记受害者）",
+      file: "native/lfw/entity/entity_collision_view.cpp",
+      from:
+        "void EntityHandlerView::set_catching(collision::IHandlerEntity* v) {\n" +
+        "  _e.catching = entity_of_handler(v);\n" +
+        "}",
+      to: "void EntityHandlerView::set_catching(collision::IHandlerEntity* v) { (void)v; }",
+    },
+    {
+      note: "view: EntityHandlerView::set_catcher 空实现（受害者不记攻击方）",
+      file: "native/lfw/entity/entity_collision_view.cpp",
+      from:
+        "void EntityHandlerView::set_catcher(collision::IHandlerEntity* v) {\n" +
+        "  _e.catcher = entity_of_handler(v);\n" +
+        "}",
+      to: "void EntityHandlerView::set_catcher(collision::IHandlerEntity* v) { (void)v; }",
     },
   ],
 };

@@ -267,6 +267,10 @@ void WorldCollisionHost::handle(collision::Collision& c) {
   _cur_v = entity_of_collision_v(c);
   c.env = &_handlers;
   c.core = &_core;
+  // `handlers.cpp` 里的 `c.dataset` 是 TS 的 `attacker.world.dataset`（`handle_stiffness` 的
+  // `itr_shaking` 回退、`handle_rest` 的 `itr_arest` / `min_arest` / `arest_offset`）——
+  // 4C 那一刀在没有宿主时把它留成了「由 harness 直接设」的行为缝字段，这里补上真值。
+  c.dataset = _world->world_dataset();
   collision::collisions_keeper().handle(c);
   _cur_a = prev_a;
   _cur_v = prev_v;

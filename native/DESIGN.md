@@ -7931,6 +7931,14 @@ differential **155/155**。
 差别的可见处：旧写法会**多一次** `lfw.datas.find(vdata_id)`（在台面上就是多一行
 `h:datasfind=`，本次差分用例正是这样把它顶出来的）。
 
+**观测量扩展当场抓到的漏接**（同一刀的第二趟）：`WorldCollisionHost::handle` 起初只补了
+`c.env` 与 `c.core`，漏了 `c.dataset`（TS 里 `handlers.cpp` 读的是 `attacker.world.dataset`）。
+端口把 `c.dataset` 留成「由 harness 直接设」的行为缝字段 ⇒ `handle_stiffness` 的 `itr_shaking`
+回退读到 `undefined` ⇒ `to_number(undefined)` = `NaN` ⇒ 受击方的 `shaking` 变 `NaN`（TS 是 8）。
+补 `c.dataset = _world->world_dataset();` 后与 TS 一致。发现路径：给两侧 `dump_entity` 补上
+`motionless` / `shaking` 等 11 个碰撞观测量之后，`world/collision` 立刻在 `shaking` 上分岔
+（在此之前这条缝只表现为「某些实体不抖动」，差分用例看不见）。
+
 ### 78.5 宿主的两条约束
 
 1. **Env 是模块级单例**：12 个 Env 由 `set_*_env` 装到各自 `.cpp` 的全局槽上 ⇒ 同一时刻只应有一个
@@ -7953,17 +7961,22 @@ differential **155/155**。
 
 ### 78.7 待办（下一刀的入口）
 
-1. ~~变异档 `mutations/world_collision.mjs`~~ 已做：**14/14 全杀**（配对循环 6 条 + `CollisionActor`
-   投影 6 条 + handler 分发 2 条；用例同一世界四组实体：单向 / 双向 / `hit_flag` 不匹配 / 同队）。
+1. ~~变异档 `mutations/world_collision.mjs`~~ 已做：**25/25 全杀**（配对循环 6 条 +
+   `CollisionActor` 投影 6 条 + handler 分发 3 条 + `handle` 补的 `c.dataset` 1 条 +
+   `KeeperEnv` 回写 2 条 + `HandlersEnv` 回写 4 条 + 三个视图方法 3 条）。用例同一世界六组实体：
+   单向 / 双向 / `hit_flag` 不匹配 / 同队 / `SuperPunchMe` / `Catch`。
    其余缝（`get_bounding` 的六个字段、`rest` 与 `Pick` 支、buff 支、`ball_frozen` …）的变异要等
-   **观测量扩展**（见第 4 条）——它们要么不进 dump，要么要一组「部分重叠」的判定框才分岔。
+   更多 handler 路径用例（第 2 条）与一组「部分重叠」的判定框。
 2. handler 路径的用例：目前 `world/collision` 只走了 `handle_itr_normal_bdy_normal` → `handle_injury`
    → `handle_fall` 这一条；`catch` / `freeze` / `whirlwind` / `weapon_is_hit` / `ball_*` / `healing`
    各要一段（尤其 `ball_frozen` 与 `john_shield`，它们各自有独立的 `IFrozenEntity` 视图）。
 3. `collision_to_snapshot` / `from_snapshot` 在宿主上的往返。
-4. **观测量扩展**：dump 里补 `vrests` 条数 / `catching` / `catcher` / `motionless` / `shaking` /
-   `buffs` 条数 / `collided_list` 长度 / `hit_sounds`（`play_sound` 的日志），并把对照组加上
-   「部分重叠的判定框」—— 这一批一上来，宿主剩下的缝就都能进变异档了。
+4. ~~观测量扩展~~ 已做一半：`dump_entity` 两侧补了 `motionless` / `shaking` / `catching` /
+   `catcher` / `holding` / `vrests.size` / `collided_list.length` / `collision_list.length` /
+   `resting` / `fall_value` / `is_on_ground`（11 个，六组实体上都取到了非零值）。
+   仍未进 dump 的：`buffs` 条数、`hit_sounds`（台面的 `play_sound` 不记日志）、`arest`
+   （`handle_rest` 里 `attacker.set_arest` 的结果）。另外要补一组「部分重叠的判定框」才能锁住
+   `get_bounding` 的六个字段（现在两组判定框完全重合）。
 5. **世界生命周期**：一个进程里两个 `wnew` 会让第二个世界的 `step` 访问违例（`0xC0000005`）。
    12 个 Env 挂在模块级全局槽上，旧世界宿主析构后槽里留着指向它的 lambda ⇒ 要么析构时解绑，
    要么把 Env 从全局槽改成 `World` 自己持有（像 `IEntityHost` 那样）。

@@ -406,11 +406,22 @@ function terr(v: unknown): string {
 
 function dump_entity(e: Entity | null): string {
   if (!e) return "z";
+  const b = e as Bag;
   return (
     `${e.id}:${esc(String(e.team))}:${num(e.hp)}:${vstr((e.frame as Bag)?.id)}` +
     `:${flag(e.ghosted)}:${flag(e.puppet)}:${num(e.position.x)}:${num(e.position.y)}` +
-    `:${num(e.position.z)}:${vstr(e.state)}:${num((e as Bag).aabb_min_x)}`
+    `:${num(e.position.z)}:${vstr(e.state)}:${num(b.aabb_min_x)}` +
+    // 碰撞那一刀（4L）要的观测量：硬直 / 抖动、抓与被抓、持有、vrest 与两张碰撞表。
+    `:${num(b.motionless)}:${num(b.shaking)}:${id_ref(b.catching)}:${id_ref(b.catcher)}` +
+    `:${id_ref(b.holding)}:${num((b.vrests as Bag)?.size)}:${num(b.collided_list?.length)}` +
+    `:${num(b.collision_list?.length)}:${num(b.resting)}:${num(b.fall_value)}` +
+    `:${flag(e.is_on_ground)}`
   );
+}
+
+// `catching` / `catcher` / `holding`：没有给 `-`，有就给 id（`esc` 过）。
+function id_ref(e: Bag | null | undefined): string {
+  return e ? esc(String(e.id)) : "-";
 }
 
 // `wfill` 会往幽灵表里塞 null（只为了让 `entities.length + ghosts.length` 变大）⇒ 跳过。

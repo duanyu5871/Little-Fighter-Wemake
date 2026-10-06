@@ -55,6 +55,9 @@ std::string vstr(const Value& v) { return to_ascii(render_value(v)); }
 std::string flag(bool b) { return b ? "1" : "0"; }
 std::string esc(const std::u16string& s) { return trace::esc(s); }
 
+// `catching` / `catcher` / `holding` 这类指针字段：没有给 `-`，有就给 id（`esc` 过）。
+std::string id_ref(const lfw::Entity* e) { return e == nullptr ? std::string("-") : esc(e->id); }
+
 // `_render_worker_id`：TS 里没装渲染时是 `undefined`，端口用 0 表示「没有句柄」⇒ 两边都打 `u`。
 std::string handle_str(int h) { return h == 0 ? "u" : num(static_cast<double>(h)); }
 
@@ -510,7 +513,14 @@ std::string dump_entity(const lfw::Entity& e) {
   return to_ascii(e.id) + ":" + esc(e.team()) + ":" + num(e.hp()) + ":" +
          vstr(lfw::field_or(e.frame, u"id")) + ":" + flag(lfw::truthy(Value(e.ghosted()))) + ":" +
          flag(e.puppet) + ":" + num(e.position.x) + ":" + num(e.position.y) + ":" +
-         num(e.position.z) + ":" + vstr(e.state()) + ":" + num(e.aabb_min_x);
+         num(e.position.z) + ":" + vstr(e.state()) + ":" + num(e.aabb_min_x) + ":" +
+         // 碰撞那一刀（4L）要的观测量：硬直 / 抖动、抓与被抓、持有、vrest 与两张碰撞表。
+         num(e.motionless) + ":" + num(e.shaking) + ":" + id_ref(e.catching) + ":" +
+         id_ref(e.catcher) + ":" + id_ref(e.holding) + ":" +
+         num(static_cast<double>(e.vrests.size())) + ":" +
+         num(static_cast<double>(e.collided_list.size())) + ":" +
+         num(static_cast<double>(e.collision_list.size())) + ":" + num(e.resting()) + ":" +
+         num(e.fall_value()) + ":" + flag(e.is_on_ground);
 }
 
 std::string join_ids(const std::vector<lfw::Entity*>& list) { return list_of(list); }
