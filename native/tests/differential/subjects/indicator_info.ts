@@ -19,8 +19,15 @@ function main(): void {
 
     if (op === "cfi") {
       const frame = parseValue(t, i) as never;
-      cook_frame_indicator_info(frame);
-      out.push(`cfi ${renderValue(frame)}`);
+      // TS 那边有些形态会抛（`"w" in 标量`、`.forEach` 不是函数、给标量挂 `__indicator_info`），
+      // 这里只记录成功与否，帧的部分改动照样打印（两边都必须对齐“抛之前改了多少”）。
+      let ok = true;
+      try {
+        cook_frame_indicator_info(frame);
+      } catch {
+        ok = false;
+      }
+      out.push(`cfi ${ok ? "ok" : "throw"} ${renderValue(frame)}`);
       if (i[0] !== t.length) {
         process.stderr.write(`trailing token(s): ${raw}\n`);
         process.exit(2);

@@ -70,33 +70,55 @@ Value indicator_pair(const Value& q1, const Value& q2) {
   return Value(std::make_shared<Object>(o));
 }
 
-void set_indicator(const Value& target, const Value& q1, const Value& q2) {
+bool set_indicator(const Value& target, const Value& q1, const Value& q2) {
   Object* t = as_mut(target);
-  if (t != nullptr) t->set(u"__indicator_info", indicator_pair(q1, q2));
+  if (t == nullptr) {
+    // TS 给数组挂属性是可以的（渲染里看不见）；给字符串 / 数字挂会抛。
+    return as_array(target) != nullptr;
+  }
+  t->set(u"__indicator_info", indicator_pair(q1, q2));
+  return true;
 }
 
-void for_each_object(const Value& list, const std::function<void(Value&)>& fn) {
+bool is_object_like(const Value& v) {
+  return as_object(v) != nullptr || as_array(v) != nullptr;
+}
+
+// TS 的 `list?.forEach(fn)`：假值跳过；真值却不是数组时 `.forEach` 不是函数 ⇒ 抛。
+// 每一项要么是对象（数组也行，`{ … } = o` 解构得动、也能挂属性），要么 TS 就抛。
+// `ok` 是「没能照 TS 走完」的出口，三个调用点都紧跟一句 `if (!ok) return false;`。
+void for_each_object(const Value& list, bool& ok, const std::function<void(Value&)>& fn) {
+  if (!ok) return;
+  if (!truthy(list)) return;
   Array* a = const_cast<Array*>(as_array(list));
-  if (a == nullptr) return;
+  if (a == nullptr) {
+    ok = false;
+    return;
+  }
   const size_t n = a->size();
   for (size_t i = 0; i < n; ++i) {
     Value item = a->at(i);
-    if (as_object(item) == nullptr) continue;
+    if (!is_object_like(item)) {
+      ok = false;
+      return;
+    }
     fn(item);
   }
 }
 
 }
 
-void cook_frame_indicator_info(Value& frame) {
+bool cook_frame_indicator_info(Value& frame) {
   Object* f = as_object(frame);
-  if (f == nullptr) return;
+  if (f == nullptr) return true;
   const Value pic = field_at(frame, u"pic");
+  // `pic && "w" in pic`：`in` 对字符串 / 数字 / 布尔这类原始值会抛。
+  if (truthy(pic) && !is_object_like(pic)) return false;
   const Object* pic_o = as_object(pic);
   const bool use_pic = pic_o != nullptr && has_key(pic_o, u"w");
   const Value w = use_pic ? field_at(pic, u"w") : field_at(frame, u"width");
   const Value h = use_pic ? field_at(pic, u"h") : field_at(frame, u"height");
-  if (!truthy(w) || !truthy(h)) return;
+  if (!truthy(w) || !truthy(h)) return true;
 
   const Value f1 = make_qube({{u"x", neg(field_at(frame, u"centerx"))},
                               {u"y", sub(field_at(frame, u"centery"), h)},
@@ -117,7 +139,8 @@ void cook_frame_indicator_info(Value& frame) {
   const Value f1y = field_at(f1, u"y");
   const Value f2x = qube_x(f2);
 
-  for_each_object(field_at(frame, u"opoint"), [&](Value& o) {
+  bool ok = true;
+  for_each_object(field_at(frame, u"opoint"), ok, [&](Value& o) {
     const Value rect1 = make_qube({{u"w", Value(2.0)},
                                    {u"h", Value(2.0)},
                                    {u"x", sub(add(f1x, field_at(o, u"x")), Value(1.0))},
@@ -128,6 +151,7 @@ void cook_frame_indicator_info(Value& frame) {
         copy_with_x(rect1, sub(sub(add(f2x, f1w), Value(2.0)), field_at(o, u"x")));
     set_indicator(o, rect1, rect2);
   });
+  if (!ok) return false;
 
   const Value cpoint = field_at(frame, u"cpoint");
   if (truthy(cpoint)) {
@@ -141,7 +165,7 @@ void cook_frame_indicator_info(Value& frame) {
                                    {u"z", oz},
                                    {u"l", Value(0.0)}});
     const Value rect2 = copy_with_x(rect1, sub(sub(add(f2x, f1w), Value(2.0)), ox));
-    set_indicator(cpoint, rect1, rect2);
+    if (!set_indicator(cpoint, rect1, rect2)) return false;
   }
 
   const Value bpoint = field_at(frame, u"bpoint");
@@ -155,7 +179,7 @@ void cook_frame_indicator_info(Value& frame) {
                                    {u"l", Value(0.0)}});
     const Value rect2 =
         copy_with_x(rect1, sub(sub(add(f2x, f1w), Value(2.0)), field_at(bpoint, u"x")));
-    set_indicator(bpoint, rect1, rect2);
+    if (!set_indicator(bpoint, rect1, rect2)) return false;
   }
 
   const Value wpoint = field_at(frame, u"wpoint");
@@ -169,10 +193,10 @@ void cook_frame_indicator_info(Value& frame) {
                                    {u"l", Value(0.0)}});
     const Value rect2 =
         copy_with_x(rect1, sub(sub(add(f2x, f1w), Value(2.0)), field_at(wpoint, u"x")));
-    set_indicator(wpoint, rect1, rect2);
+    if (!set_indicator(wpoint, rect1, rect2)) return false;
   }
 
-  for_each_object(field_at(frame, u"bdy"), [&](Value& o) {
+  for_each_object(field_at(frame, u"bdy"), ok, [&](Value& o) {
     const Value bw = or_zero_if_undefined(field_at(o, u"w"));
     const Value bh = or_zero_if_undefined(field_at(o, u"h"));
     const Value rect1 = make_qube({{u"w", bw},
@@ -185,8 +209,9 @@ void cook_frame_indicator_info(Value& frame) {
         copy_with_x(rect1, sub(sub(add(f2x, f1w), bw), or_zero_if_undefined(field_at(o, u"x"))));
     set_indicator(o, rect1, rect2);
   });
+  if (!ok) return false;
 
-  for_each_object(field_at(frame, u"itr"), [&](Value& o) {
+  for_each_object(field_at(frame, u"itr"), ok, [&](Value& o) {
     const Value bw = or_zero_if_undefined(field_at(o, u"w"));
     const Value bh = or_zero_if_undefined(field_at(o, u"h"));
     const Value rect1 = make_qube({{u"w", bw},
@@ -199,6 +224,9 @@ void cook_frame_indicator_info(Value& frame) {
         copy_with_x(rect1, sub(sub(add(f2x, f1w), bw), or_zero_if_undefined(field_at(o, u"x"))));
     set_indicator(o, rect1, rect2);
   });
+  if (!ok) return false;
+
+  return true;
 }
 
 }

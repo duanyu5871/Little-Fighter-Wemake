@@ -3672,3 +3672,47 @@ harness op：
   `itr` 侧两边一致所以用例里有 `a()`，`bdy` 侧端口按失败处理故不写）、`ctx` 不是对象、
   CondMaker **每组首项**的 `.add` ↔ `.and_` / `.or_` ↔ `.and_` / `wrap` ↔ `add`（空 maker / 空组上
   生成的串完全相同）、`motionless` / `shaking` / `dvx` 的 `is_nullish` → `!truthy`（默认值本身就是 `0`）。
+
+### 6.9.109 `loader/preprocess_frame` + `utils/read_nums`（`loader_frames` 增 `frame` / `rn`，544 行；变异 **213/213** 全杀；`indicator_info` 69 行 / **40/40**）
+
+- 移植：`loader/preprocess_frame.{h,cpp}`（`bool preprocess_frame(Value& ctx, std::u16string& error)`，
+  成功写回 `ctx.frame`）、`utils/read_nums.{h,cpp}`（`bool read_nums(const Value& src, double len,
+  const Value& fallbacks, std::vector<Value>& out, std::u16string* error = nullptr)` —— `len` 是
+  `double`，因为 TS 的参数就是 number，负长度必须走 `len < 1 ⇒ []`；用 `size_t` 会把 `-1` 变成
+  2^64-1 并把补长循环变成吃内存的死循环）。`utils/read_nums` 的落点：TS 在 `ui/utils/`，
+  `ui/` 没移植而它是纯函数。
+- 同时也是 `cook_frame_indicator_info` 的**失败通道**（V41 时是 `void`，三类 TS 会抛的形态被静默
+  跳过）—— 现在返回 `bool`：`"w" in pic` 对原始值、`?.forEach` 对非数组、给标量挂
+  `__indicator_info`。数组目标仍算成功（TS 能挂属性，而渲染里看不见）。
+- `loader_frames` 新增两个 op（参数照旧是字面量）：
+  * `frame <data> <frame>` → `frame <ok|throw> <data> <帧> t=<探针>`，失败再跟 `msg=<文本>`。
+    探针 = 帧自己（恒 `-`）+ `/bdy` + `/itr`，每个列表逐项给 `__tester` 的 `-`/`u`/`s` 与它
+    `actions` 里每条 `tester` 的同款字母，逗号分隔 —— `__tester` 装不进 `Value`，只能这样比。
+  * `rn <src> <len> [<fallbacks>]` → `rn ok <数组> fb=<第三参渲染> msg=-` /
+    `rn throw - fb=<第三参渲染> msg=[read_nums] failed, …`。第三参**会被就地补长**
+    （`fallbacks.push(fallbacks[len-1] || 0)`），所以把它也渲染出来才看得见。
+- ⚠️ **剥键表扩了**：除 `__tester` / `__judger` / `tester` 之外还要剥九个 `__gen_*` 与
+  `__gen_facing`（`make_buring_smoke` 的 `action.__gen_facing` 与 `preprocess_opoint` 的九个
+  `__gen_*` 都是编译产物，端口不落地 —— 宿主按 `IEntityHost::gen_or(...)` 现解析）。
+- ⚠️ `msg=` 的规矩照旧（只有以 `[` 开头的文本两端可比），本刀起 `[read_nums] failed, …` 也进了
+  这一类 —— 端口的 `read_nums` 把文本逐字对齐（`to_string` 就是 JS 的 `String()`，
+  数组会 join 成 `NaN,NaN` 这种）。
+- ⚠️ **`data.processed != false` 是松散门**：只有 `false` / `0` / `""` / `null` 才算「未处理」，
+  才会进 ball / weapon 两段；`undefined != false` 为真 ⇒ **缺省数据的走法是空分支**。
+  fighter 段是**独立的 `if`**，不受它管。用例里 weapon 那组必须显式带 `processed` 才算覆盖。
+- ⚠️ `preprocess_ball_frame(ctx)` 收到的是**当前 ctx**（`ctx.frame` 还是原始帧），而
+  `preprocess_frame` 后面继续操作 `merged.value` ⇒ prefab 命中时两者不是同一个对象，端口照抄。
+- ⚠️ `traversal` 对**非空字符串**给下标（`Object.keys("ab") = ["0","1"]`），回调里的 `o[k] = …`
+  在严格模式下会抛 ⇒ 端口 `each_entry` 对非空字符串直接失败；数字 / 布尔是空表 ⇒ 不遍历、不失败。
+  `hit` / `hold` / `key_down` / `key_up` / `seqs` 五处都走这条路（用例里有 `hit s "x"`）。
+- ⚠️ `read_nums` 的两个怪癖：`is_num_arr` = 「是数组且**没有 NaN**」（不要求元素都是数字），
+  越界判断是 `idx > src.length`（**不是 `>=`**）⇒ `idx === length` 时读成 `undefined`。
+- ⚠️ `fold_aabb`：`x2 = x1 + w` 的 `+` 是 `js_add`（`w` 是字符串时会**拼接**），四轴的旧值都走
+  `??` 回落；`z` / `l` 的解构默认值只在 `undefined` 生效。
+- ⚠️ ball 的 `on_x/y_restrict` 自动补里 `data.type == Ball` 与状态白名单是**松散**比较
+  （`"32"` / `"3000"` 也命中），而 `landable` 与 `Boomerang` 段是**严格**比较。
+- 不可观察 / 有意不覆盖（另见 DESIGN §65.4 与 `mutations/preprocess_frame.mjs` 头部）：
+  `ctx` 不是对象、weapon 分支里不可达的 `d == nullptr`、`pics` 与帧内**普通** `bdy`/`itr` 的
+  写回（就地改同一个对象 ⇒ 恒等；命中 prefab 时是新对象，用例专门钉住这条）、`fold_aabb` 前
+  那段不可达的 `else { return false; }`、`breakfall` 里不可达的 `o == nullptr`、
+  `preprocess_ball_frame` 里 `data.base` 缺失（V41 遗留，用例一律给 `base`）。

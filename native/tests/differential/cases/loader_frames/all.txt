@@ -237,3 +237,347 @@ itr o 2 data o 1 id s "e1" itr o 1 actions a 1 o 2 type s "something_else" data 
 itr o 2 data o 1 id s "e1" itr o 1 actions a 1 o 1 type s "something_else"
 itr o 2 data o 1 id s "e1" itr o 1 actions a 1 o 2 type s "A_NEXT_FRAME" test s "1==1"
 itr o 2 data o 1 id s "e1" itr o 1 actions a 1 o 2 type s "" data u
+# frame / 基本路径与 processed 门
+frame o 2 data o 2 id s "e1" type n 4 frame o 1 id s "f1"
+frame o 2 data o 1 id s "e1" frame o 1 id s "f1"
+frame o 2 data o 3 id s "e1" type n 4 processed b 0 frame o 1 id s "f1"
+frame o 2 data o 3 id s "e1" type n 4 processed b 1 frame o 1 id s "f1"
+frame o 2 data o 3 id s "e1" type n 4 processed n 0 frame o 1 id s "f1"
+frame o 2 data o 3 id s "e1" type n 4 processed s "" frame o 1 id s "f1"
+frame o 2 data o 3 id s "e1" type n 4 processed z frame o 1 id s "f1"
+frame o 2 data o 3 id s "e1" type n 4 processed u frame o 1 id s "f1"
+frame o 2 data o 2 id s "e1" type n 8 frame o 1 id s "f1"
+frame o 2 data o 2 id s "e1" type s "4" frame o 1 id s "f1"
+# frame / width·height（frame.pic?.w ?? 0）
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" pic o 1 w n 10
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" pic o 2 w n 10 h n 20
+frame o 2 data o 2 id s "e1" type n 4 frame o 3 id s "f1" pic o 1 h n 20 width n 5
+frame o 2 data o 2 id s "e1" type n 4 frame o 3 id s "f1" width z height n 0
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" pic o 2 w z h u
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" pic s "x"
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" pic a 0 
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" pic u
+# frame / fighter：stat_recover / toughness_recover 的两张状态表
+frame o 2 data o 2 id s "e1" type n 8 frame o 1 state n 0
+frame o 2 data o 2 id s "e1" type n 8 frame o 1 state n 1
+frame o 2 data o 2 id s "e1" type n 8 frame o 1 state n 2
+frame o 2 data o 2 id s "e1" type n 8 frame o 1 state n 3
+frame o 2 data o 2 id s "e1" type n 8 frame o 1 state n 4
+frame o 2 data o 2 id s "e1" type n 8 frame o 1 state n 5
+frame o 2 data o 2 id s "e1" type n 8 frame o 1 state n 6
+frame o 2 data o 2 id s "e1" type n 8 frame o 1 state n 7
+frame o 2 data o 2 id s "e1" type n 8 frame o 1 state n 10
+frame o 2 data o 2 id s "e1" type n 8 frame o 1 state n 11
+frame o 2 data o 2 id s "e1" type n 8 frame o 1 state n 12
+frame o 2 data o 2 id s "e1" type n 8 frame o 1 state n 13
+frame o 2 data o 2 id s "e1" type n 8 frame o 1 state n 14
+frame o 2 data o 2 id s "e1" type n 8 frame o 1 state n 18
+frame o 2 data o 2 id s "e1" type n 8 frame o 1 state n 19
+frame o 2 data o 2 id s "e1" type n 8 frame o 3 state n 0 stat_recover n 0 toughness_recover z
+frame o 2 data o 2 id s "e1" type n 8 frame o 1 state s "0"
+frame o 2 data o 2 id s "e1" type s "8" frame o 1 state n 0
+# frame / weapon：indexes 三个列表 + bdy 的 hit_flag
+frame o 2 data o 2 id s "e1" type n 16 frame o 3 id s "f1" state n 1000 bdy a 1 o 1 x n 1
+frame o 2 data o 2 id s "e1" type n 16 frame o 3 id s "f1" state n 1000 bdy a 2 o 1 x n 1 o 1 x n 2
+frame o 2 data o 2 id s "e1" type n 16 frame o 2 id s "f1" state n 1000
+frame o 2 data o 2 id s "e1" type n 16 frame o 2 id s "f1" state n 1001
+frame o 2 data o 2 id s "e1" type n 16 frame o 3 id s "f1" state n 1002 bdy a 1 o 1 x n 1
+frame o 2 data o 2 id s "e1" type n 16 frame o 3 id s "f1" state n 1003 itr a 1 o 1 kind n 1
+frame o 2 data o 2 id s "e1" type n 16 frame o 3 id s "f1" state n 2002 itr a 1 o 1 kind n 1
+frame o 2 data o 2 id s "e1" type n 16 frame o 3 id s "f1" state n 2000 bdy a 1 o 1 x n 1
+frame o 2 data o 2 id s "e1" type n 16 frame o 2 id s "f1" state n 2001
+frame o 2 data o 3 id s "e1" type n 16 indexes o 1 in_the_skys a 1 s "x" frame o 2 id s "f1" state n 1000
+frame o 2 data o 3 id s "e1" type n 16 indexes o 3 in_the_skys a 1 s "x" throwings a 0  on_hands a 0  frame o 2 id s "f2" state n 1000
+frame o 2 data o 3 id s "e1" type n 16 indexes o 3 in_the_skys a 0  throwings a 0  on_hands a 0  frame o 2 id s "f2" state n 1001
+frame o 2 data o 3 id s "e1" type n 16 indexes o 1 on_hands s "z" frame o 2 id s "f1" state n 1001
+frame o 2 data o 3 id s "e1" type n 16 indexes o 1 in_the_skys n 5 frame o 2 id s "f1" state n 1000
+frame o 2 data o 3 id s "e1" type n 16 indexes z frame o 2 id s "f1" state n 1000
+frame o 2 data o 2 id s "e1" type n 16 frame o 3 id s "f1" state n 1000 bdy o 0
+frame o 2 data o 2 id s "e1" type n 16 frame o 3 id s "f1" state n 1000 bdy a 1 n 7
+frame o 2 data o 2 id s "e1" type n 16 frame o 3 id s "f1" state n 1000 bdy a 1 z
+frame o 2 data o 2 id s "e1" type n 16 frame o 3 id s "f1" state n 1000 bdy a 1 o 2 x n 1 hit_flag n 4
+frame o 2 data o 2 id s "e1" type n 16 frame o 3 id s "f1" state n 1000 bdy a 1 o 2 x n 1 hit_flag z
+# frame / ball：preprocess_ball_frame + on_x/y_restrict 自动补
+frame o 2 data o 2 id s "e1" type n 32 frame o 4 id s "f1" state n 3000 itr a 1 o 1 kind n 0 bdy a 1 o 1 x n 1
+frame o 2 data o 2 id s "e1" type n 32 frame o 3 id s "f1" state n 3005 itr a 1 o 1 kind n 0
+frame o 2 data o 2 id s "e1" type n 32 frame o 3 id s "f1" state n 3006 bdy a 1 o 1 x n 1
+frame o 2 data o 2 id s "e1" type n 32 frame o 3 id s "f1" state n 15 itr a 1 o 1 kind n 0
+frame o 2 data o 2 id s "e1" type n 32 frame o 4 id s "f1" state n 3000 itr a 0  bdy a 0 
+frame o 2 data o 2 id s "e1" type n 32 frame o 4 id s "f1" state n 3000 on_x_restrict o 1 id s "9" itr a 1 o 1 kind n 0
+frame o 2 data o 3 id s "e1" type n 32 base o 1 hit_sounds a 1 s "h.wav" frame o 3 id s "f1" state n 3000 itr a 1 o 1 kind n 0
+frame o 2 data o 3 id s "e1" type n 32 base o 0 frame o 3 id s "f1" state n 3000 itr a 1 o 1 kind n 0
+frame o 2 data o 3 id s "e1" type n 32 base z frame o 3 id s "f1" state n 3000 itr a 1 o 1 kind n 0
+frame o 2 data o 2 id s "e1" type s "32" frame o 3 id s "f1" state n 3000 itr a 1 o 1 kind n 0
+frame o 2 data o 2 id s "e1" type n 32 frame o 3 id s "f1" state s "3000" itr a 1 o 1 kind n 0
+# frame / seqs 与 hit·hold·key_down·key_up 的遍历
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" seqs o 2 1 o 1 id s "2" 2 o 1 expression s "a&b"
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" seqs o 3 1 u 2 z 3 o 1 id s "4"
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" seqs o 0
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" seqs n 5
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" seqs s "x"
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" seqs z
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" hit o 3 j o 1 id s "1" a u b o 1 expression s "1==1"
+frame o 2 data o 2 id s "e1" type n 4 frame o 4 id s "f1" hold o 1 a o 1 id s "2" key_down o 1 BB o 1 id s "3" key_up o 1 UU o 1 id s "4"
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" hit a 1 o 1 expression s "x"
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" hit n 5
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" hit s "x"
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" hit o 1 a n 5
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" hold s "ab"
+# frame / next·on_dead·on_exhaustion·on_landing 与 breakfall
+frame o 2 data o 2 id s "e1" type n 4 frame o 3 id s "f1" next o 1 id s "2" on_dead o 1 expression s "x"
+frame o 2 data o 2 id s "e1" type n 4 frame o 3 id s "f1" on_exhaustion o 1 id s "3" on_landing o 1 id s "4"
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" next a 1 o 1 id s "2"
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" next a 1 u
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" on_dead n 5
+frame o 2 data o 2 id s "e1" type n 4 frame o 3 id s "f1" state n 12 hit o 1 j o 1 id s "100"
+frame o 2 data o 2 id s "e1" type n 4 frame o 3 id s "f1" state n 12 hit o 1 j o 1 id n 108
+frame o 2 data o 2 id s "e1" type n 4 frame o 3 id s "f1" state n 12 hit o 1 j a 3 o 1 id s "100" o 1 id s "108" o 1 id s "5"
+frame o 2 data o 2 id s "e1" type n 4 frame o 3 id s "f1" state n 12 hit o 1 j o 2 id s "5" expression s "keep"
+frame o 2 data o 2 id s "e1" type n 4 frame o 3 id s "f1" state n 12 hit o 1 j n 100
+frame o 2 data o 2 id s "e1" type n 4 frame o 3 id s "f1" state n 0 hit o 1 j o 1 id s "100"
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" state n 12
+frame o 2 data o 2 id s "e1" type n 4 frame o 3 id s "f1" state n 12 hit u
+# frame / bdy·itr 的预处理与 __hit_ground_*
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" bdy a 1 o 1 kind n 1000
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" bdy a 2 o 1 kind n 0 o 1 kind n 1005
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" itr a 1 o 1 kind n 2
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" bdy a 1 o 2 kind n 0 on_hit_ground b 1
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" itr a 1 o 2 kind n 1 on_hit_ground b 1
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" bdy a 2 o 1 on_hit_ground b 1 o 1 on_hit_ground b 1
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" bdy a 1 o 2 kind n 0 on_hit_ground b 0
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" bdy a 1 u
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" itr a 1 u
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" bdy o 0
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" bdy a 1 o 2 kind n 1005 actions a 1 o 2 type s "V_SOUND" data o 1 path a 1 s "s.wav"
+# frame / Burning·BurnRun 的烟 + opoint
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" state n 18
+frame o 2 data o 2 id s "229" type n 4 frame o 2 id s "f1" state n 18
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" state n 19
+frame o 2 data o 2 id s "e1" type n 4 frame o 3 id s "f1" state n 19 opoint a 1 o 1 id s "1"
+frame o 2 data o 2 id s "e1" type n 4 frame o 3 id s "f1" state n 18 opoint o 0
+frame o 2 data o 2 id s "e1" type n 4 frame o 3 id s "f1" state n 18 opoint a 0 
+frame o 2 data o 2 id s "e1" type n 4 frame o 3 id s "f1" state n 18 opoint z
+frame o 2 data o 2 id s "e1" type n 4 frame o 3 id s "f1" state n 19 opoint o 0
+# frame / center 与 read_nums
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" center s "1,2"
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" center s " 3 , 4 "
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" center s "1"
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" center s "1,2,3"
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" center s "a,b"
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" center s ""
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" center a 2 n 3 n 4
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" center a 1 n 3
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" center a 2 n 3 s "4"
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" center n 5
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" center z
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" center u
+# frame / pic·pics·landable·behavior
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" pic o 1 rad n 1
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" pic o 1 deg n 90
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" pics a 3 o 1 rad n 1 o 1 deg n 180 n 5
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" pics a 0 
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" pics o 0
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" pics s "x"
+frame o 2 data o 2 id s "e1" type n 32 frame o 1 id s "f1"
+frame o 2 data o 2 id s "e1" type n 4 frame o 1 id s "f1"
+frame o 2 data o 2 id s "e1" type n 32 frame o 2 id s "f1" landable n 0
+frame o 2 data o 2 id s "e1" type n 32 frame o 2 id s "f1" landable z
+frame o 2 data o 2 id s "e1" type n 32 frame o 2 id s "f1" behavior n 3
+frame o 2 data o 2 id s "e1" type n 32 frame o 3 id s "f1" behavior n 3 facing n 1
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" behavior n 3
+frame o 2 data o 2 id s "e1" type n 32 frame o 3 id s "f1" behavior n 3 facing z
+frame o 2 data o 2 id s "e1" type s "32" frame o 2 id s "f1" behavior n 3
+# frame / fold_aabb
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" bdy a 1 o 4 x n 10 w n 20 z n -5 l n 100
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" bdy a 2 o 1 x n 10 o 2 x n -30 w n 5
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" itr a 1 o 2 x n 10 w n 20
+frame o 2 data o 2 id s "e1" type n 4 frame o 3 id s "f1" bdy a 1 o 1 x n 10 itr a 1 o 2 x n -10 w n 2
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" bdy a 1 o 2 x s "5" w s "3"
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" bdy a 1 o 4 x n 10 w n 20 z z l z
+frame o 2 data o 2 id s "e1" type n 4 frame o 3 id s "f1" center s "4,0" bdy a 1 o 2 x n 10 w n 20
+frame o 2 data o 2 id s "e1" type n 4 frame o 4 id s "f1" centerx n 4 centery n 0 bdy a 1 o 2 x n 10 w n 20
+frame o 2 data o 2 id s "e1" type n 4 frame o 6 id s "f1" bdy a 1 o 1 x n 10 __aabb_x1 n -100 __aabb_x2 n 100 __aabb_z1 n -50 __aabb_z2 n 50
+frame o 2 data o 2 id s "e1" type n 4 frame o 4 id s "f1" bdy a 1 o 1 x n 10 __aabb_x1 z __aabb_x2 s "5"
+frame o 2 data o 2 id s "e1" type n 4 frame o 3 id s "f1" bdy a 1 o 1 x n 10 itr o 0
+# frame / frame_prefabs 与失败路径
+frame o 2 data o 3 id s "e1" type n 4 frame_prefabs o 1 p1 o 1 width n 7 frame o 2 id s "f1" ref s "p1"
+frame o 2 data o 3 id s "e1" type n 4 frame_prefabs o 2 p1 o 1 width n 7 p2 o 1 height n 8 frame o 2 id s "f1" ref s "p2"
+frame o 2 data o 3 id s "e1" type n 4 frame_prefabs o 2 p1 o 1 ref s "p2" p2 o 1 ref s "p1" frame o 2 id s "f1" ref s "p1"
+frame o 2 data o 3 id s "e1" type n 4 frame_prefabs o 1 p1 o 1 width n 7 frame o 2 id s "f1" ref s "nope"
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" ref s "p1"
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" prefab_id s "p1"
+frame o 2 data o 1 frame_prefabs o 1 p1 o 1 width n 7 frame o 1 ref s "p1"
+frame o 2 data o 2 id s "e1" type n 4 frame n 5
+frame o 2 data o 2 id s "e1" type n 4 frame s "x"
+frame o 2 data o 2 id s "e1" type n 4 frame u
+frame o 1 data o 2 id s "e1" type n 4
+# frame / sound（加载任务不落地）
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" sound s "a.wav"
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" sound a 3 s "a.wav" u s "b.wav"
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" sound u
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" sound a 0 
+# rn / len < 1 与 fallbacks 校验的顺序
+rn u n 0
+rn u n -1
+rn u n 0 s "x"
+rn u n 0 n 5
+rn u n 2 s "x"
+rn u n 2 a 1 s "9"
+rn u n 2 a 0 
+rn u n 2 a 1 n 9
+rn u n 2 n 5
+rn u n 2
+rn u n 3 a 2 n 1 n 2
+rn u n 3 a 2 n 1 n 0
+rn u n 3 a 2 n 1 z
+rn u n 3 a 2 n 1 u
+rn n 0 n 2
+rn n 5 n 2
+rn b 0 n 2
+rn b 1 n 2
+rn z n 2
+rn o 0 n 2
+rn s "" n 2
+rn a 0  n 2
+rn a 2 n 3 n 4 n 2
+rn a 1 n 3 n 2
+rn a 2 n 3 n 4 n 3
+rn a 2 n 3 s "4" n 2
+rn a 1 z n 1
+rn a 1 u n 1
+rn s "1,2" n 2
+rn s "1,2,3" n 2
+rn s " 1 , 2 " n 2
+rn s "1 2" n 1
+rn s "1" n 2
+rn s "1" n 3
+rn s "1" n 3 a 1 n 9
+rn s "1," n 2
+rn s ",2" n 2
+rn s "1,,2" n 3
+rn s "," n 2
+rn s "0x10" n 1
+rn s "1e2" n 1
+rn s "-3" n 2
+rn s "1,2" n 3 a 2 n 7 n 8
+rn s "1,2" n 3 a 1 n 7
+rn s "a,b" n 2
+rn s "1,x" n 2
+rn s "x" n 1
+rn s "Infinity" n 1
+rn s "NaN" n 1
+# frame / processed 门与 ball·weapon·fighter 分支
+frame o 2 data o 4 id s "e1" type n 32 processed b 0 base o 0 frame o 3 id s "f1" state n 3000 itr a 1 o 1 kind n 0
+frame o 2 data o 4 id s "e1" type n 32 processed n 0 base o 0 frame o 3 id s "f1" state n 3000 itr a 1 o 1 kind n 0
+frame o 2 data o 4 id s "e1" type n 32 processed s "" base o 0 frame o 3 id s "f1" state n 3005 itr a 1 o 1 kind n 0
+frame o 2 data o 4 id s "e1" type n 32 processed b 0 base o 0 frame o 3 id s "f1" state n 3005 itr a 1 o 1 kind n 0
+frame o 2 data o 4 id s "e1" type n 32 processed b 0 base o 0 frame o 3 id s "f1" state n 3006 bdy a 1 o 1 x n 1
+frame o 2 data o 4 id s "e1" type n 32 processed b 1 base z frame o 3 id s "f1" state n 3005 itr a 1 o 1 kind n 0
+frame o 2 data o 4 id s "e1" type n 32 processed b 0 base o 1 hit_sounds a 1 s "h.wav" frame o 3 id s "f1" state n 3005 itr a 1 o 1 kind n 0
+frame o 2 data o 4 id s "e1" type n 32 processed b 0 base o 0 frame o 2 id s "f1" state n 15
+frame o 2 data o 3 id s "e1" type n 8 processed n 0 frame o 2 id s "f1" state n 0
+frame o 2 data o 3 id s "e1" type n 8 processed s "" frame o 2 id s "f1" state n 0
+frame o 2 data o 3 id s "e1" type n 8 processed b 1 frame o 2 id s "f1" state n 0
+frame o 2 data o 4 id s "e1" type n 16 processed n 0 indexes o 1 in_the_skys a 0  frame o 2 id s "f1" state n 1000
+frame o 2 data o 4 id s "e1" type n 16 processed b 0 indexes o 3 in_the_skys a 0  throwings a 0  on_hands a 0  frame o 3 id s "f1" state n 1000 bdy a 1 o 1 x n 1
+frame o 2 data o 4 id s "e1" type n 16 processed b 0 indexes o 1 on_hands a 0  frame o 2 id s "f1" state n 2002
+frame o 2 data o 4 id s "e1" type n 16 processed b 0 indexes o 3 in_the_skys z throwings z on_hands z frame o 2 id s "f1" state n 2000
+frame o 2 data o 4 id s "e1" type n 16 processed b 0 indexes z frame o 3 id s "f1" state n 1003 itr a 1 o 1 kind n 1
+frame o 2 data o 3 id s "e1" type n 4 processed b 0 frame o 2 id s "f1" state n 0
+frame o 2 data o 1 id s "e1" frame o 2 id s "f1" state n 0
+# frame / weapon 的 indexes 既有内容 + 各状态分支
+frame o 2 data o 3 id s "e1" type n 16 indexes o 1 throwings a 1 s "x" frame o 2 id s "f1" state n 1002
+frame o 2 data o 3 id s "e1" type n 16 indexes o 1 throwings a 1 s "x" frame o 2 id s "f1" state n 1000
+frame o 2 data o 3 id s "e1" type n 16 indexes o 1 on_hands a 1 s "x" frame o 2 id s "f1" state n 1001
+frame o 2 data o 3 id s "e1" type n 16 indexes o 1 on_hands a 1 s "x" frame o 2 id s "f1" state n 2001
+frame o 2 data o 3 id s "e1" type n 16 indexes o 1 throwings a 1 s "x" frame o 2 id s "f1" state n 2000
+frame o 2 data o 3 id s "e1" type n 16 indexes o 1 in_the_skys a 1 s "x" frame o 2 id s "f1" state n 2000
+frame o 2 data o 3 id s "e1" type n 16 indexes o 1 in_the_skys a 0  frame o 2 id s "f1" state n 1000
+frame o 2 data o 3 id s "e1" type n 16 indexes o 0 frame o 2 id s "f1" state n 1000
+frame o 2 data o 2 id s "e1" type n 16 frame o 3 id s "f1" state n 1000 bdy a 2 o 1 x n 1 o 1 x n 2
+frame o 2 data o 2 id s "e1" type n 16 frame o 3 id s "f1" state n 1002 bdy a 1 o 1 x n 1
+frame o 2 data o 2 id s "e1" type n 16 frame o 3 id s "f1" state n 2000 bdy a 1 o 1 x n 1
+frame o 2 data o 2 id s "e1" type n 16 frame o 4 id s "f1" state n 1003 bdy a 1 o 1 x n 1 itr a 1 o 1 kind n 1
+frame o 2 data o 2 id s "e1" type n 16 frame o 3 id s "f1" state n 2002 itr a 1 o 1 kind n 1
+frame o 2 data o 2 id s "e1" type n 16 frame o 2 id s "f1" state n 1004
+frame o 2 data o 2 id s "e1" type n 16 frame o 3 id s "f1" state n 1000 bdy o 0
+frame o 2 data o 2 id s "e1" type n 16 frame o 3 id s "f1" state n 2000 bdy z
+# frame / 各处 traversal 的「值是含 nullish 的数组」
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" hit o 1 a a 1 u
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" hold o 1 a a 1 z
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" key_down o 1 a a 1 u
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" key_up o 1 a a 1 u
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" seqs o 1 1 a 1 u
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" on_dead a 1 u
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" on_exhaustion a 1 u
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" on_landing a 1 u
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" on_restrict a 1 u
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" on_x_restrict a 1 u
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" on_y_restrict a 1 u
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" on_z_restrict a 1 u
+frame o 2 data o 2 id s "e1" type n 4 frame o 3 id s "f1" next o 1 id s "2" on_landing o 1 id s "3"
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" on_restrict o 1 id s "2"
+# frame / make_frame_behavior 的 oid 与 behavior 分支
+frame o 2 data o 2 id s "e1" type n 32 frame o 3 id s "f1" behavior n 7 itr a 1 o 1 kind n 0
+frame o 2 data o 2 id s "221" type n 32 frame o 3 id s "f1" behavior n 7 itr a 1 o 1 kind n 0
+frame o 2 data o 2 id s "222" type n 32 frame o 3 id s "f1" behavior n 7 itr a 1 o 1 kind n 0
+frame o 2 data o 2 id s "e1" type n 16 frame o 3 id s "f1" behavior n 7 itr a 1 o 1 kind n 0
+frame o 2 data o 2 id s "221" type n 16 frame o 3 id s "f1" behavior n 7 itr a 1 o 1 kind n 0
+frame o 2 data o 2 id s "e1" type n 32 frame o 2 id s "f1" behavior n 14
+frame o 2 data o 2 id s "e1" type n 32 frame o 2 id s "55" behavior n 14
+frame o 2 data o 2 id s "e1" type n 32 frame o 2 id s "f1" behavior n 12
+frame o 2 data o 2 id s "e1" type n 32 frame o 2 id s "f1" behavior n 1
+# frame / weapon indexes 的既有内容（processed 为假）
+frame o 2 data o 4 id s "e1" type n 16 processed b 0 indexes o 1 in_the_skys a 1 s "x" frame o 2 id s "f1" state n 1000
+frame o 2 data o 4 id s "e1" type n 16 processed b 0 indexes o 1 in_the_skys a 1 s "x" frame o 2 id s "f1" state n 2000
+frame o 2 data o 4 id s "e1" type n 16 processed b 0 indexes o 1 throwings a 1 s "x" frame o 2 id s "f1" state n 1002
+frame o 2 data o 4 id s "e1" type n 16 processed b 0 indexes o 1 throwings a 1 s "x" frame o 2 id s "f1" state n 1000
+frame o 2 data o 4 id s "e1" type n 16 processed b 0 indexes o 1 throwings a 1 s "x" frame o 2 id s "f1" state n 2000
+frame o 2 data o 4 id s "e1" type n 16 processed b 0 indexes o 1 on_hands a 1 s "x" frame o 2 id s "f1" state n 1001
+frame o 2 data o 4 id s "e1" type n 16 processed b 0 indexes o 1 on_hands a 1 s "x" frame o 2 id s "f1" state n 2001
+frame o 2 data o 4 id s "e1" type n 16 processed b 0 indexes o 1 on_hands s "z" frame o 2 id s "f1" state n 1001
+frame o 2 data o 4 id s "e1" type n 16 processed b 0 indexes o 1 in_the_skys s "z" frame o 2 id s "f1" state n 1000
+frame o 2 data o 4 id s "e1" type n 16 processed b 0 indexes o 1 throwings s "z" frame o 2 id s "f1" state n 1002
+frame o 2 data o 4 id s "e1" type n 16 processed b 0 indexes o 1 on_hands n 0 frame o 2 id s "f1" state n 2001
+frame o 2 data o 4 id s "e1" type n 16 processed b 0 indexes o 1 in_the_skys a 1 n 1 frame o 2 id s "f1" state n 1000
+frame o 2 data o 4 id s "e1" type n 16 processed b 0 indexes o 0 frame o 2 id s "f1" state n 1001
+frame o 2 data o 4 id s "e1" type n 16 processed b 0 indexes o 0 frame o 2 id s "f1" state n 2002
+frame o 2 data o 4 id s "e1" type n 16 processed b 0 indexes z frame o 2 id s "f1" state n 1000
+frame o 2 data o 3 id s "e1" type n 16 processed b 0 frame o 2 id s "f1" state n 1001
+frame o 2 data o 3 id s "e1" type n 16 processed b 0 frame o 2 id s "f1" state n 2001
+frame o 2 data o 3 id s "e1" type n 16 processed b 0 frame o 3 id s "f1" state n 1002 bdy a 1 o 1 x n 1
+frame o 2 data o 3 id s "e1" type n 16 processed b 0 frame o 3 id s "f1" state n 1000 bdy a 1 o 1 x n 1
+frame o 2 data o 3 id s "e1" type n 16 processed b 0 frame o 3 id s "f1" state n 2000 bdy a 1 o 1 x n 1
+frame o 2 data o 3 id s "e1" type n 16 processed b 0 frame o 3 id s "f1" state n 1000 bdy a 1 o 2 x n 1 hit_flag n 4
+frame o 2 data o 3 id s "e1" type n 16 processed b 0 frame o 3 id s "f1" state n 1000 bdy a 2 o 1 x n 1 o 1 x n 2
+frame o 2 data o 4 id s "e1" type n 16 processed s "" indexes o 1 in_the_skys a 1 s "x" frame o 2 id s "f1" state n 1000
+frame o 2 data o 4 id s "e1" type n 16 processed n 0 indexes o 1 throwings a 1 s "x" frame o 2 id s "f1" state n 1002
+frame o 2 data o 4 id s "e1" type n 16 processed b 0 indexes o 1 in_the_skys a 1 s "x" frame o 3 id s "f2" state n 1003 itr a 1 o 1 kind n 1
+frame o 2 data o 4 id s "e1" type n 16 processed b 0 indexes o 1 in_the_skys a 1 s "x" frame o 2 id s "f2" state n 2002
+frame o 2 data o 4 id s "e1" type n 16 processed b 0 indexes o 1 in_the_skys a 1 s "x" frame o 2 id s "f2" state n 1004
+# frame / __hit_ground_* 已是非数组 + behavior 是字符串 + fold_aabb 的取整
+frame o 2 data o 2 id s "e1" type n 4 frame o 3 id s "f1" bdy a 1 o 1 on_hit_ground b 1 __hit_ground_bdys n 5
+frame o 2 data o 2 id s "e1" type n 4 frame o 3 id s "f1" itr a 1 o 1 on_hit_ground b 1 __hit_ground_itrs n 5
+frame o 2 data o 2 id s "e1" type n 4 frame o 3 id s "f1" bdy a 1 o 1 on_hit_ground b 1 __hit_ground_bdys s "z"
+frame o 2 data o 2 id s "e1" type n 4 frame o 3 id s "f1" bdy a 1 o 1 on_hit_ground b 1 __hit_ground_bdys o 0
+frame o 2 data o 2 id s "e1" type n 32 frame o 2 id s "f1" behavior s "3"
+frame o 2 data o 2 id s "e1" type n 32 frame o 3 id s "f1" behavior s "3" facing n 1
+frame o 2 data o 2 id s "e1" type n 32 frame o 3 id s "f1" behavior s "14" landable n 0
+frame o 2 data o 2 id s "e1" type n 4 frame o 2 id s "f1" behavior s "3"
+frame o 2 data o 2 id s "e1" type n 4 frame o 3 id s "f1" centerx n 0 bdy a 1 o 1 w n 2
+frame o 2 data o 2 id s "e1" type n 4 frame o 3 id s "f1" centerx n 0 bdy a 1 o 2 x n 10 w s "3"
+frame o 2 data o 2 id s "e1" type n 4 frame o 3 id s "f1" centerx n 0 bdy a 1 o 3 x n 10 w n 20 __aabb_x1 n 99
+frame o 2 data o 2 id s "e1" type n 4 frame o 4 id s "f1" centerx n 0 bdy a 1 o 1 x n 10 __aabb_x1 n -100
+frame o 2 data o 2 id s "e1" type n 4 frame o 4 id s "f1" centerx n 0 bdy a 1 o 2 x n 10 w n 20 __aabb_x2 n 100
+frame o 2 data o 2 id s "e1" type n 4 frame o 5 id s "f1" centerx n 0 bdy a 1 o 2 x n 10 w n 20 __aabb_x1 n -100 __aabb_x2 n 100
+frame o 2 data o 2 id s "e1" type n 4 frame o 6 id s "f1" centerx n 0 centery n 0 bdy a 1 o 2 x n 10 w n 20 __aabb_z1 n -100 __aabb_z2 n 100
+frame o 2 data o 2 id s "e1" type n 4 frame o 3 id s "f1" centerx n 4 itr a 1 o 1 w n 2
+frame o 2 data o 2 id s "e1" type n 4 frame o 3 id s "f1" center s "4,4" bdy a 1 o 2 x n 10 w n 20
+frame o 2 data o 2 id s "e1" type n 4 frame o 3 id s "f1" centerx n 0 bdy a 2 o 1 w n 2 o 2 x n 10 w s "3"
+# frame / 帧里的 bdy·itr 命中 prefab
+frame o 2 data o 3 id s "e1" type n 4 bdy_prefabs o 1 p1 o 1 x n 5 frame o 2 id s "f1" bdy a 1 o 1 ref s "p1"
+frame o 2 data o 3 id s "e1" type n 4 bdy_prefabs o 1 p1 o 2 x n 5 kind n 0 frame o 2 id s "f1" bdy a 1 o 2 w n 1 ref s "p1"
+frame o 2 data o 3 id s "e1" type n 4 itr_prefabs o 1 p1 o 1 kind n 1 frame o 2 id s "f1" itr a 1 o 1 ref s "p1"
+frame o 2 data o 3 id s "e1" type n 4 itr_prefabs o 1 p1 o 2 kind n 1 w n 3 frame o 2 id s "f1" itr a 1 o 2 x n 1 ref s "p1"
+frame o 2 data o 3 id s "e1" type n 4 bdy_prefabs o 1 p1 o 1 on_hit_ground b 1 frame o 2 id s "f1" bdy a 1 o 1 ref s "p1"
+frame o 2 data o 3 id s "e1" type n 4 itr_prefabs o 1 p1 o 1 on_hit_ground b 1 frame o 2 id s "f1" itr a 1 o 1 ref s "p1"

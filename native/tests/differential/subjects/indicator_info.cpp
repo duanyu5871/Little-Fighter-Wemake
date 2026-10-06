@@ -44,8 +44,8 @@ int main(int argc, char** argv) {
 
     if (op == "cfi") {
       lfw::Value frame = parse_value(t, i);
-      lfw::dat_translator::cook_frame_indicator_info(frame);
-      std::printf("cfi %s\n", render(frame).c_str());
+      const bool ok = lfw::dat_translator::cook_frame_indicator_info(frame);
+      std::printf("cfi %s %s\n", ok ? "ok" : "throw", render(frame).c_str());
       if (i != t.size()) {
         std::fprintf(stderr, "line %d: trailing token(s)\n", lineno);
         return 2;

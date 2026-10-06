@@ -105,6 +105,7 @@ add_library(lfw_core STATIC
   loader/preprocess_pic.cpp
   loader/preprocess_stage.cpp
   loader/preprocess_ball_frame.cpp
+  loader/preprocess_frame.cpp
   loader/preprocess_bg_data.cpp
   loader/resolve_prefab.cpp
   loader/preprocess_action.cpp
@@ -123,6 +124,7 @@ add_library(lfw_core STATIC
   utils/utf8.cpp
   utils/js_add.cpp
   utils/times.cpp
+  utils/read_nums.cpp
   helper/randoming.cpp
   state/spawn_ice_piece.cpp
   state/state_base.cpp

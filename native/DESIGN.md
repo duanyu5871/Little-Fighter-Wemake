@@ -6602,3 +6602,103 @@ prefab 错误才比文本，TypeError 的文本两端不可能相同）。用例
 `preprocess_action.cpp` 的 `tester`；`cases: ["all"]` 过滤）。顺带把 `loader_actions` 的
 harness 对齐：`pa` / `pnf` 现在也要把编译产物剥掉（`preprocess_action` 落 `tester` 之后才对得上），
 那份 spec 重跑仍全杀。
+
+---
+
+## 65. 切片 3ad：`loader/preprocess_frame` + `utils/read_nums`
+
+`src/LFW/loader/preprocess_frame.ts`（250 行）是帧装配层：它把一帧原始数据补齐成运行时帧。
+它同时是 `3ac` 那套 `bdy` / `itr` 判定器的**第一个帧级调用者**，也是 `ui/utils/read_nums` 的
+第一个调用者 —— `ui/` 整块没移植，而 `read_nums` 是纯函数（`loader/` 用得到），所以它落在
+`native/lfw/utils/read_nums.{h,cpp}`，注释里注明「TS 在 `ui/utils/`」。
+
+### 65.1 移植面
+
+- `native/lfw/loader/preprocess_frame.{h,cpp}`：`bool preprocess_frame(Value& ctx, std::u16string& error)`
+  —— 成功把结果写回 `ctx.frame`（= TS 调用点 `o[fid] = preprocess_frame({ ...ctx, frame })`）。
+  内部顺序**照抄**：prefab 合并 → `processed` 门里的 ball / weapon 分段 → 独立的 fighter 段 →
+  `width` / `height` → `cook_frame_indicator_info` → `make_frame_behavior` → `sound`（不落地）→
+  `seqs` → Falling 的 `hit.j` → 四处 `traversal` → `next` 等四处 → ball 的 `on_x/y_restrict`
+  自动补 → 四个 `on_*_restrict` → `bdy` / `itr` 逐条 → Burning / BurnRun 的烟 → `center` →
+  `pic` / `pics` → `landable` → `behavior Boomerang` 的 `facing` → `fold_aabb`。
+- `native/lfw/utils/read_nums.{h,cpp}`：`bool read_nums(const Value& src, double len, const Value& fallbacks,
+  std::vector<Value>& out, std::u16string* error = nullptr)`。`len` 取 `double` 而不是 `size_t`
+  —— TS 的参数就是 number，负长度必须走 `len < 1 ⇒ []` 那条路（第一版用 `size_t` 把 `-1`
+  变成 2^64-1，补长循环直接把堆吃穿）。`out` 的元素可能是 `undefined`（TS 的越界读）或 `NaN`。
+- 这两个文件都进了 `native/lfw/CMakeLists.txt`。
+
+### 65.2 保真要点
+
+1. **`data.processed != false` 是松散比较**：`false` / `0` / `""` / `null` 都算「未处理」⇒
+   才进 ball / weapon 段；`undefined != false` 为**真** ⇒ 缺省数据的走法是「走空分支」。
+   fighter 段是**独立的 `if`**（不受这道门管）。差分里最常见的一次踩坑就是用例忘了带
+   `processed`，于是整段 weapon 代码根本没执行、变异全幸存。
+2. **`preprocess_ball_frame(ctx)` 收到的是当前 ctx**：`ctx.frame` 仍是**原始帧**，而函数后面
+   继续操作 `merged.value` —— prefab 命中时两者不是同一个对象，端口照抄（不写回 `ctx.frame`
+   再调用）。
+3. **`seqs` 先建 `__seq_map` 再遍历**：遍历中途抛（`seqs` 是字符串时回调里的 `o[k] = …` 会抛）
+   时 map 已经挂在帧上了 —— 端口把 `f->set("__seq_map", …)` 放在遍历之前。
+4. **`traversal(r, cb)` 对字符串给下标**：`Object.keys("ab")` 是 `["0","1"]`，回调里的
+   `o[k] = …` 在严格模式下给字符串赋值会抛 ⇒ 端口 `each_entry` 对非空字符串直接失败；
+   数字 / 布尔的 `Object.keys` 是空表 ⇒ 不遍历（不是失败）。`hit` / `hold` / `key_down` /
+   `key_up` / `seqs` 五处都走这条路。
+5. **`read_nums` 的两个怪癖**：`is_num_arr` 是「是数组且没有 `NaN`」（**不要求**元素都是数字，
+   所以 `["3"]` 也算数字数组、后面原样透出），越界判断是 `idx > src.length`（**不是 `>=`**）
+   ⇒ `idx === length` 时推 `undefined`（`center "1"` 会给出 `centery: u`）。补长用
+   `fallbacks[length-1] || 0`，**空数组时读成 `undefined`** ⇒ 补 0（端口第一版在这里越界崩过）。
+6. **`fold_aabb` 的四轴都是 `??` 回落**：`x1 = x - centerx`（解构默认值只在 `undefined` 生效）、
+   `x2 = x1 + w`（`+` 是 `js_add`：`w` 是字符串时会**拼接**，所以 `a(10) + "3"` 是 `"103"`），
+   `z1 = z ?? -DZL/2`、`z2 = z + (l ?? DZL)`，然后 `min`/`max` 与旧值合并。
+7. **ball 的 `on_x/y_restrict` 自动补用的是松散比较**：`data.type == Ball` 与
+   `frame.state == Ball_Flying/3005/3006` 都是 `==`（`"32"` / `"3000"` 也命中），而
+   `landable` 与 `Boomerang` 里的 `data.type === Ball` 是严格比较。
+8. **`frame.pic` 的处理顺序**：`width` / `height` 读的是**原始** `pic`；末尾
+   `frame.pic = preprocess_frame_pic(frame)` 即使 `pic` 缺失也会**建出 `pic: u` 键**。
+9. **`pics` / `on_*` / `bdy` / `itr` 的 `?.forEach`**：真值非数组时 TS 抛 TypeError ⇒ 端口
+   `return false`；`null` / `undefined` 才是「跳过」。
+10. **`cook_frame_indicator_info` 的三类失败**（`"w" in pic` 对原始值、`?.forEach` 对非数组、
+    给标量挂 `__indicator_info`）以前被端口静默吞掉 —— 这一刀把它改成 `bool`（见 §65.4），
+    并把「抛之前改了多少」也对齐：`__indicator_info` 先写，opoint / cpoint / bpoint / wpoint /
+    bdy / itr 任何一处失败都在**同一位置**停下。
+
+### 65.3 偏差（同时登记在 README 的偏差表）
+
+1. `__seq_map` 用 `Object` 顶替 TS 的 `Map`：渲染一样，但键序不同（`Map` 保插入序，
+   `Object` 把整数键前置升序）⇒ 差分用例里的 `seqs` 键只能升序。
+2. `frame.opoint?.forEach(preprocess_opoint)` 与 `frame.sound` 的加载任务都不落地
+   （沿用 `preprocess_opoint` 与 `A_SOUND` 的既有约定）。
+3. `frame` 是标量时端口在入口就失败（TS 读到第一次写才抛）；差分只比「失败」这一位。
+4. `preprocess_ball_frame` 里 `data.base` 缺失时 TS 抛、端口跳过 —— **V41 遗留**，本刀的用例
+   一律给 `base`（记在 `mutations/preprocess_frame.mjs` 头部，不在本刀修）。
+
+### 65.4 有意不覆盖 / 等价
+
+1. `ctx` 不是对象（harness 的 TS 侧要先往 ctx 上挂 `lfw` / `jobs`，标量 ctx 在 harness 里就抛了）。
+2. weapon 分支里的 `if (d == nullptr)`：`is_weapon_data(data)` 为真就说明 `data` 是对象 ⇒ 不可达。
+3. `frame.pics` 的 `arr[i] = preprocess_pic(pic)` 与帧内 `bdy` / `itr` 的**普通**项：
+   `preprocess_pic` / `preprocess_bdy` / `preprocess_itr` 都是**就地改并返回同一个对象** ⇒
+   写回是恒等操作。**命中 prefab 时例外**（`resolve_prefab` 拼的是新对象）⇒ 用例专门补了
+   `bdy_prefabs` / `itr_prefabs` 六行把这条差异钉住。
+4. `fold_aabb` 之前那段 `bdy` / `itr` 的 `else { return false; }`：走到这里时两者只可能是假值
+   或数组（上面那个 `?.forEach` 循环已经对非数组返回过 `false`）⇒ 不可达。
+5. `breakfall` 里 `edit` 的 `if (o == nullptr) return;`：能命中 id 100/108 的 `j` 一定是对象。
+
+### 65.5 harness 与变异
+
+`loader_frames` 新增两个 op（同一个 subject、同一个用例文件）：
+`frame <data> <frame>` 与 `rn <src> <len> [<fallbacks>]`。
+- `frame` 的输出是 `frame <ok|throw> <data> <帧> t=<探针> [msg=<文本>]`；探针是
+  「帧自己 + 每个 `bdy` / `itr` 的 `__tester` + 它们 `actions` 里的 `tester`」的 `-`/`u`/`s` 串
+  （`__tester` 装不进 `Value`，只能这样比）。剥键表在原有的 `__tester` / `__judger` / `tester`
+  之外**加了九个 `__gen_*` 与 `__gen_facing`**（`make_buring_smoke` 的 `action.__gen_facing`
+  是同一个道理）。
+- `rn` 直接把 `read_nums` 的结果打出来：`rn ok <数组> fb=<第三参渲染> msg=<文本>` /
+  `rn throw - fb=… msg=[read_nums] failed, …`。第三参会被**就地补长**，所以把它也渲染出来
+  （`fb=` 是数组的话能看见补出来的元素）。
+- `msg=` 的规矩照旧：只有以 `[` 开头的文本两端可比 —— 本刀起 `[read_nums] failed, …` 也进了
+  这一类（端口逐字对齐）。
+- 用例 `cases/loader_frames/all.txt` 222 → **544** 行；变异名单 `mutations/preprocess_frame.mjs`
+  **213** 条 **213/213 全杀**（190 条 `preprocess_frame.cpp` + 23 条 `read_nums.cpp`）。
+- `indicator_info` 的 harness 也跟着改：`cfi` 现在输出 `cfi <ok|throw> <帧>`（TS 侧 try/catch），
+  用例 16 → **69** 行（补的全是新失败路径），变异 23 → **40** 条 **40/40 全杀**；那条
+  「`bdy` 列表之后不检查 `ok`」是等价的（末尾那次检查兜住了），只在名单头部记了一句。
