@@ -7939,15 +7939,19 @@ differential **155/155**。
 `motionless` / `shaking` 等 11 个碰撞观测量之后，`world/collision` 立刻在 `shaking` 上分岔
 （在此之前这条缝只表现为「某些实体不抖动」，差分用例看不见）。
 
-### 78.5 宿主的两条约束
-
-1. **Env 是模块级单例**：12 个 Env 由 `set_*_env` 装到各自 `.cpp` 的全局槽上 ⇒ 同一时刻只应有一个
-   活的 `WorldCollisionHost` 在跑。差分台面一次只跑一个用例（每例新建 World），满足；
-   两世界并存时要先改这条。
+### 78.5 宿主的三条约束
+1. **Env 是模块级单例**：11 个 Env 由 `set_*_env` 装到各自 `.cpp` 的全局槽上。4M 之前这条意味着
+   「同一时刻只应有一个活的 `WorldCollisionHost`」；现在发布带所有权（`g_published` +
+   `ensure_published()` + 析构时 `clear_globals()`）⇒ 多个 `World` 可以**轮流**步进（不能同时
+   交错：交错时后发布者会覆盖前者的槽，而两者的 `Env` 形状相同、指向的 `World` 不同 ⇒ 会读错
+   世界）。仍有活世界时，一个宿主析构不会清掉别人的槽。
 2. **`acquire_collision` 必须每次新对象**：`Collision::handlers` 是 `shared_ptr<vector>`，复用槽位
    会把已经拷进 `world.collisions` 的那份一起清空 ⇒ 后面 `handle` 那一趟就没有 handler 可跑。
    端口每次新建、由 `World::step` 开头的 `reset_collisions()` 整批释放（TS 的 `Graves` 池永远空，
    因为 `recycle_collision` 没有任何调用者 —— 行为相同）。
+3. **`handle` 里必须补 `c.env` / `c.core` / `c.dataset`**：这三个是 4C 在没有宿主时留的「行为缝
+   字段」（TS 里分别是 `this` / `this.core` / `attacker.world.dataset`），漏一个就会读到
+   `undefined`（`c.dataset` 漏了的表现是 `shaking` 变 `NaN`）。
 
 ### 78.6 未接线的宿主缝（都留给对应的那一刀）
 
@@ -7977,6 +7981,13 @@ differential **155/155**。
    仍未进 dump 的：`buffs` 条数、`hit_sounds`（台面的 `play_sound` 不记日志）、`arest`
    （`handle_rest` 里 `attacker.set_arest` 的结果）。另外要补一组「部分重叠的判定框」才能锁住
    `get_bounding` 的六个字段（现在两组判定框完全重合）。
-5. **世界生命周期**：一个进程里两个 `wnew` 会让第二个世界的 `step` 访问违例（`0xC0000005`）。
-   12 个 Env 挂在模块级全局槽上，旧世界宿主析构后槽里留着指向它的 lambda ⇒ 要么析构时解绑，
-   要么把 Env 从全局槽改成 `World` 自己持有（像 `IEntityHost` 那样）。
+5. ~~**世界生命周期**~~ 已做（4M）：一个进程里两个 `wnew` 会让第二个世界的 `step` 访问违例
+   （`0xC0000005`），根因是 12 个 Env 挂在**模块级全局槽**上、旧世界宿主析构后槽里留着指向它的
+   lambda。修法保持「Env 是模块级单例」这个既有设计，但给发布加一层所有权：宿主发布时登记自己
+   （`world_collision.cpp` 里的 `g_published`），`ensure_published()` 只在「当前发布者不是自己」
+   时才重发（`collision_get` / `collision_test` / `handle` 三个入口各调一次，成本一次指针比较），
+   析构时只有「当前发布者」才 `clear_globals()` 把 11 个槽set 成空 Env。
+   好处：多个 `World` 可以**轮流**步进；一个宿主析构不会再让另一个活宿主的槽变空。
+   用例 `cases/world/lifecycle.txt`（两个世界各一组会碰撞的实体、各一次 `step`）锁住「换世界后
+   仍能正常步进且两侧一致」；**锁不住**「悬垂 lambda 真被调用」（台面没有「不建新宿主就去摸
+   碰撞层」的 op，TS 侧也没有这个概念）—— 那部分是设计性的防御，见该用例档头。

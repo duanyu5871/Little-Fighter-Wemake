@@ -82,7 +82,20 @@ Value index_of(const Value& holder, const std::u16string& key) {
 
 WorldCollisionHost::WorldCollisionHost(World& world) : _world(&world) { bind(); }
 
-WorldCollisionHost::~WorldCollisionHost() = default;
+// `collision/` 的 11 个 Env 槽是**模块级**的，而宿主是每个 `World` 一份 ⇒ 发布与「当前发布者」
+// 绑定：谁发布谁负责（析构时清空），换宿主时按需重发（一个进程里可以有多个 `World` 轮流步进，
+// 只要不是同时）。这样旧宿主被销毁后，槽里不会留下指向它的 lambda。
+namespace {
+const WorldCollisionHost* g_published = nullptr;
+}
+
+WorldCollisionHost::~WorldCollisionHost() {
+  // 只有「当前发布者」才允许清空：别的宿主可能正活着并拥有这些槽（清了会让它的下一次调用
+  // 打到空 `std::function`）。
+  if (g_published != this) return;
+  clear_globals();
+  g_published = nullptr;
+}
 
 // ───────────────────────────── 视图 / 实体 ─────────────────────────────
 
@@ -249,18 +262,21 @@ collision::Collision& WorldCollisionHost::acquire_collision() {
 void WorldCollisionHost::reset_collisions() { _collisions.clear(); }
 
 collision::Collision* WorldCollisionHost::collision_get(Entity& a, Entity& v) {
+  ensure_published();
   _cur_a = &a;
   _cur_v = &v;
   return collision::collision_get(_core, actor_of(a), actor_of(v));
 }
 
 bool WorldCollisionHost::collision_test(collision::Collision& c) {
+  ensure_published();
   _cur_a = entity_of_collision_a(c);
   _cur_v = entity_of_collision_v(c);
   return collision::collision_test(c);
 }
 
 void WorldCollisionHost::handle(collision::Collision& c) {
+  ensure_published();
   Entity* const prev_a = _cur_a;
   Entity* const prev_v = _cur_v;
   _cur_a = entity_of_collision_a(c);
@@ -301,6 +317,26 @@ buff::Buff* WorldCollisionHost::create_buff(const std::u16string& kind,
 
 // ───────────────────────────── Env 接线 ─────────────────────────────
 
+void WorldCollisionHost::ensure_published() {
+  if (g_published == this) return;
+  publish_globals();
+  g_published = this;
+}
+
+void WorldCollisionHost::clear_globals() {
+  collision::set_keeper_env(collision::KeeperEnv());
+  collision::set_handlers2_env(collision::Handlers2Env());
+  collision::set_handlers3_env(collision::Handlers3Env());
+  collision::set_handlers4_env(collision::Handlers4Env());
+  collision::set_fall_env(collision::FallEnv());
+  collision::set_nbdy_normal_env(collision::NbdyNormalEnv());
+  collision::set_nbd_defend_env(collision::NbdDefendEnv());
+  collision::set_weapon_is_hit_env(collision::WeaponIsHitEnv());
+  collision::set_ball_frozen_env(collision::BallFrozenEnv());
+  collision::set_healing_env(collision::HealingEnv());
+  loader::set_collision_val_env(loader::CollisionValEnv());
+}
+
 void WorldCollisionHost::bind() {
   bind_core();
   bind_keeper();
@@ -316,7 +352,10 @@ void WorldCollisionHost::bind() {
   bind_ball_frozen();
   bind_healing();
   bind_buff_env();
+  ensure_published();
+}
 
+void WorldCollisionHost::publish_globals() {
   collision::set_keeper_env(_keeper);
   collision::set_handlers2_env(_handlers2);
   collision::set_handlers3_env(_handlers3);

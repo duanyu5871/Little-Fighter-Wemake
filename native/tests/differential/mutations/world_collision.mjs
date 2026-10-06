@@ -53,7 +53,7 @@
 //     找到一对「只在 ally 位上分岔」的实体（`is_ally` 的专属用例，或 `LFW` 那一刀的真玩家）。
 export default {
   subject: "world",
-  cases: ["collision"],
+  cases: ["collision", "lifecycle"],
   mutations: [
     // ───────────────────────── 配对循环 ─────────────────────────
     {

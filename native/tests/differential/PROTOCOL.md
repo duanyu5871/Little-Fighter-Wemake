@@ -4231,7 +4231,24 @@ harness op：
   （受击方 `collided_list` 到 5）。x 分段只决定配对前的排序，别指望它隔离；好处是交叉配对让
   六条 handler 支路（stiffness / `SuperPunchMe` / `Catch` …）都跑到了。值都在 map 内的实体
   （第 1 组 x=0）才真正只跟自己那一段互配。
-- ⚠️ **一个进程里只能有一个世界**：`wnew` 两次（每段各跑一次 `step`）会让第二段 `step` 访问违例
-  （`0xC0000005`），单段各跑一次都没事 —— 12 个 Env 挂在模块级全局槽上，旧世界的宿主被销毁后
-  槽里还留着指向它的 lambda。所以本用例把四组实体放在**同一个世界**里按 x 分段（段与段之间靠
-  `a_max_x < b.aabb_min_x` 的 `break` 隔开）。宿主生命周期那一刀要把它修成「析构时解绑」
+- ⚠️ **一个进程里可以有多个世界，但要轮流步进**（4M 之前是「只能有一个」）：11 个 Env 挂在模块级
+  全局槽上，宿主发布时登记自己（`g_published`）、`ensure_published()` 按需重发、析构时只有
+  「当前发布者」才清空槽 ⇒ 旧世界的宿主被销毁后，槽里不会留下指向它的 lambda。本用例把六组实体
+  放在**同一个世界**里按 x 分段（段与段之间靠 `a_max_x < b.aabb_min_x` 的 `break` 隔开）；
+  「换世界」那条路径由 `cases/world/lifecycle.txt` 单独锁（见 §6.9.123）。
+
+### 6.9.123 宿主生命周期（`cases/world/lifecycle.txt`，54 行；与 6.9.122 共用一个变异档）
+
+- **场景**：同一进程里 `wnew` 两次 —— 第一个世界造一组会碰撞的实体并 `wstep`，然后 `wnew`
+  （旧 `World` 被 `unique_ptr` 析构 ⇒ `WorldCollisionHost` 析构 ⇒ 模块级 Env 槽的归属变更），
+  第二个世界再造一组并 `wstep`。两侧输出逐行一致，且第二组观测与第一组同形。
+- **修法**（`native/lfw/world_collision.{h,cpp}`）：`g_published` 记录「当前发布者」；
+  `ensure_published()` 在 `collision_get` / `collision_test` / `handle` 三个公开入口各调一次
+  （不等就重发，成本一次指针比较）；析构时只有 `g_published == this` 才 `clear_globals()`
+  （把 11 个槽 set 成空 Env）并复位登记。
+- ⚠️ **这条用例锁不住「悬垂 lambda 真被调用」**：TS 侧没有这个概念，台面上也没有「不建新宿主
+  就去摸碰撞层」的 op（任何碰撞层入口都会先 `collision_host()` 惰性建宿主 ⇒ 顺手重发）。
+  它是设计性的防御，用例锁的是「换世界之后仍能正常步进 + 两侧一致」。也因此这一刀**没有**
+  对应的变异条目（改坏 `ensure_published()` / `clear_globals()` 的都是不可观察的）。
+- **踩坑**：改这条时先 `build`（不带 subject）再 `test` —— 只 `build world` 不会重建库，
+  差分台面会拿旧库跑，表现为「改了没生效」（§6.9.122 同款坑）。

@@ -66,6 +66,12 @@ class WorldCollisionHost : public ICollisionViewHost {
   void mt_mark(const std::u16string& mark) override;
 
  private:
+  // 把 11 个 Env 发布到 `collision/` 的模块级槽上；`ensure_published()` 只在「当前发布者不是
+  // 自己」时才真的重发（公开入口每次都会调一次，成本是一次指针比较）。
+  void ensure_published();
+  void publish_globals();
+  void clear_globals();
+
   void bind();
   void bind_core();
   void bind_keeper();
