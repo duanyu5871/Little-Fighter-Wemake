@@ -1,0 +1,22 @@
+# 4L：`step` 的碰撞配对（`collision_get` / `priority` / `add_collision`）与随后的
+# `collisions_keeper.handle` 那一趟 —— 走真实的 `WorldCollisionHost` 接线（`CollisionCoreEnv`
+# / `KeeperEnv` / `HandlersEnv` / `Handlers2-4Env` / `NbdyNormalEnv` / `FallEnv` / …）。
+#
+# 实体数据：`A` 的帧带 `itr`（kind 0 = ItrKind.Normal、hit_flag 61 = AllEnemy、injury 5），
+# `B` 的帧带 `bdy`（kind 0 = BdyKind.Normal、hit_flag 61）。两者 x 相同才进配对
+# （`a_max_x < b.aabb_min_x` 会 `break`），判定框 `x=-40/w=80` 让两颗矩形相交。
+wnew
+wplayer 7
+wmk A o 4 id s "A" type n 8 base o 2 name s "AB" resting_max n 5 frames o 1 0 o 4 id s "0" state n 1 wait n 30 itr a 1 o 7 kind n 0 hit_flag n 61 x n -40 y n 0 w n 80 h n 80 injury n 5
+went A ctrl base
+went A hp n 20
+went A pos n 0 n 0 n 0
+wreadd A
+wmk B o 4 id s "B" type n 8 base o 2 name s "BB" resting_max n 5 frames o 1 0 o 4 id s "0" state n 1 wait n 30 bdy a 1 o 6 kind n 0 hit_flag n 61 x n -40 y n 0 w n 80 h n 80
+went B ctrl base
+went B hp n 20
+went B pos n 0 n 0 n 0
+wreadd B
+wdump
+wstep
+wdump

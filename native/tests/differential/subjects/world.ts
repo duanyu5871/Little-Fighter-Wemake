@@ -269,6 +269,10 @@ const fakeLfw: Bag = {
     return "t" + team_counter;
   },
   mt,
+  // `LFW.acquire_collision()`（`LFW.ts:890`）从 `Graves` 取，而池子**没有任何回收者**
+  // ⇒ 永远 `undefined`（调用点 `|| {}` 兜住）。端口那边这个池子是宿主私有的（不经过
+  // 测试台）⇒ 这里必须**静默**，否则两边日志对不上。
+  acquire_collision: () => undefined,
   players: {
     get: (pid: unknown) => {
       log.push(`h:player=${vstr(pid)}`);
@@ -326,6 +330,9 @@ const fakeLfw: Bag = {
     },
   },
   factory: {
+    // `lfw.factory.create_buff(kind, lfw, id)`：碰撞的 buff 缝（`handle_itr_kind_magic_flute`
+    // / `grant_buff`）。端口由宿主回答（`IWorldLfw::create_buff`），测试台默认「造不出」。
+    create_buff: () => undefined,
     create_entity: (w: unknown, data: unknown) => {
       const e = new Entity(w as never, data as never, states as never);
       created.push(e);

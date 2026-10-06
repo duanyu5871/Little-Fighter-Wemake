@@ -1,7 +1,9 @@
 #include "lfw/world.h"
+#include "lfw/world_collision.h"
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 #include "lfw/base/clock.h"
 #include "lfw/base/render_scheduler.h"
@@ -368,6 +370,11 @@ Value World::world_bg() {
 Value World::dataset_value() const { return dataset.dump_dataset(); }
 
 Value World::world_dataset() { return dataset_value(); }
+
+WorldCollisionHost& World::collision_host() {
+  if (collision_host_ == nullptr) collision_host_ = std::make_unique<WorldCollisionHost>(*this);
+  return *collision_host_;
+}
 
 void World::set_bg(std::unique_ptr<Background> v) {
   if (v.get() == bg_.get()) return;
@@ -917,6 +924,7 @@ void World::step() {
                 number_to_string(static_cast<double>(entities.size())));
   }
   collisions.clear();
+  collision_host().reset_collisions();
   pair_collisions_.clear();
   pairs_compared = 0.0;
   dead_buffs_.clear();
@@ -1070,9 +1078,26 @@ void World::step() {
     if (lookingup && (is_ball_ctrl_ptr(ctrl) || is_bot_ctrl_ptr(ctrl))) {
       lfw_->ctrl_update_lookup(*ctrl, static_cast<double>(i), entities);
     }
-  }
 
-  // `get_bound` 的边界 + 碰撞配对（`collision_get` / `collisions_keeper.handle`）见 4L。
+    // 细致的碰撞判定
+    const double a_max_x = a->aabb_max_x;
+    const double a_min_z = a->aabb_min_z;
+    const double a_max_z = a->aabb_max_z;
+    for (size_t j = i + 1; j < len; ++j) {
+      Entity* const b = entities[j];
+      if (a_max_x < b->aabb_min_x) break;
+      if (frame_is_gone(*b)) continue;
+      if (a_max_z < b->aabb_min_z || b->aabb_max_z < a_min_z) continue;
+      pairs_compared += 1.0;
+      collision::Collision* const c1 = collision_host().collision_get(*a, *b);
+      collision::Collision* const c2 = collision_host().collision_get(*b, *a);
+      const Value inf = Value(std::numeric_limits<double>::infinity());
+      const Value p1 = c1 != nullptr ? c1->priority : inf;
+      const Value p2 = c2 != nullptr ? c2->priority : inf;
+      if (c1 != nullptr && le(p1, p2)) add_collision(*c1);
+      if (c2 != nullptr && le(p2, p1)) add_collision(*c2);
+    }
+  }
 
   // y 的偏移在写入时补（z 的采样不含半屏）；可见高度 = screen / zoom。
   const double half_h =
@@ -1089,6 +1114,10 @@ void World::step() {
   } else if (truthy(Value(fighter_count))) {
     camera_->destination.x = round(fighter_x_sum / fighter_count);
     camera_->destination.y = -0.5 * round(fighter_z_sum / fighter_count) - half_h;
+  }
+
+  for (std::pair<std::u16string, collision::Collision>& kv : collisions) {
+    collision_host().handle(kv.second);
   }
 
   for (Entity* const entity : gones_) {

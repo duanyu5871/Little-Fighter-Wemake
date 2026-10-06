@@ -449,12 +449,11 @@ void CollisionKeeper::handle(Collision& collision) const {
       strict_equals(itr_kind, Value(static_cast<double>(ItrKind::Pick))) ||
       strict_equals(itr_kind, Value(static_cast<double>(ItrKind::PickSecretly)));
   if (!silent) {
-    Value data;
-    Value sounds;
-    if (collision.core->find_object_data(collision.vdata_id, data)) {
-      sounds = field_or(field_or(data, u"base"), u"hit_sounds");
-    }
-    g_env.victim_play_sound(sounds);
+    // TS: `const sounds = victim.data.base.hit_sounds; victim.play_sound(sounds)` —— 直接读
+    // 受击方的数据（**不是** `lfw.datas.find_object(vdata_id)`：那是 4E 那一刀在没有宿主时
+    // 的替代写法，本刀接上宿主后改回直读，见 DESIGN §78.6）。
+    const Value data = g_env.victim_data();
+    g_env.victim_play_sound(field_or(field_or(data, u"base"), u"hit_sounds"));
   }
 }
 

@@ -32,6 +32,7 @@ namespace lfw {
 class ITickerOptions;
 class Ticker;
 class World;
+class WorldCollisionHost;
 
 // `Stage` 在 `lfw::stage` 里（TS 的 `stage/Stage.ts`），本文件里用得最多，起个本地别名。
 using stage::Stage;
@@ -86,6 +87,14 @@ class IWorldLfw : public stage::IStageLfw {
   virtual bool is_cheat(const std::u16string& name) = 0;
   // `lfw.new_id`
   virtual std::u16string new_id() = 0;
+  // `lfw.factory.create_buff(kind, lfw, id)`（碰撞的 buff 缝：`handle_itr_kind_magic_flute`
+  // 的 `create_buff` / `grant_buff` 的 `create_buff`）。`LFW` 未移植 ⇒ 宿主给这一面；
+  // 默认「造不出」对应 TS 拿到 falsy 的那条路径。
+  virtual buff::Buff* create_buff(const std::u16string& kind, const std::u16string& id) {
+    (void)kind;
+    (void)id;
+    return nullptr;
+  }
   // `lfw.broadcasts` 与 `lfw.broadcast(m)`（`Entity::broadcast` 转发）
   virtual void broadcast(const Value& m) = 0;
   // `lfw.factory.create_ctrl(data.id, this.ctrl.player_id, this)`（`Entity::transform` 转发）
@@ -173,6 +182,10 @@ class World : public ICameraWorld {
   IEntityHost& host() const { return *host_; }
   stage::IStageWorld& stage_world() const { return *stage_view_; }
   state::States* states() const { return states_; }
+  // 碰撞那一刀的宿主（`World::step` 的配对 / `collisions_keeper.handle` 都要它）。
+  // 首次用到时才建：它会把 12 个 Env 装到 `collision/` 层的全局缝上（同一时刻只应有一个
+  // 活的 World 在用 —— 差分台面一次只跑一个用例，见 DESIGN §78.5）。
+  WorldCollisionHost& collision_host();
 
   // ---- `get bg` / `set bg`：换背景时顺带把缩放交给 transform，并 dispose 旧的 ----
   Background* bg() const { return bg_.get(); }
@@ -315,6 +328,7 @@ class World : public ICameraWorld {
   std::unique_ptr<Background> bg_;
   std::unique_ptr<Stage> stage_;
   std::unique_ptr<Camera> camera_;
+  std::unique_ptr<WorldCollisionHost> collision_host_;
   bool sleeping_ = false;
   Value spark_data_ = Value(NullTag{});
   Value etc_data_ = Value(NullTag{});

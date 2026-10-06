@@ -79,6 +79,9 @@ void bind() {
   env.victim_play_sound = [](const Value& sounds) {
     g_log.push_back("sound:" + render(sounds));
   };
+  // `handle` 末尾读 `victim.data.base.hit_sounds`（TS 直读实体数据）⇒ 与本 harness 的
+  // `find_object_data` 给同一份 `g_vdata`，观测量不变。
+  env.victim_data = []() { return g_vdata; };
   lfw::collision::set_keeper_env(env);
 
   g_core.dev = []() { return g_dev; };

@@ -4181,3 +4181,27 @@ harness op：
   （同一帧就先被压实摘掉）、`_gones` 清运里那次 `mark_players_alive`（冗余）、`Entity::update`
   重写 `position` 导致相机 z 求和恒 0、`update_once` 里 `worker != nullptr` 那一段（假时钟推不动
   `Ticker` 的步进）。
+
+### 6.9.122 `World` 的碰撞配对与 `collision/` 的 82 条缝（`cases/world/collision.txt`，27 行）
+
+- **台面**：不新增 subject —— 这一刀的两侧都是**真代码**。TS 侧跑真 `World.step`（真
+  `collision_get` / 真 `collisions_keeper`），C++ 侧跑端口 `World::step` + `WorldCollisionHost`
+  的接线。用例只需造一颗「帧带 `itr`」的实体和一颗「帧带 `bdy`」的实体，`wstep` 一次。
+- **用例要点**：两颗实体 x 相同（`a_max_x < b.aabb_min_x` 的 `break` 不影响；z 轴的 AABB 剔除也
+  要让 `a_max_z < b_min_z` 为假）、判定框 `x=-40 w=80` 相交、`hit_flag 61`（AllEnemy）让
+  `itr_flag & victim.data.type` 与 `bdy_flag & attacker.data.type` 都命中、
+  `is_ally` 为假 ⇒ `ally_flag = Enemy` 也被命中、双向 `emission` 为空 ⇒ 队伍那条不拦。
+  观测量：`pc=1`（配对比次）、`col=1`（本帧加入的碰撞）、受击方 `hp` 从 20 掉到 15（走
+  `handle_itr_normal_bdy_normal` → `handle_injury`）；另有 `h:warn` 的 `spark` 缺数据告警。
+- **帧里的 `itr` / `bdy` 必须是数组**（`a 1 o 7 …`）：写成 `o 1 0 …` 会得到 Object，
+  `collision_get` 的 `itr?.length` 判空直接返回 `null`（本例第一次跑就是 `col=0`）。
+- **台面补的两条假面**（TS `subjects/world.ts`）：`lfw.acquire_collision()` 必须**存在且静默**
+  （真实池子永远空 ⇒ `|| {}`；端口那边池子在宿主里、不经过测试台，所以 TS 侧不能记日志），
+  `lfw.factory.create_buff` 给一条静默 stub（端口由 `IWorldLfw::create_buff` 回答，默认造不出）。
+- ⚠️ **`test` 不 build，`build <subject>` 只建 subject**：改完库再跑 `test` 会拿**旧的库**，
+  表现为「我明明改了却没生效」。本次踩到：`keeper.cpp` 的 `victim.data.base.hit_sounds` 改完
+  直读之后仍看到旧的 `h:datasfind=<vdata_id>` 多一行，一度以为是新偏差，实际是库没重建
+  （`build`（不带 subject）之后那一行消失）。**改库后先 `build` 再 `test`**。
+- **`KeeperEnv` 加字段时**：`set_keeper_env(env)` 会把当时那份 `env` **拷**进全局槽 ⇒ 新缝必须在
+  `set_keeper_env` **之前**绑定，否则 `handle` 调用到空的 `std::function`（`-fno-exceptions` 下
+  直接 `__fastfail`，表现为二进制零输出、退出码 `0xC0000409`）。

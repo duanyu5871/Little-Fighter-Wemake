@@ -7878,3 +7878,83 @@ ERROR: AddressSanitizer: heap-use-after-free ... in WorldUpdateOptions::on_step
 
 最终 **95/95 全杀 0 compile-error**；`native/tools/native.mjs all` ⇒ lint / coverage /
 differential **155/155**。
+
+
+## 78. 切片 4L 核心：碰撞配对与 `collision/` 的 82 条缝
+
+### 78.1 移植面
+
+`World::step` 补两段：配对循环（`entities[i]` 的内层 `j`，`a_max_x < b.aabb_min_x` 的
+`break` / 幽灵跳过 / z 轴 AABB 剔除 / `pairs_compared++` / `collision_get(a,b)` 与
+`collision_get(b,a)` / `priority ?? Infinity` 的比较 / `add_collision`）与相机那段之后的
+`collisions.forEach(collisions_keeper.handle(c))`。
+
+新增 `native/lfw/world_collision.{h,cpp}`：`collision/` 层的 **12 个 Env、82 条缝**在这里
+一次接完 —— `CollisionCoreEnv`(14) / `KeeperEnv`(9) / `HandlersEnv`(12) / `ActionEnv`(8) /
+`Handlers2Env`(7) / `Handlers3Env`(7) / `Handlers4Env`(3) / `NbdyNormalEnv`(5) /
+`NbdDefendEnv`(4) / `FallEnv`(4) / `WeaponIsHitEnv`(6) / `BallFrozenEnv`(2) / `HealingEnv`(2)，
+外加 `buff::BuffEnv`(6) 与 `loader::CollisionValEnv`(1)。
+
+新增 `native/lfw/entity/entity_collision_view.{h,cpp}`：TS 里碰撞两边**就是** `Entity`，
+端口的 `collision/*` 收窄接口 ⇒ 三个视图把 `Entity` 转发上去（与 `EntityStateView` 同一套路）。
+
+### 78.2 三处必须保真的表示
+
+1. **视图要分链**：`IFallEntity` 与 `IWeaponIsHitEntity` 各自从 `IHandlerEntity` 非虚继承
+   派生 ⇒ 一个类同时实现两者会出现两个 `IHandlerEntity` 子对象（转换二义）。所以按继承链
+   分三个：`EntityHandlerView : INdbdyDefendEntity`（含 `IFallEntity` / `INbdyNormalEntity`）、
+   `EntityWeaponView : IWeaponIsHitEntity`、`EntityActionView : IActionEntity + IH3Entity +
+   IH4Entity + IFrozenEntity + IHealingEntity + buff::IBuffEntity`。
+2. **`CollisionActor` 是快照**：`collision/` 层看不见 `Entity`，宿主按 TS 的读法逐个字段投影
+   （`bear_wpoint_attacking` ← `bearer?.frame.wpoint?.attacking`、`catcher_hurtable` ←
+   `catcher.frame.cpoint?.hurtable`、`marks_group_attack` ← `marks.has("GroupAttack")`、…
+   见 `WorldCollisionHost::actor_of`）。
+3. **两条缝要「当前那一对」**：`victim_get_v_rest(aid)` / `attacker_is_ally()` 的签名里没有对方
+   实体（TS 是 `victim.get_v_rest(c.aid)` / `attacker.is_ally(victim)`）⇒ 宿主在自己唯一的两个
+   入口（`collision_get` / `collision_test`）登记 `_cur_a` / `_cur_v`。`collision/` 的直接调用者
+   必须走宿主，这是这一刀的接线约定。
+
+### 78.3 `Value` 形状的助手：投影一层
+
+`is_fall` / `is_armor_work` / `calc_itr_velocity` / `calc_stiffness` 是 4.54 那一刀落的**纯函数**，
+收 `Value` 形状的实体/碰撞（`victim.frame.state` / `data.base.weight` / `world.dataset` …）⇒
+宿主按 TS 读到的字段投影一次（`entity_helpers_value` / `collision_helpers_value` /
+`world_helpers_value`）。`entity::entity_dataset` 的四级 `??` 链因此照常工作（`world` 那一层是
+`world.bg.data.dataset` 与 `world.dataset`）。
+
+### 78.4 本刀修掉的既有偏差
+
+`collision/keeper.cpp` 的 `handle` 末尾原来用 `core->find_object_data(vdata_id)` 取受击方的
+`base.hit_sounds` —— 那是 4E 那一刀**还没有宿主**时的替代写法（TS 直读 `victim.data.base.hit_sounds`）。
+本刀接上宿主后改回直读：`KeeperEnv` 新增 `victim_data` 缝（宿主给 `_cur_v->data()`），
+`collision_keeper_handle` 台面把同一份 `g_vdata` 接到这条缝上（观测量不变）。
+差别的可见处：旧写法会**多一次** `lfw.datas.find(vdata_id)`（在台面上就是多一行
+`h:datasfind=`，本次差分用例正是这样把它顶出来的）。
+
+### 78.5 宿主的两条约束
+
+1. **Env 是模块级单例**：12 个 Env 由 `set_*_env` 装到各自 `.cpp` 的全局槽上 ⇒ 同一时刻只应有一个
+   活的 `WorldCollisionHost` 在跑。差分台面一次只跑一个用例（每例新建 World），满足；
+   两世界并存时要先改这条。
+2. **`acquire_collision` 必须每次新对象**：`Collision::handlers` 是 `shared_ptr<vector>`，复用槽位
+   会把已经拷进 `world.collisions` 的那份一起清空 ⇒ 后面 `handle` 那一趟就没有 handler 可跑。
+   端口每次新建、由 `World::step` 开头的 `reset_collisions()` 整批释放（TS 的 `Graves` 池永远空，
+   因为 `recycle_collision` 没有任何调用者 —— 行为相同）。
+
+### 78.6 未接线的宿主缝（都留给对应的那一刀）
+
+| 缝 | 现状 | 原因 |
+| --- | --- | --- |
+| `tester_debug` | 恒 `undefined` | TS 是 `stringify_expr_debug(collect())`，端口 `Expression` 没有这层渲染；只在 `Ditto.DEV` 的日志里可见 |
+| `A/V_SET_PROP` 的 `set_prop` | 白名单（hp/hp_r/hp_max/mp/mp_max/invisible/invulnerable/toughness/fallinjury/throwinjury/motionless/shaking/facing/arest/dropping/reserve），名单外 no-op | TS 是 `entity[name] = value` 的任意属性写入，端口没有动态字段表 |
+| `buff::IBuffEntity::frame_centery/frame_height/frame_pic_h` | 恒 0 | 与 `EntityStateView` 同一处置（帧几何那一层还没搬） |
+| `IWorldLfw::create_buff` | 默认 `nullptr`（宿主管） | `Factory::create_buff` 要 `LFW*`，`LFW` 未移植；`nullptr` 对应 TS 拿到 falsy 的那条路径 |
+| `attach(bool)` | 空 | 要 `world.add_entities` / 渲染层 |
+
+### 78.7 待办（下一刀的入口）
+
+1. 变异档 `mutations/world_collision.mjs`（配对循环的每一格 + 宿主每一条缝的「回读错对象 / 返回常量」）。
+2. handler 路径的用例：目前 `world/collision` 只走了 `handle_itr_normal_bdy_normal` → `handle_injury`
+   → `handle_fall` 这一条；`catch` / `freeze` / `whirlwind` / `weapon_is_hit` / `ball_*` / `healing`
+   各要一段（尤其 `ball_frozen` 与 `john_shield`，它们各自有独立的 `IFrozenEntity` 视图）。
+3. `collision_to_snapshot` / `from_snapshot` 在宿主上的往返。

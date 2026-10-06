@@ -39,8 +39,10 @@ struct HandlerConfig {
 struct KeeperEnv {
   std::function<double()> attacker_state;
   std::function<double()> victim_state;
-  std::function<void(const std::u16string& fn, Collision& c)> call_handler;
-  std::function<bool(CollisionActor& first, CollisionActor& second, const Value& itr)>
+  // `victim.data`（`handle` 末尾读 `victim.data.base.hit_sounds`）。缝里没有实体
+  // （见 `handlers2.h` 那批缝的同一处境）⇒ 宿主按「当前判定的那一对」回答。
+  std::function<Value()> victim_data;
+  std::function<void(const std::u16string& fn, Collision& c)> call_handler;  std::function<bool(CollisionActor& first, CollisionActor& second, const Value& itr)>
       ball_frozen;
   std::function<void(const std::u16string& type, const Value& action, Collision& c)> run_action;
   std::function<void(Collision& c)> victim_push_collided;
