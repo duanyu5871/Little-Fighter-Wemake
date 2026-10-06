@@ -58,6 +58,8 @@ class Object {
 };
 
 bool truthy(const Value& v);
+// JS 的「数组下标键」判定：`""` / 前导 0 / 非数字 / > 2^32-2 都不是下标键。
+bool is_array_index(const std::u16string& k, uint32_t& out);
 const char* type_of(const Value& v);
 bool is_array(const Value& v);
 const Array* as_array(const Value& v);

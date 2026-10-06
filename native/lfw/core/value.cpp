@@ -21,6 +21,9 @@ VKind kind_of(const Value& v) {
   return V_ARR;
 }
 
+}
+
+// JS 的「数组下标键」判定（`Object` 的整数键归类与字符串下标读取都用它）。
 bool is_array_index(const std::u16string& k, uint32_t& out) {
   if (k.empty() || k.size() > 10) return false;
   if (k.size() > 1 && k[0] == u'0') return false;
@@ -32,8 +35,6 @@ bool is_array_index(const std::u16string& k, uint32_t& out) {
   if (v > 4294967294ull) return false;
   out = static_cast<uint32_t>(v);
   return true;
-}
-
 }
 
 bool truthy(const Value& v) {

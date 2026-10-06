@@ -6898,3 +6898,96 @@ bot 数据的展开）。`DatMgr` 直接调它，`loader/` 这一层到它为止
   与 §67.4）。踩到的两个坑：① `join_lines` 的锚点里 `u'\n'` 在 JS 模板串里必须写成 `u'\\n'`，
   否则锚点是真换行、匹配不到；② 一开始把「不再种基表」与「端点交换」两条当可杀，实测都是
   等价 ⇒ 改记进 §67.4。
+
+## 68. 切片 4B：`PlayerInfo`
+
+步骤 4「主干」（宿主层）的第二刀，也是宿主层里第一块**有状态**的东西：`src/LFW/PlayerInfo.ts`
+（137 行）管一个玩家的 `{ id, name, keys, version, ctrl }`，`save()` / `load()` 走 `Ditto.Cache`，
+`set_*` 四件套发 `IPlayerInfoCallback`。顺带两处共享文件的小改：`core/js_string` 的
+`to_lower_case`（`set_key` 用）与 `defines` 的 `get_default_keys_value`。
+
+### 68.1 移植面
+
+- `native/lfw/player_info.{h,cpp}`：`IPlayerInfoHost`（`cache_get` / `cache_del` / `cache_put` /
+  `warn`）、`PlayerInfoCacheEntry`（`ICacheData` 里用到的字段）、`PlayerInfoCachePut` 与
+  `class PlayerInfo`（`loaded()` / `info()` / `id()` / `storage_key()` / `name()` / `keys()` /
+  `is_com()` / `ctrl()` / `fighter()`，`set_name` / `set_ctrl` / `set_is_com` / `set_key` /
+  `get_key`，`load` / `save` / `callbacks`）。
+- `core/js_string.{h,cpp}`：新增 `to_lower_case`（`String.prototype.toLowerCase`）。
+- `core/value.{h,cpp}`：把 `is_array_index` 从匿名命名空间提到 `lfw::`（`Object` 的整数键归类与
+  `PlayerInfo` 的属性语义都要它）。
+- `defines/defines_data.h` + `defines.cpp`：新增 `Value get_default_keys_value(player_id)`
+  （`Defines.get_default_keys` 的原始返回；取的是 `default_keys_map` 里那个**共享对象**）。
+- 进 `native/lfw/CMakeLists.txt`（C++ 源 408 → 409）。
+
+### 68.2 保真要点
+
+1. **`keys` 是共享对象**：`_info.keys = Defines.get_default_keys(id)` 拿的是 `default_keys_map`
+   里那一个对象（所有 id 都落到 `'_'`）⇒ `set_key` 就地把某个玩家改了，**别的玩家也看得见**，
+   而且跨实例、跨用例都留着。端口照抄（`Value` 里是同一个 `shared_ptr<Object>`）。
+2. **构造函数那次 `load()` 是 async 的**：TS 的 `this.loaded = this.load()` 只跑到第一个
+   `await`，真正生效在后一拍 ⇒ 构造之后立刻注册的监听者也能收到 `load` 期间的 `on_*_changed`。
+   端口的 `load()` 是同步的，所以把那次 load **挂起**，第一次 `loaded()` / `load()` 才落地 ——
+   台面里 `new` 之后先 `watch` 再 `loaded()`，两侧时序一致。
+3. **`load()` 的失败面**逐条对照（每条只 warn + `return false`，而且**前面的部分改动会留下**）：
+   `get` 抛（`failed to load, reason`）/ 没有这条缓存（无声）/ `data` 假值且 `blob` 假值
+   （`no data`）/ `blob.arrayBuffer()` 抛（`read blob failed, reason: `）/ `data` 是真值但不是
+   `Uint8Array` ⇒ `decodeUTF8` 抛 / JSON5 语法错 / 解构 nullish（都走 `load failed, reason`）/
+   `version !== this._info.version`（`version changed`）。注意 `save()` 里那条 warn 的 tag 也是
+   `[PlayerInfo::load]`（TS 原文如此）。
+4. **解构默认值只认 `undefined`**：`const { ctrl = this.ctrl } = raw_info` ⇒ `ctrl: null` 会把
+   `null` 写进去（不走默认值），`ctrl` **缺席**才用**当前**的 `ctrl`（不是常量 0）。`version`
+   的比较是 `!==`（严格）。
+5. **`set_key` 的三段**：读 `keys[name]`（`keys` 是 nullish ⇒ 抛）→ `=== key` 严格短路
+   （所以拿 `"A"` 去撞已存的 `"a"` 不算相同）→ `key.toLowerCase()`（非字符串 ⇒ 抛）→
+   `keys[name] = 小写值`（只有对象 / 数组能写，标量 / 字符串在严格模式下抛）。
+6. **`load` 遍历 payload 的 `keys`** 用 `for...in`（对象给自有键、数组给下标、字符串给下标、
+   其余不给），每个键还要再 `keys[k]` 读一次。
+7. **`save()`**：`!local` 直接返回；`await del(key)` 失败 ⇒ catch + warn（不 `put`）；
+   `Ditto.Cache.put({ name, type, version, data: encodeUTF8(JSON.stringify(_info)) })` **没**
+   `await` ⇒ 端口不给失败面。`JSON.stringify` 的键序 = `_info` 的插入序。
+8. **`toLowerCase` 是 Unicode 默认小写映射**：`to_lower_case` 覆盖 ASCII、Latin-1（除 `×`）、
+   Latin Extended-A 的两段奇偶、希腊 `Α-Ρ` / `Σ-Ϋ`、西里尔 `Ѐ-Џ`（+0x50）与 `А-Я`，外加
+   `İ`（`U+0130` ⇒ `i` + `U+0307`）与 `Ÿ`（`U+0178` ⇒ `U+00FF`）两个特例。
+
+### 68.3 偏差（同时登记在 README 的偏差表）
+
+本刀在 README 加了 9 行：字段 `Value` 化、`loaded` 挂起、`on_ctrl_changed` 少第 3 参、
+`warn` 只留第一参、`put` 无失败面、`Ditto` 缺失不建模、JS 属性语义的少数档、
+`to_lower_case` 的 Unicode 覆盖面。
+
+### 68.4 有意不覆盖 / 等价
+
+1. `prop_get` 的 nullish 分支、`prop_set` 的数组分支与「非对象写」失败分支、`prop_get` 的
+   字符串 / 数组 `length` 分支：`_info.keys` 一定是构造函数写进去的共享键表（对象），`load`
+   从不替换它，而 payload 的 `keys` 只在 `for...in` 里按下标读 ⇒ 本 subject 造不出来。
+2. `load` 的 `if (truthy(keys_v))` 门：`for_in_keys` 对假值本来就不给键。
+3. `load` 的 `if (!strict_equals(ctrl_v, ctrl()))` 门：`set_ctrl` 自己会短路。
+4. `save` 的 `if (!text.has_value())` 分支：本刀的数据 `json_stringify` 不会失败。
+5. `save` 里 `put.type = kDataType` 换成 `kTag`：两者文本都是 `"PlayerInfo"`。
+6. `get_default_keys_value` 里 `truthy(*exact)` 写成 `exact != nullptr`：表里只有 `'_'`。
+7. `load_impl` 的 `if (!parsed.ok)`：去掉后由后面的解构失败兜住同一条 warn。
+
+### 68.5 harness 与变异
+
+新 subject `player_info`（`subjects/player_info.{cpp,ts}` + `cases/player_info/all.txt`），
+op 分三组：
+- `cache_*`（`cache_ok <pid> <text>` / `cache_bytes` / `cache_other` / `cache_nulldata` /
+  `cache_blob` / `cache_blobbytes` / `cache_blobfail` / `cache_blobother` / `cache_missing` /
+  `cache_getfail` / `cache_delfail`）：给某个玩家 id 脚本化一条缓存；
+- `new <pid> [name] [local] [mine]` / `dump <pid>` / `reload <pid>` / `save <pid>`；
+- `setname` / `setctrl` / `setiscom` / `setkey` / `getkey` / `setfighter`。
+台面把宿主调用与回调记进一条日志（`get:` / `del:` / `put:name|type|version|bytes` / `warn:` /
+`cb:name|ctrl|is_com|key`，回调参数按 `renderValue` 打），每处理完一行就刷出去 ⇒ 差分按整段
+日志逐行比。
+- TS 侧用 `Ditto.setup({ Cache, JSON5: __JSON5, warn })` 装假 `Ditto`（`__JSON5` 就是真的
+  `src/DittoImpl/JSON5`，即 `json5` 包 ⇒ 与端口 `json5_parse` 同源）；`on_ctrl_changed` 的监听者
+  只取前两个参数（与端口一致）。
+- 用例 270 行（构造默认值 / 缓存入口 / `load` 失败面 / blob 字节 / `save` 的宿主调用 /
+  `load` 应用 payload / `keys` 不是普通对象 / `set_key`·`get_key` / 共享键表 / 三个 `set_*` 的
+  短路与回调 / `toLowerCase` 的码点段，共 11 组）。
+- 变异 `mutations/player_info.mjs` **76/76 全杀**（含 `to_lower_case` 8 条、`defines` 1 条；
+  7 类等价 / 不可达记在名单头部与 §68.4）。踩到的两个坑：①
+  `const Value lowered(std::u16string(*k));` 会被解析成**函数声明**（most vexing parse）⇒ 变异体
+  里得写成 `{...}`；②「数组下标一律读第 0 个」一开始杀不掉 —— payload 的 `keys` 装数字时，
+  第一个下标就因为 `key.toLowerCase` 不是函数抛掉了，把数组元素换成字符串才看见第二个下标。

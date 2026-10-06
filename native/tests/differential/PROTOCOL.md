@@ -3790,3 +3790,39 @@ harness op：
   「基表种子」与「`substring` 端点交换」两条是**先当可杀、实测等价**后撤出的。
 - **量表坑**：`join_lines` 那条变异的锚点里 `u'\n'` 写在 JS 模板串中必须转义成 `u'\\n'`，否则
   锚点是真换行 ⇒ `anchor occurs 0 times`。
+
+### 6.9.112 `PlayerInfo`（+ `core/js_string` 的 `to_lower_case`、`defines` 的 `get_default_keys_value`）（新 subject `player_info`，270 行；变异 **76/76** 全杀）
+
+- **移植面**：`native/lfw/player_info.{h,cpp}`（`IPlayerInfoHost` 的 `cache_get` / `cache_del` /
+  `cache_put` / `warn`，`PlayerInfoCacheEntry`，`PlayerInfoCachePut`，`class PlayerInfo`）；
+  `core/js_string.{h,cpp}` 新增 `to_lower_case`；`core/value.{h,cpp}` 把 `is_array_index` 提到
+  `lfw::`；`defines` 新增 `get_default_keys_value(player_id)`；`CMakeLists.txt` 408 → 409。
+- **`new <pid> [name] [local] [mine]`**：`name` / `local` / `mine` 都是**值**（`u` ⇒ 走 JS 默认值
+  `id` / `true` / `true`，`z` / `0` / `""` 照存）；构造完先 `watch` 再读一次 `loaded()`（端口的
+  「构造函数那次 load」是挂起的，见 DESIGN §68.2 第 2 条），然后才记 `new:<pid>` —— 这一步与 TS
+  的 `await pi.loaded` 对齐（否则 `load` 期间的回调在 TS 侧会多出来）。
+- **`dump <pid>`**：`info=` / `name=` / `ctrl=` / `local=` / `mine=` / `is_com=` / `loaded=` /
+  `fighter=` 一次打全（`name` / `ctrl` 走 getter，专门盯这两个字段读错的情况）。
+- **`cache_*`**：`cache_ok <pid> <text>`（`data` = 该文本的 UTF-8）/ `cache_bytes <pid> <a …>`
+  （逐元素 `& 0xff`）/ `cache_other <pid> <v>`（真值非字节 ⇒ `decodeUTF8` 抛；假值等于
+  `cache_nulldata`）/ `cache_nulldata` / `cache_blob <pid> <text>` / `cache_blobbytes` /
+  `cache_blobfail`（`blob.arrayBuffer()` 抛）/ `cache_blobother`（`blob` 是真值但没那个方法 ⇒
+  也按抛）/ `cache_missing`（`get` 回 `undefined`）/ `cache_getfail`（`get` 抛）/
+  `cache_delfail`（`del` 抛）。
+- **日志**：宿主调用与回调合成一条流（`get:` / `del:` / `put:name|type|version|逗号分隔字节` /
+  `warn:`（只第一条文本）/ `cb:name:…` / `cb:ctrl:…`（前两参）/ `cb:is_com:…` /
+  `cb:key:…`），每行用例处理完就刷出 ⇒ 差分逐行比。
+- **TS 侧**：`Ditto.setup({ Cache: 假实现, JSON5: __JSON5, warn: … })`；`__JSON5` 取自
+  `src/DittoImpl/JSON5`（真 `json5` 包），与端口 `json5_parse` 同源。
+- **四处「绕不过去」的细节**（详见 DESIGN §68.2）：① `keys` 是 `default_keys_map` 里的**共享
+  对象**（改一个玩家会改到同表的所有玩家）；② 构造函数那次 `load()` 是挂起的；③ 解构默认值只
+  认 `undefined`（`ctrl: null` 会写进 `null`，缺席才用**当前** ctrl）；④ `set_key` 的严格短路
+  在 `key.toLowerCase()` **之前**（拿 `"A"` 撞已存的 `"a"` 不算相同）。
+- **用例**：`cases/player_info/all.txt` **270** 行（构造默认值 / 缓存入口 / `load` 失败面 /
+  blob 字节 / `save` 的宿主调用 / `load` 应用 payload / `keys` 不是普通对象 / `set_key`·`get_key`
+  / 共享键表 / 三个 `set_*` 的短路与回调 / `toLowerCase` 的码点段，共 11 组）。
+- **变异**：`mutations/player_info.mjs` **76/76 全杀**（`player_info.cpp` 67 条、`js_string.cpp`
+  8 条、`defines.cpp` 1 条）；7 类按构造等价 / 不可达记在名单头部与 DESIGN §68.4。
+- **两个坑**：`const Value lowered(std::u16string(*k));` 会被解析成函数声明（most vexing parse）
+  ⇒ 变异体里写 `{...}`；payload 的 `keys` 装数字时第一个下标就会抛，想杀「数组下标读错」得把
+  数组元素换成字符串。

@@ -62,6 +62,17 @@ const Object* get_default_keys(const std::u16string& player_id) {
   return fallback != nullptr ? as_object(*fallback) : nullptr;
 }
 
+Value get_default_keys_value(const std::u16string& player_id) {
+  const Value* m = find(u"Defines.default_keys_map");
+  const Object* o = m != nullptr ? as_object(*m) : nullptr;
+  if (o == nullptr) return Value();
+  const Value* exact = o->get(player_id);
+  // TS 是 `map.get(id) || map.get('_')!` ⇒ 假值也算没取到。
+  if (exact != nullptr && truthy(*exact)) return *exact;
+  const Value* fallback = o->get(u"_");
+  return fallback != nullptr ? *fallback : Value();
+}
+
 bool is_independent(const std::u16string& team) { return team.size() != 1; }
 
 bool is_cheat_type(const std::u16string& v) {

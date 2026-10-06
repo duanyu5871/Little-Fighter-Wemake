@@ -352,4 +352,50 @@ std::u16string number_to_fixed_1(double v) {
   return out;
 }
 
+namespace {
+
+bool in_range(char16_t c, char16_t lo, char16_t hi) { return c >= lo && c <= hi; }
+
+// `c` 是大小写成对段落里的大写那一半（偶数码点）时的 +1。
+bool even_case_pair(char16_t c) { return c % 2 == 0; }
+
+}
+
+std::u16string to_lower_case(const std::u16string& s) {
+  std::u16string out;
+  out.reserve(s.size());
+  for (char16_t c : s) {
+    if (in_range(c, 0x41, 0x5a) ||                                   // A-Z
+        (in_range(c, 0xc0, 0xde) && c != 0xd7) ||                    // À-Þ（除 ×）
+        in_range(c, 0x391, 0x3a1) || in_range(c, 0x3a3, 0x3ab) ||    // Α-Ρ / Σ-Ϋ
+        in_range(c, 0x410, 0x42f)) {                                 // А-Я
+      out.push_back(static_cast<char16_t>(c + 0x20));
+      continue;
+    }
+    if (in_range(c, 0x400, 0x40f)) {                                 // Ѐ-Џ
+      out.push_back(static_cast<char16_t>(c + 0x50));
+      continue;
+    }
+    if (c == 0x130) {                                                // İ ⇒ i + U+0307
+      out.push_back(u'i');
+      out.push_back(static_cast<char16_t>(0x307));
+      continue;
+    }
+    if (c == 0x178) {                                                // Ÿ
+      out.push_back(static_cast<char16_t>(0xff));
+      continue;
+    }
+    if ((in_range(c, 0x100, 0x137) || in_range(c, 0x14a, 0x177)) && even_case_pair(c)) {
+      out.push_back(static_cast<char16_t>(c + 1));
+      continue;
+    }
+    if ((in_range(c, 0x139, 0x148) || in_range(c, 0x179, 0x17e)) && !even_case_pair(c)) {
+      out.push_back(static_cast<char16_t>(c + 1));
+      continue;
+    }
+    out.push_back(c);
+  }
+  return out;
+}
+
 }

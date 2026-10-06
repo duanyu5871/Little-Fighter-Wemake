@@ -262,10 +262,12 @@ VS Code 里也已经指好（`.vscode/settings.json`）：
 | 3ae | `loader/preprocess_entity_data`（实体数据的总装入口：四路 special / `itr_prefabs`·`bdy_prefabs` 逐条 / `base` 的图·音效 / `pre_*`·`post_hitkeys` 的 `__*_map` / `on_dead`·`on_exhaustion` / `portraits`·`frames` / `__pics` / `base.bot`） | ✅ 通过（`loader_entity` 新 subject，387 行；变异 **121/121 全杀**） |
 
 | 4A | 切片 4A（**步骤 4 主干首刀**）：`I18N` + `loader/get_import_fallbacks`（宿主层里最先能动的两块：语言别名/三张词表与「引入名 → 备选名」；`native/lfw/i18n.{h,cpp}` 的 `set_lang`/`add`/`alias`/`canonical`/`string`/`strings` 照抄 TS 的三道门、`Map` 键语义、别名链与空串别名、`lang == ''` 的**松散**比较（复用 `core/value.h` 的 `equals`，`[null] == ''` 也为真）与 `alias(lang) ?? ''` 递归；`get_import_fallbacks` 用 `long long` 复刻 JS `substring` 的端点交换、图分支 14 个备选名逐条 `filter(v !== name)`、音分支两档 `.mp3`；新 subject `i18n`（`gif`/`new`/`add`/`lang`/`alias`/`canonical`/`str`/`strs`）并用 `langArg` 复刻 JS「默认参数只对 `undefined` 生效」；**修掉两处自测暴露的真错**：`join('\n')` 与 `'' + x` 两种字符串化混用、`.png`/`.webp` 名的候选名漏过滤） | ✅ 通过（`i18n` 新 subject，262 行；变异 **67/67 全杀**） |
+
+| 4B | 切片 4B（**步骤 4 主干第二刀**）：`PlayerInfo` + `core/js_string.h` 的 `to_lower_case` + `defines` 的 `get_default_keys_value`（宿主层第一块**有状态**的东西：`_info = {id,name,keys,version,ctrl}` 用 `Value` 装；`keys` 是 `default_keys_map` 里那个**共享对象**（改一个玩家会改到同表的所有玩家 —— TS 原文如此）；`load()` 在 TS 里是 `async` ⇒ 端口把「构造函数那次 load」**挂起**到第一次 `loaded()`/`load()`，好让构造后注册的监听者也能收到回调（与 await 时序一致）；`save()` 走 `Ditto.Cache` 宿主缝（`del` + **不 await** 的 `put`，字节是 `JSON.stringify(_info)` 的 UTF-8）；`load` 的完整失败面（`get` 抛 / 没有缓存 / `data` 空 / `blob` 空 / `blob.arrayBuffer` 抛 / `data` 真值非字节 / JSON5 语法 / 解构 nullish / 版本门 / `set_key` 在非对象上写或非字符串键）与四种回调（`on_name_changed` / `on_ctrl_changed`(少第 3 参) / `on_is_com_changed` / `on_key_changed`）；JS 属性读写语义单独建模（`o[k]` 对 nullish 抛、字符串有 `length` 与下标、写只认对象/数组、下标写入自动补洞）；`to_lower_case` 覆盖 ASCII / Latin-1（除 `×`）/ Latin Extended-A / 希腊 / 西里尔 + `U+0130` 两码点特例） | ✅ 通过（`player_info` 新 subject，270 行；变异 **76/76 全杀**） |
 | 3 | `loader/get_val_*` 余下部分（`get_val_from_bot_ctrl` / `get_val_getter_from_stage` 要等 `BotController` / `Stage`） | 待做 |
 | 4r | `controller/BallController` + `helper/closer_one` | ✅ 通过（`entity/ball_ctrl` 174 行；49 条变异全杀） |
 | 4 | `entity` + `collision` + `buff` + `state` + `controller` + `bot` + `World` | 待做（**必须整块搬**，见下） |
-| 4A | 步骤 4 **主干**（宿主层：`stage/` 与 `World` / `LFW` / `Factory` / `Resources` / `Camera` / `Keys` **之前**能单独搬的部分，按依赖序：`I18N` → `loader/get_import_fallbacks` → `PlayerInfo` → `Camera` → `ZipMgr` → `Resources` → `Factory` → `stage/*` → `World` → `LFW`） | 进行中（首刀 `I18N` + `loader/get_import_fallbacks` ✅：`i18n` 新 subject 262 行；变异 **67/67 全杀**） |
+| 4A | 步骤 4 **主干**（宿主层：`stage/` 与 `World` / `LFW` / `Factory` / `Resources` / `Camera` / `Keys` **之前**能单独搬的部分，按依赖序：`I18N` → `loader/get_import_fallbacks` → `PlayerInfo` → `Camera` → `ZipMgr` → `Resources` → `Factory` → `stage/*` → `World` → `LFW`） | 进行中（`I18N` + `loader/get_import_fallbacks` ✅ 262 行 / 67 全杀；`PlayerInfo` ✅ 270 行 / 76 全杀） |
 
 **步骤 2–4 是修正过的。** 把 `import type` 排除后算运行时依赖图，得到两个关键事实：
 
@@ -339,6 +341,14 @@ VS Code 里也已经指好（`.vscode/settings.json`）：
 | `make_fighter_special` 的 `ensure(data.base.group, …)`（**3y 遗留**） | TS 的 `ensure(output, item)` 对**非数组真值**（如 `group: 1`）会 `1.push(...)` 抛；端口 `ensure.h` 把非数组一律换成新数组 | 同上：`make_fighter_special(Value&)` 返回 `Value`、没有失败通道 ⇒ `preprocess_entity_data` 的 fighter 分支只能照端口语义走；`ed` 用例的 `group` 一律给数组 |
 | `I18N` 的三张表用 `std::map` 顶 `Map` | TS 是 `new Map()`；端口 `_words` / `_lists` / `_alias_map` 都是 `std::map` | `core` 没有 `Map`；三张表都只做「按键取」、从不迭代 ⇒ 序不可观察（同 `NestedMap` / `preprocess_entity_data` 的既有约定）。`Map` **不做** ToString（数字键 ≠ 字符串键）这条语义靠「语言必须是字符串」保住：`words_of` / `lists_of` / `alias_of` 对非字符串语言一律当查不到；词键那一边照 JS 做 `to_string`（`key_at`） |
 | `I18N` 不实现 `base_words` / `base_lists` 两个 getter | TS 里是 `this._words.get('')!` / `this._lists.get('')!` | `src/LFW` 里没有使用者（只有 `dist/*.d.ts` 的声明），差分用例也不观察；同其它未移植槽的约定 |
+| `PlayerInfo` 的字段用 `Value` | TS 的 `_info.name` 是 `string`、`local` / `mine` 是 `boolean`、`ctrl` 是 `CtrlDevice`、`keys` 是 `Record<GameKey,string>`，运行时都可能是别的 | 端口保留原值（同 `Entity::_team` 的既有约定）：构造参数 / `load` 的 JSON5 / 台面都可能给非类型值，用例专门喂 `null` / 数字 / 数组 |
+| `PlayerInfo.loaded` 是**挂起**的 | TS 构造里 `this.loaded = this.load()`：那次 load 到第一个 `await` 之后才真正生效，所以构造后立刻注册的监听者也能收到 `load` 期间的回调；端口把那次 load 挂起，第一次 `loaded()` / `load()` 才落地 | 端口没有 promise / 微任务；挂起模型与 TS 的时序等价（台面里 `new` 之后都会读一次 `loaded()`） |
+| `on_ctrl_changed` 只传两个参数 | TS 是 `(value, prev, player)`，第 3 个是 `PlayerInfo` 实例 | `Value` 装不下对象实例（§4.40）；台面只比前两个参数 |
+| `Ditto.warn` 只保留**第一个**参数 | TS 是 `warn(tag, ...)`；端口 `IPlayerInfoHost::warn(text)` | 差分只比第一条文本（`[PlayerInfo::load] …`），其余是日志上下文 |
+| `Ditto.Cache.put` 没有失败面 | TS 的 `put(...)` 没 `await`（rejection 无人接）；端口 `cache_put` 返回 `void` | 与 TS 一样「写了就算」；`del` 仍有 `bool` 失败面（TS 那边是 `await` + try） |
+| `Ditto` 没装好时不建模 | TS 在 `Ditto.Cache` 是 `undefined` 时会于 `get` / `del` 上抛 `TypeError`；端口假定宿主已装好 `cache_get` / `cache_del` | 台面一定装好；真实调用点（`DatMgr` / `stage`）也在装好 `Ditto` 之后才 `new PlayerInfo` |
+| JS 属性读写语义的少数档没建模 | 端口的 `Array`（`std::vector`）装不下「挂在数组上的字符串键」与超长稀疏数组（`length` / 下标上限 1e6）；数组的「洞」在端口里是显式 `undefined`；字符串只认 `length` 与下标两种自有属性 | 这些档要 `_info.keys` 不是普通对象才碰得到（`PlayerInfo` 里造不出来）；`prop_get` / `prop_set` 按 JS 语义保留，台面不喂这些输入 |
+| `to_lower_case` 只覆盖部分 Unicode | 覆盖 ASCII / Latin-1（除 `×`）/ Latin Extended-A / 希腊 / 西里尔 + `U+0130` 两码点特例；表外码点原样返回 | 键名实际只出现在这几段；`İ` 一档照抄 JS（`i` + `U+0307`），用例覆盖到了 |
 
 > `native.mjs all` 里的 `coverage` 步骤会跑 `tools/check_defines_coverage.mjs`：
 > 它用「运行时枚举 TS 导出」这条**独立于生成器**的路径，检查 TS 里的枚举/字段表有没有漏搬。
