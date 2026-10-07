@@ -10,6 +10,31 @@ import * as M_BdyKind from "../../../../../src/LFW/defines/BdyKind";
 import * as M_IBgInfo from "../../../../../src/LFW/defines/IBgInfo";
 import * as M_IBgLayerInfo from "../../../../../src/LFW/defines/IBgLayerInfo";
 import * as M_IBgData from "../../../../../src/LFW/defines/IBgData";
+import * as M_IArmorInfo from "../../../../../src/LFW/defines/IArmorInfo";
+import * as M_IBdyInfo from "../../../../../src/LFW/defines/IBdyInfo";
+import * as M_IBpointInfo from "../../../../../src/LFW/defines/IBpointInfo";
+import * as M_IChaseInfo from "../../../../../src/LFW/defines/IChaseInfo";
+import * as M_ICpoint from "../../../../../src/LFW/defines/ICpoint";
+import * as M_IDatIndex from "../../../../../src/LFW/defines/IDatIndex";
+import * as M_IDialogInfo from "../../../../../src/LFW/defines/IDialogInfo";
+import * as M_IDrinkInfo from "../../../../../src/LFW/defines/IDrinkInfo";
+import * as M_IEntityData from "../../../../../src/LFW/defines/IEntityData";
+import * as M_IEntityInfo from "../../../../../src/LFW/defines/IEntityInfo";
+import * as M_IFrameIndexes from "../../../../../src/LFW/defines/IFrameIndexes";
+import * as M_IFrameInfo from "../../../../../src/LFW/defines/IFrameInfo";
+import * as M_IFrameModel from "../../../../../src/LFW/defines/IFrameModel";
+import * as M_IFramePic from "../../../../../src/LFW/defines/IFramePic";
+import * as M_IItrInfo from "../../../../../src/LFW/defines/IItrInfo";
+import * as M_IModelInfo from "../../../../../src/LFW/defines/IModelInfo";
+import * as M_INextFrame from "../../../../../src/LFW/defines/INextFrame";
+import * as M_IOpointInfo from "../../../../../src/LFW/defines/IOpointInfo";
+import * as M_IOpointMulti from "../../../../../src/LFW/defines/IOpointMulti";
+import * as M_IPictureInfo from "../../../../../src/LFW/defines/IPictureInfo";
+import * as M_IStagePhaseInfo from "../../../../../src/LFW/defines/IStagePhaseInfo";
+import * as M_IStageInfo from "../../../../../src/LFW/defines/IStageInfo";
+import * as M_IStageObjectInfo from "../../../../../src/LFW/defines/IStageObjectInfo";
+import * as M_ITerrainInfo from "../../../../../src/LFW/defines/ITerrainInfo";
+import * as M_IWpointInfo from "../../../../../src/LFW/defines/IWpointInfo";
 
 export const definesRuntimeEntries: { name: string; value: unknown; isTopLevel: boolean }[] = [
   { name: "ALL_HIT_FLAG", value: M_HitFlag.ALL_HIT_FLAG, isTopLevel: true },

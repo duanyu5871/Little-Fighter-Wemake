@@ -4340,3 +4340,21 @@ harness op：
 - `parse` 未搬（`ToolXML::parse` 回 `nullptr`）：LFW 里真调用点只有 `LFW.ts` / `Resources.ts`
   （后续刀），`dat_translator/xml/*` 全走 `create` / `from_*`。
 - 全量差分 **168/168**、lint 全清。
+
+### 6.9.125 xml 方言读写层（`cases/xml/layer.txt`，148 行；变异 `xml_layer.mjs` 44/44 全杀）
+
+- **台面 op**：在 `xml` subject 上加了一组通用读写 op —— `dv <dvar> [literal]`（数据对象）、
+  `dset/ddel/ddump`、`dvp <dvar> <fn> <eid|-> [arg]`（读口按函数名分派；`eid` 给 `-` =
+  `undefined`）、`dvo`（`one_or_arr`/`non_empty`）、`dvm`（`merge_by_tag`，可选 target）、
+  `wrv <eid> <fn> <dvar> <tag>`（写口，打 `wrv|<eid>|<esc stringify>`）、
+  `wrins <parentEid> <fn> <dvar> <tag>`（`xml_x_t_next_frame` 一串挂父上）。两侧函数名
+  用 TS 原名（`xml_2_bdy` / `xml_x_bdy` …），后续批次照此扩表。
+- ⚠️ **`or` 回落是 any**：`el.get_str(name, ret.name)` 里 `ret.name` 可能是数字/布尔/undefined
+  ⇒ 端口的 `xml_util.h` 用 `Value` 装 `or`；`xml_2_qube` 的 `rect/qube/旧值` 链也按「原样回落」
+  实现（不能折成 `optional<double>`）。
+- ⚠️ **`merge_by_tag` 的用例要用 parser 真会读的字段**：第一版用例给 `<base a="1">` 这类
+  字段，`xml_2_bdy` 全忽略 ⇒ 合并/不合并输出一样，两条变异存活；换成 `id`/`name` 才锁住。
+- ⚠️ **裸属性**：`XMLBuilder` 把值恰为字符串 `"true"` 的属性渲染成裸属性（`<action pretest>`），
+  由本批往返用例抓出（§80 的 `stringify` 需带这条；`quirks` 增补一组用例）。
+- 读口 `xml_2_armor_info` 的 `-`（undefined）与写口假值守卫（`wrv ... u` 打 `u`）都有用例；
+  `xml_2_cpoint` 的 `reorder_fields` 在本批不可观察（记在 `mutations/xml_layer.mjs` 头部）。

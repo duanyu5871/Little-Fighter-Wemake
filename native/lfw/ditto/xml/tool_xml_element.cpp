@@ -132,6 +132,8 @@ void build_xml(const FxpChild& node, size_t depth, std::u16string& out) {
   for (const XmlAttr& a : node.attrs) {
     out.push_back(u' ');
     out += a.name;
+    // fast-xml-parser 的 `allowBooleanAttributes`：属性值恰好是字符串 "true" 时渲染成裸属性。
+    if (a.value == u"true") continue;
     out += u"=\"";
     escape_into(a.value, out);
     out.push_back(u'"');

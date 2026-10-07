@@ -196,6 +196,32 @@ const std::vector<DefinesRuntimeEntry>& defines_runtime_entries() {
 const char16_t kNew0[] = u"{}";
 const char16_t kNew1[] = u"{\"width\":0,\"height\":0,\"x\":0,\"y\":0,\"z\":0,\"w\":0,\"h\":0}";
 const char16_t kNew2[] = u"{\"type\":\"background\",\"id\":\"\",\"base\":{},\"layers\":[]}";
+const char16_t kNew3[] = u"{\"type\":3,\"toughness\":2}";
+const char16_t kNew4[] = u"{\"kind\":0}";
+const char16_t kNew5[] = u"{\"x\":0,\"y\":0}";
+const char16_t kNew6[] = u"{\"flag\":0,\"lost\":0}";
+const char16_t kNew7[] = u"{}";
+const char16_t kNew8[] = u"{\"id\":\"\",\"type\":\"\",\"file\":\"\"}";
+const char16_t kNew9[] = u"{}";
+const char16_t kNew10[] = u"{}";
+const char16_t kNew11[] = u"{\"id\":\"\",\"type\":4,\"frames\":{},\"base\":{\"name\":\"\",\"type\":4}}";
+const char16_t kNew12[] = u"{\"name\":\"\",\"type\":4}";
+const char16_t kNew13[] = u"{}";
+const char16_t kNew14[] = u"{\"id\":\"\",\"name\":\"\",\"state\":0,\"wait\":0,\"next\":{\"id\":\"\"},\"centerx\":0,\"centery\":0,\"width\":0,\"height\":0}";
+const char16_t kNew15[] = u"{\"id\":\"\"}";
+const char16_t kNew16[] = u"{\"tex\":\"\",\"x\":0,\"y\":0,\"w\":0,\"h\":0}";
+const char16_t kNew17[] = u"{\"kind\":0}";
+const char16_t kNew18[] = u"{\"id\":\"\",\"path\":\"\"}";
+const char16_t kNew19[] = u"{}";
+const char16_t kNew20[] = u"{\"kind\":1,\"x\":0,\"y\":0,\"oid\":\"\",\"action\":{\"id\":\"\"}}";
+const char16_t kNew21[] = u"{\"type\":0}";
+const char16_t kNew22[] = u"{\"id\":\"\",\"path\":\"\"}";
+const char16_t kNew23[] = u"{\"path\":\"\"}";
+const char16_t kNew24[] = u"{}";
+const char16_t kNew25[] = u"{}";
+const char16_t kNew26[] = u"{}";
+const char16_t kNew27[] = u"{\"type\":0,\"x1\":0,\"x2\":0,\"z1\":0,\"z2\":0,\"h1\":0,\"h2\":0}";
+const char16_t kNew28[] = u"{\"kind\":0,\"x\":0,\"y\":0,\"z\":0,\"weaponact\":\"\"}";
 
 Value bg_info_new() {
   const Json5Result r = json5_parse(kNew0);
@@ -209,6 +235,136 @@ Value bg_layer_info_new() {
 
 Value bg_data_new() {
   const Json5Result r = json5_parse(kNew2);
+  return r.ok ? r.value : Value();
+}
+
+Value armor_Info_new() {
+  const Json5Result r = json5_parse(kNew3);
+  return r.ok ? r.value : Value();
+}
+
+Value bdy_info_new() {
+  const Json5Result r = json5_parse(kNew4);
+  return r.ok ? r.value : Value();
+}
+
+Value bpoint_info_new() {
+  const Json5Result r = json5_parse(kNew5);
+  return r.ok ? r.value : Value();
+}
+
+Value chase_info_new() {
+  const Json5Result r = json5_parse(kNew6);
+  return r.ok ? r.value : Value();
+}
+
+Value cpoint_new() {
+  const Json5Result r = json5_parse(kNew7);
+  return r.ok ? r.value : Value();
+}
+
+Value dat_index_new() {
+  const Json5Result r = json5_parse(kNew8);
+  return r.ok ? r.value : Value();
+}
+
+Value dialog_info_new() {
+  const Json5Result r = json5_parse(kNew9);
+  return r.ok ? r.value : Value();
+}
+
+Value drink_info_new() {
+  const Json5Result r = json5_parse(kNew10);
+  return r.ok ? r.value : Value();
+}
+
+Value entity_data_new() {
+  const Json5Result r = json5_parse(kNew11);
+  return r.ok ? r.value : Value();
+}
+
+Value entity_info_new() {
+  const Json5Result r = json5_parse(kNew12);
+  return r.ok ? r.value : Value();
+}
+
+Value frame_indexes_new() {
+  const Json5Result r = json5_parse(kNew13);
+  return r.ok ? r.value : Value();
+}
+
+Value frame_info_new() {
+  const Json5Result r = json5_parse(kNew14);
+  return r.ok ? r.value : Value();
+}
+
+Value frame_model_new() {
+  const Json5Result r = json5_parse(kNew15);
+  return r.ok ? r.value : Value();
+}
+
+Value frame_pic_new() {
+  const Json5Result r = json5_parse(kNew16);
+  return r.ok ? r.value : Value();
+}
+
+Value itr_info_new() {
+  const Json5Result r = json5_parse(kNew17);
+  return r.ok ? r.value : Value();
+}
+
+Value model_info_new() {
+  const Json5Result r = json5_parse(kNew18);
+  return r.ok ? r.value : Value();
+}
+
+Value next_frame_new() {
+  const Json5Result r = json5_parse(kNew19);
+  return r.ok ? r.value : Value();
+}
+
+Value opoint_info_new() {
+  const Json5Result r = json5_parse(kNew20);
+  return r.ok ? r.value : Value();
+}
+
+Value opoint_multi_new() {
+  const Json5Result r = json5_parse(kNew21);
+  return r.ok ? r.value : Value();
+}
+
+Value picture_info_new() {
+  const Json5Result r = json5_parse(kNew22);
+  return r.ok ? r.value : Value();
+}
+
+Value sound_play_info_new() {
+  const Json5Result r = json5_parse(kNew23);
+  return r.ok ? r.value : Value();
+}
+
+Value stage_info_new() {
+  const Json5Result r = json5_parse(kNew24);
+  return r.ok ? r.value : Value();
+}
+
+Value stage_object_info_new() {
+  const Json5Result r = json5_parse(kNew25);
+  return r.ok ? r.value : Value();
+}
+
+Value stage_phase_info_new() {
+  const Json5Result r = json5_parse(kNew26);
+  return r.ok ? r.value : Value();
+}
+
+Value terrain_info_new() {
+  const Json5Result r = json5_parse(kNew27);
+  return r.ok ? r.value : Value();
+}
+
+Value wpoint_info_new() {
+  const Json5Result r = json5_parse(kNew28);
   return r.ok ? r.value : Value();
 }
 

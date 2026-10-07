@@ -107,6 +107,13 @@ text nl "a\nb"
 attr nl x s "c\nd"
 rd nl strop
 
+# fast-xml-parser：属性值恰为 "true" 渲染成裸属性
+new tr e
+attr tr t s "true"
+attr tr f s "false"
+attr tr one s "1"
+rd tr strop
+
 # 空串文本
 new et e
 text et ""

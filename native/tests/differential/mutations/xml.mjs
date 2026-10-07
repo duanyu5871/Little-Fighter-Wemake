@@ -242,6 +242,12 @@ Value ToolXMLElement::as_object(const Value& or_value) const {`,
       from: `      case u'&': out += u"&amp;"; break;`,
       to: `      case u'&': out.push_back(c); break;`,
     },
+    {
+      note: "stringify(): \"true\" 属性不再渲染成裸属性",
+      file: "native/lfw/ditto/xml/tool_xml_element.cpp",
+      from: `    if (a.value == u"true") continue;`,
+      to: `    if (false && a.value == u"true") continue;`,
+    },
 
     // ---------------------------------------------------------------- 结构操作
     {

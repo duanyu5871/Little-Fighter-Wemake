@@ -8156,3 +8156,55 @@ dat→xml→dat）走的就是 tool 版，且它无平台依赖 ⇒ Node 侧能�
 `tree` 39）；变异档 `xml.mjs` **48/48 全杀**（0 存活、0 compile-error）。全量差分
 **168/168**。
 
+## 81. 切片 4T：xml 方言读写层（第一批）
+
+**范围**：`src/LFW/dat_translator/xml/` 的第一批 —— 助手（`one_or_arr`（含 `non_empty`）/
+`merge_by_tag` / `parse_rect_qube` / `xml_x_qube` / `xml_x_non_empty`）+ 数据读写
+（`xml_x_colli_action` / `xml_x_next_frame`（含 `xml_x_t_next_frame`）/ `xml_to_velocity_info`
+/ `xml_x_bpoint` / `xml_x_wpoint` / `xml_x_cpoint` / `xml_x_bdy` / `xml_x_itr` /
+`xml_x_armor_info` / `xml_x_chase`）。配套把 `gen_defines_runtime.mjs` 的 `NEW_FUNCS` 从 3 个
+扩到 29 个（armor/bdy/bpoint/chase/cpoint/dat_index/dialog/drink/entity_data/entity_info/
+frame*/ itr/model/next_frame/opoint*/ picture/sound_play/stage*/ terrain/wpoint 的 `*_new()`），
+`runtime_gen.{h,cpp}` 随之重生成。
+
+**形状**（接 §80 的 `ditto/xml` 缝）：
+- 数据对象 = `Value`（Object）：读用 `field_or(obj, key)`、写用 `Object::set`；
+  `xml_util.h` 提供 `get_str_or` / `get_num_or` / `get_bool_or`（TS 的
+  `el.get_str(name, ret.name)` 里「`or` 可以是任何 JS 值」）与 `opt_*` / `from_opt`
+  （含 `string[] | undefined`）。
+- `xml/delete_undefined.ts` 的实现在更早的刀里已并进 `dat_translator/helpers.*`，
+  `xml/delete_undefined.h` 只做名字转出（以免两份漂移）。
+- 解析/造元素回调收成 `XmlElementParser`（`Value(const IXMLElement&)`）与
+  `XmlElementCreator`（`shared_ptr<IXMLElement>(IXML&, const Value&, const u16string&)`）；
+  TS 的 parser 还会收到 `(index, array)`，本批调用点都只用 element。
+- 命名空间 `lfw::dat_translator::xml`（同 `dat_translator::bots` 的先例）。
+
+**照抄的怪癖 / 费解处**（都用例/变异锁住）：
+1. `xml_2_next_frame` 的 `wait`：**先 number 后 string**（`get_num ?? get_str`）；
+   `id` 走 `one_or_arr(get_str_arr("id"))`。
+2. `xml_2_t_next_frame`:0 个 ⇒ `undefined`、1 个 ⇒ 那一项、多个 ⇒ 数组本身。
+3. `xml_2_qube(el, out)`：先按旧值算 temp、`delete_undefined(out)`、再把六键**整体**
+   写回（值可能是 undefined ⇒ 键带 undefined，由调用方收尾）。
+4. `xml_to_velocity_info`：只有 **`typeof` 是 number** 的软属性分量才覆盖（`NaN` 也算）；
+   末尾删值为 undefined 的键；`out` 省略/undefined ⇒ 新建对象。
+5. `xml_2_wpoint` 与 `xml_2_colli_action` **不做** `delete_undefined`：前者的
+   `dvx/dvy/dvz`、后者的 `test/pretest/type/data` 缺值时**以 undefined 留在结果里**。
+6. `overshoot` 三种写法：单个数字 = 三轴同值；逗号串按位置（缺的分量不写）；
+   全空 ⇒ `undefined`。写口对「对象存在但三轴全 undefined」不写属性（对 undefined
+   的 overshoot 直接跳过）。
+7. `xml_2_next_frame` 的 `expression` **往返丢失**：写口造的是 `<expression value="…">`
+   子元素，而读口 `get_str("expression", …)` 的子元素分支被 `as_string` 的
+   `type == 'string'` 门挡住（§80 的死路径）⇒ 只能读回属性形式。
+8. `xml_2_cpoint` 的 `reorder_fields` 在本批**不可观察**（默认对象为空、赋值顺序天然
+   与 `cpoint_info_fields` 一致）—— 记在 `mutations/xml_layer.mjs` 头部。
+9. **stringify 的裸属性**：fast-xml-parser 的 `XMLBuilder`（`allowBooleanAttributes`
+   默认行为）把**值恰为字符串 `"true"`** 的属性渲染成裸属性（`<action pretest>`）；
+   4S 的 `build_xml` 起初漏了这条，被本批 `xml_x_colli_action` 的往返用例抓出来并补上
+   （`tool_xml_element.cpp`），`quirks` 用例加了一组锁定（`t="true"` 裸、`f="false"`
+   与 `one="1"` 照常带引号）。
+
+**测试**：新用例 `cases/xml/layer.txt` **148 行**；TS 台面新增 `dv/dset/ddel/ddump/dvp/
+dvo/dvm/wrv/wrins` 一组 op（数据对象放 `dv` 变量、读口/写口按函数名分派；`-` 表示
+undefined / 省略）；变异档 `xml_layer.mjs` **44/44 全杀**（0 存活、0 compile-error），
+`xml.mjs` 扩到 **49/49**（新增裸属性一条）。全量差分 **169/169**、lint 全清。
+

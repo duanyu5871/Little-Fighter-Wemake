@@ -171,6 +171,21 @@ add_library(lfw_core STATIC
   state/entity_states.cpp
   ditto/xml/tool_xml_element.cpp
   ditto/xml/tool_xml.cpp
+  dat_translator/xml/one_or_arr.cpp
+  dat_translator/xml/merge_by_tag.cpp
+  dat_translator/xml/parse_rect_qube.cpp
+  dat_translator/xml/xml_x_qube.cpp
+  dat_translator/xml/xml_x_non_empty.cpp
+  dat_translator/xml/xml_x_colli_action.cpp
+  dat_translator/xml/xml_x_next_frame.cpp
+  dat_translator/xml/xml_to_velocity_info.cpp
+  dat_translator/xml/xml_x_bpoint.cpp
+  dat_translator/xml/xml_x_wpoint.cpp
+  dat_translator/xml/xml_x_cpoint.cpp
+  dat_translator/xml/xml_x_bdy.cpp
+  dat_translator/xml/xml_x_itr.cpp
+  dat_translator/xml/xml_x_armor_info.cpp
+  dat_translator/xml/xml_x_chase.cpp
 )
 
 target_include_directories(lfw_core PUBLIC

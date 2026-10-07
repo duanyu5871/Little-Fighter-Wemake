@@ -1,13 +1,30 @@
-// `lfw/ditto/xml`（IXMLElement / IXML 缝的 tool 实现）的 C++ 侧台面，
-// op 与 `subjects/xml.ts` 一一对应。用例：`cases/xml/*.txt`。
+// `lfw/ditto/xml`（IXMLElement / IXML 缝的 tool 实现）+ `lfw/dat_translator/xml`
+// （xml 方言读写层）的 C++ 侧台面，op 与 `subjects/xml.ts` 一一对应。
+// 用例：`cases/xml/*.txt`。
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
+#include <functional>
 #include <map>
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "lfw/core/value.h"
+#include "lfw/dat_translator/xml/merge_by_tag.h"
+#include "lfw/dat_translator/xml/one_or_arr.h"
+#include "lfw/dat_translator/xml/parse_rect_qube.h"
+#include "lfw/dat_translator/xml/xml_to_velocity_info.h"
+#include "lfw/dat_translator/xml/xml_x_armor_info.h"
+#include "lfw/dat_translator/xml/xml_x_bdy.h"
+#include "lfw/dat_translator/xml/xml_x_bpoint.h"
+#include "lfw/dat_translator/xml/xml_x_chase.h"
+#include "lfw/dat_translator/xml/xml_x_colli_action.h"
+#include "lfw/dat_translator/xml/xml_x_cpoint.h"
+#include "lfw/dat_translator/xml/xml_x_itr.h"
+#include "lfw/dat_translator/xml/xml_x_next_frame.h"
+#include "lfw/dat_translator/xml/xml_x_qube.h"
+#include "lfw/dat_translator/xml/xml_x_wpoint.h"
 #include "lfw/ditto/xml/tool_xml.h"
 #include "lfw/ditto/xml/tool_xml_element.h"
 
@@ -39,6 +56,8 @@ struct Entry {
 };
 
 std::map<std::string, Entry> g_els;
+// xml 层读写用的数据对象（TS 侧是普通 JS 值）。
+std::map<std::string, lfw::Value> g_data;
 
 lfw::IXMLElement& el(const std::string& id) { return *g_els.at(id).ptr; }
 
@@ -46,8 +65,83 @@ lfw::ToolXMLElement& tel(const std::string& id) {
   return *static_cast<lfw::ToolXMLElement*>(g_els.at(id).ptr);
 }
 
-void put_root(const std::string& id, const std::shared_ptr<lfw::IXMLElement>& e) {
+lfw::IXMLElement* el_ptr(const std::string& id) {
+  if (id == "-") return nullptr;
+  const auto it = g_els.find(id);
+  return it == g_els.end() ? nullptr : it->second.ptr;
+}
+
+lfw::Value data_of(const std::string& name) {
+  const auto it = g_data.find(name);
+  return it == g_data.end() ? lfw::Value() : it->second;
+}
+
+std::shared_ptr<lfw::IXMLElement> call_writer(const std::string& fn, lfw::IXML& xml,
+                                              const lfw::Value& d, const std::u16string& tag) {
+  using namespace lfw::dat_translator::xml;
+  if (fn == "xml_x_bdy") return xml_x_bdy(xml, d, tag);
+  if (fn == "xml_x_itr") return xml_x_itr(xml, d, tag);
+  if (fn == "xml_x_armor_info") return xml_x_armor_info(xml, d, tag);
+  if (fn == "xml_x_chase") return xml_x_chase(xml, d, tag);
+  if (fn == "xml_x_bpoint") return xml_x_bpoint(xml, d, tag);
+  if (fn == "xml_x_wpoint") return xml_x_wpoint(xml, d, tag);
+  if (fn == "xml_x_cpoint") return xml_x_cpoint(xml, d, tag);
+  if (fn == "xml_x_next_frame") return xml_x_next_frame(xml, d, tag);
+  if (fn == "xml_x_colli_action") return xml_x_colli_action(xml, d, tag);
+  std::fprintf(stderr, "unknown writer fn '%s'\n", fn.c_str());
+  std::exit(2);
+}
+
+lfw::Value call_reader(const std::string& fn, lfw::IXMLElement* e, const std::string& arg,
+                       bool has_arg) {
+  using namespace lfw::dat_translator::xml;
+  if (fn == "xml_2_bdy") return xml_2_bdy(*e);
+  if (fn == "xml_2_itr") return xml_2_itr(*e);
+  if (fn == "xml_2_armor_info") return xml_2_armor_info(e);
+  if (fn == "xml_2_chase") return xml_2_chase(*e);
+  if (fn == "xml_2_bpoint") return xml_2_bpoint(*e);
+  if (fn == "xml_2_wpoint") return xml_2_wpoint(*e);
+  if (fn == "xml_2_cpoint") return xml_2_cpoint(*e);
+  if (fn == "xml_2_next_frame") return xml_2_next_frame(*e);
+  if (fn == "xml_2_colli_action") return xml_2_colli_action(*e);
+  if (fn == "xml_2_t_next_frame") {
+    return xml_2_t_next_frame(e->children_by_tag(key_of(arg)));
+  }
+  if (fn == "xml_2_qube") {
+    return xml_2_qube(*e, has_arg && arg != "-" ? data_of(arg) : lfw::Value());
+  }
+  if (fn == "xml_to_velocity_info") {
+    return xml_to_velocity_info(*e, has_arg && arg != "-" ? data_of(arg) : lfw::Value());
+  }
+  if (fn == "parse_rect_qube") return parse_rect_qube(*e);
+  std::fprintf(stderr, "unknown reader fn '%s'\n", fn.c_str());
+  std::exit(2);
+}
+
+std::function<lfw::Value(const lfw::IXMLElement&)> parser_by_name(const std::string& fn) {
+  using namespace lfw::dat_translator::xml;
+  if (fn == "xml_2_bdy") return [](const lfw::IXMLElement& e) { return xml_2_bdy(e); };
+  if (fn == "xml_2_itr") return [](const lfw::IXMLElement& e) { return xml_2_itr(e); };
+  if (fn == "xml_2_chase") return [](const lfw::IXMLElement& e) { return xml_2_chase(e); };
+  if (fn == "xml_2_bpoint") return [](const lfw::IXMLElement& e) { return xml_2_bpoint(e); };
+  if (fn == "xml_2_wpoint") return [](const lfw::IXMLElement& e) { return xml_2_wpoint(e); };
+  if (fn == "xml_2_cpoint") return [](const lfw::IXMLElement& e) { return xml_2_cpoint(e); };
+  if (fn == "xml_2_next_frame") {
+    return [](const lfw::IXMLElement& e) { return xml_2_next_frame(e); };
+  }
+  if (fn == "xml_2_colli_action") {
+    return [](const lfw::IXMLElement& e) { return xml_2_colli_action(e); };
+  }
+  std::fprintf(stderr, "unknown parser fn '%s'\n", fn.c_str());
+  std::exit(2);
+}
+
+void put_element(const std::string& id, const std::shared_ptr<lfw::IXMLElement>& e) {
   g_els[id] = Entry{e, e.get()};
+}
+
+void put_root(const std::string& id, const std::shared_ptr<lfw::IXMLElement>& e) {
+  put_element(id, e);
 }
 
 std::string render_opt_str(const std::optional<std::u16string>& v) {
@@ -221,6 +315,77 @@ int main(int argc, char** argv) {
       push(std::string("rmself:") + (ok ? "true" : "false"));
     } else if (op == "rmall") {
       tel(t[i++]).remove_all();
+    } else if (op == "dv") {
+      const std::string name = t[i++];
+      g_data[name] = i < t.size() ? parse_value(t, i) : lfw::Value();
+    } else if (op == "dset") {
+      lfw::Object* o = lfw::as_object(g_data[t[i++]]);
+      const std::u16string key = key_of(t[i++]);
+      o->set(key, parse_value(t, i));
+    } else if (op == "ddel") {
+      lfw::Object* o = lfw::as_object(g_data[t[i++]]);
+      o->remove(key_of(t[i++]));
+    } else if (op == "ddump") {
+      const std::string name = t[i++];
+      push("ddump|" + name + "|" + to_ascii(render_value(data_of(name))));
+    } else if (op == "dvp") {
+      const std::string name = t[i++];
+      const std::string fn = t[i++];
+      lfw::IXMLElement* e = el_ptr(t[i++]);
+      const bool has_arg = i < t.size();
+      const std::string arg = has_arg ? t[i++] : std::string();
+      g_data[name] = call_reader(fn, e, arg, has_arg);
+      push("dvp|" + fn + "|" + to_ascii(render_value(g_data[name])));
+    } else if (op == "dvo") {
+      const std::string name = t[i++];
+      const std::string fn = t[i++];
+      const lfw::Value src = data_of(t[i++]);
+      if (fn == "one_or_arr") g_data[name] = lfw::dat_translator::xml::one_or_arr(src);
+      else if (fn == "non_empty") g_data[name] = lfw::dat_translator::xml::non_empty(src);
+      else {
+        std::fprintf(stderr, "unknown helper fn '%s' at line %d\n", fn.c_str(), lineno);
+        return 2;
+      }
+      push("dvo|" + fn + "|" + to_ascii(render_value(g_data[name])));
+    } else if (op == "dvm") {
+      const std::string name = t[i++];
+      lfw::IXMLElement& parent = el(t[i++]);
+      const std::u16string tag = key_of(t[i++]);
+      const std::string fn = t[i++];
+      const bool has_target = i < t.size();
+      const lfw::Value target = has_target ? data_of(t[i++]) : lfw::Value();
+      g_data[name] =
+          lfw::dat_translator::xml::merge_by_tag(parent, tag, parser_by_name(fn), target);
+      push("dvm|" + fn + "|" + to_ascii(render_value(g_data[name])));
+    } else if (op == "wrv") {
+      const std::string name = t[i++];
+      const std::string fn = t[i++];
+      const lfw::Value d = data_of(t[i++]);
+      const std::u16string tag = key_of(t[i++]);
+      const std::shared_ptr<lfw::IXMLElement> e = call_writer(fn, g_xml, d, tag);
+      if (e) {
+        put_element(name, e);
+        push("wrv|" + name + "|" + esc(e->stringify()));
+      } else {
+        push("wrv|" + name + "|u");
+      }
+    } else if (op == "wrins") {
+      const std::string parent_id = t[i++];
+      const std::string fn = t[i++];
+      const lfw::Value d = data_of(t[i++]);
+      const std::u16string tag = key_of(t[i++]);
+      if (fn != "xml_x_t_next_frame") {
+        std::fprintf(stderr, "wrins only supports xml_x_t_next_frame at line %d\n", lineno);
+        return 2;
+      }
+      lfw::ToolXMLElement& parent = tel(parent_id);
+      const std::vector<std::shared_ptr<lfw::IXMLElement>> made =
+          lfw::dat_translator::xml::xml_x_t_next_frame(g_xml, d, tag, g_els.at(parent_id).owner);
+      for (size_t j = 0; j < made.size(); ++j) {
+        put_element(parent_id + ":" + std::to_string(j), made[j]);
+      }
+      push("wrins|" + parent_id + "|n=" + std::to_string(made.size()) + "|" +
+           esc(parent.stringify()));
     } else if (op == "dump") {
       dump_node(el(t[i++]), 0);
     } else if (op == "rd") {
