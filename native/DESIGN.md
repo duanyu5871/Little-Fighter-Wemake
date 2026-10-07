@@ -8498,3 +8498,75 @@ puppet 14）；台面 ops：`cmd s "…"`（直过调度器）、`wcmds`/`handle
 `cheat` / `mk`/`add` / `ent` / `pup`。变异 `cmds.mjs` **56/56 全杀**（0 存活、0 编译错；
 等价变异 1 条与「有意不覆盖」记在档头）；全量差分 **184/184**、lint 全清。
 
+## 86. 切片 4Y：cmds 家族第二批（作弊码族 + SPAWN / SET_PUPPET / F8）
+
+**范围**：`cmds/` 里上一刀缓办的**四块可搬部分** —— 作弊码族（`cheat_code_handler` + `GIM_INK` /
+`HERO_FT` / `LF2_NET` 三条注册 + 三条 help）、`SPAWN`（实体工厂 + 出生流程）、`SET_PUPPET`
+（傀儡创建 / 换数据 / 换控）、`F8`（按舞台/对决刷武器组）。**仍缓办 3 条**：`F4`（UI 按钮）、
+`KEY_EVENT`（按键事件表 + UI 分发）、`POINTER_EVENTS`（UI 命中检测）—— 全卡在未移植的 UI /
+输入层，留给 UI 刀。`cmds/` 的搬运至此只剩这 3 条。
+
+**形状 / 决策**：
+- **新缝**（宿主层未移植 ⇒ 先挂接口 + 台面假件兜底）：
+  - `IStageLfw::sounds_play_with_load(path)` —— 作弊码音效（`sounds.play` 的「先装载再播」变体）；
+  - `IWorldLfw::create_entity_with_player(pid, world, data)` —— SPAWN 的玩家实体工厂；
+    `create_entity_with_bot` **不是新缝**（它本在 `IStageLfw` 上，与 4X 的 `add_entities` 同源），
+    用 `using stage::IStageLfw::create_entity_with_bot;` 拉进调用面；
+  - `IWorldLfw::acquire_local_ctrl(pid, e)` —— `factory.acquire_ctrl(LocalController…)` 的替身
+    （控制器族未移植；`controller/` 刀落地后可改直连）；
+  - `IWorldLfw::datas_fighters_find(oid)` / `datas_weapons_of_group(group)` —— 两种数据表查询
+    （SET_PUPPET 只认 fighters 表；F8 按组拿一份拷贝）；
+  - `IWorldLfw::entities_add(data, num)` —— F8 的 `lfw.entities.add`（4X 已在用的刷怪点）；
+  - `IWorldLfw::random_entity_info(e)` —— SPAWN 缺 `--x` 时的随机落位（背景 / 地形相关，留宿主）；
+  - `IWorldLfw::cheat_changed(cmd, enabled)` —— `callbacks.cheat_changed` 钩子。
+- **注册接线**：`cmds.cpp` 按 `index.ts` 次序补 7 条（F8 在 F7 后；GIM_INK / HERO_FT 在 F10 后；
+  LF2_NET 在 KILL_SOLIDERS 后；SET_PUPPET / SPAWN 在 SET_DIFFICULTY 后）；作弊码三条共用一个
+  handler + 各一条 help。
+- `cheat_code_handler` 的次序照抄：**先写 dataset、再宽松比较早退、最后才音效 + 回调**。`enabled`
+  由 `num(1)` 的真值规范成 `1.0 / 0.0`（缺参 / `NaN` / `0` 都是 0）；`prev` 是 dataset 原值（任何
+  类型），比较走 JS 宽松 `==`。`Defines.CheatInfos` 的键**来自变量** ⇒ `field_or` 吃不下（只收
+  字面量键），本地 `field_or_key` 助手顶上。
+- `SPAWN` 全流程照抄：`--oid` 缺失 / 空串 → 告警（带整条原始命令）；`datas.find` 拿不到 → 告警；
+  `--count` 的 `?? 1` **只吞缺参**；`for (i = 0; i < count; i += 1)` 原样（`NaN` ⇒ 0 轮、小数 ⇒
+  多一轮、负数 ⇒ 0 轮）；`team || new_team`（空串走缺省支，`new_team` 只在缺省支才读）；
+  `facing === 1 || === -1` 严格；有 `--x` 才动坐标（`--y` / `--z` 缺省回落现值），否则
+  `random_entity_info`；`--name` 非空才写；`hp` / `mp` 给了就写（含 0）；最后 `attach()`。
+- `SET_PUPPET`：缺参是 `!player_id || !oid`（**空串也算缺**）→ 同一条告警；player 找不到 /
+  fighters 表没有各一条告警；傀儡表**手扫取末个**（TS `for…entries` ⇒ 同名多挂 last-wins）；
+  没有就 `create_entity` + 落位 `(middle.x, 450, middle.z)`；`set_name(player_info.name)`；
+  `--team` 非空才写；`f.data !== data` 是**引用比较**（端口比 `Object` 身份，不比 `Value`
+  深比较）；换控判定 `ctrl == null || !is_human(ctrl) || ctrl.player_id != pid` 三连（`!=`
+  宽松，字符串下与严格同观）；`attach()` 收尾（attach 流程负责把傀儡登记进傀儡表）。
+- `F8`：守卫次序 `fn_locked` → `stage_limit`（同 4X 的 F 系）；计数键 `f8`；
+  `is_stage = stage.id !== 'VOID_STAGE'` 选组（StageWeapon / VsWeapon）；逐个
+  `entities.add(wd, 1)`。
+
+**照抄的怪癖 / 费解处**（序号接 §85 的 52）：
+53. **作弊码词大小写敏感**：`is_cheat_type` 吃的是 `ctx.str(0)`（**保留大小写**的原始词 ——
+    调度器的降格只负责找 handler）⇒ `gim_ink 1` 静默返回，连 dataset 都不写。
+54. **`prev == enabled` 是宽松比较**：dataset 里存布尔 `true` 或字符串 `"1"` 时 `== 1` 都真 ⇒
+    **早退**（不出音效、不发回调）。dataset 写入在早退**之前**；但写入本身无读取口 ⇒ 不可观测
+    （台面靠回调日志的「有 / 无」来钉）。
+55. **`enabled` 的第二形态**：`cheat_changed` 的第二参是 `enabled != 0`（布尔）；三条作弊码的
+    `CheatInfos` 都带 `sound` ⇒ 「无音效」支路不可达（记在变异档头部）。
+56. **`SPAWN --count` 的 `?? 1` 只吞缺参**：`--count=0` 不生成、`--count=NaN` 不生成
+    （`0 < NaN` 假）、`--count=2.5` **生成 3 个**（i 走 0/1/2）；负数不生成。
+57. **`team || lfw.new_team()` 短路**：给了非空 `--team` 就不读 `new_team`（台面假件的
+    `new_team` 有日志，读没读可钉住）。
+58. **`F8` 非数组数据 = 跳过**：TS `for…of` 对 `undefined` 会 TypeError，端口 `as_array` 判空后
+    跳过（**偏差记录**；台面假件恒回数组 ⇒ 该支路不可达）。
+59. **`SET_PUPPET` 换控判定的 `player_id` 项**：human 控制器但 `player_id` 不同也要换控。台面原先
+    没有「human + 任意 pid」的挂载手段，第一轮变异因此存活一条 ⇒ 补了 `ctrl` op（直造控制器挂
+    实体）才杀掉。
+60. **`create_entity*` 回空指针的兜底**（**偏差记录**）：TS 里工厂恒回实体（构造即注册），端口缝
+    可回 `nullptr` ⇒ SPAWN `continue`、SET_PUPPET 多发一条告警返回（TS 无此分支，台面假件也不回
+    空 ⇒ 不可达）。
+
+**测试**：新用例 4 份 **227 行**（cheat 26 / spawn 109 / set_puppet 62 / f8 30）；台面新增 ops
+`data` / `fdata` / `wdata`（三张假数据表）、`player <pid> <name>`（真造 `PlayerInfo`）、
+`ctrl <label> <bot|human> <pid>`（直造控制器挂实体）；新假件日志 `h:loadplay` / `h:cheatchanged` /
+`h:datasfind` / `h:fdatafind=<id|u>` / `h:wpgroup` / `h:entadd=<id>|<hex>` / `h:randominfo` /
+`h:ceplayer` / `h:cebot` / `h:acqlocal` / `h:release`；实体 dump 追加 **`:did=`**（origin data id ——
+SET_PUPPET 换数据（transform）靠它才可观测）。变异 `cmds2.mjs` **58/58 全杀**（0 存活、0 编译错；
+五条「有意不覆盖 / 不建形」记在档头）；全量差分 **188/188**、lint 全清。
+

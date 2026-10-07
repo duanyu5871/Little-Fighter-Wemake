@@ -73,12 +73,33 @@ class IWorldLfw : public stage::IStageLfw {
   virtual Value get_random_bg(const std::vector<Value>& groups) = 0;
   // `lfw.factory.create_entity(this, data)`
   virtual Entity* create_entity(World& world, const Value& data) = 0;
+  // `lfw.factory.create_entity_with_player(player_id, world, data)`（`CMD_SPAWN` 玩家分支）
+  virtual Entity* create_entity_with_player(const std::u16string& player_id, World& world,
+                                            const Value& data) = 0;
+  // `lfw.factory.create_entity_with_bot(player_id, world, data)`（`CMD_SPAWN` 机器人分支；
+  // 与基类 `IStageLfw` 那条「舞台物件」薄面同名不同参 ⇒ `using` 把基类那条拉进作用域）
+  virtual Entity* create_entity_with_bot(const std::u16string& player_id, World& world,
+                                         const Value& data) = 0;
+  using stage::IStageLfw::create_entity_with_bot;
   // `lfw.factory.recycle_entity(e)` / `lfw.factory.recycle_buff(b)`
   virtual void recycle_entity(Entity* e) = 0;
   virtual void recycle_buff(buff::Buff* b) = 0;
   // `lfw.factory.acquire_ctrl(InvalidController, "", this)` / `lfw.factory.release_ctrl(ctrl)`
   virtual controller::BaseController* acquire_invalid_ctrl(World& world) = 0;
   virtual void release_ctrl(controller::BaseController* ctrl) = 0;
+  // `lfw.factory.acquire_ctrl(LocalController, player_id, entity)`（`CMD_SET_PUPPET` 换控）
+  virtual controller::BaseController* acquire_local_ctrl(const std::u16string& player_id,
+                                                         Entity& entity) = 0;
+  // `lfw.datas.fighters.find(v => v.id === oid)`（`CMD_SET_PUPPET`；`DatMgr` 未移植）
+  virtual Value datas_fighters_find(const Value& oid) = 0;
+  // `lfw.datas.get_weapons_of_group(group)`（`CMD_F8`；`DatMgr` 未移植）
+  virtual Value datas_weapons_of_group(const Value& group) = 0;
+  // `lfw.entities.add(data, num)`（`CMD_F8`；`Helper.ObjectsHelper` 未移植）
+  virtual void entities_add(const Value& data, double num) = 0;
+  // `lfw.random_entity_info(e)`（`CMD_SPAWN` 的随机落位；`LFW` 未移植）
+  virtual void random_entity_info(Entity& e) = 0;
+  // `lfw.callbacks.call("on_cheat_changed", cmd, !!enabled)`（`cheat_code_handler`）
+  virtual void cheat_changed(const std::u16string& cmd, bool enabled) = 0;
   // `lfw.layers` 那些层的 `ui`（`update_ui` 倒序遍历）
   virtual std::vector<IWorldUi*> layer_uis() = 0;
   // `lfw.mt.range(min, max)`

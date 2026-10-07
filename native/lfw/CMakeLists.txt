@@ -7,11 +7,15 @@ add_library(lfw_core STATIC
   core/state_hash.cpp
   core/value.cpp
   cmds/cmds.cpp
+  cmds/cheat_code_handler.cpp
   cmds/cmd_camera.cpp
+  cmds/cmd_cheat.cpp
   cmds/cmd_entity.cpp
   cmds/cmd_f.cpp
   cmds/cmd_kill.cpp
   cmds/cmd_scene.cpp
+  cmds/cmd_set_puppet.cpp
+  cmds/cmd_spawn.cpp
   animation/animation.cpp
   animation/delay.cpp
   animation/easing.cpp

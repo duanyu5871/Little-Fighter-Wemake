@@ -1,4 +1,4 @@
-// `cmds/` 家族（4X）的 C++ 侧台面：`CMDS` 的解析/注册表 + 已移植 21 条命令的效果。
+// `cmds/` 家族（4X/4Y）的 C++ 侧台面：`CMDS` 的解析/注册表 + 已移植 27 条命令的效果。
 // TS 侧是 `subjects/cmds.ts`，op 一一对应。用例：`cases/cmds/*.txt`。
 //
 // 台面私货：两侧同样注册一条 `__probe__` 命令，把 `ctx.words` / `positionals` / `str` / `num` /
@@ -9,11 +9,14 @@
 //   hdump                               世界摘要（cmds 观测量：dataset / 相机 / 实体 / 傀儡 / 计数）
 //   ds <键> <值>                        `dataset.set`
 //   bdata <值> | sdata <值>             假 `lfw.datas` 的背景 / 舞台登记
+//   data <值> | fdata <值> | wdata <值> 假 `lfw.datas` 的 find / fighters / weapons 表
+//   player <pid> <名字>                 假 `lfw.players` 登记
 //   bg <值> | stage <值>                `world.change_bg` / `world.change_stage`
 //   cheat <0|1>                         假 `lfw.is_cheat(HERO_FT)`（`stage_limit` 的另一半）
 //   mk <标签> <数据> | add <标签> <数据>  建实体（后一个再 `add_entities`）
 //   ent <标签> hp|hpr|mp|team <值>       改实体字段
 //   pup <player_id> <标签>              往 `world.puppets` 登记傀儡
+//   ctrl <标签> human|base|none [pid]   换实体的控制器（假 `make_ctrl`）
 //   cmd <字符串字面量>                   `CMDS::handle(world, [str])`（`__probe__` 也在里面）
 //   wcmds <字符串字面量>…                假 `lfw` 的 cmds 列表
 //   handlecmds                          `world.handle_cmds()`（走 `IWorldLfw::handle_cmds` 缝）
@@ -35,6 +38,7 @@
 #include "lfw/entity/entity.h"
 #include "lfw/entity/entity_ref.h"
 #include "lfw/entity/entity_type_check.h"
+#include "lfw/player_info.h"
 #include "lfw/stage/stage.h"
 #include "lfw/state/states.h"
 #include "lfw/utils/container_help/field_or.h"
@@ -84,9 +88,26 @@ std::vector<Value> g_bg_datas;
 std::vector<Value> g_stage_datas;
 std::vector<Value> g_broadcasts;
 std::vector<std::string> g_cheats;
+std::vector<Value> g_datas;
+std::vector<Value> g_fighter_datas;
+std::vector<Value> g_weapon_datas;
+std::vector<std::unique_ptr<lfw::PlayerInfo>> g_players;
+std::vector<std::pair<std::string, lfw::PlayerInfo*>> g_player_map;
 int g_id_counter = 0;
 int g_team_counter = 0;
 std::unique_ptr<World> g_world;
+
+class FakePlayerHost : public lfw::IPlayerInfoHost {
+ public:
+  void cache_get(const std::u16string&, lfw::PlayerInfoCacheEntry& out) override {
+    out.missing = true;
+  }
+  bool cache_del(const std::u16string&, std::u16string&) override { return true; }
+  void cache_put(const lfw::PlayerInfoCachePut&) override {}
+  void warn(const std::u16string& text) override { push("h:piwarn=" + esc(text)); }
+};
+
+FakePlayerHost g_player_host;
 
 std::vector<std::unique_ptr<lfw::controller::BaseController>> g_ctrls;
 
@@ -103,6 +124,14 @@ lfw::controller::BaseController* make_ctrl(const std::string& kind) {
   c->player = Value(std::make_shared<lfw::Object>(player));
   lfw::controller::BaseController* raw = c.get();
   g_ctrls.push_back(std::move(c));
+  return raw;
+}
+
+// 台面实体工厂：`add` op 与 `create_entity*` 缝共用（新实体的 id 来自假 `new_id`）。
+lfw::Entity* new_fake_entity(World& world, const Value& data) {
+  auto e = std::make_unique<lfw::Entity>(world.host(), data, &g_states);
+  lfw::Entity* const raw = e.get();
+  g_created.push_back(std::move(e));
   return raw;
 }
 
@@ -154,6 +183,10 @@ class FakeLfw : public lfw::IWorldLfw {
     push("h:sound=" + vstr(path) + "," + vstr(x) + "," + vstr(y) + "," + vstr(z));
   }
 
+  void sounds_play_with_load(const Value& path) override {
+    push("h:loadplay=" + vstr(path));
+  }
+
   lfw::stage::Expressions<lfw::stage::Stage>::Items end_testers(const Value& owner) override {
     (void)owner;
     return {};
@@ -161,6 +194,9 @@ class FakeLfw : public lfw::IWorldLfw {
 
   Value datas_find(const Value& oid) override {
     push("h:datasfind=" + vstr(oid));
+    for (const Value& d : g_datas) {
+      if (lfw::strict_equals(lfw::field_or(d, u"id"), oid)) return d;
+    }
     return Value();
   }
 
@@ -177,6 +213,9 @@ class FakeLfw : public lfw::IWorldLfw {
   // ---- `IWorldLfw` ----
   lfw::PlayerInfo* player(const Value& player_id) override {
     push("h:player=" + vstr(player_id));
+    for (const std::pair<std::string, lfw::PlayerInfo*>& kv : g_player_map) {
+      if (lfw::strict_equals(Value(to_u16(kv.first)), player_id)) return kv.second;
+    }
     return nullptr;
   }
 
@@ -191,11 +230,49 @@ class FakeLfw : public lfw::IWorldLfw {
   }
 
   lfw::Entity* create_entity(World& world, const Value& data) override {
-    auto e = std::make_unique<lfw::Entity>(world.host(), data, &g_states);
-    lfw::Entity* const raw = e.get();
-    g_created.push_back(std::move(e));
+    lfw::Entity* const raw = new_fake_entity(world, data);
     push("h:create=" + to_ascii(raw->id));
     return raw;
+  }
+
+  lfw::Entity* create_entity_with_player(const std::u16string& player_id, World& world,
+                                         const Value& data) override {
+    push("h:ceplayer=" + vstr(Value(player_id)));
+    return new_fake_entity(world, data);
+  }
+
+  lfw::Entity* create_entity_with_bot(const std::u16string& player_id, World& world,
+                                      const Value& data) override {
+    push("h:cebot=" + vstr(Value(player_id)));
+    return new_fake_entity(world, data);
+  }
+
+  lfw::Value datas_fighters_find(const lfw::Value& oid) override {
+    for (const lfw::Value& d : g_fighter_datas) {
+      if (lfw::strict_equals(lfw::field_or(d, u"id"), oid)) {
+        push("h:fdatafind=" + vstr(oid));
+        return d;
+      }
+    }
+    push("h:fdatafind=u");
+    return lfw::Value();
+  }
+
+  lfw::Value datas_weapons_of_group(const lfw::Value& group) override {
+    push("h:wpgroup=" + vstr(group));
+    std::shared_ptr<lfw::Array> arr = std::make_shared<lfw::Array>();
+    for (const lfw::Value& d : g_weapon_datas) arr->push_back(d);
+    return lfw::Value(arr);
+  }
+
+  void entities_add(const lfw::Value& data, double n) override {
+    push("h:entadd=" + vstr(lfw::field_or(data, u"id")) + "|" + trace::num_hex(n));
+  }
+
+  void random_entity_info(lfw::Entity& e) override { push("h:randominfo=" + to_ascii(e.id)); }
+
+  void cheat_changed(const std::u16string& cmd, bool enabled) override {
+    push("h:cheatchanged=" + vstr(Value(cmd)) + "|" + (enabled ? "1" : "0"));
   }
 
   void recycle_entity(lfw::Entity* e) override {
@@ -211,6 +288,15 @@ class FakeLfw : public lfw::IWorldLfw {
     (void)world;
     push("h:acquire");
     return make_ctrl("base");
+  }
+
+  lfw::controller::BaseController* acquire_local_ctrl(const std::u16string& player_id,
+                                                      lfw::Entity& entity) override {
+    (void)entity;
+    push("h:acqlocal=" + vstr(Value(player_id)));
+    lfw::controller::BaseController* const c = make_ctrl("human");
+    c->player_id = player_id;
+    return c;
   }
 
   void release_ctrl(lfw::controller::BaseController* ctrl) override {
@@ -339,7 +425,10 @@ std::string dump_entity(const lfw::Entity& e) {
   return to_ascii(e.id) + ":" + num(e.hp()) + ":" + num(e.hp_r()) + ":" + num(e.mp()) + ":" +
          esc(e.team()) + ":" + flag(lfw::entity::is_fighter(lfw::ref_of(e))) + ":" +
          flag(lfw::entity::is_weapon(lfw::ref_of(e))) + ":" + flag(e.puppet) +
-         ":fr=" + vstr(lfw::field_or(e.frame, u"id"));
+         ":fr=" + vstr(lfw::field_or(e.frame, u"id")) +
+         ":pos=" + num(e.position.x) + "," + num(e.position.y) + "," + num(e.position.z) +
+         ":fc=" + num(e.facing) + ":nm=" + vstr(e.name()) +
+         ":did=" + vstr(lfw::field_or(e.data(), u"id"));
 }
 
 std::string dump_list(const std::vector<lfw::Entity*>& list) {
@@ -447,6 +536,19 @@ int main(int argc, char** argv) {
       g_bg_datas.push_back(parse_value(t, i));
     } else if (op == "sdata") {
       g_stage_datas.push_back(parse_value(t, i));
+    } else if (op == "data") {
+      g_datas.push_back(parse_value(t, i));
+    } else if (op == "fdata") {
+      g_fighter_datas.push_back(parse_value(t, i));
+    } else if (op == "wdata") {
+      g_weapon_datas.push_back(parse_value(t, i));
+    } else if (op == "player") {
+      const std::string pid = t[i++];
+      const std::string pname = t[i++];
+      auto p = std::make_unique<lfw::PlayerInfo>(&g_player_host, to_u16(pid), Value(to_u16(pname)),
+                                                 Value(true), Value(true));
+      g_player_map.emplace_back(pid, p.get());
+      g_players.push_back(std::move(p));
     } else if (op == "bg") {
       g_world->change_bg(parse_value(t, i));
     } else if (op == "stage") {
@@ -492,6 +594,16 @@ int main(int argc, char** argv) {
       }
       g_world->puppets.emplace_back(pid, e);
       push("pup|" + to_ascii(pid) + "|" + to_ascii(e->id));
+    } else if (op == "ctrl") {
+      lfw::Entity* const e = g_entity_of_label(t[i++]);
+      if (e == nullptr) {
+        std::fprintf(stderr, "line %d: no such entity\n", lineno);
+        return 2;
+      }
+      const std::string kind = t[i++];
+      lfw::controller::BaseController* const c = make_ctrl(kind);
+      if (c != nullptr && i < t.size()) c->player_id = trace::key_of(t[i++]);
+      e->set_ctrl(c);
     } else if (op == "cmd") {
       const Value v = parse_value(t, i);
       const std::u16string* const s = std::get_if<std::u16string>(&v);

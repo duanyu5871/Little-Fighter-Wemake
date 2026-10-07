@@ -456,6 +456,10 @@ class FakeStageLfw : public lfw::stage::IStageLfw {
     push("h:sound=" + vstr(path) + "," + vstr(x) + "," + vstr(y) + "," + vstr(z));
   }
 
+  void sounds_play_with_load(const lfw::Value& path) override {
+    push("h:loadplay=" + vstr(path));
+  }
+
   lfw::stage::Expressions<lfw::stage::Stage>::Items end_testers(const lfw::Value& owner) override;
 
   lfw::Value datas_find(const lfw::Value& oid) override { return g_host.datas_find(oid); }

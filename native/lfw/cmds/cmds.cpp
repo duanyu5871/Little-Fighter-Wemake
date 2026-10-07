@@ -3,11 +3,15 @@
 #include <memory>
 #include <utility>
 
+#include "lfw/cmds/cheat_code_handler.h"
 #include "lfw/cmds/cmd_camera.h"
+#include "lfw/cmds/cmd_cheat.h"
 #include "lfw/cmds/cmd_entity.h"
 #include "lfw/cmds/cmd_f.h"
 #include "lfw/cmds/cmd_kill.h"
 #include "lfw/cmds/cmd_scene.h"
+#include "lfw/cmds/cmd_set_puppet.h"
+#include "lfw/cmds/cmd_spawn.h"
 #include "lfw/core/js_string.h"
 #include "lfw/defines/cmd.h"
 #include "lfw/utils/string_help.h"
@@ -38,7 +42,7 @@ void put(const std::u16string& key, const char16_t* help, CmdHandler fn) {
   r.handlers[k] = fn;
 }
 
-// 默认命令表：次序照 `src/LFW/cmds/index.ts`（只含已移植的 21 条）。
+// 默认命令表：次序照 `src/LFW/cmds/index.ts`（只含已移植的命令）。
 void register_defaults() {
   put(cmd::kBGM, cmd_bgm_help(), cmd_bgm);
   put(cmd::kCHANGE_BG, cmd_change_bg_help(), cmd_change_bg);
@@ -52,15 +56,21 @@ void register_defaults() {
   put(cmd::kF5, cmd_f5_help(), cmd_f5);
   put(cmd::kF6, cmd_f6_help(), cmd_f6);
   put(cmd::kF7, cmd_f7_help(), cmd_f7);
+  put(cmd::kF8, cmd_f8_help(), cmd_f8);
   put(cmd::kF9, cmd_f9_help(), cmd_f9);
   put(cmd::kF10, cmd_f10_help(), cmd_f10);
+  put(cmd::kGIM_INK, cmd_gim_ink_help(), cheat_code_handler);
+  put(cmd::kHERO_FT, cmd_hero_ft_help(), cheat_code_handler);
   put(cmd::kKILL, cmd_kill_help(), cmd_kill);
   put(cmd::kKILL_BOSS, cmd_kill_boss_help(), cmd_kill_boss);
   put(cmd::kKILL_ENEMIES, cmd_kill_enemies_help(), cmd_kill_enemies);
   put(cmd::kKILL_OTHERS, cmd_kill_others_help(), cmd_kill_others);
   put(cmd::kKILL_SOLIDERS, cmd_kill_soliders_help(), cmd_kill_soliders);
+  put(cmd::kLF2_NET, cmd_lf2_net_help(), cheat_code_handler);
   put(cmd::kLOCK_CAM, cmd_lock_cam_help(), cmd_lock_cam);
   put(cmd::kSET_DIFFICULTY, cmd_set_difficulty_help(), cmd_set_difficulty);
+  put(cmd::kSET_PUPPET, cmd_set_puppet_help(), cmd_set_puppet);
+  put(cmd::kSPAWN, cmd_spawn_help(), cmd_spawn);
 }
 
 void ensure_ready() {

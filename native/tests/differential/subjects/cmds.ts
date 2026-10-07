@@ -1,4 +1,4 @@
-// `cmds/` 家族（4X）的 TS 侧台面。C++ 侧是 `subjects/cmds.cpp`，op 与输出一一对应。
+// `cmds/` 家族（4X/4Y）的 TS 侧台面。C++ 侧是 `subjects/cmds.cpp`，op 与输出一一对应。
 // 用例：`cases/cmds/*.txt`，op 说明见 C++ 侧头注。
 //
 // 台面私货：两侧同样注册一条 `__probe__` 命令（`CMDS.register`），把 `ctx.words` /
@@ -7,6 +7,8 @@ import { CMDS } from "../../../../src/LFW/cmds";
 import { Ditto } from "../../../../src/LFW/ditto/Instance";
 import { Entity } from "../../../../src/LFW/entity/Entity";
 import { is_fighter, is_weapon } from "../../../../src/LFW/entity";
+import { LocalController } from "../../../../src/LFW/controller/LocalController";
+import { PlayerInfo } from "../../../../src/LFW/PlayerInfo";
 import { States } from "../../../../src/LFW/state/States";
 import { MersenneTwister } from "../../../../src/LFW/utils/math/MersenneTwister";
 import { World } from "../../../../src/LFW/World";
@@ -82,6 +84,10 @@ let id_counter = 0;
 let team_counter = 0;
 const bg_datas: unknown[] = [];
 const stage_datas: unknown[] = [];
+const all_datas: unknown[] = [];
+const fighter_datas: unknown[] = [];
+const weapon_datas: unknown[] = [];
+const player_map = new Map<string, PlayerInfo>();
 const cheats = new Set<string>();
 let cmds: string[] = [];
 
@@ -103,7 +109,7 @@ const fakeLfw: Bag = {
   players: {
     get: (pid: unknown) => {
       log.push(`h:player=${vstr(pid)}`);
-      return null;
+      return player_map.get(String(pid)) ?? null;
     },
     has: () => false,
   },
@@ -134,7 +140,24 @@ const fakeLfw: Bag = {
     },
     find: (oid: unknown) => {
       log.push(`h:datasfind=${vstr(oid)}`);
+      for (const d of all_datas) if ((d as Bag).id === oid) return d;
       return undefined;
+    },
+    fighters: {
+      find: (predicate: (v: unknown) => boolean) => {
+        for (const d of fighter_datas) {
+          if (predicate(d)) {
+            log.push(`h:fdatafind=${vstr((d as Bag).id)}`);
+            return d;
+          }
+        }
+        log.push(`h:fdatafind=u`);
+        return undefined;
+      },
+    },
+    get_weapons_of_group: (group: unknown) => {
+      log.push(`h:wpgroup=${vstr(group)}`);
+      return [...weapon_datas];
     },
     get_random_bg: (groups: unknown[]) => {
       log.push(`h:randbg=${groups.map(vstr).join(",")}`);
@@ -142,10 +165,26 @@ const fakeLfw: Bag = {
     },
   },
   factory: {
-    create_entity: () => undefined,
+    create_entity: (w: unknown, data: unknown) => {
+      const e = new_fake_entity(w as World, data);
+      log.push(`h:create=${e.id}`);
+      return e;
+    },
+    create_entity_with_player: (pid: unknown, w: unknown, data: unknown) => {
+      log.push(`h:ceplayer=${vstr(pid)}`);
+      return new_fake_entity(w as World, data);
+    },
+    create_entity_with_bot: (pid: unknown, w: unknown, data: unknown) => {
+      log.push(`h:cebot=${vstr(pid)}`);
+      return new_fake_entity(w as World, data);
+    },
     recycle_entity: (e: Entity) => log.push(`h:recycle=${e.id}`),
     recycle_buff: () => log.push(`h:recyclebuff`),
-    acquire_ctrl: () => {
+    acquire_ctrl: (Cls: unknown, pid: unknown, _entity: unknown) => {
+      if (Cls === LocalController) {
+        log.push(`h:acqlocal=${vstr(pid)}`);
+        return { __is_human_ctrl__: true, player_id: pid };
+      }
       log.push(`h:acquire`);
       return {
         __is_base_ctrl__: true,
@@ -154,7 +193,17 @@ const fakeLfw: Bag = {
       };
     },
     release_ctrl: () => log.push(`h:release`),
-    create_ctrl: () => log.push(`h:createctrl`),
+    create_ctrl: (id: unknown, pid: unknown) =>
+      log.push(`h:createctrl=${vstr(id)}:${vstr(pid)}`),
+  },
+  entities: {
+    add: (data: unknown, n: unknown) =>
+      log.push(`h:entadd=${vstr((data as Bag).id)}|${num(n)}`),
+  },
+  random_entity_info: (e: Entity) => log.push(`h:randominfo=${e.id}`),
+  callbacks: {
+    call: (_name: unknown, cmd: unknown, enabled: unknown) =>
+      log.push(`h:cheatchanged=${vstr(cmd)}|${enabled ? 1 : 0}`),
   },
   get cmds(): string[] {
     return cmds;
@@ -180,6 +229,7 @@ const fakeLfw: Bag = {
     },
     stop_bgm: () => log.push(`h:stopbgm_now`),
     play: (...args: unknown[]) => log.push(`h:sound=${args.map(vstr).join(",")}`),
+    play_with_load: (p: unknown) => log.push(`h:loadplay=${vstr(p)}`),
   },
   end_testers: () => [],
   datas_randoming_by_group: () => undefined,
@@ -195,6 +245,11 @@ function w(): Bag {
 
 const ents = new Map<string, Entity>();
 
+// 台面实体工厂：`add` op 与假 `factory.create_entity*` 共用。
+function new_fake_entity(w: World, data: unknown): Entity {
+  return new Entity(w as never, data as never, states as never);
+}
+
 function ent_of(label: string): Entity {
   const e = ents.get(label);
   if (!e) fail(`no such entity '${label}'`);
@@ -206,7 +261,10 @@ function dump_entity(e: Entity | null): string {
   return (
     `${e.id}:${num(e.hp)}:${num(e.hp_r)}:${num(e.mp)}:${esc(e.team)}` +
       `:${flag(is_fighter(e))}:${flag(is_weapon(e))}:${flag(e.puppet)}` +
-      `:fr=${vstr((e.frame as Bag).id)}`
+      `:fr=${vstr((e.frame as Bag).id)}` +
+      `:pos=${num(e.position.x)},${num(e.position.y)},${num(e.position.z)}` +
+      `:fc=${num(e.facing)}:nm=${vstr(e.name)}` +
+      `:did=${vstr((e.data as Bag)?.id)}`
   );
 }
 
@@ -280,6 +338,12 @@ function main(): void {
     },
     debug: (msg: unknown) => log.push(`h:debug=${String(msg)}`),
     DEV: false,
+    Cache: {
+      get: () => new Promise(() => {}),
+      del: () => new Promise(() => {}),
+      put: () => new Promise(() => {}),
+      list: () => new Promise(() => {}),
+    },
   } as never);
 
   states = new States();
@@ -304,6 +368,16 @@ function main(): void {
       bg_datas.push(parseValue(t, i));
     } else if (op === "sdata") {
       stage_datas.push(parseValue(t, i));
+    } else if (op === "data") {
+      all_datas.push(parseValue(t, i));
+    } else if (op === "fdata") {
+      fighter_datas.push(parseValue(t, i));
+    } else if (op === "wdata") {
+      weapon_datas.push(parseValue(t, i));
+    } else if (op === "player") {
+      const pid = keyOf(next());
+      const pname = keyOf(next());
+      player_map.set(pid, new PlayerInfo(pid, pname));
     } else if (op === "bg") {
       world.change_bg(parseValue(t, i) as never);
     } else if (op === "stage") {
@@ -333,6 +407,16 @@ function main(): void {
       const e = ent_of(next());
       (world.puppets as Map<string, Entity>).set(pid, e);
       log.push(`pup|${pid}|${e.id}`);
+    } else if (op === "ctrl") {
+      const e = ent_of(next());
+      const kind = next();
+      const pid = keyOf(next());
+      e.ctrl = {
+        __is_base_ctrl__: true,
+        __is_human_ctrl__: kind === "human",
+        player_id: pid,
+        player: { id: 7, name: "P7", mine: true },
+      } as never;
     } else if (op === "cmd") {
       const text = parseValue(t, i) as string;
       CMDS.handle(world, [String(text)]);

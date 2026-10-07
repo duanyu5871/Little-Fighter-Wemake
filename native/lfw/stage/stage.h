@@ -79,6 +79,8 @@ class IStageLfw {
   virtual std::function<void()> sounds_play_bgm(const Value& music) = 0;
   virtual void sounds_stop_bgm() = 0;
   virtual void sounds_play(const Value& path, const Value& x, const Value& y, const Value& z) = 0;
+  // `lfw.sounds.play_with_load(path)`（`cheat_code_handler` 的作弊码音效）。
+  virtual void sounds_play_with_load(const Value& path) = 0;
   // `phase.__end_testers` / `dialog.__end_testers`：TS 里 dat 层已经把 `end_test` 那些
   // 字符串编成了 `IExpression<Stage>` **实例**，端口的 `Value` 装不下对象 ⇒ 由宿主按
   // 「那份数据」交出对应的表达式列表（`Stage` 只负责 `reset` / `flow`）。

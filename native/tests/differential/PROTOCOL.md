@@ -4458,3 +4458,28 @@ harness op：
   fighter 会无判读 `ctrl.player_id`）；`fakeLfw.world` 的 getter 要接回世界实例
   （`Stage.dispose` 读 `this.lfw.world.puppets`）；`Ditto.setup` 要给 `WorldRender`
   占位类（`World` 构造里 `new` 一下就会被换掉）。
+
+### 6.9.130 cmds 家族第二批（`cases/cmds/{cheat,spawn,set_puppet,f8}.txt` 4 份 227 行；变异 `cmds2.mjs` 58/58 全杀）
+
+- 新 ops：`data <literal>` / `fdata <literal>` / `wdata <literal>`（三张假数据表——`data` 给 SPAWN 的
+  `datas.find`（全表）、`fdata` 给 SET_PUPPET 的 `get_fighters`（**只认这张**）、`wdata` 给 F8 的
+  `get_weapons_of_group`（按 `group` 过滤并**回拷贝**））；`player <pid> <name>`（真造 `PlayerInfo`，
+  SET_PUPPET 的玩家口）；`ctrl <label> <bot|human> <pid>`（直造控制器挂实体：`is_human` 看词、
+  `player_id` 用给定词——「human 但 pid 不同」这个换控分支的唯一挂载手段，第一轮正因缺它存活一条
+  变异）。
+- 新假件日志：`h:loadplay=<path>`（`sounds.play_with_load`）、`h:cheatchanged=<cmd>|0/1`、
+  `h:datasfind=<oid>`、`h:fdatafind=<id|u>`（miss 打 `u`，两侧对齐）、`h:wpgroup=<group>`、
+  `h:entadd=<id>|<hex>`（第二参走 hex —— `1.0` vs `1` 的格式差会假红）、`h:randominfo=<eid>`、
+  `h:ceplayer=<pid>` / `h:cebot=`（空 pid 打 `""`）、`h:acqlocal=<pid>`、`h:release`（换控 setter
+  先释放旧控制器）。
+- `hdump` 实体列尾追加 **`:did=`**（`data.id` 原值）——SET_PUPPET 换数据（`transform`）靠它才可观测
+  （帧 / 名 / 位置都可能同观）。
+- ⚠️ **数据对象要带 `frames`**：SPAWN / SET_PUPPET 结尾都 `attach()` → 找 auto frame →
+  `data.frames["0"]`，缺了直接炸（用例里的 `o …` 字面量别省这棵子树）。
+- ⚠️ **`player` op 前先给 `Cache` 占位**：`PlayerInfo` 构造走 `load()`（读 `Ditto.Cache`），
+  台面 setup 给 `get: () => new Promise(() => {})` 即可（照 `world` subject 的形态）。
+- ⚠️ **`ctrl` op 的 `player` 字段**（`{ id: 7, name: "P7", mine: true }`）只为不炸——判定只读
+  `__is_human_ctrl__` 与 `player_id`。
+- ⚠️ 作弊码用例的观测面只有 `h:cheatchanged` / `h:loadplay`（dataset 写入无读取口）——宽松比较
+  早退的情形靠「回调日志**缺席**」来断言（`ds GIM_INK b 1` / `s "1"` 后 `GIM_INK 1` 无日志，
+  `n 5` 后有）。

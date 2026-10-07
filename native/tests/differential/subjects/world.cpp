@@ -364,6 +364,9 @@ class FakeLfw : public lfw::IWorldLfw {
   void sounds_play(const Value& path, const Value& x, const Value& y, const Value& z) override {
     push("h:sound=" + vstr(path) + "," + vstr(x) + "," + vstr(y) + "," + vstr(z));
   }
+  void sounds_play_with_load(const Value& path) override {
+    push("h:loadplay=" + vstr(path));
+  }
   lfw::stage::Expressions<lfw::stage::Stage>::Items end_testers(const Value& owner) override {
     (void)owner;
     return {};
@@ -427,6 +430,43 @@ class FakeLfw : public lfw::IWorldLfw {
   }
   void release_ctrl(lfw::controller::BaseController* ctrl) override {
     push("h:release=" + std::to_string(ctrl_id_of(ctrl)));
+  }
+  lfw::controller::BaseController* acquire_local_ctrl(const std::u16string& player_id,
+                                                      lfw::Entity& entity) override {
+    (void)player_id;
+    (void)entity;
+    return make_ctrl("base");
+  }
+  lfw::Entity* create_entity_with_player(const std::u16string& player_id, World& world,
+                                         const Value& data) override {
+    (void)player_id;
+    (void)world;
+    (void)data;
+    return nullptr;
+  }
+  lfw::Entity* create_entity_with_bot(const std::u16string& player_id, World& world,
+                                      const Value& data) override {
+    (void)player_id;
+    (void)world;
+    (void)data;
+    return nullptr;
+  }
+  Value datas_fighters_find(const Value& oid) override {
+    (void)oid;
+    return Value();
+  }
+  Value datas_weapons_of_group(const Value& group) override {
+    (void)group;
+    return Value();
+  }
+  void entities_add(const Value& data, double num) override {
+    (void)data;
+    (void)num;
+  }
+  void random_entity_info(lfw::Entity& e) override { (void)e; }
+  void cheat_changed(const std::u16string& cmd, bool enabled) override {
+    (void)cmd;
+    (void)enabled;
   }
   std::vector<lfw::IWorldUi*> layer_uis() override {
     std::vector<lfw::IWorldUi*> out;

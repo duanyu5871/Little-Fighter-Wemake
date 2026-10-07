@@ -3,6 +3,7 @@
 #include <vector>
 
 #include "lfw/core/value.h"
+#include "lfw/defines/entity_group.h"
 #include "lfw/entity/entity.h"
 #include "lfw/entity/entity_ref.h"
 #include "lfw/entity/entity_type_check.h"
@@ -100,6 +101,34 @@ void cmd_f7(CMDS& ctx) {
     e->set_hp(hp_max);
     e->set_mp(e->mp_max());
   }
+}
+
+const char16_t* cmd_f8_help() {
+  return uR"(Usage: F8
+
+Spawn stage weapons / 生成场景武器)";
+}
+
+// TS：`is_stage` 看 `stage.id` 是不是 `Defines.VOID_STAGE.id`（= "VOID_STAGE"）；
+// 武器数据来自 `lfw.datas.get_weapons_of_group`，逐个 `lfw.entities.add(wd, 1)`。
+void cmd_f8(CMDS& ctx) {
+  World& world = ctx.world();
+  if (world.fn_locked()) {
+    world.lfw().debug(u"F8 failed, Fn Locked.");
+    return;
+  }
+  if (world.stage_limit()) {
+    world.lfw().debug(u"F8 failed, Stage Limited.");
+    return;
+  }
+  world.add_count(u"f8", 1.0);
+  const bool is_stage = world.stage()->id() != std::u16string(u"VOID_STAGE");
+  const Value weapon_datas = world.lfw().datas_weapons_of_group(Value(std::u16string(
+      is_stage ? entity_group::kStageWeapon : entity_group::kVsWeapon)));
+  // TS `for (const wd of weapon_datas)`：拿到非数组时 TS 会抛，端口跳过（记在偏差表）。
+  const Array* const list = as_array(weapon_datas);
+  if (list == nullptr) return;
+  for (size_t i = 0; i < list->size(); ++i) world.lfw().entities_add(list->at(i), 1.0);
 }
 
 const char16_t* cmd_f9_help() {
