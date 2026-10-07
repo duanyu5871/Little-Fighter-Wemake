@@ -123,6 +123,25 @@ inline const std::vector<EnumNumberEntry>& state_enum_entries() {
   return e;
 }
 
+// `ATTCKING_STATES`（`defines/StateEnum.ts`）：`BotController.should_defend` 用它判断
+// 「对方这个状态算不算在攻击」。成员只做 `some(v => v === state)` 比较 ⇒ 顺序无关。
+inline const std::vector<double>& attcking_states() {
+  static const std::vector<double> v = {
+    static_cast<double>(StateEnum::Attacking),
+    static_cast<double>(StateEnum::Ball_3005),
+    static_cast<double>(StateEnum::Ball_3006),
+    static_cast<double>(StateEnum::Ball_Flying),
+    static_cast<double>(StateEnum::Ball_Hitting),
+    static_cast<double>(StateEnum::Ball_Hit),
+    static_cast<double>(StateEnum::BurnRun),
+    static_cast<double>(StateEnum::Z_Moveable),
+    static_cast<double>(StateEnum::HeavyWeapon_JustOnGround),
+    static_cast<double>(StateEnum::Weapon_Throwing),
+    static_cast<double>(StateEnum::Burning),
+  };
+  return v;
+}
+
 inline const char16_t* state_enum_name_of(int v) {
   switch (v) {
     case static_cast<int>(StateEnum::_Ball_Base): return u"_Ball_Base";

@@ -11,6 +11,7 @@
 #include "lfw/core/same_ref.h"
 #include "lfw/core/value.h"
 #include "lfw/defines/defines_data.h"
+#include "lfw/defines/difficulty.h"
 #include "lfw/defines/entity_enum.h"
 #include "lfw/defines/entity_group.h"
 #include "lfw/defines/facing_flag.h"
@@ -34,6 +35,7 @@
 #include "lfw/entity/face_helper.h"
 #include "lfw/entity/summary_mgr.h"
 #include "lfw/ground.h"
+#include "lfw/loader/get_val_from_entity.h"
 #include "lfw/state/entity_states.h"
 #include "lfw/state/state_base.h"
 #include "lfw/utils/container_help/field_or.h"
@@ -511,7 +513,7 @@ void Entity::set_hp(double v) {
     const std::shared_ptr<Summary> s = summary_mgr().get(_team);
     s->set_hp_lost(Value(to_number(s->hp_lost()) + (o - v)));
   }
-  callbacks.call(u"on_hp_changed", {ref(), Value(o), Value(v)});
+  callbacks.call(u"on_hp_changed", {ref(), Value(v), Value(o)});
   if (ctrl_ != nullptr && ctrl_->is_human() && ((o > 0) != (v > 0))) {
     host_->mark_players_alive(*this, v > 0);
   }
@@ -579,6 +581,10 @@ void Entity::set_ctrl(controller::BaseController* v) {
   callbacks.call(u"on_ctrl_changed", {ctrl_ref(v), ctrl_ref(prev), ref()});
   host_->mark_players_alive(*this, ctrl_->is_human() && hp() > 0);
   if (prev != nullptr) host_->release_ctrl(prev);
+  // TS 的控制器在构造/reset 里就持有 `entity`（`BotController` 的 `fsm.reset(Idle)` 会
+  // 当场读 `stage.*` 并向 `mt` 抽签）⇒ 挂上控制器的那一刻把 env 先刷出来，让端口里
+  // 「等 env 就绪」的初始化落在与 TS 相同的时刻（见 `BotController::set_env`）。
+  refresh_ctrl_env();
 }
 
 void Entity::as_key_role(const Value& v) {
@@ -2972,6 +2978,55 @@ void Entity::refresh_ctrl_env() {
   env.team_move = nullptr;
   env.team_follow = nullptr;
   if (ctrl_ != nullptr) {
+    // ---- `bot/*`（`BotController` / `BotState_*`）读 `this.entity` 的额外自身字段 ----
+    env.id = id;
+    env.hp_max = hp_max();
+    env.mounted = truthy(Value(mounted()));
+    env.invisible = truthy(Value(invisible()));
+    env.invulnerable = truthy(Value(invulnerable()));
+    env.toughness = toughness();
+    env.resting = resting();
+    env.ground_y = ground_y();
+    env.is_on_ground = is_on_ground;
+    env.vx = velocity.x;
+    env.vy = velocity.y;
+    env.vz = velocity.z;
+    env.name = name();
+    env.data = _data;
+    env.holding = holding != nullptr ? ref_of(*holding) : Value(NullTag{});
+    env.catching = catching != nullptr ? ref_of(*catching) : Value(NullTag{});
+    env.blockers_count = static_cast<double>(blockers.size());
+    env.mt = &host_->mt();
+    // `BotController.difficulty` 是 getter：这里做成闭包，读的时刻才求值（同 TS）。
+    env.bot_difficulty = [this]() -> double {
+      const Value* const void_stage = defines::find(u"Defines.VOID_STAGE");
+      const Value void_id = void_stage != nullptr ? field_or(*void_stage, u"id") : Value();
+      if (!strict_equals(host_->stage_value(u"id"), void_id)) {
+        const std::u16string& my_team = team();
+        for (Entity* const f : host_->puppets()) {
+          if (f == this) continue;
+          if (f->team() != my_team) continue;
+          controller::BaseController* const c = f->ctrl();
+          if (c != nullptr && c->is_human()) return static_cast<double>(Difficulty::Difficult);
+        }
+      }
+      return to_number(host_->world_dataset(u"difficulty"));
+    };
+    env.get_bound = [this]() { return host_->get_bound(*this); };
+    env.has_players_alive = [this]() { return host_->has_players_alive(); };
+    env.stage_value = [this](const std::u16string& key) { return host_->stage_value(key); };
+    env.find_bot = [this](const std::u16string& bot_id) { return host_->find_bot(bot_id); };
+    env.entity_val = [this](const std::u16string& word, BinOp op) -> Value {
+      const ValGetter<Entity> g = loader::get_val_getter_from_entity(word);
+      return g != nullptr ? g(*this, word, op) : Value(word);
+    };
+    env.lfw_player = [this](const std::u16string& player_id) { return host_->player_value(player_id); };
+    env.set_position = [this](const Value& x, const Value& y, const Value& z) {
+      set_position(x, y, z);
+    };
+    env.bg_width = to_number(host_->bg_value(u"width"));
+    env.bg_near = to_number(host_->bg_value(u"near"));
+    env.bg_far = to_number(host_->bg_value(u"far"));
     ctrl_->set_env(&_ctrl_env);
     // TS 的 `ControllerResult.fire` 会调 `this.owner.entity.get_next_frame(nf)`；端口把
     // 它做成一个回调，控制器自己看不到实体 ⇒ 由实体在刷环境时绑上。不绑的话 `fire`

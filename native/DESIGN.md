@@ -8050,3 +8050,52 @@ differential **155/155**。
 变异 `world_collision` 档 **38 条 36 全杀 / 2 存活 / 0 compile-error**（存活的仍是
 `find_object_data` 与 `find_entity` 两条快照恢复型缝，按构造不可观察）；视图那三条变异
 （`catcher` / `set_catching` / `set_catcher`）重新锚到 `EntityCollisionView::` 之后仍然被杀。
+## 79. 切片 4R：`bot/`（`BotController` + `bot/state/*` + `LocalController`/`InvalidController` + `get_val_from_bot_ctrl`）
+
+**范围**：`bot/BotController`（TS 931 行）、六个状态（`Idle` / `Chasing` / `Avoiding` /
+`Following` / `StageEnd` / `Dead`）、`bot/BotDataSet`、`bot/NearestTargets::reidentify`、
+`controller/LocalController` + `InvalidController`、`loader/get_val_from_bot_ctrl`。
+
+**边界**（同 `BallController` 的既有约定）：控制器看不见 `Entity` ——
+- 自己的字段全从 `controller::CtrlEnv` 的 **bot 段**读（`id` / `hp_max` / `mounted` /
+  `invisible` / `invulnerable` / `toughness` / `resting` / `ground_y` / `is_on_ground` /
+  `vx|vy|vz` / `name` / `data` / `holding` / `catching` / `blockers_count` / `mt`），由
+  `Entity::refresh_ctrl_env` 填；
+- world / lfw 走 env 上的缝：`bot_difficulty`（`stage.id` 门 + `puppets` 扫描 +
+  `world.dataset.difficulty`）、`get_bound`、`has_players_alive`、`stage_value`、
+  `find_bot`（`check_bot`）、`set_position`（`lock_when_stand_and_rest`）、`lfw_player`
+  （`this.player` 绑定的缝，**不自动调用**，见下）；
+- 对家是 `Value` 引用（`ref_of` 的浅投影）；bot 表达式的回落（`get_val_from_bot_ctrl`
+  未命中的词）走 `CtrlEnv::entity_val` 缝，由 `Entity` 绑到 `get_val_getter_from_entity`
+  的实体表。
+
+**时序对齐**：TS 的 `BotController` 在构造函数里就 `fsm.reset(BSE.Idle)`（当场读
+`stage.*` 抽四次签）；端口把这一步**推迟**到 env 第一次绑定（`BotController::set_env`），
+并让 `Entity::set_ctrl` 在挂上控制器后**立刻刷一次 env**，两边时序就落回同一位置。
+
+**照抄的 TS 怪癖**（都用用例/变异锁住）：
+1. `update()` 里 `bot_target` 的 `'' + + `${a…}` + …` —— 一元的 `+` 把**第一段**（空串）
+   化成 `0`，于是调试文本带 `"0"` 前缀（非空时是 `"NaN"`）。
+2. `set dummy` 的 `key_up(...Object.values(GK))`：GK 是**字符串枚举**（长名+短名同值）
+   ⇒ 14 项、键有重复，held 键一次 setter 会推**两次**抬起；而 AGK 才是去重的 7 项。
+   端口因此拆成 `all_game_keys()`（= AGK）与 `object_values_game_keys()`（= Object.values）。
+3. `BotVal.BotState` 的 getter 是 `fsm.state?.key ?? ''` —— **不是** `bot_state`
+   （那个无状态时给 `BSE.Idle`）。
+4. `lock_when_stand_and_rest` 的 z 是 `(world.bg.near + world.far) / 2` —— 前半是 **bg** 的
+   near、后半是 **stage** 的 far（`World.get far() { return this.stage.far }`）。
+
+**记录在案的偏差**：
+- `action.judger` 的**现编**：TS 在 `preprocess_bot_data` 里编好，端口在 `handle_action`
+  里按 `action.expression` 现编（同 §4.57 的既有约定；台面 TS 侧照样先挂 `judger` 再调）。
+- `BaseController::bind_player()` 提供但不自动调用：TS 在构造 / `reset` 里绑，端口那两个
+  时机都没有 env（池子回收时的 `reset` 甚至可能驮着上一个实体的悬挂 env）。真路径
+  （`CMD_SET_PUPPET` / 游戏层）在 env 就绪后显式调。
+- `mt_cases` 的参数序列化：JS 的 `Array.join` 把 `undefined`/`null` 变空串，端口的数字
+  模型把它们折成 `NaN` ⇒ **stage.near/far 缺省**时同一抽签的 case 文本会差 `""` vs `NaN`
+  （台面因此总是先设 near/far；属既有 §6.9.102 类缺口）。
+
+**测试**：新 subject `bot`（`me`/`fx` 场景 + `CtrlEnv` 缝 + `meref` 引用绑定；7 个用例
+**444 行**：`basic` 27 / `targets` 71 / `actions` 60 / `fsm` 82 / `update` 88 /
+`state_keys` 95 / `dummy_queue` 21），变异档 `bot_controller.mjs` **24/24 全杀**（0 存活）。
+顺带修正 `defines/game_key.h`：`all_game_keys()` 回归 AGK 顺序，新增
+`object_values_game_keys()`。全量差分 **164/164**、lint **7299 锚点全清**。

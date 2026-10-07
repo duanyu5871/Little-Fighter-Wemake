@@ -45,6 +45,17 @@ inline const std::vector<EnumNumberEntry>& itr_kind_entries() {
   return e;
 }
 
+// `ATTCKING_ITR_KINDS`（`defines/ItrKind.ts`）：`BotController.should_defend` 用它筛
+// 「这一条 itr 算不算攻击判定」。成员只做 `some(v => itr.kind === v)` 比较。
+inline const std::vector<double>& attcking_itr_kinds() {
+  static const std::vector<double> v = {
+    static_cast<double>(ItrKind::Normal),
+    static_cast<double>(ItrKind::JohnShield),
+    static_cast<double>(ItrKind::WeaponSwing),
+  };
+  return v;
+}
+
 inline const char16_t* itr_kind_name_of(int v) {
   switch (v) {
     case static_cast<int>(ItrKind::Normal): return u"Normal";

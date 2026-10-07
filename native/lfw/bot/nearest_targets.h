@@ -31,6 +31,9 @@ class NearestTargets {
   void del(const std::function<bool(const BotTarget&)>& condition);
   void sort(const Value& self);
   void clear();
+  // 名单里还有同一个 `id` 的引用时，把存下来的快照引用换成名单里的新引用（TS 的 targets
+  // 是活实体，每次 `BotController.update_lookup` 用这条把引用刷新一遍）。
+  void reidentify(const std::vector<Value>& entities);
 
   double max() const { return max_; }
   const std::vector<BotTarget>& targets() const { return targets_; }

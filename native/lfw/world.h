@@ -87,6 +87,11 @@ class IWorldLfw : public stage::IStageLfw {
   virtual bool is_cheat(const std::u16string& name) = 0;
   // `lfw.new_id`
   virtual std::u16string new_id() = 0;
+  // `lfw.datas.find_bot(bot_id)`（`BotController.check_bot`；`DatMgr` 未移植 ⇒ 默认找不到）
+  virtual Value find_bot(const std::u16string& bot_id) const {
+    (void)bot_id;
+    return Value();
+  }
   // `lfw.factory.create_buff(kind, lfw, id)`（碰撞的 buff 缝：`handle_itr_kind_magic_flute`
   // 的 `create_buff` / `grant_buff` 的 `create_buff`）。`LFW` 未移植 ⇒ 宿主给这一面；
   // 默认「造不出」对应 TS 拿到 falsy 的那条路径。

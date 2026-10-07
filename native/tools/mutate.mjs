@@ -48,6 +48,11 @@ function runTest(extraArgs) {
 }
 
 const originals = new Map();
+// 锚点里的 `\n` 是 LF，而 autocrlf 的工作区是 CRLF ⇒ 匹配/替换在归一化副本上做，
+// 写回时还原原文件的行尾。originals 始终存原始字节（restore / backup 用）。
+const normals = new Map();
+const normalize_eol = (s) => s.replace(/\r\n/g, "\n");
+const restore_eol = (s, crlf) => (crlf ? s.replace(/\n/g, "\r\n") : s);
 const badAnchors = [];
 for (const m of mutations) {
   const file = resolve(root, m.file);
@@ -56,9 +61,11 @@ for (const m of mutations) {
       process.stderr.write(`missing file: ${m.file}\n`);
       process.exit(2);
     }
-    originals.set(file, readFileSync(file, "utf8"));
+    const raw = readFileSync(file, "utf8");
+    originals.set(file, raw);
+    normals.set(file, normalize_eol(raw));
   }
-  const count = originals.get(file).split(m.from).length - 1;
+  const count = normals.get(file).split(normalize_eol(m.from)).length - 1;
   if (count !== 1) badAnchors.push(`[${m.note}] anchor occurs ${count} times in ${m.file}`);
 }
 if (badAnchors.length) {
@@ -145,8 +152,12 @@ const startedAt = Date.now();
 
 for (const m of mutations) {
   const file = resolve(root, m.file);
-  const text = originals.get(file);
-  writeWithRetry(file, text.replace(m.from, m.to));
+  const raw = originals.get(file);
+  const crlf = raw.includes("\r\n");
+  const mutated = normals
+    .get(file)
+    .replace(normalize_eol(m.from), normalize_eol(m.to));
+  writeWithRetry(file, restore_eol(mutated, crlf));
 
   const t0 = Date.now();
   const built = run(["build", subject]);

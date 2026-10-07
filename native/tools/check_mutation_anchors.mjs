@@ -24,11 +24,14 @@ const specs = readdirSync(MUTATIONS)
   .filter((n) => n.endsWith(".mjs"))
   .sort();
 
+// autocrlf 的工作区是 CRLF，锚点里写的 `\n` 是 LF ⇒ 两侧都先归一化再比对。
+const normalize = (s) => s.replace(/\r\n/g, "\n");
+
 const fileCache = new Map();
 function readTarget(file) {
   const abs = resolve(ROOT, file);
   if (!fileCache.has(abs)) {
-    fileCache.set(abs, existsSync(abs) ? readFileSync(abs, "utf8") : null);
+    fileCache.set(abs, existsSync(abs) ? normalize(readFileSync(abs, "utf8")) : null);
   }
   return fileCache.get(abs);
 }
@@ -41,7 +44,7 @@ for (const spec of specs) {
   for (const m of mod.mutations ?? []) {
     ++anchors;
     const text = readTarget(m.file);
-    const count = text === null ? -1 : text.split(m.from).length - 1;
+    const count = text === null ? -1 : text.split(normalize(m.from)).length - 1;
     if (count !== 1) bad.push({ spec, count, note: m.note, file: m.file });
   }
 }

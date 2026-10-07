@@ -102,8 +102,16 @@ add_library(lfw_core STATIC
   bot/is_ray_hit.cpp
   bot/dummy_enum.cpp
   bot/nearest_targets.cpp
+  bot/bot_dataset.cpp
+  bot/bot_controller.cpp
+  bot/state/bot_state.cpp
+  bot/state/bot_state_idle.cpp
+  bot/state/bot_state_chasing.cpp
+  bot/state/bot_state_avoiding.cpp
+  bot/state/bot_state_misc.cpp
   loader/get_val_from_entity.cpp
   loader/get_val_from_collision.cpp
+  loader/get_val_from_bot_ctrl.cpp
   loader/get_import_fallbacks.cpp
   player_info.cpp
   camera.cpp

@@ -98,6 +98,30 @@ class IEntityHost {
     (void)key;
     return Value();
   }
+  // `world.get_bound(this)` — `[l, r, near, far]` 四元组（`BotController.can_back_off` /
+  // `cornered` / `should_chase` 读前两位）。
+  virtual std::vector<double> get_bound(Entity& e) {
+    (void)e;
+    return {0.0, 0.0, 0.0, 0.0};
+  }
+  // `world.has_players_alive`
+  virtual bool has_players_alive() const { return false; }
+  // `world.bg.width` / `.near` / `.far`（`BotController.lock_when_stand_and_rest`）。
+  virtual Value bg_value(const std::u16string& key) const {
+    (void)key;
+    return Value();
+  }
+  // `lfw.datas.find_bot(bot_id)`（`BotController.check_bot`）；没移植 ⇒ 找不到。
+  virtual Value find_bot(const std::u16string& bot_id) const {
+    (void)bot_id;
+    return Value();
+  }
+  // `lfw.players.get(player_id)`（`BaseController` 的 `this.player` 绑定）；宿主给
+  // 玩家对象的 `Value` 视图，没移植玩家表 ⇒ 给空 `Value`（TS 的 `undefined`）。
+  virtual Value player_value(const std::u16string& player_id) const {
+    (void)player_id;
+    return Value();
+  }
   // `world.ground.step`（TS 的 `Ground.step` 是 `readonly step = 10`）。
   virtual double ground_step() const { return 10.0; }
   // `lfw.survival_rank_mode`（`update_catching` 的 `throwinjury === -1` 分支）。

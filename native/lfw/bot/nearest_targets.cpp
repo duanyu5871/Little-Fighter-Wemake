@@ -8,6 +8,7 @@
 #include <variant>
 #include <vector>
 
+#include "lfw/core/same_ref.h"
 #include "lfw/core/value.h"
 #include "lfw/helper/manhattan_xz.h"
 #include "lfw/utils/container_help/field_or.h"
@@ -101,6 +102,22 @@ void NearestTargets::sort(const Value& self) {
 void NearestTargets::clear() {
   targets_.clear();
   entities_.clear();
+}
+
+void NearestTargets::reidentify(const std::vector<Value>& entities) {
+  for (BotTarget& t : targets_) {
+    const Value old_id = field_or(t.entity, u"id");
+    if (!truthy(old_id)) continue;
+    for (const Value& fresh : entities) {
+      if (!strict_equals(field_or(fresh, u"id"), old_id)) continue;
+      if (same_ref(fresh, t.entity)) break;
+      for (Value& held : entities_) {
+        if (same_ref(held, t.entity)) held = fresh;
+      }
+      t.entity = fresh;
+      break;
+    }
+  }
 }
 
 }

@@ -248,7 +248,8 @@ class WorldEntityHost : public IEntityHost {
     for (const std::pair<std::u16string, Entity*>& kv : _world.puppets) out.push_back(kv.second);
     return out;
   }
-  // `world.stage.player_l` / `player_r` / `far` / `near`（重生点的随机范围）
+  // `world.stage.*`（`player_l` / `player_r` / `near` / `far` 是重生点的随机范围；
+  // `id` / `team` / `is_stage_finish` / `is_chapter_finish` 是 `bot/*` 读的）
   Value stage_value(const std::u16string& key) const override {
     const Stage* const s = _world.stage();
     if (s == nullptr) return Value();
@@ -256,7 +257,28 @@ class WorldEntityHost : public IEntityHost {
     if (key == u"player_r") return Value(s->player_r);
     if (key == u"far") return Value(s->far_plane());
     if (key == u"near") return Value(s->near_plane());
+    if (key == u"id") return Value(s->id());
+    if (key == u"team") return s->team();
+    if (key == u"is_stage_finish") return Value(s->is_stage_finish());
+    if (key == u"is_chapter_finish") return Value(s->is_chapter_finish());
     return Value();
+  }
+  // `world.get_bound(this)`
+  std::vector<double> get_bound(Entity& e) override { return _world.get_bound(e); }
+  // `world.has_players_alive`
+  bool has_players_alive() const override { return _world.has_players_alive; }
+  // `world.bg.width` / `.near` / `.far`
+  Value bg_value(const std::u16string& key) const override {
+    const Background* const bg = _world.bg();
+    if (bg == nullptr) return Value();
+    if (key == u"width") return Value(bg->width());
+    if (key == u"near") return Value(bg->near_plane());
+    if (key == u"far") return Value(bg->far_plane());
+    return Value();
+  }
+  // `lfw.datas.find_bot(bot_id)`（`DatMgr` 未移植 ⇒ 默认找不到）
+  Value find_bot(const std::u16string& bot_id) const override {
+    return _world.lfw().find_bot(bot_id);
   }
   // `world.ground.step`（TS 的 `Ground.step` 是 `readonly step = 10`）
   double ground_step() const override { return _world.ground.step(); }

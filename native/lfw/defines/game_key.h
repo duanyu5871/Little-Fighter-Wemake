@@ -66,6 +66,16 @@ inline const std::vector<const char16_t*>& all_game_keys() {
   return t;
 }
 
+// `Object.values(GK)`：TS 的 GK 是**字符串枚举**（长名+短名同值）⇒ 这里 14 项、
+// 每键两次，顺序照 `Object.values`（L,L,R,R,U,U,D,D,a,a,j,j,d,d）。`set dummy`
+// 的 `key_up(...Object.values(GK))` 就是这个（重复项会各推一次抬起）。
+inline const std::vector<const char16_t*>& object_values_game_keys() {
+  static const std::vector<const char16_t*> t = {
+      gk::kL, gk::kL, gk::kR, gk::kR, gk::kU, gk::kU, gk::kD,
+      gk::kD, gk::ka, gk::ka, gk::kj, gk::kj, gk::kd, gk::kd};
+  return t;
+}
+
 inline const std::vector<std::pair<const char16_t*, const char16_t*>>& conflicts_key_table() {
   static const std::vector<std::pair<const char16_t*, const char16_t*>> t = {
     {gk::ka, nullptr},

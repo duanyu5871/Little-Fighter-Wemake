@@ -11,11 +11,13 @@
 #include "lfw/controller/key_status.h"
 #include "lfw/controller/seq_keys.h"
 #include "lfw/core/value.h"
+#include "lfw/defines/bin_op.h"
 #include "lfw/utils/times.h"
 
 namespace lfw {
 
 class Entity;
+class MersenneTwister;
 // `Factory` 的控制器注册表键：TS 用的是「类本身」，端口用接口指针身份（见 `factory.h`）。
 class ICtrlCreator;
 
@@ -55,6 +57,54 @@ struct CtrlEnv {
   std::function<void(const std::u16string&)> team_stay;
   std::function<void(const std::u16string&)> team_move;
   std::function<void()> team_follow;
+
+  // ---- `bot/*`（`BotController` / `BotState_*`）读 `this.entity` 的额外自身字段 ----
+  std::u16string id;
+  double hp_max = 0;
+  bool mounted = false;
+  bool invisible = false;
+  bool invulnerable = false;
+  double toughness = 0;
+  double resting = 0;
+  double ground_y = 0;
+  bool is_on_ground = false;
+  double vx = 0;
+  double vy = 0;
+  double vz = 0;
+  Value name;
+  Value data;
+  // 关系槽用**浅引用**（`ref_of` 不带关系那一层）：TS 读的是活实体
+  // （`me.holding?.base_type` / `me.catching.hp`），端口读刷新那一刻的投影。
+  Value holding;
+  Value catching;
+  double blockers_count = 0;
+  // `lfw.mt`（`desire` 的 `mark`/`range`、`handle_bot_actions` 的 `pick`/`case`）。
+  MersenneTwister* mt = nullptr;
+
+  // ---- `bot/*` 读 world / lfw 的缝（宿主回答；每次读都是活读，同 TS 的 getter）----
+  // `get difficulty()`：`stage.id` 门 + `puppets` 扫描 + `dataset.difficulty`。
+  std::function<double()> bot_difficulty;
+  // `world.get_bound(this.me)` → `[l, r, near, far]`（`can_back_off` / `cornered` /
+  // `should_chase` 只读前两位）。
+  std::function<std::vector<double>()> get_bound;
+  // `world.has_players_alive`
+  std::function<bool()> has_players_alive;
+  // `world.stage.{id,team,player_l,player_r,near,far,is_stage_finish,is_chapter_finish}`
+  std::function<Value(const std::u16string&)> stage_value;
+  // `lfw.datas.find_bot(bot_id)`（`check_bot`）
+  std::function<Value(const std::u16string&)> find_bot;
+  // `get_val_from_bot_ctrl` 的回落：`val_getter(e.entity, word, op)`（实体 getter 表；
+  // 未命中时给 `word` 本身，即 TS 的 `() => word`）。由 `Entity` 在刷新时绑上。
+  std::function<Value(const std::u16string&, BinOp op)> entity_val;
+  // `lfw.players.get(player_id)`（`BaseController` 的 `this.player` 绑定）。宿主给的
+  // 是玩家对象的 `Value` 视图；拿不到给空 `Value`（即 TS 的 `undefined`）。
+  std::function<Value(const std::u16string&)> lfw_player;
+  // `this.entity.set_position(x, y, z)`（`lock_when_stand_and_rest`）
+  std::function<void(const Value&, const Value&, const Value&)> set_position;
+  // `world.bg.width` / `.near` / `.far`（`lock_when_stand_and_rest` 的落点）。
+  double bg_width = 0;
+  double bg_near = 0;
+  double bg_far = 0;
 };
 
 class BaseController {
@@ -63,7 +113,7 @@ class BaseController {
 
   BaseController();
 
-  void set_env(const CtrlEnv* env) { _env = env; }
+  virtual void set_env(const CtrlEnv* env) { _env = env; }
   const CtrlEnv* env() const { return _env; }
   // `Factory` 的归池键（TS 是 `ctrl.constructor`）。
   void set_creator(const ICtrlCreator* creator) { _creator = creator; }
@@ -78,6 +128,16 @@ class BaseController {
   // 重写成本恒真；`set_ball` 留给测试替身（harness 的假控制器）用。
   void set_ball(bool v) { _is_ball = v; }
   virtual bool is_ball_ctrl() const { return _is_ball; }
+  // `ctrl.is_invalid_controller`（`InvalidController` 的占位标记）。
+  virtual bool is_invalid_controller() const { return false; }
+  // `this.player = lfw.players.get(player_id)`（TS 在构造与 `reset` 里各做一次） 。
+  // 端口**不**自动绑：那两个时机在端口里都没有 env（构造时还没挂上，池子回收时的
+  // `reset` 甚至可能驮着上一个实体的悬挂 env），而且差分台面/测试替身习惯自己摆
+  // `player`。真正接上（`CMD_SET_PUPPET` / 游戏层）时由调用方在 env 就绪后显式调，
+  // 拿不到玩家时给空 `Value`（即 TS 的 `undefined`）。
+  void bind_player() {
+    if (_env != nullptr && _env->lfw_player) player = _env->lfw_player(player_id);
+  }
   // `BallController.chasing`：TS 里这个字段在子类上，端口放在基类（`spawn` 的
   // `OpointMultiEnum` 分支要在 `is_ball_ctrl` 门后写它，而端口那边只有 `BaseController*`）。
   // 值是一个**实体引用**（`entity/entity_ref.h` 的 `ref_of`），不是 `Entity*` ——
