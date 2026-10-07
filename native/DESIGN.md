@@ -8423,3 +8423,78 @@ IFramePic / IStageInfo / IStagePhaseInfo / ITerrainInfo / IWorldDataset / IWorld
 `schema_wiring.mjs`（loader_more 侧）**6/6 全杀**（0 存活、0 编译错）；全量差分 **179/179**、
 lint 全清。
 
+## 85. 切片 4X：cmds 家族第一批（CMDS 调度器 + 21 条纯世界命令）
+
+**范围**：`src/LFW/cmds/` 32 个文件的**第一批** —— 调度器 `CMDS`（词法解析 / 命名参数 /
+静态注册表）+ **21 条纯世界状态命令**：`F1` / `F2` / `F3` / `F5` / `F6` / `F7` / `F9` /
+`F10`、`KILL` / `KILL_BOSS` / `KILL_ENEMIES` / `KILL_OTHERS` / `KILL_SOLIDERS`、`BGM`、
+`CHANGE_BG`、`CHANGE_STAGE`、`SET_DIFFICULTY`、`DIST_CAM`、`LOCK_CAM`、`DESPAWN`、
+`DEL_PUPPET`。**缓办 11 条**（各差一块依赖，留到 4Y）：`SPAWN` / `SET_PUPPET`（实体工厂 +
+出生流程 + `players` / `new_team`）、`F4`（UI 层）、`F8`（武器组表 + `entities.add`）、
+`cheat_code_handler` / `GIM_INK` / `HERO_FT` / `LF2_NET`（音效装载回调 + `callbacks` 接线）、
+`KEY_EVENT`（UI 层 + 按键事件表）、`POINTER_EVENTS`（UI 命中检测）。
+
+**形状 / 决策**：
+- `CmdHandler = void (*)(CMDS&)`（TS `ICMDHandler` 的返回值没人用 ⇒ 收成 `void`）。注册表是
+  `std::map<std::u16string, …>` ×2（handlers / helps）。TS 的**加载期注册** → 端口
+  **惰性注册**：首次查表时一次性登记已移植的 21 条，次序照 `index.ts`（`ensure_ready`）。
+  未移植的命令查不到 ⇒ `handler()` 给 `nullptr`；TS 那边它们是登记着的，差分台面不碰
+  这些词（记在 `mutations/cmds.mjs` 头部）。
+- `handle(World&, const std::vector<std::u16string>&)`：静态 `unique_ptr<CMDS>` 实例，
+  世界换了就重建（TS `this.inst?.world !== world` 的对应物）。`set_cmd` 里
+  `split(' ')` → `js_trim` → 跳过空词 → `words`（保大小写）/ `positionals`（滤 `--` 开头）；
+  命名参数缓存 `args_` 在每次 `set_cmd` 里 `reset()`。
+- `IWorldLfw` 缝上加 `handle_cmds()`（TS `World.handle_cmds` 直呼 `CMDS.handle`；端口由台面
+  假件转呼 `CMDS::handle`，同时把 `cmds` 队列空/非空两半都过了）。
+- 台面私货 `__probe__`（两侧同名注册）把解析层的结果逐条打出来 —— 词数 / `words` /
+  `positionals` / `str` / `num` / `nums` / 各命名参数，`args` 的怪键（`--` / `-` / `--eq` /
+  `=y`）都用它钉住。注册用**大写键**（`CMDS.register("__PROBE__", …)`）以暴露注册侧降格。
+
+**照抄的怪癖 / 费解处**（序号接 §84 的 41）：
+42. **全空白命令 TS 会 TypeError**：`handle` 里 `this.inst.words[0].toLowerCase()` 对
+    `words[0] === undefined` 抛 —— 端口无异常，直接跳过这一步（`words_.empty()`）。差分台面
+    因此不发全空白命令（不是覆盖缺口，是「共同可观测量不存在」）。
+43. **查表两级降格**：`handle` 里 `words[0].toLowerCase()` 一次、`handler(key)` 里又一次；
+    注册侧（`register` / 默认表）也各降一次。端口把键统一成小写存、查表降一次（等效）；
+    `words` / `positionals` 本身**保大小写**（KILL 的参数、实体 id 都靠它）。
+44. **`args` 是 JS 对象字面量**：`eq > 0` 才算 `k=v`（`=y` 这类「开头等号」当整词，值 `""`）；
+    同名参数**末次覆盖**；读不存在的键给 `undefined`。撞原型键（`constructor` 之类）
+    TS 会拿到函数 —— 端口用 `std::map` 没有这个形态，数据不可达 ⇒ 不建形（记在变异档）。
+45. **`nums` = `split(',').map(Number)`**：空段变 `0`（`Number("") === 0`）、段数保留
+    （`1,2,,3` → `[1,2,0,3]`）；`Number` 的怪值（`0x10` / `1e3` / `.5` / `Infinity` / `NaN`）
+    全留给 `string_to_number`。
+46. **`KILL --team=` 的空串是假值**：`if (team)` 是宽松真值判定 ⇒ **空串走逐词路径**
+    （`--team=` 这个词被 `startsWith('--')` 跳过 —— 真正的击杀词在它后面）。
+    逐词路径跳过 `--` 开头的词、找不到的 id 静默忽略。队伍比较是**严格相等**
+    （`e.team === team`，不是宽松 `==`）。
+47. **`BGM` 的 `?? '?'`**：只有**缺参数**才给 `'?'`（空串照传 —— `sounds.play_bgm('')`
+    那边会走停播）。`CHANGE_BG` / `CHANGE_STAGE` 缺参数传 `undefined`（不是空串）——
+    `change_bg` / `change_stage` 对 `undefined` 各自回落默认（台面用两边一致的告警
+    `Stage::constructor:bg not found` 钉住）。
+48. **`SET_DIFFICULTY` 的三件事**：`is_difficulty(undefined)` 是 `false` ⇒ 缺参数直接告警；
+    告警里 `\${1|2|3|4}` 是**字面**（TS 源里 `$` 被转义 —— 不转义的话模板串会算成位或 `7`）；
+    `ctx.cmd` 是**整条原始命令**（不是 `words[0]`）。
+49. **F 系的几处**：`F2` 直接 `set_paused(2)`（单步值 **2** 是可观察的）；`F3` 恒
+    `set_fn_locked(1)` —— 文案写 "Lock / Unlock" 但**没有切换**；`F5` 是**严格** `=== 1`
+    才切到 1000；`F6`/`F7`/`F9`/`F10` 的守卫次序是 `fn_locked` **先于** `stage_limit`
+    （两者都真时只报 Fn Locked）；计数键是命令名原文（`f6` / `f7` / `f9` / `f10`）；`F7`
+    的链式赋值 `e.hp = e.hp_r = e.hp_max` ⇒ **读一次** `hp_max`、写入次序 `hp_r` → `hp`
+    （端口照抄成显式两写）；`F9` 对 `entities` 与 `ghosts` **两张表**各做 `Array.from`
+    快照（端口显式拷贝两份 vector）。
+50. **实体 id 恒来自 `lfw.new_id()`**：`Entity` 构造里 `this.id = lfw.new_id` 覆盖一切 ——
+    `data.id` 只进 `_origin_data_id`（`KILL` / `DESPAWN` 的 id 词指的是**新 id**，
+    台面假件给自增的 `e1/e2/…`，与创建顺序绑定）。
+51. **`World::del_entity` = `set_frame(gone_frame_info())`**：**不摘表**、不复血 —— 台面 dump
+    实体时没有 `:fr=`（帧 id）字段的话，「删除」与「打空血」在 `ents=` 列表里**同观**
+    （第一轮 DESPAWN 变异因此存活）；补上帧 id 后才分开。
+52. **Stage 击杀族只扫 `stage.items`**：`kill_all` / `kill_boss` / `kill_others` /
+    `kill_soliders` 遍历的是**重生流程建出来的 items**（`is_boss` / `is_soldier` 分组），
+    不是 `world.entities`。重生流程本刀没搬 ⇒ 台面上这几个方法都是空转、**方法互换不可观察**
+    （守卫 / 文案 / 计数那几层已覆盖；记在变异档头部）。
+
+**测试**：新 subject `cmds` + 5 份用例 **683 行**（parse 427 / kill 156 / fs 41 / handle 45 /
+puppet 14）；台面 ops：`cmd s "…"`（直过调度器）、`wcmds`/`handlecmds`（过世界缝）、
+`h s "key"`（查 handler）、`hdump`（世界快照）、`ds` / `bdata` / `sdata` / `bg` / `stage` /
+`cheat` / `mk`/`add` / `ent` / `pup`。变异 `cmds.mjs` **56/56 全杀**（0 存活、0 编译错；
+等价变异 1 条与「有意不覆盖」记在档头）；全量差分 **184/184**、lint 全清。
+

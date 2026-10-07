@@ -53,5 +53,7 @@ for (const f of ts) {
 }
 rows.sort((a, b) => b.code - a.code);
 console.log('候选(含运行时语句且无同名端口):', rows.length);
-for (const r of rows.slice(0, 30))
+const limit = Number(process.argv[2]) || 30;
+for (const r of rows.slice(0, limit))
   console.log(String(r.code).padStart(5), String(r.lines).padStart(5), r.f);
+

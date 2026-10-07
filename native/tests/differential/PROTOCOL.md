@@ -4431,3 +4431,30 @@ harness op：
   自搭 schema 缺 `path` 时字面打 `undefined` —— 差分靠这些**逐字**对齐。
 - `loader_more` 侧：`bg` op 输出后面跟 `bgw` / `bge`（TS 台面把 `Ditto.warn/error` 换成收集器；
   端口走 sink 参数）。`Ditto.warn/error` 收的是**整个数组**（一次一个参数）⇒ 台面展开成逐条行。
+
+### 6.9.129 cmds 家族第一批（`cases/cmds/*.txt` 5 份 683 行；变异 `cmds.mjs` 56/56 全杀）
+
+- **新 subject `cmds`**：`cmd s "…"`（直过 `CMDS::handle`）、`wcmds s "…"…` + `handlecmds`
+  （队列过 `World.handle_cmds` 缝）、`h s "key"`（查 handler 有无）、`hdump`（世界快照：
+  paused / fn / diff / playrate / inf / cam / lock / dest / lim / st / bg / cnt / pup / ents /
+  ghosts / cmds）、`ds <key> <literal>`、`bdata`/`sdata`、`bg`/`stage`、`cheat <name> <0|1>`、
+  `mk`/`add <label> <data>`、`ent <label> hp|hpr|mp|team <literal>`、`pup <pid> <label>`。
+- 台面私货 `__probe__`：两侧同名注册（**大写键**注册，暴露注册侧降格），打
+  `p|/pw|i|/pp|i|/ps|i|/pn|i|/pns|i|` 与 `pa|<key>|s|n|ns` 各键（键名表两边必须一致）。
+- ⚠️ **实体 id 恒来自假 `new_id`**（`e1/e2/…`，与创建顺序绑定；`data.id` 只进
+  `_origin_data_id`）—— `KILL`/`DESPAWN` 用例里的 id 词要照**创建顺序数**；label 只是台面
+  自己的把手（`ents=` 打的是真 id）。
+- ⚠️ **dump 实体带 `:fr=`（帧 id）**：`World::del_entity` 只换 gone 帧、**不摘表** ⇒ 没有
+  这个字段时「删除 vs 打空血」在 `ents=` 里同观（第一轮 DESPAWN 变异因此存活）。
+- ⚠️ **全空白命令禁止**：TS `CMDS.handle` 对它 `TypeError`（`words[0]` 是 `undefined`）——
+  用例的 `cmd`/`wcmds` 别发。
+- ⚠️ **未移植的 11 条命令**（SPAWN / SET_PUPPET / F4 / F8 / cheat 族 / KEY_EVENT /
+  POINTER_EVENTS）在 TS 登记、端口没有 ⇒ `h s "…"` / `cmd s "…"` 都不许碰。
+- ⚠️ `ds` 的 key 是**裸词**（`ds playrate n 5`），不是带 `s` 标签的字面量。
+- ⚠️ 舞台击杀族（`kill_all` / `kill_boss` / `kill_others` / `kill_soliders`）只扫
+  `stage.items` —— 台面没有重生流程 ⇒ 它们都是空转，**方法互换**不可观察（变异档记
+  「有意不覆盖」；守卫 / 文案 / 计数三层已覆盖）。
+- ⚠️ 假件细节：`factory.acquire_ctrl` 必须回**非空**基类控制器（TS `add_entities` 对
+  fighter 会无判读 `ctrl.player_id`）；`fakeLfw.world` 的 getter 要接回世界实例
+  （`Stage.dispose` 读 `this.lfw.world.puppets`）；`Ditto.setup` 要给 `WorldRender`
+  占位类（`World` 构造里 `new` 一下就会被换掉）。

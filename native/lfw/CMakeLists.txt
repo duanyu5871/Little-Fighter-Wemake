@@ -6,6 +6,12 @@ add_library(lfw_core STATIC
   core/json5_unicode.cpp
   core/state_hash.cpp
   core/value.cpp
+  cmds/cmds.cpp
+  cmds/cmd_camera.cpp
+  cmds/cmd_entity.cpp
+  cmds/cmd_f.cpp
+  cmds/cmd_kill.cpp
+  cmds/cmd_scene.cpp
   animation/animation.cpp
   animation/delay.cpp
   animation/easing.cpp
