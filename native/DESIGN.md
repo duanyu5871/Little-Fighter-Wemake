@@ -8208,3 +8208,101 @@ dvo/dvm/wrv/wrins` 一组 op（数据对象放 `dv` 变量、读口/写口按函
 undefined / 省略）；变异档 `xml_layer.mjs` **44/44 全杀**（0 存活、0 compile-error），
 `xml.mjs` 扩到 **49/49**（新增裸属性一条）。全量差分 **169/169**、lint 全清。
 
+## 82. 切片 4U：xml 方言读写层（第二批）
+
+**范围**：`src/LFW/dat_translator/xml/` 余下的 **29 个文件**一次搬完 ——
+`xml_x_dat_index` / `xml_x_difficulty_map` / `xml_x_map`（含 `xml_2_map`）/
+`xml_x_hit_key_map` / `xml_x_partial_world_dataset` / `xml_to_bg_terrain` /
+`xml_x_picture_info` / `xml_x_frame_pic` / `xml_x_model_info` / `xml_x_dialog_info` /
+`xml_x_drink_info` / `xml_x_stage_object_info` / `xml_x_bg_info` / `xml_x_bg_layer` /
+`xml_x_frame_indexes` / `xml_x_frame_model` / `xml_x_opoint` / `xml_x_entity_info` /
+`xml_x_entity_data` / `xml_x_stage_phase_info`（含 `xml_x_sound_play_info`）/
+`xml_x_stage_info`（含 `xml_to_stage_info_list`）/ `xml_x_bg_data` / `xml_from_json` /
+`xml_from_world_dataset` / `xml_to_world_dataset` / `xml_from_data_lists` /
+`xml_2_data_lists` / `xml_from_stage_info` / `xml_x_frame`。至此
+`dat_translator/xml/` **整目录清空**（除 `IXMLElement`/`IXML` 缝与 tool 实现外没有剩余）。
+配套：`gen_defines_runtime.mjs` 的 TOP_LEVEL 表 **+2**（`FRAME_BEHAVIOR_LABEL_MAP` /
+`StateEnumNames`，`xml_x_frame` 的 `behavior_label`/`state_label` 用 `defines::find` 查），
+`runtime_gen.{h,cpp}` 与 `subjects/gen/defines_runtime.ts` 重生成。
+
+**形状补充**（接 §81）：
+- `xml_x_map` 的读/写回调直接复用 §81 的 `XmlMapReader`（与 `XmlElementParser` 同型）与
+  `XmlElementCreator`；`xml_x_map` 回 `optional<vector<shared_ptr<IXMLElement>>>`。
+- **带下标的 parser**：TS 的 `xml_2_non_empty(el, "layer", xml_2_bg_layer)` 走
+  `Array.map`，parser 会收到 `index`（`xml_2_bg_layer` 的 z 兜底用它）⇒
+  `xml_x_non_empty.h` 新增 `XmlElementParserIdx`（`Value(const IXMLElement&, size_t)`）
+  与一组同名重载（函数指针按元数天然二选一）。
+- `xml_util.h` 再补 `from_opt(optional<vector<double>>)`、`field_join(Value)`（TS 的
+  `f.variants?.join()` 语义：nullish 给 undefined、数组成员按 JS join 拼）。
+
+**照抄的怪癖 / 费解处**（都用例/变异锁住；序号接 §81 的 9）：
+10. **`xml_x_sound_play_info` 的 `if (!s || s.path.trim()) return;`**：`path` 有内容
+    （trim 后非空）反而**写不出元素**，只有 path 缺省/空白时才写 —— 照抄。
+11. **`xml_2_stage_phase_info` 的三条裸调用**：`xml_2_non_empty(el, "sound"/"object"/
+    "dialog", …)` 的结果**被丢弃**（sounds/objects/dialogs 不进结果对象），端口用
+    `(void)` 保留调用本身。
+12. **`xml_2_entity_info` 的两处读写错位**：`bounce_min` 软数组读成 **y←[0]、x←[1]、
+    z←[2]**（写向是 x,y,z）；快速值读的是属性 **`fast_v`**（写向写的是 `fast`）且
+    [0]→vy、[1]→vx。portraits/models 是**内联手写循环**（不走 `xml_2_*_map`）：
+    portraits 的键 = `name ?? ""`（写向造的元素没有 `name` ⇒ 往返落到空串键）、值缺省
+    `tex "0"`/坐标 0；models 读 `quaternion` 四分量而写向只写 `rotation`。
+13. **`xml_to_world_dataset` 的 int/float 分支是死值**：`child.as_number()` 在 tool 实现
+    里恒 `undefined`（§80 的 as_string 类型门）⇒ 数字型世界字段（当前版本全是 float）
+    读回**全是 undefined**，照抄；`xml_from_world_dataset` 写向把 `null` 也算「有值」
+    （它判的是 `v !== void 0`）。
+14. **`xml_x_map` 的两行死代码**：`if (!el.get_str("id")) el.get_str("id", key);`（连同
+    `"key"` 那行）—— `get_str(or)` 只读不写 ⇒ 端口照抄成 `(void)`；值 nullish 的判定
+    是 `value == void 0`（**undefined 和 null 都跳**）。
+15. **`xml_2_map`**：值假值跳过、键 `id ?? key`、**空串键跳过**；返回空对象 ⇒ undefined
+    （`xml_2_hit_key_map` 的读向同款）。
+16. **难度映射 `k:v`**：写按 `DifficultyList` 次序 join（值不是数字、键不在 map 都跳过；
+    **空串结果不写属性**）；读按 `,` 与 `:` 拆两块 `Number`（`"1:"` 的第二块 =
+    `Number("")` = 0；`NaN` 跳过；一段都没有 ⇒ undefined）。
+17. **`xml_2_bg_layer(el, index)`**：`z` 的兜底链是 属性 → **index**（`Array.map` 下标）
+    → 缺省；pos/size/rect/offsetAnim 四组硬数组做 `??` 链；写向 22 个属性的先后次序
+    与 TS 逐字一致（`color`/`id`/`name`/`file` 在靠后）。
+18. **`xml_x_frame_indexes` 的不对称**：写向 `falling?.[1]` / `?.[-1]`（**字符串键
+    `"-1"`**）；读向 `injured`/`lying` 那一对走 **`get_str`**（单个字符串，空串也算假），
+    其余对走 `get_str_arr`；成对子对象 `{[1]: a, [-1]: b}` 两项都真值才给。
+19. **`xml_2_opoint`**：`oid` 用 `one_or_arr(get_str_arr("oid")) ?? ''`（**缺了给空串**）；
+    `multi` 的兜底链是 子元素 `<multi>` → `multi` 属性 → 缺省；写向 `multi` 是**两条
+    独立判断**（`typeof === "number"` 写属性、`typeof === "object"` 插子元素）。
+20. **`xml_x_frame`**：`center`/`size` 是 `[a, b].join()`（缺值给空段）；`sound` 单值/
+    数组两态（数组项直接 `set_attr("value", …)`，假值即删属性）；`behavior_label` /
+    `state_label` 按 `f.behavior != void 0`（**宽松 nullish**）查两张定义表，映射值真值
+    才写；读向 `pic` 取首项、其余（**长度 > 1 才有**）进 `pics`，`model` 可能 undefined，
+    `wpoint/bpoint/cpoint/chase` 走 `merge_by_tag`（**没有子元素就是 undefined**，
+    不吃缺省）。
+21. **`xml_2_entity_data`**：`base` 有 `!` 断言（契约上必有）；`processed` 是
+    `get_bool(...) || void 0`（假值给 undefined）；`frames` 缺省 **`{}`**（对象，不是
+    undefined）；`bdy/itr/frame_prefab` 走多 tag 查找（`["bdy_prefab","bdy"]` 等）。
+22. **`xml_2_stage_info`**：`phases` 缺省 `[]`、`group` 走 `get_str_arr`（or 被忽略）；
+    `xml_to_stage_info_list` 只认 `tag === "stages"` / `"stage"`，其余空表。
+23. **`xml_x_bg_data` 不写 terrain**（写向只有 id/base/dataset/layers —— 读向有 terrain，
+    不对称照抄）；base/dataset 走 `merge_by_tag`（target = ret 里的缺省对象，就地合并）。
+24. **`xml_from_json`（手写序列化器）**：`esc` 只换 `< > & "` 四个（**没有 `'`**）；
+    `attrsOf` 的 `typeof v === "object"` 把**数组也滤掉**（它下面那行
+    `Array.isArray(v) && v.some(...)` 与 `attrs` 里的数组分支都是**死代码**，端口保留
+    形状 + 注释）；`childrenXml` 的 `every(x => typeof x !== "object")` 纯值数组**整组
+    被丢**（属性里没写、子层也 `continue` —— TS 注释说「已在 attrsOf 处理」实际不是）；
+    对象数组按 `item.tagName ?? key` 出标签、有任何非 nullish 对象值才展开子层；原始值项
+    （含 `null`）输出 `<key>esc(item)</key>`（null ⇒ 字面量 `null`）；`keyOrder` 只改
+    根属性顺序，子层遍历仍是原对象键序。
+25. **`xml_to_bg_terrain` 没有 `delete_undefined`**（其它读者基本都有，这里就是没有）；
+    `xml_2_bg_info` 的 `group` 缺省是**字符串数组** `["regular"]`、`height` 缺省直接给
+    `Defines.MODERN_SCREEN_HEIGHT`（不是 `*_new()` 的缺省），写向 `b.group?.join() ||
+    void 0`（空串等于没写）。
+26. **`xml_x_drink_info` / `xml_2_drink_info` 的软三元组**：写向 `set_arr_attr_soft`；
+    读向 `?.[i] ?? 缺省` 链（值缺了回落 `*_new()` 的字段缺省，仍可能是 undefined ⇒
+    尾部 `delete_undefined`）。
+
+**测试**：新用例 `cases/xml/layer2.txt` **150 行** + `cases/xml/entity.txt` **71 行**；
+台面两侧：`dvp` 改为**多参**（`args` 向量，`xml_2_map` 这种要「tag + reader 名」的
+才摆得下）、新增 `wrl`（列表写口：`xml_x_hit_key_map` / `xml_x_map` / 三个 `*_map` 薄壳，
+打 `wrl|<eid>|n=…` 与逐项 stringify）、`wjson`（`xml_from_json`，可带 keyOrder）、
+`wstages`（`xml_from_stage_info`）；`readers`/`writers`/`parsers` 三张表按 TS 函数名补齐
+（`xml_2_map2` 供双 tag 查找用）。变异档 `xml_layer2.mjs` **65/65 全杀**（0 存活、
+0 compile-error），头部记「有意不覆盖」四处（`xml_x_map` 的死代码两行、`delete_undefined`/
+`reorder_fields` 的渲染不可观察、`xml_x_partial_world_dataset` 的假值面、`xml_from_json`
+的 attrs 数组分支）。全量差分 **171/171**、lint 全清。
+

@@ -11,8 +11,24 @@ Value xml_2_arr(const IXMLElement& el, const std::u16string& tag,
   return Value(std::move(arr));
 }
 
+Value xml_2_arr(const IXMLElement& el, const std::u16string& tag,
+                const XmlElementParserIdx& parser) {
+  auto arr = std::make_shared<Array>();
+  const std::vector<IXMLElement*> children = el.children_by_tag(tag);
+  for (size_t i = 0; i < children.size(); ++i) arr->push_back(parser(*children[i], i));
+  return Value(std::move(arr));
+}
+
 Value xml_2_non_empty(const IXMLElement& el, const std::u16string& tag,
                       const XmlElementParser& parser) {
+  const Value ret = xml_2_arr(el, tag, parser);
+  const Array* a = as_array(ret);
+  if (a != nullptr && a->size() != 0) return ret;
+  return Value();
+}
+
+Value xml_2_non_empty(const IXMLElement& el, const std::u16string& tag,
+                      const XmlElementParserIdx& parser) {
   const Value ret = xml_2_arr(el, tag, parser);
   const Array* a = as_array(ret);
   if (a != nullptr && a->size() != 0) return ret;

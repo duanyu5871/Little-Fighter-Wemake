@@ -186,6 +186,35 @@ add_library(lfw_core STATIC
   dat_translator/xml/xml_x_itr.cpp
   dat_translator/xml/xml_x_armor_info.cpp
   dat_translator/xml/xml_x_chase.cpp
+  dat_translator/xml/xml_x_dat_index.cpp
+  dat_translator/xml/xml_x_difficulty_map.cpp
+  dat_translator/xml/xml_x_map.cpp
+  dat_translator/xml/xml_x_hit_key_map.cpp
+  dat_translator/xml/xml_x_partial_world_dataset.cpp
+  dat_translator/xml/xml_to_bg_terrain.cpp
+  dat_translator/xml/xml_x_picture_info.cpp
+  dat_translator/xml/xml_x_frame_pic.cpp
+  dat_translator/xml/xml_x_model_info.cpp
+  dat_translator/xml/xml_x_dialog_info.cpp
+  dat_translator/xml/xml_x_drink_info.cpp
+  dat_translator/xml/xml_x_stage_object_info.cpp
+  dat_translator/xml/xml_x_bg_info.cpp
+  dat_translator/xml/xml_x_bg_layer.cpp
+  dat_translator/xml/xml_x_frame_indexes.cpp
+  dat_translator/xml/xml_x_frame_model.cpp
+  dat_translator/xml/xml_x_opoint.cpp
+  dat_translator/xml/xml_x_entity_info.cpp
+  dat_translator/xml/xml_x_entity_data.cpp
+  dat_translator/xml/xml_x_stage_phase_info.cpp
+  dat_translator/xml/xml_x_stage_info.cpp
+  dat_translator/xml/xml_x_bg_data.cpp
+  dat_translator/xml/xml_from_json.cpp
+  dat_translator/xml/xml_from_world_dataset.cpp
+  dat_translator/xml/xml_to_world_dataset.cpp
+  dat_translator/xml/xml_from_data_lists.cpp
+  dat_translator/xml/xml_to_data_lists.cpp
+  dat_translator/xml/xml_from_stage_info.cpp
+  dat_translator/xml/xml_x_frame.cpp
 )
 
 target_include_directories(lfw_core PUBLIC

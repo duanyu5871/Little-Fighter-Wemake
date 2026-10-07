@@ -81,13 +81,15 @@ const char16_t kJson70[] = u"[1,2,3,4]";
 const char16_t kJson71[] = u"{\"1\":\"Easy\",\"2\":\"Normal\",\"3\":\"Difficult\",\"4\":\"Crazy!\"}";
 const char16_t kJson72[] = u"{\"id\":\"\",\"name\":\"EMPTY_FRAME_INFO\",\"pic\":{\"tex\":\"\",\"x\":0,\"y\":0,\"w\":0,\"h\":0},\"width\":0,\"height\":0,\"state\":NaN,\"wait\":0,\"next\":{\"id\":\"auto\"},\"centerx\":0,\"centery\":0}";
 const char16_t kJson73[] = u"{\"4\":3,\"8\":0,\"16\":1,\"32\":2}";
-const char16_t kJson74[] = u"{\"id\":\"gone\",\"name\":\"GONE_FRAME_INFO\",\"pic\":{\"tex\":\"\",\"x\":0,\"y\":0,\"w\":0,\"h\":0},\"width\":0,\"height\":0,\"state\":NaN,\"wait\":0,\"next\":{\"id\":\"gone\"},\"centerx\":0,\"centery\":0,\"no_shadow\":1}";
-const char16_t kJson75[] = u"{\"1\":\"\u654c\u4eba\",\"2\":\"\u961f\u53cb\",\"3\":\"\u5224\u5b9a\u961f\u53cb\u4e0e\u961f\u53cb\",\"4\":\"Ohters\",\"8\":\"Fighter\",\"9\":\"EnemyFighter\",\"10\":\"AllyFighter\",\"16\":\"Weapon\",\"17\":\"EnemyWeapon\",\"18\":\"AllyWeapon\",\"32\":\"Ball\",\"33\":\"EnemyBall\",\"34\":\"AllyBall\",\"60\":\"\u5168\u7c7b\u578b\",\"61\":\"\u5224\u5b9a\u5168\u7c7b\u578b\u654c\u4eba\",\"62\":\"\u5224\u5b9a\u5168\u7c7b\u578b\u961f\u53cb\",\"63\":\"\u5224\u5b9a\u5168\u7c7b\u578b\u654c\u4eba\u4e0e\u961f\u53cb\",\"128\":\"Dead\"}";
-const char16_t kJson76[] = u"{\"1\":\"Enemy\",\"2\":\"Ally\",\"3\":\"Both\",\"4\":\"Ohters\",\"8\":\"Fighter\",\"9\":\"EnemyFighter\",\"10\":\"AllyFighter\",\"16\":\"Weapon\",\"17\":\"EnemyWeapon\",\"18\":\"AllyWeapon\",\"32\":\"Ball\",\"33\":\"EnemyBall\",\"34\":\"AllyBall\",\"60\":\"AllType\",\"61\":\"AllEnemy\",\"62\":\"AllAlly\",\"63\":\"AllBoth\",\"128\":\"Dead\"}";
-const char16_t kJson77[] = u"{\"1\":\"\",\"2\":\"\",\"3\":\"\",\"4\":\"\",\"8\":\"\",\"9\":\"\",\"10\":\"\",\"16\":\"\",\"17\":\"\",\"18\":\"\",\"32\":\"\",\"33\":\"\",\"34\":\"\",\"60\":\"\",\"61\":\"\",\"62\":\"\",\"63\":\"\",\"128\":\"\"}";
-const char16_t kJson78[] = u"1999";
-const char16_t kJson79[] = u"1000";
-const char16_t kJson80[] = u"{\"0\":\"None\",\"1\":\"Bearer\",\"2\":\"Holded\",\"3\":\"Drop\"}";
+const char16_t kJson74[] = u"{\"1\":\"JohnChase\",\"2\":\"DennisChase\",\"3\":\"Boomerang\",\"4\":\"AngelBlessing\",\"5\":\"AngelBlessingStart\",\"6\":\"DevilJudgementStart\",\"7\":\"ChasingSameEnemy\",\"8\":\"BatStart\",\"9\":\"FirzenDisasterStart\",\"10\":\"JohnBiscuitLeaving\",\"11\":\"FirzenVolcanoStart\",\"12\":\"Bat\",\"13\":\"JulianBallStart\",\"14\":\"JulianBall\"}";
+const char16_t kJson75[] = u"{\"id\":\"gone\",\"name\":\"GONE_FRAME_INFO\",\"pic\":{\"tex\":\"\",\"x\":0,\"y\":0,\"w\":0,\"h\":0},\"width\":0,\"height\":0,\"state\":NaN,\"wait\":0,\"next\":{\"id\":\"gone\"},\"centerx\":0,\"centery\":0,\"no_shadow\":1}";
+const char16_t kJson76[] = u"{\"1\":\"\u654c\u4eba\",\"2\":\"\u961f\u53cb\",\"3\":\"\u5224\u5b9a\u961f\u53cb\u4e0e\u961f\u53cb\",\"4\":\"Ohters\",\"8\":\"Fighter\",\"9\":\"EnemyFighter\",\"10\":\"AllyFighter\",\"16\":\"Weapon\",\"17\":\"EnemyWeapon\",\"18\":\"AllyWeapon\",\"32\":\"Ball\",\"33\":\"EnemyBall\",\"34\":\"AllyBall\",\"60\":\"\u5168\u7c7b\u578b\",\"61\":\"\u5224\u5b9a\u5168\u7c7b\u578b\u654c\u4eba\",\"62\":\"\u5224\u5b9a\u5168\u7c7b\u578b\u961f\u53cb\",\"63\":\"\u5224\u5b9a\u5168\u7c7b\u578b\u654c\u4eba\u4e0e\u961f\u53cb\",\"128\":\"Dead\"}";
+const char16_t kJson77[] = u"{\"1\":\"Enemy\",\"2\":\"Ally\",\"3\":\"Both\",\"4\":\"Ohters\",\"8\":\"Fighter\",\"9\":\"EnemyFighter\",\"10\":\"AllyFighter\",\"16\":\"Weapon\",\"17\":\"EnemyWeapon\",\"18\":\"AllyWeapon\",\"32\":\"Ball\",\"33\":\"EnemyBall\",\"34\":\"AllyBall\",\"60\":\"AllType\",\"61\":\"AllEnemy\",\"62\":\"AllAlly\",\"63\":\"AllBoth\",\"128\":\"Dead\"}";
+const char16_t kJson78[] = u"{\"1\":\"\",\"2\":\"\",\"3\":\"\",\"4\":\"\",\"8\":\"\",\"9\":\"\",\"10\":\"\",\"16\":\"\",\"17\":\"\",\"18\":\"\",\"32\":\"\",\"33\":\"\",\"34\":\"\",\"60\":\"\",\"61\":\"\",\"62\":\"\",\"63\":\"\",\"128\":\"\"}";
+const char16_t kJson79[] = u"1999";
+const char16_t kJson80[] = u"1000";
+const char16_t kJson81[] = u"{\"0\":\"Standing\",\"1\":\"Walking\",\"2\":\"Running\",\"3\":\"Attacking\",\"4\":\"Jump\",\"5\":\"Dash\",\"6\":\"Rowing\",\"7\":\"Defend\",\"8\":\"BrokenDefend\",\"9\":\"Catching\",\"10\":\"Caught\",\"11\":\"Injured\",\"12\":\"Falling\",\"13\":\"Frozen\",\"14\":\"Lying\",\"15\":\"Normal\",\"16\":\"Tired\",\"17\":\"Drink\",\"18\":\"Burning\",\"19\":\"BurnRun\",\"100\":\"LandGoto94\",\"301\":\"Z_Moveable\",\"400\":\"TeleportToNearestEnemy\",\"401\":\"TeleportToFarthestAlly\",\"500\":\"TransformToCatching_Begin\",\"501\":\"TransformToCatching_End\",\"1000\":\"Weapon_InTheSky\",\"1001\":\"Weapon_OnHand\",\"1002\":\"Weapon_Throwing\",\"1003\":\"Weapon_Rebounding\",\"1004\":\"Weapon_OnGround\",\"1700\":\"HealSelf\",\"2000\":\"HeavyWeapon_InTheSky\",\"2001\":\"HeavyWeapon_OnHand\",\"2002\":\"HeavyWeapon_JustOnGround\",\"2004\":\"HeavyWeapon_OnGround\",\"3000\":\"Ball_Flying\",\"3001\":\"Ball_Hitting\",\"3002\":\"Ball_Hit\",\"3003\":\"Ball_Rebounding\",\"3004\":\"Ball_Disappear\",\"3005\":\"Ball_3005\",\"3006\":\"Ball_3006\",\"8001\":\"TransformTo_Min\",\"8999\":\"TransformTo_Max\",\"9995\":\"TurnIntoLouisEX\",\"9996\":\"OLD_LouisCastOff\",\"9997\":\"Message\",\"9998\":\"Gone\",\"9999\":\"Weapon_Brokens\",\"-1\":\"_Entity_Base\",\"-2\":\"_Character_Base\",\"-3\":\"_Weapon_Base\",\"-4\":\"_Ball_Base\"}";
+const char16_t kJson82[] = u"{\"0\":\"None\",\"1\":\"Bearer\",\"2\":\"Holded\",\"3\":\"Drop\"}";
 
 struct Raw {
   const char16_t* name;
@@ -170,13 +172,15 @@ const Raw kRaw[] = {
     {u"DifficultyNames", kJson71, true},
     {u"EMPTY_FRAME_INFO", kJson72, true},
     {u"ENTITY_PRIORITY_MAP", kJson73, true},
-    {u"GONE_FRAME_INFO", kJson74, true},
-    {u"HIT_FLAG_DESC_MAP", kJson75, true},
-    {u"HIT_FLAG_NAME_MAP", kJson76, true},
-    {u"HitFlagDescriptions", kJson77, true},
-    {u"OLD_BDY_KIND_GOTO_MAX", kJson78, true},
-    {u"OLD_BDY_KIND_GOTO_MIN", kJson79, true},
-    {u"WpointKindDescriptions", kJson80, true},
+    {u"FRAME_BEHAVIOR_LABEL_MAP", kJson74, true},
+    {u"GONE_FRAME_INFO", kJson75, true},
+    {u"HIT_FLAG_DESC_MAP", kJson76, true},
+    {u"HIT_FLAG_NAME_MAP", kJson77, true},
+    {u"HitFlagDescriptions", kJson78, true},
+    {u"OLD_BDY_KIND_GOTO_MAX", kJson79, true},
+    {u"OLD_BDY_KIND_GOTO_MIN", kJson80, true},
+    {u"StateEnumNames", kJson81, true},
+    {u"WpointKindDescriptions", kJson82, true},
 };
 
 std::vector<DefinesRuntimeEntry> build() {

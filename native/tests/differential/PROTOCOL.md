@@ -4358,3 +4358,36 @@ harness op：
   由本批往返用例抓出（§80 的 `stringify` 需带这条；`quirks` 增补一组用例）。
 - 读口 `xml_2_armor_info` 的 `-`（undefined）与写口假值守卫（`wrv ... u` 打 `u`）都有用例；
   `xml_2_cpoint` 的 `reorder_fields` 在本批不可观察（记在 `mutations/xml_layer.mjs` 头部）。
+
+### 6.9.126 xml 方言读写层第二批（`cases/xml/layer2.txt` 150 行 + `cases/xml/entity.txt` 71 行；变异 `xml_layer2.mjs` 65/65 全杀）
+
+- **台面扩展**：`dvp` 从「可选一个 arg」改成**多参**（`args` 向量，`xml_2_map` 需要
+  「tag + reader 名」两参）；新增三个 op —— `wrl <name> <fn> <dvar> [tag] [wfn]`（列表
+  写口：`xml_x_hit_key_map` / `xml_x_picture_info_map` / `xml_x_model_info_map` /
+  `xml_x_frame_pic_map` / `xml_x_map`（最后多给一个 writer 名），打
+  `wrl|<name>|n=…` + 逐项 `wrl|<name>|<j>|<esc stringify>`，列表项存 `<name>:<j>` 可再
+  `ins` 挂到别的元素上）、`wjson <dvar> <tag> [keyOrder 字面量]`、`wstages <dvar>`
+  （`xml_from_stage_info`）。`readers`/`writers`/`parsers` 表按 TS 函数名全量补齐；
+  `parsers` 里 `xml_2_frame_indexes`/`xml_2_frame_model`/`xml_2_partial_world_dataset`
+  这类「收 `IXMLElement | undefined`」的用 lambda 包一层指针。
+- **默认 tag 的写法**：`xml_x_dat_index` / `xml_x_entity_data` / `xml_x_bg_data` /
+  `xml_from_world_dataset` 的 tag 给 `-` 表示走 TS 的缺省参数（C++ 调无 tag 重载）。
+- ⚠️ **`xml_2_bg_layer` 需要下标**：TS 的 `xml_2_non_empty(el, "layer", xml_2_bg_layer)`
+  走 `Array.map`，`z` 的兜底链用到 map 下标 ⇒ C++ 侧 `xml_x_non_empty.h` 新增
+  `XmlElementParserIdx`（`Value(const IXMLElement&, size_t)`）与同名重载；
+  `readers` 表里直接给下标（`xml_2_bg_layer` 单测走 `dvp` 的自选 index）。
+- ⚠️ **`merge_by_tag` 的 parser 收引用**：`xml_2_partial_world_dataset` 收指针 ⇒
+  `parsers`/调用点要用 lambda 转一手（`[](const IXMLElement& e){ return …(&e); }`），
+  否则重载解析报「无法从 overloaded-function 转换」。
+- ⚠️ **`Array` 没有迭代器**：端口里对本家 `lfw::Array` 只能下标循环（`a->size()` /
+  `a->at(i)`），不能写 range-for（`for (const Value& v : *a)` 编译不过）。
+- ⚠️ **缺省参数 + `defines` 查表**：`xml_x_frame` 的 `behavior_label`/`state_label` 用
+  `defines::find`（`defines_data.h`，**不是** `defines.h`）查生成的
+  `FRAME_BEHAVIOR_LABEL_MAP` / `StateEnumNames`（TOP_LEVEL 表 +2）。
+- 变异档头部「有意不覆盖」：`xml_x_map` 两行死代码（`get_str(or)` 只读不写）、
+  `delete_undefined`/`reorder_fields` 的渲染不可观察、`xml_x_partial_world_dataset`
+  的假值面、`xml_from_json` 的 attrs 数组分支（`attrsOf` 已滤数组）。
+- 用例教训：**单元素数组 vs 多元素**的切片分支（`xml_2_frame` 的 `pics` 只在长度 > 1
+  时出来）、**没有子元素 / 没有 name** 的边界（`xml_2_bg_data` 的 terrain、
+  portraits 的空串键）——第一轮 4 条变异存活全是这类「用例没喂到该分支」，补三行
+  用例即全杀。

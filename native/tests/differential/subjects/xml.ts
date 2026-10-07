@@ -47,12 +47,22 @@
 import { merge_by_tag } from "../../../../src/LFW/dat_translator/xml/merge_by_tag";
 import { non_empty, one_or_arr } from "../../../../src/LFW/dat_translator/xml/one_or_arr";
 import { parse_rect_qube } from "../../../../src/LFW/dat_translator/xml/parse_rect_qube";
+import { xml_from_data_lists } from "../../../../src/LFW/dat_translator/xml/xml_from_data_lists";
+import { xml_from_json } from "../../../../src/LFW/dat_translator/xml/xml_from_json";
+import { xml_from_stage_info } from "../../../../src/LFW/dat_translator/xml/xml_from_stage_info";
+import { xml_from_world_dataset } from "../../../../src/LFW/dat_translator/xml/xml_from_world_dataset";
+import { xml_to_bg_terrain } from "../../../../src/LFW/dat_translator/xml/xml_to_bg_terrain";
+import { xml_2_data_lists } from "../../../../src/LFW/dat_translator/xml/xml_to_data_lists";
 import { xml_to_velocity_info } from "../../../../src/LFW/dat_translator/xml/xml_to_velocity_info";
+import { xml_to_world_dataset } from "../../../../src/LFW/dat_translator/xml/xml_to_world_dataset";
 import {
   xml_2_armor_info,
   xml_x_armor_info,
 } from "../../../../src/LFW/dat_translator/xml/xml_x_armor_info";
 import { xml_2_bdy, xml_x_bdy } from "../../../../src/LFW/dat_translator/xml/xml_x_bdy";
+import { xml_2_bg_data, xml_x_bg_data } from "../../../../src/LFW/dat_translator/xml/xml_x_bg_data";
+import { xml_2_bg_info, xml_x_bg_info } from "../../../../src/LFW/dat_translator/xml/xml_x_bg_info";
+import { xml_2_bg_layer, xml_x_bg_layer } from "../../../../src/LFW/dat_translator/xml/xml_x_bg_layer";
 import { xml_2_bpoint, xml_x_bpoint } from "../../../../src/LFW/dat_translator/xml/xml_x_bpoint";
 import { xml_2_chase, xml_x_chase } from "../../../../src/LFW/dat_translator/xml/xml_x_chase";
 import {
@@ -60,14 +70,75 @@ import {
   xml_x_colli_action,
 } from "../../../../src/LFW/dat_translator/xml/xml_x_colli_action";
 import { xml_2_cpoint, xml_x_cpoint } from "../../../../src/LFW/dat_translator/xml/xml_x_cpoint";
+import { xml_2_dat_index, xml_x_dat_index } from "../../../../src/LFW/dat_translator/xml/xml_x_dat_index";
+import { xml_2_dialog_info, xml_x_dialog_info } from "../../../../src/LFW/dat_translator/xml/xml_x_dialog_info";
+import {
+  xml_2_difficulty_map,
+  xml_x_difficulty_map,
+} from "../../../../src/LFW/dat_translator/xml/xml_x_difficulty_map";
+import { xml_2_drink_info, xml_x_drink_info } from "../../../../src/LFW/dat_translator/xml/xml_x_drink_info";
+import { xml_2_entity_data, xml_x_entity_data } from "../../../../src/LFW/dat_translator/xml/xml_x_entity_data";
+import { xml_2_entity_info, xml_x_entity_info } from "../../../../src/LFW/dat_translator/xml/xml_x_entity_info";
+import { xml_2_frame, xml_x_frame } from "../../../../src/LFW/dat_translator/xml/xml_x_frame";
+import {
+  xml_2_frame_indexes,
+  xml_x_frame_indexes,
+} from "../../../../src/LFW/dat_translator/xml/xml_x_frame_indexes";
+import {
+  xml_2_frame_model,
+  xml_x_frame_model,
+} from "../../../../src/LFW/dat_translator/xml/xml_x_frame_model";
+import {
+  xml_2_frame_pic,
+  xml_2_frame_pic_map,
+  xml_x_frame_pic,
+  xml_x_frame_pic_map,
+} from "../../../../src/LFW/dat_translator/xml/xml_x_frame_pic";
+import {
+  xml_2_hit_key_map,
+  xml_x_hit_key_map,
+} from "../../../../src/LFW/dat_translator/xml/xml_x_hit_key_map";
 import { xml_2_itr, xml_x_itr } from "../../../../src/LFW/dat_translator/xml/xml_x_itr";
+import { xml_2_map, xml_x_map } from "../../../../src/LFW/dat_translator/xml/xml_x_map";
+import {
+  xml_2_model_info,
+  xml_2_model_info_map,
+  xml_x_model_info,
+  xml_x_model_info_map,
+} from "../../../../src/LFW/dat_translator/xml/xml_x_model_info";
 import {
   xml_2_next_frame,
   xml_2_t_next_frame,
   xml_x_next_frame,
   xml_x_t_next_frame,
 } from "../../../../src/LFW/dat_translator/xml/xml_x_next_frame";
+import { xml_2_opoint, xml_2_opoint_multi, xml_x_opoint, xml_x_opoint_multi } from "../../../../src/LFW/dat_translator/xml/xml_x_opoint";
+import {
+  xml_2_partial_world_dataset,
+  xml_x_partial_world_dataset,
+} from "../../../../src/LFW/dat_translator/xml/xml_x_partial_world_dataset";
+import {
+  xml_2_picture_info,
+  xml_2_picture_info_map,
+  xml_x_picture_info,
+  xml_x_picture_info_map,
+} from "../../../../src/LFW/dat_translator/xml/xml_x_picture_info";
 import { xml_2_qube } from "../../../../src/LFW/dat_translator/xml/xml_x_qube";
+import {
+  xml_2_sound_play_info,
+  xml_2_stage_phase_info,
+  xml_x_sound_play_info,
+  xml_x_stage_phase_info,
+} from "../../../../src/LFW/dat_translator/xml/xml_x_stage_phase_info";
+import {
+  xml_2_stage_info,
+  xml_to_stage_info_list,
+  xml_x_stage_info,
+} from "../../../../src/LFW/dat_translator/xml/xml_x_stage_info";
+import {
+  xml_2_stage_object_info,
+  xml_x_stage_object_info,
+} from "../../../../src/LFW/dat_translator/xml/xml_x_stage_object_info";
 import { xml_2_wpoint, xml_x_wpoint } from "../../../../src/LFW/dat_translator/xml/xml_x_wpoint";
 import type { IXMLElement } from "../../../../src/LFW/ditto/xml";
 import { ToolXML, ToolXMLElement } from "../../../../tool/src/xml";
@@ -79,24 +150,66 @@ const xml = new ToolXML();
 const els = new Map<string, ToolXMLElement>();
 const data = new Map<string, unknown>();
 
-type ReaderFn = (el: IXMLElement, arg: string, hasArg: boolean) => unknown;
+type ReaderFn = (el: IXMLElement | undefined, args: string[]) => unknown;
+
+function reader_arg_data(args: string[], i: number): unknown {
+  const a = args[i];
+  return a === undefined || a === "-" ? undefined : data.get(a);
+}
 
 const readers: Record<string, ReaderFn> = {
-  xml_2_bdy: (e) => xml_2_bdy(e),
-  xml_2_itr: (e) => xml_2_itr(e),
-  xml_2_armor_info: (e) => xml_2_armor_info(e),
-  xml_2_chase: (e) => xml_2_chase(e),
-  xml_2_bpoint: (e) => xml_2_bpoint(e),
-  xml_2_wpoint: (e) => xml_2_wpoint(e),
-  xml_2_cpoint: (e) => xml_2_cpoint(e),
-  xml_2_next_frame: (e) => xml_2_next_frame(e),
-  xml_2_colli_action: (e) => xml_2_colli_action(e),
-  xml_2_t_next_frame: (e, arg) => xml_2_t_next_frame(e.children_by_tag(keyOf(arg))),
-  xml_2_qube: (e, arg, hasArg) =>
-    xml_2_qube(e, hasArg && arg !== "-" ? (data.get(arg) as never) : undefined),
-  xml_to_velocity_info: (e, arg, hasArg) =>
-    xml_to_velocity_info(e, hasArg && arg !== "-" ? (data.get(arg) as never) : undefined),
-  parse_rect_qube: (e) => parse_rect_qube(e),
+  xml_2_bdy: (e) => xml_2_bdy(e as never),
+  xml_2_itr: (e) => xml_2_itr(e as never),
+  xml_2_armor_info: (e) => xml_2_armor_info(e as never),
+  xml_2_chase: (e) => xml_2_chase(e as never),
+  xml_2_bpoint: (e) => xml_2_bpoint(e as never),
+  xml_2_wpoint: (e) => xml_2_wpoint(e as never),
+  xml_2_cpoint: (e) => xml_2_cpoint(e as never),
+  xml_2_next_frame: (e) => xml_2_next_frame(e as never),
+  xml_2_colli_action: (e) => xml_2_colli_action(e as never),
+  xml_2_t_next_frame: (e, a) => xml_2_t_next_frame((e as IXMLElement).children_by_tag(keyOf(a[0]!))),
+  xml_2_qube: (e, a) => xml_2_qube(e as never, reader_arg_data(a, 0) as never),
+  xml_to_velocity_info: (e, a) =>
+    xml_to_velocity_info(e as never, reader_arg_data(a, 0) as never),
+  parse_rect_qube: (e) => parse_rect_qube(e as never),
+  xml_2_dat_index: (e) => xml_2_dat_index(e as never),
+  xml_2_difficulty_map: (e, a) => xml_2_difficulty_map(e as never, keyOf(a[0]!)),
+  xml_2_map: (e, a) =>
+    xml_2_map(e as never, keyOf(a[0]!), (parsers[a[1]!] ?? fail(`unknown map reader '${a[1]}'`)) as never),
+  xml_2_map2: (e, a) =>
+    xml_2_map(
+      e as never,
+      [keyOf(a[0]!), keyOf(a[1]!)],
+      (parsers[a[2]!] ?? fail(`unknown map reader '${a[2]}'`)) as never,
+    ),
+  xml_2_hit_key_map: (e, a) => xml_2_hit_key_map(e as never, keyOf(a[0]!)),
+  xml_2_partial_world_dataset: (e) => xml_2_partial_world_dataset(e as never),
+  xml_to_bg_terrain: (e) => xml_to_bg_terrain(e as never),
+  xml_2_picture_info: (e) => xml_2_picture_info(e as never),
+  xml_2_picture_info_map: (e, a) => xml_2_picture_info_map(e as never, keyOf(a[0]!)),
+  xml_2_frame_pic: (e) => xml_2_frame_pic(e as never),
+  xml_2_frame_pic_map: (e, a) => xml_2_frame_pic_map(e as never, keyOf(a[0]!)),
+  xml_2_model_info: (e) => xml_2_model_info(e as never),
+  xml_2_model_info_map: (e, a) => xml_2_model_info_map(e as never, keyOf(a[0]!)),
+  xml_2_dialog_info: (e) => xml_2_dialog_info(e as never),
+  xml_2_drink_info: (e) => xml_2_drink_info(e as never),
+  xml_2_stage_object_info: (e) => xml_2_stage_object_info(e as never),
+  xml_2_bg_info: (e) => xml_2_bg_info(e as never),
+  xml_2_bg_layer: (e, a) => xml_2_bg_layer(e as never, Number(a[0] ?? "0")),
+  xml_2_frame_indexes: (e) => xml_2_frame_indexes(e as never),
+  xml_2_frame_model: (e) => xml_2_frame_model(e as never),
+  xml_2_opoint: (e) => xml_2_opoint(e as never),
+  xml_2_opoint_multi: (e) => xml_2_opoint_multi(e as never),
+  xml_2_sound_play_info: (e) => xml_2_sound_play_info(e as never),
+  xml_2_entity_info: (e) => xml_2_entity_info(e as never),
+  xml_2_entity_data: (e) => xml_2_entity_data(e as never),
+  xml_2_stage_phase_info: (e) => xml_2_stage_phase_info(e as never),
+  xml_2_stage_info: (e) => xml_2_stage_info(e as never),
+  xml_to_stage_info_list: (e) => xml_to_stage_info_list(e as never),
+  xml_2_bg_data: (e) => xml_2_bg_data(e as never),
+  xml_to_world_dataset: (e) => xml_to_world_dataset(e as never),
+  xml_2_data_lists: (e) => xml_2_data_lists(e as never),
+  xml_2_frame: (e) => xml_2_frame(e as never),
 };
 
 type ParserFn = (child: IXMLElement) => Record<string, unknown>;
@@ -111,6 +224,23 @@ const parsers: Record<string, ParserFn> = {
   xml_2_cpoint: (c) => xml_2_cpoint(c) as never,
   xml_2_next_frame: (c) => xml_2_next_frame(c) as never,
   xml_2_colli_action: (c) => xml_2_colli_action(c) as never,
+  xml_2_dat_index: (c) => xml_2_dat_index(c) as never,
+  xml_2_picture_info: (c) => xml_2_picture_info(c) as never,
+  xml_2_frame_pic: (c) => xml_2_frame_pic(c) as never,
+  xml_2_model_info: (c) => xml_2_model_info(c) as never,
+  xml_2_dialog_info: (c) => xml_2_dialog_info(c) as never,
+  xml_2_drink_info: (c) => xml_2_drink_info(c) as never,
+  xml_2_stage_object_info: (c) => xml_2_stage_object_info(c) as never,
+  xml_2_bg_info: (c) => xml_2_bg_info(c) as never,
+  xml_2_frame_indexes: (c) => xml_2_frame_indexes(c) as never,
+  xml_2_frame_model: (c) => xml_2_frame_model(c) as never,
+  xml_2_opoint: (c) => xml_2_opoint(c) as never,
+  xml_2_stage_phase_info: (c) => xml_2_stage_phase_info(c) as never,
+  xml_2_stage_info: (c) => xml_2_stage_info(c) as never,
+  xml_2_bg_data: (c) => xml_2_bg_data(c) as never,
+  xml_to_bg_terrain: (c) => xml_to_bg_terrain(c) as never,
+  xml_2_partial_world_dataset: (c) => xml_2_partial_world_dataset(c) as never,
+  xml_2_frame: (c) => xml_2_frame(c) as never,
 };
 
 const writers: Record<string, WriterFn> = {
@@ -123,6 +253,33 @@ const writers: Record<string, WriterFn> = {
   xml_x_cpoint: (x, d, tag) => xml_x_cpoint(x, d as never, tag),
   xml_x_next_frame: (x, d, tag) => xml_x_next_frame(x, d as never, tag),
   xml_x_colli_action: (x, d, tag) => xml_x_colli_action(x, d as never, tag),
+  xml_x_dat_index: (x, d, tag) => xml_x_dat_index(x, d as never, tag === "-" ? undefined : tag),
+  xml_x_picture_info: (x, d, tag) => xml_x_picture_info(x, d as never, tag),
+  xml_x_frame_pic: (x, d, tag) => xml_x_frame_pic(x, d as never, tag),
+  xml_x_model_info: (x, d, tag) => xml_x_model_info(x, d as never, tag),
+  xml_x_dialog_info: (x, d, tag) => xml_x_dialog_info(x, d as never, tag),
+  xml_x_drink_info: (x, d, tag) => xml_x_drink_info(x, d as never, tag),
+  xml_x_stage_object_info: (x, d, tag) => xml_x_stage_object_info(x, d as never, tag),
+  xml_x_bg_info: (x, d, tag) => xml_x_bg_info(x, d as never, tag),
+  xml_x_bg_layer: (x, d, tag) => xml_x_bg_layer(x, d as never, tag),
+  xml_x_frame_indexes: (x, d, tag) => xml_x_frame_indexes(x, d as never, tag),
+  xml_x_frame_model: (x, d, tag) => xml_x_frame_model(x, d as never, tag),
+  xml_x_opoint: (x, d, tag) => xml_x_opoint(x, d as never, tag),
+  xml_x_opoint_multi: (x, d, tag) => xml_x_opoint_multi(x, d as never, tag),
+  xml_x_sound_play_info: (x, d, tag) => xml_x_sound_play_info(x, d as never, tag),
+  xml_x_stage_phase_info: (x, d, tag) => xml_x_stage_phase_info(x, d as never, tag),
+  xml_x_stage_info: (x, d, tag) => xml_x_stage_info(x, d as never, tag),
+  xml_x_entity_info: (x, d, tag) => xml_x_entity_info(x, d as never, tag),
+  xml_x_entity_data: (x, d, tag) => xml_x_entity_data(x, d as never, tag === "-" ? undefined : tag),
+  xml_x_bg_data: (x, d, tag) => xml_x_bg_data(x, d as never, tag === "-" ? undefined : tag),
+  xml_x_frame: (x, d, tag) => xml_x_frame(x, d as never, tag),
+  xml_x_partial_world_dataset: (x, d, tag) => xml_x_partial_world_dataset(x, d as never, tag),
+  xml_from_world_dataset: (x, d, tag) =>
+    xml_from_world_dataset(x, d as never, tag === "-" ? undefined : tag),
+  xml_from_data_lists: (x, d) => xml_from_data_lists(x, d as never),
+  xml_x_difficulty_map: () => fail("xml_x_difficulty_map is not a standalone writer"),
+  xml_x_map: () => fail("xml_x_map needs the wrl op"),
+  xml_x_hit_key_map: () => fail("xml_x_hit_key_map needs the wrl op"),
 };
 
 function fail(msg: string): never {
@@ -234,10 +391,10 @@ function main(): void {
       const name = next();
       const fn = next();
       const eid = next();
-      const hasArg = i[0]! < t.length;
-      const arg = hasArg ? next() : "";
+      const args = t.slice(i[0]!);
+      i[0] = t.length;
       const reader = readers[fn] ?? fail(`unknown reader fn '${fn}'`);
-      const v = reader(eid === "-" ? (undefined as never) : el(eid), arg, hasArg);
+      const v = reader(eid === "-" ? undefined : el(eid), args);
       data.set(name, v);
       log.push(`dvp|${fn}|${renderValue(v)}`);
     } else if (op === "dvo") {
@@ -277,6 +434,42 @@ function main(): void {
       } else {
         log.push(`wrv|${name}|u`);
       }
+    } else if (op === "wrl") {
+      const name = next();
+      const fn = next();
+      const d = data.get(next());
+      const tag = i[0]! < t.length ? keyOf(next()) : "";
+      let made: (IXMLElement | undefined | null)[] | undefined;
+      if (fn === "xml_x_hit_key_map") made = xml_x_hit_key_map(xml, d as never, tag);
+      else if (fn === "xml_x_picture_info_map") made = xml_x_picture_info_map(xml, d as never, tag);
+      else if (fn === "xml_x_model_info_map") made = xml_x_model_info_map(xml, d as never, tag);
+      else if (fn === "xml_x_frame_pic_map") made = xml_x_frame_pic_map(xml, d as never, tag);
+      else if (fn === "xml_x_map") {
+        const wfn = next();
+        const w = writers[wfn] ?? fail(`unknown writer fn '${wfn}'`);
+        made = xml_x_map(xml, d as never, tag, (x, v, tg) => w(x, v, tg) as never);
+      } else fail(`unknown list writer fn '${fn}'`);
+      if (!made) {
+        log.push(`wrl|${name}|u`);
+      } else {
+        made.forEach((e, j) => {
+          if (e) {
+            els.set(`${name}:${j}`, e as ToolXMLElement);
+          }
+        });
+        log.push(`wrl|${name}|n=${made.length}`);
+        made.forEach((e, j) => {
+          log.push(`wrl|${name}|${j}|${e ? esc(e.stringify()) : "u"}`);
+        });
+      }
+    } else if (op === "wjson") {
+      const d = data.get(next());
+      const tagName = keyOf(next());
+      const keyOrder = i[0]! < t.length ? (parseValue(t, i) as string[]) : undefined;
+      log.push(`wjson|${esc(xml_from_json(d as never, tagName, keyOrder))}`);
+    } else if (op === "wstages") {
+      const d = data.get(next());
+      log.push(`wstages|${esc(xml_from_stage_info(xml, d as never))}`);
     } else if (op === "wrins") {
       const parentId = next();
       const fn = next();

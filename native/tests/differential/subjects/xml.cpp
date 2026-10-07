@@ -14,16 +14,45 @@
 #include "lfw/dat_translator/xml/merge_by_tag.h"
 #include "lfw/dat_translator/xml/one_or_arr.h"
 #include "lfw/dat_translator/xml/parse_rect_qube.h"
+#include "lfw/dat_translator/xml/xml_from_data_lists.h"
+#include "lfw/dat_translator/xml/xml_from_json.h"
+#include "lfw/dat_translator/xml/xml_from_stage_info.h"
+#include "lfw/dat_translator/xml/xml_from_world_dataset.h"
+#include "lfw/dat_translator/xml/xml_to_bg_terrain.h"
+#include "lfw/dat_translator/xml/xml_to_data_lists.h"
 #include "lfw/dat_translator/xml/xml_to_velocity_info.h"
+#include "lfw/dat_translator/xml/xml_to_world_dataset.h"
 #include "lfw/dat_translator/xml/xml_x_armor_info.h"
 #include "lfw/dat_translator/xml/xml_x_bdy.h"
+#include "lfw/dat_translator/xml/xml_x_bg_data.h"
+#include "lfw/dat_translator/xml/xml_x_bg_info.h"
+#include "lfw/dat_translator/xml/xml_x_bg_layer.h"
 #include "lfw/dat_translator/xml/xml_x_bpoint.h"
 #include "lfw/dat_translator/xml/xml_x_chase.h"
 #include "lfw/dat_translator/xml/xml_x_colli_action.h"
 #include "lfw/dat_translator/xml/xml_x_cpoint.h"
+#include "lfw/dat_translator/xml/xml_x_dat_index.h"
+#include "lfw/dat_translator/xml/xml_x_dialog_info.h"
+#include "lfw/dat_translator/xml/xml_x_difficulty_map.h"
+#include "lfw/dat_translator/xml/xml_x_drink_info.h"
+#include "lfw/dat_translator/xml/xml_x_entity_data.h"
+#include "lfw/dat_translator/xml/xml_x_entity_info.h"
+#include "lfw/dat_translator/xml/xml_x_frame.h"
+#include "lfw/dat_translator/xml/xml_x_frame_indexes.h"
+#include "lfw/dat_translator/xml/xml_x_frame_model.h"
+#include "lfw/dat_translator/xml/xml_x_frame_pic.h"
+#include "lfw/dat_translator/xml/xml_x_hit_key_map.h"
 #include "lfw/dat_translator/xml/xml_x_itr.h"
+#include "lfw/dat_translator/xml/xml_x_map.h"
+#include "lfw/dat_translator/xml/xml_x_model_info.h"
 #include "lfw/dat_translator/xml/xml_x_next_frame.h"
+#include "lfw/dat_translator/xml/xml_x_opoint.h"
+#include "lfw/dat_translator/xml/xml_x_partial_world_dataset.h"
+#include "lfw/dat_translator/xml/xml_x_picture_info.h"
 #include "lfw/dat_translator/xml/xml_x_qube.h"
+#include "lfw/dat_translator/xml/xml_x_stage_info.h"
+#include "lfw/dat_translator/xml/xml_x_stage_object_info.h"
+#include "lfw/dat_translator/xml/xml_x_stage_phase_info.h"
 #include "lfw/dat_translator/xml/xml_x_wpoint.h"
 #include "lfw/ditto/xml/tool_xml.h"
 #include "lfw/ditto/xml/tool_xml_element.h"
@@ -76,9 +105,12 @@ lfw::Value data_of(const std::string& name) {
   return it == g_data.end() ? lfw::Value() : it->second;
 }
 
+std::function<lfw::Value(const lfw::IXMLElement&)> parser_by_name(const std::string& fn);
+
 std::shared_ptr<lfw::IXMLElement> call_writer(const std::string& fn, lfw::IXML& xml,
                                               const lfw::Value& d, const std::u16string& tag) {
   using namespace lfw::dat_translator::xml;
+  const bool use_default_tag = tag == u"-";
   if (fn == "xml_x_bdy") return xml_x_bdy(xml, d, tag);
   if (fn == "xml_x_itr") return xml_x_itr(xml, d, tag);
   if (fn == "xml_x_armor_info") return xml_x_armor_info(xml, d, tag);
@@ -88,13 +120,64 @@ std::shared_ptr<lfw::IXMLElement> call_writer(const std::string& fn, lfw::IXML& 
   if (fn == "xml_x_cpoint") return xml_x_cpoint(xml, d, tag);
   if (fn == "xml_x_next_frame") return xml_x_next_frame(xml, d, tag);
   if (fn == "xml_x_colli_action") return xml_x_colli_action(xml, d, tag);
+  if (fn == "xml_x_dat_index") {
+    return use_default_tag ? xml_x_dat_index(xml, d) : xml_x_dat_index(xml, d, tag);
+  }
+  if (fn == "xml_x_picture_info") return xml_x_picture_info(xml, d, tag);
+  if (fn == "xml_x_frame_pic") return xml_x_frame_pic(xml, d, tag);
+  if (fn == "xml_x_model_info") return xml_x_model_info(xml, d, tag);
+  if (fn == "xml_x_dialog_info") return xml_x_dialog_info(xml, d, tag);
+  if (fn == "xml_x_drink_info") return xml_x_drink_info(xml, d, tag);
+  if (fn == "xml_x_stage_object_info") return xml_x_stage_object_info(xml, d, tag);
+  if (fn == "xml_x_bg_info") return xml_x_bg_info(xml, d, tag);
+  if (fn == "xml_x_bg_layer") return xml_x_bg_layer(xml, d, tag);
+  if (fn == "xml_x_frame_indexes") return xml_x_frame_indexes(xml, d, tag);
+  if (fn == "xml_x_frame_model") return xml_x_frame_model(xml, d, tag);
+  if (fn == "xml_x_opoint") return xml_x_opoint(xml, d, tag);
+  if (fn == "xml_x_opoint_multi") return xml_x_opoint_multi(xml, d, tag);
+  if (fn == "xml_x_sound_play_info") return xml_x_sound_play_info(xml, d, tag);
+  if (fn == "xml_x_stage_phase_info") return xml_x_stage_phase_info(xml, d, tag);
+  if (fn == "xml_x_stage_info") return xml_x_stage_info(xml, d, tag);
+  if (fn == "xml_x_entity_info") return xml_x_entity_info(xml, d, tag);
+  if (fn == "xml_x_entity_data") {
+    return use_default_tag ? xml_x_entity_data(xml, d) : xml_x_entity_data(xml, d, tag);
+  }
+  if (fn == "xml_x_bg_data") {
+    return use_default_tag ? xml_x_bg_data(xml, d) : xml_x_bg_data(xml, d, tag);
+  }
+  if (fn == "xml_x_frame") return xml_x_frame(xml, d, tag);
+  if (fn == "xml_x_partial_world_dataset") return xml_x_partial_world_dataset(xml, d, tag);
+  if (fn == "xml_from_world_dataset") {
+    return use_default_tag ? xml_from_world_dataset(xml, d) : xml_from_world_dataset(xml, d, tag);
+  }
+  if (fn == "xml_from_data_lists") return xml_from_data_lists(xml, d);
   std::fprintf(stderr, "unknown writer fn '%s'\n", fn.c_str());
   std::exit(2);
 }
 
-lfw::Value call_reader(const std::string& fn, lfw::IXMLElement* e, const std::string& arg,
-                       bool has_arg) {
+using CreatorFn = std::function<std::shared_ptr<lfw::IXMLElement>(
+    lfw::IXML&, const lfw::Value&, const std::u16string&)>;
+
+CreatorFn creator_by_name(const std::string& fn) {
   using namespace lfw::dat_translator::xml;
+  if (fn == "xml_x_picture_info") return xml_x_picture_info;
+  if (fn == "xml_x_frame_pic") return xml_x_frame_pic;
+  if (fn == "xml_x_model_info") return xml_x_model_info;
+  if (fn == "xml_x_bdy") return xml_x_bdy;
+  if (fn == "xml_x_itr") return xml_x_itr;
+  if (fn == "xml_x_opoint") return xml_x_opoint;
+  if (fn == "xml_x_bg_layer") return xml_x_bg_layer;
+  if (fn == "xml_x_stage_phase_info") return xml_x_stage_phase_info;
+  if (fn == "xml_x_frame") return xml_x_frame;
+  if (fn == "xml_x_frame_model") return xml_x_frame_model;
+  std::fprintf(stderr, "unknown creator fn '%s'\n", fn.c_str());
+  std::exit(2);
+}
+
+lfw::Value call_reader(const std::string& fn, lfw::IXMLElement* e,
+                       const std::vector<std::string>& args) {
+  using namespace lfw::dat_translator::xml;
+  const auto key = [&](size_t i) { return key_of(args.at(i)); };
   if (fn == "xml_2_bdy") return xml_2_bdy(*e);
   if (fn == "xml_2_itr") return xml_2_itr(*e);
   if (fn == "xml_2_armor_info") return xml_2_armor_info(e);
@@ -105,15 +188,57 @@ lfw::Value call_reader(const std::string& fn, lfw::IXMLElement* e, const std::st
   if (fn == "xml_2_next_frame") return xml_2_next_frame(*e);
   if (fn == "xml_2_colli_action") return xml_2_colli_action(*e);
   if (fn == "xml_2_t_next_frame") {
-    return xml_2_t_next_frame(e->children_by_tag(key_of(arg)));
+    return xml_2_t_next_frame(e->children_by_tag(key(0)));
   }
   if (fn == "xml_2_qube") {
-    return xml_2_qube(*e, has_arg && arg != "-" ? data_of(arg) : lfw::Value());
+    return xml_2_qube(*e, args.empty() || args.at(0) == "-" ? lfw::Value() : data_of(args.at(0)));
   }
   if (fn == "xml_to_velocity_info") {
-    return xml_to_velocity_info(*e, has_arg && arg != "-" ? data_of(arg) : lfw::Value());
+    return xml_to_velocity_info(*e,
+                                args.empty() || args.at(0) == "-" ? lfw::Value()
+                                                                  : data_of(args.at(0)));
   }
   if (fn == "parse_rect_qube") return parse_rect_qube(*e);
+  if (fn == "xml_2_dat_index") return xml_2_dat_index(*e);
+  if (fn == "xml_2_difficulty_map") return xml_2_difficulty_map(*e, key(0));
+  if (fn == "xml_2_map") return xml_2_map(*e, {key(0)}, parser_by_name(args.at(1)));
+  if (fn == "xml_2_map2") {
+    return xml_2_map(*e, {key(0), key(1)}, parser_by_name(args.at(2)));
+  }
+  if (fn == "xml_2_hit_key_map") return xml_2_hit_key_map(*e, key(0));
+  if (fn == "xml_2_partial_world_dataset") return xml_2_partial_world_dataset(e);
+  if (fn == "xml_to_bg_terrain") return xml_to_bg_terrain(*e);
+  if (fn == "xml_2_picture_info") return xml_2_picture_info(*e);
+  if (fn == "xml_2_picture_info_map") return xml_2_picture_info_map(*e, key(0));
+  if (fn == "xml_2_frame_pic") return xml_2_frame_pic(*e);
+  if (fn == "xml_2_frame_pic_map") return xml_2_frame_pic_map(*e, key(0));
+  if (fn == "xml_2_model_info") return xml_2_model_info(*e);
+  if (fn == "xml_2_model_info_map") return xml_2_model_info_map(*e, key(0));
+  if (fn == "xml_2_dialog_info") return xml_2_dialog_info(*e);
+  if (fn == "xml_2_drink_info") return xml_2_drink_info(*e);
+  if (fn == "xml_2_stage_object_info") return xml_2_stage_object_info(*e);
+  if (fn == "xml_2_bg_info") return xml_2_bg_info(*e);
+  if (fn == "xml_2_bg_layer") {
+    return xml_2_bg_layer(*e, static_cast<size_t>(args.empty() ? 0 : trace::to_long(args.at(0))));
+  }
+  if (fn == "xml_2_frame_indexes") return xml_2_frame_indexes(e);
+  if (fn == "xml_2_frame_model") return xml_2_frame_model(e);
+  if (fn == "xml_2_opoint") return xml_2_opoint(*e);
+  if (fn == "xml_2_opoint_multi") return xml_2_opoint_multi(e);
+  if (fn == "xml_2_sound_play_info") return xml_2_sound_play_info(*e);
+  if (fn == "xml_2_entity_info") return xml_2_entity_info(*e);
+  if (fn == "xml_2_entity_data") return xml_2_entity_data(e);
+  if (fn == "xml_2_stage_phase_info") return xml_2_stage_phase_info(*e);
+  if (fn == "xml_2_stage_info") return xml_2_stage_info(*e);
+  if (fn == "xml_to_stage_info_list") {
+    auto arr = std::make_shared<lfw::Array>();
+    for (lfw::Value& v : xml_to_stage_info_list(*e)) arr->push_back(std::move(v));
+    return lfw::Value(std::move(arr));
+  }
+  if (fn == "xml_2_bg_data") return xml_2_bg_data(*e);
+  if (fn == "xml_to_world_dataset") return xml_to_world_dataset(e);
+  if (fn == "xml_2_data_lists") return xml_2_data_lists(*e);
+  if (fn == "xml_2_frame") return xml_2_frame(*e);
   std::fprintf(stderr, "unknown reader fn '%s'\n", fn.c_str());
   std::exit(2);
 }
@@ -132,6 +257,55 @@ std::function<lfw::Value(const lfw::IXMLElement&)> parser_by_name(const std::str
   if (fn == "xml_2_colli_action") {
     return [](const lfw::IXMLElement& e) { return xml_2_colli_action(e); };
   }
+  if (fn == "xml_2_dat_index") {
+    return [](const lfw::IXMLElement& e) { return xml_2_dat_index(e); };
+  }
+  if (fn == "xml_2_picture_info") {
+    return [](const lfw::IXMLElement& e) { return xml_2_picture_info(e); };
+  }
+  if (fn == "xml_2_frame_pic") {
+    return [](const lfw::IXMLElement& e) { return xml_2_frame_pic(e); };
+  }
+  if (fn == "xml_2_model_info") {
+    return [](const lfw::IXMLElement& e) { return xml_2_model_info(e); };
+  }
+  if (fn == "xml_2_dialog_info") {
+    return [](const lfw::IXMLElement& e) { return xml_2_dialog_info(e); };
+  }
+  if (fn == "xml_2_drink_info") {
+    return [](const lfw::IXMLElement& e) { return xml_2_drink_info(e); };
+  }
+  if (fn == "xml_2_stage_object_info") {
+    return [](const lfw::IXMLElement& e) { return xml_2_stage_object_info(e); };
+  }
+  if (fn == "xml_2_bg_info") {
+    return [](const lfw::IXMLElement& e) { return xml_2_bg_info(e); };
+  }
+  if (fn == "xml_2_frame_indexes") {
+    return [](const lfw::IXMLElement& e) { return xml_2_frame_indexes(&e); };
+  }
+  if (fn == "xml_2_frame_model") {
+    return [](const lfw::IXMLElement& e) { return xml_2_frame_model(&e); };
+  }
+  if (fn == "xml_2_opoint") {
+    return [](const lfw::IXMLElement& e) { return xml_2_opoint(e); };
+  }
+  if (fn == "xml_2_stage_phase_info") {
+    return [](const lfw::IXMLElement& e) { return xml_2_stage_phase_info(e); };
+  }
+  if (fn == "xml_2_stage_info") {
+    return [](const lfw::IXMLElement& e) { return xml_2_stage_info(e); };
+  }
+  if (fn == "xml_2_bg_data") {
+    return [](const lfw::IXMLElement& e) { return xml_2_bg_data(e); };
+  }
+  if (fn == "xml_to_bg_terrain") {
+    return [](const lfw::IXMLElement& e) { return xml_to_bg_terrain(e); };
+  }
+  if (fn == "xml_2_partial_world_dataset") {
+    return [](const lfw::IXMLElement& e) { return xml_2_partial_world_dataset(&e); };
+  }
+  if (fn == "xml_2_frame") return [](const lfw::IXMLElement& e) { return xml_2_frame(e); };
   std::fprintf(stderr, "unknown parser fn '%s'\n", fn.c_str());
   std::exit(2);
 }
@@ -332,9 +506,9 @@ int main(int argc, char** argv) {
       const std::string name = t[i++];
       const std::string fn = t[i++];
       lfw::IXMLElement* e = el_ptr(t[i++]);
-      const bool has_arg = i < t.size();
-      const std::string arg = has_arg ? t[i++] : std::string();
-      g_data[name] = call_reader(fn, e, arg, has_arg);
+      const std::vector<std::string> args(t.begin() + static_cast<std::ptrdiff_t>(i), t.end());
+      i = t.size();
+      g_data[name] = call_reader(fn, e, args);
       push("dvp|" + fn + "|" + to_ascii(render_value(g_data[name])));
     } else if (op == "dvo") {
       const std::string name = t[i++];
@@ -369,6 +543,65 @@ int main(int argc, char** argv) {
       } else {
         push("wrv|" + name + "|u");
       }
+    } else if (op == "wrl") {
+      const std::string name = t[i++];
+      const std::string fn = t[i++];
+      const lfw::Value d = data_of(t[i++]);
+      const std::u16string tag = i < t.size() ? key_of(t[i++]) : std::u16string();
+      std::optional<std::vector<std::shared_ptr<lfw::IXMLElement>>> made;
+      if (fn == "xml_x_hit_key_map") {
+        made = lfw::dat_translator::xml::xml_x_hit_key_map(g_xml, d, tag);
+      } else if (fn == "xml_x_picture_info_map") {
+        made = lfw::dat_translator::xml::xml_x_picture_info_map(g_xml, d, tag);
+      } else if (fn == "xml_x_model_info_map") {
+        made = lfw::dat_translator::xml::xml_x_model_info_map(g_xml, d, tag);
+      } else if (fn == "xml_x_frame_pic_map") {
+        made = lfw::dat_translator::xml::xml_x_frame_pic_map(g_xml, d, tag);
+      } else if (fn == "xml_x_map") {
+        const std::string wfn = t[i++];
+        made = lfw::dat_translator::xml::xml_x_map(g_xml, d, tag, creator_by_name(wfn));
+      } else {
+        std::fprintf(stderr, "unknown list writer fn '%s' at line %d\n", fn.c_str(), lineno);
+        return 2;
+      }
+      if (!made) {
+        push("wrl|" + name + "|u");
+      } else {
+        for (size_t j = 0; j < made->size(); ++j) {
+          put_element(name + ":" + std::to_string(j), made->at(j));
+        }
+        push("wrl|" + name + "|n=" + std::to_string(made->size()));
+        for (size_t j = 0; j < made->size(); ++j) {
+          push("wrl|" + name + "|" + std::to_string(j) + "|" +
+               esc(made->at(j)->stringify()));
+        }
+      }
+    } else if (op == "wjson") {
+      const lfw::Value d = data_of(t[i++]);
+      const std::u16string tag_name = key_of(t[i++]);
+      std::optional<std::vector<std::u16string>> key_order;
+      if (i < t.size()) {
+        const lfw::Value ko = parse_value(t, i);
+        const lfw::Array* const a = lfw::as_array(ko);
+        if (a == nullptr) {
+          std::fprintf(stderr, "wjson keyOrder must be an array at line %d\n", lineno);
+          return 2;
+        }
+        key_order.emplace();
+        for (size_t j = 0; j < a->size(); ++j) {
+          const std::u16string* const s = std::get_if<std::u16string>(&a->at(j));
+          if (s == nullptr) {
+            std::fprintf(stderr, "wjson keyOrder items must be strings at line %d\n", lineno);
+            return 2;
+          }
+          key_order->push_back(*s);
+        }
+      }
+      push("wjson|" +
+           esc(lfw::dat_translator::xml::xml_from_json(d, tag_name, key_order)));
+    } else if (op == "wstages") {
+      push("wstages|" +
+           esc(lfw::dat_translator::xml::xml_from_stage_info(g_xml, data_of(t[i++]))));
     } else if (op == "wrins") {
       const std::string parent_id = t[i++];
       const std::string fn = t[i++];

@@ -33,6 +33,8 @@ const TOP_LEVEL = [
   ["BdyKindDescriptions", "BdyKindDescriptions", "BdyKind"],
   ["OLD_BDY_KIND_GOTO_MIN", "OLD_BDY_KIND_GOTO_MIN", "BdyKind"],
   ["OLD_BDY_KIND_GOTO_MAX", "OLD_BDY_KIND_GOTO_MAX", "BdyKind"],
+  ["FRAME_BEHAVIOR_LABEL_MAP", "FRAME_BEHAVIOR_LABEL_MAP", "FrameBehavior"],
+  ["StateEnumNames", "StateEnumNames", "StateEnum"],
 ];
 
 const NEW_FUNCS = [

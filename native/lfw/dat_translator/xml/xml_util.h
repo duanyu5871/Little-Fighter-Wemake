@@ -3,6 +3,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <variant>
 #include <vector>
 
 #include "lfw/core/value.h"
@@ -72,6 +73,35 @@ inline Value from_opt(const std::optional<std::vector<std::u16string>>& v) {
   auto arr = std::make_shared<Array>();
   for (const std::u16string& s : *v) arr->push_back(Value(s));
   return Value(std::move(arr));
+}
+
+// `number[] | undefined`（`el.get_num_arr(name)` 的直接结果）。
+inline Value from_opt(const std::optional<std::vector<double>>& v) {
+  if (!v) return Value();
+  auto arr = std::make_shared<Array>();
+  for (double d : *v) arr->push_back(Value(d));
+  return Value(std::move(arr));
+}
+
+// TS 的 `f.variants?.join()` / `b.group?.join()`：nullish ⇒ `undefined`；数组按 JS join
+// （成员 `String()`、nullish 空串）；契约外（非数组也非 nullish）原样返回。
+inline Value field_join(const Value& v) {
+  if (std::holds_alternative<std::monostate>(v) || std::holds_alternative<NullTag>(v)) {
+    return Value();
+  }
+  const Array* const a = as_array(v);
+  if (a == nullptr) return v;
+  std::u16string out;
+  for (size_t i = 0; i < a->size(); ++i) {
+    if (i != 0) out.push_back(u',');
+    const Value& item = a->at(i);
+    if (std::holds_alternative<std::monostate>(item) ||
+        std::holds_alternative<NullTag>(item)) {
+      continue;
+    }
+    out += to_string(item);
+  }
+  return Value(std::move(out));
 }
 
 }
