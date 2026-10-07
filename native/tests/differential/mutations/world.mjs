@@ -206,8 +206,10 @@ export default {
     {
       note: "World: add_entities 不去查玩家表",
       file: "native/lfw/world.cpp",
-      from: `    PlayerInfo* const player = lfw_->player(Value(std::u16string(player_id)));`,
-      to: `    PlayerInfo* const player = nullptr;`,
+      from: `    PlayerInfo* const player = lfw_->player(Value(std::u16string(player_id)));
+    if (player != nullptr) {`,
+      to: `    PlayerInfo* const player = nullptr;
+    if (player != nullptr) {`,
     },
     {
       note: "World: add_entities 把 player 的 fighter 清空",
@@ -582,31 +584,33 @@ export default {
     {
       note: "World: start_render 不存渲染句柄",
       file: "native/lfw/world.cpp",
-      from: `  render_worker_id_ = clock_add(on_render);`,
-      to: `  clock_add(on_render);`,
+      from: `  render_worker_id_ = render_add(on_render);`,
+      to: `  render_add(on_render);`,
     },
     {
       note: "World: start_render 起新的之前不撤旧的",
       file: "native/lfw/world.cpp",
-      from: `  if (render_worker_id_ != 0) clock_del(render_worker_id_);
-  render_worker_id_ = clock_add(on_render);`,
-      to: `  render_worker_id_ = clock_add(on_render);`,
+      from: `  if (render_worker_id_ != 0) render_del(render_worker_id_);
+  render_worker_id_ = render_add(on_render);`,
+      to: `  render_worker_id_ = render_add(on_render);`,
     },
     {
       note: "World: on_fps_update 的回调不发",
       file: "native/lfw/world.cpp",
-      from: `    if (need_FPS_) {`,
-      to: `    if (false) {`,
+      from: `    fps_.update(real_dt);
+    if (need_FPS_) {`,
+      to: `    fps_.update(real_dt);
+    if (false) {`,
     },
     {
       note: "World: stop_render 不管有没有句柄都撤",
       file: "native/lfw/world.cpp",
       from: `void World::stop_render() {
-  if (render_worker_id_ != 0) clock_del(render_worker_id_);
+  if (render_worker_id_ != 0) render_del(render_worker_id_);
   render_worker_id_ = 0;
 }`,
       to: `void World::stop_render() {
-  clock_del(render_worker_id_);
+  render_del(render_worker_id_);
   render_worker_id_ = 0;
 }`,
     },

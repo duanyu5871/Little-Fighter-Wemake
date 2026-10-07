@@ -391,12 +391,13 @@ void put_opoint`,
       to: `  return equals(v, Value(std::u16string(str)));`,
     },
     {
+      // `field_or` 原来内联在 `value_builder.h`，后来抽到独立头文件，故改锚。
       note: "fb: field_or 缺键时返回 0 而不是 undefined",
-      file: "native/lfw/dat_translator/value_builder.h",
-      from: `  const Value* v = o->get(std::u16string(key));
-  return v != nullptr ? *v : Value();`,
-      to: `  const Value* v = o->get(std::u16string(key));
-  return v != nullptr ? *v : Value(0.0);`,
+      file: "native/lfw/utils/container_help/field_or.h",
+      from: `  const Value* p = o->get(std::u16string(key));
+  return p != nullptr ? *p : Value();`,
+      to: `  const Value* p = o->get(std::u16string(key));
+  return p != nullptr ? *p : Value(0.0);`,
     },
     {
       note: "fb: firzen_disater_start 的 min 写成 3",

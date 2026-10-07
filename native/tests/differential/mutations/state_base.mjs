@@ -203,14 +203,14 @@ export default {
     {
       note: "the position is not written back",
       file: "native/lfw/state/state_base.cpp",
-      from: "  e.set_position(x, y, z);\n",
+      from: "  e.assign_position(x, y, z);\n",
       to: "",
     },
     {
       note: "the position is written with x and y swapped",
       file: "native/lfw/state/state_base.cpp",
-      from: "  e.set_position(x, y, z);",
-      to: "  e.set_position(y, x, z);",
+      from: "  e.assign_position(x, y, z);",
+      to: "  e.assign_position(y, x, z);",
     },
     {
       note: "the negative clamp returns the positive bound",

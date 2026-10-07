@@ -154,7 +154,12 @@ function cmdBuild() {
 }
 
 function cmdLint() {
-  return spawnSync(process.execPath, [join(HERE, "check_lfw_cpp_includes.mjs")], { stdio: "inherit" }).status ?? 1;
+  const tools = ["check_lfw_cpp_includes.mjs", "check_mutation_anchors.mjs"];
+  for (const tool of tools) {
+    const code = spawnSync(process.execPath, [join(HERE, tool)], { stdio: "inherit" }).status ?? 1;
+    if (code !== 0) return code;
+  }
+  return 0;
 }
 
 function cmdCoverage() {

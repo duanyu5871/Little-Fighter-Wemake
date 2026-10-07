@@ -27,13 +27,13 @@ export default {
     {
       note: "the fighter branch classifies weapons",
       file: "native/lfw/state/state_base_proxy.cpp",
-      from: "  if (entity::is_fighter_data(data)) return _character_proxy;",
-      to: "  if (entity::is_weapon_data(data)) return _character_proxy;",
+      from: "  if (entity::is_fighter_data(data)) return *_character_proxy;",
+      to: "  if (entity::is_weapon_data(data)) return *_character_proxy;",
     },
     {
       note: "the fighter branch is dropped",
       file: "native/lfw/state/state_base_proxy.cpp",
-      from: "  if (entity::is_fighter_data(data)) return _character_proxy;\n  if (entity::is_weapon_data(data)) return _weapon_proxy;",
+      from: "  if (entity::is_fighter_data(data)) return *_character_proxy;\n  if (entity::is_weapon_data(data)) return _weapon_proxy;",
       to: "  if (entity::is_weapon_data(data)) return _weapon_proxy;",
     },
     {
@@ -51,7 +51,7 @@ export default {
     {
       note: "everything falls back to the plain proxy",
       file: "native/lfw/state/state_base_proxy.cpp",
-      from: "  if (entity::is_fighter_data(data)) return _character_proxy;",
+      from: "  if (entity::is_fighter_data(data)) return *_character_proxy;",
       to: "  if (entity::is_fighter_data(data)) return _proxy;",
     },
     {

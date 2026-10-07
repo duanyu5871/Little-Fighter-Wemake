@@ -60,16 +60,16 @@ export default {
     {
       note: "bot_ball_dfa 的 desire 默认值用错常量",
       file: "native/lfw/dat_translator/bots/bot_actions.cpp",
-      from: `  return bot_front_test(u"d>a", arr({sv(gk::kd), sv(u"F"), sv(gk::ka)}), min_mp,
-                        num_or(desire, DESIRE_RATIO_X_2), min_x, max_x, zable);`,
-      to: `  return bot_front_test(u"d>a", arr({sv(gk::kd), sv(u"F"), sv(gk::ka)}), min_mp,
-                        num_or(desire, DESIRE_RATIO), min_x, max_x, zable);`,
+      from: `  return bot_front_test(kBallDfaId, arr({sv(gk::kd), sv(u"F"), sv(gk::ka)}), min_mp,
+                        Value(num_or(desire, DESIRE_RATIO_X_2)), Value(num_or(min_x, 120.0)), max_x,`,
+      to: `  return bot_front_test(kBallDfaId, arr({sv(gk::kd), sv(u"F"), sv(gk::ka)}), min_mp,
+                        Value(num_or(desire, DESIRE_RATIO)), Value(num_or(min_x, 120.0)), max_x,`,
     },
     {
       note: "bot_ball_dfj 默认按键写成 d>a 的 a",
       file: "native/lfw/dat_translator/bots/bot_actions.cpp",
-      from: `  return bot_front_test(u"d>j", arr({sv(gk::kd), sv(u"F"), sv(gk::kj)}), min_mp,`,
-      to: `  return bot_front_test(u"d>j", arr({sv(gk::kd), sv(u"F"), sv(gk::ka)}), min_mp,`,
+      from: `  return bot_front_test(kBallDfjId, arr({sv(gk::kd), sv(u"F"), sv(gk::kj)}), min_mp,`,
+      to: `  return bot_front_test(kBallDfjId, arr({sv(gk::kd), sv(u"F"), sv(gk::ka)}), min_mp,`,
     },
     {
       note: "bot_ball_cancelling 的兜底按键换成 a",
@@ -261,42 +261,46 @@ export default {
     {
       note: "bot_explosion_dua 的 min_x 默认值写错",
       file: "native/lfw/dat_translator/bots/bot_actions.cpp",
-      from: `         {u"e_ray", arr({ray_with(num_or(min_x, -120.0), Value(num_or(max_x, 120.0)), Value(d), true)})},
+      from: `         {u"e_ray", arr({ray_with(num_or(min_x, kExplosionDuaMinX),
+                                    Value(num_or(max_x, kExplosionDuaMaxX)), Value(d), true)})},
          {u"expression", mp_n > 0 ? Value(cond.done()) : Value()},
          {u"keys", arr({sv(gk::kd), sv(gk::kU), sv(gk::ka)})}});`,
-      to: `         {u"e_ray", arr({ray_with(num_or(min_x, -100.0), Value(num_or(max_x, 120.0)), Value(d), true)})},
+      to: `         {u"e_ray", arr({ray_with(num_or(min_x, -100.0),
+                                    Value(num_or(max_x, kExplosionDuaMaxX)), Value(d), true)})},
          {u"expression", mp_n > 0 ? Value(cond.done()) : Value()},
          {u"keys", arr({sv(gk::kd), sv(gk::kU), sv(gk::ka)})}});`,
     },
     {
       note: "bot_explosion_dua 的 max_x 默认值写错",
       file: "native/lfw/dat_translator/bots/bot_actions.cpp",
-      from: `         {u"e_ray", arr({ray_with(num_or(min_x, -120.0), Value(num_or(max_x, 120.0)), Value(d), true)})},
+      from: `         {u"e_ray", arr({ray_with(num_or(min_x, kExplosionDuaMinX),
+                                    Value(num_or(max_x, kExplosionDuaMaxX)), Value(d), true)})},
          {u"expression", mp_n > 0 ? Value(cond.done()) : Value()},
          {u"keys", arr({sv(gk::kd), sv(gk::kU), sv(gk::ka)})}});`,
-      to: `         {u"e_ray", arr({ray_with(num_or(min_x, -120.0), Value(num_or(max_x, 100.0)), Value(d), true)})},
+      to: `         {u"e_ray", arr({ray_with(num_or(min_x, kExplosionDuaMinX),
+                                    Value(num_or(max_x, 100.0)), Value(d), true)})},
          {u"expression", mp_n > 0 ? Value(cond.done()) : Value()},
          {u"keys", arr({sv(gk::kd), sv(gk::kU), sv(gk::ka)})}});`,
     },
     {
       note: "bot_explosion_dua 的 z_len 默认值写错",
       file: "native/lfw/dat_translator/bots/bot_actions.cpp",
-      from: `    const double d = lfw::pow(num_or(z_len, 120.0), 2.0);
+      from: `    const double d = lfw::pow(num_or(z_len, kExplosionDuaZLen), 2.0);
     const Value ret = obj(
-        {{u"action_id", Value(u"d^a")},`,
+        {{u"action_id", sv(kExplosionDuaId)},`,
       to: `    const double d = lfw::pow(num_or(z_len, 100.0), 2.0);
     const Value ret = obj(
-        {{u"action_id", Value(u"d^a")},`,
+        {{u"action_id", sv(kExplosionDuaId)},`,
     },
     {
       note: "bot_explosion_dua 的次方写成 3",
       file: "native/lfw/dat_translator/bots/bot_actions.cpp",
-      from: `    const double d = lfw::pow(num_or(z_len, 120.0), 2.0);
+      from: `    const double d = lfw::pow(num_or(z_len, kExplosionDuaZLen), 2.0);
     const Value ret = obj(
-        {{u"action_id", Value(u"d^a")},`,
-      to: `    const double d = lfw::pow(num_or(z_len, 120.0), 3.0);
+        {{u"action_id", sv(kExplosionDuaId)},`,
+      to: `    const double d = lfw::pow(num_or(z_len, kExplosionDuaZLen), 3.0);
     const Value ret = obj(
-        {{u"action_id", Value(u"d^a")},`,
+        {{u"action_id", sv(kExplosionDuaId)},`,
     },
     {
       note: "bot_explosion_duj 的按键写成 dua 的 a",
@@ -318,18 +322,20 @@ EditBotActionFunc bot_idle_action`,
       note: "bot_uppercut_dua 的 max_d 默认值写错",
       file: "native/lfw/dat_translator/bots/bot_actions.cpp",
       from: `  const double d = num_or(max_d, 30.0);
-  return obj({{u"action_id", Value(u"d^a")},`,
+  return obj({{u"action_id", sv(kUppercutDuaId)},`,
       to: `  const double d = num_or(max_d, 40.0);
-  return obj({{u"action_id", Value(u"d^a")},`,
+  return obj({{u"action_id", sv(kUppercutDuaId)},`,
     },
     {
       note: "bot_uppercut_dua 的 max_d 不平铺",
       file: "native/lfw/dat_translator/bots/bot_actions.cpp",
-      from: `              {u"e_ray", arr({ray_with(num_or(min_x, -10.0), Value(num_or(max_x, 120.0)),
+      from: `              {u"e_ray", arr({ray_with(num_or(min_x, kUppercutDuaMinX),
+                                         Value(num_or(max_x, kUppercutDuaMaxX)),
                                          Value(d * d), true)})},
               {u"expression", mp_n > 0 ? Value(cond.done()) : Value()},
               {u"keys", arr({sv(gk::kd), sv(gk::kU), sv(gk::ka)})}});`,
-      to: `              {u"e_ray", arr({ray_with(num_or(min_x, -10.0), Value(num_or(max_x, 120.0)),
+      to: `              {u"e_ray", arr({ray_with(num_or(min_x, kUppercutDuaMinX),
+                                         Value(num_or(max_x, kUppercutDuaMaxX)),
                                          Value(d), true)})},
               {u"expression", mp_n > 0 ? Value(cond.done()) : Value()},
               {u"keys", arr({sv(gk::kd), sv(gk::kU), sv(gk::ka)})}});`,
@@ -337,11 +343,13 @@ EditBotActionFunc bot_idle_action`,
     {
       note: "bot_uppercut_dua 的按键换成 dva 的 D",
       file: "native/lfw/dat_translator/bots/bot_actions.cpp",
-      from: `              {u"e_ray", arr({ray_with(num_or(min_x, -10.0), Value(num_or(max_x, 120.0)),
+      from: `              {u"e_ray", arr({ray_with(num_or(min_x, kUppercutDuaMinX),
+                                         Value(num_or(max_x, kUppercutDuaMaxX)),
                                          Value(d * d), true)})},
               {u"expression", mp_n > 0 ? Value(cond.done()) : Value()},
               {u"keys", arr({sv(gk::kd), sv(gk::kU), sv(gk::ka)})}});`,
-      to: `              {u"e_ray", arr({ray_with(num_or(min_x, -10.0), Value(num_or(max_x, 120.0)),
+      to: `              {u"e_ray", arr({ray_with(num_or(min_x, kUppercutDuaMinX),
+                                         Value(num_or(max_x, kUppercutDuaMaxX)),
                                          Value(d * d), true)})},
               {u"expression", mp_n > 0 ? Value(cond.done()) : Value()},
               {u"keys", arr({sv(gk::kd), sv(gk::kD), sv(gk::ka)})}});`,

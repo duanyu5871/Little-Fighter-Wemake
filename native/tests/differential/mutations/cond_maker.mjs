@@ -60,16 +60,45 @@ export default {
       to: `    out.push_back(c);`,
     },
     {
-      note: "js_trim 只按 ASCII 空格裁剪",
-      file: "native/lfw/dat_translator/cond_maker.cpp",
-      from: `  if (c == 0x3000 || c == 0xfeff) return true;`,
-      to: `  if (false) return true;`,
+      // 这两条原锚在 `cond_maker.cpp` 的本地空白判定上；该判定后来被抽成
+      // `lfw::is_str_white_space`（`native/lfw/core/js_string.cpp`），故改锚到此。
+      note: "js_trim 只按 ASCII 空格裁剪（U+3000 / U+FEFF 不再算空白）",
+      file: "native/lfw/core/js_string.cpp",
+      from: `    case 0x3000:
+    case 0xfeff:
+      return true;`,
+      to: `      return true;`,
     },
     {
       note: "js_trim 忽略 NBSP",
-      file: "native/lfw/dat_translator/cond_maker.cpp",
-      from: `  if (c == 0xa0 || c == 0x1680 || c == 0x2028 || c == 0x2029 || c == 0x202f || c == 0x205f) {`,
-      to: `  if (c == 0x1680 || c == 0x2028 || c == 0x2029) {`,
+      file: "native/lfw/core/js_string.cpp",
+      from: `    case 0x0009:
+    case 0x000a:
+    case 0x000b:
+    case 0x000c:
+    case 0x000d:
+    case 0x0020:
+    case 0x00a0:
+    case 0x1680:
+    case 0x2028:
+    case 0x2029:
+    case 0x202f:
+    case 0x205f:
+    case 0x3000:
+    case 0xfeff:
+      return true;`,
+      to: `    case 0x0009:
+    case 0x000a:
+    case 0x000b:
+    case 0x000c:
+    case 0x000d:
+    case 0x0020:
+    case 0x1680:
+    case 0x2028:
+    case 0x2029:
+    case 0x3000:
+    case 0xfeff:
+      return true;`,
     },
     {
       note: "加引号时不再转义引号字符",

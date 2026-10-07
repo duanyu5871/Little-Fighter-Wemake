@@ -40,14 +40,18 @@ export default {
     {
       note: "get_default_keys 取错了 key",
       file: "native/lfw/defines/defines.cpp",
-      from: `  const Value* exact = o->get(player_id);`,
-      to: `  const Value* exact = o->get(u"1");`,
+      from: `  if (o == nullptr) return nullptr;
+  const Value* exact = o->get(player_id);`,
+      to: `  if (o == nullptr) return nullptr;
+  const Value* exact = o->get(u"1");`,
     },
     {
       note: "get_default_keys 的兜底 key 写错",
       file: "native/lfw/defines/defines.cpp",
-      from: `  const Value* fallback = o->get(u"_");`,
-      to: `  const Value* fallback = o->get(u"1");`,
+      from: `  const Value* fallback = o->get(u"_");
+  return fallback != nullptr ? as_object(*fallback) : nullptr;`,
+      to: `  const Value* fallback = o->get(u"1");
+  return fallback != nullptr ? as_object(*fallback) : nullptr;`,
     },
     {
       note: "table 查找比较取反",

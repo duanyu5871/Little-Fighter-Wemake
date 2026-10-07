@@ -18,8 +18,10 @@ export default {
     {
       note: "traversal: 数组下标从 1 开始（键名错位）",
       file: "native/lfw/utils/container_help/traversal.h",
-      from: `      fn(number_to_string(static_cast<double>(i)), item);`,
-      to: `      fn(number_to_string(static_cast<double>(i + 1)), item);`,
+      from: `      Value item = i < a->size() ? a->at(i) : Value();
+      fn(number_to_string(static_cast<double>(i)), item);`,
+      to: `      Value item = i < a->size() ? a->at(i) : Value();
+      fn(number_to_string(static_cast<double>(i + 1)), item);`,
     },
     {
       note: "make_frames_special: 漏掉 hit_ja",

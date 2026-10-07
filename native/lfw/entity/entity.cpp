@@ -511,7 +511,7 @@ void Entity::set_hp(double v) {
     const std::shared_ptr<Summary> s = summary_mgr().get(_team);
     s->set_hp_lost(Value(to_number(s->hp_lost()) + (o - v)));
   }
-  callbacks.call(u"on_hp_changed", {ref(), Value(v), Value(o)});
+  callbacks.call(u"on_hp_changed", {ref(), Value(o), Value(v)});
   if (ctrl_ != nullptr && ctrl_->is_human() && ((o > 0) != (v > 0))) {
     host_->mark_players_alive(*this, v > 0);
   }

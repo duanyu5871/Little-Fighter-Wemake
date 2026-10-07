@@ -223,8 +223,8 @@ export default {
         {
       "note": "reset keeps the registered callbacks",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "  callbacks.clear();",
-      "to": "  (void)callbacks;"
+      "from": "  callbacks.clear();\n  _name = Value(NullTag{});",
+      "to": "  (void)callbacks;\n  _name = Value(NullTag{});"
     },
         {
       "note": "the state code is looked up as a string",
@@ -445,8 +445,8 @@ export default {
         {
       "note": "the alive notification always reports alive",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "    host_->mark_players_alive(v > 0);",
-      "to": "    host_->mark_players_alive(true);"
+      "from": "    host_->mark_players_alive(*this, v > 0);",
+      "to": "    host_->mark_players_alive(*this, true);"
     },
         {
       "note": "the death branch also treats a zero hp write as death",
@@ -637,8 +637,8 @@ export default {
         {
       "note": "the alive notification ignores the hp",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "  host_->mark_players_alive(ctrl_->is_human() && hp() > 0);",
-      "to": "  host_->mark_players_alive(ctrl_->is_human());"
+      "from": "  host_->mark_players_alive(*this, ctrl_->is_human() && hp() > 0);",
+      "to": "  host_->mark_players_alive(*this, ctrl_->is_human());"
     },
         {
       "note": "the previous controller is never released",
@@ -3408,45 +3408,45 @@ export default {
     },
         {
       "note": "get_flag treats an ally as an enemy",
-      "file": "native/lfw/entity/entity.cpp",
-      "from": "  int32_t ret = is_ally(other) ? static_cast<int32_t>(HitFlag::Ally)\n                               : static_cast<int32_t>(HitFlag::Enemy);",
-      "to": "  int32_t ret = is_ally(other) ? static_cast<int32_t>(HitFlag::Enemy)\n                               : static_cast<int32_t>(HitFlag::Ally);"
+      "file": "native/lfw/entity/entity_flag.h",
+      "from": "  int32_t ret = a_team == b_team ? static_cast<int32_t>(HitFlag::Ally)\n                                 : static_cast<int32_t>(HitFlag::Enemy);",
+      "to": "  int32_t ret = a_team == b_team ? static_cast<int32_t>(HitFlag::Enemy)\n                                 : static_cast<int32_t>(HitFlag::Ally);"
     },
         {
       "note": "get_flag always sees the same team",
-      "file": "native/lfw/entity/entity.cpp",
-      "from": "  int32_t ret = is_ally(other) ? static_cast<int32_t>(HitFlag::Ally)",
+      "file": "native/lfw/entity/entity_flag.h",
+      "from": "  int32_t ret = a_team == b_team ? static_cast<int32_t>(HitFlag::Ally)",
       "to": "  int32_t ret = true ? static_cast<int32_t>(HitFlag::Ally)"
     },
         {
       "note": "get_flag skips the Dead bit at exactly 0 hp",
-      "file": "native/lfw/entity/entity.cpp",
-      "from": "  if (_hp <= 0) ret |= static_cast<int32_t>(HitFlag::Dead);",
-      "to": "  if (_hp < 0) ret |= static_cast<int32_t>(HitFlag::Dead);"
+      "file": "native/lfw/entity/entity_flag.h",
+      "from": "  if (a_hp <= 0) ret |= static_cast<int32_t>(HitFlag::Dead);",
+      "to": "  if (a_hp < 0) ret |= static_cast<int32_t>(HitFlag::Dead);"
     },
         {
       "note": "get_flag adds Dead above the hp threshold",
-      "file": "native/lfw/entity/entity.cpp",
-      "from": "  if (_hp <= 0) ret |= static_cast<int32_t>(HitFlag::Dead);",
-      "to": "  if (_hp <= 10) ret |= static_cast<int32_t>(HitFlag::Dead);"
+      "file": "native/lfw/entity/entity_flag.h",
+      "from": "  if (a_hp <= 0) ret |= static_cast<int32_t>(HitFlag::Dead);",
+      "to": "  if (a_hp <= 10) ret |= static_cast<int32_t>(HitFlag::Dead);"
     },
         {
       "note": "get_flag replaces the team bits with Dead",
-      "file": "native/lfw/entity/entity.cpp",
-      "from": "  if (_hp <= 0) ret |= static_cast<int32_t>(HitFlag::Dead);",
-      "to": "  if (_hp <= 0) ret = static_cast<int32_t>(HitFlag::Dead);"
+      "file": "native/lfw/entity/entity_flag.h",
+      "from": "  if (a_hp <= 0) ret |= static_cast<int32_t>(HitFlag::Dead);",
+      "to": "  if (a_hp <= 0) ret = static_cast<int32_t>(HitFlag::Dead);"
     },
         {
       "note": "get_flag ignores the entity type",
-      "file": "native/lfw/entity/entity.cpp",
-      "from": "  return static_cast<double>(ret | js_to_int32(type()));",
+      "file": "native/lfw/entity/entity_flag.h",
+      "from": "  return static_cast<double>(ret | js_to_int32(a_type));",
       "to": "  return static_cast<double>(ret);"
     },
         {
       "note": "get_flag ORs the hp instead of the type",
-      "file": "native/lfw/entity/entity.cpp",
-      "from": "  return static_cast<double>(ret | js_to_int32(type()));",
-      "to": "  return static_cast<double>(ret | js_to_int32(hp()));"
+      "file": "native/lfw/entity/entity_flag.h",
+      "from": "  return static_cast<double>(ret | js_to_int32(a_type));",
+      "to": "  return static_cast<double>(ret | js_to_int32(a_hp));"
     },
         {
       "note": "clean_holding ignores the self side",
@@ -5315,23 +5315,25 @@ export default {
       note: "apply_opoints：敌人的 chasing 不写目标",
       file: "native/lfw/entity/entity.cpp",
       from: `          ctrl->chasing = enemies.empty()
-                              ? nullptr
-                              : enemies[static_cast<std::size_t>(std::fmod(i, enemies.size()))];`,
-      to: `          ctrl->chasing = nullptr;`,
+                              ? Value()
+                              : ref_of(*enemies[static_cast<std::size_t>(
+                                    std::fmod(i, enemies.size()))]);`,
+      to: `          ctrl->chasing = Value();`,
     },
     {
       note: "apply_opoints：友军的 chasing 不写目标",
       file: "native/lfw/entity/entity.cpp",
       from: `          ctrl->chasing = allies.empty()
-                              ? nullptr
-                              : allies[static_cast<std::size_t>(std::fmod(i, allies.size()))];`,
-      to: `          ctrl->chasing = nullptr;`,
+                              ? Value()
+                              : ref_of(*allies[static_cast<std::size_t>(
+                                    std::fmod(i, allies.size()))]);`,
+      to: `          ctrl->chasing = Value();`,
     },
     {
       note: "apply_opoints：Emitter 的 chasing 不写目标",
       file: "native/lfw/entity/entity.cpp",
-      from: `          ctrl->chasing = allies.empty() ? nullptr : allies[0];`,
-      to: `          ctrl->chasing = nullptr;`,
+      from: `          ctrl->chasing = allies.empty() ? Value() : ref_of(*allies[0]);`,
+      to: `          ctrl->chasing = Value();`,
     },
     {
       note: "apply_opoints：inherit_speed 丢了生成后的速度项",
