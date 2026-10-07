@@ -4391,3 +4391,26 @@ harness op：
   时出来）、**没有子元素 / 没有 name** 的边界（`xml_2_bg_data` 的 terrain、
   portraits 的空串键）——第一轮 4 条变异存活全是这类「用例没喂到该分支」，补三行
   用例即全杀。
+
+### 6.9.127 `animation/` 家族（5 份用例共 287 行；变异 `animation.mjs` 76/76 全杀）
+
+- **新 subject `animation`**：`mk <id> loop|anim|delay <v>|easing [begin] [end]|sine|
+  cosine|tangent [b] [h] [s]|seq [ids...]`；`set <id> <prop> <num>`（`duration`/`time`/
+  `value`/`direction`/`fill_mode`/`reverse`/`times`/`count`/`offset`/`bottom`/`height`/
+  `scale`/`val_1`/`val_2`）；`seteasing sine|linearity|quint`；`call <id>
+  start [0|1]|end [0|1]|calc|update <dt>|auto_trip <0|1> <dt>|continue|reset|set <c> <t>`
+  （后三条是 `Loop` 的）；`seqpush <seq> <id>`；`get <id> <prop>` 打
+  `get|<id>|<prop>|<payload>`：数字 = **量化位**（1e-3 粒度 `qb`）、布尔 `b1/b0`、
+  `seq` 的 `curr` 打**下标**或 `u`（空表空指针）、`anims` 打个数。
+- ⚠️ **NaN 位型**：`strtod("NaN")`（MSVC，全 1 payload）与 V8（`7ff8…`）不同位 ⇒
+  台面统一 `isnan ⇒ "nan"` 后再量化（`qb`），否则 `get a time NaN` 一行就把差分卡死。
+- ⚠️ **三角**：用例避开 `tan` 极点（`time = 250` / `750`，周期 500）与巨大实参——
+  `Periodic.start(1)` 会把 time 设成 `MAX_SAFE_INTEGER`，续接 `update`/`calc` 的参数
+  归约 V8 vs UCRT 会超 ulp 分歧 ⇒ 先 `set time` 小值再算。
+- ⚠️ **`mk d delay N` 是值不是时长**：`Sequence` 用例必须再补 `set d duration N`，
+  否则 seq 总时长为 0、`update` 早退 + 段扫描全 inert（第一轮 5 条逆放侧变异因此存活）。
+- ⚠️ **头文件缺省实参不可观察**：台面 `mk` 对 `easing` / `sine` 等一律显式补参 ⇒
+  改头里的 `= 1` 之类不会被差分抓住（变异档记「有意不覆盖」）。
+- 变异档另记「有意不覆盖」：`Loop.continue_` 的 `times <= 0` 同观分支、`Easing.calc`
+  的因子 clamp（time 已被夹住）、会死循环的 `update` 改写（`time ±= 0`、去 `done()`
+  早退）、`easing.cpp` 换 `ease_linearity` 会缺 include（编译不过 ⇒ 换成 lambda）。

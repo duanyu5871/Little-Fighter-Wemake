@@ -8306,3 +8306,65 @@ undefined / 省略）；变异档 `xml_layer.mjs` **44/44 全杀**（0 存活、
 `reorder_fields` 的渲染不可观察、`xml_x_partial_world_dataset` 的假值面、`xml_from_json`
 的 attrs 数组分支）。全量差分 **171/171**、lint 全清。
 
+## 83. 切片 4V：`animation/` 家族
+
+**范围**：`src/LFW/animation/` 整目录（11 个 TS 文件）一次搬完 —— `Loop` / `Animation` /
+`Delay` / `Easing` / `Periodic` / `Cosine` / `Sine` / `Tangent` / `Sequence`（9 个类，
+成对 `native/lfw/animation/*.{h,cpp}`，CMake 块挂在 `core/value.cpp` 之后）。该家族是
+**叶子**：只被尚未搬的 UI / 渲染层引用，自身不依赖世界。
+
+**形状**：
+- `IEasing = std::function<double(double factor, double val_1, double val_2)>`（TS 的
+  `IEasing` 就是函数类型）；TS 的属性 setter `set easing(v)` 与同名方法 `set_easing(v)`
+  并成一个 `set_easing`（都只是赋值）。`set(begin, end)` 的 `is_num` 守卫照抄。
+- `Sequence` 持 `std::vector<Animation*>`（**非拥有**）+ `Animation* _curr_anim`
+  （TS 的 `this.current = ...` 模式）；`Delay` 构造只 `set_value(value)`。
+- `std::optional<bool>` 承接 `start(reverse = this.reverse)` / `end(...)` 的
+  「缺省值 = 调用那一刻的当前方向」（`nullopt` ⇒ 现取）。
+
+**照抄的怪癖 / 费解处**（序号接 §82 的 26）：
+27. **`Loop.continue` 撞 C++ 关键字** ⇒ 端口叫 `continue_()`；语义：`times <= 0` 恒
+    返回 `true`（不推进）、`count >= times` 返回 `false`、否则 `++count` 收场。
+28. **`Loop.set(count, times)` 的次序**：先 `set_times` 再 `set_count`（count 的 clamp
+    用**新** times）—— 反过来 `set(99, 5)` 会夹成 1。
+29. **`Animation.set_duration`**：`max(0, v)` 收尾后**立刻**把 `time` 回夹进
+    `[0, duration]`（缩时长会把走过头的时间拉回）；`set_time` 同理夹 `[0, duration]`；
+    `calc()` 在 `duration == 0` 时**保持旧值**（不写 `0/0` 的 NaN）。
+30. **`Animation.update(dt)`** 的折返：`time += direction * dt` 后上/下溢各自 do/while
+    循环 `continue_()` + 加减 duration；循环后若 `done() && fill_mode`，上溢把 `time`
+    落到 **duration**（更新前的值）、下溢落到 **0**；末尾再 `set_time(clamp(...))` +
+    `calc()`。`auto_trip(reverse, dt)`：方向相同直接 `update`；不同则「已完播 ⇒
+    `start(reverse)`（连带 reset 计数），未完播 ⇒ 只翻方向」，然后 `update`。
+31. **两处 `debugger;`**（`set_fill_mode` / `set_direction` 的非法值守卫）无操作；端口
+    只照抄守卫（非法值保留旧值）。
+32. **`Easing.calc` 分支**：`val_1 == val_2` ⇒ 直接落 val_1（不看完成/方向）；`done()`
+    ⇒ `reverse ? val_1 : val_2`；否则 `_easing(clamp(time / duration, 0, 1), val_1,
+    val_2)`。
+33. **`Periodic`**：时长 = `Number.MAX_SAFE_INTEGER`；`offset` 在 TS 里是**公开字段**
+    （端口同名公开成员）；构造与 `set(b, h, s)` 三项都带 `is_num` 守卫，`set` 末尾
+    `calc()`；`set_bottom` / `set_height` 只有守卫（不重算）；`calc` =
+    `method(offset + time * scale)`。
+34. **三家三角函数**：`Cosine.method` 吃 `offset`；**`Sine.method` 不吃**（TS 就这么写
+    的，照抄）；`Tangent.method` 只 `tan(v * 2π / 1000)`，`bottom`/`height`/`offset`/
+    `scale` **全忽略**。
+35. **`Sequence`**：构造 = durations 求和 + `start()`；`start`/`end` 选头尾用的是
+    **形参** `reverse.value_or(false)`，不是当前方向（当前倒放时 `start()` 仍取队首 ——
+    怪癖照抄）；`calc` 的上下边界兜底（`time >= duration` ⇒ 尾段 `set_time(duration)`、
+    `time <= 0` ⇒ 首段 `set_time(0)`，都 `set_value(calc().value())` + 记 curr）；中间
+    正放扫描（`anim.duration() > time`，逐段 `time -= duration`）/逆放扫描（`duration`
+    逐段递减，`time > duration` 命中后 `set_time(time - duration)`）；空表直接返回。
+
+**测试**：新用例 5 份 **287 行** —— `loop`（37）/ `anim`（73）/ `periodic`（52）/
+`easing`（42）/ `sequence`（83）；台面 `animation.{cpp,ts}` 文法：`mk` / `set` /
+`seteasing` / `call`（`start`/`end`/`calc`/`update`/`auto_trip`/`continue`/`reset`/`set`）
+/ `seqpush` / `get`。数字一律打**量化位**（1e-3）+ `isnan ⇒ "nan"`（`qb`）：MSVC
+`strtod("NaN")` 的 payload（全 1）与 V8（`7ff8…`）不同位（同 `utils` 底座的先例）；
+三角函数用例避开极点（tan 在 250/750 处爆炸）与巨大实参（V8 与 UCRT 的参数归约不同）。
+变异档 `animation.mjs` **76/76 全杀**（0 存活、0 compile-error，~3 分钟）；头部记
+「有意不覆盖」：`Loop.continue_` 的 `times <= 0` 分支（返回 `true`、计数不动 ⇒ 与
+`< 0` 同观）、`Easing.calc` 的因子 clamp（time 已被夹住）、头文件缺省实参（台面 `mk`
+一律显式传参）、会死循环/挂死的 `update` 改写（`time ±= 0`、去掉 `done()` 早退）。
+用例教训：**`mk d delay N` 给的是值不是时长** —— `Sequence` 的时长求和因而全 0，
+段扫描根本没跑（逆放侧 5 条变异存活）；补 `set d duration N` 后全杀。全量差分
+**176/176**、lint 全清。
+

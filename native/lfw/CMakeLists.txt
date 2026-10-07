@@ -6,6 +6,15 @@ add_library(lfw_core STATIC
   core/json5_unicode.cpp
   core/state_hash.cpp
   core/value.cpp
+  animation/animation.cpp
+  animation/delay.cpp
+  animation/easing.cpp
+  animation/periodic.cpp
+  animation/sequence.cpp
+  animation/cosine.cpp
+  animation/sine.cpp
+  animation/tangent.cpp
+  animation/loop.cpp
   i18n.cpp
   fields.cpp
   ground.cpp
