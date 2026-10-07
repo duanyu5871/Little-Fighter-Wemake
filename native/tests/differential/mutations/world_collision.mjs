@@ -49,6 +49,12 @@
 //     形状、同样 x）会被捡起（`holding` 变 id），带 `bot_ignore` 的那件不会 ⇒ Pick 的配对要么
 //     没成、要么成了但 keeper 那一趟没有配置命中（两边的观测都为零）。要锁它们得先找到一组
 //     「bot 攻击方 + 真能走完 `collision_test` → 配置命中 → `pick`」的实体（留给 Pick 专属用例）。
+//   * **第 13–16 组那四条支路（Whirlwind / weapon_is_hit / ball_hit_other / healing）**：
+//     用例有了这四组（碰撞也都成了：`collided_list` 各 +1），但它们的**效果观测不到** ——
+//     `Whirlwind` 对 Fighter 受害方只改速度，`weapon_is_hit` / `ball_*` 也只改速度（`set_velocity`
+//     之后在 `step` 里被清成 0，dump 里 6 个速度列全是 `0`），`healing` 只往 buff 表里塞一条
+//     （buff 表没进 dump）。所以这一刀**没有新增变异条目**；要锁它们得先把观测面再往前推一层
+//     （速度在 `step` 里被清是台面行为，得换成「只跑 handler 不跑完整 `step`」或把 buff 表进 dump）。
 //   * `ActionEnv` / `Handlers2-4Env` 里没被这条路径调用的那些（`Handlers2Env` 只走了
 //     `find_entity` / `hp_recoverability` / `summary_apply_damage` / `is_fighter` / `calc_velocity`
 //     / `buff_env`，其中 `hp_recoverability` 与 `calc_velocity` 的结果进了 `hp_r` / 速度，

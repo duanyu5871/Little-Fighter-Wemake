@@ -4182,7 +4182,7 @@ harness op：
   重写 `position` 导致相机 z 求和恒 0、`update_once` 里 `worker != nullptr` 那一段（假时钟推不动
   `Ticker` 的步进）。
 
-### 6.9.122 `World` 的碰撞配对与 `collision/` 的 82 条缝（`cases/world/collision.txt`，261 行；变异 **34/34** 全杀）
+### 6.9.122 `World` 的碰撞配对与 `collision/` 的 82 条缝（`cases/world/collision.txt`，345 行；变异 **34/34** 全杀）
 
 - **台面**：不新增 subject —— 这一刀的两侧都是**真代码**。TS 侧跑真 `World.step`（真
   `collision_get` / 真 `collisions_keeper`），C++ 侧跑端口 `World::step` + `WorldCollisionHost`
@@ -4260,6 +4260,18 @@ harness op：
   left/right、bottom/top 互换会真的把某一对挤成不相交 ⇒ 两条变异 killed（前十一组两组框
   完全重合，左右上下互换是对称的 ⇒ 观察不到）。z 方向（`near` / `far`）两组框都是默认值
   ⇒ 仍然观察不到（要 `z` / `l` 不同的框）。
+- **第 13–16 组：`Whirlwind` / `weapon_is_hit` / `ball_hit_other` / `healing`**（4P）：四组的
+  碰撞都成了（各 `collided_list` +1，两侧一致），但**效果观测不到**：
+  - `handle_itr_kind_whirlwind`（itr kind 15）对 Fighter 受害方只 `set_velocity`（甩出去要等下一帧）；
+  - `handle_weapon_is_hit`（攻击方 itr kind 5 = WeaponSwing、受害方 `type 16` + 帧 `state 1000`
+    = `Weapon_InTheSky`）同样只改速度；
+  - `handle_ball_hit_other`（攻击方 `type 32` = Ball + 普通 itr、受害方 Fighter + bdy Normal）
+    只改速度 / 血；
+  - `handle_healing`（itr kind 8 + `injury 5`）只往 buff 表里塞一条 `Healing`（buff 表没进 dump）。
+  于是 dump 里再补 6 列速度（`velocity.x/y/z` + `prev_velocity.x/y/z`，两侧同序）—— **本台面里
+  它们全是 `0`**（`set_velocity` 之后在同一个 `step` 里被清掉；位置到 dump 时也回到原地）⇒
+  这一刀**没有新增变异条目**（按惯例把理由写进档头）。要锁这四条支路得换观测法：只跑 handler
+  不跑完整 `step`，或把 buff 表 / 「本帧内的速度」也进 dump。
 - ⚠️ **六组实体并不互相隔离**：`step` 里地图边界的回中逻辑会把 x ≥ 3000 的实体挪到地图中心
   （x = 1588），而这一步发生在**实体推进之后、配对之前** ⇒ 第 2–6 组在配对那一瞬全在同一 x
   （受击方 `collided_list` 到 5）。x 分段只决定配对前的排序，别指望它隔离；好处是交叉配对让

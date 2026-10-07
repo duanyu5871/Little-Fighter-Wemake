@@ -415,7 +415,11 @@ function dump_entity(e: Entity | null): string {
     `:${num(b.motionless)}:${num(b.shaking)}:${id_ref(b.catching)}:${id_ref(b.catcher)}` +
     `:${id_ref(b.holding)}:${num((b.vrests as Bag)?.size)}:${num(b.collided_list?.length)}` +
     `:${num(b.collision_list?.length)}:${num(b.resting)}:${num(b.fall_value)}` +
-    `:${flag(e.is_on_ground)}:${num(b.arest)}`
+    `:${flag(e.is_on_ground)}:${num(b.arest)}` +
+    // 4P：`Whirlwind` / `weapon_is_hit` / `ball_*` / `handle_injury` 的效果都落在速度上
+    // （位置要等下一帧才动）⇒ 把速度也当观测量。
+    `:${num(e.velocity.x)}:${num(e.velocity.y)}:${num(e.velocity.z)}` +
+    `:${num(e.prev_velocity.x)}:${num(e.prev_velocity.y)}:${num(e.prev_velocity.z)}`
   );
 }
 

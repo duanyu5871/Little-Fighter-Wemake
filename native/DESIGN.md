@@ -7977,9 +7977,12 @@ differential **155/155**。
    buff 支（`magic_flute` / `Electrify` / `Healing`）、`ball_*` 与 `john_shield`。
 2. handler 路径的用例：`world/collision` 现在走到 `handle_itr_normal_bdy_normal` → `handle_injury`
    → `handle_fall`、`handle_super_punch_me`、`handle_itr_catch`、`handle_weapon_picked`、
-   `handle_rest`、`handle_itr_kind_freeze` 六条；还差 `whirlwind` / `weapon_is_hit` / `ball_*` /
-   `healing`（要 `buff::grant_buff` + `Buff_Healing`，与帧几何那层纠缠）/ `john_shield`
-   （后两个还要 `IFrozenEntity` 视图面）。
+   `handle_rest`（两条：`arest` 与 `rest`）、`handle_itr_kind_freeze`、`handle_itr_kind_whirlwind`、
+   `handle_weapon_is_hit`、`handle_ball_hit_other`、`handle_healing` 十条；还差 `john_shield`
+   （要 `IFrozenEntity` 视图面 + 球）与 `ball_frozen`。
+   ⚠️ 后四条（whirlwind / weapon_is_hit / ball_hit_other / healing）目前**只有配对，没有观测**
+   —— 它们的效果落在速度（同一个 `step` 内被清成 0）或 buff 表（没进 dump）上。下一刀要么
+   「只跑 handler 不跑完整 `step`」，要么把 buff 表 / 帧内速度也进 dump，否则这四条的变异锁不住。
 3. `collision_to_snapshot` / `from_snapshot` 在宿主上的往返。
 4. ~~观测量扩展~~ 已做一半：`dump_entity` 两侧补了 `motionless` / `shaking` / `catching` /
    `catcher` / `holding` / `vrests.size` / `collided_list.length` / `collision_list.length` /

@@ -520,7 +520,11 @@ std::string dump_entity(const lfw::Entity& e) {
          num(static_cast<double>(e.vrests.size())) + ":" +
          num(static_cast<double>(e.collided_list.size())) + ":" +
          num(static_cast<double>(e.collision_list.size())) + ":" + num(e.resting()) + ":" +
-         num(e.fall_value()) + ":" + flag(e.is_on_ground) + ":" + num(e.arest());
+         num(e.fall_value()) + ":" + flag(e.is_on_ground) + ":" + num(e.arest()) + ":" +
+         // 4P：`Whirlwind` / `weapon_is_hit` / `ball_*` / `handle_injury` 的效果都落在速度上
+         // （位置要等下一帧才动）⇒ 把速度也当观测量。
+         num(e.velocity.x) + ":" + num(e.velocity.y) + ":" + num(e.velocity.z) + ":" +
+         num(e.prev_velocity.x) + ":" + num(e.prev_velocity.y) + ":" + num(e.prev_velocity.z);
 }
 
 std::string join_ids(const std::vector<lfw::Entity*>& list) { return list_of(list); }

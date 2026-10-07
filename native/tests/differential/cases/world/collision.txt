@@ -172,6 +172,58 @@ went X hp n 20
 went X pos n 1000 n 0 n 0
 wreadd X
 
+# -- 13. x=1000: Whirlwind（itr kind 15）=> handle_itr_kind_whirlwind（把受害方甩出去：
+#        改速度 / 位置 / 帧）
+wmk Y o 4 id s "Y" type n 8 base o 2 name s "YB" resting_max n 5 frames o 1 0 o 6 id s "0" centerx n 0 centery n 0 state n 1 wait n 30 itr a 1 o 7 kind n 15 hit_flag n 61 x n -40 y n 0 w n 80 h n 80 injury n 0
+went Y ctrl base
+went Y hp n 20
+went Y pos n 1000 n 0 n 0
+wreadd Y
+wmk Z o 4 id s "Z" type n 8 base o 2 name s "ZB" resting_max n 5 frames o 1 0 o 6 id s "0" centerx n 0 centery n 0 state n 1 wait n 30 bdy a 1 o 6 kind n 0 hit_flag n 61 x n -40 y n 0 w n 80 h n 80
+went Z ctrl base
+went Z hp n 20
+went Z pos n 1000 n 0 n 0
+wreadd Z
+
+# -- 14. x=1000: weapon_is_hit —— 攻击方带 WeaponSwing（itr kind 5）、受击方是空中的武器
+#        （type 16 + 帧 state 1000 = Weapon_InTheSky）=> handle_weapon_is_hit
+wmk AA o 4 id s "AA" type n 8 base o 2 name s "AAB" resting_max n 5 frames o 1 0 o 6 id s "0" centerx n 0 centery n 0 state n 1 wait n 30 itr a 1 o 7 kind n 5 hit_flag n 61 x n -40 y n 0 w n 80 h n 80 injury n 5
+went AA ctrl base
+went AA hp n 20
+went AA pos n 1000 n 0 n 0
+wreadd AA
+wmk AB o 4 id s "AB" type n 16 base o 2 name s "ABB" resting_max n 5 frames o 1 0 o 6 id s "0" centerx n 0 centery n 0 state n 1000 wait n 30 bdy a 1 o 6 kind n 0 hit_flag n 61 x n -40 y n 0 w n 80 h n 80
+went AB ctrl base
+went AB hp n 20
+went AB pos n 1000 n 0 n 0
+wreadd AB
+
+# -- 15. x=1000: ball_hit_other —— 攻击方是波（type 32 = Ball）带普通 itr（kind 0）、
+#        受击方是 Fighter + bdy Normal => handle_ball_hit_other
+wmk AC o 4 id s "AC" type n 32 base o 2 name s "ACB" resting_max n 5 frames o 1 0 o 6 id s "0" centerx n 0 centery n 0 state n 1 wait n 30 itr a 1 o 7 kind n 0 hit_flag n 61 x n -40 y n 0 w n 80 h n 80 injury n 5
+went AC ctrl base
+went AC hp n 20
+went AC pos n 1000 n 0 n 0
+wreadd AC
+wmk AD o 4 id s "AD" type n 8 base o 2 name s "ADB" resting_max n 5 frames o 1 0 o 6 id s "0" centerx n 0 centery n 0 state n 1 wait n 30 bdy a 1 o 6 kind n 0 hit_flag n 61 x n -40 y n 0 w n 80 h n 80
+went AD ctrl base
+went AD hp n 20
+went AD pos n 1000 n 0 n 0
+wreadd AD
+
+# -- 16. x=1000: healing（itr kind 8 = Heal，带 injury 5）=> handle_healing -> buff::grant_buff
+#        （`Healing` buff 的 duration 走 `Buff_Healing::duration_of`）
+wmk AE o 4 id s "AE" type n 8 base o 2 name s "AEB" resting_max n 5 frames o 1 0 o 6 id s "0" centerx n 0 centery n 0 state n 1 wait n 30 itr a 1 o 7 kind n 8 hit_flag n 61 x n -40 y n 0 w n 80 h n 80 injury n 5
+went AE ctrl base
+went AE hp n 20
+went AE pos n 1000 n 0 n 0
+wreadd AE
+wmk AF o 4 id s "AF" type n 8 base o 2 name s "AFB" resting_max n 5 frames o 1 0 o 6 id s "0" centerx n 0 centery n 0 state n 1 wait n 30 bdy a 1 o 6 kind n 0 hit_flag n 61 x n -40 y n 0 w n 80 h n 80
+went AF ctrl base
+went AF hp n 20
+went AF pos n 1000 n 0 n 0
+wreadd AF
+
 wdump
 wstep
 wdump
