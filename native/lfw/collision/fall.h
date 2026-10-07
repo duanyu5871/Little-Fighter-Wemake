@@ -9,7 +9,9 @@
 namespace lfw {
 namespace collision {
 
-struct IFallEntity : IHandlerEntity {
+// `IHandlerEntity` 用**虚基类**：`IWeaponIsHitEntity` 也从它派生 ⇒ 两个窄接口可以落在同一个
+// 实现类上（见 `entity/entity_collision_view.h` 的 `EntityCollisionView`）。
+struct IFallEntity : virtual IHandlerEntity {
   virtual Value facing() const = 0;
   virtual double velocity_x() const = 0;
   virtual void spark_point(const Cube& a, const Cube& b, double& x, double& y, double& z) = 0;

@@ -4182,7 +4182,7 @@ harness op：
   重写 `position` 导致相机 z 求和恒 0、`update_once` 里 `worker != nullptr` 那一段（假时钟推不动
   `Ticker` 的步进）。
 
-### 6.9.122 `World` 的碰撞配对与 `collision/` 的 82 条缝（`cases/world/collision.txt`，345 行；变异 **34/34** 全杀）
+### 6.9.122 `World` 的碰撞配对与 `collision/` 的 82 条缝（`cases/world/collision.txt`，345 行；变异 **38 条 36 全杀 / 2 存活 / 0 compile-error**）
 
 - **台面**：不新增 subject —— 这一刀的两侧都是**真代码**。TS 侧跑真 `World.step`（真
   `collision_get` / 真 `collisions_keeper`），C++ 侧跑端口 `World::step` + `WorldCollisionHost`
@@ -4282,6 +4282,21 @@ harness op：
   「当前发布者」才清空槽 ⇒ 旧世界的宿主被销毁后，槽里不会留下指向它的 lambda。本用例把六组实体
   放在**同一个世界**里按 x 分段（段与段之间靠 `a_max_x < b.aabb_min_x` 的 `break` 隔开）；
   「换世界」那条路径由 `cases/world/lifecycle.txt` 单独锁（见 §6.9.123）。
+- **4Q：三个视图合并成一个 `EntityCollisionView`**（`entity/entity_collision_view.{h,cpp}`，详见
+  DESIGN §78.8）。两处直接派生改成虚基类（`struct IFallEntity : virtual IHandlerEntity`、
+  `struct IWeaponIsHitEntity : virtual IHandlerEntity`）⇒ 菱形消失，一个类同时实现
+  `INdbdyDefendEntity` / `IWeaponIsHitEntity` / `IActionEntity` + `IH3Entity` + `IH4Entity` +
+  `IFrozenEntity` + `IHealingEntity` + `buff::IBuffEntity`（三边同名方法体本来就逐字相同 ⇒ 直接
+  去重）。连带两处（都不改行为）：① 虚基类指针不能再 `static_cast` 回视图（`C2635`）⇒ 宿主建
+  视图时登记一张 `IHandlerEntity*` → `Entity*` 反向表、`ICollisionViewHost` 加
+  `entity_of_handler()`（`IActionEntity` / `IH3Entity` 是非虚基类，`static_cast` 照旧）；
+  ② `IFallEntity::velocity_x()`（`double`）与 `IActionEntity::velocity_x()`（`Value`）同名同参不同
+  返回类型没法共用一个重写 ⇒ 后者改成 `double`（调用处 `-to_number(x)` → `-x`）。宿主的
+  `_handler_views` / `_weapon_views` / `_action_views` 合成 `_collision_views`，`handler_view` /
+  `weapon_view` / `action_view` 三个访问器（调用点一个没动）返回**同一实例**。**观测量一条不加**：
+  本用例 345 行逐行一致、`all` 157/157、变异仍 **38 条 36 全杀 / 2 存活 / 0 compile-error**
+  —— 档里视图那三条（`catcher` / `set_catching` / `set_catcher`）的 `from` 串已从
+  `EntityHandlerView::` 改锚到 `EntityCollisionView::`，仍然被杀。
 
 ### 6.9.123 宿主生命周期（`cases/world/lifecycle.txt`，54 行；与 6.9.122 共用一个变异档）
 

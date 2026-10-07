@@ -112,7 +112,7 @@ struct Fake : IActionEntity {
   Value pos_or_self(const Value& pos) const {
     return std::holds_alternative<std::monostate>(pos) ? _position : pos;
   }
-  Value velocity_x() const override { return _velocity_x; }
+  double velocity_x() const override { return lfw::to_number(_velocity_x); }
   void set_velocity_x(const Value& v) override {
     _velocity_x = v;
     g_log.push_back("set_velocity:" + render(v));

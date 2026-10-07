@@ -90,11 +90,11 @@ Value run_action(const ActionEnv& env, const std::u16string& type, const Value& 
     return Value(0.0);
   }
   if (type == action_type::kA_REBOUND_VX) {
-    attacker.set_velocity_x(Value(-to_number(attacker.velocity_x())));
+    attacker.set_velocity_x(Value(-attacker.velocity_x()));
     return Value();
   }
   if (type == action_type::kV_REBOUND_VX) {
-    victim.set_velocity_x(Value(-to_number(victim.velocity_x())));
+    victim.set_velocity_x(Value(-victim.velocity_x()));
     return Value();
   }
   if (type == action_type::kV_TURN_FACE) {

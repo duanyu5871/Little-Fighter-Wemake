@@ -9,7 +9,8 @@
 namespace lfw {
 namespace collision {
 
-struct IWeaponIsHitEntity : IHandlerEntity {
+// `IHandlerEntity` 用**虚基类**（与 `fall.h` 的 `IFallEntity` 对称，见那里的注释）。
+struct IWeaponIsHitEntity : virtual IHandlerEntity {
   virtual bool has_bearer() const = 0;
   virtual void set_dropping(bool v) = 0;
   virtual Value base_type() const = 0;

@@ -20,8 +20,8 @@ class World;
 
 // `src/LFW` 的 `collision/*` 直接引用 `world.*` / `lfw.*` / 实体属性；端口的
 // `collision/` 层把这些都留成了 Env 缝（82 条）。本类是**唯一**的接线点：把 82 条缝接到
-// 真实的 `World` / `Entity` / 宿主 `lfw` 面上，并给 `collision/` 层提供两个 `Entity` 视图
-// （`EntityHandlerView` / `EntityWeaponView` / `EntityActionView`）。
+// 真实的 `World` / `Entity` / 宿主 `lfw` 面上，并给 `collision/` 层提供 `Entity` 视图
+// （`EntityCollisionView`：一个实体只有一份，三个访问器返回同一个对象）。
 //
 // 保真要点：
 // 1. `CollisionActor` 是**快照**（`collision/` 层看不见 `Entity`）⇒ 宿主负责 `Entity` →
@@ -56,12 +56,13 @@ class WorldCollisionHost : public ICollisionViewHost {
   collision::CollisionActor actor_of(Entity& e) const;
   collision::CollisionActor actor_of_id(const std::u16string& id) const;
 
-  // `ICollisionViewHost`
-  EntityHandlerView* handler_view(Entity* e) override;
-  EntityWeaponView* weapon_view(Entity* e) override;
-  EntityActionView* action_view(Entity* e) override;
+  // `ICollisionViewHost`：三个访问器都返回同一个对象的**同一个**缓存实例。
+  EntityCollisionView* handler_view(Entity* e) override;
+  EntityCollisionView* weapon_view(Entity* e) override;
+  EntityCollisionView* action_view(Entity* e) override;
   buff::IBuffEntity* buff_view(Entity* e) override;
   Entity* entity_by_id(const std::u16string& id) override;
+  Entity* entity_of_handler(const collision::IHandlerEntity* v) override;
   double mt_range(double min, double max) override;
   void mt_mark(const std::u16string& mark) override;
 
@@ -101,6 +102,9 @@ class WorldCollisionHost : public ICollisionViewHost {
   bool tester_run(const Value& tester, collision::Collision& c);
   Value tester_debug(const Value& tester);
 
+  // 三个视图访问器的公共实现：同一个实体只建一份视图（指针稳定，`catcher` / `bearer` 靠它）。
+  EntityCollisionView* collision_view(Entity* e);
+
   collision::Collision& acquire_collision();
   buff::Buff* find_buff(const std::u16string& id) const;
   buff::Buff* create_buff(const std::u16string& kind, const std::u16string& id);
@@ -125,9 +129,11 @@ class WorldCollisionHost : public ICollisionViewHost {
   collision::HealingEnv _healing;
   buff::BuffEnv _buff_env;
 
-  std::map<Entity*, std::unique_ptr<EntityHandlerView>> _handler_views;
-  std::map<Entity*, std::unique_ptr<EntityWeaponView>> _weapon_views;
-  std::map<Entity*, std::unique_ptr<EntityActionView>> _action_views;
+  // 三个访问器共用的一张缓存表（一个实体一份 `EntityCollisionView`）。
+  std::map<Entity*, std::unique_ptr<EntityCollisionView>> _collision_views;
+  // `IHandlerEntity` 是虚基类 ⇒ 不能从它 static_cast 回视图（`C2635`）⇒ 建视图时登记
+  // 「虚基子对象地址 → 该实体」（`find_entity` 交出去的正是这个地址）。
+  std::map<const collision::IHandlerEntity*, Entity*> _entity_of_handler;
 
   // `lfw.acquire_collision()`：TS 的对象池 `Graves`（`LFW.ts:891`）**没有任何**
   // `recycle_collision` 调用者 ⇒ 池永远是空的 ⇒ 每次都是新对象。端口按同样的行为给「每次

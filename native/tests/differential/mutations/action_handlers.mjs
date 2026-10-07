@@ -94,26 +94,26 @@ export default {
     {
       note: "A_REBOUND_VX 未取负",
       file: "native/lfw/collision/action_handlers.cpp",
-      from: "    attacker.set_velocity_x(Value(-to_number(attacker.velocity_x())));",
-      to: "    attacker.set_velocity_x(Value(to_number(attacker.velocity_x())));",
+      from: "    attacker.set_velocity_x(Value(-attacker.velocity_x()));",
+      to: "    attacker.set_velocity_x(Value(attacker.velocity_x()));",
     },
     {
       note: "A_REBOUND_VX 反受击方",
       file: "native/lfw/collision/action_handlers.cpp",
-      from: "    attacker.set_velocity_x(Value(-to_number(attacker.velocity_x())));",
-      to: "    victim.set_velocity_x(Value(-to_number(victim.velocity_x())));",
+      from: "    attacker.set_velocity_x(Value(-attacker.velocity_x()));",
+      to: "    victim.set_velocity_x(Value(-victim.velocity_x()));",
     },
     {
       note: "V_REBOUND_VX 未取负",
       file: "native/lfw/collision/action_handlers.cpp",
-      from: "    victim.set_velocity_x(Value(-to_number(victim.velocity_x())));",
-      to: "    victim.set_velocity_x(Value(to_number(victim.velocity_x())));",
+      from: "    victim.set_velocity_x(Value(-victim.velocity_x()));",
+      to: "    victim.set_velocity_x(Value(victim.velocity_x()));",
     },
     {
       note: "V_REBOUND_VX 反攻击方",
       file: "native/lfw/collision/action_handlers.cpp",
-      from: "    victim.set_velocity_x(Value(-to_number(victim.velocity_x())));",
-      to: "    attacker.set_velocity_x(Value(-to_number(attacker.velocity_x())));",
+      from: "    victim.set_velocity_x(Value(-victim.velocity_x()));",
+      to: "    attacker.set_velocity_x(Value(-attacker.velocity_x()));",
     },
     // ---- 转身 ----
     {

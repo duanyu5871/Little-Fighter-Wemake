@@ -7896,15 +7896,17 @@ differential **155/155**。
 外加 `buff::BuffEnv`(6) 与 `loader::CollisionValEnv`(1)。
 
 新增 `native/lfw/entity/entity_collision_view.{h,cpp}`：TS 里碰撞两边**就是** `Entity`，
-端口的 `collision/*` 收窄接口 ⇒ 三个视图把 `Entity` 转发上去（与 `EntityStateView` 同一套路）。
+端口的 `collision/*` 收窄接口 ⇒ `EntityCollisionView` 把 `Entity` 转发上去（与
+`EntityStateView` 同一套路；4Q 之前这里是三个同类视图，见 §78.8）。
 
 ### 78.2 三处必须保真的表示
 
-1. **视图要分链**：`IFallEntity` 与 `IWeaponIsHitEntity` 各自从 `IHandlerEntity` 非虚继承
-   派生 ⇒ 一个类同时实现两者会出现两个 `IHandlerEntity` 子对象（转换二义）。所以按继承链
-   分三个：`EntityHandlerView : INdbdyDefendEntity`（含 `IFallEntity` / `INbdyNormalEntity`）、
-   `EntityWeaponView : IWeaponIsHitEntity`、`EntityActionView : IActionEntity + IH3Entity +
-   IH4Entity + IFrozenEntity + IHealingEntity + buff::IBuffEntity`。
+1. ~~**视图要分链**~~（4Q 已合并成一个，见 §78.8）：`IFallEntity` 与 `IWeaponIsHitEntity`
+   各自从 `IHandlerEntity` 非虚继承派生 ⇒ 一个类同时实现两者会出现两个 `IHandlerEntity`
+   子对象（转换二义）。4L 当时的处置是按继承链分三个：`EntityHandlerView : INdbdyDefendEntity`
+   （含 `IFallEntity` / `INbdyNormalEntity`）、`EntityWeaponView : IWeaponIsHitEntity`、
+   `EntityActionView : IActionEntity + IH3Entity + IH4Entity + IFrozenEntity + IHealingEntity +
+   buff::IBuffEntity`。
 2. **`CollisionActor` 是快照**：`collision/` 层看不见 `Entity`，宿主按 TS 的读法逐个字段投影
    （`bear_wpoint_attacking` ← `bearer?.frame.wpoint?.attacking`、`catcher_hurtable` ←
    `catcher.frame.cpoint?.hurtable`、`marks_group_attack` ← `marks.has("GroupAttack")`、…
@@ -8000,3 +8002,51 @@ differential **155/155**。
    用例 `cases/world/lifecycle.txt`（两个世界各一组会碰撞的实体、各一次 `step`）锁住「换世界后
    仍能正常步进且两侧一致」；**锁不住**「悬垂 lambda 真被调用」（台面没有「不建新宿主就去摸
    碰撞层」的 op，TS 侧也没有这个概念）—— 那部分是设计性的防御，见该用例档头。
+
+### 78.8 三个碰撞视图合并成一个 `EntityCollisionView`（4Q）
+
+**动机**：§78.2 第 1 条按继承链把视图分成三个（`EntityHandlerView` / `EntityWeaponView` /
+`EntityActionView`），但三者本来就是同一件事 —— 把同一个 `Entity` 转发给不同的窄接口；一个
+实体因此可能在宿主里同时持有三份视图（三张缓存表各一份），指针也不共用。
+
+**菱形**：`IHandlerEntity`（`collision/handlers2.h`）位于两条平行链之下 ——
+`IWeaponIsHitEntity : IHandlerEntity`（`collision/weapon_is_hit.h`）与
+`IFallEntity : IHandlerEntity`（`collision/fall.h`）→ `INbdyNormalEntity`
+（`collision/n_bdy_normal.h`）→ `INdbdyDefendEntity`（`collision/n_bdy_defend.h`）。一个类同时
+派生两条链就拿到两个 `IHandlerEntity` 子对象 ⇒ 对 `IHandlerEntity&` 的转换二义（端口
+`/GR-`，没有 RTTI 可退）。
+
+**修法**：
+1. 两条链的**直接**派生改成虚基类（中间链不动）：`struct IFallEntity : virtual IHandlerEntity`、
+   `struct IWeaponIsHitEntity : virtual IHandlerEntity`。菱形消失，三个视图合成一个
+   `class EntityCollisionView : public INdbdyDefendEntity, public IWeaponIsHitEntity, public
+   IActionEntity, public IH3Entity, public IH4Entity, public IFrozenEntity, public
+   IHealingEntity, public buff::IBuffEntity`。三边原来的方法体**逐字相同**（都只是转发）⇒
+   直接去重（`catcher` / `set_catching` / `set_catcher` 各只留一份定义）。
+2. 唯一的例外是 `velocity_x()`：`IFallEntity` 声明 `double`、`IActionEntity` 声明 `Value`，
+   同名同参不同返回类型**没法用一个重写覆盖**（MSVC `C2555`，已实测）⇒ 按「取经典链
+   （`IHandlerEntity` 那条）的语义」把 `IActionEntity::velocity_x()` 改成 `double`
+   （`collision/action_handlers.h`；调用处 `-to_number(x)` → `-x`，行为不变），本类只写一个
+   `double velocity_x() const`。（把 11 个窄接口头文件的纯虚声明按「名字 + 参数表」归一化后
+   比对，全接口只有这一处冲突。）
+3. `WorldCollisionHost` 的三张缓存表合成一张 `_collision_views`；`handler_view` / `weapon_view`
+   / `action_view` 三个访问器（签名与调用点不变）返回**同一个**实例，`buff_view` 仍是它的
+   `buff::IBuffEntity` 面。
+
+**虚基类带来的两处连带改动**（只是取回 `Entity` 的手段，不改行为）：
+- **不能 `static_cast` 回视图**：从虚基类向下转是 ill-formed（MSVC `C2635`，已实测）。
+  `IHandlerEntity*` → `Entity*` 原来走 `static_cast<EntityHandlerView*>(v)->entity()`，现在改成
+  宿主建视图时登记反向表 `_entity_of_handler`（键是**虚基子对象地址**，也就是 `find_entity`
+  交出去的地址），`ICollisionViewHost` 增一个 `entity_of_handler()` 供视图查回。
+  `IActionEntity` / `IH3Entity` 是**非虚**基类 ⇒ 那两处 `static_cast` 照旧。
+- `EntityCollisionView` 是唯一实现者 ⇒ 反向表只有一个登记点（`collision_view()`）。
+
+**为什么不干脆折进 `Entity` 本身**（与 `EntityStateView` 同理，留待以后）：这些窄接口返回
+`Value`，而 `Entity` 自己的 `hp()` / `position` … 返回 `double` / `Vector3`；合并就得改
+`Entity` 的公开 API（改名或加壳），比这一刀大得多，也与「`collision/` 层只收窄接口」的分层
+冲突。`state/` 层的 `EntityStateView` 是同类问题，不在本刀范围。
+
+**行为不变**：差分 `all` **157/157**（`world/collision` 345 行逐行一致，lint / coverage 全清）；
+变异 `world_collision` 档 **38 条 36 全杀 / 2 存活 / 0 compile-error**（存活的仍是
+`find_object_data` 与 `find_entity` 两条快照恢复型缝，按构造不可观察）；视图那三条变异
+（`catcher` / `set_catching` / `set_catcher`）重新锚到 `EntityCollisionView::` 之后仍然被杀。

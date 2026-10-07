@@ -41,19 +41,17 @@ bool is_missing(const Value& v) {
 
 Value from_str(const std::u16string* p) { return p == nullptr ? Value() : Value(*p); }
 
-// `entity::IHandlerEntity*` / `IActionEntity*` 这类窄接口 → 视图 → `Entity`。
-// 视图之外没有别的实现者（`collision/` 层只收接口），故静态向下转换即可（`-fno-rtti`）。
-Entity* handler_entity_of(collision::IHandlerEntity* v) {
-  return v == nullptr ? nullptr : &static_cast<EntityHandlerView*>(v)->entity();
-}
-
+// `collision::IActionEntity&` / `IH3Entity&` 这类窄接口 → 视图 → `Entity`。视图之外没有别的
+// 实现者（`collision/` 层只收接口），而这两个接口都是**非虚基类** ⇒ 静态向下转换即可
+// （`-fno-rtti`）。`IHandlerEntity*` 现在是虚基类指针、转不了 —— 走宿主的反向表
+// （`WorldCollisionHost::entity_of_handler`）。
 const Entity& action_entity_of(const collision::IActionEntity& v) {
-  return static_cast<const EntityActionView&>(v).entity();
+  return static_cast<const EntityCollisionView&>(v).entity();
 }
 
 // `IH3Entity` 是唯一没有 `data()` 的那个接口（TS 那边读的是 `victim.data.type`）⇒ 走视图。
 const Entity& h3_entity_of(const collision::IH3Entity& v) {
-  return static_cast<const EntityActionView&>(v).entity();
+  return static_cast<const EntityCollisionView&>(v).entity();
 }
 
 Value position_value(double x, double y, double z) {
@@ -103,25 +101,27 @@ Entity* WorldCollisionHost::entity_by_id(const std::u16string& id) {
   return _world->find_entity(id);
 }
 
-EntityHandlerView* WorldCollisionHost::handler_view(Entity* e) {
+EntityCollisionView* WorldCollisionHost::collision_view(Entity* e) {
   if (e == nullptr) return nullptr;
-  std::unique_ptr<EntityHandlerView>& slot = _handler_views[e];
-  if (slot == nullptr) slot = std::make_unique<EntityHandlerView>(*e, *this);
+  std::unique_ptr<EntityCollisionView>& slot = _collision_views[e];
+  if (slot == nullptr) {
+    slot = std::make_unique<EntityCollisionView>(*e, *this);
+    _entity_of_handler[static_cast<collision::IHandlerEntity*>(slot.get())] = e;
+  }
   return slot.get();
 }
 
-EntityWeaponView* WorldCollisionHost::weapon_view(Entity* e) {
-  if (e == nullptr) return nullptr;
-  std::unique_ptr<EntityWeaponView>& slot = _weapon_views[e];
-  if (slot == nullptr) slot = std::make_unique<EntityWeaponView>(*e, *this);
-  return slot.get();
-}
+// 三个访问器给的是**同一个**实例：合并三视图之前它们各建一份，现在只是同一个对象的三面。
+EntityCollisionView* WorldCollisionHost::handler_view(Entity* e) { return collision_view(e); }
 
-EntityActionView* WorldCollisionHost::action_view(Entity* e) {
-  if (e == nullptr) return nullptr;
-  std::unique_ptr<EntityActionView>& slot = _action_views[e];
-  if (slot == nullptr) slot = std::make_unique<EntityActionView>(*e, *this);
-  return slot.get();
+EntityCollisionView* WorldCollisionHost::weapon_view(Entity* e) { return collision_view(e); }
+
+EntityCollisionView* WorldCollisionHost::action_view(Entity* e) { return collision_view(e); }
+
+Entity* WorldCollisionHost::entity_of_handler(const collision::IHandlerEntity* v) {
+  if (v == nullptr) return nullptr;
+  const auto it = _entity_of_handler.find(v);
+  return it == _entity_of_handler.end() ? nullptr : it->second;
 }
 
 buff::IBuffEntity* WorldCollisionHost::buff_view(Entity* e) {
@@ -594,8 +594,8 @@ void WorldCollisionHost::bind_handlers2() {
   };
   _handlers2.summary_apply_damage = [this](collision::IHandlerEntity* a, const Value& injury,
                                            collision::IHandlerEntity* v, const Value& prev_hp) {
-    Entity* const ea = handler_entity_of(a);
-    Entity* const ev = handler_entity_of(v);
+    Entity* const ea = entity_of_handler(a);
+    Entity* const ev = entity_of_handler(v);
     if (ea == nullptr || ev == nullptr) return;
     summary_mgr().apply_damage(entity_helpers_value(*ea), injury, entity_helpers_value(*ev),
                                prev_hp);

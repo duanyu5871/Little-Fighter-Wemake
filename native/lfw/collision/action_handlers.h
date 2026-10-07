@@ -14,7 +14,9 @@ struct IActionEntity {
   virtual const std::u16string& id() const = 0;
   virtual Value data() const = 0;
   virtual Value data_type() const = 0;
-  virtual Value velocity_x() const = 0;
+  // 必须是 `double`：`EntityCollisionView` 要同时实现它与 `IFallEntity::velocity_x()`
+  // （`double`），同名同参不同返回类型没法共用一个重写（见 `entity_collision_view.h`）。
+  virtual double velocity_x() const = 0;
   virtual void set_velocity_x(const Value& v) = 0;
   virtual Value facing() const = 0;
   virtual void set_facing(const Value& v) = 0;

@@ -59,8 +59,9 @@
 //     `find_entity` / `hp_recoverability` / `summary_apply_damage` / `is_fighter` / `calc_velocity`
 //     / `buff_env`，其中 `hp_recoverability` 与 `calc_velocity` 的结果进了 `hp_r` / 速度，
 //     前者 dump 里没有、后者被 `handle_fall` 的 `set_velocity` 吃掉 ⇒ 也够不着）；
-//   * 三个视图的转发（`EntityHandlerView::hp/set_hp/...`）：改坏了都会让 `hp` 变，但那样的
-//     `from` 串在视图里出现多次（三个类各一份），单点替换会打错类 ⇒ 留给视图自己的用例。
+//   * 三个视图已合并成一个 `EntityCollisionView`（4Q）：视图里只留 `handle_itr_catch` 走的那三
+//     条（`catcher` / `set_catching` / `set_catcher`）；其余转发方法（`hp` / `set_hp` / `data` …）
+//     改坏了也会让 `hp` / `data` 变，但观测面与 `handle_injury` 那几条重叠 ⇒ 留给视图自己的用例。
 //   * `step: 宿主不再置当前那一对（collision_get 的包装器）`：**实测**（手工去掉两行 + `build`
 //     + 对比输出：零差异）—— `collision_get` 期间的 `collision_test` 只在这条缝上读
 //     `attacker_is_ally`，而用例里没有任何一对能在这一步分岔（场景 4 试过「同队」：
@@ -210,34 +211,34 @@ export default {
     },
     // ───────────── `handle_itr_catch` 走的那三个视图方法 ─────────────
     {
-      note: "view: EntityHandlerView::catcher() 恒非空（`handle_itr_catch` 直接放弃）",
+      note: "view: EntityCollisionView::catcher() 恒非空（`handle_itr_catch` 直接放弃）",
       file: "native/lfw/entity/entity_collision_view.cpp",
       from:
-        "collision::IHandlerEntity* EntityHandlerView::catcher() const {\n" +
+        "collision::IHandlerEntity* EntityCollisionView::catcher() const {\n" +
         "  return _e.catcher == nullptr ? nullptr : _host.handler_view(_e.catcher);\n" +
         "}",
       to:
-        "collision::IHandlerEntity* EntityHandlerView::catcher() const {\n" +
+        "collision::IHandlerEntity* EntityCollisionView::catcher() const {\n" +
         "  return _host.handler_view(&_e);\n" +
         "}",
     },
     {
-      note: "view: EntityHandlerView::set_catching 空实现（攻击方不记受害者）",
+      note: "view: EntityCollisionView::set_catching 空实现（攻击方不记受害者）",
       file: "native/lfw/entity/entity_collision_view.cpp",
       from:
-        "void EntityHandlerView::set_catching(collision::IHandlerEntity* v) {\n" +
-        "  _e.catching = entity_of_handler(v);\n" +
+        "void EntityCollisionView::set_catching(collision::IHandlerEntity* v) {\n" +
+        "  _e.catching = _host.entity_of_handler(v);\n" +
         "}",
-      to: "void EntityHandlerView::set_catching(collision::IHandlerEntity* v) { (void)v; }",
+      to: "void EntityCollisionView::set_catching(collision::IHandlerEntity* v) { (void)v; }",
     },
     {
-      note: "view: EntityHandlerView::set_catcher 空实现（受害者不记攻击方）",
+      note: "view: EntityCollisionView::set_catcher 空实现（受害者不记攻击方）",
       file: "native/lfw/entity/entity_collision_view.cpp",
       from:
-        "void EntityHandlerView::set_catcher(collision::IHandlerEntity* v) {\n" +
-        "  _e.catcher = entity_of_handler(v);\n" +
+        "void EntityCollisionView::set_catcher(collision::IHandlerEntity* v) {\n" +
+        "  _e.catcher = _host.entity_of_handler(v);\n" +
         "}",
-      to: "void EntityHandlerView::set_catcher(collision::IHandlerEntity* v) { (void)v; }",
+      to: "void EntityCollisionView::set_catcher(collision::IHandlerEntity* v) { (void)v; }",
     },
     // ───────────── Pick / `handle_rest` / Freeze 这三条支路（用例第 7–10 组） ─────────────
     {
@@ -305,6 +306,35 @@ export default {
       file: "native/lfw/world_collision.cpp",
       from: "    return _cur_a->is_ally(*_cur_v);",
       to: "    return true;",
+    },
+    // ───── 另外四条宿主缝（4P 之后补：它们的可见处是台面日志与下游行为） ─────
+    {
+      note: "core: acquire_collision 复用同一个对象（违反 DESIGN §78.5 第 2 条）",
+      file: "native/lfw/world_collision.cpp",
+      from: "  _core.acquire_collision = [this]() -> collision::Collision& { return acquire_collision(); };",
+      to:
+        "  _core.acquire_collision = [this]() -> collision::Collision& {\n" +
+        "    static collision::Collision reused;\n" +
+        "    return reused;\n" +
+        "  };",
+    },
+    {
+      note: "core: find_object_data 恒失败（`h:datasfind` 与下游都变）",
+      file: "native/lfw/world_collision.cpp",
+      from: "  _core.find_object_data = [this](const std::u16string& id, Value& out) {",
+      to: "  _core.find_object_data = [this](const std::u16string& id, Value& out) {\n    (void)id;\n    (void)out;\n    return false;",
+    },
+    {
+      note: "core: find_entity 恒失败（handler 一律早退）",
+      file: "native/lfw/world_collision.cpp",
+      from: "  _core.find_entity = [this](const std::u16string& id, collision::CollisionActor& out) {",
+      to: "  _core.find_entity = [this](const std::u16string& id, collision::CollisionActor& out) {\n    (void)id;\n    (void)out;\n    return false;",
+    },
+    {
+      note: "core: dev 恒真（`Ditto.DEV` 调试分支全开）",
+      file: "native/lfw/world_collision.cpp",
+      from: "  _core.dev = [this]() { return _world->lfw().dev(); };",
+      to: "  _core.dev = [this]() { return _world != nullptr; };",
     },
   ],
 };
