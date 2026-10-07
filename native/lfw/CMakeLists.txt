@@ -145,6 +145,7 @@ add_library(lfw_core STATIC
   loader/preprocess_bot_data.cpp
   loader/preprocess_next_frame.cpp
   loader/preprocess_entity_data.cpp
+  loader/check_stage_info.cpp
   base/predicate.cpp
   utils/math/mersenne_twister.cpp
   utils/math/normalize_plane.cpp
@@ -157,6 +158,7 @@ add_library(lfw_core STATIC
   utils/js_add.cpp
   utils/times.cpp
   utils/read_nums.cpp
+  utils/schema/validate_schema.cpp
   helper/randoming.cpp
   state/spawn_ice_piece.cpp
   state/state_base.cpp

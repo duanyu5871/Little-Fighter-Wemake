@@ -4,10 +4,24 @@ import { prefab_error_message, resolve_prefab } from "../../../../src/LFW/loader
 
 import { Ditto } from "../../../../src/LFW/ditto";
 
-import { parseValue, readCaseLines, renderValue, splitWs } from "./trace_util";
+import { parseValue, readCaseLines, renderValue, splitWs, esc } from "./trace_util";
 
-(Ditto as unknown as Record<string, unknown>).error = () => undefined;
-(Ditto as unknown as Record<string, unknown>).warn = () => undefined;
+// `Ditto.warn` / `Ditto.error` 在 TS 里是宿主包：台面换成收集器以便和端口的 sink 对比
+// （TS 传的是 `SV.Default.warnings` / `.errors` **整个数组**）。
+const capturedWarns: string[] = [];
+const capturedErrs: string[] = [];
+(Ditto as unknown as Record<string, unknown>).error = (...args: unknown[]) => {
+  for (const a of args) {
+    if (Array.isArray(a)) capturedErrs.push(...(a as string[]));
+    else capturedErrs.push(String(a));
+  }
+};
+(Ditto as unknown as Record<string, unknown>).warn = (...args: unknown[]) => {
+  for (const a of args) {
+    if (Array.isArray(a)) capturedWarns.push(...(a as string[]));
+    else capturedWarns.push(String(a));
+  }
+};
 
 const out: string[] = [];
 
@@ -42,7 +56,11 @@ function main(): void {
       out.push(`bf ${renderValue(ctx)}`);
     } else if (op === "bg") {
       const data = parseValue(t, i) as never;
+      capturedWarns.length = 0;
+      capturedErrs.length = 0;
       out.push(`bg ${renderValue(preprocess_bg_data(lfwStub as never, data, []))}`);
+      for (const m of capturedWarns) out.push(`bgw ${esc(m)}`);
+      for (const m of capturedErrs) out.push(`bge ${esc(m)}`);
     } else if (op === "rp") {
       const obj = parseValue(t, i) as never;
       const prefabs = parseValue(t, i) as never;

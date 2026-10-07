@@ -4414,3 +4414,20 @@ harness op：
 - 变异档另记「有意不覆盖」：`Loop.continue_` 的 `times <= 0` 同观分支、`Easing.calc`
   的因子 clamp（time 已被夹住）、会死循环的 `update` 改写（`time ±= 0`、去 `done()`
   早退）、`easing.cpp` 换 `ease_linearity` 会缺 include（编译不过 ⇒ 换成 lambda）。
+
+### 6.9.128 schema 家族（`cases/schema/*.txt` 3 份 313 行；变异 `schema.mjs` 47/47 + `schema_wiring.mjs` 6/6 全杀）
+
+- **新 subject `schema`**：`nv <vid>`（新建 `SchemaValidator`）、`sch <sid> <TableName>`
+  （生成表里的真 schema）、`schv <sid> <literal>`（台面自搭 schema——schema 也是 Value，
+  直接走值字面量文法）、`val <vid> <sid> <literal>`（`v|<vid>|<sid>|b0/1|e=N|w=N` +
+  `ve|…` / `vw|…` + `vv|…` 校验后的值）、`rz <vid>`（reset 后打计数）、`cst` / `cph`
+  （`check_stage_info` / `check_phase_info`，后者两个字面量：stage / info）。生成表由
+  `node native/tools/gen_defines_schemas.mjs` 产出（TS 侧 `subjects/gen/defines_schemas.ts`
+  引真模块，两边同源）。
+- 用例教训：`o N` 的 **N 手数错**是这台面最容易踩的坑（首跑 4 处截断，报错会打整行 token
+  dump，照着数就行）；`val` 的 errors **累积**（想干净计数记得 `rz`）。
+- ⚠️ 断言消息里的 path 是 `make_schema` 的产物：`IStageInfo.phases.phases`（items 的
+  `{key, ...items}` 展开次序）、`IBgData.terrain.ITerrainInfo.x1`（items 自带 key 覆盖外层）、
+  自搭 schema 缺 `path` 时字面打 `undefined` —— 差分靠这些**逐字**对齐。
+- `loader_more` 侧：`bg` op 输出后面跟 `bgw` / `bge`（TS 台面把 `Ditto.warn/error` 换成收集器；
+  端口走 sink 参数）。`Ditto.warn/error` 收的是**整个数组**（一次一个参数）⇒ 台面展开成逐条行。

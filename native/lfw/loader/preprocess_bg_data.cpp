@@ -8,7 +8,9 @@
 #include "lfw/dat_translator/helpers.h"
 #include "lfw/defines/defines_data.h"
 #include "lfw/defines/fields_gen.h"
+#include "lfw/defines/schemas_gen.h"
 #include "lfw/fields.h"
+#include "lfw/utils/schema/validate_schema.h"
 
 namespace lfw {
 namespace loader {
@@ -44,7 +46,8 @@ Value default_screen_height() {
 
 }
 
-Value preprocess_bg_data(Value& data) {
+Value preprocess_bg_data(Value& data, std::vector<std::u16string>* warnings,
+                         std::vector<std::u16string>* errors) {
   Object* root = as_object(data);
   if (root == nullptr) return data;
 
@@ -80,6 +83,15 @@ Value preprocess_bg_data(Value& data) {
       Value t = terrain->at(i);
       reorder_fields(t, terrain_info_fields());
       dat_translator::delete_undefined(t);
+      schema::SchemaValidator& sv = schema::SchemaValidator::Default();
+      sv.validate(t, schema_i_terrain_info());
+      if (!sv.warnings().empty() && warnings != nullptr) {
+        warnings->insert(warnings->end(), sv.warnings().begin(), sv.warnings().end());
+      }
+      if (!sv.errors().empty() && errors != nullptr) {
+        errors->insert(errors->end(), sv.errors().begin(), sv.errors().end());
+      }
+      sv.reset();
     }
   }
 

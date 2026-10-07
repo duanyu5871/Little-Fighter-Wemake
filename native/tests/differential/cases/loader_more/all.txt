@@ -13,6 +13,7 @@ bg o 4 base o 2 file s "x.bmp" height n 100 layers a 1 o 2 file s "l.bmp" z u te
 bg o 2 base o 3 shadow_w n 5 shadowsize a 2 n 10 s "x" zoom a 3 n 1 n 2 n 3 data o 1 junk u
 
 bg o 2 base o 0 terrain o 0
+bg o 2 base o 0 terrain a 2 o 0 o 0
 
 rp o 1 ref s "A" o 2 A o 2 id s "1" ref s "B" B o 1 id s "2"
 

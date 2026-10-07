@@ -1465,7 +1465,8 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
   `ItrKind` 的值：Normal 0 / CharacterThrew 4 / WeaponSwing 5 / Heal 8 / JohnShield 9 / Block 14 /
   Whirlwind 15 / **Freeze 16**。
 - `native/lfw/loader/preprocess_bg_data.{h,cpp}`：`jobs`（图片加载）与 `SV.validate + Ditto.warn/error`
-  （schema 校验）**都不改数据**，C++ 略过；其余照抄 —— `base`/`dataset`/`layers[*]`/`terrain[*]`
+  （schema 校验）**都不改数据**；4W 起校验已接（`warnings`/`errors` sink 参数，见 §84），
+  `jobs` 仍略过；其余照抄 —— `base`/`dataset`/`layers[*]`/`terrain[*]`
   各自 `reorder_fields + delete_undefined`，`base.height ??= MODERN_SCREEN_HEIGHT`，
   `shadowsize`/`zoom` 解构后用 `typeof === "number" ? v : 0`（**不是 truthy**）写
   `shadow_w/shadow_h`、`zoom_x/zoom_y/zoom_z`，最后 `reorder_fields(data, bg_data_fields)` + `delete_undefined`。
@@ -8367,4 +8368,58 @@ undefined / 省略）；变异档 `xml_layer.mjs` **44/44 全杀**（0 存活、
 用例教训：**`mk d delay N` 给的是值不是时长** —— `Sequence` 的时长求和因而全 0，
 段扫描根本没跑（逆放侧 5 条变异存活）；补 `set d duration N` 后全杀。全量差分
 **176/176**、lint 全清。
+
+## 84. 切片 4W：schema 家族（`utils/schema` + `Schema_*` 表 + check_stage_info + bg_data 接线）
+
+**范围**：`src/LFW/utils/schema/` 三件（`make_schema` / `validate_schema` / `index`）、
+`defines/` 里的 **10 份 `Schema_*`**（IBgData / IBgLayerInfo / IFrameInfo / IFrameModel /
+IFramePic / IStageInfo / IStagePhaseInfo / ITerrainInfo / IWorldDataset / IWorldDataset_Partial）、
+`loader/check_stage_info`（两个薄包装），以及 `preprocess_bg_data` 里此前**略过**的
+`SV.Default.validate + Ditto.warn/error` 接线（§4.41 的旧注已修）。
+
+**形状 / 决策**：
+- `make_schema` 不手工移：`Schema_*` 是纯数据（探针确认只有 object/string/boolean/number，
+  无函数/无类实例），照 `gen_defines_fields.mjs` 的先例新增
+  `native/tools/gen_defines_schemas.mjs` —— esbuild 打包真模块、`plain()` 丢 `undefined`
+  值键（= `JSON.stringify` 丢键，读取侧两者同观）、非数组里的函数/`undefined` 直接报错。
+  产出 `native/lfw/defines/schemas_gen.h`（`json5_parse` 还原 + `SchemaTableRef` 注册表）
+  与台面的 `subjects/gen/defines_schemas.ts`（引真 schema）。**UI 的 `Schema_IUIImgInfo`
+  不在范围**（`ui/` 未移植）。
+- `SchemaValidator` 对 **Value 建模的 schema** 操作（`schema.type` 读成字符串；构造器分支在
+  端口里没有形态）。消息逐字照抄 —— 含 oneof 的 `JSON.stringify(schema.oneof)` 与
+  `${value}` 的 JS `String()` 语义（`to_string` / `json_stringify` 两块核心工具直接复用）。
+- `preprocess_bg_data(data, warnings, errors)`：TS 的 `Ditto.warn(...)` / `Ditto.error(...)`
+  接成**宿主缝参数**（TS 传的是**整个数组** ⇒ 端口把消息追加进 sink）；`loader_more` 台面两侧
+  分别用 sink 与 `Ditto.warn/error` 替换桩捕获，非空时打 `bgw`/`bge` 行。
+
+**照抄的怪癖 / 费解处**（序号接 §83 的 35）：
+36. **`typeof prop_type === 'object'` 是作者笔误**：`prop_type` 是**类型值**（字符串，如
+    `"number"`）⇒ `typeof` 恒为 `"string"` ⇒ 数组项与对象属性里的「对象再浅拷贝」
+    （`{...prop_value}`）是**死代码**；只有**数组**会被拷贝 —— 数组分支先
+    `value[i] = [...prop_value]` 换槽、子校验仍跑在**原数组**上；对象分支
+    `prop_value = [...prop_value]` 跑在局部拷贝上、成功才 `value[k] = prop_value` 写回、
+    失败丢弃。拷贝与原件同观（别名语义台面不可观察）⇒ 端口照抄两次数组拷贝，对象 spread
+    落地为注释。
+37. **type / nullable 的边角**：`type: "integer"` 本身**不**要求整数（整数约束只看
+    `number.int`）；`nullable` 只放行 nullish，非 nullish 值照走类型检查；`type: "null"`
+    对**非** nullish 值一路放行（switch 根本没有 `"null"` 分支）。
+38. **number 约束的次序**：校验里 nan → int → nagetive → positive → `nagetive == false`
+    → `positive == false`；而 `_wrong` 的分支次序是 nagetive → positive →
+    `positive == !1` → `nagetive == !1`（**两处次序不同**，消息据此拼）；`== !1` 是 JS 宽松
+    比较（`false` / `0` / `""` 都算真，`undefined` 不算）。
+39. **`return !this._errors.length`**：errors **累积** —— 同一条 validator 上先失败再喂合法值
+    仍返回 `false`（合法值自己不加消息，但旧消息不消）。`warnings` 不参与返回值；`reset()`
+    才同时清两者。
+40. **未知键警告挂在「值对象」上**：`Object.keys(value)` 里 properties 缺失或没有该键就
+    push `unexpected key '<k>' in '<path>'`；path 是 `make_schema` 拼出来的 ——
+    `IStageInfo.phases.phases`（items 的 `{key, ...items}` 展开次序决定）、
+    `IBgData.terrain.ITerrainInfo.x1`（items 自带 key 覆盖外层）都对出来了。
+41. **类类型分支不建形**：`typeof type === 'function'` 的「值必须是字符串」判定、
+    `Object.defineProperty` 惰性属性、`instance_getter/setter` 钩子 —— `Value` 装不下函数，
+    已移植的 10 份 schema 也没有这种形态（变异档头部记「有意不覆盖」）。
+
+**测试**：新 subject `schema` + 3 份用例 **313 行**（terrain 39 / real 98 / adhoc 176）；台面 ops：
+`nv` / `sch` / `schv` / `val` / `rz` / `cst` / `cph`。变异 `schema.mjs` **47/47 全杀** +
+`schema_wiring.mjs`（loader_more 侧）**6/6 全杀**（0 存活、0 编译错）；全量差分 **179/179**、
+lint 全清。
 

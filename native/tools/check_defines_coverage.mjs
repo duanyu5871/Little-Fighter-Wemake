@@ -53,7 +53,8 @@ lines.push("    const allStrings = entries.every(([, vv]) => typeof vv === 'stri
 lines.push("    const allNumericKeys = entries.every(([kk]) => isNumKey(kk));");
 lines.push("    let kind = 'other';");
 lines.push("    let group = -1;");
-lines.push("    if (k.endsWith('_fields')) kind = 'field-table';");
+lines.push("    if (k.startsWith('Schema_')) kind = 'schema';");
+lines.push("    else if (k.endsWith('_fields')) kind = 'field-table';");
 lines.push("    else if (isMeta(k) || (allNumericKeys && allStrings)) kind = 'label-map';");
 lines.push("    else if (hasReverse && hasForward) kind = 'number-enum';");
 lines.push("    else if (allStrings) kind = 'text-enum?';");
@@ -99,6 +100,7 @@ const groups = payload.groups;
 const enumHeader = readFileSync(resolve(root, "native/lfw/defines/all_enums.h"), "utf8");
 const enumsExtra = readFileSync(resolve(root, "native/lfw/defines/all_enums_extra.h"), "utf8");
 const fieldsHeader = readFileSync(resolve(root, "native/lfw/defines/fields_gen.h"), "utf8");
+const schemasHeader = readFileSync(resolve(root, "native/lfw/defines/schemas_gen.h"), "utf8");
 
 const registered = (text) => {
   const names = new Set();
@@ -107,8 +109,10 @@ const registered = (text) => {
 };
 const cxxEnums = new Set([...registered(enumHeader), ...registered(enumsExtra)]);
 const cxxFields = registered(fieldsHeader);
+const cxxSchemas = registered(schemasHeader);
 
 const tsFieldTables = new Set(found.filter((f) => f.kind === "field-table").map((f) => f.name));
+const tsSchemas = new Set(found.filter((f) => f.kind === "schema").map((f) => f.name));
 const tsNumberEnums = new Set(
   groups.filter((g) => g.kind === "number-enum").flatMap((g) => g.names),
 );
@@ -134,9 +138,16 @@ for (const n of [...tsFieldTables].sort()) {
 for (const n of [...cxxFields].sort()) {
   if (!tsFieldTables.has(n)) report.push(`field-table EXTRA in C++: ${n}`);
 }
+for (const n of [...tsSchemas].sort()) {
+  if (!cxxSchemas.has(n)) report.push(`schema MISSING in C++: ${n}`);
+}
+for (const n of [...cxxSchemas].sort()) {
+  if (!tsSchemas.has(n)) report.push(`schema EXTRA in C++: ${n}`);
+}
 
 process.stdout.write(`TS modules: ${modules.length}\n`);
 process.stdout.write(`TS field tables: ${tsFieldTables.size}, C++ registered: ${cxxFields.size}\n`);
+process.stdout.write(`TS schemas: ${tsSchemas.size}, C++ registered: ${cxxSchemas.size}\n`);
 process.stdout.write(
   `TS enum groups: number=${groups.filter((g) => g.kind === "number-enum").length}` +
     ` text=${groups.filter((g) => g.kind === "text-enum?").length}` +

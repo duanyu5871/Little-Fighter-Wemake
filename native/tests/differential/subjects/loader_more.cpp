@@ -68,7 +68,12 @@ int main(int argc, char** argv) {
       emit("bf " + render(ctx));
     } else if (op == "bg") {
       lfw::Value data = parse_value(t, i);
-      emit("bg " + render(lfw::loader::preprocess_bg_data(data)));
+      std::vector<std::u16string> warns;
+      std::vector<std::u16string> errs;
+      const lfw::Value out = lfw::loader::preprocess_bg_data(data, &warns, &errs);
+      emit("bg " + render(out));
+      for (const std::u16string& m : warns) emit("bgw " + trace::esc(m));
+      for (const std::u16string& m : errs) emit("bge " + trace::esc(m));
     } else if (op == "rp") {
       lfw::Value obj = parse_value(t, i);
       lfw::Value prefabs = parse_value(t, i);
