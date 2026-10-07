@@ -8099,3 +8099,60 @@ differential **155/155**。
 `state_keys` 95 / `dummy_queue` 21），变异档 `bot_controller.mjs` **24/24 全杀**（0 存活）。
 顺带修正 `defines/game_key.h`：`all_game_keys()` 回归 AGK 顺序，新增
 `object_values_game_keys()`。全量差分 **164/164**、lint **7299 锚点全清**。
+
+## 80. 切片 4S：`ditto/xml` 方言（seam + tool 实现）
+
+**范围**：`src/LFW/ditto/xml/` 的两个宿主接口 `IXMLElement` / `IXML` 搬成
+`native/lfw/ditto/xml/i_xml_element.h` / `i_xml.h`，并把两份 TS 实现里的 **tool 那份**
+（`tool/src/xml/ToolXMLElement.ts` 320 行 + `ToolXML.ts` 117 行）搬成默认实现
+`tool_xml_element.{h,cpp}` / `tool_xml.{h,cpp}`。LFW 的 `dat_translator/xml/*`（45 文件）
+是**下一刀**，本刀只把方言落地并上差分。
+
+**为什么是 tool 那份**：§4.66 已经定调 —— `ditto/` 是**依赖注入缝**，不是要整块搬的
+平台代码。两份实现里，浏览器版（`src/DittoImpl/xml/XMLElement.ts`）是 DOM +
+`XMLSerializer` + `xml-formatter` 的皮、tool 版是纯内存的骨。工具链（`DatMgr` 的
+dat→xml→dat）走的就是 tool 版，且它无平台依赖 ⇒ Node 侧能原样跑差分（TS 台面直接
+`import` `tool/src/xml`，`fast-xml-parser` 由 esbuild 从 `tool/node_modules` 解析）。
+浏览器版与 tool 版的语义差全部记进 README 偏差表（`as_object` 的 `type`、`get_*_arr`
+的 `or`、`text` 的 `textContent`、`insert` 的先摘旧父、`from_number` 的文本/属性、
+`stringify` 的序列化器、`parse`……）。
+
+**形状**（接 §4.66 与 `IZip` 的先例）：
+- `Voidable<T>` ⇒ `std::optional<T>`；可空成员（`strs_attr_soft` 的项）嵌一层
+  `std::optional`；`as_array` / `as_object` / `set_attr` 这类装 JS 值的口子收 `Value`。
+- 所有权：工厂给 `std::shared_ptr<IXMLElement>`，`insert` 收 `shared_ptr`，读向
+  （`children` / `parent` / `child_by_tag`）给裸指针。**必须 `shared_ptr`**：tool 的
+  `insert` 不先摘旧父（同一元素可以挂两个父），值语义装不下。
+- `type()`（标签名小写；`value` 标签取 `type` 属性小写）是 impl 内部概念，seam 上没有。
+- `get_str_arr` / `get_num_arr` 只给 optional 版：tool 实现**忽略 `or`**（直接
+  `return ret`，缺省就是 `undefined`），浏览器版才是 `ret ?? or` —— 偏差表有记录。
+
+**照抄的 tool 怪癖**（都用例/变异锁住）：
+1. `as_number()` / `as_boolean()` 是**死路径**：它们先调 `as_string()`，而 `as_string`
+   按 `type == 'string'` 挡一道 ⇒ 对 `type` 是 number / boolean 的元素恒走缺省
+   （探针实测：`<number type="number">7</number>` 的 `as_number()` 是 `undefined`）。
+   连带 `get_num` / `get_bool` / `get_num_arr` 的**子元素分支**实际只有属性回落半边
+   可观察（记在 `mutations/xml.mjs` 头部的「有意不覆盖」）。
+2. `stringify()` 复刻 fast-xml-parser 的
+   `XMLBuilder({format:true, ignoreAttributes:false, attributeNamePrefix:'@_', suppressEmptyNode:false})`：
+   2 空格缩进、每个元素行尾 `\n`、同名子元素**按标签分组**输出（同一标签聚到一起、
+   首次出现定组序 —— `[a,b,a]` 会输出成 `a,a,b`）、空元素（无属性/无子元素/无文本）
+   **整块被丢**（自己是空串，在父里连标签都不出现）、`<x attrs></x>` 不压成 `<x/>`、
+   转义只有 `& < > " '` 五个、有子元素时文本被丢、空根 ⇒ `""`。
+3. `set_attr` 的 nullish 删属性、数组按 `sep` join（成员 nullish 变空串）；
+   `set_arr_attr_soft` 先丢尾部 nullish、中间 nullish 变空串、全空 ⇒ 删属性。
+4. `insert` 的越界/缺省当追加、同父可重复挂同一元素；`remove` 只认直接子、找不到回
+   `false`；`remove_self` 没有父回 `false`（并顺带把父的 `parent_` 摘干净）。
+5. `strs_attr` 系列的 split + trim 语义照 JS（后端别名的 `sep` 参数保留，LFW 调用点
+   全走默认 `,`；多字符分隔符不建模）。
+
+**明确不搬**：`IXML::parse` 给 `nullptr`（fast-xml-parser 的 `XMLParser` 等价物是
+另一刀的活）。LFW 里 `Ditto.XML.parse` 的真实调用点只有 `LFW.ts` / `Resources.ts`，
+`dat_translator/xml/*` 全走 `create` / `from_*` ⇒ 不挡本刀。
+
+**测试**：新 subject `xml`（台面 op：`new` / `fromstr|num|bool|arr|obj` / `bytag(i)` /
+`attr|dattr|sattr|text` / `ins|rm|rmself|rmall` / `rd <kind>` / `dump`；TS 侧直接吃
+`tool/src/xml`），4 个用例 **278 行**（`factory` 109 / `quirks` 43 / `reads` 87 /
+`tree` 39）；变异档 `xml.mjs` **48/48 全杀**（0 存活、0 compile-error）。全量差分
+**168/168**。
+

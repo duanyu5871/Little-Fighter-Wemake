@@ -169,6 +169,8 @@ add_library(lfw_core STATIC
   state/character_state_lying.cpp
   state/states.cpp
   state/entity_states.cpp
+  ditto/xml/tool_xml_element.cpp
+  ditto/xml/tool_xml.cpp
 )
 
 target_include_directories(lfw_core PUBLIC

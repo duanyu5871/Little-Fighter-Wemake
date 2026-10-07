@@ -4313,3 +4313,30 @@ harness op：
   对应的变异条目（改坏 `ensure_published()` / `clear_globals()` 的都是不可观察的）。
 - **踩坑**：改这条时先 `build`（不带 subject）再 `test` —— 只 `build world` 不会重建库，
   差分台面会拿旧库跑，表现为「改了没生效」（§6.9.122 同款坑）。
+
+### 6.9.124 `ditto/xml` 方言的主体（新 subject `xml`，四份用例共 278 行；变异 48/48 全杀）
+
+- **参照侧 = `tool/src/xml`**（`ToolXMLElement` / `ToolXML`，TS 台面直接 `import`；`fast-xml-parser`
+  由 esbuild 从 `tool/node_modules` 解析）。两份 TS 实现（浏览器 DOM 版 / tool 纯内存版）的语义差
+  归 README 偏差表；端口默认实现 = tool 那份（`native/lfw/ditto/xml/tool_xml_element.{h,cpp}` /
+  `tool_xml.{h,cpp}`），详见 DESIGN §80。
+- **`stringify()` 复刻 fast-xml-parser `XMLBuilder({format:true, ignoreAttributes:false,
+  attributeNamePrefix:'@_', suppressEmptyNode:false})`**：2 空格缩进、每行尾 `\n`、**同名子元素按
+  标签分组**（同一标签聚到一起、首次出现定组序 —— `[a,b,a]` 输出 `a,a,b`）、空元素（无属性/无子元素/
+  无文本）整块被丢（自己是 `""`、在父里连标签都不出现）、`<x></x>` 不压成 `<x/>`、转义只有
+  `& < > " '`、有子元素时文本被丢、空根回 `""`。用例 `quirks` 专锁这些形状。
+- **tool 的两处「怪但照抄」**：① `as_number()` / `as_boolean()` 先调 `as_string()`，而它按
+  `type == 'string'` 挡一道 ⇒ 对 number / boolean 元素**恒走缺省**（浏览器版不走 `as_string`）；
+  ② `get_str_arr` / `get_num_arr` **忽略 `or`**（端口接口因此只给 optional 版）。两者的函数体
+  尾段/合并顺序中不可观察的部分记在 `mutations/xml.mjs` 头部的「有意不覆盖」。
+- ⚠️ **台面坑一：子元素分支的门是「标签 = 名字」且「标签是类型名」**。`get_str` / `get_str_arr` 读
+  `children_by_tag(name)` 之后还要过 `as_string()`（`type == 'string'`）⇒ `<sound value="…">` 这种
+  「业务名标签」的元素**读不出来**（tool 与端口一致）；要观察子元素优先/合并顺序，子元素必须写成
+  `<string>` / `<number>` … 或 `<value type="string">`。`reads` 用例专门留了这两组「别名的子元素」。
+- ⚠️ **台面坑二：`or` 值参数用裸 token**（字符串带引号 / 数字 / `0|1`），不吃 `parse_value` 的
+  类型化字面量（`s "def"` 会留下 `"def"` 没消费 ⇒ 报 trailing token）。
+- ⚠️ **台面坑三：`bytag` / `bytagi` 出来的别名是裸指针**（父元素持有），只给读口用；`ins` 只受理
+  工厂造的根（C++ 侧 `shared_ptr` 才能双重挂载 —— tool 的 `insert` 不先摘旧父）。
+- `parse` 未搬（`ToolXML::parse` 回 `nullptr`）：LFW 里真调用点只有 `LFW.ts` / `Resources.ts`
+  （后续刀），`dat_translator/xml/*` 全走 `create` / `from_*`。
+- 全量差分 **168/168**、lint 全清。
