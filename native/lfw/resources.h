@@ -1,9 +1,11 @@
 #pragma once
 
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "lfw/core/value.h"
+#include "lfw/ditto/xml/i_xml_element.h"
 #include "lfw/zip_mgr.h"
 
 namespace lfw {
@@ -12,8 +14,13 @@ namespace lfw {
 // `ArrayBuffer` / `ImageBitmap` / `IXMLElement`）⇒ 端口统一用 `Value` 装。
 // `file` / `origin` 都是可选的（网络回退那条路**不写** `origin`；`import_image_bitmap` 回退时
 // `file` 是 `paths[0]`）⇒ 端口也用 `Value`（没写就是 `undefined`）。
+//
+// ⚠ `xml` 那条路的 `data` 是台面语义的「解析结果」（脚本值）：TS 的 `data` 是真正的根元素，
+// 而 `Value` 装不下 `IXMLElement` ⇒ 真元素走 `xml_root`（4Z 加，给 `DatMgr` 这类真消费者）。
 struct ImportResult {
   Value data;
+  // `import_xml` 的根元素（宿主解析出来才非空；只要 marker 的台面留 `nullptr`）。
+  std::shared_ptr<IXMLElement> xml_root;
   Value file;
   Value origin;
 };
@@ -34,8 +41,11 @@ class IResourcesHost {
                                       Value& hit, std::u16string& error) = 0;
   virtual bool import_as_text(const std::vector<std::u16string>& urls, Value& data, Value& hit,
                               std::u16string& error) = 0;
-  // `Ditto.XML.parse(text)`：结果是宿主 XML 元素（`IXMLElement`），端口给个 `Value` 标记。
-  virtual bool xml_parse(const Value& text, Value& out, std::u16string& error) = 0;
+  // `Ditto.XML.parse(text)`：结果是宿主 XML 元素（`IXMLElement`）。
+  // `marker` 是台面语义的「解析结果」（假值 ⇒ 解析失败，与旧接口一致；“脚本值”给
+  // `resources` 台面对齐用）；`root` 是**真·根元素**（能解析就给；只脚本 marker 的台面留空）。
+  virtual bool xml_parse(const Value& text, Value& marker, std::shared_ptr<IXMLElement>& root,
+                         std::u16string& error) = 0;
 };
 
 // TS `Resources`。

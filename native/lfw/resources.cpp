@@ -173,12 +173,14 @@ bool Resources::import_xml(const std::u16string& path, bool exact, ImportResult&
       if (!_host->import_as_text(paths, text, hit, error)) return false;
     }
     Value root;
-    if (!_host->xml_parse(text, root, error)) return false;
+    std::shared_ptr<IXMLElement> xml_root;
+    if (!_host->xml_parse(text, root, xml_root, error)) return false;
     if (!truthy(root)) {
       error = u"[" + std::u16string(kTag) + u"::import_xml] failed to parse: " + path;
       return false;
     }
     out.data = root;
+    out.xml_root = xml_root;
     out.file = file_name_or_first_path(file, paths);
     out.origin = tag;
     return true;

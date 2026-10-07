@@ -4483,3 +4483,29 @@ harness op：
 - ⚠️ 作弊码用例的观测面只有 `h:cheatchanged` / `h:loadplay`（dataset 写入无读取口）——宽松比较
   早退的情形靠「回调日志**缺席**」来断言（`ds GIM_INK b 1` / `s "1"` 后 `GIM_INK 1` 无日志，
   `n 5` 后有）。
+
+### 6.9.131 `loader/DatMgr`（`cases/dat_mgr/*.txt` 6 份 544 行；变异 `dat_mgr.mjs` 82/82 全杀）
+
+- 新 subject `dat_mgr`：资源链走**真 `Resources` + 空 `ZipMgr`**（都 miss ⇒ 落到宿主桩），
+  `lfw` 只给 `resources` / `images.load_img` / `images.load_by_pic_info`（静默，加载任务不落地）/ `mt`
+  （种子 12345）/ `emit_progress` 四个成员；`Ditto.Importer` / `Ditto.XML` / `warn` / `error` 全脚本化。
+- ops：脚本化 `jfile <path> <value>` / `xtree <path> <tree>`（`o 3 tag s … attrs o … kids a …`
+  递归建元素）/ `jfail` / `tfail` / `clearat <json|text> <path>`（该次 import 前先 `mgr.clear()`）/
+  `clearimg <path|->` / `unhook`（清掉所有钩子）/ `spark`；动作 `load <paths…>` / `clear` /
+  `dispose` / `innerid`；查询 `dump` / `find` / `botof` / `bgh` / `stg` / `stgz`（整个关卡对象
+  的 render）/ `botst` / `findbot` / `findmoves` / `fwv` / `fwpred`（谓词重载）/ `fobjv` / `fentv` /
+  `ffv` / `fbgv` / `objg` / `fg` / `wg` / `fng` / `bgg` / `randg` / `randgc`（同实例 + 一次 get）/
+  `bgr` / `rbg` / `ctrls` / `mkctrl`。
+- ⚠️ `import_*` 每次回**深克隆**（TS `JSON.parse(JSON.stringify(v))`，C++ 递归拷贝）：真导入每次
+  解析新对象，而复用同一对象会在第二次 cook 撞上 TS 的 `data.xml = …`（`_add_object` 先挂了
+  只读 getter）。
+- ⚠️ `clearat` / `clearimg` 是**堆叠**的钩子：一段测完要 `unhook`（或 `clearimg -`），否则后续
+  的 load 全在第一个内置图片就打回（本次调试踩过：取消用例后半段全被吃掉）。
+- ⚠️ `xtree` 里 `attrs` 只放字符串；`xml_parse` 按**文本**查树 —— `xtree` 把文本设成 path 本身
+  （`tfiles.set(p, p)`），所以 `xml:` 日志两侧都是路径。
+- ⚠️ 台面闭了 RTTI（`/GR-`）⇒ `mkctrl` 的标签用 creator 身份（`c->creator() == …`），**不要
+  `dynamic_cast`**（CFG 会直接崩，本次踩过）。
+- ⚠️ `o N` 的 N 要数对：`o 2 id s … name s … bg s …` 里 `bg` 会被**静默当尾随 token 丢掉**
+  （两测一致所以不红，但用例语义偏了——关卡那几行踩过）。
+- ⚠️ C++ 侧假件 `Factory::set_warn` 要接进同一个日志（TS `Factory.register_ctrl` 重复注册会
+  `Ditto.warn`，不接的话重加同 id 的用例两侧漂）。

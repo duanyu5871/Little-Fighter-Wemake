@@ -335,8 +335,8 @@ bool Resources::import_resource`,
     {
       note: "Resources(import_xml): 忽略 XML.parse 的失败",
       file: "native/lfw/resources.cpp",
-      from: `    if (!_host->xml_parse(text, root, error)) return false;`,
-      to: `    _host->xml_parse(text, root, error);`,
+      from: `    if (!_host->xml_parse(text, root, xml_root, error)) return false;`,
+      to: `    _host->xml_parse(text, root, xml_root, error);`,
     },
     {
       note: "Resources(import_xml): 不判解析结果假值（不再抛「failed to parse」）",
@@ -378,9 +378,11 @@ bool Resources::import_resource`,
       note: "Resources(import_xml): 命中时也不写 origin",
       file: "native/lfw/resources.cpp",
       from: `    out.data = root;
+    out.xml_root = xml_root;
     out.file = file_name_or_first_path(file, paths);
     out.origin = tag;`,
       to: `    out.data = root;
+    out.xml_root = xml_root;
     out.file = file_name_or_first_path(file, paths);
     out.origin = Value();`,
     },

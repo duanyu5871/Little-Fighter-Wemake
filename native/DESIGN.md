@@ -8570,3 +8570,84 @@ puppet 14）；台面 ops：`cmd s "…"`（直过调度器）、`wcmds`/`handle
 SET_PUPPET 换数据（transform）靠它才可观测）。变异 `cmds2.mjs` **58/58 全杀**（0 存活、0 编译错；
 五条「有意不覆盖 / 不建形」记在档头）；全量差分 **188/188**、lint 全清。
 
+## 87. 切片 4Z：`loader/DatMgr`（数据表管理器 + Resources 的 XML 元素缝）
+
+**范围**：`loader/` 最后一块 —— `DatMgr`（`Inner` + 外层：内置数据两趟 → 索引文件
+（`.xml` / `.json` / `.json5`）→ bots / moves / objects / backgrounds / stages 五趟 → 合并），
+以及两件连带：①`controller/creators.{h,cpp}`（`BotController` / `BallController` 的
+`ICtrlCreator`，TS `Factory.register_ctrl(data.id, Cls)` 里那个「类」）；②`Resources` 的
+**xml 缝升级** —— `ImportResult` 加 `std::shared_ptr<IXMLElement> xml_root`、宿主缝
+`xml_parse(text, marker, root, error)` 多出一个真·根元素出口（marker 旧语义不变；`resources`
+台面只动 host 一处 + 两处变异锚点，**44/44** 仍全杀）。
+
+**形状 / 决策**：
+- `IDatMgrHost`（宿主缝）：`resources()` / `mt()` / `load_img(path)`（`await images.load_img(path,
+  path)` 的完成态）/ `emit_progress(content, progress)`（TS 第三参 `size` 不传）/ `warn(args)` /
+  `error(args)`（全局 `Ditto.warn/error`，参数原样给台面渲染）。台面假件与将来的 `LFW` 都实现它。
+- 数据面一律 `Value`：五张实体表 = `std::vector<Value>`，四张 `Map` = 插入序 pair 表
+  （`factory.cpp` 的同一套约定）；`datas` 键 = `"4"/"8"/"16"/"32"/"background"/"objects"/"bots"/"moves"`
+  （JS 属性访问的转换：数字 → 字符串）。
+- `load()` 是 `async` ⇒ 端口同步 + `bool` + `error`（文案 = TS `err.message`）；包装路径逐字复刻
+  `${e}` 的**构造函数名前缀**：资源 / 预处理失败 → `reason: Error: …`，类型表查不到（V8 的
+  findIndex TypeError）→ `reason: TypeError: …`。
+- 取消：`clear()` / `dispose()` 换 `Inner`（`shared_ptr`）+ `++_inner_id`；进行中的 `load` 拿着旧
+  实例跑（不会 use-after-free），下一个检查点给 `error = u"cancelled"`。台面用「host 回调里
+  调 `mgr.clear()`」模拟 TS 的 await 打断。
+- `_add_object` / `_add_bg` 给数据对象挂的 `xml` / `xml_roundtrip` / `xml_roundtrip_ok` 三个
+  defineProperty 访问器**不建形**（`Value` 没有 getter；只服务编辑器 / 开发向取用）；
+  `this.stages[idx] = stage` 的「数组外属性」写法同样不建形（数组内容等价于「有就替、无就 push」）。
+- 控制器创建器：`create(player_id, entity)` 只落 `player_id`（端口控制器看不见 `Entity`，env 由
+  `Entity::set_ctrl` 刷，见 4R）；一个类一个进程级单例（注册表 / 归池的键就是指针身份）。
+
+**照抄的怪癖 / 费解处**（序号接 §86 的 60）：
+61. `new Randoming('dat_${group}_randoming', …)` —— 引号写成了**单引号** ⇒ 名字是字面
+    `dat_${group}_randoming`（每个组的随机组**同名**）；`get_bg_randoming_of_group` 的名字才是
+    真插值的 `bg_<组名用_连>_randoming`。
+62. 背景随机组的**缓存键** = `groups.join()`（默认逗号），而 `_add_bg` 的失效只删「单组名」
+    键 ⇒ `bgr "gb,gc"` 这类**组合键永远 stale**（同 id 重加背景后仍拿旧池）。Set 去重在
+    **首次构建**时按引用身份做，同一个 bg 跨组只留一份。
+63. `datas[data.type]` 兜底：类型不是字符串 / 数字时 JS 读到 `undefined`（再 `.findIndex` 抛
+    TypeError，V8 文案 "Cannot read properties of undefined (reading 'findIndex')"）—— 端口逐字
+    照抄这句（`add_object` / `add_bg` 各一条）。
+64. bot / moves 的键三角：bots 记 **id / file / 数据自己的 id**；moves 记 **id / file /
+    `raw.oid`**（数据自己的 `id` **不进表**；`oid` 还要 truthy 且 != id）；`find_bot` /
+    `find_moves` 走各自的表。
+65. `find(id)` = 别名表优先；`_add_object(id)` 之后 `id != file` 再记 file、`id != cooked.id`
+    再记 cooked.id ⇒ 同一对象多个键。**被覆盖者留住旧键**：第二次加同 id 数据只换 `id` 键，
+    第一份数据的 `file` 键仍指旧对象（用例 `find objs/d1.json5` 钉住）。
+66. 关卡合并：`findIndex(id 严格相等)` —— 有就原位替换（顺序不变、`VOID_STAGE` 也可以被换掉）、
+    没有就 push；TS 在 push 之后还写 `this.stages[idx] = stage`（idx = -1 ⇒ 只能算数组外属性）；
+    `if (!this.stages.length) unshift(VOID_STAGE)` 是**死分支**（初始就带 VOID_STAGE）。
+67. 取消检查点的分布：imgs 每张后、dats 每条后、solve 每个索引文件（循环开头 / xml 解析前 /
+    公共尾）、bots / moves / stages 每条 import 后、objects / backgrounds **只有「条目前」** ⇒
+    **最后一条 objects / backgrounds 导入期间取消不会被发现**（load 照常成功、数据写进被弃
+    Inner；用例钉住）。另有几个检查点互相「吃掉」（相邻无可观测动作）⇒ 变异档记「有意不覆盖」。
+68. 进度：`total` = 五表条数和；`loaded` 对 **skipped 条目也 +1**（`report` 只在没 skip 时发）；
+    `Math.floor(loaded * 100 / total)`；索引解构的 `= []` 缺省只在 **nullish** 时生效。
+69. 数据对象的 `xml` getter 与二次 cook 的冲突：TS `preprocess_entity_data` 末尾
+    `data.xml = () => …` 是**赋值**，而 `_add_object` 先挂了同名只读 getter ⇒ **同一对象二次
+    cook 会抛**；真实导入每次解析出新对象所以碰不到 —— 台面因此让 `import_*` 每次回**克隆**值。
+70. `_cook_data` 的三件事：bg 早退（`is_bg_data`）；实体先按类型注册控制器、再
+    `data.base.bot = data.base.bot ?? bot_map.get(data.id ?? data.base.bot_id)`（`??` 语义；
+    bot 缺省时把查到的 bot 数据塞进 `base.bot`，preprocess 接着把它的 `expression` 编成
+    judger）；ctx = `{lfw: {images:{},sounds:{}} 桩, data, jobs: [], errors: []}`（加载任务不落地，
+    见 §66）。
+71. `preprocess_bg_data` 的告警转发：TS 在**每个 terrain 项**后按需 `Ditto.warn(SV.Default.warnings)`
+    / `Ditto.error(...)`（参数是整个数组）；端口把整趟收集并成一次（≥ 2 个会告警的 terrain 项
+    才看得到差别）。
+72. 台面把 `xtree` 建好的元素交给 `xml_parse`（`ToolXML.parse` 端口未搬，见 `i_xml.h`）——
+    xml 索引 / 对象 / 背景 / 关卡四条读路都真跑 `xml_2_*`，只有 fast-xml-parser 的文本解析
+    留给 parse 的刀。
+73. 台面构造：`mkctrl` 用 **creator 身份**（`c->creator() == ball_controller_creator()`）判标签
+    —— 构建关了 RTTI（`/GR-`，见 CMakePresets），`dynamic_cast` 会 CFG 崩；TS 侧
+    `new BotController(pid, entity)` 没 env（`fsm.reset` 读 stage）会抛 ⇒ bot 创建路径不建形
+    （注册表由 `ctrls` 表钉住）。
+
+**测试**：新 subject `dat_mgr` + 6 份用例 **544 行**（basic 101 / cancel 118 / dup 126 / fail 119 /
+rand 22 / xml 58）；台面 ops：脚本化资源 `jfile` / `xtree` / `jfail` / `tfail` / `clearat` /
+`clearimg` / `unhook` / `spark`，动作 `load` / `clear` / `dispose` / `innerid`，查询 `dump` /
+`find` / `botof` / `bgh` / `stg` / `stgz` / `botst` / `findbot` / `findmoves` / `fwv` / `fwpred` /
+`fobjv` / `fentv` / `ffv` / `fbgv` / `objg` / `fg` / `wg` / `fng` / `bgg` / `randg` / `randgc` /
+`bgr` / `rbg` / `ctrls` / `mkctrl`（`Factory::set_warn` 也汇流进同一个日志）。变异 `dat_mgr.mjs`
+**82/82 全杀**（0 存活、0 编译错；等价 / 防御项在档头）；全量差分 **194/194**、lint 全清。
+

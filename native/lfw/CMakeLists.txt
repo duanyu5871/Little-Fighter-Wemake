@@ -115,6 +115,7 @@ add_library(lfw_core STATIC
   controller/controller_result.cpp
   controller/base_controller.cpp
   controller/ball_controller.cpp
+  controller/creators.cpp
   helper/manhattan_xz.cpp
   helper/closer_one.cpp
   bot/closest.cpp
@@ -156,6 +157,7 @@ add_library(lfw_core STATIC
   loader/preprocess_next_frame.cpp
   loader/preprocess_entity_data.cpp
   loader/check_stage_info.cpp
+  loader/dat_mgr.cpp
   base/predicate.cpp
   utils/math/mersenne_twister.cpp
   utils/math/normalize_plane.cpp

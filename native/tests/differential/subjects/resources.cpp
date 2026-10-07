@@ -164,13 +164,15 @@ class FakeHost : public lfw::IResourcesHost {
                       std::u16string& error) override {
     return import_one(1, urls, data, hit, error);
   }
-  bool xml_parse(const lfw::Value& text, lfw::Value& out, std::u16string& error) override {
+  bool xml_parse(const lfw::Value& text, lfw::Value& marker,
+                 std::shared_ptr<lfw::IXMLElement>& root, std::u16string& error) override {
     push("xml:" + to_ascii(lfw::to_string(text)));
     if (xml_has_fail) {
       error = to_u16(xml_fails);
       return false;
     }
-    out = xml_result;
+    marker = xml_result;
+    root = nullptr;
     return true;
   }
 };
