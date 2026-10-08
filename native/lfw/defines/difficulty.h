@@ -48,4 +48,16 @@ inline std::u16string difficulty_label(double v) {
   return std::u16string();
 }
 
+// `DifficultyNames`（`src/LFW/defines/Difficulty.ts`）：枚举值→显示名。表外的键在 TS 里是
+// `undefined`（`` `${undefined}` `` 即 `"undefined"`），照抄这个口径。
+inline std::u16string difficulty_full_name(double v) {
+  switch (static_cast<int>(v)) {
+    case static_cast<int>(Difficulty::Easy): return u"Easy";
+    case static_cast<int>(Difficulty::Normal): return u"Normal";
+    case static_cast<int>(Difficulty::Difficult): return u"Difficult";
+    case static_cast<int>(Difficulty::Crazy): return u"Crazy!";
+  }
+  return u"undefined";
+}
+
 }

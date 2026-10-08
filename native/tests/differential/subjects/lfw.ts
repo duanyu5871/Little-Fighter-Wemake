@@ -9,6 +9,7 @@ import { Factory } from "../../../../src/LFW/Factory";
 import { LFW } from "../../../../src/LFW/LFW";
 import { get_val_getter_from_stage } from "../../../../src/LFW/loader/get_val_getter_from_stage";
 import { PlayerInfo } from "../../../../src/LFW/PlayerInfo";
+import { Stage } from "../../../../src/LFW/stage/Stage";
 import { cook_ui_info, find_ui_template, merge_ui_template } from "../../../../src/LFW/ui/cook_ui_info";
 import { LFWKeyEvent } from "../../../../src/LFW/ui/LFWKeyEvent";
 import { LFWPointerEvent } from "../../../../src/LFW/ui/LFWPointerEvent";
@@ -1335,6 +1336,34 @@ async function run_ops(): Promise<void> {
       lfw.world.callbacks.call(keyOf(next()));
     } else if (op === "lcb") {
       lfw.callbacks.call(keyOf(next()), lfw);
+    } else if (op === "wstage") {
+      lfw.world.stage = new Stage(lfw.world, parseValue(t, i) as never);
+    } else if (op === "sphase") {
+      lfw.world.stage.enter_phase(Number(next()));
+    } else if (op === "sfield") {
+      const key = keyOf(next());
+      (lfw.world.stage.data as Rec)[key] = parseValue(t, i);
+    } else if (op === "dialpush") {
+      lfw.world.stage.push_dialogs(parseValue(t, i) as never);
+    } else if (op === "dialnext") {
+      lfw.world.stage.next_dialog();
+    } else if (op === "dialclear") {
+      lfw.world.stage.clear_dialogs();
+    } else if (op === "stevt") {
+      lfw.world.stage.callbacks.call(keyOf(next()), lfw.world.stage);
+    } else if (op === "pkeye") {
+      const pid = nextKey();
+      const name = nextKey();
+      const key = nextKey();
+      const p = lfw.player(pid);
+      let ok = 0;
+      try {
+        p.set_key(name as never, key, true);
+        ok = 1;
+      } catch {
+        ok = 0;
+      }
+      push(`pkeye|${p.id}|${ok}`);
     } else if (op === "nact") {
       const n = tnodes.get(next())!;
       actor.act(n, parseValue(t, i) as never);

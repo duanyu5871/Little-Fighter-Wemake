@@ -9331,3 +9331,37 @@ C++ `regist_one` 需对 `Picture` 巨两次（`Picture`/`Image`）。180. `image
 
 **测试**：用例 `cases/lfw/texts.txt` **81 行**；变异 `lfw_texts.mjs` **13/13 全杀**；全量差分 **230/230**。
 
+
+## 114. 切片 4BA：PrefixAndDifficultyText / StageTitleText / StageTitleShow / HideWhenDialoging / PlayerKeyText
+
+五个新组件 + 一个助手：`prefix_and_difficulty_text`（args[0] 前缀；`on_start` 读前缀，`on_resume` 订
+`on_dataset_change` 并立即写 `"<前缀> (<难度名>)"`，`on_pause` 退订）、`stage_title_text`（订世界
+`on_stage_change` + 舞台 `on_phase_changed`，写 `phase.title ?? stage.title ?? ''`，`on_stop` 退回空标题）、
+`stage_title_show`（成员 `Sequence(Easing(0,1)500, Delay(1)1500, Easing(1,0)500)`；换关取
+`stage.data.title ?? stage.bg.name ?? ""` 写文本并 `start(false)`；订新舞台的 `on_chapter_finish` →
+`"STAGE CLEAR!"`；`update` 把序列值写 `node.opacity`）、`stage_dialog_listener`（助手类：世界
+`on_stage_change` + 舞台 `on_dialogs_changed` → `handler(stage.dialog, prev)`）、`hide_when_dialoging`
+（`StageDialogListener` 的宿主，`node.visible = !dialog`）、`player_key_text`（args=[player_id?, key_name?]，
+缺项从祖先 `data.values` 兜底；`lfw.players.get(id).keys[key]?.toUpperCase()` →
+`SHORT_KEY_CODES[kc] || kc || 'None'`；`on_resume` 订玩家 `on_key_changed` 并立即写一次）。附修：
+`difficulty_full_name()`（= `DifficultyNames`）、新 `to_upper_case()`。
+
+照拄怪癖（编号接 189 → 190）：190. `DifficultyNames` 表外键在 TS 里是 `undefined` —— 模板串拼成
+`"undefined"`（端口照抄，不是空串）。191. `PrefixAndDifficultyText` 的前缀只在 `on_start` 读
+（`str(0) ?? ''`）；只 resume 不 start ⇒ 前缀恒空。192. `Stage.set_phase` 里有 `same_ref` 早退 ⇒
+**空阶段表 `enter_phase` 不发 `on_phase_changed`**；台面想造「阶段标题」得先用 `sfield` 注 `phases`
+再 `sphase`。193. `StageTitleText._stage` 能被赋 `undefined`（`wcb on_stage_change` 无参），
+`_stage == stage` 的宽松比较把 `null`/`undefined` 视同 ⇒ 早退。194. `StageDialogListener.stop()` 只退订、
+**不清 `_stage`** ⇒ stop→start 的「同舞台」早退让监听**不重订**（TS 就这坑）；`_dialog` 是**对象同一性**
+比较（两者都 nullish 也算相等）。195. `StageTitleShow.set_text` 只 `start(false)`，**不立即写**
+`node.opacity`（要等 `update`）⇒ 换关后第一帧前读数还是旧值。196. `PlayerKeyText` 用
+`lfw.players.get`（**不建玩家**；C++ 的 `LFW::player()` 会建 ⇒ 端口改成扫 `players()`），
+`keys[name]?.toUpperCase()` 后 `SHORT_KEY_CODES[kc] || kc || 'None'`（缺键/缺玩家/空串都落 `"None"`）。
+197. 新 `to_upper_case()` 的覆盖与 `to_lower_case()` 对称（表外码点原样；`ß` 不展开 `SS`、`ς` 不上映射）。
+188..189（前刀）继续有效。
+
+台面新 op：`wstage`（构造真 `Stage` 换关 —— **必须给可解析的 `bg`**，否则 TS 的 `Ditto.warn` 会真炸）、
+`sphase` / `sfield`（进阶段 / 就地改当前舞台数据字段）、`dialpush` / `dialnext` / `dialclear`、
+`stevt`（手发舞台回调）、`pkeye`（`set_key(..., emit=true)`）。
+
+**测试**：用例 `cases/lfw/titles.txt` **137 行**；变异 `lfw_titles.mjs` **38/38 全杀**；全量差分 **231/231**。

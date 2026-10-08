@@ -225,6 +225,12 @@ add_library(lfw_core STATIC
   ui/component/playing_time_text.cpp
   ui/component/fn_keys_counts.cpp
   ui/component/extra_zip_text.cpp
+  ui/component/prefix_and_difficulty_text.cpp
+  ui/component/stage_dialog_listener.cpp
+  ui/component/stage_title_text.cpp
+  ui/component/stage_title_show.cpp
+  ui/component/hide_when_dialoging.cpp
+  ui/component/player_key_text.cpp
   ui/instance_ref.cpp
   helper/randoming.cpp
   state/spawn_ice_piece.cpp

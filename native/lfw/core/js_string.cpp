@@ -398,4 +398,40 @@ std::u16string to_lower_case(const std::u16string& s) {
   return out;
 }
 
+std::u16string to_upper_case(const std::u16string& s) {
+  std::u16string out;
+  out.reserve(s.size());
+  for (char16_t c : s) {
+    if (in_range(c, 0x61, 0x7a) ||                                   // a-z
+        (in_range(c, 0xe0, 0xfe) && c != 0xf7) ||                    // à-þ（除 ÷）
+        in_range(c, 0x3b1, 0x3c1) || in_range(c, 0x3c3, 0x3cb) ||    // α-ρ / σ-ϋ
+        in_range(c, 0x430, 0x44f)) {                                 // а-я
+      out.push_back(static_cast<char16_t>(c - 0x20));
+      continue;
+    }
+    if (in_range(c, 0x450, 0x45f)) {                                 // ѐ-џ
+      out.push_back(static_cast<char16_t>(c - 0x50));
+      continue;
+    }
+    if (c == 0x131) {                                                // ı ⇒ I
+      out.push_back(u'I');
+      continue;
+    }
+    if (c == 0xff) {                                                 // ÿ ⇒ Ÿ
+      out.push_back(static_cast<char16_t>(0x178));
+      continue;
+    }
+    if ((in_range(c, 0x100, 0x137) || in_range(c, 0x14a, 0x177)) && !even_case_pair(c)) {
+      out.push_back(static_cast<char16_t>(c - 1));
+      continue;
+    }
+    if ((in_range(c, 0x139, 0x148) || in_range(c, 0x179, 0x17e)) && even_case_pair(c)) {
+      out.push_back(static_cast<char16_t>(c - 1));
+      continue;
+    }
+    out.push_back(c);
+  }
+  return out;
+}
+
 }

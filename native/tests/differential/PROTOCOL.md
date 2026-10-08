@@ -4885,3 +4885,20 @@ harness op：
 - 夹具：`FnKeysCounts` 的 7 个 props 用字符串（节点 id）填，实例取值靠 `UIProps::prop_instance`（惰性 getter）；
   子节点挂在组件所在节点下（`search_node` 命中）。
 - `ExtraZipText` 用 `i18nadd` + `setlang` 造 `DATA_LIST`/`extra_data` 词条；空词条 → 写一个空格。
+
+### 6.9.158 舞台/按键系组件（`cases/lfw/titles.txt` 137 行；变异 38/38 全杀）
+
+- 新台面 op：`wstage <json5>`（构造真 `Stage` 换关：TS `world.stage = new Stage(world, data)` / C++
+  `world.set_stage(make_unique<Stage>(stage_world, lfw, data))`）、`sphase <n>`（`enter_phase`）、
+  `sfield <key> <json5>`（就地改**当前舞台**数据字段）、`dialpush <json5>` / `dialnext` / `dialclear`
+  （对白状态机）、`stevt <key>`（手发舞台回调，payload 只填 `stage`）、`pkeye <pid> <name> <key>`
+  （`set_key(..., emit=true)` —— 原 `pkey` 的 emit 是 falsy，不会触发 `on_key_changed`）。
+- ⚠ `wstage` 的数据**必须给可解析的 `bg`**（用例用 `bg s "VOID_BG"`）：背景找不到时 TS 的 `Ditto.warn`
+  会推一行 `warn|…`（而 C++ 主体台面没装 `Stage::set_warn` sink）⇒ 立刻漂移。顺带：`Ditto.warn` 在
+  `lfw` 台面是真装了的，别误会成静音。
+- ⚠ 空阶段表下 `enter_phase` **不发** `on_phase_changed`（`Stage.set_phase` 的 `same_ref` 早退）——
+  要造“阶段标题”先用 `sfield phases a 2 o 1 title s "P0" o 1 title s "P1"` 再 `sphase 1`。
+- ⚠ `Enter`：`o N` 的 `N` 是**键值对个数**；`o 2 text s "hi"` 会少一个对，报 “bad value literal”。
+- ⚠ `StageDialogListener` 的 stop→start 不重订（`_stage` 不清 + 同舞台早退）——用例最后一段就是在钉这个坑。
+- ⚠ 想让“同值早退”可观测：`dialpush` 把 index 卡在 ≥0 时**重复推**会带同一个对白对象再发一次事件，
+  中间插 `nset <nid> visible 1` 就能看出变异体多跑了一次 handler。

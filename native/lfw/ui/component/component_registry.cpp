@@ -11,6 +11,7 @@
 #include "lfw/ui/component/flex_item.h"
 #include "lfw/ui/component/fn_keys_counts.h"
 #include "lfw/ui/component/focus_behavior.h"
+#include "lfw/ui/component/hide_when_dialoging.h"
 #include "lfw/ui/component/horizontal_layout.h"
 #include "lfw/ui/component/hover_behavior.h"
 #include "lfw/ui/component/img_loop.h"
@@ -19,13 +20,17 @@
 #include "lfw/ui/component/opacity_hover.h"
 #include "lfw/ui/component/pause_handling.h"
 #include "lfw/ui/component/picture.h"
+#include "lfw/ui/component/player_key_text.h"
 #include "lfw/ui/component/playing_time_text.h"
 #include "lfw/ui/component/position_animation.h"
+#include "lfw/ui/component/prefix_and_difficulty_text.h"
 #include "lfw/ui/component/reachable.h"
 #include "lfw/ui/component/reachable_group.h"
 #include "lfw/ui/component/scale_animation.h"
 #include "lfw/ui/component/scale_clickable.h"
 #include "lfw/ui/component/sine_opacity.h"
+#include "lfw/ui/component/stage_title_show.h"
+#include "lfw/ui/component/stage_title_text.h"
 #include "lfw/ui/component/vertical_layout.h"
 #include "lfw/ui/component/wrap_content.h"
 
@@ -75,6 +80,11 @@ void regist_components() {
   regist_one<PlayingTimeText>(u"PlayingTimeText");
   regist_one<FnKeysCounts>(u"FnKeysCounts");
   regist_one<ExtraZipText>(u"ExtraZipText");
+  regist_one<PrefixAndDifficultyText>(u"PrefixAndDifficultyText");
+  regist_one<StageTitleText>(u"StageTitleText");
+  regist_one<StageTitleShow>(u"StageTitleShow");
+  regist_one<HideWhenDialoging>(u"HideWhenDialoging");
+  regist_one<PlayerKeyText>(u"PlayerKeyText");
 }
 
 }

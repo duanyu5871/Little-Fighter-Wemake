@@ -14,5 +14,8 @@ bool is_str_white_space(char16_t c);
 // sigma、`U+0130` 映射成 `i` + `U+0307`）。覆盖 ASCII / Latin-1 / Latin Extended-A / 希腊 /
 // 西里尔 —— 表外码点原样返回（见 README 偏差表）。
 std::u16string to_lower_case(const std::u16string& s);
+// JS `String.prototype.toUpperCase` 的同款口径（覆盖范围与 `to_lower_case` 对称；`ß` 不展开
+// 成 `"SS"`、`ς` 不上映射 —— 表外码点原样返回，见 README 偏差表）。
+std::u16string to_upper_case(const std::u16string& s);
 
 }

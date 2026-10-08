@@ -17,6 +17,7 @@
 #include "lfw/lfw.h"
 #include "lfw/loader/stage_val_getters.h"
 #include "lfw/player_info.h"
+#include "lfw/stage/stage.h"
 #include "lfw/ui/cook_ui_info.h"
 #include "lfw/ui/action/actor.h"
 #include "lfw/ui/component/fade_out_opacity.h"
@@ -1018,6 +1019,33 @@ bool run_comp_ops(lfw::LFW& lfw, const std::vector<std::string>& t, size_t& i,
       lfw::LfwCallbackArgs a;
       a.lfw = &lfw;
       lfw.callbacks.call(key_of(t[i++]), {a});
+    } else if (op == "wstage") {
+      lfw.world().set_stage(std::make_unique<lfw::stage::Stage>(&lfw.world().stage_world(), &lfw,
+                                                               parse_value(t, i)));
+    } else if (op == "sphase") {
+      lfw.world().stage()->enter_phase(to_double(t[i++]));
+    } else if (op == "sfield") {
+      const std::u16string key = key_of(t[i++]);
+      lfw::Object* const data = lfw::as_object(const_cast<lfw::Value&>(lfw.world().stage()->data()));
+      if (data != nullptr) data->set(key, parse_value(t, i));
+    } else if (op == "dialpush") {
+      lfw.world().stage()->push_dialogs(parse_value(t, i));
+    } else if (op == "dialnext") {
+      lfw.world().stage()->next_dialog();
+    } else if (op == "dialclear") {
+      lfw.world().stage()->clear_dialogs();
+    } else if (op == "stevt") {
+      lfw::stage::StageCallbackArgs a;
+      a.stage = lfw.world().stage();
+      lfw.world().stage()->callbacks().call(key_of(t[i++]), {a});
+    } else if (op == "pkeye") {
+      const std::u16string pid = key_of(t[i++]);
+      const std::u16string name = key_of(t[i++]);
+      const std::u16string key = key_of(t[i++]);
+      lfw::PlayerInfo* const p = lfw.player(pid);
+      std::u16string err;
+      const bool ok = p->set_key(lfw::Value(name), lfw::Value(key), true, err);
+      push("pkeye|" + to_ascii(p->id()) + "|" + (ok ? "1" : "0"));
   } else {
     return false;
   }
