@@ -196,7 +196,7 @@ FakeHost g_host;
 class FakeMgrHost : public lfw::loader::IDatMgrHost {
  public:
   lfw::Resources& resources() override { return *g_resources; }
-  lfw::MersenneTwister& mt() override { return g_mt; }
+  lfw::MersenneTwister& mt_ref() override { return g_mt; }
   void load_img(const std::u16string& path) override {
     const std::string p = to_ascii(path);
     push("img:" + p);

@@ -4535,3 +4535,26 @@ harness op：
   `ctrl.time` ⇒ 缝的 `lifetime` 每次一条 `lifetime` 日志（`hit <k> <t>` 给了显式 t 则**不读**）。
 - `keys.list` 用 TS 侧 `Object.keys(keys).filter(k => k.length === 1)` 钉字段顺序（键是枚举
   短名 `L/R/U/D/a/j/d`）；C++ 侧打 `Keys::list()`。
+
+### 6.9.133 `LFW` 门面第一批（`cases/lfw/*.txt` 4 份 125 行；变异 `lfw.mjs` 11/11 全杀）
+
+- 假 Ditto 包（`install_ditto`）要点：`Ditto.Timeout`/`Ditto.Render` 必须是**对象**
+  （`add`/`del`；Render 另有 `raf`/`caf`）；`MD5`/`JSON5`/`Vector2/3`/`Importer`/`XML`/`DEV`
+  给空壳即可；`warn/error/Log/debug` 统一 `'<tag>|' + args.map(render_value).join('~')`
+  （C++ 侧同名 join 规则，首参前是 `|`，其余是 `~`——**两参以上**才看得出）。
+- 时间/随机种子：`Date.now = () => 12345` 必须在 `new LFW(false)` **之前**打，C++ 侧同值走
+  `ILfwHost::now()`（`_mt` 与 `_i18n` 都是构造时建）。
+- 构造轨迹即用例 `basic` 的前段：`snd_init img_init kbd_init kbd_cbadd pt_init
+  cache:forget×3 zip:forget wr_init pt_cbadd …`；`pt_cbadd` 在 `wr_init` **之后**、层 push
+  与 i18n 之前——动构造顺序先改台面再改端口。
+- 回调用统一的 `listen()`：22 个键同款渲染（`self` / `pl:<id>` / `n:<num>` / `b:<0|1>` /
+  `s:<text>` / `u`）；`on_progress` 的第三实参**恒存在**（未给 size 渲染 `u`），所以
+  `emit_progress` 与 `emit_progress_size` 的轨迹同形。
+- 数值一律走 `num()`（`n<js>:<hex>`）；`mtrange` 直接读 `_mt.range`（TS 侧取
+  `(lfw as Rec)["_mt"]`，字段是私有的），C++ 侧 `mt_ref()`——两边的抽取端口必须逐位同流。
+- 实体缝：TS 侧 `Factory.entity_creators.set(8, …)` 的假实体要带 `data`
+  （`ObjectsHelper.add` 会读 `entity.data.id` 找控制器）；C++ 侧注册真 creator
+  （`new lfw::Entity`，`g_ent_host` 静默槽）——两侧都打 `entadd:create|<id>`。
+- 用例值字面量语法：数字是 `n <v>`（如 `setlangbad n 5`）、键是裸词或 `"引号串"`；
+  `mtrange`/`switchdiff` 这类**纯数字**参数直接写数字（写成 `n 1` 会被当键串吞掉，
+  TS 侧 `Number("n")=NaN` 静默错）。

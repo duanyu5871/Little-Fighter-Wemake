@@ -85,6 +85,16 @@ class IStageLfw {
   // 字符串编成了 `IExpression<Stage>` **实例**，端口的 `Value` 装不下对象 ⇒ 由宿主按
   // 「那份数据」交出对应的表达式列表（`Stage` 只负责 `reset` / `flow`）。
   virtual Expressions<Stage>::Items end_testers(const Value& owner) = 0;
+  // `get_val_getter_from_stage` 的按键 / 广播两条数据源（TS 直接读 `e.lfw.keys` /
+  // `e.lfw.broadcasts`；宿主未实现时给缺省）。
+  virtual bool keys_is_start(const std::u16string& key) {
+    (void)key;
+    return false;
+  }
+  virtual const std::vector<std::u16string>& broadcasts_list() {
+    static const std::vector<std::u16string> empty;
+    return empty;
+  }
   // `Item` 侧的宿主面（`Stage` 实现 `IItemHost` 时转发给 `lfw`）。
   virtual Value datas_find(const Value& oid) = 0;
   virtual std::shared_ptr<Randoming> datas_randoming_by_group(const Value& oid) = 0;

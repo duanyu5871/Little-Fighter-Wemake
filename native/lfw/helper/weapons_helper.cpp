@@ -108,7 +108,7 @@ RandomingT<Value>* WeaponsHelper::randoms(const std::u16string& groups, bool dup
   }
   if (list.empty()) return nullptr;
   RandomingT<Value>::Ptr ret =
-      std::make_shared<RandomingT<Value>>(name, std::move(list), &_lfw->mt(), Value(duplicate));
+      std::make_shared<RandomingT<Value>>(name, std::move(list), &_lfw->mt_ref(), Value(duplicate));
   map.emplace_back(groups, ret);
   return ret.get();
 }

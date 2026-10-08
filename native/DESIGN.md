@@ -8708,3 +8708,40 @@ rand 22 / xml 58）；台面 ops：脚本化资源 `jfile` / `xtree` / `jfail` /
 变异 `helpers.mjs` **58/58 全杀**（0 存活、0 编译错；等价 / 防御项在档头）；全量差分
 **198/198**、lint 全清。
 
+## 89. 切片 4AB：`LFW` 门面第一批（类核心 + 缝接线）
+
+`native/lfw/lfw.{h,cpp}` 落地 `LFW` 本体：静态（`INFO`/`ZIPS`/`instances`/`instance`、
+`VERSION_NAME`/`DATA_LIST`）、实例表、`new_id`/`new_team` 族与重置、`player(s)` 表、
+`set_key`/Keys 池（`create_keys`/`regist_keys`/`recycle_keys`，复用 4AA 的 `Keys`）、
+作弊码（`is_cheat`/`set_cheat` 的 `name + ' ' + ('1'|'')`）、输入（`on_key_down`/`on_key_up`
+含 AGK/`Defines.CheatInfos` 的 gkeys 两趟、`interrupt`）、`push_cmd`/`cmds` 出入口、
+`emit_progress(_size)` / `broadcast` / `switch_difficulty`（手写循环，`Value` 无 `==`）、
+`canonical_lang`/`set_lang`（先 `lang_apply` 再 `on_lang_changed`）、生存排行四开关、
+`end_testers`、`stage_val_getters`（12 个固定词 + `get_val_from_world` 兜底）、
+`buff::regist_buffs`（7 个 `BuffCreator` 单例 + `kind_value`/`GROUPS` 两分支）、
+`stage::EntityItem`（`Entity` → `IItemEntity` 适配）、`Factory::create_entity_with_player`。
+七道缝全部接线：`IWorldLfw`/`loader::IDatMgrHost`/`IResourcesHost`/`IKeysLfw`/
+`helper::IHelperLfw`/`helper::IUiHelperLfw`/`IPlayerInfoHost` + `ILfwHost`/`IUiLayers`。
+
+照抄怪癖（编号接 81）：82. 构造顺序即台面轨迹：注册组件 → 注册 buff → resources →
+datas → sounds/images/keyboard(+回调) → pointings → 三连 `cache_forget` →
+helpers → 8 个 player → states → World（`wr_init`）→ 世界启动 → **实例表入表** →
+点设备输入（`pt_cbadd` 在 `wr_init` 之后）→ 层创建 + push → i18n 两条 → `update_zip_names`。
+83. `random_entity_info` 的抽取顺序 = facing → x → z，且 `position.set(a,b,c)` 的实参
+按 TS 从左到右求值（C++ 函数实参序不定，必须先落局部变量）。84. `switch_difficulty`
+的 `loop_offset` 需要 `Value` 的「严格等值」语义（端口手写 `strict_equals` 循环，绕开
+无 `operator==` 的 variant）。85. `emit_progress` 的第三实参恒存在：未给 size 时 TS 侧
+是 `undefined`（台上渲染成 `u`），所以 `emit_progress`（两参）与 `emit_progress_size`
+在台面上必须产出同形轨迹。86. `regist_keys` 撞名只警告不重复入表；`recycle_keys`
+找不到时警告（台面照实转出）。87. `set_lang` 的 `lang_apply` 缝在赋值**之前**调用，
+失败时保留原语言并警告（`lang should be string, but got …`）。
+
+偏差记录：`dev_mode`/`srank_*` 字段名 C++ 化（TS 的 `dev`/`survival_rank_*` 只在台面
+适配）、helper 访问器改名（`characters_helper()` 等）、`IHelperLfw`/`IDatMgrHost` 的
+`mt()` 合并为 `mt_ref()`、`end_testers` 的表达式类型包装（`StageExpression`）、
+`IgnoreDisposed` 不抛（TS 侧分支相同）、`lang_apply` 的缝契约（宿主负责真正写 i18n，
+LFW 只发 `on_lang_changed`）。
+
+**测试**：新 subject `lfw` + 4 份用例 **125 行**（basic / keys / misc / welds）；
+变异 `lfw.mjs` **11/11 全杀**；全量差分 **202/202**、lint 通过（剩 raw-new 风格告警）。
+

@@ -88,6 +88,9 @@ class Factory {
   Factory& release_ctrl(controller::BaseController* ctrl);
   Entity* create_entity_with_bot(const std::u16string& player_id, World* world, const Value& data,
                                  state::States* states);
+  // TS `create_entity_with_player`：造实体后挂 `LocalController`（`acquire_ctrl`）。
+  Entity* create_entity_with_player(const std::u16string& player_id, World* world,
+                                    const Value& data, state::States* states);
 };
 
 }

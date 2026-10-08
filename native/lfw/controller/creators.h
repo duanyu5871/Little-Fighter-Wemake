@@ -14,6 +14,9 @@ namespace controller {
 // fighter ⇒ `BotController`）；一个类一个单例（注册表的池键就是指针身份）。
 const ICtrlCreator* bot_controller_creator();
 const ICtrlCreator* ball_controller_creator();
+// `controller/LocalController` / `InvalidController` 的创建器（`Factory.acquire_ctrl` 的键）。
+const ICtrlCreator* local_controller_creator();
+const ICtrlCreator* invalid_controller_creator();
 
 }
 }

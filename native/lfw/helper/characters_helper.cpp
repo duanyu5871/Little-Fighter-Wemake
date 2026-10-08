@@ -44,7 +44,7 @@ std::vector<Entity*> CharactersHelper::add_random(double num, const std::u16stri
     for (const Value& v : _lfw->fighters()) {
       if (filter == nullptr || (*filter)(v)) items.push_back(v);
     }
-    const Value d = _lfw->mt().pick_value(Value(std::make_shared<Array>(std::move(items))));
+    const Value d = _lfw->mt_ref().pick_value(Value(std::make_shared<Array>(std::move(items))));
     if (!truthy(d)) continue;
     const std::vector<Entity*> added = add(d, 1, team);
     ret.insert(ret.end(), added.begin(), added.end());

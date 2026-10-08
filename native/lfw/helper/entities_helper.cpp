@@ -16,7 +16,7 @@ ObjectsHelper::ObjectsHelper(IHelperLfw& lfw)
       _team_randoming(u"team_randoming",
                       {Value(std::u16string(u"1")), Value(std::u16string(u"2")),
                        Value(std::u16string(u"3")), Value(std::u16string(u"4"))},
-                      &lfw.mt()) {}
+                      &lfw.mt_ref()) {}
 
 std::vector<Entity*> ObjectsHelper::all() const {
   std::vector<Entity*> ret;

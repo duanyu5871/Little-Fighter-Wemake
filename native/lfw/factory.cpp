@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "lfw/buff/buff.h"
+#include "lfw/controller/creators.h"
 #include "lfw/core/value.h"
 #include "lfw/entity/entity.h"
 #include "lfw/utils/container_help/field_or.h"
@@ -199,6 +200,16 @@ Entity* Factory::create_entity_with_bot(const std::u16string& player_id, World* 
   Entity* const ret = entity_creators()[i].second(world, data, states);
   if (ret == nullptr) return ret;
   ret->set_ctrl(create_ctrl(field_or(data, u"id"), player_id, ret));
+  return ret;
+}
+
+Entity* Factory::create_entity_with_player(const std::u16string& player_id, World* world,
+                                           const Value& data, state::States* states) {
+  const size_t i = index_of(entity_creators(), field_or(data, u"type"));
+  if (i == static_cast<size_t>(-1)) return nullptr;
+  Entity* const ret = entity_creators()[i].second(world, data, states);
+  if (ret == nullptr) return ret;
+  ret->set_ctrl(acquire_ctrl(controller::local_controller_creator(), player_id, ret));
   return ret;
 }
 

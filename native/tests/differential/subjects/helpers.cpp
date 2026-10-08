@@ -123,7 +123,7 @@ const lfw::Value* find_in(const std::vector<lfw::Value>& list, const lfw::Value&
 
 class FakeLfw : public lfw::helper::IHelperLfw {
  public:
-  lfw::MersenneTwister& mt() override { return g_mt; }
+  lfw::MersenneTwister& mt_ref() override { return g_mt; }
   const std::vector<lfw::Entity*>& world_entities() override { return g_ents; }
   const std::vector<lfw::Entity*>& world_ghosts() override { return g_ghosts; }
 

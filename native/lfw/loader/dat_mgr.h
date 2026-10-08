@@ -24,7 +24,7 @@ class IDatMgrHost {
   virtual ~IDatMgrHost() = default;
   virtual Resources& resources() = 0;
   // `lfw.mt`（`Randoming` 的默认随机源）。
-  virtual MersenneTwister& mt() = 0;
+  virtual MersenneTwister& mt_ref() = 0;
   // `await lfw.images.load_img(path, path)`：端口同步，返回即「加载完成」。
   virtual void load_img(const std::u16string& path) = 0;
   // `lfw.emit_progress(content, progress)`（TS 的第三参 `size` 这边不传）。

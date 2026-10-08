@@ -32,6 +32,9 @@ add_library(lfw_core STATIC
   transform.cpp
   cases.cpp
   keys.cpp
+  lfw.cpp
+  buff/registry.cpp
+  loader/stage_val_getters.cpp
   defines/defines.cpp
   defines/labels.cpp
   defines/runtime_gen.cpp

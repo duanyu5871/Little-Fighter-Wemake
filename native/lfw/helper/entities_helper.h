@@ -24,7 +24,7 @@ class IHelperLfw {
  public:
   virtual ~IHelperLfw() = default;
   // `lfw.mt`
-  virtual MersenneTwister& mt() = 0;
+  virtual MersenneTwister& mt_ref() = 0;
   // `lfw.world.entities` / `lfw.world.ghosts`
   virtual const std::vector<Entity*>& world_entities() = 0;
   virtual const std::vector<Entity*>& world_ghosts() = 0;

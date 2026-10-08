@@ -701,7 +701,7 @@ Randoming::Ptr DatMgr::get_randoming_by_group(const std::u16string& group) {
   }
   const std::vector<Value> objects = get_objects_of_group(group);
   // TS 的模板串写成了单引号 ⇒ 名字是**字面** `dat_${group}_randoming`（照抄）。
-  Randoming::Ptr ret = std::make_shared<Randoming>(u"dat_${group}_randoming", objects, &_host->mt());
+  Randoming::Ptr ret = std::make_shared<Randoming>(u"dat_${group}_randoming", objects, &_host->mt_ref());
   inner.randomings.push_back(std::make_pair(group, ret));
   return ret;
 }
@@ -813,7 +813,7 @@ Randoming::Ptr DatMgr::get_bg_randoming_of_group(const std::vector<std::u16strin
     }
   }
   Randoming::Ptr ret = std::make_shared<Randoming>(u"bg_" + join_strings(groups, u"_") + u"_randoming",
-                                                   pool, &_host->mt());
+                                                   pool, &_host->mt_ref());
   inner.bg_randomings.push_back(std::make_pair(key, ret));
   return ret;
 }

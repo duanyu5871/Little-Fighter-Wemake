@@ -698,8 +698,8 @@ export default {
     {
       note: "随机组：名字不再逐字照抄（把字面量换掉）",
       file: "native/lfw/loader/dat_mgr.cpp",
-      from: `  Randoming::Ptr ret = std::make_shared<Randoming>(u"dat_\${group}_randoming", objects, &_host->mt());`,
-      to: `  Randoming::Ptr ret = std::make_shared<Randoming>(u"dat_randoming", objects, &_host->mt());`,
+      from: `  Randoming::Ptr ret = std::make_shared<Randoming>(u"dat_\${group}_randoming", objects, &_host->mt_ref());`,
+      to: `  Randoming::Ptr ret = std::make_shared<Randoming>(u"dat_randoming", objects, &_host->mt_ref());`,
     },
     {
       note: "随机组：池子用全表（不按组过滤）",
@@ -722,9 +722,9 @@ export default {
       note: "bg 随机组：名字分隔符改成 -",
       file: "native/lfw/loader/dat_mgr.cpp",
       from: `  Randoming::Ptr ret = std::make_shared<Randoming>(u"bg_" + join_strings(groups, u"_") + u"_randoming",
-                                                   pool, &_host->mt());`,
+                                                   pool, &_host->mt_ref());`,
       to: `  Randoming::Ptr ret = std::make_shared<Randoming>(u"bg_" + join_strings(groups, u"-") + u"_randoming",
-                                                   pool, &_host->mt());`,
+                                                   pool, &_host->mt_ref());`,
     },
     {
       note: "bg 随机组：Set 去重不做",

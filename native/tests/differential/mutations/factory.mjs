@@ -202,16 +202,24 @@ export default {
       file: "native/lfw/factory.cpp",
       from: `  const size_t i = index_of(entity_creators(), field_or(data, u"type"));
   if (i == static_cast<size_t>(-1)) return nullptr;
-  Entity* const ret = entity_creators()[i].second(world, data, states);`,
+  Entity* const ret = entity_creators()[i].second(world, data, states);
+  if (ret == nullptr) return ret;
+  ret->set_ctrl(create_ctrl(field_or(data, u"id"), player_id, ret));`,
       to: `  const size_t i = index_of(entity_creators(), field_or(data, u"id"));
   if (i == static_cast<size_t>(-1)) return nullptr;
-  Entity* const ret = entity_creators()[i].second(world, data, states);`,
+  Entity* const ret = entity_creators()[i].second(world, data, states);
+  if (ret == nullptr) return ret;
+  ret->set_ctrl(create_ctrl(field_or(data, u"id"), player_id, ret));`,
     },
     {
       note: "Factory: create_entity_with_bot 的「creator 没给出实体」判断反了",
       file: "native/lfw/factory.cpp",
-      from: `  if (ret == nullptr) return ret;`,
-      to: `  if (ret != nullptr) return ret;`,
+      from: `  Entity* const ret = entity_creators()[i].second(world, data, states);
+  if (ret == nullptr) return ret;
+  ret->set_ctrl(create_ctrl(field_or(data, u"id"), player_id, ret));`,
+      to: `  Entity* const ret = entity_creators()[i].second(world, data, states);
+  if (ret != nullptr) return ret;
+  ret->set_ctrl(create_ctrl(field_or(data, u"id"), player_id, ret));`,
     },
     {
       note: "Factory: create_entity_with_bot 用 data.type 查控制器（而不是 data.id）",
