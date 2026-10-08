@@ -42,4 +42,9 @@ Cases& mt_cases() {
   return instance;
 }
 
+Cases& sus_cases() {
+  static Cases instance(u"suspicious");
+  return instance;
+}
+
 }

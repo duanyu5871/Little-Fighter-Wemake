@@ -33,7 +33,8 @@ class Cases {
   uint64_t _times = 0;
 };
 
-// `cases_instances.ts` 的 `mt_cases`。
+// `cases_instances.ts` 的 `mt_cases` / `sus_cases`。
 Cases& mt_cases();
+Cases& sus_cases();
 
 }

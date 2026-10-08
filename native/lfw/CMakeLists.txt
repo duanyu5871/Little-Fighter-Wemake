@@ -31,6 +31,7 @@ add_library(lfw_core STATIC
   world_dataset.cpp
   transform.cpp
   cases.cpp
+  keys.cpp
   defines/defines.cpp
   defines/labels.cpp
   defines/runtime_gen.cpp
@@ -118,6 +119,12 @@ add_library(lfw_core STATIC
   controller/creators.cpp
   helper/manhattan_xz.cpp
   helper/closer_one.cpp
+  helper/entities_helper.cpp
+  helper/balls_helper.cpp
+  helper/characters_helper.cpp
+  helper/weapons_helper.cpp
+  helper/ui_helper.cpp
+  helper/join_queue.cpp
   bot/closest.cpp
   bot/is_ray_hit.cpp
   bot/dummy_enum.cpp

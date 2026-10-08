@@ -4509,3 +4509,29 @@ harness op：
   （两测一致所以不红，但用例语义偏了——关卡那几行踩过）。
 - ⚠️ C++ 侧假件 `Factory::set_warn` 要接进同一个日志（TS `Factory.register_ctrl` 重复注册会
   `Ditto.warn`，不接的话重加同 id 的用例两侧漂）。
+
+### 6.9.132 helper 家族 + `Keys` + `JoinQueue`（`cases/helpers/*.txt` 4 份 214 行；变异 `helpers.mjs` 58/58 全杀）
+
+- 新 subject `helpers`：实体是**真 `Entity`**（挂假 `IEntityHost`），`attach` 的观测点在宿主的
+  `add_entities`（打 `attach|<id>|<team>` 并把实体推进 world 表；TS 假实体的 `attach()` 打同款
+  日志）。`IHelperLfw` / `IKeysLfw` / `IUiHelperLfw` 三个缝全是脚本化假件；`mt` 种子 12345。
+- ops：`mk <id> <type> <e|g>`（预置实体）/ `fdata` / `wdata <id> <g1|g2|->` / `dumpents` /
+  `ob.all`·`ba.all`·`ch.all`·`we.all` / `ob.at <i>` / `ob.a` / `ob.b` /
+  `ob.add <n> <team> <type> <id>` / `ch.add`·`ch.addr <n> <team> <f|->` / `we.add`·`we.rand`·
+  `we.addr` / `ob.delall` / `cfail <n>`（接下来 n 次 `create_entity` 回空）/ `ob.tr`；
+  `keys.{mount,unmount,time,get,list,hit,end,isstart,isend,use,reset,ts}`；
+  `ui.{add,clear,all,push,set}`；`jq.{new,enq,deq,rm,has,size,all,clear}` / `pick`。
+- ⚠️ **`EntityEnum` 是数值**（Fighter=8 / Weapon=16 / Ball=32）：台面/用例里的 `type` 字段必须
+  用数值；第一版用了字符串 `"Ball"`，两侧的 `is_ball_data` 都恒 false ⇒ `ba.all`/`ch.all` 全是空
+  列表，**五个 `all()` 家族变异集体存活**才发现（「两侧一起空」的假绿）。
+- ⚠️ TS 台面的 `parseValue(t, i)` 要**下标元组**（内部 `idx[0]++`），裸 key 走
+  `keyOf(next())`（裸 token）——裸 token 别过 `parseValue`（`a` 会被当数组字面量前缀）。
+- ⚠️ 本台面 op 的数字实参既有裸 token（string）又有 `key_of` 出来的 u16 ⇒ C++ 侧加了
+  `to_double` 的 u16 重载（`trace::to_double` 只吃 `std::string`）。
+- ⚠️ 打印**数据对象**要取 `.id`（`field_or(v, u"id")`）：直接 `fmt_id(Value)` 会打 `u`
+  （对象不是字符串）——`we.rand` 的 src 第一次就踩了。
+- ⚠️ `wdata` 的多组切分 C++ 侧按 `|`（`csv_list` 是逗号切分，别复用）。
+- `keys.*` 的 lifetime 读数由日志计数钉：TS `is_start()` / `end()` / `hit()`（缺省）都读
+  `ctrl.time` ⇒ 缝的 `lifetime` 每次一条 `lifetime` 日志（`hit <k> <t>` 给了显式 t 则**不读**）。
+- `keys.list` 用 TS 侧 `Object.keys(keys).filter(k => k.length === 1)` 钉字段顺序（键是枚举
+  短名 `L/R/U/D/a/j/d`）；C++ 侧打 `Keys::list()`。

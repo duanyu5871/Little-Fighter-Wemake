@@ -8651,3 +8651,60 @@ rand 22 / xml 58）；台面 ops：脚本化资源 `jfile` / `xtree` / `jfail` /
 `bgr` / `rbg` / `ctrls` / `mkctrl`（`Factory::set_warn` 也汇流进同一个日志）。变异 `dat_mgr.mjs`
 **82/82 全杀**（0 存活、0 编译错；等价 / 防御项在档头）；全量差分 **194/194**、lint 全清。
 
+## 88. 切片 4AA：helper 家族 + `Keys` + `JoinQueue`（+ `cases_instances` 补齐）
+
+**范围**：`helper/` 四个实体助手（`ObjectsHelper` / `BallsHelper` / `CharactersHelper` /
+`WeaponsHelper`）、`UIHelper`、`Keys`（`src/LFW/Keys.ts`）、`JoinQueue` + `pick_join_team`
+（`helper/JoinQueue.ts`，给 `ui/component/DanmuGameLogic` 备的料）、`cases_instances` 的
+`sus_cases()`。`LFW.ts` 仍未移植 ⇒ 全部按「宿主回答 `lfw.*`」的既有套路，三个缝：
+`helper::IHelperLfw`（`mt` / `world.entities` / `world.ghosts` / `world.del_entities` /
+`factory.create_entity` / `factory.create_ctrl` / `datas.find_*` / `datas.fighters`·`weapons` /
+`new_team` / `random_entity_info`）、`IKeysLfw`（`world.lifetime` + `regist_keys` /
+`recycle_keys`）、`helper::IUiHelperLfw`（`layers.push_page` / `set_page`）。
+
+**落地形状**：
+- `ObjectsHelper::all()` 是 `virtual`（`BallsHelper` 等覆写），返回 entities 在前、ghosts 在后的
+  `std::vector<Entity*>`；`a` / `b` / `at(idx)` 走 JS 数组下标语义。
+- `add(data, num, team)`：`data` 走 `Value`；`team` 用「空指针 = undefined」表达（`*team` 为 `""`
+  时走 `new_team`，`"?"` 走随机）。
+- `CharactersHelper::add` / `WeaponsHelper::add` 先做字符串解析（`find_fighter` / `find_weapon`），
+  再转发**基础 `ObjectsHelper::add`** —— TS 里 `this.lfw.entities.add` 指的是那个独立的
+  `ObjectsHelper` 实例，不是 `this`。
+- `WeaponsHelper::randoms(groups, duplicate)` 两张缓存表（普通 / `duplicate`），键 = `groups`
+  原文；`add_random` 是给命令层备好的入口。
+- `Keys`：7 个 `KeyStatus` 按 `L/R/U/D/a/j/d` 顺序建；`time()` 走 `lifetime` 缝。
+- `JoinQueue` / `pick_join_team` 逐行照搬（`std::set` 当 uid 表，插入序不影响行为）。
+
+**偏差记录**：
+- `UIHelper` 的动态方法：TS `add(...)` 会给每个 `id` 挂 `push_<id>` / `switch_<id>` 两个闭包；
+  C++ 挂不了动态方法 ⇒ 统一成 `push_page(id, stack_idx)` / `set_page(id, stack_idx)`
+  （转发行为一致，只是「方法是否存在」这层没了）。
+- `Keys` 里的 `KeyStatus` 不持 owner：端口的 `KeyStatus` 在控制器那一刀就按 `(t, time)`
+  参数化，TS 侧 `is_start()` / `end()` / `hit()`（缺省）每次都读 `ctrl.time` ⇒ 由
+  `Keys::time()` 显式走缝（台面的 `lifetime` 日志计数钉住）。
+- `ObjectsHelper::at` 的负数分支：TS `arr[-1]` ⇒ undefined、端口同样回 `nullptr`；变异档
+  不测「删掉负数检查」（会读到 `size_t(-1)` 越界）。
+- `add_random` 的空池兜底：`Randoming.get()` 的 undefined 路径被 `randoms` 的
+  `list.empty()` 早退挡住 ⇒ 用例造不出该分支，变异档记录。
+- `randoms` 的 `v.base.group` **非数组**：TS 会抛 TypeError，端口按「不入选」处理。
+
+**照抄的怪癖 / 费解处**（序号接 §87 的 73）：
+74. `add` 的计数 `while (--num >= 0)` 先减再比：`2.5` 造 **3 个**、`0.5` 造 0 个、`NaN` 不进
+    循环；`create_entity` 回空只 `continue`（计数照走）。
+75. team 三分支：`'?'` ⇒ `team_randoming.get()`（名字 `team_randoming`、src `"1".."4"`、共享
+    `lfw.mt`）；否则 `team || new_team` —— 空串与未给都落 `new_team`（**getter 每次读自增**）。
+76. `at(idx)`：JS 数组下标（`1.5` / `-1` / 越界 ⇒ undefined）；`a` / `b` = `at(0)` / `at(1)`。
+77. `randoms`：先查缓存后建；名字 = `weapons_randoms` +（有分组时）`_` + `split(',')` 逐个
+    `trim()` 再以 `_` 连接（trim 只裁首尾）；过滤 = `v.base.group?.some(a => gg.includes(a))`；
+    池空 ⇒ `undefined` 且**不建缓存**。
+78. `add_random`（weapons）：`this.add(d, 1)` 不带 team；每次 `get()` 一抽（dup 版走
+    `random_get`、普通版走 `random_take`，与既有 `Randoming` 语义一致）。
+79. `UIHelper`：`clear()` / `add()` 返回 `this`（端口回 `UIHelper&`）；`all` 是 `_all` 直读。
+80. `pick_join_team`：`counts/caps` 缺项 `?? 0`；`alive <= 0` 跳过、`cap - alive <= 0` 跳过；
+    `alive < least` 时**清空候选**（`<=` 才收集并列）；`fallen` 命中候选才优先；全空 ⇒ undefined。
+81. `cases_instances`：两个进程级单例 `mt_cases`（名字 `mt`）与 `sus_cases`（名字 `suspicious`）。
+
+**测试**：新 subject `helpers` + 4 份用例 **214 行**（basic 134 / keys 30 / ui 12 / jq 38）；
+变异 `helpers.mjs` **58/58 全杀**（0 存活、0 编译错；等价 / 防御项在档头）；全量差分
+**198/198**、lint 全清。
+
