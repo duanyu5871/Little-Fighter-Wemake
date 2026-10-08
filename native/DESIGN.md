@@ -9314,3 +9314,20 @@ C++ `regist_one` 需对 `Picture` 巨两次（`Picture`/`Image`）。180. `image
 **测试**：用例 `cases/lfw/focus_nav.txt` **55 行**（新台面 op `reach`）；变异 `lfw_reach.mjs` **13/13 全杀**；
 全量差分 **229/229**。
 
+## 113. 切片 4AZ：DifficultyText / PlayingTimeText / FnKeysCounts / ExtraZipText
+
+四个新组件：`difficulty_text`（TAGS 别名 `difficulty_text`；`on_resume` 订 `on_dataset_change`
+并立即写一次，`on_pause` 退订；写 `dataset.difficulty` 的标签）、`playing_time_text`（`on_show` 把
+`stage.time * 16.6666` 写成 h:mm:ss）、`fn_keys_counts`（props 7 个 `$cls:UINode` 引用；
+订 `on_fn_locked_change`/`on_counts` 切显隐与写计数，`on_stop` 退订）、`extra_zip_text`（订
+`on_extra_zips_changed`/`on_lang_changed`，用 `DATA_LIST`/`extra_data` 词条拼文本，空则写空格）；
+新增 `UIProps::prop_value/prop_instance`（类类型属性的惰性取值）、`difficulty_label()`；
+台面新 op `wfn`/`stime`/`wcb`/`lcb` + `nlife show/hide`。
+
+照拄怪癖（编号接 186 → 187）：187. `WorldDataset.set`：**全新键不走钩子**、且只有 `tracked`（在
+`Defines.WDATASET` 字段表里）的键才发 `on_dataset_change`——台面想造「非 difficulty 键触发」只能改
+已登记的字段（如 `itr_fall`）。188. TS `Stage.time` 是属性 setter（端口对应 `set_time`）。
+189. `world.counts()` 里查不到的键按 0 写（`?? 0`）。
+
+**测试**：用例 `cases/lfw/texts.txt` **81 行**；变异 `lfw_texts.mjs` **13/13 全杀**；全量差分 **230/230**。
+

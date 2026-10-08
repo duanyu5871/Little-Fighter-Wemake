@@ -37,4 +37,15 @@ inline const char16_t* difficulty_name_of(int v) {
   return nullptr;
 }
 
+// `Defines.DifficultyLabels`（TS 是枚举值→文案键的表）。
+inline std::u16string difficulty_label(double v) {
+  switch (static_cast<int>(v)) {
+    case static_cast<int>(Difficulty::Easy): return u"easy";
+    case static_cast<int>(Difficulty::Normal): return u"normal";
+    case static_cast<int>(Difficulty::Difficult): return u"difficult";
+    case static_cast<int>(Difficulty::Crazy): return u"crazy";
+  }
+  return std::u16string();
+}
+
 }

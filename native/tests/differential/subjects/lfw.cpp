@@ -1006,7 +1006,18 @@ bool run_comp_ops(lfw::LFW& lfw, const std::vector<std::string>& t, size_t& i,
           push(line);
         }
       }
-
+    } else if (op == "wfn") {
+      lfw.world().set_fn_locked_value(to_double(t[i++]));
+    } else if (op == "stime") {
+      lfw.world().stage()->set_time(to_double(t[i++]));
+    } else if (op == "wcb") {
+      lfw::WorldCallbackArgs a;
+      a.world = &lfw.world();
+      lfw.world().callbacks.call(key_of(t[i++]), {a});
+    } else if (op == "lcb") {
+      lfw::LfwCallbackArgs a;
+      a.lfw = &lfw;
+      lfw.callbacks.call(key_of(t[i++]), {a});
   } else {
     return false;
   }
@@ -1811,6 +1822,8 @@ int main(int argc, char** argv) {
       else if (what == "stop") n.on_stop();
       else if (what == "resume") n.on_resume();
       else if (what == "pause") n.on_pause();
+      else if (what == "show") n.on_show();
+      else if (what == "hide") n.on_hide();
       else {
         std::fprintf(stderr, "unknown nlife '%s'\n", what.c_str());
         return 2;

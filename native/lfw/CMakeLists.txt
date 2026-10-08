@@ -221,6 +221,10 @@ add_library(lfw_core STATIC
   ui/component/smooth_number.cpp
   ui/component/reachable.cpp
   ui/component/reachable_group.cpp
+  ui/component/difficulty_text.cpp
+  ui/component/playing_time_text.cpp
+  ui/component/fn_keys_counts.cpp
+  ui/component/extra_zip_text.cpp
   ui/instance_ref.cpp
   helper/randoming.cpp
   state/spawn_ice_piece.cpp

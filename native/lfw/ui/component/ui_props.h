@@ -42,6 +42,10 @@ class UIProps {
                                          const Value& fallbacks = Value()) const;
   bool validate(const std::u16string& tag, const Value& props_meta);
 
+  // TS 里 `props.xxx` 是惰性属性：普通字段直接读，类类型字段走 `get_instance`（返回引用值）。
+  Value prop_value(const std::u16string& name) const;
+  Value prop_instance(const std::u16string& name);
+
  private:
   void any_str_arr(const Value& v, std::vector<std::u16string>& out) const;
 

@@ -181,6 +181,27 @@ std::optional<std::vector<Value>> UIProps::nums(const std::u16string& name, doub
   return out;
 }
 
+Value UIProps::prop_value(const std::u16string& name) const {
+  const Object* const o = as_object(_raw);
+  const Value* const v = o != nullptr ? o->get(name) : nullptr;
+  return v != nullptr ? *v : Value();
+}
+
+Value UIProps::prop_instance(const std::u16string& name) {
+  const Object* const self = as_object(_raw);
+  const std::vector<schema::SchemaValidator::DefinedInstance>& defs =
+      _validator.defined_instances();
+  for (size_t i = 0; i < defs.size(); ++i) {
+    const schema::SchemaValidator::DefinedInstance& d = defs[i];
+    if (d.kind != schema::SchemaValidator::DefinedInstance::Kind::ObjectProp) continue;
+    if (d.key != name) continue;
+    if (as_object(d.target) != self) continue;
+    const schema::SchemaValidator::InstanceAccess a = _validator.get_instance(i);
+    return a.ok ? a.value : Value(NullTag{});
+  }
+  return Value(NullTag{});
+}
+
 bool UIProps::validate(const std::u16string& tag, const Value& props_meta) {
   const Value meta(std::make_shared<Object>());
   set_field(meta, u"key", Value(tag + u"Props"));

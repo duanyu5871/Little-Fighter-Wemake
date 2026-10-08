@@ -3,10 +3,13 @@
 #include <memory>
 #include <string>
 
+#include "lfw/ui/component/difficulty_text.h"
+#include "lfw/ui/component/extra_zip_text.h"
 #include "lfw/ui/component/fade_in_opacity.h"
 #include "lfw/ui/component/fade_out_opacity.h"
 #include "lfw/ui/component/fit_children.h"
 #include "lfw/ui/component/flex_item.h"
+#include "lfw/ui/component/fn_keys_counts.h"
 #include "lfw/ui/component/focus_behavior.h"
 #include "lfw/ui/component/horizontal_layout.h"
 #include "lfw/ui/component/hover_behavior.h"
@@ -16,6 +19,7 @@
 #include "lfw/ui/component/opacity_hover.h"
 #include "lfw/ui/component/pause_handling.h"
 #include "lfw/ui/component/picture.h"
+#include "lfw/ui/component/playing_time_text.h"
 #include "lfw/ui/component/position_animation.h"
 #include "lfw/ui/component/reachable.h"
 #include "lfw/ui/component/reachable_group.h"
@@ -66,6 +70,11 @@ void regist_components() {
   regist_one<ImgLoop>(u"ImgLoop");
   regist_one<Reachable>(u"Reachable");
   regist_one<ReachableGroup>(u"ReachableGroup");
+  regist_one<DifficultyText>(u"DifficultyText");
+  regist_one<DifficultyText>(u"difficulty_text");
+  regist_one<PlayingTimeText>(u"PlayingTimeText");
+  regist_one<FnKeysCounts>(u"FnKeysCounts");
+  regist_one<ExtraZipText>(u"ExtraZipText");
 }
 
 }

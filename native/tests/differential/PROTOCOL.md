@@ -4874,3 +4874,14 @@ harness op：
 - ⚠ 导航的可见/禁用过滤要挑“当前焦点**之后**的项”去禁（禁用项被跳过后 `next` 会回卷），
   过滤与不过滤才会走出不同目标。
 - 组件条目不带 `properties` 键也能正常创建（`args` 有的情况）；trace 产物可能滞后于上一轮，看漂移前先确认是新一轮的 artifact。
+
+### 6.9.157 文本类组件（`cases/lfw/texts.txt` 81 行；变异 13/13 全杀）
+
+- 新台面 op：`wfn <0|1>`（`world.set_fn_locked`）、`stime <v>`（`world.stage.time = v` / C++ `set_time`）、
+  `wcb <key>`（`world.callbacks.call(key, {world})`）、`lcb <key>`（`lfw.callbacks.call(key, {lfw})`）；
+  `nlife` 增加 `show`/`hide`（驱 `on_show`/`on_hide`，如 PlayingTimeText）。
+- ⚠ `WorldDataset.set` 的两个坑：**全新键不走钩子**；只有 `tracked`（在 `Defines.WDATASET` 字段表里）的键
+  才会发 `on_dataset_change` —— 想要“非 difficulty 键触发回调”的用例得改一个已登记字段（如 `itr_fall`）。
+- 夹具：`FnKeysCounts` 的 7 个 props 用字符串（节点 id）填，实例取值靠 `UIProps::prop_instance`（惰性 getter）；
+  子节点挂在组件所在节点下（`search_node` 命中）。
+- `ExtraZipText` 用 `i18nadd` + `setlang` 造 `DATA_LIST`/`extra_data` 词条；空词条 → 写一个空格。

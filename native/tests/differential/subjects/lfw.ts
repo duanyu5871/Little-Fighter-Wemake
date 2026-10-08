@@ -1141,6 +1141,8 @@ async function run_ops(): Promise<void> {
       else if (what === "stop") n.on_stop();
       else if (what === "resume") n.on_resume();
       else if (what === "pause") n.on_pause();
+      else if (what === "show") n.on_show();
+      else if (what === "hide") n.on_hide();
       else fail(`unknown nlife '${what}'`);
     } else if (op === "nclick") {
       const nid = next();
@@ -1325,6 +1327,14 @@ async function run_ops(): Promise<void> {
           push(parts.join("|"));
         }
       }
+    } else if (op === "wfn") {
+      lfw.world.fn_locked = Number(next()) !== 0;
+    } else if (op === "stime") {
+      lfw.world.stage.time = Number(next());
+    } else if (op === "wcb") {
+      lfw.world.callbacks.call(keyOf(next()));
+    } else if (op === "lcb") {
+      lfw.callbacks.call(keyOf(next()), lfw);
     } else if (op === "nact") {
       const n = tnodes.get(next())!;
       actor.act(n, parseValue(t, i) as never);
