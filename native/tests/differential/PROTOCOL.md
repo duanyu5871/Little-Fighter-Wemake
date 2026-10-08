@@ -4902,3 +4902,18 @@ harness op：
 - ⚠ `StageDialogListener` 的 stop→start 不重订（`_stage` 不清 + 同舞台早退）——用例最后一段就是在钉这个坑。
 - ⚠ 想让“同值早退”可观测：`dialpush` 把 index 卡在 ≥0 时**重复推**会带同一个对白对象再发一次事件，
   中间插 `nset <nid> visible 1` 就能看出变异体多跑了一次 handler。
+
+### 6.9.159 菜单文本/输入类组件（`cases/lfw/menu.txt` 254 行；变异 39/39 全杀）
+
+- 新台面 op：`ctext <nid> <get|set> [v]`（按 `is_class` 链找第一个 TextInput 家族组件，打
+  `text|maxLength|defaultValue`；缺省打 `z`）、`pname <pid> <name>`（`set_name(..., true)`）、
+  `ccall <nid> <PlayerName|PlayerTeamName|FighterName> <join|quit> [text] [com] [decided]`（按类名找组件再调）；
+  `nlife` 增 `blur`/`foucs`（驱 `on_blur`/`on_foucs`）。
+- ⚠ 组件 props 要写在 **component 对象里**（`component a 1 o 4 cls s "X" id s "xc" args a 0 properties o N …`），
+  写在外层节点数据里收不到（`o` 的对数也得跟着数对）。
+- ⚠ 子节点必须 `nadd <父> <子>`（**先 `nmk` 再 `nadd`**；`nrd <nid> kids` 可自查）。
+- ⚠ `RandomVisible` 依赖 `Randoming.mt`：两侧台面都要钉种子（C++ `randoming_default_mt() = MersenneTwister(12345)`、
+  TS `Randoming.mt = new MersenneTwister(12345)`），否则 TS 模块加载期的 `Date.now()` 让抽签不可复现。
+- ⚠ 想钉「空串组 ≠ 组表」这类等价路径（`g.has_value() && !g->empty()` 的短路），抽签要多堆几轮，
+  单轮会撞车（同一次 MT 抽取在 3 元与 2 元池子上可能落到同一元素）。
+

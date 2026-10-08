@@ -11,6 +11,7 @@
 #include "lfw/ui/component/flex_item.h"
 #include "lfw/ui/component/fn_keys_counts.h"
 #include "lfw/ui/component/focus_behavior.h"
+#include "lfw/ui/component/fighter_name.h"
 #include "lfw/ui/component/hide_when_dialoging.h"
 #include "lfw/ui/component/horizontal_layout.h"
 #include "lfw/ui/component/hover_behavior.h"
@@ -21,9 +22,13 @@
 #include "lfw/ui/component/pause_handling.h"
 #include "lfw/ui/component/picture.h"
 #include "lfw/ui/component/player_key_text.h"
+#include "lfw/ui/component/player_name.h"
+#include "lfw/ui/component/player_name_input.h"
+#include "lfw/ui/component/player_team_name.h"
 #include "lfw/ui/component/playing_time_text.h"
 #include "lfw/ui/component/position_animation.h"
 #include "lfw/ui/component/prefix_and_difficulty_text.h"
+#include "lfw/ui/component/random_visible.h"
 #include "lfw/ui/component/reachable.h"
 #include "lfw/ui/component/reachable_group.h"
 #include "lfw/ui/component/scale_animation.h"
@@ -85,6 +90,12 @@ void regist_components() {
   regist_one<StageTitleShow>(u"StageTitleShow");
   regist_one<HideWhenDialoging>(u"HideWhenDialoging");
   regist_one<PlayerKeyText>(u"PlayerKeyText");
+  regist_one<TextInput>(u"TextInput");
+  regist_one<PlayerNameInput>(u"PlayerNameInput");
+  regist_one<PlayerName>(u"PlayerName");
+  regist_one<PlayerTeamName>(u"PlayerTeamName");
+  regist_one<FighterName>(u"FighterName");
+  regist_one<RandomVisible>(u"RandomVisible");
 }
 
 }

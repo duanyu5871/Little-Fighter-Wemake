@@ -7,6 +7,8 @@ import { ImageInfo } from "../../../../src/LFW/ditto";
 import { Expression } from "../../../../src/LFW/base/Expression";
 import { Factory } from "../../../../src/LFW/Factory";
 import { LFW } from "../../../../src/LFW/LFW";
+import { Randoming } from "../../../../src/LFW/helper/Randoming";
+import { MersenneTwister } from "../../../../src/LFW/utils/math/MersenneTwister";
 import { get_val_getter_from_stage } from "../../../../src/LFW/loader/get_val_getter_from_stage";
 import { PlayerInfo } from "../../../../src/LFW/PlayerInfo";
 import { Stage } from "../../../../src/LFW/stage/Stage";
@@ -19,6 +21,10 @@ import { UILayers, type IPopPageOpts, type UILayer } from "../../../../src/LFW/u
 import { actor } from "../../../../src/LFW/ui/action/Actor";
 import { UIComponent } from "../../../../src/LFW/ui/component/UIComponent";
 import { SmoothNumber } from "../../../../src/LFW/ui/component/SmoothNumber";
+import { TextInput } from "../../../../src/LFW/ui/component/TextInput";
+import { PlayerName } from "../../../../src/LFW/ui/component/PlayerName";
+import { PlayerTeamName } from "../../../../src/LFW/ui/component/PlayerTeamName";
+import { FighterName } from "../../../../src/LFW/ui/component/FighterName";
 import { UINode } from "../../../../src/LFW/ui/UINode";
 import { ui_load_img } from "../../../../src/LFW/ui/ui_load_img";
 
@@ -676,6 +682,7 @@ function dump_info(info: Rec): string {
 function main(): void {
   install_ditto();
   (Date as unknown as Rec).now = () => 12345;
+  Randoming.mt = new MersenneTwister(12345);
   lfw = new LFW(false);
   listen();
 
@@ -1144,6 +1151,8 @@ async function run_ops(): Promise<void> {
       else if (what === "pause") n.on_pause();
       else if (what === "show") n.on_show();
       else if (what === "hide") n.on_hide();
+      else if (what === "blur") n.on_blur();
+      else if (what === "foucs") n.on_foucs();
       else fail(`unknown nlife '${what}'`);
     } else if (op === "nclick") {
       const nid = next();
@@ -1364,6 +1373,35 @@ async function run_ops(): Promise<void> {
         ok = 0;
       }
       push(`pkeye|${p.id}|${ok}`);
+    } else if (op === "ctext") {
+      const nid = next();
+      const n = tnodes.get(nid)!;
+      const act = next();
+      const ti = n.components.find((c) => c instanceof TextInput) as TextInput | undefined;
+      if (!ti) push(`ctext|${nid}|none`);
+      else {
+        if (act === "set") ti.text = keyOf(next());
+        push(`ctext|${nid}|${render_value(ti.text)}|${render_value(ti.maxLength)}|${render_value(ti.defaultValue)}`);
+      }
+    } else if (op === "pname") {
+      const pid = nextKey();
+      const name = nextKey();
+      lfw.player(pid).set_name(name, true);
+    } else if (op === "ccall") {
+      const nid = next();
+      const n = tnodes.get(nid)!;
+      const cls_name = next();
+      const method = next();
+      const cls = cls_name === "PlayerName" ? PlayerName : cls_name === "PlayerTeamName" ? PlayerTeamName : FighterName;
+      const c = n.components.find((v) => v instanceof cls) as PlayerName | undefined;
+      if (!c) push(`ccall|${nid}|${cls_name}|none`);
+      else if (method === "quit") c.quit();
+      else {
+        const text = keyOf(next());
+        const com = next() === "1";
+        const decided = next() === "1";
+        c.join(text, com, decided);
+      }
     } else if (op === "nact") {
       const n = tnodes.get(next())!;
       actor.act(n, parseValue(t, i) as never);

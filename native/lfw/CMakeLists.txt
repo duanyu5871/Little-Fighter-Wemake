@@ -231,6 +231,12 @@ add_library(lfw_core STATIC
   ui/component/stage_title_show.cpp
   ui/component/hide_when_dialoging.cpp
   ui/component/player_key_text.cpp
+  ui/component/text_input.cpp
+  ui/component/player_name_input.cpp
+  ui/component/player_name.cpp
+  ui/component/player_team_name.cpp
+  ui/component/fighter_name.cpp
+  ui/component/random_visible.cpp
   ui/instance_ref.cpp
   helper/randoming.cpp
   state/spawn_ice_piece.cpp

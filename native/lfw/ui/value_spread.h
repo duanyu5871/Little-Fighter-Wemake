@@ -12,6 +12,9 @@ namespace lfw::ui {
 // nullish 与其余原始值不落键。
 void spread_into(Object& dst, const Value& src);
 
+// `{ ...src }`：新对象 + `spread_into`（浅拷贝，嵌套值仍是同一引用）。
+Value copy_object(const Value& src);
+
 // `v?.key`：非对象 ⇒ `nullptr`。
 const Value* field_of(const Value& v, const char16_t* key);
 

@@ -14,6 +14,7 @@
 #include "lfw/defines/defines_data.h"
 #include "lfw/entity/entity.h"
 #include "lfw/factory.h"
+#include "lfw/helper/randoming.h"
 #include "lfw/lfw.h"
 #include "lfw/loader/stage_val_getters.h"
 #include "lfw/player_info.h"
@@ -31,6 +32,10 @@
 #include "lfw/ui/component/reachable_group.h"
 #include "lfw/ui/component/scale_animation.h"
 #include "lfw/ui/component/smooth_number.h"
+#include "lfw/ui/component/text_input.h"
+#include "lfw/ui/component/player_name.h"
+#include "lfw/ui/component/player_team_name.h"
+#include "lfw/ui/component/fighter_name.h"
 #include "lfw/ui/component/ui_component.h"
 #include "lfw/ui/component/ui_props.h"
 #include "lfw/ui/instance_ref.h"
@@ -1046,6 +1051,67 @@ bool run_comp_ops(lfw::LFW& lfw, const std::vector<std::string>& t, size_t& i,
       std::u16string err;
       const bool ok = p->set_key(lfw::Value(name), lfw::Value(key), true, err);
       push("pkeye|" + to_ascii(p->id()) + "|" + (ok ? "1" : "0"));
+    } else if (op == "ctext") {
+      const std::string nid = t[i++];
+      const std::string act = t[i++];
+      lfw::ui::UINode& n = *g_nodes.at(nid);
+      lfw::ui::TextInput* ti = nullptr;
+      for (lfw::ui::UIComponent* const c : n.components()) {
+        if (!lfw::is_class(c->clazz(), lfw::ui::TextInput::class_tag())) continue;
+        ti = static_cast<lfw::ui::TextInput*>(c);
+        break;
+      }
+      if (ti == nullptr) {
+        push("ctext|" + nid + "|none");
+      } else {
+        if (act == "set") ti->set_text(key_of(t[i++]));
+        const std::optional<double> ml = ti->max_length();
+        const std::optional<std::u16string> dv = ti->default_value();
+        push("ctext|" + nid + "|" + to_ascii(render_value(lfw::Value(ti->text()))) + "|" +
+             (ml.has_value() ? to_ascii(render_value(lfw::Value(*ml))) : std::string("z")) + "|" +
+             (dv.has_value() ? to_ascii(render_value(lfw::Value(*dv))) : std::string("z")));
+      }
+    } else if (op == "pname") {
+      const std::u16string pid = key_of(t[i++]);
+      const std::u16string name = key_of(t[i++]);
+      lfw::PlayerInfo* const p = lfw.player(pid);
+      p->set_name(lfw::Value(name), true);
+    } else if (op == "ccall") {
+      const std::string nid = t[i++];
+      const std::string cls_name = t[i++];
+      const std::string method = t[i++];
+      lfw::ui::UINode& n = *g_nodes.at(nid);
+      const std::u16string want = to_u16(cls_name);
+      lfw::ui::UIComponent* target = nullptr;
+      for (lfw::ui::UIComponent* const c : n.components()) {
+        const std::u16string* const nm = lfw::ui::ui_class_name(c->clazz());
+        if (nm != nullptr && *nm == want) {
+          target = c;
+          break;
+        }
+      }
+      if (target == nullptr) {
+        push("ccall|" + nid + "|" + cls_name + "|none");
+      } else if (method == "quit") {
+        if (lfw::is_class(target->clazz(), lfw::ui::PlayerName::class_tag())) {
+          static_cast<lfw::ui::PlayerName*>(target)->quit();
+        } else if (lfw::is_class(target->clazz(), lfw::ui::PlayerTeamName::class_tag())) {
+          static_cast<lfw::ui::PlayerTeamName*>(target)->quit();
+        } else if (lfw::is_class(target->clazz(), lfw::ui::FighterName::class_tag())) {
+          static_cast<lfw::ui::FighterName*>(target)->quit();
+        }
+      } else {
+        const std::u16string text = key_of(t[i++]);
+        const bool com = t[i++] == "1";
+        const bool decided = t[i++] == "1";
+        if (lfw::is_class(target->clazz(), lfw::ui::PlayerName::class_tag())) {
+          static_cast<lfw::ui::PlayerName*>(target)->join(text, com, decided);
+        } else if (lfw::is_class(target->clazz(), lfw::ui::PlayerTeamName::class_tag())) {
+          static_cast<lfw::ui::PlayerTeamName*>(target)->join(text, com, decided);
+        } else if (lfw::is_class(target->clazz(), lfw::ui::FighterName::class_tag())) {
+          static_cast<lfw::ui::FighterName*>(target)->join(text, com, decided);
+        }
+      }
   } else {
     return false;
   }
@@ -1119,6 +1185,8 @@ int main(int argc, char** argv) {
     std::fprintf(stderr, "usage: lfw_trace_lfw <case-file>\n");
     return 2;
   }
+  // 台面：`Randoming` 的默认 MT 固定种子（TS 侧同步 `Randoming.mt = new MersenneTwister(12345)`）。
+  lfw::randoming_default_mt() = lfw::MersenneTwister(12345.0);
   std::ifstream in(argv[1]);
   if (!in) {
     std::fprintf(stderr, "cannot open case file: %s\n", argv[1]);
@@ -1852,6 +1920,8 @@ int main(int argc, char** argv) {
       else if (what == "pause") n.on_pause();
       else if (what == "show") n.on_show();
       else if (what == "hide") n.on_hide();
+      else if (what == "blur") n.on_blur();
+      else if (what == "foucs") n.on_foucs();
       else {
         std::fprintf(stderr, "unknown nlife '%s'\n", what.c_str());
         return 2;

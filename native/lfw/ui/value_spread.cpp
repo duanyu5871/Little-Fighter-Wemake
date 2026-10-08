@@ -1,5 +1,6 @@
 #include "lfw/ui/value_spread.h"
 
+#include <memory>
 #include <string>
 
 #include "lfw/core/js_string.h"
@@ -29,6 +30,11 @@ const Value* field_of(const Value& v, const char16_t* key) {
   return o == nullptr ? nullptr : o->get(key);
 }
 
+Value copy_object(const Value& src) {
+  Value out(std::make_shared<Object>());
+  spread_into(*as_object(out), src);
+  return out;
+}
 size_t js_key_count(const Value& v) {
   if (const Object* o = as_object(v)) return o->size();
   if (const Array* a = as_array(v)) return a->size();

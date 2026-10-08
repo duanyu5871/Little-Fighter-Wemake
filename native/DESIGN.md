@@ -9365,3 +9365,31 @@ C++ `regist_one` 需对 `Picture` 巨两次（`Picture`/`Image`）。180. `image
 `stevt`（手发舞台回调）、`pkeye`（`set_key(..., emit=true)`）。
 
 **测试**：用例 `cases/lfw/titles.txt` **137 行**；变异 `lfw_titles.mjs` **38/38 全杀**；全量差分 **231/231**。
+
+## 115. 切片 4BB：TextInput / PlayerNameInput / PlayerName / PlayerTeamName / FighterName / RandomVisible
+
+六个新组件：`text_input`（基类，只存 `_text`；`maxLength`/`defaultValue` 读 props）、`player_name_input`
+（绑玩家名：`player_id` 从节点 `values.player_id` 取（`get_value(..., true)` 会向上找）；`on_start` 订
+`on_name_changed`，`on_resume` 同步名字，`on_blur`/`on_stop` 回写 `set_name(..., true).save()`）、
+`player_name`（props `prefix`/`hide_join_q`；`join` 写「前缀+名字」、`quit` 写「加 入?」词条且
+`hide_join_q` 为真时隐藏；未决定时 `Sine(0.65, 0.35, 3)`）、`player_team_name`（内联样式，
+`quit` 写**一个空格**；`Sine(0.65, 1, 3)`）、`fighter_name`（节点 style 优先，否则内联；`quit` 写空格
+且隐藏；`Sine(0.65, 1, 6)`）、`random_visible`（args[0] 组名；同组共用一个 `Randoming`，
+`on_resume` 随机让一个**直接子节点**可见）。附修：`value_spread` 加 `copy_object`（`{...obj}` 浅拷贝）。
+
+照拄怪癖（编号接 197 → 198）：198. `PlayerName.join` 的三连赋值 `_decided = decided; _com = com;
+_decided = true;` —— 末句把参数 `decided` **覆盖掉**（`_decided` 恒真），TS 原文如此。199.
+`PlayerName.quit` 用 `char_menu.join_q` 词条，而 `PlayerTeamName.quit` / `FighterName.quit` 写的是
+**一个空格**（别想当然照抄）。200. `RandomVisible` 的静态表键 = `this.group || this` ⇒ 空串组与非空组
+走不同表，空串组等价「每实例一份」。201. `Randoming.random_take` 要**抽完一轮**才 `filter(taken)`
+重建池子（`src.length <= 1` 时直接整份复制）。202. TS `range(0, -1, 1)` 会**抛** `[range] dead loop!`
+（0 子节点时 `RandomVisible.on_resume` 直接炸）；端口 `range` 改返 `nullopt`（偏差，用例不覆盖）。
+203. `Randoming.mt` 是**模块加载期**用 `Date.now()` 定种的静态实例（台面要显式重设才能定种），
+C++ 侧 `randoming_default_mt()` 是懒建（`clock_now()`）——两侧台面现在都钉 12345。
+
+台面新 op：`ctext <nid> <get|set> [v]`（找第一个 TextInput 家族组件，打 `text|maxLength|defaultValue`）、
+`pname <pid> <name>`（`set_name(..., true)`）、`ccall <nid> <cls> <join|quit> [text] [com] [decided]`；
+`nlife` 加 `blur`/`foucs`。
+
+**测试**：用例 `cases/lfw/menu.txt` **254 行**；变异 `lfw_menu.mjs` **39/39 全杀**；全量差分 **232/232**。
+
