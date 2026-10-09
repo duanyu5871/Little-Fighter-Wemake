@@ -9393,3 +9393,40 @@ C++ 侧 `randoming_default_mt()` 是懒建（`clock_now()`）——两侧台面�
 
 **测试**：用例 `cases/lfw/menu.txt` **254 行**；变异 `lfw_menu.mjs` **39/39 全杀**；全量差分 **232/232**。
 
+
+## 116. 切片 4BC：组件回调总线 + IntegerPicker
+
+**回调总线改版**：TS 里 `UIComponent` 基类挂着 `callbacks: IUICompnentCallbacks`（各组件再扩自己的接口
+`IIntegerPickerCallbacks`）。C++ 侧删掉基类那份 `UIComponentCallbacks`/成员，改成**每个组件自带**
+一份带类型的总线：组件头里定义载荷结构（如 `IntegerPickerCallbackArgs{curr, prev, self}`）+ 
+`using IntegerPickerCallbacks = CallbacksT<IntegerPickerCallbackArgs>;`，类里声明 `IntegerPickerCallbacks callbacks;`。
+`CallbacksT::on(key, fn)` 返 `Remover`，`call(key, {args})` 派发。
+
+**`integer_picker`**：props `min`/`max`/`val`/`triggers`（字符串数组）。`init` 读 min/max（缺省
+`MIN/MAX_SAFE_INTEGER`），`set_min(min(v1,v2))`、`set_max(max(v1,v2))`（**归一大小**），`set_val(val ?? min)`，
+最后把 `triggers ?? ['click']` 灌进 `_triggers`。点按受 `'click'` 触发限制（按钮 0 → `goto_next`、
+2 → `goto_prev`）；按键要先过焦点门（`node.focused()` 或 `'no-focused'`），组 `aj`/`ud`/`lr` 分别
+管 j/a、U/D、L/R（j、U、L → `goto_prev`；a、D、R → `goto_next`）。
+
+三个 setter 的语义：
+- `set_min(v)`：`v > _max` → 转 `set_max(v)`；NaN → `MIN`；否则 `max(ceil(v), MIN)`；与原值相等早退；
+  否则赋值 + `on_min_changed(curr, prev, self)` + **`set_val(_val)` 重钳**（可能再发 `on_val_changed`）。
+- `set_max(v)`：`v < _min` → 转 `set_min(v)`；NaN → **`MIN`**；否则 `min(floor(v), MAX)`；同上 + `on_max_changed`。
+- `set_val(v)`：NaN → `_min`；否则 `clamp(round(v), _min, _max)`；相等早退；否则赋值 + `on_val_changed`，
+  再把节点文本写成 `number_to_string(v)`（style 沿用 `node.text().style`，空则新建 `Object`）。
+
+照拄怪癖（编号接 203 → 204）：204. `set_max` 的 NaN 分支落的是 **`MIN`**（照抄 `set_min` 的拷贝粘贴
+bug；写 `MAX` 反而"更对"但是错的）。205. `props_holder.strs('triggers') ?? ['click']` —— 显式给**空数组**
+= 没有任何触发器（不是回退到 click）。206. `goto_next` 用 `>=`、`goto_prev` 用 `<=` 判界（值被外部抬过
+界时也会回卷）。207. `set_min`/`set_max` 里先比大小再判 NaN（`NaN > x` 为假所以落 NaN 分支）。208.
+`on_key_down` 里 `const focused = this._triggers.has('no-focused')`（变量名与含义反着，别读岔）。
+209. `set_val` 的 `_val` 赋值内联在 `callbacks.call('on_val_changed', this._val = v, p, this)` 的参数里
+（先赋值、再调回调，顺序与 C++ 端 `_val = v; call(...)` 等价）。210. `init` 里 `val` 缺省取的是
+`this.min`（**归一之后**的 min），不是 props 原始 min。211. 组件回调从"基类共享一份"改成"组件各自
+一份带类型总线"（C++ 侧的对应物是 `CallbacksT<XxxCallbackArgs>` 成员）。
+
+台面新 op：`ird <nid>`（打 `ird|<nid>|<min>|<max>|<val>` 或 `|none`，定浮点位十六进制以免精度歧义）、
+`ibus <nid>`（挂 `on_min_changed`/`on_max_changed`/`on_val_changed` 三个探针，打印
+`ibus|<kind>|<curr>|<prev>|<self==组件?1:0>`）、`iput <nid> <min|max|val> <n>`（调 setter）。
+
+**测试**：用例 `cases/lfw/picker.txt` **125 行**；变异 `lfw_picker.mjs` **36/36 全杀**；全量差分 **233/233**。

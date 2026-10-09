@@ -4917,3 +4917,31 @@ harness op：
 - ⚠ 想钉「空串组 ≠ 组表」这类等价路径（`g.has_value() && !g->empty()` 的短路），抽签要多堆几轮，
   单轮会撞车（同一次 MT 抽取在 3 元与 2 元池子上可能落到同一元素）。
 
+
+### 6.9.160 组件回调总线 + IntegerPicker（`cases/lfw/picker.txt` 125 行；变异 36/36 全杀）
+
+- 新台面 op：
+  - `ird <nid>` —— 按 `is_class` 链找 `IntegerPicker`（缺省祖先链找），打
+    `ird|<nid>|<min>|<max>|<val>`（三数用 `%a` 十六进制格式化，避免 1e16 量级的十进制尾差）；
+    找不到打 `ird|<nid>|none`。
+  - `ibus <nid>` —— 给该组件的回调总线挂 `on_min_changed`/`on_max_changed`/`on_val_changed` 三个探针，
+    每次触发打 `ibus|<kind>|<curr>|<prev>|<self==该组件?1:0>`（`self` 指针校验：故意让 TS 端传 `this`）。
+  - `iput <nid> <min|max|val> <n>` —— 调 `set_min`/`set_max`/`set_val`（`n` 走 `to_double`，
+    `"NaN"` 会真给 NaN）。
+- ⚠ 用 `nset <nid> focused 1/0` 控焦点门（`no-focused` 触发器不需要焦点）；按键走 `nkey <nid> down <gk>`
+  （gk 用 `L`/`R`/`U`/`D`/`a`/`j`）。
+- ⚠ 组件的 `triggers` 是**字符串数组** props（`strs('triggers')`）；显式空数组 = 无任何触发器，
+  想测「缺省 click」就别给该 props。
+- ⚠ `set_min`/`set_max` 会**互相转调**（`set_min(v)` 且 `v > max` → 转 `set_max(v)`，反之亦然），
+  用例里超界赋值要按转调后的效果断言（例：`min 10`（max 7）会让 max 抬到 10、val 重钳）。
+- ⚠ 变异里 `set_val` 的取整/钳制分两条锚点（`clamp(round(v), _min, _max)` 只出现一次，
+  另用整段 if/else 锚 NaN 分支），别把两条合到一行里改，否则后续锚点失配。
+- ⚠ `_val` 初值在 **头文件**（`double _val = _min;`）—— 成员初始化的变异锚点放 `.h` 不放 `.cpp`。
+- ⚠ 「成员初值」这类变异只有在 `init` 的**最后一步会早退**时才可观测：`IntegerPicker` 三个 setter 相等即早退，
+  无 props 时 `set_val(min == _val)` 直接返回、**不写文本** ⇒ 要用「建好节点立刻 `nrd <nid> text`（应为 `null`）」
+  来钉它，等按过键再读就没区别了。
+- ⚠ 样式沿用（`node.text().style ?? {}`）必须**先给节点文本带上样式**（`nset <nid> text2 <文本> o 1 fill_style s "cyan"`）
+  才有可观测差异；空节点文本时新样式对象与新建 `{}` 打印都是 `"{}"`，变异必存活。
+- ⚠ 取整类 setter 要有**分数值**输入才可观测（`iput <nid> max 6.5` → floor 6 / ceil 7）；整数输入测不出。
+- ⚠ **中途 kill 变异运行会把「已应用但未回滚」的变异体留在源码里**（本次 `set_min(v1)/set_max(v2)` 残留，
+  导致后续 lint 锚点 `count=0`、二进制与源码不一致）⇒ 中断后先 `git diff` 肉眼核对，恢复后 `build` 再跑用例。

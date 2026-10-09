@@ -237,6 +237,7 @@ add_library(lfw_core STATIC
   ui/component/player_team_name.cpp
   ui/component/fighter_name.cpp
   ui/component/random_visible.cpp
+  ui/component/integer_picker.cpp
   ui/instance_ref.cpp
   helper/randoming.cpp
   state/spawn_ice_piece.cpp

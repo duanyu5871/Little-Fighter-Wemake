@@ -36,6 +36,7 @@
 #include "lfw/ui/component/player_name.h"
 #include "lfw/ui/component/player_team_name.h"
 #include "lfw/ui/component/fighter_name.h"
+#include "lfw/ui/component/integer_picker.h"
 #include "lfw/ui/component/ui_component.h"
 #include "lfw/ui/component/ui_props.h"
 #include "lfw/ui/instance_ref.h"
@@ -2023,6 +2024,61 @@ int main(int argc, char** argv) {
              (r != nullptr ? node_ref(r) : std::string("u")));
       }
     } else if (run_comp_ops(lfw, t, i, op)) {
+    } else if (op == "ird") {
+      const std::string nid = t[i++];
+      lfw::ui::UINode& n = *g_nodes.at(nid);
+      lfw::ui::IntegerPicker* p = nullptr;
+      for (lfw::ui::UIComponent* const c : n.components()) {
+        if (!lfw::is_class(c->clazz(), lfw::ui::IntegerPicker::class_tag())) continue;
+        p = static_cast<lfw::ui::IntegerPicker*>(c);
+        break;
+      }
+      if (p == nullptr) push("ird|" + nid + "|none");
+      else push("ird|" + nid + "|" + num(p->min()) + "|" + num(p->max()) + "|" + num(p->val()));
+    } else if (op == "ibus") {
+      const std::string nid = t[i++];
+      lfw::ui::UINode& n = *g_nodes.at(nid);
+      lfw::ui::IntegerPicker* p = nullptr;
+      for (lfw::ui::UIComponent* const c : n.components()) {
+        if (!lfw::is_class(c->clazz(), lfw::ui::IntegerPicker::class_tag())) continue;
+        p = static_cast<lfw::ui::IntegerPicker*>(c);
+        break;
+      }
+      if (p == nullptr) {
+        push("ibus|" + nid + "|none");
+      } else {
+        lfw::ui::IntegerPicker* const self = p;
+        p->callbacks.on(u"on_min_changed", [self](const lfw::ui::IntegerPickerCallbacks::Payloads& ps) {
+          for (const lfw::ui::IntegerPickerCallbackArgs& a : ps)
+            push("ibus|min|" + num(a.curr) + "|" + num(a.prev) + "|" +
+                 (a.self == self ? "1" : "0"));
+        });
+        p->callbacks.on(u"on_max_changed", [self](const lfw::ui::IntegerPickerCallbacks::Payloads& ps) {
+          for (const lfw::ui::IntegerPickerCallbackArgs& a : ps)
+            push("ibus|max|" + num(a.curr) + "|" + num(a.prev) + "|" +
+                 (a.self == self ? "1" : "0"));
+        });
+        p->callbacks.on(u"on_val_changed", [self](const lfw::ui::IntegerPickerCallbacks::Payloads& ps) {
+          for (const lfw::ui::IntegerPickerCallbackArgs& a : ps)
+            push("ibus|val|" + num(a.curr) + "|" + num(a.prev) + "|" +
+                 (a.self == self ? "1" : "0"));
+        });
+      }
+    } else if (op == "iput") {
+      const std::string nid = t[i++];
+      const std::string what = t[i++];
+      const double v = to_double(t[i++]);
+      lfw::ui::UINode& n = *g_nodes.at(nid);
+      lfw::ui::IntegerPicker* p = nullptr;
+      for (lfw::ui::UIComponent* const c : n.components()) {
+        if (!lfw::is_class(c->clazz(), lfw::ui::IntegerPicker::class_tag())) continue;
+        p = static_cast<lfw::ui::IntegerPicker*>(c);
+        break;
+      }
+      if (p == nullptr) push("iput|" + nid + "|none");
+      else if (what == "min") p->set_min(v);
+      else if (what == "max") p->set_max(v);
+      else p->set_val(v);
     } else if (op == "nact") {
       const std::string nid = t[i++];
       const lfw::Value action = parse_value(t, i);

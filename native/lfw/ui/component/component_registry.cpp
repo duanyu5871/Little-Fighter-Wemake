@@ -16,6 +16,7 @@
 #include "lfw/ui/component/horizontal_layout.h"
 #include "lfw/ui/component/hover_behavior.h"
 #include "lfw/ui/component/img_loop.h"
+#include "lfw/ui/component/integer_picker.h"
 #include "lfw/ui/component/opacity_animation.h"
 #include "lfw/ui/component/opacity_flash.h"
 #include "lfw/ui/component/opacity_hover.h"
@@ -96,6 +97,7 @@ void regist_components() {
   regist_one<PlayerTeamName>(u"PlayerTeamName");
   regist_one<FighterName>(u"FighterName");
   regist_one<RandomVisible>(u"RandomVisible");
+  regist_one<IntegerPicker>(u"IntegerPicker");
 }
 
 }

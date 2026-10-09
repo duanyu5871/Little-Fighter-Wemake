@@ -25,6 +25,7 @@ import { TextInput } from "../../../../src/LFW/ui/component/TextInput";
 import { PlayerName } from "../../../../src/LFW/ui/component/PlayerName";
 import { PlayerTeamName } from "../../../../src/LFW/ui/component/PlayerTeamName";
 import { FighterName } from "../../../../src/LFW/ui/component/FighterName";
+import { IntegerPicker } from "../../../../src/LFW/ui/component/IntegerPicker";
 import { UINode } from "../../../../src/LFW/ui/UINode";
 import { ui_load_img } from "../../../../src/LFW/ui/ui_load_img";
 
@@ -1402,6 +1403,37 @@ async function run_ops(): Promise<void> {
         const decided = next() === "1";
         c.join(text, com, decided);
       }
+    } else if (op === "ird") {
+      const nid = next();
+      const n = tnodes.get(nid)!;
+      const p = n.components.find((c) => c instanceof IntegerPicker) as IntegerPicker | undefined;
+      if (!p) push(`ird|${nid}|none`);
+      else push(`ird|${nid}|${num(p.min)}|${num(p.max)}|${num(p.val)}`);
+    } else if (op === "ibus") {
+      const nid = next();
+      const n = tnodes.get(nid)!;
+      const p = n.components.find((c) => c instanceof IntegerPicker) as IntegerPicker | undefined;
+      if (!p) push(`ibus|${nid}|none`);
+      else {
+        p.callbacks.add({
+          on_min_changed: (curr: number, prev: number, self: IntegerPicker) =>
+            push(`ibus|min|${num(curr)}|${num(prev)}|${self === p ? 1 : 0}`),
+          on_max_changed: (curr: number, prev: number, self: IntegerPicker) =>
+            push(`ibus|max|${num(curr)}|${num(prev)}|${self === p ? 1 : 0}`),
+          on_val_changed: (curr: number, prev: number, self: IntegerPicker) =>
+            push(`ibus|val|${num(curr)}|${num(prev)}|${self === p ? 1 : 0}`),
+        });
+      }
+    } else if (op === "iput") {
+      const nid = next();
+      const what = next();
+      const v = Number(next());
+      const n = tnodes.get(nid)!;
+      const p = n.components.find((c) => c instanceof IntegerPicker) as IntegerPicker | undefined;
+      if (!p) push(`iput|${nid}|none`);
+      else if (what === "min") p.min = v;
+      else if (what === "max") p.max = v;
+      else p.val = v;
     } else if (op === "nact") {
       const n = tnodes.get(next())!;
       actor.act(n, parseValue(t, i) as never);

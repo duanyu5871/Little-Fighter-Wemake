@@ -22,8 +22,9 @@ namespace ui {
 
 class UINode;
 
-// TS `IUICompnentCallbacks`（空接口）。
-struct UIComponentCallbacks {};
+// TS 的 `UIComponent.callbacks`（`Callbacks<C>`，基类泛型成员）在端口改成**每个组件自带**一份
+// 带类型的总线（`CallbacksT<XxxCallbackArgs>`）——`Value` 装不下 `self` 这类对象参数。
+// 用得上的组件（IntegerPicker / Jalousie / ScrollView …）各自声明 `callbacks` 成员。
 
 // TS `ui/component/UIComponent.ts` 的基类。
 //
@@ -48,7 +49,6 @@ class UIComponent {
   UINode& node;
   std::u16string f_name;
   Value info;
-  UIComponentCallbacks callbacks;
   UIProps props_holder;
 
   bool stopped = true;
