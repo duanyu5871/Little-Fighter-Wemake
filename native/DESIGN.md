@@ -9663,3 +9663,41 @@ bg 列表 3 项）的状态上；④`on_resume` 的重复订阅守卫要靠**连
 
 **测试**：用例 `cases/lfw/dialogs.txt` **107 行**（trace 行数；case 文件 97 行）；变异
 `lfw_dialogs.mjs` **32/32 全杀**；全量差分 **239/239**。
+
+## 123. 切片 4BJ：PlayerKeyEdit
+
+**`player_key_edit`**：继承 `PlayerKeyText`。三块逻辑：
+- `on_start`：节点 style 写 `17px Arial`；把「点父节点」回调挂到 `node.parent().callbacks.on_click`
+  （TS 的 `p`；`on_stop` 清掉）。点击处理 = `_click_me = true` → `focused = !focused` →
+  `e.stop_immediate_propagation()`。
+- `on_foucs`：`on_key_changed()` → 注册指针回调 `r` → 注册键盘回调 `l`；`on_blur` 同序反注册
+  （TS 的 `super.on_foucs?.()` 在 `PlayerKeyText` 上没有实现，是 no-op，端口省掉）。
+- `on_key_changed`（本切片改成虚函数）：写 `key_code()` 到文本；聚焦 ⇒ `#5555FF`，否则
+  `key_code() == "None"` ⇒ `gray`，否则 `white`。
+- 键盘 `l.on_key_down`：没聚焦直接丢；`escape` 跳过写键；否则 `player != null` 才
+  `set_key(key_name, e.key, true)` + `save()`（TS 的链式 `.save()`；玩家空 ⇒ 两个都不发生）→
+  在 `node.root().search_components(PlayerKeyEdit, v => v.player === this.player)` 里找自己，
+  取 **下一个**（`[idx+1]`；找不到就不动）聚焦；最后 `node.focused = false`（顺延时这一刻已失焦
+  ⇒ 是 no-op，没下一个时才真失焦）。
+- 指针 `r.on_click`：`_click_me` 真 ⇒ 吃掉并返回（同一次点击的 UI 事件已经处理过）；否则
+  `node.focused = false`。
+
+⚠ **新缝：键盘 / 指针回调表**（本切片新增）。TS 里 `lfw.keyboard.callback` / `lfw.pointings.callback`
+是宿主平台的 `NoEmitCallbacks` 表（LFW 自己 ctor 里 `add(this)`；组件按需 add/del 回调对象）。
+端口把**注册表放在宿主**：`ILfwHost::keyboard_callback_add/del`、`pointings_callback_add/del`，
+`LFW` 上四个同名转发方法。接口按 TS 形状端口化：`LfwKeyboardCallback`（`on_key_down/on_key_up`）、
+`LfwPointingsCallback`（`on_click`）+ `LfwPointingEvent`；**`LFW` 自己也实现 `LfwKeyboardCallback`**
+——列表第一项 = LFW，键盘事件先过 LFW 自己的作弊码 / KEY_EVENT 处理，再轮到组件。注册表语义照抄
+TS：add **去重**（Set）、del 删除、按插入序**对快照**分发（分发中途 add 不吃当前事件、del 的仍吃）。
+`PlayerKeyEdit` 的两个监听对象是成员 `KeyListener` / `PointListener`（身份稳定 ⇒ del 找得到）。
+
+⚠ **台面**：`kbdown`/`kbup` 改为**过键盘回调表分发**（不再是直呼 `lfw.on_key_down`；老用例不受
+影响——列表第一项仍是 LFW 自己）；新增 `ptclick <btn>`（平台级点击，走指针回调表）；fake 的
+`add`/`del` 打 `kbd_cbadd`/`kbd_cbdel` / `pt_cbadd`/`pt_cbdel`。`nrd` 新增 `style` 读法：直接渲染
+节点 `style.data`（`fill_style` 这类字段的**取值**只有它能看见；`nrd text` 只给 Style 版本号）。
+
+⚠ **写用例注意**：编辑格的 `player()` 是**查表不建**（先 `player <id>`）；父节点 `on_click` 在端口是
+单槽 ⇒ 一个父节点只挂一个编辑格（TS 是回调表可以叠多个——多格共用父节点会漂移，用例避开）。
+
+**测试**：用例 `cases/lfw/key_edit.txt` **208 行**（trace 行数；case 文件 133 行）；变异
+`lfw_key_edit.mjs` **37/37 全杀**；全量差分 **240/240**。

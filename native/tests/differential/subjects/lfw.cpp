@@ -715,8 +715,45 @@ class FakeHost : public lfw::ILfwHost {
   void images_init(lfw::LFW&) override { push("img_init"); }
   void keyboard_init(lfw::LFW&) override { push("kbd_init"); }
   void pointings_init(lfw::LFW&) override { push("pt_init"); }
-  void keyboard_add_callback(lfw::LFW&) override { push("kbd_cbadd"); }
+  void keyboard_add_callback(lfw::LFW& lfw) override {
+    push("kbd_cbadd");
+    _kbd_cbs.push_back(&lfw);
+  }
   void pointings_add_ui_input(lfw::LFW&) override { push("pt_cbadd"); }
+  void keyboard_callback_add(lfw::LFW&, lfw::LfwKeyboardCallback* cb) override {
+    push("kbd_cbadd");
+    _kbd_cbs.push_back(cb);
+  }
+  void keyboard_callback_del(lfw::LFW&, lfw::LfwKeyboardCallback* cb) override {
+    push("kbd_cbdel");
+    for (std::size_t i = 0; i < _kbd_cbs.size();) {
+      if (_kbd_cbs[i] == cb) _kbd_cbs.erase(_kbd_cbs.begin() + static_cast<std::ptrdiff_t>(i));
+      else ++i;
+    }
+  }
+  void pointings_callback_add(lfw::LFW&, lfw::LfwPointingsCallback* cb) override {
+    push("pt_cbadd");
+    _pt_cbs.push_back(cb);
+  }
+  void pointings_callback_del(lfw::LFW&, lfw::LfwPointingsCallback* cb) override {
+    push("pt_cbdel");
+    for (std::size_t i = 0; i < _pt_cbs.size();) {
+      if (_pt_cbs[i] == cb) _pt_cbs.erase(_pt_cbs.begin() + static_cast<std::ptrdiff_t>(i));
+      else ++i;
+    }
+  }
+  // 键盘/指针服务收到事件后分发给注册表（列表第一项是 LFW 自己）。
+  void dispatch_key(lfw::LfwKeyEvent& e, bool down) {
+    const std::vector<lfw::LfwKeyboardCallback*> snapshot = _kbd_cbs;
+    for (lfw::LfwKeyboardCallback* const cb : snapshot) {
+      if (down) cb->on_key_down(e);
+      else cb->on_key_up(e);
+    }
+  }
+  void dispatch_pointing_click(lfw::LfwPointingEvent& e) {
+    const std::vector<lfw::LfwPointingsCallback*> snapshot = _pt_cbs;
+    for (lfw::LfwPointingsCallback* const cb : snapshot) cb->on_click(e);
+  }
   void cache_forget(const std::u16string& type, double version) override {
     push("cache:forget|" + to_ascii(type) + "|" + num(version));
   }
@@ -777,8 +814,14 @@ class FakeHost : public lfw::ILfwHost {
          to_ascii(render_value(y)) + "|" + to_ascii(render_value(z)));
   }
   void sounds_dispose() override { push("snd_dispose"); }
-  void keyboard_dispose() override { push("kbd_dispose"); }
-  void pointings_dispose() override { push("pt_dispose"); }
+  void keyboard_dispose() override {
+    _kbd_cbs.clear();
+    push("kbd_dispose");
+  }
+  void pointings_dispose() override {
+    _pt_cbs.clear();
+    push("pt_dispose");
+  }
 
   lfw::Value measure_text(const lfw::Value& text, const lfw::Value& style) override {
     push("measure|" + to_ascii(render_value(text)) + "|" + to_ascii(render_value(style)));
@@ -937,6 +980,8 @@ class FakeHost : public lfw::ILfwHost {
   }
 
   lfw::LFW** _slot = nullptr;
+  std::vector<lfw::LfwKeyboardCallback*> _kbd_cbs;
+  std::vector<lfw::LfwPointingsCallback*> _pt_cbs;
   class Renderer : public lfw::IWorldRenderer {
    public:
     void add_entity(lfw::Entity&) override {}
@@ -1794,15 +1839,21 @@ int main(int argc, char** argv) {
       e.key = key;
       e.times = times;
       if (dev != "-") e.device_type = key_of(dev);
-      lfw.on_key_down(e);
+      host.dispatch_key(e, true);
       push("kbdown|" + to_ascii(key) + "|" + num(times) + "|" + dev + "|int=" +
            (e.interrupted ? "1" : "0"));
     } else if (op == "kbup") {
       const std::u16string key = key_of(t[i++]);
       lfw::LfwKeyEvent e;
       e.key = key;
-      lfw.on_key_up(e);
+      host.dispatch_key(e, false);
       push("kbup|" + to_ascii(key));
+    } else if (op == "ptclick") {
+      const double btn = to_double(t[i++]);
+      lfw::LfwPointingEvent e;
+      e.button = btn;
+      host.dispatch_pointing_click(e);
+      push("ptclick|" + num(btn));
     } else if (op == "cmds") {
       std::string joined;
       for (size_t k = 0; k < lfw.cmds.size(); ++k) {
@@ -2388,6 +2439,8 @@ int main(int argc, char** argv) {
                to_ascii(render_value(lfw::field_or(tv, u"scale"))) + "|" + to_ascii(sv) +
                "|" + sj_out);
         }
+      } else if (what == "style") {
+        push("nrd|" + nid + "|style|" + to_ascii(render_value(n.style.data())));
       } else if (what == "image") {
         push("nrd|" + nid + "|image|" + to_ascii(render_value(n.image())));
       } else if (what == "color") {

@@ -25,7 +25,8 @@ class PlayerKeyText : public UIComponent {
   void on_resume() override;
   void on_pause() override;
 
-  void on_key_changed();
+  // TS 里子类 `PlayerKeyEdit` 覆写它；端口同样用虚函数。
+  virtual void on_key_changed();
 
   std::u16string player_id();
   std::u16string key_name();

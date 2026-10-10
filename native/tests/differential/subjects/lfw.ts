@@ -415,20 +415,53 @@ function install_ditto(): void {
     }
   }
   class FakeKeyboard {
-    callback = { add: () => push("kbd_cbadd") };
+    readonly callbacks: Rec[] = [];
+    callback = {
+      add: (cb: unknown) => {
+        this.callbacks.push(cb as Rec);
+        push("kbd_cbadd");
+      },
+      del: (cb: unknown) => {
+        const k = this.callbacks.indexOf(cb as Rec);
+        if (k >= 0) this.callbacks.splice(k, 1);
+        push("kbd_cbdel");
+      },
+    };
     constructor(_lfw: unknown) {
+      kbd_dispatch = (dir, e) => {
+        for (const cb of [...this.callbacks]) {
+          if (dir === "down") cb.on_key_down?.(e);
+          else cb.on_key_up?.(e);
+        }
+      };
       push("kbd_init");
     }
     dispose(): void {
+      this.callbacks.length = 0;
       push("kbd_dispose");
     }
   }
   class FakePointings {
-    callback = { add: () => push("pt_cbadd") };
+    readonly callbacks: Rec[] = [];
+    callback = {
+      add: (cb: unknown) => {
+        this.callbacks.push(cb as Rec);
+        push("pt_cbadd");
+      },
+      del: (cb: unknown) => {
+        const k = this.callbacks.indexOf(cb as Rec);
+        if (k >= 0) this.callbacks.splice(k, 1);
+        push("pt_cbdel");
+      },
+    };
     constructor() {
+      pt_dispatch_click = (e) => {
+        for (const cb of [...this.callbacks]) cb.on_click?.(e);
+      };
       push("pt_init");
     }
     dispose(): void {
+      this.callbacks.length = 0;
       push("pt_dispose");
     }
   }
@@ -657,6 +690,9 @@ const CB_KEYS = [
 ];
 
 let lfw: LFW;
+// `FakeKeyboard` / `FakePointings` 在 `install_ditto` 里声明， 用模块级钩子接出分发入口。
+let kbd_dispatch: (dir: "down" | "up", e: Rec) => void = () => undefined;
+let pt_dispatch_click: (e: Rec) => void = () => undefined;
 
 function listen(): void {
   for (const name of CB_KEYS) {
@@ -836,13 +872,27 @@ async function run_ops(): Promise<void> {
           (e as Rec)["_int"] = true;
         },
       };
-      lfw.on_key_down(e as never);
+      kbd_dispatch("down", e as Rec);
       push(`kbdown|${key}|${num(times)}|${dev}|int=${(e as Rec)["_int"] ? 1 : 0}`);
     } else if (op === "kbup") {
       const key = nextKey();
       const e = { key };
-      lfw.on_key_up(e as never);
+      kbd_dispatch("up", e as Rec);
       push(`kbup|${key}`);
+    } else if (op === "ptclick") {
+      const btn = Number(nextKey());
+      const e = {
+        x: 0,
+        y: 0,
+        scene_x: 0,
+        scene_y: 0,
+        is_pointing_event: true,
+        button: btn,
+        delta_x: 0,
+        delta_y: 0,
+      };
+      pt_dispatch_click(e as Rec);
+      push(`ptclick|${num(btn)}`);
     } else if (op === "cmds") {
       push("cmds|" + lfw.cmds.join(";"));
     } else if (op === "clearcmds") {
@@ -1166,6 +1216,8 @@ async function run_ops(): Promise<void> {
           const sj = ver ? "-" : esc(JSON.stringify(st ?? {}));
           push(`nrd|${nid}|text|${renderValue((tv as Rec).text)}|${renderValue((tv as Rec).w)}|${renderValue((tv as Rec).h)}|${renderValue((tv as Rec).scale)}|${sv}|${sj}`);
         }
+      } else if (what === "style") {
+        push(`nrd|${nid}|style|${renderValue(n.style.data)}`);
       } else if (what === "image") {
         push(`nrd|${nid}|image|${renderValue(n.image)}`);
       } else if (what === "color") {

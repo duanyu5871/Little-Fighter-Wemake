@@ -5041,3 +5041,17 @@ harness op：
   再对，或者干脆让路径可加载（`imgset`）避开告警。
 - ⚠ fighter 夹具**别带 `head`**（端口预处理不落图片任务 ⇒ TS 会多 `img:load`）；头像分支在台面
   不可观测，只有“空路径 ⇒ 告警”可锚。
+
+### 6.9.167 PlayerKeyEdit（`cases/lfw/key_edit.txt` 208 行；变异 37/37 全杀）
+
+- ⚠ **`kbdown`/`kbup` 现在过「键盘回调表」分发**（TS 的 `keyboard.callback.call(...)`）：列表
+  第一项是 LFW 自己（ctor 注册），随后才是组件（聚焦的编辑格等）。老用例不受影响（原来就是
+  直呼 `lfw.on_key_down`，等价）。**新注册表语义照抄 TS**：add 去重（Set）、del 删除、按插入序
+  对快照分发；`dispose` 清表。
+- 新台面 op：`ptclick <btn>`（平台级指针点击，走指针回调表；`on_click` 接收者含“聚焦中的
+  PlayerKeyEdit”）。fake 的 `add`/`del` 打 `kbd_cbadd`/`kbd_cbdel`、`pt_cbadd`/`pt_cbdel`。
+- 新台面读法：`nrd <nid> style` → 直接渲染节点 `style.data`（看到 `fill_style` 的**取值**；
+  `nrd text` 只能看到 Style 版本号）。
+- ⚠ **写 PlayerKeyEdit 的用例**：`player()` 查表不建（先 `player <id>`）；父节点 `on_click` 是
+  单槽（一个父节点只挂一个编辑格）。`nclick <父节点>` 触发 `p`（stop=2 + 焦点翻转）；紧接着的
+  `ptclick` 会被 `_click_me` 吃掉（保焦点），**再来一次**才失焦。

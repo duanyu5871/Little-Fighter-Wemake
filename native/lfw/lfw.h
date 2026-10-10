@@ -77,6 +77,31 @@ struct LfwKeyEvent {
   void interrupt() { interrupted = true; }
 };
 
+// TS `IKeyboardCallback`（`ditto/keyboard/IKeyboardCallback.ts`）：注册进 `keyboard.callback`
+// 的对象（LFW 自己也在列表里——ctor 的 `keyboard.callback.add(this)`，接口方法 LFW 已实现）。
+struct LfwKeyboardCallback {
+  virtual ~LfwKeyboardCallback() = default;
+  virtual void on_key_down(LfwKeyEvent& e) { (void)e; }
+  virtual void on_key_up(LfwKeyEvent& e) { (void)e; }
+};
+
+// TS `IPointingEvent`（`ditto/pointings/IPointingEvent.ts`）在 LFW 里用到的那一面。
+struct LfwPointingEvent {
+  double x = 0.0;
+  double y = 0.0;
+  double scene_x = 0.0;
+  double scene_y = 0.0;
+  double button = -1.0;
+  double delta_x = 0.0;
+  double delta_y = 0.0;
+};
+
+// TS `IPointingsCallback`（`ditto/pointings/IPointingsCallback.ts`）在 LFW 里用到的那一面。
+struct LfwPointingsCallback {
+  virtual ~LfwPointingsCallback() = default;
+  virtual void on_click(LfwPointingEvent& e) { (void)e; }
+};
+
 // `UI.UILayers` 的缝（UI 层未移植）。`push()` 时宿主自己把 `on_set/on_push/on_pop` 接到
 // `LFW::ui_changed(curr, prev)`（TS 里这段接线注册在 `LFW.ctor` 里那个 layer callback 上）。
 class IUiLayers {
@@ -105,6 +130,13 @@ class ILfwHost {
   virtual void keyboard_add_callback(LFW& lfw) = 0;
   // `this.pointings.callback.add(new I.Ditto.UIInputHandle(this))`
   virtual void pointings_add_ui_input(LFW& lfw) = 0;
+  // `this.keyboard.callback.add(cb)` / `.del(cb)`（组件注册键盘回调；LFW 自己的那份走
+  // `keyboard_add_callback`）
+  virtual void keyboard_callback_add(LFW& lfw, LfwKeyboardCallback* cb) = 0;
+  virtual void keyboard_callback_del(LFW& lfw, LfwKeyboardCallback* cb) = 0;
+  // `this.pointings.callback.add(cb)` / `.del(cb)`
+  virtual void pointings_callback_add(LFW& lfw, LfwPointingsCallback* cb) = 0;
+  virtual void pointings_callback_del(LFW& lfw, LfwPointingsCallback* cb) = 0;
   // `I.Ditto.Cache.forget(type, version)` / `I.Ditto.Zip.forget_stored(type, version)`
   virtual void cache_forget(const std::u16string& type, double version) = 0;
   virtual void zip_forget_stored(const std::u16string& type, double version) = 0;
@@ -214,7 +246,8 @@ class LFW : public IWorldLfw,
             public IKeysLfw,
             public helper::IHelperLfw,
             public helper::IUiHelperLfw,
-            public IPlayerInfoHost {
+            public IPlayerInfoHost,
+            public LfwKeyboardCallback {
  public:
   static constexpr const char* TAG = "LFW";
 
@@ -323,8 +356,13 @@ class LFW : public IWorldLfw,
   void random_entity_info(Entity& e) override;
   bool is_cheat(const std::u16string& name) override;
   void set_cheat(const std::u16string& name, const std::optional<bool>& enable = std::nullopt);
-  void on_key_down(LfwKeyEvent& e);
-  void on_key_up(LfwKeyEvent& e);
+  void on_key_down(LfwKeyEvent& e) override;
+  void on_key_up(LfwKeyEvent& e) override;
+  // `this.keyboard.callback.add(cb)` / `.del(cb)`；`this.pointings.callback.*`（转发宿主）
+  void keyboard_callback_add(LfwKeyboardCallback* cb);
+  void keyboard_callback_del(LfwKeyboardCallback* cb);
+  void pointings_callback_add(LfwPointingsCallback* cb);
+  void pointings_callback_del(LfwPointingsCallback* cb);
 
   void dispose();
   void change_bg(const std::u16string& bg);

@@ -372,6 +372,18 @@ void LFW::set_cheat(const std::u16string& name, const std::optional<bool>& enabl
   _cheat_gkeys.clear();
 }
 
+void LFW::keyboard_callback_add(LfwKeyboardCallback* cb) { host_->keyboard_callback_add(*this, cb); }
+
+void LFW::keyboard_callback_del(LfwKeyboardCallback* cb) { host_->keyboard_callback_del(*this, cb); }
+
+void LFW::pointings_callback_add(LfwPointingsCallback* cb) {
+  host_->pointings_callback_add(*this, cb);
+}
+
+void LFW::pointings_callback_del(LfwPointingsCallback* cb) {
+  host_->pointings_callback_del(*this, cb);
+}
+
 void LFW::on_key_down(LfwKeyEvent& e) {
   {
     std::vector<Value> args;

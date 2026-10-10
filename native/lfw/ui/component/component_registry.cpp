@@ -28,6 +28,7 @@
 #include "lfw/ui/component/picture.h"
 #include "lfw/ui/component/players.h"
 #include "lfw/ui/component/player_key_text.h"
+#include "lfw/ui/component/player_key_edit.h"
 #include "lfw/ui/component/player_ctrl_type.h"
 #include "lfw/ui/component/player_name.h"
 #include "lfw/ui/component/player_name_input.h"
@@ -106,6 +107,7 @@ void regist_components() {
   regist_one<StageTitleShow>(u"StageTitleShow");
   regist_one<HideWhenDialoging>(u"HideWhenDialoging");
   regist_one<PlayerKeyText>(u"PlayerKeyText");
+  regist_one<PlayerKeyEdit>(u"PlayerKeyEdit");
   regist_one<TextInput>(u"TextInput");
   regist_one<PlayerNameInput>(u"PlayerNameInput");
   regist_one<PlayerName>(u"PlayerName");
