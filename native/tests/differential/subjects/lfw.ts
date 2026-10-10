@@ -26,6 +26,9 @@ import { PlayerName } from "../../../../src/LFW/ui/component/PlayerName";
 import { PlayerTeamName } from "../../../../src/LFW/ui/component/PlayerTeamName";
 import { FighterName } from "../../../../src/LFW/ui/component/FighterName";
 import { IntegerPicker } from "../../../../src/LFW/ui/component/IntegerPicker";
+import { Alignment } from "../../../../src/LFW/ui/component/Alignment";
+import { Players } from "../../../../src/LFW/ui/component/Players";
+import { Sounds } from "../../../../src/LFW/ui/component/Sounds";
 import { UINode } from "../../../../src/LFW/ui/UINode";
 import { ui_load_img } from "../../../../src/LFW/ui/ui_load_img";
 
@@ -1434,6 +1437,52 @@ async function run_ops(): Promise<void> {
       else if (what === "min") p.min = v;
       else if (what === "max") p.max = v;
       else p.val = v;
+    } else if (op === "algn") {
+      const nid = next();
+      const n = tnodes.get(nid)!;
+      const p = n.components.find((c) => c instanceof Alignment) as Alignment | undefined;
+      if (!p) push(`algn|${nid}|none`);
+      else {
+        const ref = (v: Rec | null | undefined) => (v ? renderValue(v.id) : "u");
+        const al = (v: string | null | undefined) => renderValue(v ?? undefined);
+        const once = (p as unknown as Rec).once as boolean;
+        push(
+          `algn|${nid}|f=${ref(p.follower)}|l=${ref(p.followed.l)}|r=${ref(p.followed.r)}|t=${ref(p.followed.t)}|b=${ref(p.followed.b)}|al=${al(p.align.l)}|ar=${al(p.align.r)}|at=${al(p.align.t)}|ab=${al(p.align.b)}|ol=${num(p.offset.l)}|or=${num(p.offset.r)}|ot=${num(p.offset.t)}|ob=${num(p.offset.b)}|once=${once ? 1 : 0}|has=${n.components.includes(p) ? 1 : 0}`,
+        );
+      }
+    } else if (op === "apl") {
+      const nid = next();
+      const what = next();
+      const n = tnodes.get(nid)!;
+      const c = n.components.find((v) => v instanceof Players) as Players | undefined;
+      if (!c) push(`apl|${nid}|none`);
+      else if (what === "read") push(`apl|${nid}|read|${num(c.players.size)}`);
+      else {
+        const pid = nextKey();
+        const p = lfw.player(pid);
+        if (!p) push(`apl|${nid}|${pid}|nop`);
+        else if (what === "join")
+          push(`apl|${nid}|${pid}|${c.player_join(p) ? 1 : 0}|${num(c.players.size)}`);
+        else {
+          c.player_leave(p);
+          push(`apl|${nid}|${pid}|left|${num(c.players.size)}`);
+        }
+      }
+    } else if (op === "scall") {
+      const nid = next();
+      const what = next();
+      const n = tnodes.get(nid)!;
+      const c = n.components.find((v) => v instanceof Sounds) as Sounds | undefined;
+      if (!c) push(`scall|${nid}|none`);
+      else {
+        if (what === "start") c.start();
+        else if (what === "stop") c.stop();
+        else if (what !== "read") c.replay();
+        const rec = c as unknown as Rec;
+        push(
+          `scall|${nid}|${what}|en=${c.enabled ? 1 : 0}|idx=${num(rec.idx)}|tm=${num(rec.time)}|lc=${num(c.loop.count)}|lt=${num(c.loop.times)}`,
+        );
+      }
     } else if (op === "nact") {
       const n = tnodes.get(next())!;
       actor.act(n, parseValue(t, i) as never);

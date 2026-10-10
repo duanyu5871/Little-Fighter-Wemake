@@ -4,6 +4,7 @@
 #include <string>
 
 #include "lfw/ui/component/difficulty_text.h"
+#include "lfw/ui/component/alignment.h"
 #include "lfw/ui/component/extra_zip_text.h"
 #include "lfw/ui/component/fade_in_opacity.h"
 #include "lfw/ui/component/fade_out_opacity.h"
@@ -22,6 +23,7 @@
 #include "lfw/ui/component/opacity_hover.h"
 #include "lfw/ui/component/pause_handling.h"
 #include "lfw/ui/component/picture.h"
+#include "lfw/ui/component/players.h"
 #include "lfw/ui/component/player_key_text.h"
 #include "lfw/ui/component/player_name.h"
 #include "lfw/ui/component/player_name_input.h"
@@ -35,6 +37,7 @@
 #include "lfw/ui/component/scale_animation.h"
 #include "lfw/ui/component/scale_clickable.h"
 #include "lfw/ui/component/sine_opacity.h"
+#include "lfw/ui/component/sounds.h"
 #include "lfw/ui/component/stage_title_show.h"
 #include "lfw/ui/component/stage_title_text.h"
 #include "lfw/ui/component/vertical_layout.h"
@@ -98,6 +101,9 @@ void regist_components() {
   regist_one<FighterName>(u"FighterName");
   regist_one<RandomVisible>(u"RandomVisible");
   regist_one<IntegerPicker>(u"IntegerPicker");
+  regist_one<Alignment>(u"Alignment");
+  regist_one<Players>(u"Players");
+  regist_one<Sounds>(u"Sounds");
 }
 
 }

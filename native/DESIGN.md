@@ -9430,3 +9430,39 @@ bug；写 `MAX` 反而"更对"但是错的）。205. `props_holder.strs('trigger
 `ibus|<kind>|<curr>|<prev>|<self==组件?1:0>`）、`iput <nid> <min|max|val> <n>`（调 setter）。
 
 **测试**：用例 `cases/lfw/picker.txt` **125 行**；变异 `lfw_picker.mjs` **36/36 全杀**；全量差分 **233/233**。
+
+## 117. 切片 4BD：Alignment / Players / Sounds
+
+三个「周边」组件 + 一组台面 op。
+
+**`alignment`**：props `followed`（字符串 = 四侧同指；对象 = `{l,r,t,b}`）、`follower`、`left`/`right`/`top`/`bottom`
+（`left`/`mid`/`right`、`top`/`mid`/`bottom`）、`offset` `{l,r,t,b}`、`once`。`on_start` 只在开场解析一次
+（`followed.l/r/t/b` = `find_node(值 ?? "parent")`、`follower` 缺省 = 自己）；`update` 按四侧各自算出
+`_l/_r/_t/_b`（`mid` 会**清掉另一侧**），两侧齐则定宽/高，再按 `center` 折算左上角 → `move_to_global` +
+`resize`；`once` 为真时末尾 `del_components(this)`。
+
+**`players`**：props `max`（缺省 8）；`player_join` 满员返回 false（重复 join 是 no-op 但返回 true），
+`player_leave` 直接 erase。
+
+**`sounds`**：args = `[间隔, 声音名, 间隔, 声音名, …]`；名字命中 `Defines.BuiltIn_Sounds` 走
+`play_with_load`，否则 `play_preset`；`start`/`stop`/`replay` + `on_resume` 重置；`update` 按累计时间
+扫 `seq`，走完一遍 `loop.continue_()` 回卷（默认 `times = 1`）。
+
+照拄怪癖（编号接 211 → 212）：212. `find_node` 的迷你语言只认 `parent:N` / `parent` / `self` / `bro:…` /
+`id:…` / `name:…`，**裸字符串返回 null**；`id:` 走 `root().search_node()`（按 `id` 字段、沿 `_children`
+递归），`name:` 走 `find_child_by_name`（只看**直接子**）。213. `followed.X === follower` 时该侧整体跳过
+（自己贴自己会自锁）。214. `align` 的 `mid` 先算自己再 `另一侧 = null` ⇒ 先算的 r/b 白算。
+215. `once` 的自删在 `update` **末尾**，而 `follower` 为 null 时 `update` 一开始就早退 ⇒ **`once` 不会触发**。
+216. `UINode.cross` 是**节点局部**坐标（不含 `pos`），所以定位一律 `global_pos + cross`。
+217. `Players.player_join` 的判据是 `size >= max`（重复 join 仍返回 true）；`max` 读的是 props（缺省 8）。
+218. `s in Defines.BuiltIn_Sounds` 判的是枚举**键名**（`Cancel`/`End`/`Join`/`Ok`/`Pass`）——小写值
+（`ok`）走 `play_preset`；而 JS 的 `in` 还走原型链 ⇒ `toString`/`valueOf`/`__proto__` 等 12 个名字
+也命中 `play_with_load`。219. `Sounds.on_start` 是 `seq.push(...)`（**不清空**）⇒ 重复 start 会让列表翻倍。
+220. `Sounds.update` 在 `loop.done()` 之后直接停：默认 `times = 1` ⇒ 播完一遍、回卷一次后就再也不动，
+末尾那个 `set_enabled(false)` 实际到不了（死分支）。221. `Sounds.stop` 把 `idx` 推到 `seq.size()`
+（不是 0），`start`/`replay` 才清 0。
+
+台面新 op：`algn <nid>`（打 `f/l/r/t/b` 节点引用、四个 align 值、四个 offset、`once`、`has`）、
+`apl <nid> <join|leave|read> [pid]`、`scall <nid> <start|stop|replay|read>`。
+
+**测试**：用例 `cases/lfw/ui_misc.txt` **103 行**；变异 `lfw_ui_misc.mjs` **41/41 全杀**；全量差分 **234/234**。

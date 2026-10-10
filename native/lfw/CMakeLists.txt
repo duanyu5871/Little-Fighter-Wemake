@@ -222,6 +222,7 @@ add_library(lfw_core STATIC
   ui/component/reachable.cpp
   ui/component/reachable_group.cpp
   ui/component/difficulty_text.cpp
+  ui/component/alignment.cpp
   ui/component/playing_time_text.cpp
   ui/component/fn_keys_counts.cpp
   ui/component/extra_zip_text.cpp
@@ -237,6 +238,8 @@ add_library(lfw_core STATIC
   ui/component/player_team_name.cpp
   ui/component/fighter_name.cpp
   ui/component/random_visible.cpp
+  ui/component/players.cpp
+  ui/component/sounds.cpp
   ui/component/integer_picker.cpp
   ui/instance_ref.cpp
   helper/randoming.cpp

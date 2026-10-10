@@ -22,8 +22,11 @@
 #include "lfw/ui/cook_ui_info.h"
 #include "lfw/ui/action/actor.h"
 #include "lfw/ui/component/fade_out_opacity.h"
+#include "lfw/ui/component/alignment.h"
 #include "lfw/ui/component/flex_item.h"
 #include "lfw/ui/component/img_loop.h"
+#include "lfw/ui/component/players.h"
+#include "lfw/ui/component/sounds.h"
 #include "lfw/ui/component/opacity_animation.h"
 #include "lfw/ui/component/opacity_flash.h"
 #include "lfw/ui/component/picture.h"
@@ -1113,6 +1116,83 @@ bool run_comp_ops(lfw::LFW& lfw, const std::vector<std::string>& t, size_t& i,
           static_cast<lfw::ui::FighterName*>(target)->join(text, com, decided);
         }
       }
+  } else if (op == "algn") {
+    const std::string nid = t[i++];
+    lfw::ui::UINode& n = *g_nodes.at(nid);
+    lfw::ui::Alignment* p = nullptr;
+    for (lfw::ui::UIComponent* const c : n.components()) {
+      if (!lfw::is_class(c->clazz(), lfw::ui::Alignment::class_tag())) continue;
+      p = static_cast<lfw::ui::Alignment*>(c);
+      break;
+    }
+    if (p == nullptr) {
+      push("algn|" + nid + "|none");
+    } else {
+      const auto al = [](const std::optional<std::u16string>& v) {
+        return to_ascii(render_value(v.has_value() ? lfw::Value(*v) : lfw::Value()));
+      };
+      bool has = false;
+      for (lfw::ui::UIComponent* const c : n.components()) {
+        if (c == p) has = true;
+      }
+      push("algn|" + nid + "|f=" + node_ref(p->follower) + "|l=" + node_ref(p->followed.l) +
+           "|r=" + node_ref(p->followed.r) + "|t=" + node_ref(p->followed.t) +
+           "|b=" + node_ref(p->followed.b) + "|al=" + al(p->align.l) +
+           "|ar=" + al(p->align.r) + "|at=" + al(p->align.t) + "|ab=" + al(p->align.b) +
+           "|ol=" + num(p->offset.l) + "|or=" + num(p->offset.r) + "|ot=" + num(p->offset.t) +
+           "|ob=" + num(p->offset.b) + "|once=" + (p->once ? "1" : "0") +
+           "|has=" + (has ? "1" : "0"));
+    }
+  } else if (op == "apl") {
+    const std::string nid = t[i++];
+    const std::string what = t[i++];
+    lfw::ui::UINode& n = *g_nodes.at(nid);
+    lfw::ui::Players* p = nullptr;
+    for (lfw::ui::UIComponent* const c : n.components()) {
+      if (!lfw::is_class(c->clazz(), lfw::ui::Players::class_tag())) continue;
+      p = static_cast<lfw::ui::Players*>(c);
+      break;
+    }
+    if (p == nullptr) {
+      push("apl|" + nid + "|none");
+    } else if (what == "read") {
+      push("apl|" + nid + "|read|" + num(static_cast<double>(p->players().size())));
+    } else {
+      const std::u16string pid = key_of(t[i++]);
+      lfw::PlayerInfo* const player = lfw.player(pid);
+      if (player == nullptr) {
+        push("apl|" + nid + "|" + to_ascii(pid) + "|nop");
+      } else if (what == "join") {
+        const bool ok = p->player_join(*player);
+        push("apl|" + nid + "|" + to_ascii(pid) + "|" + (ok ? "1" : "0") + "|" +
+             num(static_cast<double>(p->players().size())));
+      } else {
+        p->player_leave(*player);
+        push("apl|" + nid + "|" + to_ascii(pid) + "|left|" +
+             num(static_cast<double>(p->players().size())));
+      }
+    }
+  } else if (op == "scall") {
+    const std::string nid = t[i++];
+    const std::string what = t[i++];
+    lfw::ui::UINode& n = *g_nodes.at(nid);
+    lfw::ui::Sounds* p = nullptr;
+    for (lfw::ui::UIComponent* const c : n.components()) {
+      if (!lfw::is_class(c->clazz(), lfw::ui::Sounds::class_tag())) continue;
+      p = static_cast<lfw::ui::Sounds*>(c);
+      break;
+    }
+    if (p == nullptr) {
+      push("scall|" + nid + "|none");
+    } else {
+      if (what == "start") p->start();
+      else if (what == "stop") p->stop();
+      else if (what == "read") {}
+      else p->replay();
+      push("scall|" + nid + "|" + what + "|en=" + (p->enabled() ? "1" : "0") +
+           "|idx=" + num(p->idx) + "|tm=" + num(p->time) + "|lc=" + num(p->loop.count()) +
+           "|lt=" + num(p->loop.times()));
+    }
   } else {
     return false;
   }

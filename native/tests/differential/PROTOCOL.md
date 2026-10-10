@@ -4945,3 +4945,19 @@ harness op：
 - ⚠ 取整类 setter 要有**分数值**输入才可观测（`iput <nid> max 6.5` → floor 6 / ceil 7）；整数输入测不出。
 - ⚠ **中途 kill 变异运行会把「已应用但未回滚」的变异体留在源码里**（本次 `set_min(v1)/set_max(v2)` 残留，
   导致后续 lint 锚点 `count=0`、二进制与源码不一致）⇒ 中断后先 `git diff` 肉眼核对，恢复后 `build` 再跑用例。
+
+### 6.9.161 Alignment / Players / Sounds（`cases/lfw/ui_misc.txt` 103 行；变异 41/41 全杀）
+
+- 新台面 op：`algn <nid>`（按 `is_class` 找 `Alignment`，打 `f/l/r/t/b` 节点引用 + 四个 align 值 +
+  四个 offset + `once` + `has`（组件还在不在）；缺省打 `algn|<nid>|none`）、
+  `apl <nid> <join|leave|read> [pid]`（`read` **不接** pid；打 `apl|<nid>|<pid>|<1|0|left>|<size>`）、
+  `scall <nid> <start|stop|replay|read>`（打 `en/idx/tm/lc/lt`）。
+- ⚠ **`nmk <id> <父 id>` 只设 `_parent`，不会挂到父的 `_children`**（两侧 create 都如此）：
+  `search_node`/兄弟遍历/`find_child` 全都看不见它 ⇒ 想用 `id:` 引用子节点，必须紧跟着
+  `nadd <父> <子>`（本次踩到：Alignment 的 `follower`/`followed` 全查成 null）。`nrd kids` 可自查。
+- ⚠ 节点数据里带 `component` 时，`o` 的对数要把 `scale`/`component` 一起算上（`component` 里的
+  `properties` 缺省就别写 key）；对数写少了会把 `component` 当尾部杂项**静默丢掉**（组件根本没建，
+  症状是 `scall|...|none`），写多了才是 "value literal truncated"。
+- ⚠ 组件的 `on_start`（`Sounds` 解析 args、`Alignment` 解析 props）要 `nlife <nid> start` 才会跑；
+  `update` 用 `nset <nid> update <dt>` 驱（同样走 `UINode::update` → 组件循环，`enabled=false` 的跳过）。
+- ⚠ `nset`/`apl` 这类 op 的多余 token 不会报错也会被静默忽略——**解析错位不会报错**，只能靠输出自查。
