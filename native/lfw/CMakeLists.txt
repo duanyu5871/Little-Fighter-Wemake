@@ -252,6 +252,7 @@ add_library(lfw_core STATIC
   ui/component/background_switcher.cpp
   ui/component/flex.cpp
   ui/component/jalousie.cpp
+  ui/component/dialogs.cpp
   ui/instance_ref.cpp
   helper/randoming.cpp
   state/spawn_ice_piece.cpp

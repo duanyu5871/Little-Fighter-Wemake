@@ -5024,3 +5024,20 @@ harness op：
   顺序反过来（先 stop 再看回调）测的是 `on_stop` 清回调。
 - ⚠ 用例写 `properties` 时 **`o N` 一定要数准**（本切片 `fr2`/`ft4` 把 `padding` 数丢过——
   台面上不会报错，是 `fx` 读回或位置数值“差一档”才暴露）。
+
+### 6.9.166 Dialogs（`cases/lfw/dialogs.txt` 107 行；变异 32/32 全杀）
+
+- 新台面 op：`dlg <nid>`（打 `hiding=0/1|vis=0/1|tx=<缩放缓动 sx,sy,sz>|wt=<世界 transform x,y>`）。
+- 新夹具 kind：`ftr`（fighter 数据 `{id:"fg1", type:8, base:{name}, frames:[]}`）、`idg`（带
+  `objects` 描述符的索引）；`dcnt` 输出加了 `|fighters=`。
+- ⚠ **任何走 `load` 的用例都要脚本 `imp data/spark.obj.json5 spk`**：`prel.zip` 的默认内容里就有它，
+  漏了会在 `load` 阶段 `unscripted import` 直接失败（`loaddata` 都到不了）。4BI 踩过。
+- ⚠ **`load z:z1` 与 `loaddata z1` 别同时写**：两者都会装一遍数据，第二遍会带重复告警；
+  而且 fighter 重复注册会多出 **TS 独有**的 `[Factory::register_ctrl] oid already exists` 告警
+  ⇒ 直接漂移。（4BG 能同时写是因为它的夹具不注册 ctrl。）
+- ⚠ **异步告警**（`UIImgLoader` 的 `.catch`）：TS 走微任务，只在 `nlife` 这类会 flush 的 op 收尾
+  才吐出来；C++ 走 `ILfwHost::warn_async`，台面把它排进 `img:pin` 那个队列、同样在 flush 点吐。
+  写用例时把“跟对白无关的 op”（`dialpush`/`dialclear`/`cupd`）里的告警**攒到下一个 `nlife`**
+  再对，或者干脆让路径可加载（`imgset`）避开告警。
+- ⚠ fighter 夹具**别带 `head`**（端口预处理不落图片任务 ⇒ TS 会多 `img:load`）；头像分支在台面
+  不可观测，只有“空路径 ⇒ 告警”可锚。

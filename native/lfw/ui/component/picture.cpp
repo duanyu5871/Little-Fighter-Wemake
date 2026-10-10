@@ -89,7 +89,7 @@ void Picture::set_src(const std::u16string& v) {
   if (!result.ok) {
     // TS: `.catch(e => Ditto.warn('[Picture::set_src]' + e))`
     const std::u16string text = result.out_of_date ? u"Error: out_of_date" : u"Error: " + result.error;
-    lfw().host().warn({Value(u"[Picture::set_src]" + text)});
+    lfw().host().warn_async({Value(u"[Picture::set_src]" + text)});
   }
 }
 

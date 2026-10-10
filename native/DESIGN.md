@@ -9638,3 +9638,28 @@ bg 列表 3 项）的状态上；④`on_resume` 的重复订阅守卫要靠**连
 
 **测试**：用例 `cases/lfw/flex.txt` **148 行**（trace 行数；case 文件 252 行）；变异 `lfw_flex.mjs` **73/73 全杀**；
 全量差分 **238/238**。
+
+## 122. 切片 4BI：Dialogs
+
+**`dialogs`**：props `{head_node, text, talker}` 都是 `UINode` 引用（端口 `prop_instance` +
+`ref_to_node`；引用查不到 ⇒ nullptr）。组件里三件东西：`_listner`（`StageDialogListener`，
+盯“换关 + 对白变化”，回调里 `set_dialog(dialog)`）、`_head_loader`（宿主是 `props.head_node`
+那个节点，端口用新加的 `UINodeImgAdapter` 适配）、`_transform`（自己的缩放缓动）。
+`hide_dialog`：`_hiding = true` + `scale_to(0,0,1)` + 清正文/说话人 + 头像 `set_img('')`；
+`show_dialog`：`_hiding = false` + `set_visible(true)` + `scale_to(1,1,1)` + 正文写 `dialog.i18n`
++ 说话人写 `datas().find_fighter(dialog.fighter)?.base.name`（查不到/没有 fighter 就清空）+
+  头像写 `fighter.base.head`（没有就 `set_img('')`）；`update`：推 `_transform` → **到位**才
+`set_visible(false)` 并清 `_hiding` → 把 transform 的缩放写回节点；`set_dialog`：真值走 show、
+否则 hide，最后 `world.transform.move_to(0, dialog ? 60 : 0, 0)`（对白上浮）。
+
+⚠ **`warn_async` 缝（本切片新增）**：TS 的 `UIImgLoader` 是 promise，`.catch(e => Ditto.warn(...))`
+要到**微任务**才落地；端口同步 ⇒ 行序会不一致。给 `ILfwHost` 加了 `warn_async(args)`（缺省直接
+转 `warn`），`Dialogs`/`Picture` 的 loader catch 都走它；差分台面把它跟 `img:pin` **同一个队列**
+排队，flush 点（`nlife` 收尾）一起吐 ⇒ 两边行序对齐。以后凡是从 promise/微任务里发的告警都该走它。
+
+⚠ **台面观测盲区**：夹具里的 fighter **不能带 `head`**——端口的数据预处理不落图片加载任务
+（DESIGN §66），带 head 的话 TS 侧会多一行 `img:load` 直接漂移；所以“头像真的换上了”这条分支
+在台面上测不到（没有锚点），只测到“路径为空 ⇒ 走 `set_img('')` ⇒ 出告警”。
+
+**测试**：用例 `cases/lfw/dialogs.txt` **107 行**（trace 行数；case 文件 97 行）；变异
+`lfw_dialogs.mjs` **32/32 全杀**；全量差分 **239/239**。

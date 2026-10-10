@@ -132,6 +132,9 @@ class ILfwHost {
   // `Date.now()`（`new MersenneTwister(Date.now())`）
   virtual double now() = 0;
   virtual void warn(const std::vector<Value>& args) = 0;
+  // TS 里从 promise 的 catch 里发出的告警（`UIImgLoader` 的 `.catch`）：到微任务才落地，
+  // 差分台面把它跟 `img:pin` 一起排队到 flush 点；缺省仍立即打。
+  virtual void warn_async(const std::vector<Value>& args) { warn(args); }
   virtual void error(const std::vector<Value>& args) = 0;
   virtual void log(const std::vector<Value>& args) = 0;
   virtual void debug_msg(const std::vector<Value>& args) = 0;

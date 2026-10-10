@@ -5,6 +5,7 @@
 
 #include "lfw/lfw.h"
 #include "lfw/ui/ui_load_img.h"
+#include "lfw/ui/uinode.h"
 #include "lfw/ui/value_spread.h"
 
 namespace lfw::ui {
@@ -67,5 +68,11 @@ UIImgLoadResult UIImgLoader::set_img(const std::u16string& path) {
   o->set(u"path", Value(path));
   return load(Value(o));
 }
+
+LFW& UINodeImgAdapter::lfw() { return _get()->lfw(); }
+
+void UINodeImgAdapter::set_image(const Value& image) { _get()->set_image(image); }
+
+void UINodeImgAdapter::resize(double w, double h) { _get()->resize(w, h); }
 
 }

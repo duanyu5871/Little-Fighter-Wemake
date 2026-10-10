@@ -13,6 +13,8 @@ class LFW;
 
 namespace ui {
 
+class UINode;
+
 // TS `ui/UIImgLoader.ts`。`node` 是 TS 的 `() => UINode | null | undefined` 回调：端口收成
 // `IUIImgLoaderNode*`（nullptr = null/undefined，错误文案固定写 `null`，记偏差）。
 class IUIImgLoaderNode {
@@ -52,6 +54,20 @@ class UIImgLoader {
  private:
   NodeGetter _node;
   Times _jid;
+};
+
+// TS 里 `UIImgLoader` 的宿主就是 `UINode`（`() => this.props.head_node`）⇒ 端口给一层适配。
+// 只在 `UIImgLoader::load` 判定非空后才会调到三个转发（`_get()` 不会空）。
+class UINodeImgAdapter : public IUIImgLoaderNode {
+ public:
+  explicit UINodeImgAdapter(std::function<UINode*()> get) : _get(std::move(get)) {}
+
+  LFW& lfw() override;
+  void set_image(const Value& image) override;
+  void resize(double w, double h) override;
+
+ private:
+  std::function<UINode*()> _get;
 };
 
 }

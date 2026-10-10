@@ -39,6 +39,7 @@ import { StageSwitcher } from "../../../../src/LFW/ui/component/StageSwitcher";
 import { BackgroundSwitcher } from "../../../../src/LFW/ui/component/BackgroundSwitcher";
 import { Flex } from "../../../../src/LFW/ui/component/Flex";
 import { Jalousie } from "../../../../src/LFW/ui/component/Jalousie";
+import { Dialogs } from "../../../../src/LFW/ui/component/Dialogs";
 import { UINode } from "../../../../src/LFW/ui/UINode";
 import { ui_load_img } from "../../../../src/LFW/ui/ui_load_img";
 
@@ -330,6 +331,15 @@ function kind_value(k: string): unknown {
         { id: "bg_oth", file: "bg/oth.json5" },
       ],
       stages: [{ file: "st/reg.json5" }, { file: "st/hid.json5" }, { file: "st/dev.json5" }],
+    };
+  }
+  if (k === "ftr") {
+    // ⚠ 不带 head：端口预处理不落图片任务 ⇒ 带 head 会多 img:load 漂移。
+    return { id: "fg1", type: 8, base: { name: "FIGHTER ONE" }, frames: [] };
+  }
+  if (k === "idg") {
+    return {
+      objects: [{ id: "fg1", file: "data/fg1.json5" }],
     };
   }
   return undefined;
@@ -1610,7 +1620,10 @@ async function run_ops(): Promise<void> {
     } else if (op === "dcnt") {
       const st = lfw.datas.stages.map((v) => String((v as Rec)["id"])).join(",");
       const bg = lfw.datas.backgrounds.map((v) => String((v as Rec)["id"])).join(",");
-      push(`dcnt|stages=${st}|bgs=${bg}`);
+      const fg = (lfw.datas as Rec & { fighters: Rec[] }).fighters
+        .map((v) => String(v["id"]))
+        .join(",");
+      push(`dcnt|stages=${st}|bgs=${bg}|fighters=${fg}`);
     } else if (op === "cplayer") {
       const nid = next();
       const act = next();
@@ -1654,6 +1667,23 @@ async function run_ops(): Promise<void> {
         const list = c.backgrounds as Rec[];
         const bg = (c as unknown as Rec)["_background"] as Rec;
         push(`bswi|${nid}|n=${num(list.length)}|id=${String(bg?.["id"])}`);
+      }
+    } else if (op === "dlg") {
+      const nid = next();
+      const n = tnodes.get(nid)!;
+      const c = n.components.find((v) => v instanceof Dialogs) as Dialogs | undefined;
+      if (!c) push(`dlg|${nid}|none`);
+      else {
+        const tr = (c as unknown as Rec)["_transform"] as Rec;
+        push(
+          `dlg|${nid}|hiding=${(c as unknown as Rec)["_hiding"] ? 1 : 0}|` +
+            `vis=${n.visible ? 1 : 0}|tx=${num(tr["scale_x"] as number)},` +
+            `${num(tr["scale_y"] as number)},${num(tr["scale_z"] as number)}|` +
+            `wt=${num((lfw.world as Rec)["transform"]["x"] as number)},` +
+            `${num((lfw.world as Rec)["transform"]["y"] as number)}|` +
+            `wtt=${num((lfw.world as Rec)["transform"]["d"]["x"] as number)},` +
+            `${num((lfw.world as Rec)["transform"]["d"]["y"] as number)}`,
+        );
       }
     } else if (op === "fx") {
       const nid = next();

@@ -51,6 +51,7 @@
 #include "lfw/ui/component/stage_switcher.h"
 #include "lfw/ui/component/flex.h"
 #include "lfw/ui/component/jalousie.h"
+#include "lfw/ui/component/dialogs.h"
 #include "lfw/ui/component/vertical_layout.h"
 #include "lfw/ui/component/wrap_content.h"
 
@@ -126,6 +127,7 @@ void regist_components() {
   regist_one<BackgroundSwitcher>(u"BackgroundSwitcher");
   regist_one<Flex>(u"Flex");
   regist_one<Jalousie>(u"Jalousie");
+  regist_one<Dialogs>(u"Dialogs");
 }
 
 }

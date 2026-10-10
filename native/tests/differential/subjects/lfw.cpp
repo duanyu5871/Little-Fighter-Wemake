@@ -37,6 +37,7 @@
 #include "lfw/ui/component/background_switcher.h"
 #include "lfw/ui/component/flex.h"
 #include "lfw/ui/component/jalousie.h"
+#include "lfw/ui/component/dialogs.h"
 #include "lfw/ui/component/sounds.h"
 #include "lfw/ui/component/opacity_animation.h"
 #include "lfw/ui/component/opacity_flash.h"
@@ -343,6 +344,33 @@ lfw::Value build_kind_value(const std::string& k) {
     lfw::Object o;
     o.set(u"backgrounds", lfw::Value(bgs));
     o.set(u"stages", lfw::Value(stages));
+    return lfw::Value(std::make_shared<lfw::Object>(o));
+  }
+  // 4BI：fighter 夹具（`data.type === 8` 的对象数据，走索引的 `objects` 描述符装载）。
+  if (k == "ftr") {
+    // ⚠ 不带 head：端口的数据预处理不落图片加载任务（DESIGN §66），带 head 会让
+    // TS 侧多一行 img:load ⇒ 差分漂移；头像分支在台面上不可观测（记 DESIGN）。
+    lfw::Object base;
+    base.set(u"name", lfw::Value(std::u16string(u"FIGHTER ONE")));
+    lfw::Object o;
+    o.set(u"id", lfw::Value(std::u16string(u"fg1")));
+    o.set(u"type", lfw::Value(8.0));
+    o.set(u"base", lfw::Value(std::make_shared<lfw::Object>(base)));
+    o.set(u"frames", lfw::Value(std::make_shared<lfw::Array>()));
+    return lfw::Value(std::make_shared<lfw::Object>(o));
+  }
+
+  if (k == "idg") {
+    auto file_of = [](const char16_t* id, const char16_t* path) {
+      lfw::Object o;
+      o.set(u"id", lfw::Value(std::u16string(id)));
+      o.set(u"file", lfw::Value(std::u16string(path)));
+      return lfw::Value(std::make_shared<lfw::Object>(o));
+    };
+    auto objs = std::make_shared<lfw::Array>();
+    objs->push_back(file_of(u"fg1", u"data/fg1.json5"));
+    lfw::Object o;
+    o.set(u"objects", lfw::Value(objs));
     return lfw::Value(std::make_shared<lfw::Object>(o));
   }
   return lfw::Value();
@@ -725,6 +753,10 @@ class FakeHost : public lfw::ILfwHost {
 
   bool dev() const override { return false; }
   void warn(const std::vector<lfw::Value>& args) override { push(join("warn", args)); }
+  // 异步告警（`UIImgLoader` 的 `.catch`）：跟 `img:pin` 一起排队，等 flush 点再吐。
+  void warn_async(const std::vector<lfw::Value>& args) override {
+    g_pin_lines.push_back(join("warn", args));
+  }
   void error(const std::vector<lfw::Value>& args) override { push(join("error", args)); }
   void log(const std::vector<lfw::Value>& args) override { push(join("Log", args)); }
   void debug_msg(const std::vector<lfw::Value>& args) override { push(join("debug", args)); }
@@ -1439,6 +1471,13 @@ bool run_comp_ops(lfw::LFW& lfw, const std::vector<std::string>& t, size_t& i,
       if (!st.empty()) st += ",";
       st += to_ascii(s != nullptr ? *s : std::u16string());
     }
+    std::string fg;
+    for (const lfw::Value& v : lfw.datas().fighters()) {
+      const lfw::Value* const id = lfw::ui::field_of(v, u"id");
+      const std::u16string* const s = id != nullptr ? std::get_if<std::u16string>(id) : nullptr;
+      if (!fg.empty()) fg += ",";
+      fg += to_ascii(s != nullptr ? *s : std::u16string());
+    }
     std::string bg;
     for (const lfw::Value& v : lfw.datas().backgrounds()) {
       const lfw::Value* const id = lfw::ui::field_of(v, u"id");
@@ -1446,7 +1485,7 @@ bool run_comp_ops(lfw::LFW& lfw, const std::vector<std::string>& t, size_t& i,
       if (!bg.empty()) bg += ",";
       bg += to_ascii(s != nullptr ? *s : std::u16string());
     }
-    push("dcnt|stages=" + st + "|bgs=" + bg);
+    push("dcnt|stages=" + st + "|bgs=" + bg + "|fighters=" + fg);
   } else if (op == "cplayer") {
     const std::string nid = t[i++];
     const std::string act = t[i++];
@@ -1508,6 +1547,25 @@ bool run_comp_ops(lfw::LFW& lfw, const std::vector<std::string>& t, size_t& i,
       const std::u16string* const bid_s = bid != nullptr ? std::get_if<std::u16string>(bid) : nullptr;
       push("bswi|" + nid + "|n=" + num(static_cast<double>(list.size())) + "|id=" +
            to_ascii(bid_s != nullptr ? *bid_s : std::u16string()));
+    }
+  } else if (op == "dlg") {
+    const std::string nid = t[i++];
+    lfw::ui::UINode& n = *g_nodes.at(nid);
+    lfw::ui::Dialogs* p = nullptr;
+    for (lfw::ui::UIComponent* const c : n.components()) {
+      if (!lfw::is_class(c->clazz(), lfw::ui::Dialogs::class_tag())) continue;
+      p = static_cast<lfw::ui::Dialogs*>(c);
+      break;
+    }
+    if (p == nullptr) {
+      push("dlg|" + nid + "|none");
+    } else {
+      lfw::Transform& tr = p->transform();
+      push("dlg|" + nid + "|hiding=" + (p->hiding() ? "1" : "0") + "|vis=" +
+           (n.visible() ? "1" : "0") + "|tx=" + num(tr.scale_x()) + "," + num(tr.scale_y()) +
+           "," + num(tr.scale_z()) + "|wt=" + num(lfw.world().transform.x()) + "," +
+           num(lfw.world().transform.y()) + "|wtt=" + num(lfw.world().transform.d().x) + "," +
+           num(lfw.world().transform.d().y));
     }
   } else if (op == "fx") {
     const std::string nid = t[i++];
