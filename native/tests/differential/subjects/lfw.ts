@@ -966,6 +966,16 @@ async function run_ops(): Promise<void> {
       const p = Number(nextKey());
       const s = nextKey();
       lfw.emit_progress(c, p, s === "-" ? undefined : Number(s));
+    } else if (op === "lstart") {
+      (lfw.callbacks as Rec).call("on_loading_start");
+      push("lstart");
+    } else if (op === "lend") {
+      (lfw.callbacks as Rec).call("on_loading_end");
+      push("lend");
+    } else if (op === "lfail") {
+      const reason = parseValue(t, i);
+      (lfw.callbacks as Rec).call("on_loading_failed", reason);
+      push(`lfail|${renderValue(reason)}`);
     } else if (op === "bcast") {
       lfw.broadcast(nextKey());
     } else if (op === "dataset") {

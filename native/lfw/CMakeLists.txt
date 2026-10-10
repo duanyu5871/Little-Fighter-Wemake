@@ -231,6 +231,8 @@ add_library(lfw_core STATIC
   ui/component/stage_title_text.cpp
   ui/component/stage_title_show.cpp
   ui/component/hide_when_dialoging.cpp
+  ui/component/ui_component_expression_builder.cpp
+  ui/component/loading_content_text.cpp
   ui/component/player_key_text.cpp
   ui/component/player_key_edit.cpp
   ui/component/component_fsm_state.cpp

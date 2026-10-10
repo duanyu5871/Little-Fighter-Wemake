@@ -1793,6 +1793,23 @@ bool run_comp_ops(lfw::LFW& lfw, FakeHost& host, const std::vector<std::string>&
       });
       break;
     }
+  } else if (op == "lstart") {
+    lfw::LfwCallbackArgs a;
+    a.lfw = &lfw;
+    lfw.callbacks.call(u"on_loading_start", {a});
+    push("lstart");
+  } else if (op == "lend") {
+    lfw::LfwCallbackArgs a;
+    a.lfw = &lfw;
+    lfw.callbacks.call(u"on_loading_end", {a});
+    push("lend");
+  } else if (op == "lfail") {
+    const lfw::Value reason = parse_value(t, i);
+    lfw::LfwCallbackArgs a;
+    a.lfw = &lfw;
+    a.value = reason;
+    lfw.callbacks.call(u"on_loading_failed", {a});
+    push("lfail|" + to_ascii(render_value(reason)));
   } else {
     return false;
   }

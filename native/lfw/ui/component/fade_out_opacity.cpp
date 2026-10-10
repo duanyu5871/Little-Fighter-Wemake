@@ -2,6 +2,7 @@
 
 #include "lfw/animation/delay.h"
 #include "lfw/animation/easing.h"
+#include "lfw/core/js_string.h"
 #include "lfw/ui/uinode.h"
 
 namespace lfw {
@@ -15,6 +16,14 @@ const ClazzTag* FadeOutOpacity::class_tag() {
 const std::vector<std::u16string>& FadeOutOpacity::TAGS() {
   static const std::vector<std::u16string> tags{u"FadeOutOpacity"};
   return tags;
+}
+
+UIComponentExpressionBuilder FadeOutOpacity::expression(std::optional<double> duration,
+                                                        std::optional<double> delay) {
+  std::vector<std::u16string> args;
+  args.push_back(duration.has_value() ? number_to_string(*duration) : std::u16string());
+  args.push_back(delay.has_value() ? number_to_string(*delay) : std::u16string());
+  return UIComponentExpressionBuilder(u"FadeOutOpacity", args);
 }
 
 void FadeOutOpacity::on_start() {

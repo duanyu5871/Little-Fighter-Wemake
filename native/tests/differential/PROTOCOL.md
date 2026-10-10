@@ -5077,3 +5077,13 @@ harness op：
   在播」为守卫（真实 Modern 用 `_bgm_ele`）。
 - ⚠ `on_click` 里 `stop_immediate_propagation()` 与 `stop_propagation()` **都调、后者最后** ⇒
   `nclick` 打出的 `stop=1`（不是 2）；只删前者是等效代码。
+
+### 6.9.170 UIComponentExpressionBuilder / LoadingContentText（`cases/lfw/loading.txt` 94 行；变异 27/27 全杀）
+
+- 新台面 op：`lstart` / `lend` / `lfail <值>` —— 直接 `lfw.callbacks.call(...)`（参数与真实
+  emit 一致：start/end 无参、failed 一个值）。⚠ `lfail` 只传**字符串**：对象/undefined 会在
+  `cb|on_loading_failed|…` 行上与 TS 侧渲染不一致（TS 是 `render_value`，端口是 `to_string`）。
+- ⚠ `str(i)` 会把数字参转成字符串（`n 0` ⇒ `"0"`，会被当页面 id）——「无 page」的组件用空串
+  或省略 args。
+- 真层（`node.layer()->set(...)`）的观察照 `uilayer.txt` 的约定：`uipg <id> <模板>` 注册 +
+  `rlnew` + `rlpush` + `nml <nid> 0 …`，`rlinfo` 看层数/页数/栈顶 id。

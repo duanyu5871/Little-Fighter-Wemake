@@ -17,6 +17,7 @@
 #include "lfw/ui/component/focus_behavior.h"
 #include "lfw/ui/component/fighter_name.h"
 #include "lfw/ui/component/hide_when_dialoging.h"
+#include "lfw/ui/component/loading_content_text.h"
 #include "lfw/ui/component/horizontal_layout.h"
 #include "lfw/ui/component/hover_behavior.h"
 #include "lfw/ui/component/img_loop.h"
@@ -107,6 +108,7 @@ void regist_components() {
   regist_one<StageTitleText>(u"StageTitleText");
   regist_one<StageTitleShow>(u"StageTitleShow");
   regist_one<HideWhenDialoging>(u"HideWhenDialoging");
+  regist_one<LoadingContentText>(u"LoadingContentText");
   regist_one<PlayerKeyText>(u"PlayerKeyText");
   regist_one<PlayerKeyEdit>(u"PlayerKeyEdit");
   regist_one<TextInput>(u"TextInput");

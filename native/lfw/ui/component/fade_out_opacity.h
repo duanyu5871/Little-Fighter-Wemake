@@ -6,6 +6,7 @@
 
 #include "lfw/animation/sequence.h"
 #include "lfw/ui/component/ui_component.h"
+#include "lfw/ui/component/ui_component_expression_builder.h"
 
 namespace lfw {
 namespace ui {
@@ -20,6 +21,11 @@ class FadeOutOpacity : public UIComponent {
   using UIComponent::UIComponent;
 
   const ClazzTag* clazz() const override { return class_tag(); }
+
+  // TS `static expression(duration = 1000, delay = 0)`（`Unsafe<number>` ⇒ 端口用 optional，
+  // 空值拼成空串，与 TS 的 `duration ?? ''` 一致）。
+  static UIComponentExpressionBuilder expression(std::optional<double> duration = 1000.0,
+                                                 std::optional<double> delay = 0.0);
 
   void on_start() override;
   void update(double dt) override;

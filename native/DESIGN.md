@@ -9758,3 +9758,29 @@ BGMSwitcher 看不到任何变化）：`play_bgm` 带「同曲不重放」守卫
 
 **测试**：用例 `cases/lfw/bgm.txt` **80 行**（trace 行数；case 文件 69 行）；变异 `lfw_bgm.mjs`
 **23/23 全杀**；全量差分 **242/242**。
+
+## 126. 切片 4BM：UIComponentExpressionBuilder / LoadingContentText
+
+**`ui_component_expression_builder`**：拼「`<id>!Tag(args)`」表达式串（`parse_call_func_expression`
+的逆；`set_id` 走 JS `trim`）。**`FadeOutOpacity::expression(duration = 1000, delay = 0)`**
+（TS 的 `Unsafe<number>` ⇒ 端口 `optional`，空值拼空串）返回构建器。**`loading_content_text`**：
+- `init`：`fade_out_duration` 非 0 才 `FadeOutOpacity.expression(...).done()` →
+  `parse_call_func_expression` → 组一个组件描述（`{id, name, cls: name, args, enabled}`）→
+  `lfw.factory.create_components` 建出来挂到自己的节点上（端口用 `_fadeout_owner` 持有所有权）。
+- `on_resume` 订 `lfw.callbacks` 四事件（先撤旧再订，对应 TS 的 Set 去重）；`on_pause` 撤。
+- `on_loading_end`：`str(0)` 非空 ⇒ `node.layer()->set({id: page})`（层自己的同页去重会兜住
+  重复 set），否则直接 `on_progress("waiting_others_players", 0)`。
+- `on_progress`：失败后忽略；`fadeout.start()`；文本两种形态（非 0 `loading: t(n%)`、0
+  ` loading: t` —— **零进度带前导空格**）。
+- `on_loading_failed`：`format_reason` 写文本 + fadeout 停用 + 透明度归 1。
+
+⚠ **`str(i)` 会把数字参转成字符串**（`num 0` 也会被当页面 id `"0"` —— 写用例时踩过一次）；
+「无 page」要用空串或干脆省略 args。
+⚠ **`format_reason` 的 `instanceof Error` 分支**在端口不可达（没有 Error 实体，宿主给的都是
+字符串）⇒ 记偏差；`url_err_pair_list` / `config.url` 分支照抄但没有锚点（台面 `lfail` 传对象会
+在 `cb|` 行上与 TS 渲染不一致，用例只用字符串）。
+⚠ 台面新 op `lstart`/`lend`/`lfail <值>`（直接 `callbacks.call`，与真实 emit 同参）；层观察走
+既有 `uipg`/`rlnew`/`rlpush`/`nml`/`rlinfo`。
+
+**测试**：用例 `cases/lfw/loading.txt` **94 行**（trace 行数；case 文件 79 行）；变异
+`lfw_loading.mjs` **27/27 全杀**；全量差分 **243/243**。
