@@ -235,6 +235,9 @@ add_library(lfw_core STATIC
   ui/component/stage_transitions.cpp
   ui/component/label_button.cpp
   ui/component/player_ctrl_type.cpp
+  ui/component/weapon_rain.cpp
+  ui/component/fighter_head.cpp
+  ui/component/fighter_thumb.cpp
   ui/component/text_input.cpp
   ui/component/player_name_input.cpp
   ui/component/player_name.cpp

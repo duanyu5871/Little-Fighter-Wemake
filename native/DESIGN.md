@@ -9495,3 +9495,52 @@ disable_color, text}`（前三者是 UINode 引用）；`checked: boolean | null
 
 **测试**：用例 `cases/lfw/ui_widgets.txt` **144 行**；变异 `lfw_ui_widgets.mjs` **36/36 全杀**；
 全量差分 **235/235**。
+
+## 119. 切片 4BF：WeaponRain / FighterHead / FighterThumb
+
+**`weapon_rain`**：props `{oids, groups, chance, interval, power, limit}`；默认 0.08 / 1200 / 1.5 / 3
+（`kDefaultInterval` 挪进头文件接到 `Times timer{0, …}` 上，TS 的 `DEFAULT_INTERVAL` 也是这么用的）。
+`on_start` 只在 props 里**有** `interval` 时才 `set_range(0, interval)`；`update` 三道门：世界暂停 →
+阶段 `weapon_rain_disabled` → `Times::add(dt)` 满一圈（`add` 满格会回卷到 min 并返回 true）；
+`try_drop_weapon()`：`mt.mark` 两处 → `random_weapon_x(last_section)`（排除上一段）→ 记
+`last_section` → `count = weapon_count_at(x)` → `left = limit > 0 ? max(0, 1 - count / limit) : 0`
+→ `threshold = floor(chance * pow(left, power) * 20000)` → `mt.range(0, 20000) >= threshold` 就放弃。
+掉落：`oids` 命中（去空白、跳空项、每 oid 只 warn 一次、按 `_using_oids` 缓存）走
+`find_weapon` + `weapons_helper().add`，否则 `add_random(1, true, groups)`；**真拿到实体**才
+`entity->set_position(Value(x), Value(), Value())`。
+
+**`fighter_head`**：`Picture` 子类；`player_id` = `args[0]` 或祖先 `values.player_id`；
+`head()` = 玩家 fighter 的 `base.head ?? RFACE`（拿不到玩家/角色一律 RFACE）；`on_start` 定
+120×120；`handle_changed` = `set_src(head())`。
+
+**`fighter_thumb`**：`Picture` 子类；`fighter` 由 `on_show` 从**兄弟组件** `PlayerScore` 取 ——
+`PlayerScore` 还没移植 ⇒ 端口先恒 `nullptr`（等价于"查不到"，等它落地再接线）；
+`thumb_url` = `fighter.data.base.small ?? CHARACTER_THUMB`；`on_start` 定 40×45。
+
+照抄怪癖（编号接 226 → 227）：227. `WeaponRain` 的 `limit = 0` ⇒ `left` 直接 0 ⇒ 门槛 0 ⇒
+**永远不丢**（"0"不是"不限量"，是"一滴都不掉"）。228. `power` 只作用在 `left` 上，`left = 1`
+（该段没武器）时 `pow(1, p)` 恒 1 ⇒ power 只在有库存的段上看得出来。229. 抽签量程
+`20000` 与 `range(0, 20000)` 同尺度 ⇒ 任何**同比缩放**（如 2000）都是等效变异。230.
+`entity->set_position(Value(x), Value(), Value())` 只写 x（y/z 是 `undefined`，不动该轴）。231.
+`FighterThumb.fighter` 只在 `on_show` 被赋值 ⇒ `on_start` 后 `data.base.small` 还看不到；
+`on_show` 同时会把它**重置**成 `PlayerScore` 的结果。232. `FighterHead.handle_changed` 在 TS
+里**没有任何调用点**（死代码），端口照抄不接线 —— 台面用 op 直接调它才测得到。
+
+台面新 op：`wr <nid>`（打 `tv/tmin/tmax/ls/n`）、`fh <nid>` / `ft <nid>`（打 `pid/head/src/w/h`、
+`url/src/w/h`；都会先调一次 `handle_changed()`）、`fhset <nid> <-|z|头像>` / `ftset <nid> <-|z|小图>`
+（`-` 绑 null 实体，`z` 让 `base.<键>` 是 null，否则造一个**不入世界**的假实体）、
+`gwcnt <段> <数>`（铺 `world.ground_weapon_counts`）、`mtstate`（MT 的 `index|times` —— 把 RNG
+流位置钉死，抽签次数一变就露馅）。
+
+⚠ 台面坑一：`img:pin` 的**时序**。TS 的 `ui_load_img` 是 `async`，`pin` 落在 `await` 之后 ⇒
+从节点生命周期回调（`nlife`）里触发的加载，`pin` 要等回调跑完那一轮微任务才打痕；端口把
+`nlife` 期间的 pin **排队到 op 收尾**才吐，两侧行序才对得上（`fh`/`ft`/`pic` 这些"同一 op 内
+冲微任务"的路径仍原位打）。
+
+⚠ 台面坑二：抽签结果在本台面**无痕**——`find_weapon` 恒 null、`add_random` 无组数据 ⇒ 掉落
+分支既不产日志也不吃 RNG（实测把 `chance` 从 1 调到 0、整份 trace 逐行一致）。所以本次没给
+"门槛公式 / oids 解析 / warn 文案" 挂锚点；用例里的 wr5～wr15 已经把 RNG 流位置和 timer 行为
+钉住了，等台面补上武器数据夹具，直接往这些行上挂锚点即可。
+
+**测试**：用例 `cases/lfw/ui_faces.txt` **183 行**；变异 `lfw_ui_faces.mjs` **32/32 全杀**；
+全量差分 **236/236**。

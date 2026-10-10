@@ -29,6 +29,9 @@
 #include "lfw/ui/component/label_button.h"
 #include "lfw/ui/component/player_ctrl_type.h"
 #include "lfw/ui/component/stage_transitions.h"
+#include "lfw/ui/component/weapon_rain.h"
+#include "lfw/ui/component/fighter_head.h"
+#include "lfw/ui/component/fighter_thumb.h"
 #include "lfw/ui/component/sounds.h"
 #include "lfw/ui/component/opacity_animation.h"
 #include "lfw/ui/component/opacity_flash.h"
@@ -128,6 +131,9 @@ class EntHost : public lfw::IEntityHost {
 };
 
 EntHost g_ent_host;
+
+// 不入世界的假实体（`fhset`/`ftset` 用）：放进堆容器保证生命周期。
+std::vector<std::unique_ptr<lfw::Entity>> g_fakes;
 
 // ---- 4AC：加载流程的脚本化假 zip ----
 // kind 迷你语言：`-`=undefined / `o`={} / `a`=[] / `k:<name>`={"<name>":"1"} / `str:<v>` / `e`=失败("boom")。
@@ -280,6 +286,13 @@ std::map<std::string, lfw::Value> g_ui_vals;
 
 // 4AK：`imgset` 的图片脚本（`ui_image_load` 按 img_key 查）。
 std::map<std::string, lfw::Value> g_images;
+std::vector<std::string> g_pin_lines;
+bool g_defer_pins = false;
+
+void drain_pins() {
+  for (const std::string& line : g_pin_lines) push(line);
+  g_pin_lines.clear();
+}
 
 // 4AM：事件层与 UIImgLoader 的脚本。
 std::map<std::string, lfw::ui::LFWPointerEvent> g_pevs;
@@ -623,7 +636,11 @@ class FakeHost : public lfw::ILfwHost {
     return true;
   }
   void ui_image_pin(const std::u16string& img_key) override {
-    push("img:pin|" + to_ascii(img_key));
+    // 默认内联（同步链：load → pin → set_image，与 TS 同一个微任务里一致）；
+    // 但 `nlife` 期间的 pin 在 TS 里要等到节点生命周期回调跑完才落痕 ⇒ 先排队。
+    const std::string line = "img:pin|" + to_ascii(img_key);
+    if (g_defer_pins) g_pin_lines.push_back(line);
+    else push(line);
   }
   std::u16string md5(const std::u16string& text) override { return u"h:" + text; }
 
@@ -1231,6 +1248,110 @@ bool run_comp_ops(lfw::LFW& lfw, const std::vector<std::string>& t, size_t& i,
       p->set_ctrl(lfw::Value(v), emit);
     }
     push("pct|" + to_ascii(pid) + "|ctrl=" + to_ascii(render_value(p->ctrl())));
+  } else if (op == "wr") {
+    const std::string nid = t[i++];
+    lfw::ui::UINode& n = *g_nodes.at(nid);
+    lfw::ui::WeaponRain* p = nullptr;
+    for (lfw::ui::UIComponent* const c : n.components()) {
+      if (!lfw::is_class(c->clazz(), lfw::ui::WeaponRain::class_tag())) continue;
+      p = static_cast<lfw::ui::WeaponRain*>(c);
+      break;
+    }
+    if (p == nullptr) {
+      push("wr|" + nid + "|none");
+    } else {
+      push("wr|" + nid + "|tv=" + num(p->timer.value()) + "|tmin=" + num(p->timer.min()) +
+           "|tmax=" + num(p->timer.max()) + "|ls=" +
+           (p->last_section.has_value() ? num(*p->last_section) : std::string("u")) +
+           "|n=" + num(static_cast<double>(p->oid_datas().size())));
+    }
+  } else if (op == "fh") {
+    const std::string nid = t[i++];
+    lfw::ui::UINode& n = *g_nodes.at(nid);
+    lfw::ui::FighterHead* p = nullptr;
+    for (lfw::ui::UIComponent* const c : n.components()) {
+      if (!lfw::is_class(c->clazz(), lfw::ui::FighterHead::class_tag())) continue;
+      p = static_cast<lfw::ui::FighterHead*>(c);
+      break;
+    }
+    if (p == nullptr) {
+      push("fh|" + nid + "|none");
+    } else {
+      p->handle_changed();
+      push("fh|" + nid + "|pid=" + trace::esc(p->player_id()) + "|head=" + trace::esc(p->head()) +
+           "|src=" + trace::esc(p->src()) + "|w=" + num(p->width()) + "|h=" + num(p->height()));
+    }
+  } else if (op == "ft") {
+    const std::string nid = t[i++];
+    lfw::ui::UINode& n = *g_nodes.at(nid);
+    lfw::ui::FighterThumb* p = nullptr;
+    for (lfw::ui::UIComponent* const c : n.components()) {
+      if (!lfw::is_class(c->clazz(), lfw::ui::FighterThumb::class_tag())) continue;
+      p = static_cast<lfw::ui::FighterThumb*>(c);
+      break;
+    }
+    if (p == nullptr) {
+      push("ft|" + nid + "|none");
+    } else {
+      p->handle_changed();
+      push("ft|" + nid + "|url=" + trace::esc(p->thumb_url()) + "|src=" + trace::esc(p->src()) +
+           "|w=" + num(p->width()) + "|h=" + num(p->height()));
+    }
+  } else if (op == "mtstate") {
+    const lfw::MersenneTwister& mt = lfw.mt_ref();
+    push("mtstate|" + num(static_cast<double>(mt.index())) + "|" +
+         num(static_cast<double>(mt.times())));
+  } else if (op == "gwcnt") {
+    const double section = to_double(t[i++]);
+    const double count = to_double(t[i++]);
+    std::vector<std::pair<double, double>>& gwc = lfw.world().ground_weapon_counts;
+    bool replaced = false;
+    for (std::pair<double, double>& kv : gwc) {
+      if (kv.first != section) continue;
+      kv.second = count;
+      replaced = true;
+      break;
+    }
+    if (!replaced) gwc.emplace_back(section, count);
+    push("gwcnt|" + num(section) + "|" + num(count));
+  } else if (op == "fhset" || op == "ftset") {
+    const std::string nid = to_ascii(key_of(t[i++]));
+    const std::u16string url = key_of(t[i++]);
+    lfw::ui::UINode& n = *g_nodes.at(nid);
+    // `-`：绑 null；`z`：实体在但 `base.<key>` 是 null；否则造一个不入世界的假实体。
+    lfw::Entity* e = nullptr;
+    if (url != u"-") {
+      const char16_t* const key = op == "fhset" ? u"head" : u"small";
+      lfw::Object base;
+      base.set(std::u16string(key), url == u"z" ? lfw::Value() : lfw::Value(url));
+      lfw::Object data;
+      data.set(u"type", lfw::Value(8.0));
+      data.set(u"id", lfw::Value(u"fx"));
+      data.set(u"base", lfw::Value(std::make_shared<lfw::Object>(base)));
+      g_fakes.push_back(
+          std::make_unique<lfw::Entity>(g_ent_host, lfw::Value(std::make_shared<lfw::Object>(data))));
+      e = g_fakes.back().get();
+    }
+    if (op == "fhset") {
+      lfw::ui::FighterHead* p = nullptr;
+      for (lfw::ui::UIComponent* const c : n.components()) {
+        if (!lfw::is_class(c->clazz(), lfw::ui::FighterHead::class_tag())) continue;
+        p = static_cast<lfw::ui::FighterHead*>(c);
+        break;
+      }
+      const std::u16string pid = p != nullptr ? p->player_id() : std::u16string();
+      lfw.player(pid)->set_fighter(e);
+      push("fhset|" + to_ascii(pid) + "|" + (e != nullptr ? "1" : "0"));
+    } else {
+      lfw::ui::FighterThumb* p = nullptr;
+      for (lfw::ui::UIComponent* const c : n.components()) {
+        if (!lfw::is_class(c->clazz(), lfw::ui::FighterThumb::class_tag())) continue;
+        p = static_cast<lfw::ui::FighterThumb*>(c);
+        break;
+      }
+      if (p != nullptr) p->fighter = e;
+      push("ftset|" + nid + "|" + (e != nullptr ? "1" : "0"));
+    }
   } else {
     return false;
   }
@@ -2033,6 +2154,7 @@ int main(int argc, char** argv) {
       const std::string nid = t[i++];
       const std::string what = t[i++];
       lfw::ui::UINode& n = *g_nodes.at(nid);
+      g_defer_pins = true;
       if (what == "start") n.on_start();
       else if (what == "stop") n.on_stop();
       else if (what == "resume") n.on_resume();
@@ -2045,6 +2167,8 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "unknown nlife '%s'\n", what.c_str());
         return 2;
       }
+      g_defer_pins = false;
+      drain_pins();
     } else if (op == "nclick") {
       const std::string nid = t[i++];
       const double btn = to_double(t[i++]);

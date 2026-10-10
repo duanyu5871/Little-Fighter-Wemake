@@ -4970,3 +4970,12 @@ harness op：
 - ⚠ `nlife <nid> pause/resume` 会转发到组件的 `on_pause/on_resume` —— 这正是验"暂停后不再响应"的手段（`pset ... 1` 发事件 + 读子节点 flags）。
 - ⚠ 又一次踩到 `o N` 对数：`nmk t1 - o 5 …component…` 少算 1 ⇒ `component` 被静默丢掉，症状是 `tsn|n=1` 从不变化。
 - ⚠ 等效变异（不可观测，别放进 spec）：触屏互斥里的 `if (other == p) continue;` —— 被点的那位此刻必然不是 TouchScreen（否则它就是要写成的目标值），去掉也观察不到差别。
+
+### 6.9.163 WeaponRain / FighterHead / FighterThumb（`cases/lfw/ui_faces.txt` 183 行；变异 32/32 全杀）
+
+- 新台面 op：`wr <nid>`（打 `tv/tmin/tmax/ls/n`）、`fh <nid>`（打 `pid/head/src/w/h`，会先调一次 `handle_changed()`）、`ft <nid>`（打 `url/src/w/h`，同样先 `handle_changed()`）、`fhset <nid> <-|z|头像>` / `ftset <nid> <-|z|小图>`（`-`=绑 null 实体、`z`=`base.<键>` 给 null、其余造一个**不入世界**的假实体）、`gwcnt <段> <数>`（铺 `ground_weapon_counts`；世界 x∈[0,1588]、段长 750 ⇒ 只有 0/1/2 段）、`mtstate`（打 MT 的 `index|times`）。
+- 台面上的实体是**空壳宿主**（`EntHost::add_entities` 空实现）⇒ `world.entities` 里永远没有自己造的实体，绑角色得靠 `fhset`/`ftset` 现造假件。
+- ⚠ `img:pin` 的时序：TS 的 `ui_load_img` 是 `async` ⇒ `pin` 落在微任务里；从节点生命周期回调（`nlife`）触发的加载，pin 要等 `rend|on_show`/`rend|on_start` 打完才出。台面把 `nlife` 期间的 pin **排队到 op 收尾**再打（`g_defer_pins`/`drain_pins`），而 `fh`/`ft`/`pic`/`uimg`/`imload` 这些"同一个 op 内冲微任务"的路径仍**原位**打 —— 动任何加载路径都要重跑 `img`/`imload`/`ucook`/`uimg` 四份用例。
+- ⚠ 抽签结果在本台面**不可观测**：`find_weapon` 恒 null、`add_random` 找不到组数据（`randoms()` 返 null 就早退，一次都不抽）⇒ 掉落分支既不产日志也不吃 RNG。**实测**：把 `chance n 1` 全改成 `chance n 0`，整份 C++ trace 逐行一致。所以本切片没给门槛公式 / `count` / `left` / `power` / `oids` 解析 / warn 文案挂锚点。
+- 要补这些锚点得先给台面补武器数据夹具（`DatMgr` 是库里的真件，`find_weapon` 不经过宿主缝）；用例里的 `wr5`～`wr15` 已经把 RNG 流位置（`mtstate`/`mtrange`）和 timer 行为钉住，夹具一落地直接挂锚点即可。
+- ⚠ `ft` 会先 `handle_changed()` 再读 `src`，所以"绑实体 → `ft` → `nlife show` → `ft`"这套顺序才测得到 `FighterThumb.on_show` 的**重置**（`fighter = nullptr`）。

@@ -42,6 +42,9 @@
 #include "lfw/ui/component/sounds.h"
 #include "lfw/ui/component/stage_title_show.h"
 #include "lfw/ui/component/stage_transitions.h"
+#include "lfw/ui/component/weapon_rain.h"
+#include "lfw/ui/component/fighter_head.h"
+#include "lfw/ui/component/fighter_thumb.h"
 #include "lfw/ui/component/stage_title_text.h"
 #include "lfw/ui/component/vertical_layout.h"
 #include "lfw/ui/component/wrap_content.h"
@@ -110,6 +113,9 @@ void regist_components() {
   regist_one<StageTransitions>(u"StageTransitions");
   regist_one<LabelButton>(u"LabelButton");
   regist_one<PlayerCtrlType>(u"PlayerCtrlType");
+  regist_one<WeaponRain>(u"WeaponRain");
+  regist_one<FighterHead>(u"FighterHead");
+  regist_one<FighterThumb>(u"FighterThumb");
 }
 
 }

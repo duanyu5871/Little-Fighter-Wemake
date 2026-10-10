@@ -31,6 +31,9 @@ import { Players } from "../../../../src/LFW/ui/component/Players";
 import { Sounds } from "../../../../src/LFW/ui/component/Sounds";
 import { LabelButton } from "../../../../src/LFW/ui/component/LabelButton";
 import { PlayerCtrlType } from "../../../../src/LFW/ui/component/PlayerCtrlType";
+import { WeaponRain } from "../../../../src/LFW/ui/component/WeaponRain";
+import { FighterHead } from "../../../../src/LFW/ui/component/FighterHead";
+import { FighterThumb } from "../../../../src/LFW/ui/component/FighterThumb";
 import { UINode } from "../../../../src/LFW/ui/UINode";
 import { ui_load_img } from "../../../../src/LFW/ui/ui_load_img";
 
@@ -1160,6 +1163,7 @@ async function run_ops(): Promise<void> {
       else if (what === "blur") n.on_blur();
       else if (what === "foucs") n.on_foucs();
       else fail(`unknown nlife '${what}'`);
+      await flush_microtasks();
     } else if (op === "nclick") {
       const nid = next();
       const n = tnodes.get(nid)!;
@@ -1515,6 +1519,70 @@ async function run_ops(): Promise<void> {
         p.set_ctrl(v as never, emit);
       }
       push(`pct|${pid}|ctrl=${renderValue(p.ctrl)}`);
+    } else if (op === "wr") {
+      const nid = next();
+      const n = tnodes.get(nid)!;
+      const c = n.components.find((v) => v instanceof WeaponRain) as WeaponRain | undefined;
+      if (!c) push(`wr|${nid}|none`);
+      else {
+        const rec = c as unknown as Rec;
+        const timer = rec.timer as Rec;
+        push(
+          `wr|${nid}|tv=${num(timer.value)}|tmin=${num(timer.min)}|tmax=${num(timer.max)}|ls=${renderValue(rec.last_section)}|n=${num((rec._oid_datas as unknown[]).length)}`,
+        );
+      }
+    } else if (op === "fh") {
+      const nid = next();
+      const n = tnodes.get(nid)!;
+      const c = n.components.find((v) => v instanceof FighterHead) as FighterHead | undefined;
+      if (!c) push(`fh|${nid}|none`);
+      else {
+        (c as unknown as Rec).handle_changed();
+        await flush_microtasks();
+        push(
+          `fh|${nid}|pid=${esc(c.player_id)}|head=${esc(c.head)}|src=${esc(c.src)}|w=${num(c.width)}|h=${num(c.height)}`,
+        );
+      }
+    } else if (op === "ft") {
+      const nid = next();
+      const n = tnodes.get(nid)!;
+      const c = n.components.find((v) => v instanceof FighterThumb) as FighterThumb | undefined;
+      if (!c) push(`ft|${nid}|none`);
+      else {
+        (c as unknown as Rec).handle_changed();
+        await flush_microtasks();
+        push(
+          `ft|${nid}|url=${esc(c.thumb_url)}|src=${esc(c.src)}|w=${num(c.width)}|h=${num(c.height)}`,
+        );
+      }
+    } else if (op === "mtstate") {
+      const mt = (lfw as Rec)["_mt"] as Rec;
+      push(`mtstate|${num(mt["index"] as number)}|${num(mt["times"] as number)}`);
+    } else if (op === "gwcnt") {
+      const section = Number(next());
+      const count = Number(next());
+      ((lfw.world as Rec).ground_weapon_counts as Map<number, number>).set(section, count);
+      push(`gwcnt|${num(section)}|${num(count)}`);
+    } else if (op === "fhset" || op === "ftset") {
+      const nid = nextKey();
+      const url = nextKey();
+      const n = tnodes.get(nid)!;
+      let e: Rec | undefined;
+      if (url !== "-") {
+        const key = op === "fhset" ? "head" : "small";
+        e = { id: "fx", data: { type: 8, id: "fx", base: { [key]: url === "z" ? undefined : url } } };
+        fakes.push(e);
+      }
+      if (op === "fhset") {
+        const c = n.components.find((v) => v instanceof FighterHead) as FighterHead | undefined;
+        const pid = c?.player_id ?? "";
+        lfw.player(pid).fighter = e as never;
+        push(`fhset|${pid}|${e ? 1 : 0}`);
+      } else {
+        const c = n.components.find((v) => v instanceof FighterThumb) as FighterThumb | undefined;
+        if (c) (c as unknown as Rec).fighter = e;
+        push(`ftset|${nid}|${e ? 1 : 0}`);
+      }
     } else if (op === "nact") {
       const n = tnodes.get(next())!;
       actor.act(n, parseValue(t, i) as never);
@@ -1728,6 +1796,7 @@ async function run_ops(): Promise<void> {
 }
 
 let ent_seq = 0;
+const fakes: Rec[] = [];
 function make_entity(): Rec {
   const e: Rec = {
     id: `e${++ent_seq}`,
