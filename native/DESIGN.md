@@ -9701,3 +9701,32 @@ TS：add **去重**（Set）、del 删除、按插入序**对快照**分发（�
 
 **测试**：用例 `cases/lfw/key_edit.txt` **208 行**（trace 行数；case 文件 133 行）；变异
 `lfw_key_edit.mjs` **37/37 全杀**；全量差分 **240/240**。
+
+## 124. 切片 4BK：ComponentFSMState / ModeState / GameModeFSMState
+
+**`component_fsm_state` / `game_mode_fsm_state`**：模式 FSM 的基础设施（`FSM` 本体在 4 段早期
+就移植了，`Stage` 一直在用）。
+- `ComponentFSMState`（`IState` 的 UI 版）：构造时把 owner 的 `lfw/world/node` 缓存成只读字段。
+- `GameModeFSMState`（基类，key = `ModeState.Invalid`）与三个具体状态：
+  - `Running::update`：世界暂停 ⇒ 不动；`world.game_result()` 非空 ⇒ `BeforeEnd`。
+  - `BeforeEnd`：`enter`/`leave` 都把私有 `_time` 清零；`update` 暂停门 + `_time += dt`，
+    `< 3000` 不动，否则 `game_result()` 非空 ⇒ `End`、空 ⇒ `Running`。
+  - `End`：`enter` = `game_result() == 'win'` ? `play_preset("pass")` : `play_preset("end")`
+    + `find_child("score_board")?.set_visible(true)`；`leave` = `set_visible(false)`。
+- `ModeState` 是字符串枚举（端口风格：`enum class` + `mode_state_str`）。
+
+⚠ **`owner.fsm` 的结构类型**：TS 的 `FSMComponent = UIComponent & { fsm }` 端口化成
+`UIComponent::fsm()` 虚函数（缺省 `nullptr`，持有者覆写；同一族先例：`is_playable()`）。
+
+⚠ **FSM 两个时钟与暂停门不同步**：`fsm.update` 的 `time`/`state_time` **无条件**累加，暂停门只在
+状态自己的 `update` 里 ⇒ 暂停期间 `state_time` 照样涨、`BeforeEnd._time` 不涨。用例把这一点钉在
+边界上（暂停中把 `state_time` 推过 3000 也不转、恢复后按内部 `_time` 判）。另外 `BeforeEnd` 的
+`enter`/`leave` 清零：正常路径上两者总是一起生效，删掉任一（或只删 enter 函数体）都是**等效
+代码**，只有把值改坏（`0`→`1`）才可观测（挂锚点时就挂这个）。
+
+⚠ **`game_result` 的可达面**：台面世界没有存活队 ⇒ 恒 `'drawn'`（默认路径）；`'win'` 需要存活
+统计与阶段旗标，台面够不着 ⇒ `End.enter` 的 `play_preset("pass")` 分支**没有锚点**（等价），
+只测到 `"end"` 分支与 `== 'win'` 判断本身。
+
+**测试**：用例 `cases/lfw/fsm.txt` **79 行**（trace 行数；case 文件 74 行）；变异 `lfw_fsm.mjs`
+**21/21 全杀**；全量差分 **241/241**。

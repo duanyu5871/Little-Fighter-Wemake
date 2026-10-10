@@ -5055,3 +5055,14 @@ harness op：
 - ⚠ **写 PlayerKeyEdit 的用例**：`player()` 查表不建（先 `player <id>`）；父节点 `on_click` 是
   单槽（一个父节点只挂一个编辑格）。`nclick <父节点>` 触发 `p`（stop=2 + 焦点翻转）；紧接着的
   `ptclick` 会被 `_click_me` 吃掉（保焦点），**再来一次**才失焦。
+
+### 6.9.168 ComponentFSMState / GameModeFSMState（`cases/lfw/fsm.txt` 79 行；变异 21/21 全杀）
+
+- 新台面 op：`gfa <nid> <cid>`（给 FakeComp 挂上 `Running/BeforeEnd/End` 三态 FSM）、
+  `gfu <nid> <cid> <dt>`（`fsm.update`）、`gfuse <nid> <cid> <key>`（`fsm.use`；未知键 →
+  `set_state(null)`，只 leave 不 enter）、`gfr <nid> <cid>`（打 `state/prev/st/t`）。
+  FakeComp 在两侧都多了 `fsm` 宿主（TS 直接给字段赋值；C++ 覆写 `UIComponent::fsm()`）。
+- ⚠ `fsm.update` 的 `time`/`state_time` **无条件累加**，暂停门在状态自己的 `update` 里 ——
+  暂停期间 `state_time` 照样涨、`BeforeEnd` 的私有计时器不涨（用例把边界挂在这一点上）。
+- ⚠ 台面世界的 `game_result()` 恒为 `'drawn'`（无存活统计）——`'win'` 不可达，`"pass"` 音效
+  分支没有锚点。

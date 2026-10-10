@@ -38,6 +38,9 @@
 #include "lfw/ui/component/flex.h"
 #include "lfw/ui/component/jalousie.h"
 #include "lfw/ui/component/dialogs.h"
+#include "lfw/ui/component/component_fsm_state.h"
+#include "lfw/ui/component/game_mode_fsm_state.h"
+#include "lfw/ui/component/mode_state.h"
 #include "lfw/ui/component/sounds.h"
 #include "lfw/ui/component/opacity_animation.h"
 #include "lfw/ui/component/opacity_flash.h"
@@ -529,6 +532,10 @@ class FakeComp : public lfw::ui::UIComponent {
 
   std::string tag() const { return "fc|" + to_ascii(f_name); }
 
+    // 4BK：FSM 宿主（`UIComponent::fsm()` 在台面的实现）。
+    lfw::FSM fsm_storage;
+    std::vector<std::unique_ptr<lfw::IState>> fsm_states;
+    lfw::FSM* fsm() override { return &fsm_storage; }
   std::string opt_num(const std::u16string& k) {
     const std::optional<double> v = props_holder.num(k);
     return v.has_value() ? to_ascii(render_value(lfw::Value(*v))) : "z";
@@ -1000,6 +1007,33 @@ bool run_comp_ops(lfw::LFW& lfw, const std::vector<std::string>& t, size_t& i,
       const double v = to_double(t[i++]);
       lfw.world().set_paused_value(v);
       push("wpause|" + num(v) + "|" + (lfw.world().paused() ? "1" : "0"));
+    } else if (op == "gfa" || op == "gfu" || op == "gfuse" || op == "gfr") {
+      const std::string nid = t[i++];
+      const std::string cid = t[i++];
+      bench::FakeComp& c = *g_components.at(cid);
+      if (op == "gfa") {
+        c.fsm_states.clear();
+        c.fsm_states.push_back(std::make_unique<lfw::ui::GameModeFSMState_Running>(c));
+        c.fsm_states.push_back(std::make_unique<lfw::ui::GameModeFSMState_BeforeEnd>(c));
+        c.fsm_states.push_back(std::make_unique<lfw::ui::GameModeFSMState_End>(c));
+        c.fsm_storage.add(c.fsm_states[0].get(), c.fsm_states[1].get(), c.fsm_states[2].get());
+        push("gfa|" + nid + "|" + cid);
+      } else if (op == "gfu") {
+        const double dt = to_double(t[i++]);
+        c.fsm_storage.update(dt);
+        push("gfu|" + nid + "|" + cid + "|" + num(dt));
+      } else if (op == "gfuse") {
+        const std::u16string key = key_of(t[i++]);
+        c.fsm_storage.use(lfw::Value(key));
+        push("gfuse|" + nid + "|" + cid + "|" + to_ascii(key));
+      } else {
+        lfw::IState* const s = c.fsm_storage.state();
+        lfw::IState* const p = c.fsm_storage.prev_state();
+        push("gfr|" + nid + "|" + cid + "|state=" +
+             to_ascii(render_value(s != nullptr ? s->key() : lfw::Value())) + "|prev=" +
+             to_ascii(render_value(p != nullptr ? p->key() : lfw::Value())) + "|st=" +
+             num(c.fsm_storage.state_time()) + "|t=" + num(c.fsm_storage.time()));
+      }
     } else if (op == "cplay") {
       const std::string nid = t[i++];
       const std::string cls = t[i++];

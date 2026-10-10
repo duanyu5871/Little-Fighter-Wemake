@@ -233,6 +233,8 @@ add_library(lfw_core STATIC
   ui/component/hide_when_dialoging.cpp
   ui/component/player_key_text.cpp
   ui/component/player_key_edit.cpp
+  ui/component/component_fsm_state.cpp
+  ui/component/game_mode_fsm_state.cpp
   ui/component/stage_transitions.cpp
   ui/component/label_button.cpp
   ui/component/player_ctrl_type.cpp

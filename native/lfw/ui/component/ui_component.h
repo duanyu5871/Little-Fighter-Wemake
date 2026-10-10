@@ -14,6 +14,7 @@
 
 namespace lfw {
 
+class FSM;
 class Keys;
 class LFW;
 class World;
@@ -114,6 +115,10 @@ class UIComponent {
   virtual void start() {}
   virtual void stop() {}
   virtual void replay() {}
+
+  // TS 的结构类型 `FSMComponent = UIComponent & { fsm }` 端口化：持有 FSM 的组件覆写
+  // （`GameModeFSMState::fsm()` 与 `StageModeLogic` 一族共用）。
+  virtual FSM* fsm() { return nullptr; }
 
   bool __debugging = false;
   template <typename... A>

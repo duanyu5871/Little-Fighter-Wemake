@@ -40,6 +40,13 @@ import { BackgroundSwitcher } from "../../../../src/LFW/ui/component/BackgroundS
 import { Flex } from "../../../../src/LFW/ui/component/Flex";
 import { Jalousie } from "../../../../src/LFW/ui/component/Jalousie";
 import { Dialogs } from "../../../../src/LFW/ui/component/Dialogs";
+import { FSM } from "../../../../src/LFW/base/FSM";
+import { ModeState } from "../../../../src/LFW/ui/component/ModeState";
+import {
+  GameModeFSMState_Running,
+  GameModeFSMState_BeforeEnd,
+  GameModeFSMState_End,
+} from "../../../../src/LFW/ui/component/GameModeFSMState";
 import { UINode } from "../../../../src/LFW/ui/UINode";
 import { ui_load_img } from "../../../../src/LFW/ui/ui_load_img";
 
@@ -144,6 +151,8 @@ class FakeComponent extends UIComponent<any> {
     del_at: { key: "del_at", type: "number", nullable: true },
   };
   private _updates = 0;
+  // 4BK：FSM 宿主（`GameModeFSMState` 的 `owner.fsm`）。
+  fsm?: Rec;
   private tag(): string {
     return `fc|${this.f_name}`;
   }
@@ -1343,6 +1352,34 @@ async function run_ops(): Promise<void> {
       const v = Number(next());
       lfw.world.set_paused(v as never);
       push(`wpause|${num(v)}|${lfw.world.paused ? 1 : 0}`);
+    } else if (op === "gfa" || op === "gfu" || op === "gfuse" || op === "gfr") {
+      const nid = next();
+      const n = tnodes.get(nid)!;
+      const cid = next();
+      const c = (n.components as Rec[]).find((v) => v.id === cid) as Rec | undefined;
+      if (op === "gfa") {
+        c!.fsm = new FSM<ModeState, never>().add(
+          new GameModeFSMState_Running(c as never),
+          new GameModeFSMState_BeforeEnd(c as never),
+          new GameModeFSMState_End(c as never),
+        ) as never;
+        push(`gfa|${nid}|${cid}`);
+      } else if (op === "gfu") {
+        const dt = Number(next());
+        (c!.fsm as Rec).update(dt);
+        push(`gfu|${nid}|${cid}|${num(dt)}`);
+      } else if (op === "gfuse") {
+        const key = nextKey();
+        (c!.fsm as Rec).use(key as never);
+        push(`gfuse|${nid}|${cid}|${key}`);
+      } else {
+        const f = c!.fsm as Rec;
+        const s = f.state as Rec | undefined;
+        const p = f.prev_state as Rec | undefined;
+        push(
+          `gfr|${nid}|${cid}|state=${renderValue(s?.key)}|prev=${renderValue(p?.key)}|st=${num(f.state_time as number)}|t=${num(f.time as number)}`,
+        );
+      }
     } else if (op === "cplay") {
       const nid = next();
       const cls = next();
