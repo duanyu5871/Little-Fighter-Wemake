@@ -4980,7 +4980,7 @@ harness op：
 - 要补这些锚点得先给台面补武器数据夹具（`DatMgr` 是库里的真件，`find_weapon` 不经过宿主缝）；用例里的 `wr5`～`wr15` 已经把 RNG 流位置（`mtstate`/`mtrange`）和 timer 行为钉住，夹具一落地直接挂锚点即可。
 - ⚠ `ft` 会先 `handle_changed()` 再读 `src`，所以"绑实体 → `ft` → `nlife show` → `ft`"这套顺序才测得到 `FighterThumb.on_show` 的**重置**（`fighter = nullptr`）。
 
-### 6.9.164 ComponentsPlayer / StageSwitcher / BackgroundSwitcher（`cases/lfw/switchers.txt` 162 行，trace 230 行；变异 51/51 全杀）
+### 6.9.164 ComponentsPlayer / StageSwitcher / BackgroundSwitcher（`cases/lfw/switchers.txt` 230 行；变异 51/51 全杀）
 
 - 新台面 op：`dcnt`（打 DatMgr 的 `stage`/`bg` id 列表）、`cplayer <nid> read|start|stop|replay`
   （打 `enabled=` / `playable=` / `ids=`，条目形如 `id@nodeRef`，没填上的槽位打 `u`）、
@@ -5007,3 +5007,20 @@ harness op：
   与 `-1` 会撞成同一格 ⇒ 反向广播 / 未知广播的锚点要挂在长列表状态（两个作弊都开时 stage 4 项、
   bg 3 项）；②**双 resume**（中间不 pause）才测得到 `if (_remover) return;` 守卫；③“从树根搜”
   只能在**有真父节点**的节点上测（`nmk <id> -` + `nadd` 造出来的节点 `root()` 还是自己）。
+
+### 6.9.165 Flex / Jalousie（`cases/lfw/flex.txt` 148 行；变异 73/73 全杀）
+
+- 新台面 op：`fx <nid>`（打 `direction/gap/row_gap/col_gap/align/fit/fit_w/fit_h/padding[4]`）、
+  `jl <nid>`（打 `open/click_test/w/h` + 动画 `v/done/rev/dur/n`）、`jlopen <nid> <0|1>`（写 `open`）、
+  `jsub <nid>`（订 `on_anim_end` 探针，打 `jcb|on_anim_end|<self 是否一致>`）。
+- ⚠ **`debug` 通道在 lfw 台面被静音**：TS 侧原来把 `Ditto.debug` 记成 `debug|…` 行，但端口里
+  `debug/warn/log` 是空转（只有 `warn`/`Log`/`error` 在 C++ 侧有真通道）——`Jalousie.on_click` 里那句
+  `Ditto.debug(...)` 会单边出行，所以 TS 侧 `debug: () => undefined`（`warn`/`Log`/`error` 照旧）。
+  以后移植带 `Ditto.debug` 的组件不用再各自处理。
+- ⚠ `nlife show` / `nlife resume` 不需要先 `start`：没 start 的节点上 `show` 会直接跑 `on_show`
+  （用例 `jl8` 就是靠这个把 `on_show` 的 `_anim.calc()` / `update_children()` 与 `on_resume` 的
+  `sync_screen_rect()` 分开钉住）。
+- ⚠ 动画类的“走完再早退”要两步钉：先推进到 `done`（看回调/值），再多跑一拍（看是否重复回调）。
+  顺序反过来（先 stop 再看回调）测的是 `on_stop` 清回调。
+- ⚠ 用例写 `properties` 时 **`o N` 一定要数准**（本切片 `fr2`/`ft4` 把 `padding` 数丢过——
+  台面上不会报错，是 `fx` 读回或位置数值“差一档”才暴露）。

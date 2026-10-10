@@ -35,6 +35,8 @@
 #include "lfw/ui/component/components_player.h"
 #include "lfw/ui/component/stage_switcher.h"
 #include "lfw/ui/component/background_switcher.h"
+#include "lfw/ui/component/flex.h"
+#include "lfw/ui/component/jalousie.h"
 #include "lfw/ui/component/sounds.h"
 #include "lfw/ui/component/opacity_animation.h"
 #include "lfw/ui/component/opacity_flash.h"
@@ -1506,6 +1508,65 @@ bool run_comp_ops(lfw::LFW& lfw, const std::vector<std::string>& t, size_t& i,
       const std::u16string* const bid_s = bid != nullptr ? std::get_if<std::u16string>(bid) : nullptr;
       push("bswi|" + nid + "|n=" + num(static_cast<double>(list.size())) + "|id=" +
            to_ascii(bid_s != nullptr ? *bid_s : std::u16string()));
+    }
+  } else if (op == "fx") {
+    const std::string nid = t[i++];
+    lfw::ui::UINode& n = *g_nodes.at(nid);
+    lfw::ui::Flex* p = nullptr;
+    for (lfw::ui::UIComponent* const c : n.components()) {
+      if (!lfw::is_class(c->clazz(), lfw::ui::Flex::class_tag())) continue;
+      p = static_cast<lfw::ui::Flex*>(c);
+      break;
+    }
+    if (p == nullptr) {
+      push("fx|" + nid + "|none");
+    } else {
+      const std::array<double, 4> pad = p->padding();
+      push("fx|" + nid + "|" + to_ascii(p->direction()) + "|" + num(p->gap()) + "|" +
+           num(p->row_gap()) + "|" + num(p->col_gap()) + "|" + to_ascii(p->align()) + "|" +
+           (p->fit() ? "1" : "0") + "|" + (p->fit_w() ? "1" : "0") + "|" +
+           (p->fit_h() ? "1" : "0") + "|" + num(pad[0]) + "|" + num(pad[1]) + "|" +
+           num(pad[2]) + "|" + num(pad[3]));
+    }
+  } else if (op == "jl") {
+    const std::string nid = t[i++];
+    lfw::ui::UINode& n = *g_nodes.at(nid);
+    lfw::ui::Jalousie* p = nullptr;
+    for (lfw::ui::UIComponent* const c : n.components()) {
+      if (!lfw::is_class(c->clazz(), lfw::ui::Jalousie::class_tag())) continue;
+      p = static_cast<lfw::ui::Jalousie*>(c);
+      break;
+    }
+    if (p == nullptr) {
+      push("jl|" + nid + "|none");
+    } else {
+      lfw::Sequence& anim = p->anim();
+      push("jl|" + nid + "|" + (p->open() ? "1" : "0") + "|" +
+           (p->click_test() ? "1" : "0") + "|" + num(p->w()) + "|" + num(p->h()) + "|v=" +
+           num(anim.value()) + "|done=" + (anim.done() ? "1" : "0") + "|rev=" +
+           (anim.reverse() ? "1" : "0") + "|dur=" + num(anim.duration()) + "|n=" +
+           num(static_cast<double>(anim.anims().size())));
+    }
+  } else if (op == "jlopen") {
+    const std::string nid = t[i++];
+    const bool v = t[i++] == "1";
+    lfw::ui::UINode& n = *g_nodes.at(nid);
+    for (lfw::ui::UIComponent* const c : n.components()) {
+      if (!lfw::is_class(c->clazz(), lfw::ui::Jalousie::class_tag())) continue;
+      static_cast<lfw::ui::Jalousie*>(c)->set_open(v);
+      break;
+    }
+  } else if (op == "jsub") {
+    const std::string nid = t[i++];
+    lfw::ui::UINode& n = *g_nodes.at(nid);
+    for (lfw::ui::UIComponent* const c : n.components()) {
+      if (!lfw::is_class(c->clazz(), lfw::ui::Jalousie::class_tag())) continue;
+      lfw::ui::Jalousie* const self = static_cast<lfw::ui::Jalousie*>(c);
+      self->callbacks.on(u"on_anim_end", [self](const lfw::ui::JalousieCallbacks::Payloads& ps) {
+        for (const lfw::ui::JalousieCallbackArgs& a : ps)
+          push("jcb|on_anim_end|" + std::string(a.self == self ? "1" : "0"));
+      });
+      break;
     }
   } else {
     return false;

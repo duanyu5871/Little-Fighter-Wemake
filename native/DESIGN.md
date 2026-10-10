@@ -9590,7 +9590,7 @@ DatMgr **从 zip 里读**，`imp` 只喂索引里引用的具体文件；stage �
 ⚠ `change_bg` 在本台面**无痕**（无输出、无日志）⇒ stage→背景查询、`VOID_BG` 回落、两个空列表
 分支都测不到，本切片没有对应锚点（等台面给 `change_bg` 加输出再补）。
 
-**测试**：用例 `cases/lfw/switchers.txt` **162 行**；变异 `lfw_switchers.mjs` **51/51 全杀**；
+**测试**：用例 `cases/lfw/switchers.txt` **230 行**（trace 行数；case 文件 162 行）；变异 `lfw_switchers.mjs` **51/51 全杀**；
 全量差分 **237/237**。
 
 ⚠ 观测前提（写锚点时踩到的）：①`if (ids.empty()) return;` 是**等效代码**——节点构造时 `components`
@@ -9601,3 +9601,40 @@ DatMgr **从 zip 里读**，`imp` 只喂索引里引用的具体文件；stage �
 bg 列表 3 项）的状态上；④`on_resume` 的重复订阅守卫要靠**连续两次 `resume`（中间不 pause）**
 才测得到：双订阅后每次广播会走两格，在长列表上就露馅；⑤stage 夹具的 `srd` 必须带 `is_starting`，
 否则 Dev 筛与“未开场”筛叠在一起，删掉 Dev 筛也看不出区别。
+
+## 121. 切片 4BH：Flex / Jalousie
+
+**`flex`**：props `{direction, gap, row_gap, col_gap, align, fit, fit_w, fit_h, padding}`。
+缺省/回落：`direction` → `row`、`align` → `start`（两者都带白名单校验）、`gap` → 0、
+`row_gap`/`col_gap` → `gap`、`fit` → false、`fit_w`/`fit_h` → `fit`、`padding` → `[0,0,0,0]`。
+`apply()` 两段：
+1. **fit 段**（`fit_w ∨ fit_h`）：逐子累加，`row` 方向宽度用 `Σ(child_w + row_gap)`（**尾项不加 gap**，
+   但“尾项”按**原始下标** `i < len - 1` 判，隐藏子也占下标）、`column` 方向宽度用 `max(child_w)`；
+   高度同理（`column` 累加 `col_gap`、`row` 取 `max`）。算完 `w += padding_left + padding_right`
+   → `resize(w, node.h())`，再 `h += padding_top + padding_bottom` → `resize(node.w(), h)`
+   （**顺序有讲究**：fit_h 用到的 `node.w()` 是 fit_w 刚写进去的新宽）。
+2. **摆放段**：逐可见子，`my_cross = node.cross`（**fit 之前**取的缓存）、子 `cross` 取当前值；
+   对齐值 = `FlexItem.align`（仅 `enabled()` 的 FlexItem 算数）覆盖父 `align`；`row` 的
+   `item_x = padding_left + my_cross.left + (temp_x - cross.left)`、`temp_x += child_w + row_gap`
+   （**推进用的是摆放前的尺寸**）；`column` 对称。`stretch` 只改子的一边：`row` 改高（`resize(child_w, my_h)`）、
+   `column` 改宽（`resize(my_w, child_h)`）。
+
+⚠ **台面坑**：`apply()` 的某些分支只在“可见子数 ≥2 且 gap 不为 0”时才看得到，所以用例里每个 flex 节点
+的子尺寸都取得不一样大、`row_gap`/`col_gap` 故意与 `gap` 不同（否则“累加用错 gap”类变异会装死）；
+`ft5`（全可见）就是给“尾项也加 gap”变异准备的。
+
+**`jalousie`**（继承 `Flex`）：`Sequence(Easing(0,0)@250ms, Sine(-1,2,1)@250ms, Easing(1,1)@250ms)`
+——三个子动画是字段初始化器里的匿名对象，端口用成员 + `make_anims()` 接线（**先把时长设好再交给
+`Sequence` 构造器求和并 `start()`**，顺序反了时长就是 0）；`dur` = 750。
+`open` 读 `_anim.reverse()`、写 `_anim.start(v)`；`click_test` 为真时点击翻转 `open`。
+`on_start`：`sync_screen_rect()` → `open = props.open ?? this.bool(1)` / `end = props.end ?? this.bool(2)`
+→ `end ? _anim.end(open) : _anim.start(open)`。
+`sync_screen_rect`：根 `w`/`h` 有 0（或 NaN）就早退；否则 `move_to_global(root.global_pos + center*root.size)`（**节点自己的 center**）
++ `resize(root.w, root.h)`；`w()`/`h()` 就是根的尺寸。
+`update`：先 `Flex::update`（铺布局）→ `done` 就早退 → `_anim.update(dt)` → `update_children()` →
+**这拍刚好走完**再 `callbacks.call('on_anim_end', this)`；`update_children` 按 `direction`
+只写一个轴（`column` 写 y 缩放、否则写 x）。`on_show` 只做 `_anim.calc()` + `update_children()`；
+`on_stop` 清回调（**不**停动画，台面上 stop 后 `cupd` 仍会推进）。
+
+**测试**：用例 `cases/lfw/flex.txt` **148 行**（trace 行数；case 文件 252 行）；变异 `lfw_flex.mjs` **73/73 全杀**；
+全量差分 **238/238**。

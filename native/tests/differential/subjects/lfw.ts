@@ -37,6 +37,8 @@ import { FighterThumb } from "../../../../src/LFW/ui/component/FighterThumb";
 import { ComponentsPlayer } from "../../../../src/LFW/ui/component/ComponentsPlayer";
 import { StageSwitcher } from "../../../../src/LFW/ui/component/StageSwitcher";
 import { BackgroundSwitcher } from "../../../../src/LFW/ui/component/BackgroundSwitcher";
+import { Flex } from "../../../../src/LFW/ui/component/Flex";
+import { Jalousie } from "../../../../src/LFW/ui/component/Jalousie";
 import { UINode } from "../../../../src/LFW/ui/UINode";
 import { ui_load_img } from "../../../../src/LFW/ui/ui_load_img";
 
@@ -611,8 +613,8 @@ function install_ditto(): void {
     error: (...args: unknown[]) =>
       push("error|" + args.map((a) => render_value(safe_render(a))).join("~")),
     Log: (...args: unknown[]) => push("Log|" + args.map((a) => render_value(safe_render(a))).join("~")),
-    debug: (...args: unknown[]) =>
-      push("debug|" + args.map((a) => render_value(safe_render(a))).join("~")),
+    // 端口里 `debug` 是空转（同 DESIGN 记录）；`warn`/`Log` 有真通道，`debug` 不收。
+    debug: () => undefined,
     DEV: false,
     IsDesktop: false,
     alert: () => undefined,
@@ -1652,6 +1654,47 @@ async function run_ops(): Promise<void> {
         const list = c.backgrounds as Rec[];
         const bg = (c as unknown as Rec)["_background"] as Rec;
         push(`bswi|${nid}|n=${num(list.length)}|id=${String(bg?.["id"])}`);
+      }
+    } else if (op === "fx") {
+      const nid = next();
+      const n = tnodes.get(nid)!;
+      const c = n.components.find((v) => v instanceof Flex) as Flex | undefined;
+      if (!c) push(`fx|${nid}|none`);
+      else {
+        const pad = c.padding;
+        push(
+          `fx|${nid}|${c.direction}|${num(c.gap)}|${num(c.row_gap)}|${num(c.col_gap)}|` +
+            `${c.align}|${c.fit ? 1 : 0}|${c.fit_w ? 1 : 0}|${c.fit_h ? 1 : 0}|` +
+            `${num(pad[0])}|${num(pad[1])}|${num(pad[2])}|${num(pad[3])}`,
+        );
+      }
+    } else if (op === "jl") {
+      const nid = next();
+      const n = tnodes.get(nid)!;
+      const c = n.components.find((v) => v instanceof Jalousie) as Jalousie | undefined;
+      if (!c) push(`jl|${nid}|none`);
+      else {
+        const anim = c.anim as Rec & { value: number; done: boolean; reverse: boolean };
+        push(
+          `jl|${nid}|${c.open ? 1 : 0}|${c.click_test ? 1 : 0}|${num(c.w)}|${num(c.h)}|` +
+            `v=${num(anim.value)}|done=${anim.done ? 1 : 0}|rev=${anim.reverse ? 1 : 0}|` +
+            `dur=${num(anim.duration as number)}|n=${num((anim.anims as Rec[]).length)}`,
+        );
+      }
+    } else if (op === "jlopen") {
+      const nid = next();
+      const v = next() === "1";
+      const n = tnodes.get(nid)!;
+      const c = n.components.find((v2) => v2 instanceof Jalousie) as Jalousie | undefined;
+      if (c) c.open = v;
+    } else if (op === "jsub") {
+      const nid = next();
+      const n = tnodes.get(nid)!;
+      const c = n.components.find((v) => v instanceof Jalousie) as Jalousie | undefined;
+      if (c) {
+        c.callbacks.add({
+          on_anim_end: (v: Jalousie) => push(`jcb|on_anim_end|${v === c ? 1 : 0}`),
+        });
       }
     } else if (op === "mtstate") {
       const mt = (lfw as Rec)["_mt"] as Rec;

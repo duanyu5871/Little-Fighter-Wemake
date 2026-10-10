@@ -49,6 +49,8 @@
 #include "lfw/ui/component/fighter_thumb.h"
 #include "lfw/ui/component/stage_title_text.h"
 #include "lfw/ui/component/stage_switcher.h"
+#include "lfw/ui/component/flex.h"
+#include "lfw/ui/component/jalousie.h"
 #include "lfw/ui/component/vertical_layout.h"
 #include "lfw/ui/component/wrap_content.h"
 
@@ -122,6 +124,8 @@ void regist_components() {
   regist_one<ComponentsPlayer>(u"ComponentsPlayer");
   regist_one<StageSwitcher>(u"StageSwitcher");
   regist_one<BackgroundSwitcher>(u"BackgroundSwitcher");
+  regist_one<Flex>(u"Flex");
+  regist_one<Jalousie>(u"Jalousie");
 }
 
 }
