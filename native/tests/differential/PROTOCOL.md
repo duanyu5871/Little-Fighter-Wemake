@@ -4979,3 +4979,31 @@ harness op：
 - ⚠ 抽签结果在本台面**不可观测**：`find_weapon` 恒 null、`add_random` 找不到组数据（`randoms()` 返 null 就早退，一次都不抽）⇒ 掉落分支既不产日志也不吃 RNG。**实测**：把 `chance n 1` 全改成 `chance n 0`，整份 C++ trace 逐行一致。所以本切片没给门槛公式 / `count` / `left` / `power` / `oids` 解析 / warn 文案挂锚点。
 - 要补这些锚点得先给台面补武器数据夹具（`DatMgr` 是库里的真件，`find_weapon` 不经过宿主缝）；用例里的 `wr5`～`wr15` 已经把 RNG 流位置（`mtstate`/`mtrange`）和 timer 行为钉住，夹具一落地直接挂锚点即可。
 - ⚠ `ft` 会先 `handle_changed()` 再读 `src`，所以"绑实体 → `ft` → `nlife show` → `ft`"这套顺序才测得到 `FighterThumb.on_show` 的**重置**（`fighter = nullptr`）。
+
+### 6.9.164 ComponentsPlayer / StageSwitcher / BackgroundSwitcher（`cases/lfw/switchers.txt` 162 行，trace 230 行；变异 51/51 全杀）
+
+- 新台面 op：`dcnt`（打 DatMgr 的 `stage`/`bg` id 列表）、`cplayer <nid> read|start|stop|replay`
+  （打 `enabled=` / `playable=` / `ids=`，条目形如 `id@nodeRef`，没填上的槽位打 `u`）、
+  `sswi <nid>`（打 `n=` / `all=` / `id=` / `text=`）、`bswi <nid>`（打 `n=` / `id=`）。
+- 新夹具 kind：`swf`（**索引**：`{backgrounds:[{id,file}], stages:[{file}]}` 这样的描述符表）、
+  `bgr`/`bgh`/`bgo`（背景数据，`base.group` 取 `regular`/`hidden`/其它）、`srg`/`srh`/`srd`
+  （stage 数据是**列表**，各一项；`srg` 那项带 `is_starting` + `starting_name`）。
+- ⚠ 索引文件（如 `data/data.index.json5`）是 **DatMgr 从 zip 里读**的
+  （`lzadd z1 data/data.index.json5 swf`）——`imp <path> <kind>` 只喂**索引里引用的**具体文件
+  （走 `resources.import_json`）。搞混的话 `dcnt` 会空、`stages()`/`backgrounds()` 也是空。
+- ⚠ stage 文件按 `kind` 决定"当列表装"（`srg`/`srh`/`srd`）⇒ 一个 stage 也要包一层。
+- ⚠ 作弊开关走 `world.dataset`：台面用 `dataset GIM_INK b 1` / `dataset LF2_NET b 1`（`is_cheat`
+  = `truthy(dataset[key])`）。台面的 `setcheat` op 只**排队**一条 cmd，对 `is_cheat` 无效。
+- ⚠ `nmk <id> <parent>` 在**构造时**就定 `_parent`/`_root`；`nmk id -` + `nadd` 只挂 `_children`，
+  该节点的 `root()` 仍是它自己 ⇒ 要测 ComponentsPlayer 的"从树根搜"（`local: false`），
+  必须写成 `nmk <id> <树根>`，否则根搜索退化成自身子树（搜索为空）。
+- `ids=` 里的 `id@nodeRef` 是为了区分"同 id 不同节点"：先到先得（`of1@cn3`）vs 后到覆盖
+  （`of1@cn4`）、子节点（`cf1@cn1`）vs 根搜索命中的诱饵（`of1@dc1`），差异一眼可见。
+- ⚠ `o N` 计数必须**精确**（本切片又踩一次）：`properties o 4` 但只写了 3 个键 ⇒
+  `value literal truncated in object at token N of N`，整份用例直接解析失败。
+- ⚠ `change_bg` 在 lfw 台面**无痕**（不吃输出、不产日志）⇒ stage→背景数据查询、找不到时回落
+  到 `VOID_BG`、空列表分支在本台面测不到，本切片也就没有对应锚点。
+- ⚠ 写这一族锚点的三条前提：①**列表长度**——`fmod(curr + len + dir, len)` 在 `len <= 2` 时 `+1`
+  与 `-1` 会撞成同一格 ⇒ 反向广播 / 未知广播的锚点要挂在长列表状态（两个作弊都开时 stage 4 项、
+  bg 3 项）；②**双 resume**（中间不 pause）才测得到 `if (_remover) return;` 守卫；③“从树根搜”
+  只能在**有真父节点**的节点上测（`nmk <id> -` + `nadd` 造出来的节点 `root()` 还是自己）。

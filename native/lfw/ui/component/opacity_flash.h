@@ -27,9 +27,11 @@ class OpacityFlash : public UIComponent {
   void on_start() override;
   void update(double dt) override;
 
-  void start();
-  void stop();
-  void replay();
+  void start() override;
+  void stop() override;
+  void replay() override;
+
+  bool is_playable() const override { return true; }
 
   Sequence& anim() { return _anim; }
 

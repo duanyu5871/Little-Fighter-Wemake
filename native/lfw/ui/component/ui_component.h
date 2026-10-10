@@ -87,8 +87,7 @@ class UIComponent {
   UINode* find_node(const Value& which);
 
   // 生命周期 / 输入钩子（TS 的可选方法；端口统一成可覆写的虚函数）。
-  virtual void init() {}
-  virtual void on_add() {}
+  virtual void init() {}  virtual void on_add() {}
   virtual void on_del() {}
   virtual void on_start() {}
   virtual void on_stop() {}
@@ -108,6 +107,13 @@ class UIComponent {
   virtual void on_pointer_enter() {}
   virtual void on_key_down(LFWKeyEvent& e) { (void)e; }
   virtual void on_key_up(LFWKeyEvent& e) { (void)e; }
+
+  // TS `IPlayable`（`__is_playable__` 叮子判据）：无 RTTI ⇒ 基类挂判据 + 三个空实现，
+  // 可播放组件覆写 `is_playable()`（`ComponentsPlayer` 按它收集）。
+  virtual bool is_playable() const { return false; }
+  virtual void start() {}
+  virtual void stop() {}
+  virtual void replay() {}
 
   bool __debugging = false;
   template <typename... A>

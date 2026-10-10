@@ -32,6 +32,9 @@
 #include "lfw/ui/component/weapon_rain.h"
 #include "lfw/ui/component/fighter_head.h"
 #include "lfw/ui/component/fighter_thumb.h"
+#include "lfw/ui/component/components_player.h"
+#include "lfw/ui/component/stage_switcher.h"
+#include "lfw/ui/component/background_switcher.h"
 #include "lfw/ui/component/sounds.h"
 #include "lfw/ui/component/opacity_animation.h"
 #include "lfw/ui/component/opacity_flash.h"
@@ -264,6 +267,80 @@ lfw::Value build_kind_value(const std::string& k) {
   if (k.rfind("md5:", 0) == 0) {
     lfw::Object o;
     o.set(u"md5", lfw::Value(to_u16(k.substr(4))));
+    return lfw::Value(std::make_shared<lfw::Object>(o));
+  }
+  // 4BG：切换器夹具。索引条目是**文件描述**（`{id,file}` / 路径串），真内容走 `imp` 缝。
+  auto bg_fixture = [](const char16_t* id, const char16_t* name, const char16_t* group) {
+    lfw::Object base;
+    base.set(u"name", lfw::Value(std::u16string(name)));
+    base.set(u"shadow", lfw::Value(std::u16string(u"")));
+    base.set(u"height", lfw::Value(550.0));
+    base.set(u"left", lfw::Value(0.0));
+    base.set(u"right", lfw::Value(1588.0));
+    base.set(u"far", lfw::Value(-40.0));
+    base.set(u"near", lfw::Value(0.0));
+    auto groups = std::make_shared<lfw::Array>();
+    if (group != nullptr) groups->push_back(lfw::Value(std::u16string(group)));
+    base.set(u"group", lfw::Value(groups));
+    lfw::Object o;
+    o.set(u"type", lfw::Value(std::u16string(u"background")));
+    o.set(u"id", lfw::Value(std::u16string(id)));
+    o.set(u"base", lfw::Value(std::make_shared<lfw::Object>(base)));
+    o.set(u"layers", lfw::Value(std::make_shared<lfw::Array>()));
+    return lfw::Value(std::make_shared<lfw::Object>(o));
+  };
+  auto stage_fixture = [](const char16_t* id, const char16_t* name, const char16_t* bg_id,
+                          const char16_t* group, const char16_t* start_name) {
+    lfw::Object o;
+    o.set(u"id", lfw::Value(std::u16string(id)));
+    o.set(u"name", lfw::Value(std::u16string(name)));
+    o.set(u"bg", lfw::Value(std::u16string(bg_id)));
+    if (start_name != nullptr) {
+      o.set(u"is_starting", lfw::Value(true));
+      o.set(u"starting_name", lfw::Value(std::u16string(start_name)));
+    }
+    auto groups = std::make_shared<lfw::Array>();
+    if (group != nullptr) groups->push_back(lfw::Value(std::u16string(group)));
+    o.set(u"group", lfw::Value(groups));
+    o.set(u"phases", lfw::Value(std::make_shared<lfw::Array>()));
+    return lfw::Value(std::make_shared<lfw::Object>(o));
+  };
+  // `data.stages` 的条目是 `{file, skipped}` 描述符；文件内容是**列表**。
+  auto stage_list_fixture = [&](const char16_t* id, const char16_t* name, const char16_t* bg_id,
+                                const char16_t* group, const char16_t* start_name) {
+    auto arr = std::make_shared<lfw::Array>();
+    arr->push_back(stage_fixture(id, name, bg_id, group, start_name));
+    return lfw::Value(arr);
+  };
+  if (k == "bgr") return bg_fixture(u"bg_reg", u"B1", u"regular");
+  if (k == "bgh") return bg_fixture(u"bg_hid", u"B2", u"hidden");
+  if (k == "bgo") return bg_fixture(u"bg_oth", u"B3", nullptr);
+  if (k == "srg") return stage_list_fixture(u"st_reg", u"S1", u"bg_reg", nullptr, u"SR");
+  if (k == "srh") return stage_list_fixture(u"st_hid", u"S2", u"bg_hid", u"hidden", nullptr);
+  if (k == "srd") return stage_list_fixture(u"st_dev", u"S3", u"bg_oth", u"Dev", u"DD");
+  if (k == "swf") {
+    auto bg_file = [](const char16_t* id, const char16_t* path) {
+      lfw::Object o;
+      o.set(u"id", lfw::Value(std::u16string(id)));
+      o.set(u"file", lfw::Value(std::u16string(path)));
+      return lfw::Value(std::make_shared<lfw::Object>(o));
+    };
+    auto stage_file = [](const char16_t* path) {
+      lfw::Object o;
+      o.set(u"file", lfw::Value(std::u16string(path)));
+      return lfw::Value(std::make_shared<lfw::Object>(o));
+    };
+    auto bgs = std::make_shared<lfw::Array>();
+    bgs->push_back(bg_file(u"bg_reg", u"bg/reg.json5"));
+    bgs->push_back(bg_file(u"bg_hid", u"bg/hid.json5"));
+    bgs->push_back(bg_file(u"bg_oth", u"bg/oth.json5"));
+    auto stages = std::make_shared<lfw::Array>();
+    stages->push_back(stage_file(u"st/reg.json5"));
+    stages->push_back(stage_file(u"st/hid.json5"));
+    stages->push_back(stage_file(u"st/dev.json5"));
+    lfw::Object o;
+    o.set(u"backgrounds", lfw::Value(bgs));
+    o.set(u"stages", lfw::Value(stages));
     return lfw::Value(std::make_shared<lfw::Object>(o));
   }
   return lfw::Value();
@@ -1351,6 +1428,84 @@ bool run_comp_ops(lfw::LFW& lfw, const std::vector<std::string>& t, size_t& i,
       }
       if (p != nullptr) p->fighter = e;
       push("ftset|" + nid + "|" + (e != nullptr ? "1" : "0"));
+    }
+  } else if (op == "dcnt") {
+    std::string st;
+    for (const lfw::Value& v : lfw.datas().stages()) {
+      const lfw::Value* const id = lfw::ui::field_of(v, u"id");
+      const std::u16string* const s = id != nullptr ? std::get_if<std::u16string>(id) : nullptr;
+      if (!st.empty()) st += ",";
+      st += to_ascii(s != nullptr ? *s : std::u16string());
+    }
+    std::string bg;
+    for (const lfw::Value& v : lfw.datas().backgrounds()) {
+      const lfw::Value* const id = lfw::ui::field_of(v, u"id");
+      const std::u16string* const s = id != nullptr ? std::get_if<std::u16string>(id) : nullptr;
+      if (!bg.empty()) bg += ",";
+      bg += to_ascii(s != nullptr ? *s : std::u16string());
+    }
+    push("dcnt|stages=" + st + "|bgs=" + bg);
+  } else if (op == "cplayer") {
+    const std::string nid = t[i++];
+    const std::string act = t[i++];
+    lfw::ui::UINode& n = *g_nodes.at(nid);
+    lfw::ui::ComponentsPlayer* p = nullptr;
+    for (lfw::ui::UIComponent* const c : n.components()) {
+      if (!lfw::is_class(c->clazz(), lfw::ui::ComponentsPlayer::class_tag())) continue;
+      p = static_cast<lfw::ui::ComponentsPlayer*>(c);
+      break;
+    }
+    if (p == nullptr) {
+      push("cplayer|" + nid + "|none");
+    } else {
+      if (act == "start") p->start();
+      else if (act == "stop") p->stop();
+      else if (act == "replay") p->replay();
+      std::string ids;
+      for (lfw::ui::UIComponent* const c : p->components) {
+        if (!ids.empty()) ids += ",";
+        ids += c != nullptr ? to_ascii(c->id) + "@" + node_ref(&c->node) : std::string("u");
+      }
+      push("cplayer|" + nid + "|" + act + "|enabled=" + (p->enabled() ? "1" : "0") +
+           "|playable=" + (p->is_playable() ? "1" : "0") + "|ids=" + ids);
+    }
+  } else if (op == "sswi") {
+    const std::string nid = t[i++];
+    lfw::ui::UINode& n = *g_nodes.at(nid);
+    lfw::ui::StageSwitcher* p = nullptr;
+    for (lfw::ui::UIComponent* const c : n.components()) {
+      if (!lfw::is_class(c->clazz(), lfw::ui::StageSwitcher::class_tag())) continue;
+      p = static_cast<lfw::ui::StageSwitcher*>(c);
+      break;
+    }
+    if (p == nullptr) {
+      push("sswi|" + nid + "|none");
+    } else {
+      const std::vector<lfw::Value> list = p->stages();
+      const lfw::Value* const sid = lfw::ui::field_of(p->stage(), u"id");
+      const std::u16string* const sid_s = sid != nullptr ? std::get_if<std::u16string>(sid) : nullptr;
+      push("sswi|" + nid + "|n=" + num(static_cast<double>(list.size())) +
+           "|all=" + (p->show_all() ? "1" : "0") + "|id=" +
+           to_ascii(sid_s != nullptr ? *sid_s : std::u16string()) + "|text=" +
+           trace::esc(p->stage_text()));
+    }
+  } else if (op == "bswi") {
+    const std::string nid = t[i++];
+    lfw::ui::UINode& n = *g_nodes.at(nid);
+    lfw::ui::BackgroundSwitcher* p = nullptr;
+    for (lfw::ui::UIComponent* const c : n.components()) {
+      if (!lfw::is_class(c->clazz(), lfw::ui::BackgroundSwitcher::class_tag())) continue;
+      p = static_cast<lfw::ui::BackgroundSwitcher*>(c);
+      break;
+    }
+    if (p == nullptr) {
+      push("bswi|" + nid + "|none");
+    } else {
+      const std::vector<lfw::Value> list = p->backgrounds();
+      const lfw::Value* const bid = lfw::ui::field_of(p->background(), u"id");
+      const std::u16string* const bid_s = bid != nullptr ? std::get_if<std::u16string>(bid) : nullptr;
+      push("bswi|" + nid + "|n=" + num(static_cast<double>(list.size())) + "|id=" +
+           to_ascii(bid_s != nullptr ? *bid_s : std::u16string()));
     }
   } else {
     return false;

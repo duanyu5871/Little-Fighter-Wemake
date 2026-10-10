@@ -247,6 +247,9 @@ add_library(lfw_core STATIC
   ui/component/players.cpp
   ui/component/sounds.cpp
   ui/component/integer_picker.cpp
+  ui/component/components_player.cpp
+  ui/component/stage_switcher.cpp
+  ui/component/background_switcher.cpp
   ui/instance_ref.cpp
   helper/randoming.cpp
   state/spawn_ice_piece.cpp

@@ -34,6 +34,9 @@ import { PlayerCtrlType } from "../../../../src/LFW/ui/component/PlayerCtrlType"
 import { WeaponRain } from "../../../../src/LFW/ui/component/WeaponRain";
 import { FighterHead } from "../../../../src/LFW/ui/component/FighterHead";
 import { FighterThumb } from "../../../../src/LFW/ui/component/FighterThumb";
+import { ComponentsPlayer } from "../../../../src/LFW/ui/component/ComponentsPlayer";
+import { StageSwitcher } from "../../../../src/LFW/ui/component/StageSwitcher";
+import { BackgroundSwitcher } from "../../../../src/LFW/ui/component/BackgroundSwitcher";
 import { UINode } from "../../../../src/LFW/ui/UINode";
 import { ui_load_img } from "../../../../src/LFW/ui/ui_load_img";
 
@@ -280,6 +283,53 @@ function kind_value(k: string): unknown {
   if (k.startsWith("md5:")) return { md5: k.slice(4) };
   if (k.startsWith("w:")) return { "": { [k.slice(2)]: "1" } };
   if (k === "spk") return { id: "spark", type: 4, base: { name: "Spark" } };
+  // 4BG：切换器夹具。索引条目是**文件描述**（`{id,file}` / 路径串），真内容走 `imp` 缝。
+  const bg_fixture = (id: string, name: string, group: string | null) => ({
+    type: "background",
+    id,
+    base: {
+      name,
+      shadow: "",
+      height: 550,
+      left: 0,
+      right: 1588,
+      far: -40,
+      near: 0,
+      group: group ? [group] : [],
+    },
+    layers: [],
+  });
+  const stage_fixture = (
+    id: string,
+    name: string,
+    bg_id: string,
+    group: string | null,
+    start_name: string | null,
+  ) => ({
+    id,
+    name,
+    bg: bg_id,
+    ...(start_name !== null ? { is_starting: true, starting_name: start_name } : {}),
+    group: group ? [group] : [],
+    phases: [],
+  });
+  if (k === "bgr") return bg_fixture("bg_reg", "B1", "regular");
+  if (k === "bgh") return bg_fixture("bg_hid", "B2", "hidden");
+  if (k === "bgo") return bg_fixture("bg_oth", "B3", null);
+  // `data.stages` 的条目是 `{file, skipped}` 描述符；文件内容是**列表**。
+  if (k === "srg") return [stage_fixture("st_reg", "S1", "bg_reg", null, "SR")];
+  if (k === "srh") return [stage_fixture("st_hid", "S2", "bg_hid", "hidden", null)];
+  if (k === "srd") return [stage_fixture("st_dev", "S3", "bg_oth", "Dev", "DD")];
+  if (k === "swf") {
+    return {
+      backgrounds: [
+        { id: "bg_reg", file: "bg/reg.json5" },
+        { id: "bg_hid", file: "bg/hid.json5" },
+        { id: "bg_oth", file: "bg/oth.json5" },
+      ],
+      stages: [{ file: "st/reg.json5" }, { file: "st/hid.json5" }, { file: "st/dev.json5" }],
+    };
+  }
   return undefined;
 }
 
@@ -1554,6 +1604,54 @@ async function run_ops(): Promise<void> {
         push(
           `ft|${nid}|url=${esc(c.thumb_url)}|src=${esc(c.src)}|w=${num(c.width)}|h=${num(c.height)}`,
         );
+      }
+    } else if (op === "dcnt") {
+      const st = lfw.datas.stages.map((v) => String((v as Rec)["id"])).join(",");
+      const bg = lfw.datas.backgrounds.map((v) => String((v as Rec)["id"])).join(",");
+      push(`dcnt|stages=${st}|bgs=${bg}`);
+    } else if (op === "cplayer") {
+      const nid = next();
+      const act = next();
+      const n = tnodes.get(nid)!;
+      const c = n.components.find((v) => v instanceof ComponentsPlayer) as
+        | ComponentsPlayer
+        | undefined;
+      if (!c) push(`cplayer|${nid}|none`);
+      else {
+        if (act === "start") c.start();
+        else if (act === "stop") c.stop();
+        else if (act === "replay") c.replay();
+        const list = (c as unknown as Rec)["components"] as (Rec | null)[];
+        const ids = list
+          .map((v) => (v ? `${String(v["id"])}@${nref((v as Rec)["node"] as UINode)}` : "u"))
+          .join(",");
+        push(
+          `cplayer|${nid}|${act}|enabled=${c.enabled ? 1 : 0}|playable=${c["__is_playable__"] ? 1 : 0}|ids=${ids}`,
+        );
+      }
+    } else if (op === "sswi") {
+      const nid = next();
+      const n = tnodes.get(nid)!;
+      const c = n.components.find((v) => v instanceof StageSwitcher) as StageSwitcher | undefined;
+      if (!c) push(`sswi|${nid}|none`);
+      else {
+        const list = c.stages as Rec[];
+        const st = (c as unknown as Rec)["_stage"] as Rec;
+        push(
+          `sswi|${nid}|n=${num(list.length)}|all=${c.show_all ? 1 : 0}|id=${String(st?.["id"])}|text=${esc(c.stage_text)}`,
+        );
+      }
+    } else if (op === "bswi") {
+      const nid = next();
+      const n = tnodes.get(nid)!;
+      const c = n.components.find((v) => v instanceof BackgroundSwitcher) as
+        | BackgroundSwitcher
+        | undefined;
+      if (!c) push(`bswi|${nid}|none`);
+      else {
+        const list = c.backgrounds as Rec[];
+        const bg = (c as unknown as Rec)["_background"] as Rec;
+        push(`bswi|${nid}|n=${num(list.length)}|id=${String(bg?.["id"])}`);
       }
     } else if (op === "mtstate") {
       const mt = (lfw as Rec)["_mt"] as Rec;

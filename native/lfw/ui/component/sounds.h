@@ -33,9 +33,12 @@ class Sounds : public UIComponent {
   double time = 0.0;
   Loop loop;
 
-  Sounds& start();
-  Sounds& stop();
-  void replay();
+  // TS 返回 `this`（链式）；端口的 `UIComponent::start/stop` 是 `void` ⇒ 只能改签名（记偏差）。
+  void start() override;
+  void stop() override;
+  void replay() override;
+
+  bool is_playable() const override { return true; }
 
   void on_start() override;
   void on_resume() override;

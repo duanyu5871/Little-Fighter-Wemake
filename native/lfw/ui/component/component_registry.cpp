@@ -3,6 +3,8 @@
 #include <memory>
 #include <string>
 
+#include "lfw/ui/component/background_switcher.h"
+#include "lfw/ui/component/components_player.h"
 #include "lfw/ui/component/difficulty_text.h"
 #include "lfw/ui/component/alignment.h"
 #include "lfw/ui/component/extra_zip_text.h"
@@ -46,6 +48,7 @@
 #include "lfw/ui/component/fighter_head.h"
 #include "lfw/ui/component/fighter_thumb.h"
 #include "lfw/ui/component/stage_title_text.h"
+#include "lfw/ui/component/stage_switcher.h"
 #include "lfw/ui/component/vertical_layout.h"
 #include "lfw/ui/component/wrap_content.h"
 
@@ -116,6 +119,9 @@ void regist_components() {
   regist_one<WeaponRain>(u"WeaponRain");
   regist_one<FighterHead>(u"FighterHead");
   regist_one<FighterThumb>(u"FighterThumb");
+  regist_one<ComponentsPlayer>(u"ComponentsPlayer");
+  regist_one<StageSwitcher>(u"StageSwitcher");
+  regist_one<BackgroundSwitcher>(u"BackgroundSwitcher");
 }
 
 }

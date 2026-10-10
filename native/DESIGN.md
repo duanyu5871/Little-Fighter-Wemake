@@ -9544,3 +9544,60 @@ disable_color, text}`（前三者是 UINode 引用）；`checked: boolean | null
 
 **测试**：用例 `cases/lfw/ui_faces.txt` **183 行**；变异 `lfw_ui_faces.mjs` **32/32 全杀**；
 全量差分 **236/236**。
+
+## 120. 切片 4BG：ComponentsPlayer / StageSwitcher / BackgroundSwitcher
+
+**`UIComponent` 的 IPlayable 面**：`is_playable() const → false` / `start()` / `stop()` / `replay()`
+四个虚函数（TS 的 `IPlayable`）；`Sounds`、`OpacityFlash` 覆写成真实现 + `is_playable() → true`
+（`Sounds` 的 `start`/`stop` 从"返回 `Sounds&`"改成 `void`，只影响链式调用，台面上无差）。
+`ComponentsPlayer` 也 `is_playable() → true`。
+
+**`components_player`**：props meta `{components, local, recursive}`，其中 `components` 的 schema
+键是 `"children"`、`recursive` 的 schema 键也写成 `"local"`（`bool_prop(u"local")` 复用）——
+这是 TS 侧的原样怪癖；`props_meta()` 只在编辑器/文档里用，**运行时不读 meta**（读 `raw`），
+所以这两处 meta 键错了也观测不到（没挂锚点）。
+`on_start`：`ids = strs(raw.components)` → `local = truthy(raw.local)` / `recursive = truthy(raw.recursive)`
+→ `search_node = local ? node : node.root()` → 空列表直接返 → `components.assign(ids.size(), nullptr)`
+→ 从 `search_node` 深度优先（`traversal_components`）：`!recursive && depth != 0` 剪枝、
+`!is_playable()` 剪枝、命中 `c.id == ids[i]` 且**槽位还没填**且**不是自己**才写槽位（同 id 先到先得）。
+`start`/`stop`/`replay`：逐个 `c->start()/stop()/replay()`（跳空槽）后 `set_enabled(true/false/true)`。
+
+⚠ **`root()` 是构造时缓存**：`nmk <id> -` + `nadd` 建出来的节点 `root()` 还是它自己 ⇒ 想测
+`local: false` 的"从树根搜"必须 `nmk <id> <树根>`（用例里 cp3 就是这么建的；cp1 用局部搜、cp3 用
+根搜，`ids=` 里的 `of1@cn3` vs `of1@dc1`（诱饵）把两条路径钉开）。
+
+**`stage_switcher`**：`_stage` 初值 = `Defines.VOID_STAGE`（**同一对象**，`on_show` 的
+`same_ref` 靠它）；`show_all()` = `is_cheat(GIM_INK)`。`stages()`：两个作弊都开 → 直接全量；
+否则逐项滤 `hidden`（需 `LF2_NET`）、`Dev`（需 `GIM_INK`）、`!is_starting`（需 `GIM_INK`），
+滤空 → 回全量。`stage_text()` = `show_all ? name : (starting_name || name || "")`。
+`on_resume` 订 `on_broadcast`（已有 `_remover` 直接 return），`on_pause` 退订；
+`on_show` 在 `_stage` 是 `VOID_STAGE` 时广播 `switch_stage`。
+`on_broadcast`：`switch_stage → +1`、`switch_stage_r → -1`、其余忽略；空列表 → `_stage = VOID_STAGE`
++ `change_bg(VOID_BG)`，否则 `next = fmod(curr + len + dir, len)` → `_stage = list[next]` →
+按 `_stage.bg` 去 `datas().backgrounds()` 找背景数据（找不到用 `VOID_BG`）→ `change_bg` →
+`set_text(stage_text())`。
+
+**`background_switcher`**：`_background` 初值 = `Default.RANDOM_BG`。`backgrounds()` =
+`[RANDOM_BG]` + 逐背景：`base.group` 含 `regular` 恒收（按**对象同一性**去重，对 TS 的 `Set`）、
+含 `hidden` 且 `LF2_NET` 才收、其余且 `GIM_INK` 才收；最后滤掉 `id == VOID_BG.id`。
+`on_resume` 先 `set_text(base.name || id)` 再订阅；`on_show` 在 `_background` 是 `VOID_BG` 时广播
+`switch_background`；`on_broadcast`：`switch_background → +1`、`_r → -1`、`reset_background → 0`
+（0 不走 fmod，直接取 `list[0]`）；空列表 → `VOID_BG`。
+
+⚠ **台面**：作弊状态就是 `world.dataset`（`is_cheat` = `truthy(dataset[key])`），用 `dataset GIM_INK b 1`
+开关；`setcheat` op 只排队 cmd，在台面上是死的。索引文件（`backgrounds`/`stages` 描述符）由
+DatMgr **从 zip 里读**，`imp` 只喂索引里引用的具体文件；stage 文件是**列表**（一项也算一层）。
+⚠ `change_bg` 在本台面**无痕**（无输出、无日志）⇒ stage→背景查询、`VOID_BG` 回落、两个空列表
+分支都测不到，本切片没有对应锚点（等台面给 `change_bg` 加输出再补）。
+
+**测试**：用例 `cases/lfw/switchers.txt` **162 行**；变异 `lfw_switchers.mjs` **51/51 全杀**；
+全量差分 **237/237**。
+
+⚠ 观测前提（写锚点时踩到的）：①`if (ids.empty()) return;` 是**等效代码**——节点构造时 `components`
+就是空的、props 建完不可变，去掉早退结果一样（没挂锚点）；②`local` / “从树根搜”只能在**有真父节点**
+的节点上区分（`nmk <id> -` + `nadd` 建出来的节点 `root()` 还是自己）⇒ cp1 用 `nmk cp1 rt` 建，
+变异才会翻成 `of1@dc1`；③循环换关的 ±1 在列表长度 ≤2 时 **fmod 回卷会撞成同一个结果**
+（`fmod(curr+len+dir,len)`）⇒ 反向广播 / 未知广播的锚点必须挂在“两个作弊都开”（stage 列表 4 项、
+bg 列表 3 项）的状态上；④`on_resume` 的重复订阅守卫要靠**连续两次 `resume`（中间不 pause）**
+才测得到：双订阅后每次广播会走两格，在长列表上就露馅；⑤stage 夹具的 `srd` 必须带 `is_starting`，
+否则 Dev 筛与“未开场”筛叠在一起，删掉 Dev 筛也看不出区别。

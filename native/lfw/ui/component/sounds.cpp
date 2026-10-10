@@ -55,20 +55,18 @@ const std::vector<std::u16string>& Sounds::TAGS() {
   return tags;
 }
 
-Sounds& Sounds::start() {
+void Sounds::start() {
   idx = 0.0;
   time = 0.0;
   loop.reset();
   set_enabled(true);
-  return *this;
 }
 
-Sounds& Sounds::stop() {
+void Sounds::stop() {
   idx = static_cast<double>(seq.size());
   time = 0.0;
   loop.reset();
   set_enabled(false);
-  return *this;
 }
 
 void Sounds::replay() {
