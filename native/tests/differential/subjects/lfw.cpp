@@ -718,7 +718,12 @@ class FakeHost : public lfw::ILfwHost {
   }
 
   double now() override { return 12345.0; }
-  void sounds_init(lfw::LFW&) override { push("snd_init"); }
+  void sounds_init(lfw::LFW& lfw) override {
+    push("snd_init");
+    lfw_ = &lfw;
+    _bgm_rand = std::make_unique<lfw::Randoming>(u"bgm_randoming", std::vector<lfw::Value>{},
+                                                 &lfw.mt_ref());
+  }
   void images_init(lfw::LFW&) override { push("img_init"); }
   void keyboard_init(lfw::LFW&) override { push("kbd_init"); }
   void pointings_init(lfw::LFW&) override { push("pt_init"); }
@@ -729,7 +734,11 @@ class FakeHost : public lfw::ILfwHost {
   void pointings_add_ui_input(lfw::LFW&) override { push("pt_cbadd"); }
   void keyboard_callback_add(lfw::LFW&, lfw::LfwKeyboardCallback* cb) override {
     push("kbd_cbadd");
-    _kbd_cbs.push_back(cb);
+    bool has = false;
+    for (lfw::LfwKeyboardCallback* const v : _kbd_cbs) {
+      if (v == cb) has = true;
+    }
+    if (!has) _kbd_cbs.push_back(cb);
   }
   void keyboard_callback_del(lfw::LFW&, lfw::LfwKeyboardCallback* cb) override {
     push("kbd_cbdel");
@@ -740,7 +749,11 @@ class FakeHost : public lfw::ILfwHost {
   }
   void pointings_callback_add(lfw::LFW&, lfw::LfwPointingsCallback* cb) override {
     push("pt_cbadd");
-    _pt_cbs.push_back(cb);
+    bool has = false;
+    for (lfw::LfwPointingsCallback* const v : _pt_cbs) {
+      if (v == cb) has = true;
+    }
+    if (!has) _pt_cbs.push_back(cb);
   }
   void pointings_callback_del(lfw::LFW&, lfw::LfwPointingsCallback* cb) override {
     push("pt_cbdel");
@@ -749,7 +762,14 @@ class FakeHost : public lfw::ILfwHost {
       else ++i;
     }
   }
-  // 键盘/指针服务收到事件后分发给注册表（列表第一项是 LFW 自己）。
+  // 键盘/指针/音效服务收到事件后分发给注册表（列表第一项是 LFW 自己）。
+  void fire_snd_bgm_changed(const std::u16string& bgm, const std::u16string& prev) {
+    const std::vector<lfw::LfwSoundsCallback*> snapshot = _snd_cbs;
+    for (lfw::LfwSoundsCallback* const cb : snapshot) cb->on_bgm_changed(bgm, prev);
+  }
+  std::string snd_probe() const {
+    return to_ascii(snd_bgm_name) + "|" + (snd_is_random ? "1" : "0");
+  }
   void dispatch_key(lfw::LfwKeyEvent& e, bool down) {
     const std::vector<lfw::LfwKeyboardCallback*> snapshot = _kbd_cbs;
     for (lfw::LfwKeyboardCallback* const cb : snapshot) {
@@ -805,11 +825,55 @@ class FakeHost : public lfw::ILfwHost {
   void log(const std::vector<lfw::Value>& args) override { push(join("Log", args)); }
   void debug_msg(const std::vector<lfw::Value>& args) override { push(join("debug", args)); }
 
-  std::function<void()> sounds_play_bgm(const lfw::Value&) override {
+  std::function<void()> sounds_play_bgm(const lfw::Value& name) override {
     push("snd_bgm");
+    const std::u16string name_s = lfw::to_string(name);
+    if (!_snd_prev_url.empty() && _snd_prev_url == name_s) return [] {};
+    const std::u16string prev = snd_bgm_name;
+    std::u16string real;
+    if (name_s == u"?") {
+      std::vector<lfw::Value> src;
+      for (const std::u16string& b : lfw_->bgms) src.push_back(lfw::Value(b));
+      const lfw::Value got = _bgm_rand->set_src(std::move(src)).get();
+      const std::u16string* const s = std::get_if<std::u16string>(&got);
+      if (s != nullptr) real = *s;
+    } else {
+      real = name_s;
+    }
+    snd_bgm_name.clear();
+    _snd_prev_url.clear();
+    if (real.empty()) return [] {};
+    snd_bgm_name = real;
+    _snd_prev_url = real;
+    snd_is_random = (name_s == u"?");
+    fire_snd_bgm_changed(real, prev);
     return [] {};
   }
-  void sounds_stop_bgm() override { push("snd_stop"); }
+  void sounds_stop_bgm() override {
+    if (snd_bgm_name.empty()) return;
+    const std::u16string prev = snd_bgm_name;
+    snd_bgm_name.clear();
+    _snd_prev_url.clear();
+    push("snd_stop");
+    fire_snd_bgm_changed(std::u16string(), prev);
+  }
+  std::u16string sounds_bgm() override { return snd_bgm_name; }
+  bool sounds_is_random() override { return snd_is_random; }
+  void sounds_callback_add(lfw::LFW&, lfw::LfwSoundsCallback* cb) override {
+    push("snd_cbadd");
+    bool has = false;
+    for (lfw::LfwSoundsCallback* const v : _snd_cbs) {
+      if (v == cb) has = true;
+    }
+    if (!has) _snd_cbs.push_back(cb);
+  }
+  void sounds_callback_del(lfw::LFW&, lfw::LfwSoundsCallback* cb) override {
+    push("snd_cbdel");
+    for (std::size_t k = 0; k < _snd_cbs.size();) {
+      if (_snd_cbs[k] == cb) _snd_cbs.erase(_snd_cbs.begin() + static_cast<std::ptrdiff_t>(k));
+      else ++k;
+    }
+  }
   void sounds_play(const lfw::Value&, const lfw::Value&, const lfw::Value&,
                    const lfw::Value&) override {
     push("snd_play");
@@ -820,7 +884,10 @@ class FakeHost : public lfw::ILfwHost {
     push("snd_preset|" + to_ascii(render_value(name)) + "|" + to_ascii(render_value(x)) + "|" +
          to_ascii(render_value(y)) + "|" + to_ascii(render_value(z)));
   }
-  void sounds_dispose() override { push("snd_dispose"); }
+  void sounds_dispose() override {
+    _snd_cbs.clear();
+    push("snd_dispose");
+  }
   void keyboard_dispose() override {
     _kbd_cbs.clear();
     push("kbd_dispose");
@@ -989,6 +1056,13 @@ class FakeHost : public lfw::ILfwHost {
   lfw::LFW** _slot = nullptr;
   std::vector<lfw::LfwKeyboardCallback*> _kbd_cbs;
   std::vector<lfw::LfwPointingsCallback*> _pt_cbs;
+  // 4BL：假声音的状态（`bgm()` / `is_random` / `callbacks` / Modern 的 play/stop 语义）。
+  std::u16string snd_bgm_name;
+  bool snd_is_random = false;
+  std::u16string _snd_prev_url;
+  std::vector<lfw::LfwSoundsCallback*> _snd_cbs;
+  std::unique_ptr<lfw::Randoming> _bgm_rand;
+  lfw::LFW* lfw_ = nullptr;
   class Renderer : public lfw::IWorldRenderer {
    public:
     void add_entity(lfw::Entity&) override {}
@@ -1001,12 +1075,26 @@ class FakeHost : public lfw::ILfwHost {
 std::vector<std::u16string> g_words;
 
 // 4AV/4AW/4AX 的组件/工具驱动 op（单开一函数，避免主 else-if 链块嵌套超限）。
-bool run_comp_ops(lfw::LFW& lfw, const std::vector<std::string>& t, size_t& i,
+bool run_comp_ops(lfw::LFW& lfw, FakeHost& host, const std::vector<std::string>& t, size_t& i,
                   const std::string& op) {
   if (op == "wpause") {
       const double v = to_double(t[i++]);
       lfw.world().set_paused_value(v);
       push("wpause|" + num(v) + "|" + (lfw.world().paused() ? "1" : "0"));
+    } else if (op == "setbgms") {
+      const lfw::Value list = parse_value(t, i);
+      lfw.bgms.clear();
+      const lfw::Array* const arr = lfw::as_array(list);
+      const size_t n = arr != nullptr ? arr->size() : 0;
+      for (size_t j = 0; j < n; ++j) lfw.bgms.push_back(lfw::to_string(arr->at(j)));
+      std::string names;
+      for (size_t j = 0; j < lfw.bgms.size(); ++j) {
+        if (j != 0) names += ",";
+        names += to_ascii(lfw.bgms[j]);
+      }
+      push("setbgms|" + names);
+    } else if (op == "sndbgm") {
+      push("sndbgm|" + host.snd_probe());
     } else if (op == "gfa" || op == "gfu" || op == "gfuse" || op == "gfr") {
       const std::string nid = t[i++];
       const std::string cid = t[i++];
@@ -2626,7 +2714,7 @@ int main(int argc, char** argv) {
         push("cfind|" + nid + "|" + cid + "|" + to_ascii(which) + "|" +
              (r != nullptr ? node_ref(r) : std::string("u")));
       }
-    } else if (run_comp_ops(lfw, t, i, op)) {
+    } else if (run_comp_ops(lfw, host, t, i, op)) {
     } else if (op == "ird") {
       const std::string nid = t[i++];
       lfw::ui::UINode& n = *g_nodes.at(nid);

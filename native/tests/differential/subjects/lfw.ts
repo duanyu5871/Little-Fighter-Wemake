@@ -40,6 +40,7 @@ import { BackgroundSwitcher } from "../../../../src/LFW/ui/component/BackgroundS
 import { Flex } from "../../../../src/LFW/ui/component/Flex";
 import { Jalousie } from "../../../../src/LFW/ui/component/Jalousie";
 import { Dialogs } from "../../../../src/LFW/ui/component/Dialogs";
+import { BGMSwitcher } from "../../../../src/LFW/ui/component/BGMSwitcher";
 import { FSM } from "../../../../src/LFW/base/FSM";
 import { ModeState } from "../../../../src/LFW/ui/component/ModeState";
 import {
@@ -376,18 +377,62 @@ function safe_render(v: unknown): unknown {
 
 function install_ditto(): void {
   class FakeSounds {
-    constructor(_lfw: unknown) {
+    static current?: FakeSounds;
+    bgm_name: string | null = null;
+    is_random = false;
+    readonly callbacks_list: Rec[] = [];
+    callbacks = {
+      add: (cb: unknown) => {
+        if (!this.callbacks_list.includes(cb as Rec)) this.callbacks_list.push(cb as Rec);
+        push("snd_cbadd");
+      },
+      del: (cb: unknown) => {
+        const k = this.callbacks_list.indexOf(cb as Rec);
+        if (k >= 0) this.callbacks_list.splice(k, 1);
+        push("snd_cbdel");
+      },
+    };
+    private _prev_url: string | null = null;
+    private rand?: Randoming<string>;
+    private readonly _lfw: Rec;
+    constructor(lfw_: unknown) {
+      FakeSounds.current = this;
+      this._lfw = lfw_ as Rec;
+      this.rand = new Randoming<string>("bgm_randoming", this._lfw["bgms"] as string[], this._lfw["mt"]);
+      snd_probe = () => `${this.bgm_name ?? ""}|${this.is_random ? 1 : 0}`;
       push("snd_init");
     }
+    private fire(bgm: string | null, prev: string | null): void {
+      for (const cb of [...this.callbacks_list]) cb.on_bgm_changed?.(bgm, prev, this);
+    }
+    bgm(): string | null {
+      return this.bgm_name;
+    }
     dispose(): void {
+      this.callbacks_list.length = 0;
       push("snd_dispose");
     }
-    play_bgm(): () => void {
+    play_bgm(name: string): () => void {
       push("snd_bgm");
+      if (this._prev_url === name) return () => undefined;
+      const prev = this.bgm_name;
+      const real = name === "?" ? (this.rand!.set_src(this._lfw["bgms"] as string[]).get() as string | undefined) : name;
+      this.bgm_name = null;
+      this._prev_url = null;
+      if (!real) return () => undefined;
+      this.bgm_name = real;
+      this._prev_url = real;
+      this.is_random = name === "?";
+      this.fire(real, prev);
       return () => undefined;
     }
     stop_bgm(): void {
+      if (this.bgm_name === null) return;
+      const prev = this.bgm_name;
+      this.bgm_name = null;
+      this._prev_url = null;
       push("snd_stop");
+      this.fire(null, prev);
     }
     play(): void {
       push("snd_play");
@@ -427,7 +472,7 @@ function install_ditto(): void {
     readonly callbacks: Rec[] = [];
     callback = {
       add: (cb: unknown) => {
-        this.callbacks.push(cb as Rec);
+        if (!this.callbacks.includes(cb as Rec)) this.callbacks.push(cb as Rec);
         push("kbd_cbadd");
       },
       del: (cb: unknown) => {
@@ -454,7 +499,7 @@ function install_ditto(): void {
     readonly callbacks: Rec[] = [];
     callback = {
       add: (cb: unknown) => {
-        this.callbacks.push(cb as Rec);
+        if (!this.callbacks.includes(cb as Rec)) this.callbacks.push(cb as Rec);
         push("pt_cbadd");
       },
       del: (cb: unknown) => {
@@ -702,6 +747,8 @@ let lfw: LFW;
 // `FakeKeyboard` / `FakePointings` 在 `install_ditto` 里声明， 用模块级钩子接出分发入口。
 let kbd_dispatch: (dir: "down" | "up", e: Rec) => void = () => undefined;
 let pt_dispatch_click: (e: Rec) => void = () => undefined;
+// 假声音的状态探针（`sndbgm` op）：`<bgm>|<is_random>`。
+let snd_probe: () => string = () => "|0";
 
 function listen(): void {
   for (const name of CB_KEYS) {
@@ -1972,6 +2019,14 @@ async function run_ops(): Promise<void> {
       );
     } else if (op === "bgms") {
       push(`bgms|${((lfw as unknown as Rec)["bgms"] as string[]).join(",")}`);
+    } else if (op === "setbgms") {
+      const list = parseValue(t, i) as string[];
+      const cur = (lfw as unknown as Rec)["bgms"] as string[];
+      cur.length = 0;
+      for (const b of list) cur.push(b);
+      push(`setbgms|${cur.join(",")}`);
+    } else if (op === "sndbgm") {
+      push(`sndbgm|${snd_probe()}`);
     } else if (op === "loadobj") {
       const zid = nextKey();
       const z = lzips.get(zid);

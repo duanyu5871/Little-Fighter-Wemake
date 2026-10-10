@@ -384,6 +384,14 @@ void LFW::pointings_callback_del(LfwPointingsCallback* cb) {
   host_->pointings_callback_del(*this, cb);
 }
 
+std::u16string LFW::sounds_bgm() { return host_->sounds_bgm(); }
+
+bool LFW::sounds_is_random() { return host_->sounds_is_random(); }
+
+void LFW::sounds_callback_add(LfwSoundsCallback* cb) { host_->sounds_callback_add(*this, cb); }
+
+void LFW::sounds_callback_del(LfwSoundsCallback* cb) { host_->sounds_callback_del(*this, cb); }
+
 void LFW::on_key_down(LfwKeyEvent& e) {
   {
     std::vector<Value> args;

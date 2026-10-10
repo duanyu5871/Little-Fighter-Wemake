@@ -5066,3 +5066,14 @@ harness op：
   暂停期间 `state_time` 照样涨、`BeforeEnd` 的私有计时器不涨（用例把边界挂在这一点上）。
 - ⚠ 台面世界的 `game_result()` 恒为 `'drawn'`（无存活统计）——`'win'` 不可达，`"pass"` 音效
   分支没有锚点。
+
+### 6.9.169 BGMSwitcher（`cases/lfw/bgm.txt` 80 行；变异 23/23 全杀）
+
+- 新台面 op：`setbgms a N s …`（重写 `lfw.bgms`）、`sndbgm`（假声音状态探针 `<bgm>|<is_random>`）。
+- ⚠ 台面 fake 的声音**有状态了**（照 `DittoImpl/sounds/Modern` 同步实现）：`play_bgm` 有
+  「同曲不重放」守卫（命中时状态/回调都不动，但 `snd_bgm` 行照打）；`'?'` 用
+  `Randoming('bgm_randoming', lfw.bgms, lfw.mt)` 抽（与 Modern 共用 `lfw.mt`；台面固定种子
+  12345 ⇒ 结果可复现）；`bgms` 为空时 `'?'` 只静默停掉（无回调）。`stop_bgm` 以「名字非空 =
+  在播」为守卫（真实 Modern 用 `_bgm_ele`）。
+- ⚠ `on_click` 里 `stop_immediate_propagation()` 与 `stop_propagation()` **都调、后者最后** ⇒
+  `nclick` 打出的 `stop=1`（不是 2）；只删前者是等效代码。

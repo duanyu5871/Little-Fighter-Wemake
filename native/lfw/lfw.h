@@ -102,6 +102,16 @@ struct LfwPointingsCallback {
   virtual void on_click(LfwPointingEvent& e) { (void)e; }
 };
 
+// TS `ISoundsCallback`（`ditto/sounds/ISoundsCallback.ts`）在 LFW 里用到的那一面。
+// `on_bgm_changed(bgm, prev, mgr)` 的第三个参数是平台对象，端口省掉；`null` 用空串。
+struct LfwSoundsCallback {
+  virtual ~LfwSoundsCallback() = default;
+  virtual void on_bgm_changed(const std::u16string& bgm, const std::u16string& prev) {
+    (void)bgm;
+    (void)prev;
+  }
+};
+
 // `UI.UILayers` 的缝（UI 层未移植）。`push()` 时宿主自己把 `on_set/on_push/on_pop` 接到
 // `LFW::ui_changed(curr, prev)`（TS 里这段接线注册在 `LFW.ctor` 里那个 layer callback 上）。
 class IUiLayers {
@@ -179,6 +189,12 @@ class ILfwHost {
   virtual void sounds_play_preset(const Value& name, const Value& x, const Value& y,
                                   const Value& z) = 0;
   virtual void sounds_play_with_load(const Value& path) = 0;
+  // `lfw.sounds.bgm()`（`null` ⇒ 空串）/ `lfw.sounds.is_random`
+  virtual std::u16string sounds_bgm() = 0;
+  virtual bool sounds_is_random() = 0;
+  // `lfw.sounds.callbacks.add(cb)` / `.del(cb)`
+  virtual void sounds_callback_add(LFW& lfw, LfwSoundsCallback* cb) = 0;
+  virtual void sounds_callback_del(LFW& lfw, LfwSoundsCallback* cb) = 0;
   // `lfw.sounds.dispose` / `lfw.keyboard.dispose` / `lfw.pointings.dispose`
   virtual void sounds_dispose() = 0;
   virtual void keyboard_dispose() = 0;
@@ -363,6 +379,11 @@ class LFW : public IWorldLfw,
   void keyboard_callback_del(LfwKeyboardCallback* cb);
   void pointings_callback_add(LfwPointingsCallback* cb);
   void pointings_callback_del(LfwPointingsCallback* cb);
+  // `this.sounds.callbacks.add(cb)` / `.del(cb)`；`this.sounds.bgm()` / `this.sounds.is_random`
+  std::u16string sounds_bgm();
+  bool sounds_is_random();
+  void sounds_callback_add(LfwSoundsCallback* cb);
+  void sounds_callback_del(LfwSoundsCallback* cb);
 
   void dispose();
   void change_bg(const std::u16string& bg);

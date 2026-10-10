@@ -4,6 +4,7 @@
 #include <string>
 
 #include "lfw/ui/component/background_switcher.h"
+#include "lfw/ui/component/bgm_switcher.h"
 #include "lfw/ui/component/components_player.h"
 #include "lfw/ui/component/difficulty_text.h"
 #include "lfw/ui/component/alignment.h"
@@ -127,6 +128,7 @@ void regist_components() {
   regist_one<ComponentsPlayer>(u"ComponentsPlayer");
   regist_one<StageSwitcher>(u"StageSwitcher");
   regist_one<BackgroundSwitcher>(u"BackgroundSwitcher");
+  regist_one<BGMSwitcher>(u"BGMSwitcher");
   regist_one<Flex>(u"Flex");
   regist_one<Jalousie>(u"Jalousie");
   regist_one<Dialogs>(u"Dialogs");

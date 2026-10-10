@@ -9730,3 +9730,31 @@ TS：add **去重**（Set）、del 删除、按插入序**对快照**分发（�
 
 **测试**：用例 `cases/lfw/fsm.txt` **79 行**（trace 行数；case 文件 74 行）；变异 `lfw_fsm.mjs`
 **21/21 全杀**；全量差分 **241/241**。
+
+## 125. 切片 4BL：BGMSwitcher
+
+**`bgm_switcher`**：`args[0]` 是循环偏移。`which()` = `_which || lfw.sounds.bgm() || "Silent"`；
+`offset()` = `num(0) ?? 0`。
+- `on_resume`：`sounds.is_random` 真 ⇒ `_which = "Random"`；`offset == 0` 才注册 `_sounds_cbs`
+  （`on_bgm_changed` ⇒ `node.set_text("BGM: " + which())`）并**立即自调一次**；`on_pause` 无条件
+  退订（台面注册表 add 去重、del 删除，同 4BJ 的键盘/指针表）。
+- `on_click`：先 `stop_immediate_propagation()` + `stop_propagation()`（两个都调、**后者最后**，
+  所以台面 `nclick` 打出 `stop=1`）；按 offset / 按键取 `next`（有 offset 时只看 offset，否则
+  左键 +1 / 中键 Silent↔Random / 右键 -1，其余按钮直接 return）；`Random` ⇒ `_which="Random"` +
+  `play_bgm('?')`；`Silent` ⇒ `_which="Silent"` + `stop_bgm()`；命名 ⇒ `_which=""` +
+  `play_bgm(next)`。
+
+⚠ **新缝：sounds 面**——`ILfwHost` 加 `sounds_bgm()`（空串 = TS 的 `null`）、
+`sounds_is_random()`、`sounds_callback_add/del`（+ LFW 四个转发），接口
+`LfwSoundsCallback::on_bgm_changed(bgm, prev)`（TS 的第三个参数 `mgr` 装不下，省掉）。
+
+⚠ **台面 fake 的声音现在是有状态的**（照 `DittoImpl/sounds/Modern` 的语义同步实现，否则
+BGMSwitcher 看不到任何变化）：`play_bgm` 带「同曲不重放」守卫（`_prev_url === name` ⇒ 状态与
+回调都不动；守卫命中时 `snd_bgm` 行**照打**——真实 Modern 里无痕，这是台面假件的约定）；`'?'`
+用 `Randoming('bgm_randoming', lfw.bgms, lfw.mt)` 抽（与 Modern 同用 `lfw.mt`，台面固定种子
+12345 ⇒ 抽查结果可复现）；`bgms` 为空时 `'?'` 只静默停掉（无回调）；`stop_bgm` 以「名字非空 =
+在播」为守卫（真实 Modern 用 `_bgm_ele`，台面无元素 ⇒ 同步模型）。台面新 op：`setbgms`
+（重写 `lfw.bgms`）、`sndbgm`（假声音状态探针 `<bgm>|<is_random>`）。
+
+**测试**：用例 `cases/lfw/bgm.txt` **80 行**（trace 行数；case 文件 69 行）；变异 `lfw_bgm.mjs`
+**23/23 全杀**；全量差分 **242/242**。

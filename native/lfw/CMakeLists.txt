@@ -253,6 +253,7 @@ add_library(lfw_core STATIC
   ui/component/components_player.cpp
   ui/component/stage_switcher.cpp
   ui/component/background_switcher.cpp
+  ui/component/bgm_switcher.cpp
   ui/component/flex.cpp
   ui/component/jalousie.cpp
   ui/component/dialogs.cpp
