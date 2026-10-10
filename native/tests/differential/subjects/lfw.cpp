@@ -26,6 +26,9 @@
 #include "lfw/ui/component/flex_item.h"
 #include "lfw/ui/component/img_loop.h"
 #include "lfw/ui/component/players.h"
+#include "lfw/ui/component/label_button.h"
+#include "lfw/ui/component/player_ctrl_type.h"
+#include "lfw/ui/component/stage_transitions.h"
 #include "lfw/ui/component/sounds.h"
 #include "lfw/ui/component/opacity_animation.h"
 #include "lfw/ui/component/opacity_flash.h"
@@ -1193,6 +1196,41 @@ bool run_comp_ops(lfw::LFW& lfw, const std::vector<std::string>& t, size_t& i,
            "|idx=" + num(p->idx) + "|tm=" + num(p->time) + "|lc=" + num(p->loop.count()) +
            "|lt=" + num(p->loop.times()));
     }
+  } else if (op == "tsn") {
+    push("tsn|n=" +
+         std::to_string(lfw.callbacks.listener_count(u"on_enter_next_stage")));
+  } else if (op == "lbk") {
+    const std::string nid = t[i++];
+    const std::string what = i < t.size() ? t[i++] : std::string("get");
+    lfw::ui::UINode& n = *g_nodes.at(nid);
+    lfw::ui::LabelButton* p = nullptr;
+    for (lfw::ui::UIComponent* const c : n.components()) {
+      if (!lfw::is_class(c->clazz(), lfw::ui::LabelButton::class_tag())) continue;
+      p = static_cast<lfw::ui::LabelButton*>(c);
+      break;
+    }
+    if (p == nullptr) {
+      push("lbk|" + nid + "|none");
+    } else {
+      if (what == "set") {
+        p->set_text(key_of(t[i++]));
+      } else if (what == "checked") {
+        const std::string v = t[i++];
+        p->set_checked(v == "null" ? lfw::Value(lfw::NullTag{}) : lfw::Value(v == "1"));
+      }
+      push("lbk|" + nid + "|checked=" + to_ascii(render_value(p->checked())) +
+           "|resp=" + node_ref(&p->responser()) + "|nc=" + trace::esc(p->normal_color()) +
+           "|hc=" + trace::esc(p->hover_color()) + "|text=" + trace::esc(p->text()));
+    }
+  } else if (op == "pct" || op == "pset") {
+    const std::u16string pid = key_of(t[i++]);
+    lfw::PlayerInfo* const p = lfw.player(pid);
+    if (op == "pset") {
+      const double v = to_double(t[i++]);
+      const bool emit = t[i++] == "1";
+      p->set_ctrl(lfw::Value(v), emit);
+    }
+    push("pct|" + to_ascii(pid) + "|ctrl=" + to_ascii(render_value(p->ctrl())));
   } else {
     return false;
   }

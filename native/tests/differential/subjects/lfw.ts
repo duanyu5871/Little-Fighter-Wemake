@@ -29,6 +29,8 @@ import { IntegerPicker } from "../../../../src/LFW/ui/component/IntegerPicker";
 import { Alignment } from "../../../../src/LFW/ui/component/Alignment";
 import { Players } from "../../../../src/LFW/ui/component/Players";
 import { Sounds } from "../../../../src/LFW/ui/component/Sounds";
+import { LabelButton } from "../../../../src/LFW/ui/component/LabelButton";
+import { PlayerCtrlType } from "../../../../src/LFW/ui/component/PlayerCtrlType";
 import { UINode } from "../../../../src/LFW/ui/UINode";
 import { ui_load_img } from "../../../../src/LFW/ui/ui_load_img";
 
@@ -1483,6 +1485,36 @@ async function run_ops(): Promise<void> {
           `scall|${nid}|${what}|en=${c.enabled ? 1 : 0}|idx=${num(rec.idx)}|tm=${num(rec.time)}|lc=${num(c.loop.count)}|lt=${num(c.loop.times)}`,
         );
       }
+    } else if (op === "tsn") {
+      const map = (lfw.callbacks as unknown as Rec)._map as Map<string, Rec> | undefined;
+      const pack = map?.get("on_enter_next_stage");
+      const n = pack ? (pack._set as Set<unknown>).size : 0;
+      push(`tsn|n=${n}`);
+    } else if (op === "lbk") {
+      const nid = next();
+      const what = next();
+      const n = tnodes.get(nid)!;
+      const c = n.components.find((v) => v instanceof LabelButton) as LabelButton | undefined;
+      if (!c) push(`lbk|${nid}|none`);
+      else {
+        if (what === "set") c.text = keyOf(next());
+        else if (what === "checked") {
+          const v = next();
+          c.checked = v === "null" ? null : v === "1";
+        }
+        push(
+          `lbk|${nid}|checked=${renderValue(c.checked)}|resp=${nref(c.responser)}|nc=${esc(c.normal_color)}|hc=${esc(c.hover_color)}|text=${esc(c.text)}`,
+        );
+      }
+    } else if (op === "pct" || op === "pset") {
+      const pid = nextKey();
+      const p = lfw.player(pid);
+      if (op === "pset") {
+        const v = Number(next());
+        const emit = next() === "1";
+        p.set_ctrl(v as never, emit);
+      }
+      push(`pct|${pid}|ctrl=${renderValue(p.ctrl)}`);
     } else if (op === "nact") {
       const n = tnodes.get(next())!;
       actor.act(n, parseValue(t, i) as never);

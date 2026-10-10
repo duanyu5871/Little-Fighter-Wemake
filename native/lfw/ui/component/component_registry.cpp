@@ -18,6 +18,7 @@
 #include "lfw/ui/component/hover_behavior.h"
 #include "lfw/ui/component/img_loop.h"
 #include "lfw/ui/component/integer_picker.h"
+#include "lfw/ui/component/label_button.h"
 #include "lfw/ui/component/opacity_animation.h"
 #include "lfw/ui/component/opacity_flash.h"
 #include "lfw/ui/component/opacity_hover.h"
@@ -25,6 +26,7 @@
 #include "lfw/ui/component/picture.h"
 #include "lfw/ui/component/players.h"
 #include "lfw/ui/component/player_key_text.h"
+#include "lfw/ui/component/player_ctrl_type.h"
 #include "lfw/ui/component/player_name.h"
 #include "lfw/ui/component/player_name_input.h"
 #include "lfw/ui/component/player_team_name.h"
@@ -39,6 +41,7 @@
 #include "lfw/ui/component/sine_opacity.h"
 #include "lfw/ui/component/sounds.h"
 #include "lfw/ui/component/stage_title_show.h"
+#include "lfw/ui/component/stage_transitions.h"
 #include "lfw/ui/component/stage_title_text.h"
 #include "lfw/ui/component/vertical_layout.h"
 #include "lfw/ui/component/wrap_content.h"
@@ -104,6 +107,9 @@ void regist_components() {
   regist_one<Alignment>(u"Alignment");
   regist_one<Players>(u"Players");
   regist_one<Sounds>(u"Sounds");
+  regist_one<StageTransitions>(u"StageTransitions");
+  regist_one<LabelButton>(u"LabelButton");
+  regist_one<PlayerCtrlType>(u"PlayerCtrlType");
 }
 
 }

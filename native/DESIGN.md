@@ -9466,3 +9466,32 @@ bug；写 `MAX` 反而"更对"但是错的）。205. `props_holder.strs('trigger
 `apl <nid> <join|leave|read> [pid]`、`scall <nid> <start|stop|replay|read>`。
 
 **测试**：用例 `cases/lfw/ui_misc.txt` **103 行**；变异 `lfw_ui_misc.mjs` **41/41 全杀**；全量差分 **234/234**。
+
+## 118. 切片 4BE：StageTransitions / LabelButton / PlayerCtrlType
+
+**`stage_transitions`**：`ILFWCallback` 的空壳（只订 `on_enter_next_stage`）。TS 的
+`callbacks.add(this)` 靠 `Set` 去重 ⇒ 端口用「已有订阅就不重订」的 `Remover` 守卫表达（重复
+resume 不叠加、pause 退订、再 pause 安全）。
+
+**`label_button`**：props `{back_label, hover_label, responser, normal_color, hover_color,
+disable_color, text}`（前三者是 UINode 引用）；`checked: boolean | null`（`null` = 由指针状态推）；
+`update` 把 `anim.auto_trip(reverse, dt)` 写进 `hover_label.opacity`（150ms 缓动）；`text` 读
+`back_label.text.text`、写时两个 label 一起写。
+
+**`player_ctrl_type`**：`player_id` = `args[0]` 或祖先 `data.values.player_id`；`on_resume` 订玩家
+`on_ctrl_changed` 并立刻按当前 ctrl 刷一次；`on_click` 把 `(ctrl ± 1) % 6` 轮换（右键 = `+5`），
+换到触屏时把**其它**触屏玩家压回键盘；`on_ctrl_changed(c)` 让第 `c` 个子节点可见、其余隐藏。
+
+照拄怪癖（编号接 221 → 222）：222. `StageTransitions` 的 `on_enter_next_stage` 是**空函数**
+（真正的价值只在"订了"-这件事上，靠订阅数才可观察）。223. LabelButton 的 `checked` 是**三态**：
+`null` 与 `false` 在"当前指向"下同效，但**指针悬停时会分道**（`null` + hover ⇒ 亮；`0` ⇒ 灭）
+—— 变异要用 hover 状态才测得出来。224. `(ctrl + 5) % 6` 是"右键回退一格"（JS 的 `%` 对正数同
+`fmod`）。225. `PlayerCtrlType` 的显隐是**第 `ctrl` 个直接子节点**（子节点顺序 = 创建/`nadd` 顺序，
+别把别的节点塞进去，否则下标错位）。226. TS 的 `players.get(id)` **不建玩家** ⇒ 端口扫
+`lfw().players()`，找不到就整体不动作（TS 会抛，端口吞掉）。
+
+台面新 op：`tsn`（打 `on_enter_next_stage` 的订阅数）、`lbk <nid> [set <文本> | checked <null|0|1>]`、
+`pct <pid>`、`pset <pid> <n> <emit>`（`emit=1` 会真发 `on_ctrl_changed`，用来验"暂停后不再响应"）。
+
+**测试**：用例 `cases/lfw/ui_widgets.txt` **144 行**；变异 `lfw_ui_widgets.mjs` **36/36 全杀**；
+全量差分 **235/235**。

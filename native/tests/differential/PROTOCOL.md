@@ -4961,3 +4961,12 @@ harness op：
 - ⚠ 组件的 `on_start`（`Sounds` 解析 args、`Alignment` 解析 props）要 `nlife <nid> start` 才会跑；
   `update` 用 `nset <nid> update <dt>` 驱（同样走 `UINode::update` → 组件循环，`enabled=false` 的跳过）。
 - ⚠ `nset`/`apl` 这类 op 的多余 token 不会报错也会被静默忽略——**解析错位不会报错**，只能靠输出自查。
+
+### 6.9.162 StageTransitions / LabelButton / PlayerCtrlType（`cases/lfw/ui_widgets.txt` 144 行；变异 36/36 全杀）
+
+- 新台面 op：`tsn`（`tsn|n=<订阅数>`，数 `lfw.callbacks` 里 `on_enter_next_stage` 的监听者 —— 台面自己的 `listen()` 已订一个 ⇒ 基线 1）、`lbk <nid> [set <文本> | checked <null|0|1>]`（打 `checked=/resp=/nc=/hc=/text=`）、`pct <pid>`（打 `ctrl=`）、`pset <pid> <n> <emit>`（**必须带 emit 标记**，`1` 会真发 `on_ctrl_changed`）。
+- ⚠ 组件挂在**哪个节点**很关键：`PlayerCtrlType` 的显隐作用在**自己节点的直接子节点**上 —— 挂在没子节点的空壳上就"什么都不发生"（本次踩到：先挂在 `pctl` 上，所有子节点一直可见）。子节点顺序 = 创建 + `nadd` 顺序，下标就是 ctrl 值（别混进别的节点）。
+- ⚠ `id:` 引用**子树之外 / 根本身**都找不到：`search_node` 只沿 `_children` 递归且**不含自己**（本次踩到：把 `responser` 指向父节点 ⇒ 解析成 null、静默回退成自己）。用兄弟节点，或把引用点放进子树内。
+- ⚠ `nlife <nid> pause/resume` 会转发到组件的 `on_pause/on_resume` —— 这正是验"暂停后不再响应"的手段（`pset ... 1` 发事件 + 读子节点 flags）。
+- ⚠ 又一次踩到 `o N` 对数：`nmk t1 - o 5 …component…` 少算 1 ⇒ `component` 被静默丢掉，症状是 `tsn|n=1` 从不变化。
+- ⚠ 等效变异（不可观测，别放进 spec）：触屏互斥里的 `if (other == p) continue;` —— 被点的那位此刻必然不是 TouchScreen（否则它就是要写成的目标值），去掉也观察不到差别。
