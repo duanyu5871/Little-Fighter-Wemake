@@ -384,6 +384,10 @@ void LFW::pointings_callback_del(LfwPointingsCallback* cb) {
   host_->pointings_callback_del(*this, cb);
 }
 
+bool LFW::pointings_grab(const void* who) { return host_->pointings_grab(*this, who); }
+
+void LFW::pointings_ungrab(const void* who) { host_->pointings_ungrab(*this, who); }
+
 std::u16string LFW::sounds_bgm() { return host_->sounds_bgm(); }
 
 bool LFW::sounds_is_random() { return host_->sounds_is_random(); }

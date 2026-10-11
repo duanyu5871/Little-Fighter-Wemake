@@ -113,6 +113,8 @@ std::optional<double> UIProps::num(const std::u16string& name) const {
 
 void UIProps::set_num(const std::u16string& name, const Value& v) { set_field(_raw, name, v); }
 
+void UIProps::set_str(const std::u16string& name, const Value& v) { set_field(_raw, name, v); }
+
 std::optional<std::u16string> UIProps::str(const std::u16string& name,
                                            const std::vector<std::u16string>& one_of) const {
   if (!has(name)) return std::nullopt;

@@ -5087,3 +5087,26 @@ harness op：
   或省略 args。
 - 真层（`node.layer()->set(...)`）的观察照 `uilayer.txt` 的约定：`uipg <id> <模板>` 注册 +
   `rlnew` + `rlpush` + `nml <nid> 0 …`，`rlinfo` 看层数/页数/栈顶 id。
+
+### 6.9.171 SliderHandle / ArrowSwitcher / SwitcherHandle（`cases/lfw/slider.txt` 462 行；变异 131/131 全杀）
+
+- 新台面 op：`ptev <down|move|up|cancel|click> <btn> <x> <y> <sx> <sy>`（`down` 先抬世代再
+  分发，照 `__Pointings`）；`kstat <键> <hit|end|use|reset> [t]`（遍历 `mounted_keys`，不带 t
+  时命中时刻取 `lifetime`）；`wtick <n>`（暂停下推 `world.lifetime`）；探针 `shd`/`shv`/`shcb`、
+  `asw`/`asv`/`ascb`。
+- ⚠ **抢焦点世代语义**：`grab(who)` 只在「没有持有者」或「持有者是自己」或「世代已变」时成功；
+  `ptev down` 抬世代 ⇒ 之后的 `npd` 能从陈旧持有者手里抢走（用例 16 段把这一整条链挂在
+  “h6 第二下点击后没松手”上）。
+- ⚠ **`is_start` 与 `world.lifetime`**：`KeyStatus.is_start(time)` 要求 `_d_time == time` 且非
+  0，而台面世界不步进 ⇒ lifetime 恒 0、键盘分支全不可达。`wtick <n>` 在暂停下步进（`step` 只
+  走无害段 + `lifetime++`）。
+- ⚠ `ptev` 只收 **5 个数字**（btn/x/y/sx/sy），多写的 token 会被静默当“下一行的开头”；
+  `scene_x`→屏幕 px 的可换算带由容器 `geo`/`cross` 决定（`bar1` 上只有
+  `scene_x ∈ [-0.75,-0.27]` 不饱和），写用例前先按公式算出目标带。
+- ⚠ `SwitcherHandle` 盖格（`cover_index`）的观察：手柄缓动需要**多次 update** 才跨格，且要
+  在**跨格前后的多个 update 点**分别读 `flags`——收敛后 `min(n-1, idx)` 的钳制会掩盖“不圆整 /
+  上限写小”类差异（spec 的这两条就靠早期读点杀掉）。
+- ⚠ 拖动链第二轮（up/cancel）前必须**重新 `npd`**（重置 `_on_me`），否则 up/cancel 的处理分支
+  不可达；`cancel` 的回调 + ungrab 都挂在 `_on_me` / 持有者上。
+- ⚠ `auto_size_by_text` 按 (text, style, version) 记忆化 ⇒ 删 `sync_label` 的“文本有变化才写”
+  守卫是**等效代码**（同名写同值不产生任何可观测差异）；spec 里把它换成“写固定文本”。

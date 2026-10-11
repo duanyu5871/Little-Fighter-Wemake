@@ -55,6 +55,8 @@
 #include "lfw/ui/component/player_team_name.h"
 #include "lfw/ui/component/fighter_name.h"
 #include "lfw/ui/component/integer_picker.h"
+#include "lfw/ui/component/slider_handle.h"
+#include "lfw/ui/component/arrow_switcher.h"
 #include "lfw/ui/component/ui_component.h"
 #include "lfw/ui/component/ui_props.h"
 #include "lfw/ui/instance_ref.h"
@@ -777,9 +779,35 @@ class FakeHost : public lfw::ILfwHost {
       else cb->on_key_up(e);
     }
   }
-  void dispatch_pointing_click(lfw::LfwPointingEvent& e) {
+  void dispatch_pointing(const std::string& what, lfw::LfwPointingEvent& e) {
+    // 真实平台在 pointer down 里 `grab_begin()`（世代 +1，之后才分发）。
+    if (what == "down") ++_pt_grab_epoch;
     const std::vector<lfw::LfwPointingsCallback*> snapshot = _pt_cbs;
-    for (lfw::LfwPointingsCallback* const cb : snapshot) cb->on_click(e);
+    for (lfw::LfwPointingsCallback* const cb : snapshot) {
+      if (what == "down") cb->on_pointer_down(e);
+      else if (what == "move") cb->on_pointer_move(e);
+      else if (what == "up") cb->on_pointer_up(e);
+      else if (what == "cancel") cb->on_pointer_cancel(e);
+      else cb->on_click(e);
+    }
+  }
+  // 4BN：`DittoImpl.__Pointings` 的抢焦点语义（`grab` / `ungrab` / 世代）。
+  bool pointings_grab(lfw::LFW&, const void* who) override {
+    if (_pt_grabbing != nullptr && _pt_grabbing != who &&
+        _pt_grab_prev_epoch == _pt_grab_epoch) {
+      push("pt_grab|0");
+      return false;
+    }
+    _pt_grabbing = who;
+    _pt_grab_prev_epoch = _pt_grab_epoch;
+    push("pt_grab|1");
+    return true;
+  }
+  void pointings_ungrab(lfw::LFW&, const void* who) override {
+    if (_pt_grabbing == who) {
+      _pt_grabbing = nullptr;
+      push("pt_ungrab");
+    }
   }
   void cache_forget(const std::u16string& type, double version) override {
     push("cache:forget|" + to_ascii(type) + "|" + num(version));
@@ -1056,6 +1084,10 @@ class FakeHost : public lfw::ILfwHost {
   lfw::LFW** _slot = nullptr;
   std::vector<lfw::LfwKeyboardCallback*> _kbd_cbs;
   std::vector<lfw::LfwPointingsCallback*> _pt_cbs;
+  // 4BN：假平台的抢焦点状态（`__Pointings`：世代 + 持有者）。
+  const void* _pt_grabbing = nullptr;
+  long _pt_grab_prev_epoch = -1;
+  long _pt_grab_epoch = 0;
   // 4BL：假声音的状态（`bgm()` / `is_random` / `callbacks` / Modern 的 play/stop 语义）。
   std::u16string snd_bgm_name;
   bool snd_is_random = false;
@@ -1077,7 +1109,99 @@ std::vector<std::u16string> g_words;
 // 4AV/4AW/4AX 的组件/工具驱动 op（单开一函数，避免主 else-if 链块嵌套超限）。
 bool run_comp_ops(lfw::LFW& lfw, FakeHost& host, const std::vector<std::string>& t, size_t& i,
                   const std::string& op) {
-  if (op == "wpause") {
+  if (op == "ptev") {
+    const std::string what = t[i++];
+    const double btn = to_double(t[i++]);
+    const double x = to_double(t[i++]);
+    const double y = to_double(t[i++]);
+    const double sx = to_double(t[i++]);
+    const double sy = to_double(t[i++]);
+    lfw::LfwPointingEvent e;
+    e.button = btn;
+    e.x = x;
+    e.y = y;
+    e.scene_x = sx;
+    e.scene_y = sy;
+    host.dispatch_pointing(what, e);
+    push("ptev|" + what + "|" + num(btn) + "|" + num(x) + "|" + num(y) + "|" + num(sx) +
+         "|" + num(sy));
+  } else if (op == "wtick") {
+    // 推进 `world.lifetime`（暂停下 `step` 只做无害段；台面需要非零时间戳喂 `is_start`）。
+    const double n = to_double(t[i++]);
+    lfw.world().set_paused_value(1.0);
+    for (double k = 0; k < n; ++k) lfw.world().update_once(16.0);
+    lfw.world().set_paused_value(0.0);
+    push("wtick|" + num(n) + "|lt=" + num(lfw.world().lifetime()));
+  } else if (op == "kstat") {
+    // 逐个驱动所有已挂载的按键状态（= TS `CMD_KEY_EVENT` 对 `mounted_keys` 做的事）。
+    const std::u16string key = key_of(t[i++]);
+    const std::string what = t[i++];
+    std::optional<double> tm;
+    if (i < t.size() && t[i] != "-") tm = to_double(t[i++]);
+    else if (i < t.size()) ++i;
+    size_t cnt = 0;
+    double ret = 0.0;
+    for (lfw::Keys* const ks : lfw.mounted_keys) {
+      lfw::controller::KeyStatus* const st = ks->get(key);
+      if (st == nullptr) continue;
+      ++cnt;
+      if (what == "hit") st->hit(tm.has_value() ? lfw::Value(*tm) : lfw::Value(), ks->time());
+      else if (what == "end") st->end(ks->time());
+      else if (what == "use") ret = st->use();
+      else st->reset();
+    }
+    push("kstat|" + to_ascii(key) + "|" + what + "|cnt=" + std::to_string(cnt) +
+         (what == "use" ? "|ret=" + num(ret) : ""));
+  } else if (op == "shd" || op == "shv" || op == "shcb") {
+    const std::string nid = t[i++];
+    lfw::ui::UINode& n = *g_nodes.at(nid);
+    lfw::ui::SliderHandle* p = nullptr;
+    for (lfw::ui::UIComponent* const c : n.components()) {
+      if (!lfw::is_class(c->clazz(), lfw::ui::SliderHandle::class_tag())) continue;
+      p = static_cast<lfw::ui::SliderHandle*>(c);
+      break;
+    }
+    if (p == nullptr) {
+      push(op + "|" + nid + "|none");
+    } else if (op == "shd") {
+      push("shd|" + nid + "|" + num(p->value()) + "|" + num(p->factor()) + "|" +
+           to_ascii(p->mode()));
+    } else if (op == "shv") {
+      const double v = to_double(t[i++]);
+      p->set_value(v);
+      push("shv|" + nid + "|" + num(p->value()) + "|" + num(p->factor()));
+    } else {
+      lfw::ui::SliderHandle* const self = p;
+      p->on_value_changed([self](double v, lfw::ui::SliderHandle& s) {
+        push("shcb|" + num(v) + "|" + (&s == self ? "1" : "0"));
+      });
+      push("shcb|" + nid + "|bound");
+    }
+  } else if (op == "asw" || op == "asv" || op == "ascb") {
+    const std::string nid = t[i++];
+    lfw::ui::UINode& n = *g_nodes.at(nid);
+    lfw::ui::ArrowSwitcher* p = nullptr;
+    for (lfw::ui::UIComponent* const c : n.components()) {
+      if (!lfw::is_class(c->clazz(), lfw::ui::ArrowSwitcher::class_tag())) continue;
+      p = static_cast<lfw::ui::ArrowSwitcher*>(c);
+      break;
+    }
+    if (p == nullptr) {
+      push(op + "|" + nid + "|none");
+    } else if (op == "asw") {
+      push("asw|" + nid + "|" + num(p->value()) + "|" + num(p->count()));
+    } else if (op == "asv") {
+      const double v = to_double(t[i++]);
+      p->set_value(v);
+      push("asv|" + nid + "|" + num(p->value()));
+    } else {
+      lfw::ui::ArrowSwitcher* const self = p;
+      p->on_value_changed([self](double v, lfw::ui::ArrowSwitcher& s) {
+        push("ascb|" + num(v) + "|" + (&s == self ? "1" : "0"));
+      });
+      push("ascb|" + nid + "|bound");
+    }
+  } else if (op == "wpause") {
       const double v = to_double(t[i++]);
       lfw.world().set_paused_value(v);
       push("wpause|" + num(v) + "|" + (lfw.world().paused() ? "1" : "0"));
@@ -1991,7 +2115,7 @@ int main(int argc, char** argv) {
       const double btn = to_double(t[i++]);
       lfw::LfwPointingEvent e;
       e.button = btn;
-      host.dispatch_pointing_click(e);
+      host.dispatch_pointing("click", e);
       push("ptclick|" + num(btn));
     } else if (op == "cmds") {
       std::string joined;

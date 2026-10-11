@@ -9784,3 +9784,46 @@ BGMSwitcher 看不到任何变化）：`play_bgm` 带「同曲不重放」守卫
 
 **测试**：用例 `cases/lfw/loading.txt` **94 行**（trace 行数；case 文件 79 行）；变异
 `lfw_loading.mjs` **27/27 全杀**；全量差分 **243/243**。
+
+## 127. 切片 4BN：SliderHandle / ArrowSwitcher / SwitcherHandle
+
+**`slider_handle`**：`factor`（0..1，内部真值）↔ `value = round_float(min + (max-min)*factor, precision)`
+的双向换算；三种模式（`default` 普通拖动 / `switcher` 按 items 均分 / `items_scroll_bar` 按
+items_container 子节点占比）各管一段 resize；手柄位置每帧 25% 缓动向目标点靠（**先于焦点门**）；
+焦点门（`responser || container || node` 任一聚焦）之后才处理键盘：`default` 走 `LR/UD`
+（`is_end` 口径）× `step`，其余模式走 `R.is_start()-L.is_start()` 的 wrap、与 prev 比较后才发
+`on_value_changed`。拖动链：容器节点回调 `on_pointer_down` = 聚焦 responser（缺省 container）+
+`pointings_grab` +（0..1 开关直接翻转 + 回调 / 否则 `_on_me = true`）；平台回调 `b` 的
+down/move（拖动态才处理）/ up（处理 + 回调 + 松手 + ungrab）/ cancel（回调 + 松手 + ungrab）。
+
+**`arrow_switcher`**：左/右箭头节点回调 `press(dir)`（聚焦 responser + step）；`step` 循环
+wrap（`((c%n)+n)%n`）后 `sync_label` + 回调；高亮叠层按箭头 `pointer_over` 以 `min(1, dt/90)`
+平滑趋近；`on_resume` 重同步箭头（缺省 `◀`/`▶`，只在字形不同时写）/ label；键盘 L/R。
+
+**`switcher_handle`**：继承 SliderHandle（缺省 mode = `switcher`）；`sync_range` 把
+min/max/precision/step 收敛到 items 数量（`value > max` 时回写）；`cover_index` 由手柄局部坐标
+（options 轨道坐标系）算被盖格；`arrange_options(cover?)` 把 `options` 前 `slots` 个子节点摆到
+各自格中心、写 items 文本、被盖格显式隐藏（渲染按材质分组，不隐会透到白块上）。
+
+⚠ **新缝（指针）**：`LfwPointingsCallback` 加 `on_pointer_down/move/up/cancel`；`ILfwHost` 加
+`pointings_grab/ungrab`（`DittoImpl.__Pointings` 的抢焦点语义：**世代 + 持有者**——同世代
+里别人抢不走，pointer down 抬世代后可以抢；默认实现为空，未接入指针的宿主不用改）+ LFW 两个
+转发器。
+
+⚠ **台面**：`ptev <down|move|up|cancel|click> <btn> <x> <y> <sx> <sy>`（`down` 先 epoch+1
+再分发，与真实平台一致）；`kstat <键> <hit|end|use|reset> [t]`（遍历 `mounted_keys`，`hit` 不
+带 t 时 `_d_time = lifetime`）；`wtick <n>` 在暂停下推 `world.lifetime`（**`is_start` 要求
+`_d_time == lifetime` 且非 0**，台面 lifetime 默认 0 ⇒ 不推的话键盘分支全部不可达）；探针
+`shd/shv/shcb`（SliderHandle 族）、`asw/asv/ascb`（ArrowSwitcher）。
+
+⚠ 用例盲点教训：拖动第二轮（up/cancel）前要**先 `npd` 重新武装 `_on_me`**，否则 cancel 分支
+（发回调 + ungrab）根本不会进入；`ptev` 的参数是 **5 个数字**（btn/x/y/sx/sy），多写的 token
+会被静默当下一行——scene_x 换算带要按容器几何反推（本例 bar1 只在
+`scene_x ∈ [-0.75,-0.27]` 才有非饱和换算）；`SwitcherHandle` 的盖格（cover_index）需要**多次
+update** 让手柄缓动跨格，且要在**跨格前后的多个 update 点读 flags**（收敛后被
+`min(n-1, idx)` 钳住会掩盖“不圆整 / 上限写小”这类差异）；`auto_size_by_text` 按
+(text, style, version) 记忆化 ⇒「label 同步不看差异」是**等效代码**（spec 里改用“写固定
+文本”）。
+
+**测试**：用例 `cases/lfw/slider.txt` **462 行**（trace 行数；case 文件 531 行） ；变异
+`lfw_slider.mjs` **131/131 全杀**；全量差分 **244/244**。

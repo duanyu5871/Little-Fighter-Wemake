@@ -55,6 +55,9 @@
 #include "lfw/ui/component/flex.h"
 #include "lfw/ui/component/jalousie.h"
 #include "lfw/ui/component/dialogs.h"
+#include "lfw/ui/component/slider_handle.h"
+#include "lfw/ui/component/arrow_switcher.h"
+#include "lfw/ui/component/switcher_handle.h"
 #include "lfw/ui/component/vertical_layout.h"
 #include "lfw/ui/component/wrap_content.h"
 
@@ -134,6 +137,9 @@ void regist_components() {
   regist_one<Flex>(u"Flex");
   regist_one<Jalousie>(u"Jalousie");
   regist_one<Dialogs>(u"Dialogs");
+  regist_one<SliderHandle>(u"SliderHandle");
+  regist_one<ArrowSwitcher>(u"ArrowSwitcher");
+  regist_one<SwitcherHandle>(u"SwitcherHandle");
 }
 
 }

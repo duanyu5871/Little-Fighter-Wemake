@@ -100,6 +100,10 @@ struct LfwPointingEvent {
 struct LfwPointingsCallback {
   virtual ~LfwPointingsCallback() = default;
   virtual void on_click(LfwPointingEvent& e) { (void)e; }
+  virtual void on_pointer_down(LfwPointingEvent& e) { (void)e; }
+  virtual void on_pointer_move(LfwPointingEvent& e) { (void)e; }
+  virtual void on_pointer_up(LfwPointingEvent& e) { (void)e; }
+  virtual void on_pointer_cancel(LfwPointingEvent& e) { (void)e; }
 };
 
 // TS `ISoundsCallback`（`ditto/sounds/ISoundsCallback.ts`）在 LFW 里用到的那一面。
@@ -147,6 +151,17 @@ class ILfwHost {
   // `this.pointings.callback.add(cb)` / `.del(cb)`
   virtual void pointings_callback_add(LFW& lfw, LfwPointingsCallback* cb) = 0;
   virtual void pointings_callback_del(LFW& lfw, LfwPointingsCallback* cb) = 0;
+  // `lfw.pointings.grab(who)` / `.ungrab(who)`（抢焦点语义在平台侧，TS 实现见 `DittoImpl.__Pointings`）。
+  // 未接入指针的宿主可忽略（组件只会忽略返回值）。
+  virtual bool pointings_grab(LFW& lfw, const void* who) {
+    (void)lfw;
+    (void)who;
+    return false;
+  }
+  virtual void pointings_ungrab(LFW& lfw, const void* who) {
+    (void)lfw;
+    (void)who;
+  }
   // `I.Ditto.Cache.forget(type, version)` / `I.Ditto.Zip.forget_stored(type, version)`
   virtual void cache_forget(const std::u16string& type, double version) = 0;
   virtual void zip_forget_stored(const std::u16string& type, double version) = 0;
@@ -379,6 +394,9 @@ class LFW : public IWorldLfw,
   void keyboard_callback_del(LfwKeyboardCallback* cb);
   void pointings_callback_add(LfwPointingsCallback* cb);
   void pointings_callback_del(LfwPointingsCallback* cb);
+  // `this.pointings.grab(who)` / `.ungrab(who)`（组件侧便捷转发；`who` 用 `this` 指针表达）。
+  bool pointings_grab(const void* who);
+  void pointings_ungrab(const void* who);
   // `this.sounds.callbacks.add(cb)` / `.del(cb)`；`this.sounds.bgm()` / `this.sounds.is_random`
   std::u16string sounds_bgm();
   bool sounds_is_random();

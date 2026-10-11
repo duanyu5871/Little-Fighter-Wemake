@@ -41,6 +41,8 @@ import { Flex } from "../../../../src/LFW/ui/component/Flex";
 import { Jalousie } from "../../../../src/LFW/ui/component/Jalousie";
 import { Dialogs } from "../../../../src/LFW/ui/component/Dialogs";
 import { BGMSwitcher } from "../../../../src/LFW/ui/component/BGMSwitcher";
+import { SliderHandle } from "../../../../src/LFW/ui/component/Slider/SliderHandle";
+import { ArrowSwitcher } from "../../../../src/LFW/ui/component/Slider/ArrowSwitcher";
 import { FSM } from "../../../../src/LFW/base/FSM";
 import { ModeState } from "../../../../src/LFW/ui/component/ModeState";
 import {
@@ -497,6 +499,38 @@ function install_ditto(): void {
   }
   class FakePointings {
     readonly callbacks: Rec[] = [];
+    // 4BN：`__Pointings` 的抢焦点状态（世代 + 持有者）。
+    _grab_prev_epoch = -1;
+    _grab_epoch = 0;
+    _grabbing: unknown = undefined;
+    get grabbing(): unknown {
+      return this._grabbing !== void 0 && this._grab_prev_epoch === this._grab_epoch
+        ? this._grabbing
+        : void 0;
+    }
+    grab(who: unknown): boolean {
+      if (
+        this._grabbing !== void 0 &&
+        this._grabbing !== who &&
+        this._grab_prev_epoch === this._grab_epoch
+      ) {
+        push("pt_grab|0");
+        return false;
+      }
+      this._grabbing = who;
+      this._grab_prev_epoch = this._grab_epoch;
+      push("pt_grab|1");
+      return true;
+    }
+    ungrab(who: unknown): void {
+      if (this._grabbing === who) {
+        this._grabbing = void 0;
+        push("pt_ungrab");
+      }
+    }
+    grab_begin(): void {
+      ++this._grab_epoch;
+    }
     callback = {
       add: (cb: unknown) => {
         if (!this.callbacks.includes(cb as Rec)) this.callbacks.push(cb as Rec);
@@ -509,8 +543,16 @@ function install_ditto(): void {
       },
     };
     constructor() {
-      pt_dispatch_click = (e) => {
-        for (const cb of [...this.callbacks]) cb.on_click?.(e);
+      pt_dispatch = (what, e) => {
+        // 真实平台在 pointer down 里 `grab_begin()`（世代 +1，之后才分发）。
+        if (what === "down") this.grab_begin();
+        for (const cb of [...this.callbacks]) {
+          if (what === "down") cb.on_pointer_down?.(e);
+          else if (what === "move") cb.on_pointer_move?.(e);
+          else if (what === "up") cb.on_pointer_up?.(e);
+          else if (what === "cancel") cb.on_pointer_cancel?.(e);
+          else cb.on_click?.(e);
+        }
       };
       push("pt_init");
     }
@@ -746,7 +788,7 @@ const CB_KEYS = [
 let lfw: LFW;
 // `FakeKeyboard` / `FakePointings` 在 `install_ditto` 里声明， 用模块级钩子接出分发入口。
 let kbd_dispatch: (dir: "down" | "up", e: Rec) => void = () => undefined;
-let pt_dispatch_click: (e: Rec) => void = () => undefined;
+let pt_dispatch: (what: string, e: Rec) => void = () => undefined;
 // 假声音的状态探针（`sndbgm` op）：`<bgm>|<is_random>`。
 let snd_probe: () => string = () => "|0";
 
@@ -947,8 +989,56 @@ async function run_ops(): Promise<void> {
         delta_x: 0,
         delta_y: 0,
       };
-      pt_dispatch_click(e as Rec);
+      pt_dispatch("click", e as Rec);
       push(`ptclick|${num(btn)}`);
+    } else if (op === "ptev") {
+      const what = next();
+      const btn = Number(nextKey());
+      const x = Number(nextKey());
+      const y = Number(nextKey());
+      const sx = Number(nextKey());
+      const sy = Number(nextKey());
+      const e = {
+        x,
+        y,
+        scene_x: sx,
+        scene_y: sy,
+        is_pointing_event: true,
+        button: btn,
+        delta_x: 0,
+        delta_y: 0,
+      };
+      pt_dispatch(what, e as Rec);
+      push(`ptev|${what}|${num(btn)}|${num(x)}|${num(y)}|${num(sx)}|${num(sy)}`);
+    } else if (op === "wtick") {
+      // 推进 `world.lifetime`（暂停下 `step` 只做无害段；台面需要非零时间戳喂 `is_start`）。
+      const n = Number(nextKey());
+      const w = lfw.world as unknown as Rec;
+      lfw.world.set_paused(1);
+      for (let k = 0; k < n; ++k) w.update_once(16);
+      lfw.world.set_paused(0);
+      push(`wtick|${num(n)}|lt=${num(lfw.world.lifetime)}`);
+    } else if (op === "kstat") {
+      // 逐个驱动所有已挂载的按键状态（= `CMD_KEY_EVENT` 对 `mounted_keys` 做的事）。
+      const gk = nextKey();
+      const what = next();
+      const tok = t[i[0]!];
+      const has_t = tok !== undefined && tok !== "-";
+      const tm = has_t ? Number(t[i[0]!++]!) : undefined;
+      let cnt = 0;
+      let ret = 0;
+      for (const ks of lfw.mounted_keys) {
+        const st = (ks as unknown as Rec)[gk];
+        if (!st) continue;
+        ++cnt;
+        if (what === "hit") st.hit(tm);
+        else if (what === "end") st.end();
+        else if (what === "use") ret = st.use();
+        else st.reset();
+      }
+      push(
+        `kstat|${gk}|${what}|cnt=${cnt}` + (what === "use" ? `|ret=${num(ret)}` : ""),
+      );
     } else if (op === "cmds") {
       push("cmds|" + lfw.cmds.join(";"));
     } else if (op === "clearcmds") {
@@ -1619,6 +1709,38 @@ async function run_ops(): Promise<void> {
         const com = next() === "1";
         const decided = next() === "1";
         c.join(text, com, decided);
+      }
+    } else if (op === "shd" || op === "shv" || op === "shcb") {
+      const nid = next();
+      const n = tnodes.get(nid)!;
+      const p = n.components.find((c) => c instanceof SliderHandle) as SliderHandle | undefined;
+      if (!p) push(`${op}|${nid}|none`);
+      else if (op === "shd") push(`shd|${nid}|${num(p.value)}|${num(p.factor)}|${p.mode}`);
+      else if (op === "shv") {
+        const v = Number(next());
+        p.set_value(v);
+        push(`shv|${nid}|${num(p.value)}|${num(p.factor)}`);
+      } else {
+        p.on_value_changed((v: number, self: SliderHandle) =>
+          push(`shcb|${num(v)}|${self === p ? 1 : 0}`),
+        );
+        push(`shcb|${nid}|bound`);
+      }
+    } else if (op === "asw" || op === "asv" || op === "ascb") {
+      const nid = next();
+      const n = tnodes.get(nid)!;
+      const p = n.components.find((c) => c instanceof ArrowSwitcher) as ArrowSwitcher | undefined;
+      if (!p) push(`${op}|${nid}|none`);
+      else if (op === "asw") push(`asw|${nid}|${num(p.value)}|${num(p.count)}`);
+      else if (op === "asv") {
+        const v = Number(next());
+        p.set_value(v);
+        push(`asv|${nid}|${num(p.value)}`);
+      } else {
+        p.on_value_changed((v: number, self: ArrowSwitcher) =>
+          push(`ascb|${num(v)}|${self === p ? 1 : 0}`),
+        );
+        push(`ascb|${nid}|bound`);
       }
     } else if (op === "ird") {
       const nid = next();

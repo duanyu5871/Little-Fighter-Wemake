@@ -32,6 +32,7 @@ class UIProps {
 
   std::optional<double> num(const std::u16string& name) const;
   void set_num(const std::u16string& name, const Value& v);
+  void set_str(const std::u16string& name, const Value& v);
   std::optional<std::u16string> str(const std::u16string& name,
                                     const std::vector<std::u16string>& one_of = {}) const;
   void set_strs(const std::u16string& name, std::vector<std::u16string> v);
