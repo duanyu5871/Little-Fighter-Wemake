@@ -40,7 +40,7 @@ void cmd_set_puppet(CMDS& ctx) {
         ctx.cmd());
     return;
   }
-  PlayerInfo* const player_info = world.lfw().player(Value(*player_id));
+  PlayerInfo* const player_info = world.lfw().players_get(Value(*player_id));
   if (player_info == nullptr) {
     world.lfw().warn(u"SET_PUPPET failed, player not found: " + *player_id);
     return;

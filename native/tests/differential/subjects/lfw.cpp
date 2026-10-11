@@ -58,6 +58,16 @@
 #include "lfw/ui/component/slider_handle.h"
 #include "lfw/ui/component/arrow_switcher.h"
 #include "lfw/ui/component/scroll_view.h"
+#include "lfw/ui/component/summary_logic.h"
+#include "lfw/ui/component/fighter_stat_bar.h"
+#include "lfw/ui/component/player_score.h"
+#include "lfw/ui/component/player_score_cell.h"
+#include "lfw/ui/component/player_score_player_name.h"
+#include "lfw/ui/component/team_situation_text.h"
+#include "lfw/entity/entity_ref.h"
+#include "lfw/entity/summary.h"
+#include "lfw/entity/summary_mgr.h"
+#include "lfw/controller/creators.h"
 #include "lfw/ui/component/ui_component.h"
 #include "lfw/ui/component/ui_props.h"
 #include "lfw/ui/instance_ref.h"
@@ -128,21 +138,6 @@ std::string s_of(const lfw::Value& v) {
   const std::u16string* const s = std::get_if<std::u16string>(&v);
   return s != nullptr ? to_ascii(*s) : "u";
 }
-
-int g_ent_seq = 0;
-
-// 实体宿主（静默）：`attach` 等副作用不发日志。
-class EntHost : public lfw::IEntityHost {
- public:
-  double game_time() const override { return 0.0; }
-  std::u16string new_id() override {
-    ++g_ent_seq;
-    return u"e" + lfw::number_to_string(static_cast<double>(g_ent_seq));
-  }
-  void add_entities(lfw::Entity&) override {}
-};
-
-EntHost g_ent_host;
 
 // 不入世界的假实体（`fhset`/`ftset` 用）：放进堆容器保证生命周期。
 std::vector<std::unique_ptr<lfw::Entity>> g_fakes;
@@ -1114,7 +1109,367 @@ class FakeHost : public lfw::ILfwHost {
 
 std::vector<std::u16string> g_words;
 
-// 4AV/4AW/4AX 的组件/工具驱动 op（单开一函数，避免主 else-if 链块嵌套超限）。
+// 4BP 的统计/计分驱动 op（单开一函数，避免主 else-if 链块嵌套超限）。
+bool run_sum_ops(lfw::LFW& lfw, FakeHost& host, const std::vector<std::string>& t, size_t& i,
+                 const std::string& op) {
+  (void)host;
+  lfw::World& w = lfw.world();
+  if (op == "wpp") {
+    const std::u16string pid = key_of(t[i++]);
+    const double idx = to_double(t[i++]);
+    lfw::Entity* const e = idx >= 0 && static_cast<size_t>(idx) < w.entities.size()
+                               ? w.entities[static_cast<size_t>(idx)]
+                               : nullptr;
+    bool found = false;
+    for (size_t k = 0; k < w.puppets.size(); ++k) {
+      if (w.puppets[k].first != pid) continue;
+      if (e != nullptr) w.puppets[k].second = e;
+      else w.puppets.erase(w.puppets.begin() + static_cast<ptrdiff_t>(k));
+      found = true;
+      break;
+    }
+    if (!found && e != nullptr) w.puppets.push_back({pid, e});
+    push("wpp|" + to_ascii(pid) + "|" + (e != nullptr ? "1" : "0") + "|n=" +
+         to_ascii(lfw::number_to_string(static_cast<double>(w.puppets.size()))));
+    return true;
+  }
+  if (op == "ehp" || op == "emp" || op == "eres") {
+    const double idx = to_double(t[i++]);
+    const double v = to_double(t[i++]);
+    lfw::Entity* const e = idx >= 0 && static_cast<size_t>(idx) < w.entities.size()
+                               ? w.entities[static_cast<size_t>(idx)]
+                               : nullptr;
+    if (e != nullptr) {
+      if (op == "ehp") e->set_hp(v);
+      else if (op == "emp") e->set_mp(v);
+      else e->set_reserve(v);
+    }
+    push(op + "|" + num(idx) + "|" + (e != nullptr ? "1" : "0") + "|hp=" +
+         num(e != nullptr ? e->hp() : 0) + "|mp=" + num(e != nullptr ? e->mp() : 0) + "|res=" +
+         num(e != nullptr ? e->reserve() : 0));
+    return true;
+  }
+  if (op == "edel") {
+    const double idx = to_double(t[i++]);
+    lfw::Entity* const e = idx >= 0 && static_cast<size_t>(idx) < w.entities.size()
+                               ? w.entities[static_cast<size_t>(idx)]
+                               : nullptr;
+    if (e != nullptr) w.del_entity(*e);
+    push("edel|" + num(idx) + "|" + (e != nullptr ? "1" : "0") + "|n=" +
+         num(static_cast<double>(w.entities.size())));
+    return true;
+  }
+  if (op == "wrun") {
+    const double n = to_double(t[i++]);
+    for (double k = 0; k < n; ++k) w.update_once(16.0);
+    push("wrun|" + num(n) + "|n=" + num(static_cast<double>(w.entities.size())) + "|paused=" +
+         (w.paused() ? "1" : "0"));
+    return true;
+  }
+  if (op == "ntick") {
+    const std::string nid = t[i++];
+    const double n = to_double(t[i++]);
+    lfw::ui::UINode& nd = *g_nodes.at(nid);
+    for (double k = 0; k < n; ++k) nd.update(16.0);
+    push("ntick|" + nid + "|lt=" + num(nd.lifetime()));
+    return true;
+  }
+  if (op == "sdmg" || op == "skill" || op == "spick") {
+    const double idx = to_double(t[i++]);
+    const double v = to_double(t[i++]);
+    lfw::Entity* const e = idx >= 0 && static_cast<size_t>(idx) < w.entities.size()
+                               ? w.entities[static_cast<size_t>(idx)]
+                               : nullptr;
+    if (e != nullptr) {
+      if (op == "sdmg") {
+        lfw::summary_mgr().add_damage_sum(lfw::ref_of(*e), lfw::Value(v));
+      } else if (op == "skill") {
+        lfw::summary_mgr().add_kill_sum(lfw::ref_of(*e), lfw::Value(v));
+      } else {
+        lfw::Summary& s = *lfw::summary_mgr().get(e->id);
+        s.set_picking_sum(lfw::Value(lfw::to_number(s.picking_sum()) + v));
+      }
+    }
+    push(op + "|" + num(idx) + "|" + (e != nullptr ? "1" : "0"));
+    return true;
+  }
+  if (op == "smapx" || op == "smlg") {
+    const std::string nid = t[i++];
+    lfw::ui::UINode& n = *g_nodes.at(nid);
+    lfw::ui::SummaryLogic* p = nullptr;
+    for (lfw::ui::UIComponent* const c : n.components()) {
+      if (!lfw::is_class(c->clazz(), lfw::ui::SummaryLogic::class_tag())) continue;
+      p = static_cast<lfw::ui::SummaryLogic*>(c);
+      break;
+    }
+    if (p == nullptr) {
+      push(op + "|" + nid + "|none");
+      return true;
+    }
+    if (op == "smapx") {
+      if (!w.entities.empty()) p->on_fighter_add(*w.entities[0]);
+      push("smapx|" + nid + "|fighters=" +
+           num(static_cast<double>(p->fighters.size())) + "|players=" +
+           num(static_cast<double>(p->players.size())) + "|en=" +
+           num(static_cast<double>(w.entities.size())) + "|gh=" +
+           num(static_cast<double>(w.ghosts.size())) + "|em=" +
+           num(static_cast<double>(w.entity_map.size())));
+      return true;
+    }
+    push("smlg|" + nid + "|teams=" + num(static_cast<double>(p->teams.size())) + "|fighters=" +
+         num(static_cast<double>(p->fighters.size())) + "|players=" +
+         num(static_cast<double>(p->players.size())) + "|losing=" +
+         num(static_cast<double>(p->losing_teams.size())) + "|cbm=" +
+         num(static_cast<double>(p->cb_map_count())));
+    for (const std::pair<std::u16string, lfw::ui::TeamSumInfo>& kv : p->teams) {
+      const lfw::ui::TeamSumInfo& s = kv.second;
+      push("sm|" + to_ascii(kv.first) + "|t=" + to_ascii(s.team) + "|" + num(s.wins) + "|" +
+           num(s.loses) + "|" + num(s.lives) + "|" + num(s.deads) + "|" + num(s.spawns) +
+           "|" + num(s.kills) + "|" + num(s.damages) + "|" + num(s.hp_lost) + "|" +
+           num(s.mp_usage) + "|" + num(s.pickings) + "|" + num(s.hp) + "|" +
+           num(s.reserve) + "|latest=" + num(s.latest_dead_time) + "|losing=" +
+           (p->is_losing(kv.first) ? "1" : "0"));
+    }
+    for (const std::pair<std::u16string, lfw::ui::FighterSumInfo>& kv : p->fighters) {
+      const lfw::ui::FighterSumInfo& s = kv.second;
+      push("smf|" + to_ascii(kv.first) + "|t=" + to_ascii(s.team) + "|" + num(s.spawns) + "|" +
+           num(s.deads) + "|" + num(s.kills) + "|" + num(s.damages) + "|" + num(s.hp_lost) +
+           "|" + num(s.mp_usage) + "|" + num(s.pickings));
+    }
+    for (const std::pair<std::u16string, lfw::ui::PlayerSumInfo>& kv : p->players) {
+      const lfw::ui::PlayerSumInfo& s = kv.second;
+      push("smp|" + to_ascii(kv.first) + "|t=" + to_ascii(s.team) + "|pid=" + to_ascii(s.player_id) +
+           "|" + num(s.spawns) + "|" + num(s.deads) + "|" + num(s.kills) + "|" +
+           num(s.damages) + "|" + num(s.hp_lost) + "|" + num(s.mp_usage) + "|" +
+           num(s.pickings));
+    }
+    return true;
+  }
+  if (op == "sumt") {
+    const std::string nid = t[i++];
+    const std::u16string team = key_of(t[i++]);
+    lfw::ui::UINode& n = *g_nodes.at(nid);
+    lfw::ui::SummaryLogic* p = nullptr;
+    for (lfw::ui::UIComponent* const c : n.components()) {
+      if (!lfw::is_class(c->clazz(), lfw::ui::SummaryLogic::class_tag())) continue;
+      p = static_cast<lfw::ui::SummaryLogic*>(c);
+      break;
+    }
+    if (p != nullptr) p->team_sum(team);
+    push("sumt|" + nid + "|" + to_ascii(team) + "|n=" +
+         num(p != nullptr ? static_cast<double>(p->teams.size()) : -1.0));
+    return true;
+  }
+  if (op == "wdt") {
+    const double dt = to_double(t[i++]);
+    const double n = to_double(t[i++]);
+    for (double k = 0; k < n; ++k) w.update_once(dt);
+    push("wdt|" + num(dt) + "|" + num(n) + "|lt=" + num(w.lifetime()));
+    return true;
+  }
+  if (op == "edef") {
+    const double idx = to_double(t[i++]);
+    const std::u16string f = key_of(t[i++]);
+    const double v = to_double(t[i++]);
+    lfw::Entity* const e = idx >= 0 && static_cast<size_t>(idx) < w.entities.size()
+                               ? w.entities[static_cast<size_t>(idx)]
+                               : nullptr;
+    if (e != nullptr) {
+      if (f == u"defend_value") e->set_defend_value(v);
+      else if (f == u"defend_value_max") e->set_defend_value_max(v);
+      else if (f == u"fall_value") e->set_fall_value(v);
+      else if (f == u"fall_value_max") e->set_fall_value_max(v);
+      else if (f == u"toughness") e->set_toughness(v);
+      else if (f == u"toughness_max") e->set_toughness_max(v);
+      else if (f == u"hp_r") e->set_hp_r(v);
+    }
+    push("edef|" + num(idx) + "|" + to_ascii(f) + "|" + (e != nullptr ? "1" : "0") + "|dv=" +
+         num(e != nullptr ? e->defend_value() : 0) + "|dvm=" +
+         num(e != nullptr ? e->defend_value_max() : 0) + "|fv=" +
+         num(e != nullptr ? e->fall_value() : 0) + "|fvm=" +
+         num(e != nullptr ? e->fall_value_max() : 0) + "|tv=" +
+         num(e != nullptr ? e->toughness() : 0) + "|tvm=" +
+         num(e != nullptr ? e->toughness_max() : 0) + "|hpr=" +
+         num(e != nullptr ? e->hp_r() : 0));
+    return true;
+  }
+  if (op == "eprobe") {
+    const double idx = to_double(t[i++]);
+    lfw::Entity* const e = idx >= 0 && static_cast<size_t>(idx) < w.entities.size()
+                               ? w.entities[static_cast<size_t>(idx)]
+                               : nullptr;
+    push("eprobe|" + num(idx) + "|e=" +
+         (e != nullptr ? to_ascii(e->id) : std::string("-")) + "|life=" +
+         num(e != nullptr ? e->lifetime() : 0) + "|marks=" +
+         num(e != nullptr ? static_cast<double>(e->marks.size()) : 0) + "|heal=" +
+         (e != nullptr && e->marks.count(u"Healing") > 0 ? "1" : "0") + "|mpheal=" +
+         (e != nullptr && e->marks.count(u"MpHealing") > 0 ? "1" : "0"));
+    return true;
+  }
+  if (op == "wtime") {
+    push("wtime|gt=" + num(w.game_time()) + "|lt=" + num(w.lifetime()));
+    return true;
+  }
+  if (op == "elist") {
+    for (size_t k = 0; k < w.entities.size(); ++k) {
+      lfw::Entity* const e = w.entities[k];
+      push("el|" + num(static_cast<double>(k)) + "|e=" + (e != nullptr ? to_ascii(e->id) : "-") +
+           "|t=" + (e != nullptr ? to_ascii(e->team()) : "-") + "|hp=" +
+           num(e != nullptr ? e->hp() : 0));
+    }
+    return true;
+  }
+  if (op == "fdbg") {
+    const std::string nid = t[i++];
+    lfw::ui::UINode& n = *g_nodes.at(nid);
+    lfw::ui::FighterStatBar* p = nullptr;
+    for (lfw::ui::UIComponent* const c : n.components()) {
+      if (!lfw::is_class(c->clazz(), lfw::ui::FighterStatBar::class_tag())) continue;
+      p = static_cast<lfw::ui::FighterStatBar*>(c);
+      break;
+    }
+    std::string ent_id = "-";
+    std::string ent_probe = "-";
+    if (p != nullptr && p->entity != nullptr) {
+      ent_id = to_ascii(p->entity->id);
+      ent_probe = num(p->entity->lifetime()) + "/" +
+                  num(static_cast<double>(p->entity->marks.size())) + "/" +
+                  (p->entity->marks.count(u"Healing") > 0 ? "1" : "0") + "/" +
+                  (p->entity->marks.count(u"MpHealing") > 0 ? "1" : "0");
+    }
+    push("fdbg|" + nid + "|n=" + num(static_cast<double>(n.components().size())) + "|fl=" +
+         (p != nullptr ? (p->hp_flashing ? "1" : "0") : "-") + "|dead=" +
+         (p != nullptr ? (p->dead ? "1" : "0") : "-") + "|mp=" +
+         (p != nullptr ? (p->mp_healing ? "1" : "0") : "-") + "|tc=" +
+         num(p != nullptr ? p->dbg_tier_colors() : -1.0) +
+         "|life=" + ent_probe + "|e=" + ent_id);
+    return true;
+  }
+  if (op == "smk") {
+    const std::u16string team = key_of(t[i++]);
+    push("smk|" + to_ascii(lfw::ui::make_sum_info(team).team));
+    return true;
+  }
+  if (op == "sbctrl") {
+    const double idx = to_double(t[i++]);
+    const std::u16string pid = key_of(t[i++]);
+    const std::string mode = i < t.size() ? t[i++] : std::string();
+    lfw::Entity* const e = idx >= 0 && static_cast<size_t>(idx) < w.entities.size()
+                               ? w.entities[static_cast<size_t>(idx)]
+                               : nullptr;
+    lfw::PlayerInfo* const p = lfw.player(pid);
+    lfw::controller::BaseController* c = nullptr;
+    if (e != nullptr) {
+      if (mode == "human") {
+        c = lfw.factory.acquire_ctrl(lfw::controller::local_controller_creator(), pid, e);
+        if (c != nullptr) {
+          // 台面替身：TS 的 `LocalController` 在构造里 `this.player = lfw.player(id)`（缺省名 = id）
+          lfw::Object pv;
+          pv.set(u"id", lfw::Value(pid));
+          pv.set(u"name", lfw::Value(pid));
+          c->player = lfw::Value(std::make_shared<lfw::Object>(pv));
+        }
+      } else {
+        c = lfw.factory.create_ctrl(lfw::field_or(e->data(), u"id"), pid, e);
+      }
+      if (c != nullptr) e->set_ctrl(c);
+    }
+    push("sbctrl|" + num(idx) + "|" + (e != nullptr ? "1" : "0") + "|p=" +
+         (p != nullptr ? "1" : "0") + "|bot=" + (c != nullptr && c->is_bot() ? "1" : "0") +
+         "|pid=" + (c != nullptr ? to_ascii(c->player_id) : std::string("-")));
+    return true;
+  }
+  if (op == "cprb") {
+    const std::string nid = t[i++];
+    const std::u16string cid = key_of(t[i++]);
+    const std::u16string prop = key_of(t[i++]);
+    lfw::ui::UINode& n = *g_nodes.at(nid);
+    lfw::ui::UIComponent* c = nullptr;
+    for (lfw::ui::UIComponent* const v : n.components()) {
+      if (v->id == cid) {
+        c = v;
+        break;
+      }
+    }
+    bool ok = false;
+    std::string hit = "u";
+    std::string errs;
+    if (c != nullptr) {
+      ok = c->ensure_props();
+      lfw::ui::UINode* const nh = lfw::ui::ref_to_node(c->props_holder.prop_instance(prop));
+      hit = nh != nullptr ? to_ascii(render_value(nh->id())) : "u";
+      for (const std::u16string& e : c->props_errors()) {
+        if (!errs.empty()) errs += ";";
+        errs += to_ascii(e);
+      }
+    }
+    push("cprb|" + nid + "|" + (c != nullptr ? "1" : "0") + "|ok=" + (ok ? "1" : "0") +
+         "|n=" + hit + "|errs=" + errs);
+    return true;
+  }
+  if (op == "fsbe") {
+    const std::string nid = t[i++];
+    const std::u16string cid = key_of(t[i++]);
+    const double idx = to_double(t[i++]);
+    lfw::ui::UINode& n = *g_nodes.at(nid);
+    lfw::ui::FighterStatBar* p = nullptr;
+    for (lfw::ui::UIComponent* const c : n.components()) {
+      if (c->id != cid) continue;
+      if (!lfw::is_class(c->clazz(), lfw::ui::FighterStatBar::class_tag())) continue;
+      p = static_cast<lfw::ui::FighterStatBar*>(c);
+      break;
+    }
+    lfw::Entity* const e = idx >= 0 && static_cast<size_t>(idx) < w.entities.size()
+                               ? w.entities[static_cast<size_t>(idx)]
+                               : nullptr;
+    if (p != nullptr) p->set_entity(e);
+    push("fsbe|" + nid + "|" + (p != nullptr ? "1" : "0") + "|e=" + (e != nullptr ? "1" : "0"));
+    return true;
+  }
+  if (op == "ps") {
+    const std::string nid = t[i++];
+    lfw::ui::UINode& n = *g_nodes.at(nid);
+    lfw::ui::PlayerScore* p = nullptr;
+    for (lfw::ui::UIComponent* const c : n.components()) {
+      if (!lfw::is_class(c->clazz(), lfw::ui::PlayerScore::class_tag())) continue;
+      p = static_cast<lfw::ui::PlayerScore*>(c);
+      break;
+    }
+    if (p == nullptr) {
+      push("ps|" + nid + "|none");
+      return true;
+    }
+    const std::optional<bool> l = p->lose();
+    lfw::Entity* const f = p->fighter();
+    push("ps|" + nid + "|idx=" + num(p->index()) + "|lose=" +
+         (l.has_value() ? (*l ? "1" : "0") : "-") + "|f=" +
+         (f != nullptr ? to_ascii(f->id) : std::string("-")) + "|vis=" +
+         (n.visible() ? "1" : "0"));
+    return true;
+  }
+  if (op == "eteam" || op == "emark" || op == "edmark") {
+    const double idx = to_double(t[i++]);
+    lfw::Entity* const e = idx >= 0 && static_cast<size_t>(idx) < w.entities.size()
+                               ? w.entities[static_cast<size_t>(idx)]
+                               : nullptr;
+    if (op == "eteam") {
+      const std::u16string team = key_of(t[i++]);
+      if (e != nullptr) e->set_team(team);
+      push("eteam|" + num(idx) + "|" + (e != nullptr ? to_ascii(e->team()) : std::string("-")));
+    } else {
+      const std::u16string key = key_of(t[i++]);
+      const std::u16string val = key_of(t[i++]);
+      if (e != nullptr) {
+        if (op == "emark") e->set_mark(key, val, std::nullopt);
+        else e->del_mark(key, std::optional<lfw::Value>(lfw::Value(val)));
+      }
+      push(op + "|" + num(idx) + "|" +
+           num(e != nullptr ? static_cast<double>(e->marks.size()) : 0.0));
+    }
+    return true;
+  }
+  return false;
+}
 bool run_comp_ops(lfw::LFW& lfw, FakeHost& host, const std::vector<std::string>& t, size_t& i,
                   const std::string& op) {
   if (op == "ptev") {
@@ -1875,8 +2230,8 @@ bool run_comp_ops(lfw::LFW& lfw, FakeHost& host, const std::vector<std::string>&
       data.set(u"type", lfw::Value(8.0));
       data.set(u"id", lfw::Value(u"fx"));
       data.set(u"base", lfw::Value(std::make_shared<lfw::Object>(base)));
-      g_fakes.push_back(
-          std::make_unique<lfw::Entity>(g_ent_host, lfw::Value(std::make_shared<lfw::Object>(data))));
+      g_fakes.push_back(std::make_unique<lfw::Entity>(
+          lfw.world().host(), lfw::Value(std::make_shared<lfw::Object>(data))));
       e = g_fakes.back().get();
     }
     if (op == "fhset") {
@@ -2161,9 +2516,17 @@ int main(int argc, char** argv) {
   }
 
   lfw::Factory::register_entity(
-      lfw::Value(8.0), [](lfw::World*, const lfw::Value& data, lfw::state::States*) -> lfw::Entity* {
+      lfw::Value(8.0),
+      [](lfw::World* w, const lfw::Value& data, lfw::state::States* states) -> lfw::Entity* {
         push("entadd:create|" + s_of(lfw::field_or(data, u"id")));
-        return new lfw::Entity(g_ent_host, data);
+        return new lfw::Entity(w->host(), data, states);
+      });
+  // 4BP：非战士实体（`is_fighter` 筛选用）。
+  lfw::Factory::register_entity(
+      lfw::Value(4.0),
+      [](lfw::World* w, const lfw::Value& data, lfw::state::States* states) -> lfw::Entity* {
+        push("entadd:create|" + s_of(lfw::field_or(data, u"id")));
+        return new lfw::Entity(w->host(), data, states);
       });
   lfw::ui::regist_ui_class(bench::fake_comp_tag(), u"FakeComp");
   static const bench::FakeCompCreator s_fake_comp_creator;
@@ -2334,7 +2697,7 @@ int main(int argc, char** argv) {
            "|modded=" + (lfw.survival_rank_modded() ? "1" : "0") + "|invalid=" +
            (lfw.survival_rank_invalid() ? "1" : "0"));
     } else if (op == "randinfo") {
-      lfw::Entity e(g_ent_host, lfw::Value(std::make_shared<lfw::Object>([] {
+      lfw::Entity e(lfw.world().host(), lfw::Value(std::make_shared<lfw::Object>([] {
                       lfw::Object o;
                       o.set(u"type", lfw::Value(8.0));
                       o.set(u"id", lfw::Value(std::u16string(u"rx")));
@@ -2352,11 +2715,31 @@ int main(int argc, char** argv) {
     } else if (op == "entadd") {
       const std::u16string id = key_of(t[i++]);
       const double n = to_double(t[i++]);
+      // 4BP：可选的 team token（`-` = 缺省自动新队）与 type token（缺省 8）。
+      std::optional<std::u16string> team;
+      if (i < t.size()) {
+        const std::u16string tok = key_of(t[i++]);
+        if (tok != u"-") team = tok;
+      }
+      double type_id = 8.0;
+      if (i < t.size()) type_id = to_double(t[i++]);
+      // 4BP：带上真数据（`fg1` 等）的 `base` / `frames`，其余字段不搬（TS 侧碰 texml getter 会炸）。
+      const lfw::Value real = lfw.datas_find(lfw::Value(id));
       lfw::Object o;
-      o.set(u"type", lfw::Value(8.0));
+      lfw::Object base;
+      if (const lfw::Object* const rb = lfw::as_object(lfw::field_or(real, u"base"))) {
+        for (const std::u16string& k : rb->keys()) base.set(k, *rb->get(k));
+      }
+      o.set(u"type", lfw::Value(type_id));
       o.set(u"id", lfw::Value(id));
-      const std::vector<lfw::Entity*> ret =
-          lfw.entities_helper().add(lfw::Value(std::make_shared<lfw::Object>(o)), n);
+      o.set(u"base", lfw::Value(std::make_shared<lfw::Object>(base)));
+      const lfw::Value frames = lfw::field_or(real, u"frames");
+      if (!std::holds_alternative<lfw::NullTag>(frames) &&
+          !std::holds_alternative<std::monostate>(frames)) {
+        o.set(u"frames", frames);
+      }
+      const std::vector<lfw::Entity*> ret = lfw.entities_helper().add(
+          lfw::Value(std::make_shared<lfw::Object>(o)), n, team.has_value() ? &*team : nullptr);
       push("entadd|" + to_ascii(lfw::number_to_string(static_cast<double>(ret.size()))));
     } else if (op == "getter") {
       const std::u16string w = key_of(t[i++]);
@@ -3000,7 +3383,7 @@ int main(int argc, char** argv) {
         push("cfind|" + nid + "|" + cid + "|" + to_ascii(which) + "|" +
              (r != nullptr ? node_ref(r) : std::string("u")));
       }
-    } else if (run_comp_ops(lfw, host, t, i, op)) {
+    } else if (run_comp_ops(lfw, host, t, i, op) || run_sum_ops(lfw, host, t, i, op)) {
     } else if (op == "ird") {
       const std::string nid = t[i++];
       lfw::ui::UINode& n = *g_nodes.at(nid);

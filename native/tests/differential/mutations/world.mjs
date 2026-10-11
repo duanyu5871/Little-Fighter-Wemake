@@ -206,7 +206,7 @@ export default {
     {
       note: "World: add_entities 不去查玩家表",
       file: "native/lfw/world.cpp",
-      from: `    PlayerInfo* const player = lfw_->player(Value(std::u16string(player_id)));
+      from: `    PlayerInfo* const player = lfw_->players_get(Value(std::u16string(player_id)));
     if (player != nullptr) {`,
       to: `    PlayerInfo* const player = nullptr;
     if (player != nullptr) {`,

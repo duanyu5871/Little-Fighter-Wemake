@@ -5138,3 +5138,37 @@ harness op：
   nullptr）；`scrollbar` prop 的**裸字符串**值会被校验剔除（`make_schema` 解析不到类引用）
   ⇒ `scrollbar()` 的 `search_component_by_id` 字符串回退在台面是死路径（滑块夹具必须放
   视口子树内让 prop 解析成组件）。
+
+### 6.9.173 SummaryLogic / FighterStatBar / PlayerScore 族 / TeamSituationText（`cases/lfw/score.txt` 725 行；变异 151/151 全杀）
+
+- 新/扩台面 op：
+  - `smk <team>`（`make_sum_info` 探针，打 `smk|<team>`）；`sbctrl <idx> <pid> [human]`
+    （`set_entity` 换控绑定；`human` = 直取 `local_controller_creator` + 桌面替身
+    `{id,name}` PlayerInfo）；`entadd` 扩到类型 4/8（合并真实 `base`/`frames`）。
+  - `edef <idx> <key> <v>`：**全键**（`defend_value`/`defend_value_max`/`fall_value`/
+    `fall_value_max`/`toughness`/`toughness_max`/`hp_r`），回读串扩为
+    `dv|dvm|fv|fvm|tv|tvm|hpr`。❗ 早期只实现三键，`*_max`/`hp_r` 全落 `set_toughness(v)`
+    ⇒ 上限类变异天生存活。
+  - `eprobe <idx>`（实体视角 `life|marks|heal|mpheal` + `e=<id>`）；`wtime`
+    （`gt=<game_time>|lt=<world lifetime>`）；`fdbg <nid>`（组件视角
+    `n|fl|dead|mp|tc|life|e`，用于 Healing 闪红/捕获缓存状态）；`elist`（全体
+    `el|<idx>|e=<id>|t=<team>|hp=`，**钉实体顺序**）。
+- ⚠ **`dataset atom_time` 必设**：实体 `_atom_time` 构造期冻结，不设 ⇒ 实体 `lifetime` 与
+  `world.game_time` 恒 0（Healing/Dizzy 相位、TST 节拍全部空转，对应变异清一色存活）。
+- ⚠ **首轮世界更新会重排 `w.entities`**（并可能生成新实体）：所有按索引绑定/编辑必须排在
+  一次「洗牌」`wdt` 之后；其后只要实体集合不变顺序即稳定（先例：绑定在洗牌前 ⇒ 组件绑到
+  “旧对象”，`emark n` 命中另一个实体，闪红/变蓝全不可观测）。`elist` 是所有改索引用例的
+  前置读点。
+- ⚠ **实体生命周期相位靠“世界更新次数”计**：`wdt 0 N` = N 次 `update_once`，实体
+  `lifetime += atom_time`（=1）⇒ N 次即相位 N；`ntick` 只推 UI，不改实体寿命。
+- ⚠ `nset <nid> update <n>` 是**调一次** `update(dt)`（寿命计数 +1），不是设置计数；想把
+  SummaryLogic 的 180 帧窗口钉在「恰好等于」处，要用预跑 `ntick smc <N>` + 单帧步进 +
+  每帧 `smlg`，让原版（`<180`）与含等变体（`<=180`）的转换帧各落在一个读点上。
+- ⚠ `wpp -1` = 解绑/删除；`edel <idx>` 删**非战士**不会触发 `on_fighter_del`（监听表观察口
+  `cb_map_count()` 不动）⇒ 要杀「删体不清表」类变异必须删**战士**；`edel` 后数组压缩要一次
+  `wrun` 刷掉 Gone 才在 `smlg` 可见。
+- ⚠ 变异运行收尾：以 killed 结束的轮次会把 **mutant 二进制**留在 build 里（源码已回滚）
+  ⇒ 再跑基线/新轮前先 `build lfw`，否则 “baseline already failing”。
+- 等效变异（别放回 spec）：FSB 名字缓存漏版本/漏描边、PlayerScoreCell 缓存早退反/版本写死
+  （写回值与旧值相同）；FSB `fall_value_max`/`mp_max`/`hp_max` 的 `dead ? 1.0 : …` 反写
+  （线性同速归零时比率恒等、`hp_max` 值无消费方）。

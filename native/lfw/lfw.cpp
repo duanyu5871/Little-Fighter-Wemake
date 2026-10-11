@@ -319,6 +319,11 @@ PlayerInfo* LFW::player(const std::u16string& player_id) {
 
 PlayerInfo* LFW::player(const Value& player_id) { return player(to_string(player_id)); }
 
+PlayerInfo* LFW::players_get(const Value& player_id) const {
+  const std::u16string* const s = as_str(player_id);
+  return s != nullptr ? find_player(*s) : nullptr;
+}
+
 bool LFW::players_has(const Value& player_id) const {
   const std::u16string* const s = as_str(player_id);
   if (s == nullptr) return false;

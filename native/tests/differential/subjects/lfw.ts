@@ -7,6 +7,7 @@ import { ImageInfo } from "../../../../src/LFW/ditto";
 import { Expression } from "../../../../src/LFW/base/Expression";
 import { Factory } from "../../../../src/LFW/Factory";
 import { LFW } from "../../../../src/LFW/LFW";
+import { LocalController } from "../../../../src/LFW/controller/LocalController";
 import { Randoming } from "../../../../src/LFW/helper/Randoming";
 import { MersenneTwister } from "../../../../src/LFW/utils/math/MersenneTwister";
 import { get_val_getter_from_stage } from "../../../../src/LFW/loader/get_val_getter_from_stage";
@@ -44,6 +45,12 @@ import { BGMSwitcher } from "../../../../src/LFW/ui/component/BGMSwitcher";
 import { SliderHandle } from "../../../../src/LFW/ui/component/Slider/SliderHandle";
 import { ArrowSwitcher } from "../../../../src/LFW/ui/component/Slider/ArrowSwitcher";
 import { ScrollView } from "../../../../src/LFW/ui/component/ScrollView";
+import { Entity } from "../../../../src/LFW/entity/Entity";
+import { SummaryLogic } from "../../../../src/LFW/ui/component/SummaryLogic";
+import { make_sum_info } from "../../../../src/LFW/ui/component/make_sum_info";
+import { FighterStatBar } from "../../../../src/LFW/ui/component/FighterStatBar";
+import { PlayerScore } from "../../../../src/LFW/ui/component/PlayerScore";
+import { summary_mgr } from "../../../../src/LFW/entity/SummaryMgr";
 import { FSM } from "../../../../src/LFW/base/FSM";
 import { ModeState } from "../../../../src/LFW/ui/component/ModeState";
 import {
@@ -720,6 +727,18 @@ function install_ditto(): void {
       equals(o: Vec3): boolean {
         return this.x === o.x && this.y === o.y && this.z === o.z;
       }
+      copy(o: Vec3): Vec3 {
+        this.x = o.x;
+        this.y = o.y;
+        this.z = o.z;
+        return this;
+      }
+      add(o: Vec3): Vec3 {
+        this.x += o.x;
+        this.y += o.y;
+        this.z += o.z;
+        return this;
+      }
       clone(): Vec3 {
         return new Vec3(this.x, this.y, this.z);
       }
@@ -894,6 +913,7 @@ function main(): void {
   listen();
 
   void run_ops().catch((e) => {
+    process.stderr.write(log.slice(-14).join("\n") + "\n");
     process.stderr.write(err_msg(e) + "\n");
     process.exit(2);
   });
@@ -1128,6 +1148,303 @@ async function run_ops(): Promise<void> {
         p.content = tnodes.get(target)!;
         push(`svcont|${nid}|${target}|${num(p.offset)}`);
       }
+    } else if (
+      op === "wpp" ||
+      op === "ehp" ||
+      op === "emp" ||
+      op === "eres" ||
+      op === "edel" ||
+      op === "wrun" ||
+      op === "ntick" ||
+      op === "sdmg" ||
+      op === "skill" ||
+      op === "spick" ||
+      op === "smlg" ||
+      op === "smapx" ||
+      op === "sumt" ||
+      op === "smk" ||
+      op === "sbctrl" ||
+      op === "wdt" ||
+      op === "edef" ||
+      op === "eprobe" ||
+      op === "wtime" ||
+      op === "elist" ||
+      op === "fdbg" ||
+      op === "cprb" ||
+      op === "fsbe" ||
+      op === "ps"
+    ) {
+      const w = lfw.world as unknown as Rec;
+      const ents = () => Array.from(w.entities as Set<Rec>);
+      if (op === "wpp") {
+        const pid = nextKey();
+        const idx = Number(nextKey());
+        const e = idx >= 0 ? (ents()[idx] as Rec | undefined) : undefined;
+        const puppets = w.puppets as Map<string, Rec>;
+        if (e) puppets.set(pid, e);
+        else puppets.delete(pid);
+        push(`wpp|${pid}|${e ? 1 : 0}|n=${String(puppets.size)}`);
+      } else if (op === "ehp" || op === "emp" || op === "eres") {
+        const idx = Number(nextKey());
+        const v = Number(nextKey());
+        const e = idx >= 0 ? (ents()[idx] as Rec | undefined) : undefined;
+        if (e) {
+          if (op === "ehp") e.hp = v;
+          else if (op === "emp") e.mp = v;
+          else e.reserve = v;
+        }
+        push(
+          `${op}|${num(idx)}|${e ? 1 : 0}|hp=${num(e ? e.hp : 0)}|mp=${num(e ? e.mp : 0)}|res=${
+            num(e ? e.reserve : 0)
+          }`,
+        );
+      } else if (op === "edel") {
+        const idx = Number(nextKey());
+        const e = idx >= 0 ? (ents()[idx] as Rec | undefined) : undefined;
+        if (e) (w.del_entity as (x: Rec) => void)(e);
+        push(`edel|${num(idx)}|${e ? 1 : 0}|n=${num(ents().length)}`);
+      } else if (op === "wrun") {
+        const n = Number(nextKey());
+        for (let k = 0; k < n; ++k) (w.update_once as (dt: number) => void)(16);
+        push(`wrun|${num(n)}|n=${num(ents().length)}|paused=${w.paused ? 1 : 0}`);
+      } else if (op === "ntick") {
+        const nid = next();
+        const n = Number(nextKey());
+        const nn = tnodes.get(nid)!;
+        for (let k = 0; k < n; ++k) nn.update(16);
+        push(`ntick|${nid}|lt=${num((nn as never as Rec).lifetime as number)}`);
+      } else if (op === "sdmg" || op === "skill" || op === "spick") {
+        const idx = Number(nextKey());
+        const v = Number(nextKey());
+        const e = idx >= 0 ? (ents()[idx] as Rec | undefined) : undefined;
+        if (e) {
+          if (op === "sdmg") summary_mgr.add_damage_sum(e as never, v);
+          else if (op === "skill") summary_mgr.add_kill_sum(e as never, v);
+          else summary_mgr.get(e.id as string).picking_sum += v;
+        }
+        push(`${op}|${num(idx)}|${e ? 1 : 0}`);
+      } else if (op === "smlg" || op === "smapx") {
+        const nid = next();
+        const n = tnodes.get(nid)!;
+        const p = n.components.find((c) => c instanceof SummaryLogic) as
+          | SummaryLogic
+          | undefined;
+        if (!p) push(`${op}|${nid}|none`);
+        else if (op === "smapx") {
+          p.on_fighter_add(ents()[0] as never);
+          push(
+            `smapx|${nid}|fighters=${num(p.fighters.size)}|players=${num(p.players.size)}|en=${num(
+              ents().length,
+            )}|gh=${num((w.ghosts as unknown[]).length)}|em=${num((w.entity_map as Map<unknown, unknown>).size)}`,
+          );
+        } else {
+          push(
+            `smlg|${nid}|teams=${num(p.teams.size)}|fighters=${num(p.fighters.size)}|players=${num(
+              p.players.size,
+            )}|losing=${num(p.losing_teams.size)}|cbm=${num(
+              ((p as Rec)["_summary_cb_map"] as Map<unknown, unknown>).size,
+            )}`,
+          );
+          for (const [k, s] of p.teams) {
+            push(
+              `sm|${k}|t=${String(s.team)}|${num(s.wins)}|${num(s.loses)}|${num(s.lives)}|${num(
+                s.deads,
+              )}|${num(s.spawns)}|${num(s.kills)}|${num(s.damages)}|${num(s.hp_lost)}|${num(
+                s.mp_usage,
+              )}|${num(s.pickings)}|${num(s.hp)}|${num(s.reserve)}|latest=${num(
+                s.latest_dead_time,
+              )}|losing=${p.losing_teams.has(s) ? 1 : 0}`,
+            );
+          }
+          for (const [k, s] of p.fighters) {
+            push(
+              `smf|${k}|t=${String(s.team)}|${num(s.spawns)}|${num(s.deads)}|${num(s.kills)}|${
+                num(s.damages)
+              }|${num(s.hp_lost)}|${num(s.mp_usage)}|${num(s.pickings)}`,
+            );
+          }
+          for (const [k, s] of p.players) {
+            push(
+              `smp|${k}|t=${String(s.team)}|pid=${String(s.player_id)}|${num(s.spawns)}|${num(
+                s.deads,
+              )}|${num(s.kills)}|${num(s.damages)}|${num(s.hp_lost)}|${num(
+                s.mp_usage,
+              )}|${num(s.pickings)}`,
+            );
+          }
+        }
+      } else if (op === "sumt") {
+        const nid = next();
+        const team = nextKey();
+        const n = tnodes.get(nid)!;
+        const p = n.components.find((c) => c instanceof SummaryLogic) as
+          | SummaryLogic
+          | undefined;
+        if (p) p.team_sum(team);
+        push(`sumt|${nid}|${team}|n=${num(p ? p.teams.size : -1)}`);
+      } else if (op === "wdt") {
+        const dt = Number(nextKey());
+        const n = Number(nextKey());
+        for (let k = 0; k < n; ++k) w.update_once(dt);
+        push(`wdt|${num(dt)}|${num(n)}|lt=${num(lfw.world.lifetime)}`);
+      } else if (op === "edef") {
+        const idx = Number(nextKey());
+        const f = nextKey();
+        const v = Number(nextKey());
+        const e = idx >= 0 ? (ents()[idx] as Rec | undefined) : undefined;
+        if (e) {
+          if (f === "defend_value") e["defend_value"] = v;
+          else if (f === "defend_value_max") e["defend_value_max"] = v;
+          else if (f === "fall_value") e["fall_value"] = v;
+          else if (f === "fall_value_max") e["fall_value_max"] = v;
+          else if (f === "toughness") e["toughness"] = v;
+          else if (f === "toughness_max") e["toughness_max"] = v;
+          else if (f === "hp_r") e["hp_r"] = v;
+        }
+        const rd = (k: string) => (e ? (e[k] as number) : 0);
+        push(
+          `edef|${num(idx)}|${f}|${e ? 1 : 0}|dv=${num(rd("defend_value"))}|dvm=${num(
+            rd("defend_value_max"),
+          )}|fv=${num(rd("fall_value"))}|fvm=${num(rd("fall_value_max"))}|tv=${num(
+            rd("toughness"),
+          )}|tvm=${num(rd("toughness_max"))}|hpr=${num(rd("hp_r"))}`,
+        );
+      } else if (op === "eprobe") {
+        const idx = Number(nextKey());
+        const e = idx >= 0 ? (ents()[idx] as Rec | undefined) : undefined;
+        const marks = e ? (e.marks as Map<string, unknown>) : undefined;
+        push(
+          `eprobe|${num(idx)}|e=${e ? (e["id"] as string) : "-"}|life=${num(
+            e ? ((e as never as Rec).lifetime as number) : 0,
+          )}|marks=${num(marks ? marks.size : 0)}|heal=${
+            marks && marks.has("Healing") ? 1 : 0
+          }|mpheal=${marks && marks.has("MpHealing") ? 1 : 0}`,
+        );
+      } else if (op === "wtime") {
+        push(`wtime|gt=${num(lfw.world.game_time as number)}|lt=${num(lfw.world.lifetime)}`);
+      } else if (op === "elist") {
+        const all = ents();
+        for (let k = 0; k < all.length; k++) {
+          const e = all[k]!;
+          push(
+            `el|${num(k)}|e=${e["id"] as string}|t=${e["team"] as string}|hp=${num(
+              e["hp"] as number,
+            )}`,
+          );
+        }
+      } else if (op === "fdbg") {
+        const nid = nextKey();
+        const nn = tnodes.get(nid)!;
+        const any = (nn.components as Rec[]).find((c) => c instanceof FighterStatBar) as
+          | Rec
+          | undefined;
+        const ent = any && any["entity"] ? (any["entity"] as Rec) : undefined;
+        const tc = any && any["_tier_colors"] ? (any["_tier_colors"] as string[]).length : -1;
+        const marks = ent ? (ent["marks"] as Map<string, unknown>) : undefined;
+        const life = ent
+          ? `${num(ent["lifetime"] as number)}/${num(marks ? marks.size : 0)}/${
+              marks && marks.has("Healing") ? 1 : 0
+            }/${marks && marks.has("MpHealing") ? 1 : 0}`
+          : "-";
+        push(
+          `fdbg|${nid}|n=${num((nn.components as Rec[]).length)}|fl=${
+            any ? (any["hp_flashing"] ? 1 : 0) : "-"
+          }|dead=${any ? (any["dead"] ? 1 : 0) : "-"}|mp=${
+            any ? (any["mp_healing"] ? 1 : 0) : "-"
+          }|tc=${num(tc)}|life=${life}|e=${ent ? (ent["id"] as string) : "-"}`,
+        );
+      } else if (op === "smk") {
+        const team = nextKey();
+        push(`smk|${String(make_sum_info(team).team)}`);
+      } else if (op === "sbctrl") {
+        const idx = Number(nextKey());
+        const pid = nextKey();
+        const mode = i[0]! < t.length ? nextKey() : "";
+        const e = idx >= 0 ? (ents()[idx] as Rec | undefined) : undefined;
+        const p = lfw.player(pid) as Rec | undefined;
+        let c: Rec | undefined;
+        if (e) {
+          if (mode === "human") {
+            c = (lfw.factory as Rec).acquire_ctrl(LocalController, pid, e) as Rec | undefined;
+          } else {
+            c = (lfw.factory as Rec).create_ctrl(
+              (e["data"] as Rec)["id"],
+              pid,
+              e,
+            ) as Rec | undefined;
+          }
+          if (c) e["ctrl"] = c;
+        }
+        push(
+          `sbctrl|${num(idx)}|${e ? 1 : 0}|p=${p ? 1 : 0}|bot=${
+            c && c["__is_bot_ctrl__"] === true ? 1 : 0
+          }|pid=${c ? String(c["player_id"]) : '-'}`,
+        );
+      } else if (op === "cprb") {
+        const nid = next();
+        const cid = nextKey();
+        const prop = nextKey();
+        const n = tnodes.get(nid)!;
+        const c = n.components.find((v: Rec) => v.id === cid) as Rec | undefined;
+        let ok = false;
+        let hit = "u";
+        let errs = "";
+        if (c) {
+          try {
+            const p = c["props"] as Rec;
+            const v = p[prop] as Rec | undefined;
+            ok = true;
+            hit = v ? `s"${String(v.id ?? v.name)}"` : "u";
+          } catch (e) {
+            errs = (e as Error).message;
+          }
+        }
+        push(`cprb|${nid}|${c ? 1 : 0}|ok=${ok ? 1 : 0}|n=${hit}|errs=${errs}`);
+      } else if (op === "fsbe") {
+        const nid = next();
+        const cid = nextKey();
+        const idx = Number(nextKey());
+        const n = tnodes.get(nid)!;
+        const p = n.components.find((c) => c.id === cid && c instanceof FighterStatBar) as
+          | FighterStatBar
+          | undefined;
+        const e = idx >= 0 ? (ents()[idx] as Rec | undefined) : undefined;
+        if (p) p.set_entity((e ?? undefined) as never);
+        push(`fsbe|${nid}|${p ? 1 : 0}|e=${e ? 1 : 0}`);
+      } else {
+        const nid = next();
+        const n = tnodes.get(nid)!;
+        const p = n.components.find((c) => c instanceof PlayerScore) as
+          | PlayerScore
+          | undefined;
+        if (!p) push(`ps|${nid}|none`);
+        else {
+          const l = p.lose;
+          const f = p.fighter;
+          push(
+            `ps|${nid}|idx=${num(p.index)}|lose=${
+              l === undefined ? '-' : l ? 1 : 0
+            }|f=${f ? f.id : '-'}|vis=${n.visible ? 1 : 0}`,
+          );
+        }
+      }
+    } else if (op === "eteam" || op === "emark" || op === "edmark") {
+      const idx = Number(nextKey());
+      const arr = Array.from((lfw.world as unknown as Rec).entities as Set<Rec>);
+      const e = idx >= 0 ? (arr[idx] as Rec | undefined) : undefined;
+      if (op === "eteam") {
+        const team = nextKey();
+        if (e) e.team = team;
+        push(`eteam|${num(idx)}|${e ? e.team : '-'}`);
+      } else {
+        const key = nextKey();
+        const val = nextKey();
+        if (e) {
+          if (op === "emark") e.set_mark(key, val);
+          else e.del_mark(key, val);
+        }
+        push(`${op}|${num(idx)}|${num(e ? (e.marks as Map<string, unknown>).size : 0)}`);
+      }
     } else if (op === "wtick") {
       // 推进 `world.lifetime`（暂停下 `step` 只做无害段；台面需要非零时间戳喂 `is_start`）。
       const n = Number(nextKey());
@@ -1217,7 +1534,7 @@ async function run_ops(): Promise<void> {
         `srank|${lfw.survival_rank_mode ? 1 : 0}${lfw.survival_rank_available ? 1 : 0}${lfw.survival_rank_2p ? 1 : 0}|${lfw.survival_rank_period}|cheated=${lfw.survival_rank_cheated ? 1 : 0}|modded=${lfw.survival_rank_modded ? 1 : 0}|invalid=${lfw.survival_rank_invalid ? 1 : 0}`,
       );
     } else if (op === "randinfo") {
-      const e = make_entity();
+      const e = make_real_entity(lfw.world, { type: 8, id: "rx" }) as Rec;
       lfw.random_entity_info(e as never);
       push(
         `randinfo|${(e as Rec)["id"]}|${fmt_num((e as Rec)["facing"])}|${fmt_num((e as Rec)["position"].x)}|${fmt_num((e as Rec)["position"].y)}|${fmt_num((e as Rec)["position"].z)}|L${fmt_num(lfw.world.left)},${fmt_num(lfw.world.right)},${fmt_num(lfw.world.near)},${fmt_num(lfw.world.far)}`,
@@ -1229,7 +1546,18 @@ async function run_ops(): Promise<void> {
     } else if (op === "entadd") {
       const id = nextKey();
       const n = Number(nextKey());
-      const ret = lfw.entities.add({ type: 8, id }, n);
+      const t1 = i[0]! < t.length ? nextKey() : undefined;
+      const team = t1 === '-' ? undefined : t1;
+      const type_id = i[0]! < t.length ? Number(nextKey()) : 8;
+      // 4BP：带上真数据（`fg1` 等）的 `base` / `frames`；不整对象展开（碰 texml getter 会炸）。
+      const real = (lfw.datas.find(id) ?? {}) as Rec;
+      const data: Rec = {
+        type: type_id,
+        id,
+        base: { ...(((real["base"] as Rec) ?? {}) as Rec) },
+        frames: (real["frames"] as unknown[]) ?? [],
+      };
+      const ret = lfw.entities.add(data as never, n, team);
       push(`entadd|${ret.length}`);
     } else if (op === "getter") {
       const w = nextKey();
@@ -2387,16 +2715,27 @@ function fmt_num(n: unknown): string {
   return num(Number(n));
 }
 
+function make_real_entity(world: unknown, data: Rec): unknown {
+  // TS `Entity.reset` 直接点读 `data.base.*`（C++ 端是宽容 `opt_num`）⇒ 台面补空 base 兜底。
+  const richer: Rec = { ...data };
+  if (!richer["base"]) richer["base"] = {};
+  if (!richer["frames"]) richer["frames"] = [];
+  return new Entity(world as never, richer as never);
+}
+
 function team_to_bool(t: string): boolean | undefined {
   if (t === "-") return undefined;
   return t === "1";
 }
 
-Factory.entity_creators.set(8 as never, ((_world: unknown, data: Rec) => {
+Factory.entity_creators.set(8 as never, ((world: unknown, data: Rec) => {
   push("entadd:create|" + String(data?.["id"]));
-  const e = make_entity();
-  e["data"] = data;
-  return e;
+  return make_real_entity(world, data);
+}) as never);
+// 4BP：非战士实体（`is_fighter` 筛选用）。
+Factory.entity_creators.set(4 as never, ((world: unknown, data: Rec) => {
+  push("entadd:create|" + String(data?.["id"]));
+  return make_real_entity(world, data);
 }) as never);
 
 main();

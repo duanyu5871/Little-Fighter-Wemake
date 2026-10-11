@@ -389,6 +389,11 @@ class FakeLfw : public lfw::IWorldLfw {
   }
 
   // ---- `IWorldLfw` ----
+  lfw::PlayerInfo* players_get(const Value& player_id) const override {
+    push("h:player=" + vstr(player_id));
+    return player_of(str_of(player_id));
+  }
+
   lfw::PlayerInfo* player(const Value& player_id) override {
     push("h:player=" + vstr(player_id));
     return player_of(str_of(player_id));

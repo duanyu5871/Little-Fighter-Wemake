@@ -9884,3 +9884,56 @@ GBK 乱码，存活提取用 `TextDecoder("gbk")` 反向编码匹配。
 
 **测试**：用例 `cases/lfw/scroll.txt` **636 行**（+ `scroll2.txt` **38 行**，默认 thumb id
 回退）；变异 `lfw_scroll.mjs` **152/152 全杀**；全量差分 **246/246**。
+
+## 129. 切片 4BP：SummaryLogic / FighterStatBar / PlayerScore 族 / TeamSituationText
+
+**`summary_logic`**：makers `make_sum_info`/`make_fighter_sum`/`make_player_sum`（带
+`ctrl.player_id`）/`make_team_sum_info`；三张表 `fighters`/`players`/`teams` 是**插入序
+`vector<pair>`**（对应 TS `Map`），失者集 `losing_teams` 与暂存 `_temps` 存**队名键**（避免
+容器增长后指针悬挂）。监听：世界 `on_fighter_add`/`on_fighter_del`；战士五事件
+（`on_dead`/`on_hp_changed`/`on_mp_changed`/`on_reserve_changed`）+ summary 三事件
+（damage/kill/picking）。口径：`handle_dead`（`deads++`/`lives--`/`latest_dead_time = node.lifetime()`，
+`deads == spawns` ⇒ 入失者集）；`handle_hp_changed`（`p<=0 && v>0` 复活回收、`p>v` 计失血）；
+`handle_mp_changed`/`handle_reserve_changed`/三类 sum 变化按差值累加。`on_fighter_add`：分身
+（`emitters` 非空）不计 spawns；真身 spawn 时清失者集 + 旧监听迁 `_summary_cb_trash` 后换新。
+`on_fighter_del`：摘战士回调 + `summary_mgr` 退订 + 清 `_summary_cb_map`（观察口
+`cb_map_count()`；TS 无 trash 桶）。`update`：失者逐队等 **180 帧**
+（`node.lifetime() - latest_dead_time < kLosingWait`，**不含等** ⇒ 恰好 180 即败计并入
+`_temps` 摘除）+ `_refresh_timer` 周期重算（清零后按当前世界重加）。
+
+**`fighter_stat_bar`**：props 九个引用（七条 + `head_img`/`name_txt`）。SmoothNumber 回调路由 =
+`defend_value(_max)`→`update_defend_value`、`fall_value(_max)`→`update_fall_value`、
+`toughness(_max)`→`update_toughness`、`hp(_max/r)`→`update_hp/update_hp_r`、
+`mp(_max)`→`update_mp/update_mp_max`。`update` 管线：`update_team`/`update_name`/`update_head`
+→ 各 SmoothNumber pump（回调生效）→ Healing 闪红（`marks.count("Healing") && fmod(lifetime,8) < 4`
+才置红；`_tier_colors` 懒捕获、状态翻转才重涂、不可见层保持原色）/MpHealing 变蓝（mp 条首子色
+`rgb(130,130,255)` ↔ `rgb(0,0,255)`）→ `dead = hp<=0` → 全量 `set_target`（dead 时数值条 0、
+上限条 1.0）。`update_name`：`ctrl` 的玩家取名、（bot 接管非 com）追加 `(bot)`、实体名与
+`base.name` 合并 `name1 [name0]`、`style.version()` + 描边缓存早退。`update_team`：队色表缺失
+回退独立队，outline/fill 双字段比较。`update_tiers`：逐层
+`clamp(val - i*500, 0, 500)/500`、`visible = !dead`、**<2 层直接跳过**（单层夹具=死路径）；
+`update_bar`：`max==0` ⇒ scale 0。
+
+**`player_score` 族**：`player_score`（`index()` 缺省 -1；越界
+`idx >= puppets.size()` ⇒ null；`lose()` = 死且队内无活人；`update` 只切可见性）；
+`player_score_cell`（`kind` 映射 kill/attack/hp_lost/mp_usage/picking/status；`status` 三态
+`hp>0 ⇒ win_alive`、`lose ⇒ lose`、否则 `win_dead`；文本/样式都吃
+`_last_txt`+`style.version()` 双缓存）；`player_score_player_name`
+（`on_show`+render 队色描边、`ctrl.player.name` 优先、玩家缺失 "-" 兜底、无棋手名回退）。
+
+**`team_situation_text`**：`args[0]` 非空固定队、否则订世界 `on_stage_change` 跟随（stop 退订、
+resume 重排）；`_style` = 队色填充 + `12px Arial`；`rr()` 文案
+`Man: N　HP: X(　Reserve: M)`、同文不刷；`update` 节拍 `fmod(game_time, 30) == 0`。端口把
+`_sum` 指针改为 **`_sum_logic` + `_sum_team`**（每次 `rr` 经 `team_sum` 重取引用）。
+
+⚠ **端口修正（随本切片）**：`World::add_entities` 不再用会**建表**的 `player()`，改走新的
+`IWorldLfw::players_get`（同 TS `players.get`）；共替换 4 处调用点（world 两处、
+`cmd_set_puppet`、本切片组件）。
+
+⚠ **台面必需**：`dataset atom_time` 不设 ⇒ 实体 `lifetime`/`world.game_time` 恒 0（Healing
+相位、TST 节拍全部空转、变异天生存活）；首轮世界更新会**重排 `w.entities`**（含新生实体）⇒
+按索引绑定/编辑必须排在一次「洗牌」`wdt` 之后，且洗牌后不再增删实体（`elist` 钉序）。
+
+**测试**：用例 `cases/lfw/score.txt` **725 行**；变异 `lfw_score.mjs` **151/151 全杀**（剔除 5
+条数学等效：FSB 名字缓存×2、Cell 缓存×2、`fall/mp 上限/血上限` 目标反——线性同速归零时比率
+或值不可观测）；全量差分 **247/247**。

@@ -263,6 +263,12 @@ add_library(lfw_core STATIC
   ui/component/arrow_switcher.cpp
   ui/component/switcher_handle.cpp
   ui/component/scroll_view.cpp
+  ui/component/summary_logic.cpp
+  ui/component/fighter_stat_bar.cpp
+  ui/component/player_score.cpp
+  ui/component/player_score_cell.cpp
+  ui/component/player_score_player_name.cpp
+  ui/component/team_situation_text.cpp
   ui/instance_ref.cpp
   helper/randoming.cpp
   state/spawn_ice_piece.cpp

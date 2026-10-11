@@ -509,6 +509,7 @@ class LFW : public IWorldLfw,
 
   // ---- IWorldLfw ----
   PlayerInfo* player(const Value& player_id) override;
+  PlayerInfo* players_get(const Value& player_id) const override;
   Value get_random_bg(const std::vector<Value>& groups) override;
   Entity* create_entity(World& world, const Value& data) override;
   Entity* create_entity_with_player(const std::u16string& player_id, World& world,

@@ -67,7 +67,9 @@ class IWorldUi {
 // 「`LFW` 未移植的那一面」，`World` 要的是同一个 `lfw` 对象。
 class IWorldLfw : public stage::IStageLfw {
  public:
-  // `lfw.players.get(player_id)`
+  // `lfw.players.get(player_id)`（不建号；`lfw.player(id)` 才是自动建号）
+  virtual PlayerInfo* players_get(const Value& player_id) const = 0;
+  // `lfw.player(id)`（找不到会自动建号）
   virtual PlayerInfo* player(const Value& player_id) = 0;
   // `lfw.datas.get_random_bg([...])`
   virtual Value get_random_bg(const std::vector<Value>& groups) = 0;

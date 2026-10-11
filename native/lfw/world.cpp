@@ -538,7 +538,7 @@ void World::add_entities(Entity& e) {
                                       std::u16string(), 0.0, 0.0, 0.0, false}});
     controller::BaseController* const ctrl = e.ctrl();
     const std::u16string player_id = ctrl != nullptr ? ctrl->player_id : std::u16string();
-    PlayerInfo* const player = lfw_->player(Value(std::u16string(player_id)));
+    PlayerInfo* const player = lfw_->players_get(Value(std::u16string(player_id)));
     if (player != nullptr) {
       player->set_fighter(&e);
       map_set(puppets, player_id, &e);
@@ -1167,7 +1167,7 @@ void World::step() {
     }
     controller::BaseController* const ctrl = entity->ctrl();
     const std::u16string player_id = ctrl != nullptr ? ctrl->player_id : std::u16string();
-    PlayerInfo* const player = lfw_->player(Value(std::u16string(player_id)));
+    PlayerInfo* const player = lfw_->players_get(Value(std::u16string(player_id)));
     if (player != nullptr) player->set_fighter(nullptr);
     Entity* const puppet = map_get(puppets, player_id);
     if (puppet == entity) {
