@@ -5172,3 +5172,35 @@ harness op：
 - 等效变异（别放回 spec）：FSB 名字缓存漏版本/漏描边、PlayerScoreCell 缓存早退反/版本写死
   （写回值与旧值相同）；FSB `fall_value_max`/`mp_max`/`hp_max` 的 `dead ? 1.0 : …` 反写
   （线性同速归零时比率恒等、`hp_max` 值无消费方）。
+
+### 6.9.174 CameraCtrl / EndingPageLogic / MainMenuLogic / SettingsLogic / VsModeLogic（`cases/lfw/page_logic.txt` 756 行；变异 88/88 全杀）
+
+- 新台面 op：
+  - `camr`（相机坐标 `camr|x|y`）；`cams <x> <y>`（写坐标）。
+  - `sran <0|1>` / `danm <0|1>`（`lfw.survival_rank_available` / `danmu_available` 开关）。
+  - `pfight <pid> <idx|-1>`（按索引绑定 `PlayerInfo::set_fighter`）。
+  - `cdbg <nid> <cid>`（CameraCtrl 内部 `a=|s=|w=|c=`；非该组件打 `none`）。
+  - `fsr <nid> <cid>`（任意组件 `fsm()` 的 `s=|p=|t=|st=`；无 FSM 打 `none`）；
+    `fsuse <nid> <cid> <key>`（强制 `FSM::use`）。
+  - `ncomp <nid> <组件 data>`：**挂树后**再建真组件（`factory.create_components` +
+    `add_components`），用于一切带**引用型 props** 的组件夹具。
+  - `eol <idx>`（实体描边 `w=|c=`；越界打 `none`）；`epos <idx> <x> <z>`（摆实体位置，
+    排序/跟随类变异可观测）；`dsrd <key>`（world dataset 回读，`render_value` 格式）。
+  - `npg <nid> <layerIdx>`：把层顶页节点绑定为台面别名（`pop_page` 要求
+    `node.root() == layer->ui()`，`nml` 建的游离节点会被守卫拦下）。
+- ⚠ **props 引用语义**（对齐 TS `UIProps` 解析）：UINode 类引用取**节点 id**；UIComponent
+  子类引用（`Jalousie`/`Flex` 系、`LabelButton`/`Picture` 等）取**组件 id**；`nmk` 内联建
+  组件时 props **立即解析**，而此时节点未挂树 ⇒ 裸 id 走 `search_node` 子树 / 一级 `parent`
+  lookup 必失败（TS 抛 `SchemaValidator … not found`）。正路 = `nmk`（空组件）+ `nadd` 挂树
+  + 子节点就位 + `ncomp`。
+- ⚠ **`nid` 是台面变量名**（`g_nodes`/`tnodes` 的键），不是节点的 `id s "..."`；
+  `nrd`/`nlife`/`nkey`/`nclick` 等都用变量名，用错键在 C++ 侧 `.at` 直接崩（`0xC0000409`）。
+- ⚠ **MSVC C1061（块嵌套太深）**：台面 op 链已到上限；新 op 要么挂进
+  `run_comp_ops`/`run_sum_ops`，要么在链头开独立早退分支
+  （`if (op == "camr" || … ) { …; continue; }`）。
+- ⚠ `kstat` 会逐个驱动 `lfw.mounted_keys`——CameraCtrl 的 `Keys` 自动挂载，`U/L/R/D/j/d`
+  全可在台面直接按（`hit`/`end`）；`nset <nid> update <dt>` = 单次 `update(dt)`。
+- ⚠ 相机手动平移**不写回**：TS 解构拷贝 `x/y` 只推 `DIST_CAM`（`camr` 不会变）——差分要看
+  `cmds`；`is_start` 要求「按下时的 `world.lifetime` == 本次 `update` 的时刻」⇒ 每次按键前
+  先 `wdt` 推寿命，`hit` 后在同寿命内 update 一次。⚠ `world` 更新会把实体 `z` 归零 ⇒
+  排序类观察要在 `nset update` 前重新 `epos` 摆位；`nset update` = 单次组件 update。

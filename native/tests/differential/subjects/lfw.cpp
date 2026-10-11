@@ -60,6 +60,7 @@
 #include "lfw/ui/component/scroll_view.h"
 #include "lfw/ui/component/summary_logic.h"
 #include "lfw/ui/component/fighter_stat_bar.h"
+#include "lfw/ui/component/camera_ctrl.h"
 #include "lfw/ui/component/player_score.h"
 #include "lfw/ui/component/player_score_cell.h"
 #include "lfw/ui/component/player_score_player_name.h"
@@ -1470,9 +1471,34 @@ bool run_sum_ops(lfw::LFW& lfw, FakeHost& host, const std::vector<std::string>& 
   }
   return false;
 }
+
+std::map<std::string, std::vector<std::unique_ptr<lfw::ui::UIComponent>>> g_real_comps;
+
+// 4BQ：层页面节点（非 g_nodes 所有权）的台面别名（`npg`）。
+std::map<std::string, lfw::ui::UINode*> g_alias_nodes;
+
+lfw::ui::UINode& pick_node(const std::string& nid) {
+  const auto it = g_alias_nodes.find(nid);
+  if (it != g_alias_nodes.end() && it->second != nullptr) return *it->second;
+  return *g_nodes.at(nid);
+}
+
 bool run_comp_ops(lfw::LFW& lfw, FakeHost& host, const std::vector<std::string>& t, size_t& i,
                   const std::string& op) {
-  if (op == "ptev") {
+  if (op == "ncomp") {
+    const std::string nid = t[i++];
+    lfw::ui::UINode& n = *g_nodes.at(nid);
+    const lfw::Value item = parse_value(t, i);
+    auto arr = std::make_shared<lfw::Array>();
+    arr->push_back(item);
+    std::vector<std::unique_ptr<lfw::ui::UIComponent>> comps =
+        lfw.factory.create_components(n, lfw::Value(arr));
+    for (std::unique_ptr<lfw::ui::UIComponent>& c : comps) {
+      n.add_components(*c);
+      g_real_comps[nid].push_back(std::move(c));
+    }
+    push("ncomp|" + nid + "|" + std::to_string(n.components().size()));
+  } else if (op == "ptev") {
     const std::string what = t[i++];
     const double btn = to_double(t[i++]);
     const double x = to_double(t[i++]);
@@ -2545,6 +2571,127 @@ int main(int argc, char** argv) {
     const std::string& op = t[0];
     size_t i = 1;
 
+    if (op == "camr" || op == "cams" || op == "sran" || op == "danm" || op == "pfight" ||
+        op == "cdbg" || op == "fsuse" || op == "fsr" || op == "eol" || op == "dsrd" ||
+        op == "epos" || op == "npg") {
+      if (op == "camr") {
+        const lfw::Vector2& p = lfw.world().camera().position;
+        push("camr|" + num(p.x) + "|" + num(p.y));
+      } else if (op == "cams") {
+        const double x = to_double(t[i++]);
+        const double y = to_double(t[i++]);
+        lfw::Vector2& p = lfw.world().camera().position;
+        p.x = x;
+        p.y = y;
+        push("cams|" + num(x) + "|" + num(y));
+      } else if (op == "sran") {
+        const bool en = t[i++] == "1";
+        lfw.srank_available = en;
+        push(std::string("sran|") + (en ? "1" : "0"));
+      } else if (op == "danm") {
+        const bool en = t[i++] == "1";
+        lfw.danmu_available = en;
+        push(std::string("danm|") + (en ? "1" : "0"));
+      } else if (op == "pfight") {
+        const std::u16string pid = key_of(t[i++]);
+        const double idx = to_double(t[i++]);
+        lfw::PlayerInfo* const p = lfw.player(pid);
+        lfw::Entity* const e = idx >= 0 && static_cast<size_t>(idx) < lfw.world().entities.size()
+                                   ? lfw.world().entities[static_cast<size_t>(idx)]
+                                   : nullptr;
+        p->set_fighter(e);
+        push("pfight|" + to_ascii(pid) + "|" +
+             (e != nullptr ? to_ascii(e->id) : std::string("-")));
+      } else if (op == "cdbg") {
+        const std::string nid = t[i++];
+        const std::u16string cid = key_of(t[i++]);
+        lfw::ui::UINode& n = *g_nodes.at(nid);
+        lfw::ui::CameraCtrl* p = nullptr;
+        for (lfw::ui::UIComponent* const c : n.components()) {
+          if (c->id != cid) continue;
+          if (!lfw::is_class(c->clazz(), lfw::ui::CameraCtrl::class_tag())) continue;
+          p = static_cast<lfw::ui::CameraCtrl*>(c);
+          break;
+        }
+        if (p == nullptr) {
+          push("cdbg|" + nid + "|none");
+        } else {
+          lfw::Entity* const s = p->staring();
+          push("cdbg|" + nid + "|a=" + (p->auto_ ? "1" : "0") + "|s=" +
+               (s != nullptr ? to_ascii(s->id) : std::string("-")) + "|w=" +
+               num(s != nullptr ? s->outline_width() : 0) + "|c=" +
+               (s != nullptr ? to_ascii(s->outline_color()) : std::string("-")));
+        }
+      } else if (op == "fsuse") {
+        const std::string nid = t[i++];
+        const std::u16string cid = key_of(t[i++]);
+        const std::u16string key = key_of(t[i++]);
+        lfw::ui::UINode& n = pick_node(nid);
+        lfw::ui::UIComponent* p = nullptr;
+        for (lfw::ui::UIComponent* const c : n.components()) {
+          if (c->id != cid) continue;
+          p = c;
+          break;
+        }
+        lfw::FSM* const f = p != nullptr ? p->fsm() : nullptr;
+        if (f != nullptr) f->use(lfw::Value(key));
+        push("fsuse|" + nid + "|" + to_ascii(cid) + "|" + to_ascii(key));
+      } else if (op == "fsr") {
+        const std::string nid = t[i++];
+        const std::u16string cid = key_of(t[i++]);
+        lfw::ui::UINode& n = pick_node(nid);
+        lfw::ui::UIComponent* p = nullptr;
+        for (lfw::ui::UIComponent* const c : n.components()) {
+          if (c->id != cid) continue;
+          p = c;
+          break;
+        }
+        lfw::FSM* const f = p != nullptr ? p->fsm() : nullptr;
+        if (f == nullptr) {
+          push("fsr|" + nid + "|none");
+        } else {
+          push("fsr|" + nid + "|" + to_ascii(cid) + "|s=" +
+               (f->state() != nullptr ? to_ascii(render_value(f->state()->key())) : "-") + "|p=" +
+               (f->prev_state() != nullptr ? to_ascii(render_value(f->prev_state()->key())) : "-") +
+               "|t=" + num(f->time()) + "|st=" + num(f->state_time()));
+        }
+      } else if (op == "eol") {
+        const double idx = to_double(t[i++]);
+        lfw::Entity* const e = idx >= 0 && static_cast<size_t>(idx) < lfw.world().entities.size()
+                                   ? lfw.world().entities[static_cast<size_t>(idx)]
+                                   : nullptr;
+        push("eol|" + num(idx) +
+             (e != nullptr ? "|w=" + num(e->outline_width()) + "|c=" + to_ascii(e->outline_color())
+                           : "|none"));
+      } else if (op == "npg") {
+        const std::string nid = t[i++];
+        const double idx = to_double(t[i++]);
+        lfw::ui::UILayer* l = g_real_layers ? g_real_layers->at(idx) : nullptr;
+        g_alias_nodes[nid] = l != nullptr ? l->ui() : nullptr;
+        push("npg|" + nid + "|" + (l != nullptr && l->ui() != nullptr ? "1" : "0"));
+      } else if (op == "epos") {
+        const double idx = to_double(t[i++]);
+        const double x = to_double(t[i++]);
+        const double z = to_double(t[i++]);
+        lfw::Entity* const e = idx >= 0 && static_cast<size_t>(idx) < lfw.world().entities.size()
+                                   ? lfw.world().entities[static_cast<size_t>(idx)]
+                                   : nullptr;
+        if (e != nullptr) {
+          e->position.x = x;
+          e->position.z = z;
+        }
+        push("epos|" + num(idx) + "|" + num(x) + "|" + num(z));
+      } else if (op == "dsrd") {
+        const std::u16string key = key_of(t[i++]);
+        const lfw::Value ds = lfw.world().world_dataset();
+        const lfw::Object* const o = lfw::as_object(ds);
+        const lfw::Value* const p = o != nullptr ? o->get(key) : nullptr;
+        push("dsrd|" + to_ascii(key) + "|" +
+             to_ascii(render_value(p != nullptr ? *p : lfw::Value())));
+      }
+      continue;
+    }
+
     if (op == "info") {
       const lfw::Value& info = lfw::LFW::INFO();
       const lfw::Value version = lfw::field_or(info, u"version");
@@ -3063,7 +3210,7 @@ int main(int argc, char** argv) {
     } else if (op == "nset") {
       const std::string nid = t[i++];
       const std::string what = t[i++];
-      lfw::ui::UINode& n = *g_nodes.at(nid);
+      lfw::ui::UINode& n = pick_node(nid);
       if (what == "x") n.set_x(to_double(t[i++]));
       else if (what == "y") n.set_y(to_double(t[i++]));
       else if (what == "z") n.set_z(to_double(t[i++]));
@@ -3271,7 +3418,7 @@ int main(int argc, char** argv) {
     } else if (op == "nlife") {
       const std::string nid = t[i++];
       const std::string what = t[i++];
-      lfw::ui::UINode& n = *g_nodes.at(nid);
+      lfw::ui::UINode& n = pick_node(nid);
       g_defer_pins = true;
       if (what == "start") n.on_start();
       else if (what == "stop") n.on_stop();
@@ -3291,7 +3438,7 @@ int main(int argc, char** argv) {
       const std::string nid = t[i++];
       const double btn = to_double(t[i++]);
       lfw::ui::LFWPointerEvent e(lfw::Vector3(0, 0, 0), btn);
-      g_nodes.at(nid)->on_click(e);
+      pick_node(nid).on_click(e);
       push("click|" + nid + "|stop=" + std::to_string(e.stopped()));
     } else if (op == "nkey") {
       const std::string nid = t[i++];
@@ -3302,7 +3449,7 @@ int main(int argc, char** argv) {
       if (pre) ++i;
       lfw::ui::LFWKeyEvent e(std::u16string(), dir == "down", gk, key);
       if (pre) e.stop_immediate_propagation();
-      lfw::ui::UINode& n = *g_nodes.at(nid);
+      lfw::ui::UINode& n = pick_node(nid);
       if (dir == "down") n.on_key_down(e);
       else n.on_key_up(e);
       push("nkey|" + nid + "|" + dir + "|stop=" + std::to_string(e.stopped()));

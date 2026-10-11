@@ -5,9 +5,11 @@
 
 #include "lfw/ui/component/background_switcher.h"
 #include "lfw/ui/component/bgm_switcher.h"
+#include "lfw/ui/component/camera_ctrl.h"
 #include "lfw/ui/component/components_player.h"
 #include "lfw/ui/component/difficulty_text.h"
 #include "lfw/ui/component/alignment.h"
+#include "lfw/ui/component/ending_page_logic.h"
 #include "lfw/ui/component/extra_zip_text.h"
 #include "lfw/ui/component/fade_in_opacity.h"
 #include "lfw/ui/component/fade_out_opacity.h"
@@ -23,6 +25,9 @@
 #include "lfw/ui/component/img_loop.h"
 #include "lfw/ui/component/integer_picker.h"
 #include "lfw/ui/component/label_button.h"
+#include "lfw/ui/component/main_menu_logic.h"
+#include "lfw/ui/component/settings_logic.h"
+#include "lfw/ui/component/vs_mode_logic.h"
 #include "lfw/ui/component/opacity_animation.h"
 #include "lfw/ui/component/opacity_flash.h"
 #include "lfw/ui/component/opacity_hover.h"
@@ -154,6 +159,11 @@ void regist_components() {
   regist_one<PlayerScoreCell>(u"PlayerScoreCell");
   regist_one<PlayerScorePlayerName>(u"PlayerScorePlayerName");
   regist_one<TeamSituationText>(u"TeamSituationText");
+  regist_one<CameraCtrl>(u"CameraCtrl");
+  regist_one<EndingPageLogic>(u"EndingPageLogic");
+  regist_one<MainMenuLogic>(u"MainMenuLogic");
+  regist_one<SettingsLogic>(u"SettingsLogic");
+  regist_one<VsModeLogic>(u"VsModeLogic");
 }
 
 }

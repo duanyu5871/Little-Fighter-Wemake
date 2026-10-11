@@ -264,6 +264,11 @@ add_library(lfw_core STATIC
   ui/component/switcher_handle.cpp
   ui/component/scroll_view.cpp
   ui/component/summary_logic.cpp
+  ui/component/camera_ctrl.cpp
+  ui/component/ending_page_logic.cpp
+  ui/component/main_menu_logic.cpp
+  ui/component/settings_logic.cpp
+  ui/component/vs_mode_logic.cpp
   ui/component/fighter_stat_bar.cpp
   ui/component/player_score.cpp
   ui/component/player_score_cell.cpp

@@ -49,6 +49,7 @@ import { Entity } from "../../../../src/LFW/entity/Entity";
 import { SummaryLogic } from "../../../../src/LFW/ui/component/SummaryLogic";
 import { make_sum_info } from "../../../../src/LFW/ui/component/make_sum_info";
 import { FighterStatBar } from "../../../../src/LFW/ui/component/FighterStatBar";
+import { CameraCtrl } from "../../../../src/LFW/ui/component/CameraCtrl";
 import { PlayerScore } from "../../../../src/LFW/ui/component/PlayerScore";
 import { summary_mgr } from "../../../../src/LFW/entity/SummaryMgr";
 import { FSM } from "../../../../src/LFW/base/FSM";
@@ -124,6 +125,8 @@ const flush_microtasks = async (): Promise<void> => {
 };
 // 4AN：UINode 脚本。
 const tnodes = new Map<string, UINode>();
+// 4BQ：`ncomp` 创建的真组件（保引用防 GC）。
+const g_ncomps: Rec[] = [];
 
 // 4AP：真 `UILayers`（台面直建，与 `lfw.layers` 的补丁面互不干扰）。
 const real_layers: { v: UILayers | null } = { v: null };
@@ -963,6 +966,100 @@ async function run_ops(): Promise<void> {
       push(
         `player|${p1.id}|${p1 === p2 ? 1 : 0}|local=${p1.local ? 1 : 0}|${String(p1.name ?? "u")}|count=${lfw.players.size}`,
       );
+    } else if (op === "camr") {
+      const cam = (lfw.world as Rec).camera as Rec;
+      const pos = cam.position as Rec;
+      push(`camr|${num(pos.x as number)}|${num(pos.y as number)}`);
+    } else if (op === "cams") {
+      const x = Number(next());
+      const y = Number(next());
+      const cam = (lfw.world as Rec).camera as Rec;
+      const pos = cam.position as Rec;
+      pos.x = x;
+      pos.y = y;
+      push(`cams|${num(x)}|${num(y)}`);
+    } else if (op === "sran") {
+      const en = next() === "1";
+      (lfw as unknown as Rec).survival_rank_available = en;
+      push(`sran|${en ? 1 : 0}`);
+    } else if (op === "danm") {
+      const en = next() === "1";
+      (lfw as unknown as Rec).danmu_available = en;
+      push(`danm|${en ? 1 : 0}`);
+    } else if (op === "pfight") {
+      const pid = nextKey();
+      const idx = Number(next());
+      const arr = Array.from((lfw.world as Rec).entities as Set<Rec>);
+      const e = idx >= 0 ? (arr[idx] as Rec | undefined) : undefined;
+      const p = lfw.player(pid) as Rec;
+      p.fighter = e;
+      push(`pfight|${pid}|${e ? (e.id as string) : "-"}`);
+    } else if (op === "cdbg") {
+      const nid = next();
+      const cid = nextKey();
+      const n = tnodes.get(nid)!;
+      const c = (n.components as Rec[]).find((v) => v.id === cid) as Rec | undefined;
+      if (!c || !(c instanceof CameraCtrl)) {
+        push(`cdbg|${nid}|none`);
+      } else {
+        const any = c as unknown as Rec;
+        const s = any["staring"] as Rec | undefined;
+        push(
+          `cdbg|${nid}|a=${any["auto"] ? 1 : 0}|s=${s ? (s["id"] as string) : "-"}|w=${
+            s ? num(s["outline_width"] as number) : num(0)
+          }|c=${s ? String(s["outline_color"] ?? "") : "-"}`,
+        );
+      }
+    } else if (op === "epos") {
+      const idx = Number(nextKey());
+      const x = Number(next());
+      const z = Number(next());
+      const arr = Array.from((lfw.world as Rec).entities as Set<Rec>);
+      const e = idx >= 0 && idx < arr.length ? (arr[idx] as Rec | undefined) : undefined;
+      if (e) {
+        const p = e.position as Rec;
+        p.x = x;
+        p.z = z;
+      }
+      push(`epos|${num(idx)}|${num(x)}|${num(z)}`);
+    } else if (op === "eol") {
+      const idx = Number(nextKey());
+      const arr = Array.from((lfw.world as Rec).entities as Set<Rec>);
+      const e = idx >= 0 && idx < arr.length ? (arr[idx] as Rec | undefined) : undefined;
+      push(
+        `eol|${num(idx)}|${
+          e ? `w=${num(e["outline_width"] as number)}|c=${String(e["outline_color"] ?? "")}` : "none"
+        }`,
+      );
+    } else if (op === "dsrd") {
+      const key = nextKey();
+      push(`dsrd|${key}|${renderValue((lfw.world.dataset as Rec)[key])}`);
+    } else if (op === "fsuse") {
+      const nid = next();
+      const cid = nextKey();
+      const key = nextKey();
+      const n = tnodes.get(nid)!;
+      const c = (n.components as Rec[]).find((v) => v.id === cid) as Rec | undefined;
+      const f = c ? (c["fsm"] as Rec | undefined) : undefined;
+      if (f) (f["use"] as (v: unknown) => void).call(f, key as never);
+      push(`fsuse|${nid}|${cid}|${key}`);
+    } else if (op === "fsr") {
+      const nid = next();
+      const cid = nextKey();
+      const n = tnodes.get(nid)!;
+      const c = (n.components as Rec[]).find((v) => v.id === cid) as Rec | undefined;
+      const f = c ? (c["fsm"] as Rec | undefined) : undefined;
+      if (!f) {
+        push(`fsr|${nid}|none`);
+      } else {
+        const s = f["state"] as Rec | undefined;
+        const pv = f["prev_state"] as Rec | undefined;
+        push(
+          `fsr|${nid}|${cid}|s=${s ? renderValue(s["key"]) : "-"}|p=${
+            pv ? renderValue(pv["key"]) : "-"
+          }|t=${num(f["time"] as number)}|st=${num(f["state_time"] as number)}`,
+        );
+      }
     } else if (op === "pkey") {
       const pid = nextKey();
       const name = nextKey();
@@ -1172,6 +1269,17 @@ async function run_ops(): Promise<void> {
       op === "fdbg" ||
       op === "cprb" ||
       op === "fsbe" ||
+      op === "camr" ||
+      op === "cams" ||
+      op === "sran" ||
+      op === "danm" ||
+      op === "pfight" ||
+      op === "cdbg" ||
+      op === "fsr" ||
+      op === "fsuse" ||
+      op === "eol" ||
+      op === "dsrd" ||
+      op === "epos" ||
       op === "ps"
     ) {
       const w = lfw.world as unknown as Rec;
@@ -1899,15 +2007,29 @@ async function run_ops(): Promise<void> {
       if (dir === "down") n.on_key_down(e);
       else n.on_key_up(e);
       push(`nkey|${nid}|${dir}|stop=${e.stopped}`);
+    } else if (op === "npg") {
+      const nid = next();
+      const idx = Number(next());
+      const l = real_layers.v?.at(idx);
+      if (l?.ui) tnodes.set(nid, l.ui);
+      push(`npg|${nid}|${l?.ui ? 1 : 0}`);
     } else if (op === "nml") {
       const nid = next();
       const lt = next();
       const layer = lt !== "-" ? real_layers.v?.at(Number(lt)) : undefined;
       tnodes.set(nid, UINode.create(lfw, parseValue(t, i) as never, undefined, layer));
-    } else if (op === "cadd" || op === "cdel" || op === "lcomp" || op === "cupd" || op === "cfind" || op === "cset") {
+    } else if (op === "cadd" || op === "cdel" || op === "lcomp" || op === "cupd" || op === "cfind" || op === "cset" || op === "ncomp") {
       const nid = next();
       const n = tnodes.get(nid)!;
-      if (op === "cadd") {
+      if (op === "ncomp") {
+        const item = parseValue(t, i) as Rec;
+        const comps = (lfw.factory as Rec).create_components(n, [item] as never) as Rec[];
+        for (const c of comps) {
+          n.add_components(c as never);
+          g_ncomps.push(c);
+        }
+        push(`ncomp|${nid}|${n.components.length}`);
+      } else if (op === "cadd") {
         const cid = next();
         const props = parseValue(t, i) as Rec;
         const info = { id: cid, name: cid, cls: "FakeComp", args: [], enabled: true, properties: props, props: {}, weight: 0 };

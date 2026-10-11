@@ -9937,3 +9937,56 @@ resume 重排）；`_style` = 队色填充 + `12px Arial`；`rr()` 文案
 **测试**：用例 `cases/lfw/score.txt` **725 行**；变异 `lfw_score.mjs` **151/151 全杀**（剔除 5
 条数学等效：FSB 名字缓存×2、Cell 缓存×2、`fall/mp 上限/血上限` 目标反——线性同速归零时比率
 或值不可观测）；全量差分 **247/247**。
+
+## 130. 切片 4BQ：CameraCtrl / EndingPageLogic / MainMenuLogic / SettingsLogic / VsModeLogic
+
+**`camera_ctrl`**：`auto_`（TS `auto`，关键字改名）；六个按键 `j/d/L/R/U/D`，`LR = R−L`、
+`UD = U−D`（按住态 = `!is_end()`）。三分支：`j` 按住 ⇒ `auto_=true` + `is_start` 触发
+`focus_lr(±1)`/`focus_ud(∓1)`；`d` 按住 ⇒ 无参 `DIST_CAM` + `set_staring(nullptr)` +
+`auto_=true`；否则 `LR/UD≠0` ⇒ `auto_=false` + 手动平移（**解构拷贝**：只算 `x/y`
+推 `DIST_CAM`，**不写回相机** —— TS 是 `let { camera: { position: { x, y } } } = this.world`）+
+`DIST_CAM x,y`。焦点：`focus_lr` 候选 = `candidates`（可注入）或 `characters_helper().all()`，
+滤活、按 `x` **stable_sort**（JS 稳定排序）、`direction<0` 取**尾**；环绕
+`fmod(idx+len+dir, len)`；`focus_ud` 恒用全体、按 `z` 排序。描边：`set_staring` 换人时旧目标
+宽 1/清色；新目标**不**补红（TS `?? 'rgb(255,0,0)'` 在 `''` 上不触发，死代码）；
+闪烁 `round((cos(lifetime*atom_time)+1)*2)`；阵亡/
+卸载（`hp<=0 || mounted==0`）自动 `focus_lr(1)`。auto 跟随：`pos.x − screen_w/(2·zx)`、
+`−0.5·round(pos.z) − screen_h/(2·zy)`，zoom 为 0/NaN 回退 1。`on_stop` 无参 `DIST_CAM` +
+还原描边。
+
+**`ending_page_logic`**：props `label`（UINode 引用）/`jalousie`（**组件引用**，
+`$cls:Jalousie`）；`texts_` 九条文案；点击/按键/resume 三处 `anim.done()` 才翻 `open`；
+`on_jalousie_anim_end`：`open` 早退；`-1 首翻 && difficulty >= Difficult ⇒ +2` 否则 +1；
+越界 ⇒ 层 `pages>1` 则 `pop(until i==0)`，否则 `set{id:main_page}` + 播
+`bgm/main.wma.mp3`；未越界 `label.set_text(texts_[idx])`；尾部**恒** `set_open(true)`。
+
+**`main_menu_logic`**：`survival_btns` = 搜 `btn_survival`/`btn_survival_2p`（缓存）、
+`danmu_btns` = `btn_danmu_mode`；`apply`：`visible=available`、`disabled=!available`（弹幕同构）；
+`!available && focused_node==null` ⇒ `reachable_group.focus_next()` 兜底；`on_start`/
+`on_resume` 都 apply。
+
+**`settings_logic`**：四 node 引用；`show_misc`/`show_ctrl` = LabelButton checked 对 +
+面板可见对调；`on_start` 只置 checked + 挂 `callbacks.on_click`；`on_stop` 撤回调。
+⚠ **端口纠错**：`on_start` 不调 `show_misc()`（TS 不调；台面 `lbk`+`nrd flags` 抓出首分歧）。
+
+**`vs_mode_logic`**：`FSM`（Running/BeforeEnd/End）+ 三状态对象；`on_start`：`use(Running)`、
+`set_paused(false)`、`playrate=1`、`infinity_mp=0`；扫描 `FighterStatBar`；`player_count` =
+fighter 非空玩家数；2 人 ⇒ `starts_with("_1v1_fighter_stat_")`，否则 `/p(\d)_stat/`（**恰一位
+数字** + `_stat` 后缀，手工扫描非 regex）；`visible=enabled`/`disabled=!enabled`，不启用者
+剔除；剩余条按玩家插入序逐个 `set_entity`（无 fighter 跳过、`front` 消耗）。`on_stop`
+`world().clear()`；`update` 推 FSM；`on_key_down`：`a/j` && `state==End` && `state_time>1000`
+⇒ `stop_immediate_propagation` + `pop_page(min_pages=1)`。
+
+**台面**：新 op `camr`（相机坐标）、`cams x y`、`sran/danm 0|1`（生存/弹幕开关）、
+`pfight <pid> <idx|-1>`（`set_fighter`）、`cdbg <nid> <cid>`（CameraCtrl 内部 `a/s/w/c`）、
+`fsr <nid> <cid>`（任意组件 FSM `s/p/t/st`）、`fsuse`（强制 `use`）、`eol <idx>`
+（实体描边 `w/c`）、`epos <idx> <x> <z>`（摆位，排序类变异可观测）、`dsrd <key>`
+（world dataset 读）、**`ncomp <nid> <组件 data>`**（挂树后建真组件，对齐 TS props 解析
+时机）、**`npg <nid> <layerIdx>`**（把层顶页节点绑成台面别名，`UINode::pop_page` 要求
+`root()==layer->ui()`）。⚠ 台面 `nid` 是**台面变量名**（`g_nodes`/`tnodes` 键），不是
+`id s "..."`；用错键 `.at` 直接崩。
+
+**测试**：用例 `cases/lfw/page_logic.txt` **756 行**；变异 `lfw_page_logic.mjs` **88/88 全杀**（剔除
+10 条等效：`entity_at` 三守卫（空列表被第二守卫兜住）、focus `candidates`×2、zoom 回退×2、
+`set_staring` 同值早退、MainMenu `reachable_group` 类判、`_stat` 后缀长度——均台面不可观测）；
+全量差分 **248/248**。
