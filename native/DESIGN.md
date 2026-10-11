@@ -9990,3 +9990,57 @@ fighter 非空玩家数；2 人 ⇒ `starts_with("_1v1_fighter_stat_")`，否则
 10 条等效：`entity_at` 三守卫（空列表被第二守卫兜住）、focus `candidates`×2、zoom 回退×2、
 `set_staring` 同值早退、MainMenu `reachable_group` 类判、`_stat` 后缀长度——均台面不可观测）；
 全量差分 **248/248**。
+
+## 131. 切片 4BR：StageModeLogic / MiscSettingsLogic / DemoModeLogic
+
+**`stage_mode_logic`**：`on_start` 置 `playrate=1`/`infinity_mp=0`、`listen_stage(world().stage())`、
+扫 `FighterStatBar`（`pN_stat` 手扫 `/p\d_stat/`）、订阅世界 `on_stage_change`；`on_resume`
+补订阅；`handle_stage_actions`（`gogogo_right` ⇒ gogogo、`loop_gogogo_right` ⇒ gogogo_loop 的
+start + 显形）；`update` 门帘门 = `!jalousie->open() && anim().done()` ⇒ `goto_next_stage()` +
+FSM Running + `set_open(true)`；`on_requrie_goto_next_stage` ⇒ 关帘；`on_key_down`：`ka/kj` &&
+`state==End` && `state_time>1000` ⇒ 通关（`is_chapter_finish`）`goto_next_stage()`，否则
+`pop_page(min_pages=1)`；`on_stop`：`srank_mode=false` + `world().clear()` + 撤监听。
+
+**`misc_settings_logic`**：10 个懒 getter（`_a.._j`：bgm/sfx 音量与开关、主音量、轮廓、
+渲染率、UPS、语言、stats 可见）；`on_start`/`on_resume` 订阅 `sounds` 与各 `SliderHandle`
+的 `on_value_changed`，`on_stop` 撤；`kRenderRateOptions`/`kLangCodes` 表。⚠ **重复
+`on_start` 的订阅必须加成员守卫**（`_sounds_added`）：TS 的 `add(this)` 靠 Set 去重，
+端口直接订会重复。
+
+**`demo_mode_logic`**：`DemoStatics` 单例（`situations` 抽签器 + `situation` 缓存 + `stages`
+抽签器）；23 条情景 = 8 条 `n Players Stage Mode`（无 oids，角色从 regular 池抽 + Boss 追加）
++ 7 条 `n Players, VS Mode`（`teams_range`，人数即队数）+ 5 条多队 VS 组合 + `Julian VS 10`
+/` VS 8 Fighters`/`LouisEX VS 9 Fighters`（**带 oids**，逐位查 `datas().find(oid)`，查不到
+跳过）。`get_stages` 过滤 = group 不含 Hidden/Dev && `is_starting`。`startup`：按
+`stage_mode` 取舞台（`change_bg(stage.bg)` + `change_stage(id)` + `listen_stage`）或随机背景
+（`mt.pick` + `bg_id`）；VS 追加 Boss 池、`play_bgm("?")`；逐位造角色（team 缺省
+`new_team()`、朝向 Stage 恒右 / VS 抽签、x/z 用 `mt.range`、`set_blinking`/`set_invulnerable`
+= `begin_blink_time`、VS `mp = max*2/5`）；血条按 fighters 顺序 `set_entity`（跳过并剔除
+多余条）；相机 `set_staring(fighters[0])` + `jump_x(cam_x)`（Stage 模式 x 区间
+`[cam_x+40, 80]`、VS `[cam_x+w/3, cam_x+2w/3]`）。`update`：焦点文案节流（staring/free 变
+才刷）+ 门帘门（Stage 模式）；`clearup`：撤监听 + `world().clear()` + `clear_situation()`；
+`on_key_down`：`ka` ⇒ clearup + startup（下一情景）。
+
+⚠ **端口纠错**（差分抓出）：
+- **世界订阅守卫**：页被 `rlpushp` 推入时层会先 `on_start` 一次、随后 `nlife start` 再调
+  ⇒ 不加 `if (!_world_remover)` 守卫会让旧 remover 泄漏成悬挂监听者（崩溃）；TS 的
+  `this.world.callbacks.add(this)` 靠 Set 去重免疫。
+- **`callbacks.call("on_stage_pass"/"on_enter_next_stage")` 在 TS 是零实参**：端口原按
+  `{LfwCallbackArgs{this}}` 发（台面 `listen` 打 `|?`），改为空载荷后与 TS 一致。
+- **`goto_next_stage()` 无 `next` 即早退**：台面要杀「门帘门不推进」类变异必须给舞台夹具
+  挂 `next` 链（`st_demo` → `st_demo2`，末舞台不设 `is_starting` 以保持抽签池不变）。
+
+**台面**：新 op `semit <nid>` / `aemit <nid>`（**对 `SliderHandle`/`ArrowSwitcher` 写值后补发
+`on_value_changed` 回调**——TS 的 `set_value/set_factor` 不发射，handler 只在用户路径触发，
+用例里 `shv` 之后必须 `semit` 才算走到 handler）、`phid`（`world.stage().phase_idx`，
+纯整数文本）、`ppup <pid> <idx>`（登记 `world.puppets`；`pfight` 只设 fighter 不登记 ⇒
+`player_count` 恒 0、两条血条都 `0011`）、`edump` 支持负索引（`edump -1` 读最新实体，
+旧实体因「`world.clear` 按帧 Gone」仍留在数组里）。夹具：`f51`/`f50`（oids 情景的
+"51"=FZ / "50"=LE 实体数据）、`idg2`（含 `st/demo.json5` 的索引）、`srh`（start "SH"）、
+`bg_fixture` 参数化、`srx`（st_demo + st_demo2 两舞台、`next` 链、两阶段动作）。
+
+**测试**：用例 `cases/lfw/modes.txt` **1089 行**（demo 情景抽签 = **袋抽（`random_take`
+不重复）** ⇒ 抽满 23 次必覆盖全部情景，含两个带 oids 的尾项）；变异 `lfw_modes.mjs`
+**139/139 全杀**（首轮基线干净 94/50；补探针后 128/11；再补夹具/端口对齐后全杀。剔除 4 条
+等效/未抽中：`bg_oth` 覆盖、`clearup` 不清世界（台面等效）、两条「首队改 2」变体（对应
+表项从未被抽中））；全量差分 **249/249**。

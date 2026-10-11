@@ -172,6 +172,14 @@ class FakeLfw : public lfw::IWorldLfw {
     return false;
   }
 
+  lfw::PlayerInfo* players_get(const Value& player_id) const override {
+    push("h:player=" + vstr(player_id));
+    for (const std::pair<std::string, lfw::PlayerInfo*>& kv : g_player_map) {
+      if (lfw::strict_equals(Value(to_u16(kv.first)), player_id)) return kv.second;
+    }
+    return nullptr;
+  }
+
   std::function<void()> sounds_play_bgm(const Value& music) override {
     push("h:playbgm=" + vstr(music));
     return []() { push("h:stopbgm"); };

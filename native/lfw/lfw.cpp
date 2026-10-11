@@ -403,6 +403,26 @@ void LFW::sounds_callback_add(LfwSoundsCallback* cb) { host_->sounds_callback_ad
 
 void LFW::sounds_callback_del(LfwSoundsCallback* cb) { host_->sounds_callback_del(*this, cb); }
 
+double LFW::sounds_volume() { return host_->sounds_volume(); }
+
+void LFW::sounds_set_volume(double v) { host_->sounds_set_volume(v); }
+
+double LFW::sounds_bgm_volume() { return host_->sounds_bgm_volume(); }
+
+void LFW::sounds_set_bgm_volume(double v) { host_->sounds_set_bgm_volume(v); }
+
+double LFW::sounds_sound_volume() { return host_->sounds_sound_volume(); }
+
+void LFW::sounds_set_sound_volume(double v) { host_->sounds_set_sound_volume(v); }
+
+bool LFW::sounds_bgm_muted() { return host_->sounds_bgm_muted(); }
+
+void LFW::sounds_set_bgm_muted(bool v) { host_->sounds_set_bgm_muted(v); }
+
+bool LFW::sounds_sound_muted() { return host_->sounds_sound_muted(); }
+
+void LFW::sounds_set_sound_muted(bool v) { host_->sounds_set_sound_muted(v); }
+
 void LFW::on_key_down(LfwKeyEvent& e) {
   {
     std::vector<Value> args;
@@ -578,7 +598,7 @@ void LFW::goto_next_stage() {
     stage->stop_bgm();
     const Value* const pass_sound = defines::find(u"Defines.Sounds.StagePass");
     sounds_play_with_load(pass_sound != nullptr ? *pass_sound : Value());
-    callbacks.call(u"on_stage_pass", {LfwCallbackArgs{this}});
+    callbacks.call(u"on_stage_pass", {});
   }
   if (next_stage != nullptr && truthy(field_or(*next_stage, u"is_starting"))) {
     for (Entity* const e : world_->entities) {
@@ -593,7 +613,7 @@ void LFW::goto_next_stage() {
   const double time = stage->time();
   change_stage(next_stage != nullptr ? to_string(field_or(*next_stage, u"id")) : std::u16string());
   world_->stage()->set_time(time);
-  callbacks.call(u"on_enter_next_stage", {LfwCallbackArgs{this}});
+  callbacks.call(u"on_enter_next_stage", {});
 }
 
 Value LFW::string(const Value& name) const {

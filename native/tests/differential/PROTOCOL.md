@@ -5204,3 +5204,34 @@ harness op：
   `cmds`；`is_start` 要求「按下时的 `world.lifetime` == 本次 `update` 的时刻」⇒ 每次按键前
   先 `wdt` 推寿命，`hit` 后在同寿命内 update 一次。⚠ `world` 更新会把实体 `z` 归零 ⇒
   排序类观察要在 `nset update` 前重新 `epos` 摆位；`nset update` = 单次组件 update。
+
+### 6.9.175 StageModeLogic / MiscSettingsLogic / DemoModeLogic（`cases/lfw/modes.txt` 1089 行；变异 139/139 全杀）
+
+- 新台面 op：
+  - `semit <nid>` / `aemit <nid>`：对 `SliderHandle` / `ArrowSwitcher` 补发 `on_value_changed`。
+    ⚠ **`set_value`/`set_factor` 不发射回调是 TS 原生语义**（只有用户路径才发）⇒ 用例里
+    `shv`/`asv` 写值之后必须 `semit`/`aemit`，否则 handler 类变异全存活。`step()` 缺省 10、
+    写 `0.4` 之类小数要先 `precision <nid> 2`（否则 `round_float` 会 collapse 到 0/1）。
+  - `phid`：`world.stage().phase_idx`（无舞台/无相位打 `-`；纯整数文本，两侧同格式）。
+  - `ppup <pid> <idx>`：登记 `world.puppets` 键值（`pfight` 只设 fighter **不登记** puppet
+    ⇒ `player_count` 恒 0、两条血条都 `0011`、`player_count` 类变异全不可观测）。
+  - `edump <idx>`：**支持负索引**（`-1` = 最新实体；`world.clear()` 后旧实体因「按帧 Gone」
+    还留在数组里 ⇒ 只读 `0/1` 抓不到新造的实体）。
+- 夹具：`f51`/`f50`（oids 情景的 "51"=FZ / "50"=LE 实体数据，缺它们 oids 情景零实体）、
+  `idg2`（含 `st/demo.json5` 的索引）、`srh`（start "SH"）、`bg_fixture` 参数化（**TS λ
+  缩参会静默吞实参** ⇒ 两侧夹具逐参对齐）、`srx`（`st_demo` + `st_demo2` 两舞台，`st_demo.next
+  = "st_demo2"`，末舞台不设 `is_starting`）。
+- ⚠ **情景抽签 = 袋抽**（`Randoming::get` = `random_take`，不重复）：用例里 `nkey dml down a
+  KeyA` 触发 `clearup + startup` 拿下一个情景，**抽满 23 次（=池大小）必覆盖全部情景**；尾部
+  两个带 oids 的情景（` VS 8 Fighters` / `LouisEX VS 9 Fighters`）是 oid 类变异的唯一锚点。
+- ⚠ **`goto_next_stage()` 无 `next` 即早退**：门帘门（`!open && anim().done()`）里的推进调
+  用的是它 ⇒ 舞台夹具不带 `next` 时「门帘门不推进」类变异是**等效**的。杀法：`stBR` 用
+  `sfield next s "st_demo"`、demo 池舞台 `st_demo` 挂 `next: "st_demo2"`，推进后 `stid` 变化
+  即锚点（`wstage` 建的舞台不在 `datas().stages()` 里，查找目标必须是 `imp` 过的舞台文件）。
+- ⚠ **重复 `on_start` 的订阅守卫**：页被 `rlpushp` 推入时层先 `on_start` 一次、随后
+  `nlife start` 再调 ⇒ 端口不加 `if (!_world_remover)`（或 `_sounds_added`）守卫会泄漏
+  悬挂监听者（运行期崩溃）；TS `callbacks.add(this)` 靠 Set 去重免疫。
+- ⚠ **`on_stage_pass` / `on_enter_next_stage` 是零实参回调**（TS `callbacks.call("…")`）：
+  端口传 `{LfwCallbackArgs{this}}` 会让台面 `listen` 打出 `|?` 而 TS 无后缀（差分首分歧）；
+  台面 `listen` 也要显式分支（`line += ""`）。
+

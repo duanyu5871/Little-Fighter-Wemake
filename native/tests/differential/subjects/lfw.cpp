@@ -20,6 +20,8 @@
 #include "lfw/player_info.h"
 #include "lfw/stage/stage.h"
 #include "lfw/ui/cook_ui_info.h"
+#include "lfw/utils/math/clamp.h"
+#include "lfw/utils/math/float_equal.h"
 #include "lfw/ui/action/actor.h"
 #include "lfw/ui/component/fade_out_opacity.h"
 #include "lfw/ui/component/alignment.h"
@@ -275,14 +277,15 @@ lfw::Value build_kind_value(const std::string& k) {
     return lfw::Value(std::make_shared<lfw::Object>(o));
   }
   // 4BG：切换器夹具。索引条目是**文件描述**（`{id,file}` / 路径串），真内容走 `imp` 缝。
-  auto bg_fixture = [](const char16_t* id, const char16_t* name, const char16_t* group) {
+  auto bg_fixture = [](const char16_t* id, const char16_t* name, const char16_t* group,
+                      double left = 0, double right = 1588, double far = -40) {
     lfw::Object base;
     base.set(u"name", lfw::Value(std::u16string(name)));
     base.set(u"shadow", lfw::Value(std::u16string(u"")));
     base.set(u"height", lfw::Value(550.0));
-    base.set(u"left", lfw::Value(0.0));
-    base.set(u"right", lfw::Value(1588.0));
-    base.set(u"far", lfw::Value(-40.0));
+    base.set(u"left", lfw::Value(left));
+    base.set(u"right", lfw::Value(right));
+    base.set(u"far", lfw::Value(far));
     base.set(u"near", lfw::Value(0.0));
     auto groups = std::make_shared<lfw::Array>();
     if (group != nullptr) groups->push_back(lfw::Value(std::u16string(group)));
@@ -318,11 +321,37 @@ lfw::Value build_kind_value(const std::string& k) {
     return lfw::Value(arr);
   };
   if (k == "bgr") return bg_fixture(u"bg_reg", u"B1", u"regular");
-  if (k == "bgh") return bg_fixture(u"bg_hid", u"B2", u"hidden");
-  if (k == "bgo") return bg_fixture(u"bg_oth", u"B3", nullptr);
+  if (k == "bgh") return bg_fixture(u"bg_hid", u"B2", u"hidden", 50, 1500, -70);
+  if (k == "bgo") return bg_fixture(u"bg_oth", u"B3", nullptr, -100, 1700, -90);
   if (k == "srg") return stage_list_fixture(u"st_reg", u"S1", u"bg_reg", nullptr, u"SR");
-  if (k == "srh") return stage_list_fixture(u"st_hid", u"S2", u"bg_hid", u"hidden", nullptr);
+  if (k == "srh") return stage_list_fixture(u"st_hid", u"S2", u"bg_hid", u"hidden", u"SH");
   if (k == "srd") return stage_list_fixture(u"st_dev", u"S3", u"bg_oth", u"Dev", u"DD");
+  // 4BR：可选入池的“正常起始舞台”（分组非 hidden/非 Dev + is_starting），带阶段动作。
+  if (k == "srx") {
+    auto phase_of = [](const char16_t* on_start, const char16_t* on_end) {
+      auto start_arr = std::make_shared<lfw::Array>();
+      start_arr->push_back(lfw::Value(std::u16string(on_start)));
+      auto end_arr = std::make_shared<lfw::Array>();
+      end_arr->push_back(lfw::Value(std::u16string(on_end)));
+      lfw::Object ph;
+      ph.set(u"on_start", lfw::Value(start_arr));
+      ph.set(u"on_end", lfw::Value(end_arr));
+      return lfw::Value(std::make_shared<lfw::Object>(ph));
+    };
+    auto phases = std::make_shared<lfw::Array>();
+    phases->push_back(phase_of(u"gogogo_right", u"loop_gogogo_right"));
+    phases->push_back(phase_of(u"loop_gogogo_right", u"gogogo_right"));
+    const lfw::Value stage0 = stage_fixture(u"st_demo", u"SD", u"bg_reg", u"reg", u"SD");
+    lfw::Value stage = stage0;
+    if (lfw::Object* const so = lfw::as_object(stage)) {
+      so->set(u"phases", lfw::Value(phases));
+      so->set(u"next", lfw::Value(std::u16string(u"st_demo2")));
+    }
+    auto arr = std::make_shared<lfw::Array>();
+    arr->push_back(stage);
+    arr->push_back(stage_fixture(u"st_demo2", u"SD2", u"bg_reg", u"reg", nullptr));
+    return lfw::Value(arr);
+  }
   if (k == "swf") {
     auto bg_file = [](const char16_t* id, const char16_t* path) {
       lfw::Object o;
@@ -373,6 +402,48 @@ lfw::Value build_kind_value(const std::string& k) {
     objs->push_back(file_of(u"fg1", u"data/fg1.json5"));
     lfw::Object o;
     o.set(u"objects", lfw::Value(objs));
+    return lfw::Value(std::make_shared<lfw::Object>(o));
+  }
+  // 4BR：带分组的角色夹具（DemoModeLogic 的抽签池）。
+  auto grouped_fighter = [](const char16_t* id, const char16_t* name, const char16_t* group) {
+    lfw::Object base;
+    base.set(u"name", lfw::Value(std::u16string(name)));
+    auto groups = std::make_shared<lfw::Array>();
+    groups->push_back(lfw::Value(std::u16string(group)));
+    base.set(u"group", lfw::Value(groups));
+    lfw::Object o;
+    o.set(u"id", lfw::Value(std::u16string(id)));
+    o.set(u"type", lfw::Value(8.0));
+    o.set(u"base", lfw::Value(std::make_shared<lfw::Object>(base)));
+    o.set(u"frames", lfw::Value(std::make_shared<lfw::Array>()));
+    return lfw::Value(std::make_shared<lfw::Object>(o));
+  };
+  if (k == "lfa") return grouped_fighter(u"lfa", u"FA", u"1000");
+  if (k == "lfb") return grouped_fighter(u"lfb", u"FB", u"Boss");
+  // 4BR：oid 情景（DemoMode 的 oids 表用数字 id）需要可解析的实体数据。
+  if (k == "f51") return grouped_fighter(u"51", u"FZ", u"Boss");
+  if (k == "f50") return grouped_fighter(u"50", u"LE", u"Boss");
+  if (k == "idg2") {
+    auto file_of = [](const char16_t* id, const char16_t* path) {
+      lfw::Object o;
+      o.set(u"id", lfw::Value(std::u16string(id)));
+      o.set(u"file", lfw::Value(std::u16string(path)));
+      return lfw::Value(std::make_shared<lfw::Object>(o));
+    };
+    auto objs = std::make_shared<lfw::Array>();
+    objs->push_back(file_of(u"lfa", u"data/lfa.json5"));
+    objs->push_back(file_of(u"lfb", u"data/lfb.json5"));
+    objs->push_back(file_of(u"51", u"data/f51.json5"));
+    objs->push_back(file_of(u"50", u"data/f50.json5"));
+    auto stages = std::make_shared<lfw::Array>();
+    {
+      lfw::Object s;
+      s.set(u"file", lfw::Value(std::u16string(u"st/demo.json5")));
+      stages->push_back(lfw::Value(std::make_shared<lfw::Object>(s)));
+    }
+    lfw::Object o;
+    o.set(u"objects", lfw::Value(objs));
+    o.set(u"stages", lfw::Value(stages));
     return lfw::Value(std::make_shared<lfw::Object>(o));
   }
   return lfw::Value();
@@ -766,6 +837,26 @@ class FakeHost : public lfw::ILfwHost {
     const std::vector<lfw::LfwSoundsCallback*> snapshot = _snd_cbs;
     for (lfw::LfwSoundsCallback* const cb : snapshot) cb->on_bgm_changed(bgm, prev);
   }
+  void fire_snd_volume_changed(double volume, double prev) {
+    const std::vector<lfw::LfwSoundsCallback*> snapshot = _snd_cbs;
+    for (lfw::LfwSoundsCallback* const cb : snapshot) cb->on_volume_changed(volume, prev);
+  }
+  void fire_snd_bgm_volume_changed(double volume, double prev) {
+    const std::vector<lfw::LfwSoundsCallback*> snapshot = _snd_cbs;
+    for (lfw::LfwSoundsCallback* const cb : snapshot) cb->on_bgm_volume_changed(volume, prev);
+  }
+  void fire_snd_sound_volume_changed(double volume, double prev) {
+    const std::vector<lfw::LfwSoundsCallback*> snapshot = _snd_cbs;
+    for (lfw::LfwSoundsCallback* const cb : snapshot) cb->on_sound_volume_changed(volume, prev);
+  }
+  void fire_snd_bgm_muted_changed(bool muted) {
+    const std::vector<lfw::LfwSoundsCallback*> snapshot = _snd_cbs;
+    for (lfw::LfwSoundsCallback* const cb : snapshot) cb->on_bgm_muted_changed(muted);
+  }
+  void fire_snd_sound_muted_changed(bool muted) {
+    const std::vector<lfw::LfwSoundsCallback*> snapshot = _snd_cbs;
+    for (lfw::LfwSoundsCallback* const cb : snapshot) cb->on_sound_muted_changed(muted);
+  }
   std::string snd_probe() const {
     return to_ascii(snd_bgm_name) + "|" + (snd_is_random ? "1" : "0");
   }
@@ -891,6 +982,43 @@ class FakeHost : public lfw::ILfwHost {
   }
   std::u16string sounds_bgm() override { return snd_bgm_name; }
   bool sounds_is_random() override { return snd_is_random; }
+  // 4BR：音量族（照 `__Modern`：clamp 0..1、同值早退、变更后发事件）。
+  double sounds_volume() override { return snd_volume; }
+  void sounds_set_volume(double v) override {
+    v = lfw::clamp(v, 0.0, 1.0);
+    const double prev = snd_volume;
+    if (lfw::float_equal(v, prev)) return;
+    snd_volume = v;
+    fire_snd_volume_changed(v, prev);
+  }
+  double sounds_bgm_volume() override { return snd_bgm_volume; }
+  void sounds_set_bgm_volume(double v) override {
+    v = lfw::clamp(v, 0.0, 1.0);
+    const double prev = snd_bgm_volume;
+    if (lfw::float_equal(v, prev)) return;
+    snd_bgm_volume = v;
+    fire_snd_bgm_volume_changed(v, prev);
+  }
+  double sounds_sound_volume() override { return snd_sound_volume; }
+  void sounds_set_sound_volume(double v) override {
+    v = lfw::clamp(v, 0.0, 1.0);
+    const double prev = snd_sound_volume;
+    if (lfw::float_equal(v, prev)) return;
+    snd_sound_volume = v;
+    fire_snd_sound_volume_changed(v, prev);
+  }
+  bool sounds_bgm_muted() override { return snd_bgm_muted; }
+  void sounds_set_bgm_muted(bool v) override {
+    if (v == snd_bgm_muted) return;
+    snd_bgm_muted = v;
+    fire_snd_bgm_muted_changed(v);
+  }
+  bool sounds_sound_muted() override { return snd_sound_muted; }
+  void sounds_set_sound_muted(bool v) override {
+    if (v == snd_sound_muted) return;
+    snd_sound_muted = v;
+    fire_snd_sound_muted_changed(v);
+  }
   void sounds_callback_add(lfw::LFW&, lfw::LfwSoundsCallback* cb) override {
     push("snd_cbadd");
     bool has = false;
@@ -1097,6 +1225,12 @@ class FakeHost : public lfw::ILfwHost {
   bool snd_is_random = false;
   std::u16string _snd_prev_url;
   std::vector<lfw::LfwSoundsCallback*> _snd_cbs;
+  // 4BR：音量/静音状态（`__Modern` 默认值：volume 0.3 / bgm_volume 0.5 / sound_volume 1）。
+  double snd_volume = 0.3;
+  double snd_bgm_volume = 0.5;
+  double snd_sound_volume = 1.0;
+  bool snd_bgm_muted = false;
+  bool snd_sound_muted = false;
   std::unique_ptr<lfw::Randoming> _bgm_rand;
   lfw::LFW* lfw_ = nullptr;
   class Renderer : public lfw::IWorldRenderer {
@@ -1541,7 +1675,7 @@ bool run_comp_ops(lfw::LFW& lfw, FakeHost& host, const std::vector<std::string>&
     }
     push("kstat|" + to_ascii(key) + "|" + what + "|cnt=" + std::to_string(cnt) +
          (what == "use" ? "|ret=" + num(ret) : ""));
-  } else if (op == "shd" || op == "shv" || op == "shcb") {
+  } else if (op == "shd" || op == "shv" || op == "shcb" || op == "semit") {
     const std::string nid = t[i++];
     lfw::ui::UINode& n = *g_nodes.at(nid);
     lfw::ui::SliderHandle* p = nullptr;
@@ -1559,6 +1693,10 @@ bool run_comp_ops(lfw::LFW& lfw, FakeHost& host, const std::vector<std::string>&
       const double v = to_double(t[i++]);
       p->set_value(v);
       push("shv|" + nid + "|" + num(p->value()) + "|" + num(p->factor()));
+    } else if (op == "semit") {
+      // 4BR：以当前值触发一次 `on_value_changed`（等价用户改值；handler 为主目标）。
+      p->callbacks.call(u"on_value_changed", {lfw::ui::SliderHandleCallbackArgs{p->value(), p}});
+      push("semit|" + nid + "|" + num(p->value()) + "|" + num(p->factor()));
     } else {
       lfw::ui::SliderHandle* const self = p;
       p->on_value_changed([self](double v, lfw::ui::SliderHandle& s) {
@@ -1566,7 +1704,7 @@ bool run_comp_ops(lfw::LFW& lfw, FakeHost& host, const std::vector<std::string>&
       });
       push("shcb|" + nid + "|bound");
     }
-  } else if (op == "asw" || op == "asv" || op == "ascb") {
+  } else if (op == "asw" || op == "asv" || op == "ascb" || op == "aemit") {
     const std::string nid = t[i++];
     lfw::ui::UINode& n = *g_nodes.at(nid);
     lfw::ui::ArrowSwitcher* p = nullptr;
@@ -1583,6 +1721,9 @@ bool run_comp_ops(lfw::LFW& lfw, FakeHost& host, const std::vector<std::string>&
       const double v = to_double(t[i++]);
       p->set_value(v);
       push("asv|" + nid + "|" + num(p->value()));
+    } else if (op == "aemit") {
+      p->callbacks.call(u"on_value_changed", {lfw::ui::ArrowSwitcherCallbackArgs{p->value(), p}});
+      push("aemit|" + nid + "|" + num(p->value()));
     } else {
       lfw::ui::ArrowSwitcher* const self = p;
       p->on_value_changed([self](double v, lfw::ui::ArrowSwitcher& s) {
@@ -2487,6 +2628,8 @@ void listen(lfw::LFW& lfw) {
       line += "|s:" + to_ascii(a.text) + "|s:" + to_ascii(a.prev_text) + "|self";
     } else if (name == u"on_extra_zips_changed") {
       line += "|self";
+    } else if (name == u"on_stage_pass" || name == u"on_enter_next_stage") {
+      line += "";
     } else if (name == u"on_loading_start" || name == u"on_loading_end") {
       line += "";
     } else if (name == u"on_prel_loaded") {
@@ -2573,7 +2716,8 @@ int main(int argc, char** argv) {
 
     if (op == "camr" || op == "cams" || op == "sran" || op == "danm" || op == "pfight" ||
         op == "cdbg" || op == "fsuse" || op == "fsr" || op == "eol" || op == "dsrd" ||
-        op == "epos" || op == "npg") {
+        op == "epos" || op == "npg" || op == "sndset" || op == "sndv" || op == "fpge" ||
+        op == "stid" || op == "bcasts" || op == "edump" || op == "phid" || op == "ppup") {
       if (op == "camr") {
         const lfw::Vector2& p = lfw.world().camera().position;
         push("camr|" + num(p.x) + "|" + num(p.y));
@@ -2688,6 +2832,73 @@ int main(int argc, char** argv) {
         const lfw::Value* const p = o != nullptr ? o->get(key) : nullptr;
         push("dsrd|" + to_ascii(key) + "|" +
              to_ascii(render_value(p != nullptr ? *p : lfw::Value())));
+      } else if (op == "sndset") {
+        // 4BR：直调假声音的 setter（`volume`/`bgm_volume`/`sound_volume`/`bgm_muted`/
+        // `sound_muted`），走过回调分发。
+        const std::string which = t[i++];
+        const double v = to_double(t[i++]);
+        const bool b = v != 0;
+        if (which == "volume") host.sounds_set_volume(v);
+        else if (which == "bgm_volume") host.sounds_set_bgm_volume(v);
+        else if (which == "sound_volume") host.sounds_set_sound_volume(v);
+        else if (which == "bgm_muted") host.sounds_set_bgm_muted(b);
+        else if (which == "sound_muted") host.sounds_set_sound_muted(b);
+        push("sndset|" + which + "|" + num(v));
+      } else if (op == "sndv") {
+        push("sndv|" + num(host.sounds_volume()) + "|" + num(host.sounds_bgm_volume()) + "|" +
+             num(host.sounds_sound_volume()) + "|" + (host.sounds_bgm_muted() ? "1" : "0") +
+             "|" + (host.sounds_sound_muted() ? "1" : "0"));
+      } else if (op == "fpge") {
+        const std::u16string s = key_of(t[i++]);
+        lfw.first_page = s;
+        push("fpge|" + to_ascii(s));
+      } else if (op == "stid") {
+        lfw::stage::Stage* const s = lfw.world().stage();
+        push("stid|" + (s != nullptr ? to_ascii(s->id()) : std::string("-")));
+      } else if (op == "bcasts") {
+        std::string joined;
+        for (size_t k = 0; k < lfw.broadcasts.size(); ++k) {
+          if (k != 0) joined += ";";
+          joined += to_ascii(lfw.broadcasts[k]);
+        }
+        push("bcasts|" + joined);
+      } else if (op == "phid") {
+    // 4BR：当前舞台的阶段下标（直接看 `goto_next_stage` 类推进是否发生）。
+    lfw::stage::Stage* const st = lfw.world().stage();
+    push("phid|" + (st != nullptr ? num(static_cast<double>(st->phase_idx())) : std::string("-")));
+  } else if (op == "ppup") {
+    // 4BR：按玩家号登记/替换傀儡（StageModeLogic 的 player_count 读 world.puppets）。
+    const std::u16string pid = key_of(t[i++]);
+    const double idx = to_double(t[i++]);
+    lfw::Entity* const e = idx >= 0 && static_cast<size_t>(idx) < lfw.world().entities.size()
+                               ? lfw.world().entities[static_cast<size_t>(idx)]
+                               : nullptr;
+    bool found = false;
+    for (std::pair<std::u16string, lfw::Entity*>& kv : lfw.world().puppets) {
+      if (kv.first == pid) {
+        kv.second = e;
+        found = true;
+        break;
+      }
+    }
+    if (!found) lfw.world().puppets.push_back({pid, e});
+    push("ppup|" + to_ascii(pid) + "|" + (e != nullptr ? to_ascii(e->id) : std::string("none")));
+  } else if (op == "edump") {
+        // 4BR：实体全字段快照（DemoMode 的摆位/朝向/血量族）；负数下标从尾数起。
+        const double idx = to_double(t[i++]);
+        const size_t cnt = lfw.world().entities.size();
+        const double at = idx < 0 ? static_cast<double>(cnt) + idx : idx;
+        lfw::Entity* const e = at >= 0 && static_cast<size_t>(at) < cnt
+                                   ? lfw.world().entities[static_cast<size_t>(at)]
+                                   : nullptr;
+        if (e == nullptr) {
+          push("edump|" + num(idx) + "|none");
+        } else {
+          push("edump|" + num(idx) + "|id=" + to_ascii(e->id) + "|team=" + to_ascii(e->team()) +
+               "|x=" + num(e->position.x) + "|y=" + num(e->position.y) + "|z=" + num(e->position.z) +
+               "|f=" + num(e->facing) + "|mp=" + num(e->mp()) + "|hp=" + num(e->hp()) +
+               "|bl=" + num(e->blinking()) + "|inv=" + num(e->invulnerable()));
+        }
       }
       continue;
     }
@@ -2718,8 +2929,7 @@ int main(int argc, char** argv) {
       lfw::LFW::set_INFO(&v);
     } else if (op == "setzips") {
       std::vector<lfw::LFW::ZipItem> zips;
-      zips.push_back(lfw::LFW::ZipItem{key_of(t[i++]), nullptr});
-      zips.push_back(lfw::LFW::ZipItem{key_of(t[i++]), nullptr});
+      while (i < t.size()) zips.push_back(lfw::LFW::ZipItem{key_of(t[i++]), nullptr});
       lfw::LFW::set_ZIPS(std::move(zips));
     } else if (op == "newid") {
       const double n = to_double(t[i++]);

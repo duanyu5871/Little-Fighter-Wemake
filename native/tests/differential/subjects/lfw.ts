@@ -10,6 +10,8 @@ import { LFW } from "../../../../src/LFW/LFW";
 import { LocalController } from "../../../../src/LFW/controller/LocalController";
 import { Randoming } from "../../../../src/LFW/helper/Randoming";
 import { MersenneTwister } from "../../../../src/LFW/utils/math/MersenneTwister";
+import { clamp } from "../../../../src/LFW/utils/math/clamp";
+import { float_equal } from "../../../../src/LFW/utils/math/float_equal";
 import { get_val_getter_from_stage } from "../../../../src/LFW/loader/get_val_getter_from_stage";
 import { PlayerInfo } from "../../../../src/LFW/PlayerInfo";
 import { Stage } from "../../../../src/LFW/stage/Stage";
@@ -310,16 +312,16 @@ function kind_value(k: string): unknown {
   if (k.startsWith("w:")) return { "": { [k.slice(2)]: "1" } };
   if (k === "spk") return { id: "spark", type: 4, base: { name: "Spark" } };
   // 4BG：切换器夹具。索引条目是**文件描述**（`{id,file}` / 路径串），真内容走 `imp` 缝。
-  const bg_fixture = (id: string, name: string, group: string | null) => ({
+  const bg_fixture = (id: string, name: string, group: string | null, left = 0, right = 1588, far = -40) => ({
     type: "background",
     id,
     base: {
       name,
       shadow: "",
       height: 550,
-      left: 0,
-      right: 1588,
-      far: -40,
+      left,
+      right,
+      far,
       near: 0,
       group: group ? [group] : [],
     },
@@ -331,21 +333,31 @@ function kind_value(k: string): unknown {
     bg_id: string,
     group: string | null,
     start_name: string | null,
+    phases: Rec[] = [],
   ) => ({
     id,
     name,
     bg: bg_id,
     ...(start_name !== null ? { is_starting: true, starting_name: start_name } : {}),
     group: group ? [group] : [],
-    phases: [],
+    phases,
   });
   if (k === "bgr") return bg_fixture("bg_reg", "B1", "regular");
-  if (k === "bgh") return bg_fixture("bg_hid", "B2", "hidden");
-  if (k === "bgo") return bg_fixture("bg_oth", "B3", null);
+  if (k === "bgh") return bg_fixture("bg_hid", "B2", "hidden", 50, 1500, -70);
+  if (k === "bgo") return bg_fixture("bg_oth", "B3", null, -100, 1700, -90);
   // `data.stages` 的条目是 `{file, skipped}` 描述符；文件内容是**列表**。
   if (k === "srg") return [stage_fixture("st_reg", "S1", "bg_reg", null, "SR")];
-  if (k === "srh") return [stage_fixture("st_hid", "S2", "bg_hid", "hidden", null)];
+  if (k === "srh") return [stage_fixture("st_hid", "S2", "bg_hid", "hidden", "SH")];
   if (k === "srd") return [stage_fixture("st_dev", "S3", "bg_oth", "Dev", "DD")];
+  // 4BR：可选入池的“正常起始舞台”（分组非 hidden/非 Dev + is_starting），带阶段动作。
+  if (k === "srx") {
+    const s0 = stage_fixture("st_demo", "SD", "bg_reg", "reg", "SD", [
+      { on_start: ["gogogo_right"], on_end: ["loop_gogogo_right"] },
+      { on_start: ["loop_gogogo_right"], on_end: ["gogogo_right"] },
+    ]) as Rec;
+    s0.next = "st_demo2";
+    return [s0, stage_fixture("st_demo2", "SD2", "bg_reg", "reg", null)];
+  }
   if (k === "swf") {
     return {
       backgrounds: [
@@ -365,11 +377,23 @@ function kind_value(k: string): unknown {
       objects: [{ id: "fg1", file: "data/fg1.json5" }],
     };
   }
-  return undefined;
-}
-
-function err_msg(e: unknown): string {
-  return typeof e === "string" ? e : e instanceof Error ? e.message : String(e);
+    // 4BR：带分组的角色夹具（DemoModeLogic 的抽签池）。
+    if (k === "lfa") return { id: "lfa", type: 8, base: { name: "FA", group: ["1000"] }, frames: [] };
+    if (k === "lfb") return { id: "lfb", type: 8, base: { name: "FB", group: ["Boss"] }, frames: [] };
+    // 4BR：oid 情景（DemoMode 的 oids 表用数字 id）需要可解析的实体数据。
+    if (k === "f51") return { id: "51", type: 8, base: { name: "FZ", group: ["Boss"] }, frames: [] };
+    if (k === "f50") return { id: "50", type: 8, base: { name: "LE", group: ["Boss"] }, frames: [] };
+    if (k === "idg2") {
+      return {
+        objects: [
+          { id: "lfa", file: "data/lfa.json5" },
+          { id: "lfb", file: "data/lfb.json5" },
+          { id: "51", file: "data/f51.json5" },
+          { id: "50", file: "data/f50.json5" },
+        ],
+        stages: [{ file: "st/demo.json5" }],
+      };
+    }
 }
 
 // `cook` 给数据挂的 `xml*` 访问器/函数：C++ 侧不建形 ⇒ 渲染前剥掉（两边 warn 输出才能同形）。
@@ -413,6 +437,15 @@ function install_ditto(): void {
       this._lfw = lfw_ as Rec;
       this.rand = new Randoming<string>("bgm_randoming", this._lfw["bgms"] as string[], this._lfw["mt"]);
       snd_probe = () => `${this.bgm_name ?? ""}|${this.is_random ? 1 : 0}`;
+      snd_set = (which: string, v: number): void => {
+        if (which === "volume") this.set_volume(v);
+        else if (which === "bgm_volume") this.set_bgm_volume(v);
+        else if (which === "sound_volume") this.set_sound_volume(v);
+        else if (which === "bgm_muted") this.set_bgm_muted(!!v);
+        else if (which === "sound_muted") this.set_sound_muted(!!v);
+      };
+      snd_v_probe = (): string =>
+        `sndv|${num(this.volume())}|${num(this.bgm_volume())}|${num(this.sound_volume())}|${this.bgm_muted() ? 1 : 0}|${this.sound_muted() ? 1 : 0}`;
       push("snd_init");
     }
     private fire(bgm: string | null, prev: string | null): void {
@@ -424,6 +457,64 @@ function install_ditto(): void {
     dispose(): void {
       this.callbacks_list.length = 0;
       push("snd_dispose");
+    }
+    // 4BR：音量/静音族（照 `__Modern`：clamp 0..1、同值早退、变更后发事件）。
+    volume_v = 0.3;
+    bgm_volume_v = 0.5;
+    sound_volume_v = 1;
+    bgm_muted_v = false;
+    sound_muted_v = false;
+    private fire_ev(name: string, ...args: unknown[]): void {
+      for (const cb of [...this.callbacks_list]) {
+        const fn = cb[name] as ((...a: unknown[]) => void) | undefined;
+        fn?.(...args, this);
+      }
+    }
+    volume(): number {
+      return this.volume_v;
+    }
+    set_volume(v: number): void {
+      v = clamp(v, 0, 1);
+      const prev = this.volume_v;
+      if (float_equal(v, prev)) return;
+      this.volume_v = v;
+      this.fire_ev("on_volume_changed", v, prev);
+    }
+    bgm_volume(): number {
+      return this.bgm_volume_v;
+    }
+    set_bgm_volume(v: number): void {
+      v = clamp(v, 0, 1);
+      const prev = this.bgm_volume_v;
+      if (float_equal(v, prev)) return;
+      this.bgm_volume_v = v;
+      this.fire_ev("on_bgm_volume_changed", v, prev);
+    }
+    sound_volume(): number {
+      return this.sound_volume_v;
+    }
+    set_sound_volume(v: number): void {
+      v = clamp(v, 0, 1);
+      const prev = this.sound_volume_v;
+      if (float_equal(v, prev)) return;
+      this.sound_volume_v = v;
+      this.fire_ev("on_sound_volume_changed", v, prev);
+    }
+    bgm_muted(): boolean {
+      return this.bgm_muted_v;
+    }
+    set_bgm_muted(v: boolean): void {
+      if (v === this.bgm_muted_v) return;
+      this.bgm_muted_v = v;
+      this.fire_ev("on_bgm_muted_changed", v);
+    }
+    sound_muted(): boolean {
+      return this.sound_muted_v;
+    }
+    set_sound_muted(v: boolean): void {
+      if (v === this.sound_muted_v) return;
+      this.sound_muted_v = v;
+      this.fire_ev("on_sound_muted_changed", v);
     }
     play_bgm(name: string): () => void {
       push("snd_bgm");
@@ -815,6 +906,9 @@ let kbd_dispatch: (dir: "down" | "up", e: Rec) => void = () => undefined;
 let pt_dispatch: (what: string, e: Rec, noBump?: boolean) => void = () => undefined;
 // 假声音的状态探针（`sndbgm` op）：`<bgm>|<is_random>`。
 let snd_probe: () => string = () => "|0";
+// 4BR：宿主声音 setter/探针（`FakeSounds` 是 `install_ditto` 内的局部类，用闭包变量暴露）。
+let snd_set: (which: string, v: number) => void = () => undefined;
+let snd_v_probe: () => string = () => "";
 
 function listen(): void {
   for (const name of CB_KEYS) {
@@ -908,6 +1002,10 @@ function dump_info(info: Rec): string {
     .join("|");
 }
 
+function err_msg(e: unknown): string {
+  return typeof e === "string" ? e : e instanceof Error ? e.message : String(e);
+}
+
 function main(): void {
   install_ditto();
   (Date as unknown as Rec).now = () => 12345;
@@ -917,7 +1015,7 @@ function main(): void {
 
   void run_ops().catch((e) => {
     process.stderr.write(log.slice(-14).join("\n") + "\n");
-    process.stderr.write(err_msg(e) + "\n");
+    process.stderr.write((e instanceof Error && e.stack ? e.stack : err_msg(e)) + "\n");
     process.exit(2);
   });
 }
@@ -948,7 +1046,9 @@ async function run_ops(): Promise<void> {
         paths: ["prel.zip.json", "data.zip.json", "extra.zip.json"],
       } as never;
     } else if (op === "setzips") {
-      LFW.ZIPS = [nextKey(), nextKey()] as never;
+      const zips: string[] = [];
+      while (i[0]! < t.length) zips.push(nextKey());
+      LFW.ZIPS = zips as never;
     } else if (op === "newid") {
       const n = Number(nextKey());
       for (let k = 0; k < n; ++k) push("newid|" + lfw.new_id);
@@ -2278,7 +2378,7 @@ async function run_ops(): Promise<void> {
         const decided = next() === "1";
         c.join(text, com, decided);
       }
-    } else if (op === "shd" || op === "shv" || op === "shcb") {
+    } else if (op === "shd" || op === "shv" || op === "shcb" || op === "semit") {
       const nid = next();
       const n = tnodes.get(nid)!;
       const p = n.components.find((c) => c instanceof SliderHandle) as SliderHandle | undefined;
@@ -2288,13 +2388,16 @@ async function run_ops(): Promise<void> {
         const v = Number(next());
         p.set_value(v);
         push(`shv|${nid}|${num(p.value)}|${num(p.factor)}`);
+      } else if (op === "semit") {
+        p.callbacks.call("on_value_changed", p.value, p);
+        push(`semit|${nid}|${num(p.value)}|${num(p.factor)}`);
       } else {
         p.on_value_changed((v: number, self: SliderHandle) =>
           push(`shcb|${num(v)}|${self === p ? 1 : 0}`),
         );
         push(`shcb|${nid}|bound`);
       }
-    } else if (op === "asw" || op === "asv" || op === "ascb") {
+    } else if (op === "asw" || op === "asv" || op === "ascb" || op === "aemit") {
       const nid = next();
       const n = tnodes.get(nid)!;
       const p = n.components.find((c) => c instanceof ArrowSwitcher) as ArrowSwitcher | undefined;
@@ -2304,6 +2407,9 @@ async function run_ops(): Promise<void> {
         const v = Number(next());
         p.set_value(v);
         push(`asv|${nid}|${num(p.value)}`);
+      } else if (op === "aemit") {
+        p.callbacks.call("on_value_changed", p.value, p);
+        push(`aemit|${nid}|${num(p.value)}`);
       } else {
         p.on_value_changed((v: number, self: ArrowSwitcher) =>
           push(`ascb|${num(v)}|${self === p ? 1 : 0}`),
@@ -2727,6 +2833,46 @@ async function run_ops(): Promise<void> {
       push(`setbgms|${cur.join(",")}`);
     } else if (op === "sndbgm") {
       push(`sndbgm|${snd_probe()}`);
+    } else if (op === "sndset") {
+      const which = next();
+      const v = Number(next());
+      snd_set(which, v);
+      push(`sndset|${which}|${num(v)}`);
+    } else if (op === "sndv") {
+      push(snd_v_probe());
+    } else if (op === "fpge") {
+      const s = nextKey();
+      (lfw as unknown as Rec)["first_page"] = s;
+      push(`fpge|${s}`);
+    } else if (op === "stid") {
+      const st = lfw.world.stage as Stage | undefined;
+      push(`stid|${st ? st.id : "-"}`);
+    } else if (op === "phid") {
+      const st = lfw.world.stage as (Stage & { phase_idx?: number }) | undefined;
+      push(`phid|${num(st ? (st.phase_idx ?? -1) : -1)}`);
+    } else if (op === "ppup") {
+      const pid = nextKey();
+      const eidx = Number(next());
+      const arr = lfw.world.entities as Rec[];
+      const pe = eidx >= 0 && eidx < arr.length ? arr[eidx] : undefined;
+      (lfw.world.puppets as Map<string, Rec>).set(pid, pe as Rec);
+      push(`ppup|${pid}|${pe ? (pe.id as string) : "none"}`);
+    } else if (op === "bcasts") {
+      push(`bcasts|${(lfw.broadcasts as string[]).join(";")}`);
+    } else if (op === "edump") {
+      // 4BR：实体全字段快照（DemoMode 的摆位/朝向/血量族）；负数下标从尾数起。
+      const idx = Number(next());
+      const arr = lfw.world.entities as Rec[];
+      const at = idx < 0 ? arr.length + idx : idx;
+      const e = at >= 0 && at < arr.length ? (arr[at] as Rec) : undefined;
+      if (!e) {
+        push(`edump|${num(idx)}|none`);
+      } else {
+        const pos = e["position"] as Rec;
+        push(
+          `edump|${num(idx)}|id=${String(e["id"])}|team=${String(e["team"])}|x=${num(Number(pos["x"]))}|y=${num(Number(pos["y"]))}|z=${num(Number(pos["z"]))}|f=${num(Number(e["facing"]))}|mp=${num(Number(e["mp"]))}|hp=${num(Number(e["hp"]))}|bl=${num(Number(e["blinking"]))}|inv=${num(Number(e["invulnerable"]))}`,
+        );
+      }
     } else if (op === "loadobj") {
       const zid = nextKey();
       const z = lzips.get(zid);
@@ -2839,7 +2985,13 @@ function fmt_num(n: unknown): string {
 
 function make_real_entity(world: unknown, data: Rec): unknown {
   // TS `Entity.reset` 直接点读 `data.base.*`（C++ 端是宽容 `opt_num`）⇒ 台面补空 base 兜底。
-  const richer: Rec = { ...data };
+  // ⚠ 不整对象展开：DatMgr 的实体数据带 `xml*` 访问器（enumerable getter），一旦读取就会调
+  // `Ditto.XML`（台面没有 create）⇒ 逐键拷贝时先滤掉 `xml*` 键（同 `entadd` 的原则）。
+  const richer: Rec = {};
+  for (const k of Object.keys(data)) {
+    if (k.startsWith("xml")) continue;
+    richer[k] = data[k];
+  }
   if (!richer["base"]) richer["base"] = {};
   if (!richer["frames"]) richer["frames"] = [];
   return new Entity(world as never, richer as never);

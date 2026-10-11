@@ -7,6 +7,7 @@
 #include "lfw/ui/component/bgm_switcher.h"
 #include "lfw/ui/component/camera_ctrl.h"
 #include "lfw/ui/component/components_player.h"
+#include "lfw/ui/component/demo_mode_logic.h"
 #include "lfw/ui/component/difficulty_text.h"
 #include "lfw/ui/component/alignment.h"
 #include "lfw/ui/component/ending_page_logic.h"
@@ -26,7 +27,9 @@
 #include "lfw/ui/component/integer_picker.h"
 #include "lfw/ui/component/label_button.h"
 #include "lfw/ui/component/main_menu_logic.h"
+#include "lfw/ui/component/misc_settings_logic.h"
 #include "lfw/ui/component/settings_logic.h"
+#include "lfw/ui/component/stage_mode_logic.h"
 #include "lfw/ui/component/vs_mode_logic.h"
 #include "lfw/ui/component/opacity_animation.h"
 #include "lfw/ui/component/opacity_flash.h"
@@ -164,6 +167,9 @@ void regist_components() {
   regist_one<MainMenuLogic>(u"MainMenuLogic");
   regist_one<SettingsLogic>(u"SettingsLogic");
   regist_one<VsModeLogic>(u"VsModeLogic");
+  regist_one<StageModeLogic>(u"StageModeLogic");
+  regist_one<MiscSettingsLogic>(u"MiscSettingsLogic");
+  regist_one<DemoModeLogic>(u"DemoModeLogic");
 }
 
 }

@@ -116,6 +116,21 @@ struct LfwSoundsCallback {
     (void)bgm;
     (void)prev;
   }
+  // 4BR：`ISoundsCallback` 的音量/静音族（`mgr` 参数省掉，同 `on_bgm_changed`）。
+  virtual void on_volume_changed(double volume, double prev) {
+    (void)volume;
+    (void)prev;
+  }
+  virtual void on_bgm_volume_changed(double volume, double prev) {
+    (void)volume;
+    (void)prev;
+  }
+  virtual void on_sound_volume_changed(double volume, double prev) {
+    (void)volume;
+    (void)prev;
+  }
+  virtual void on_bgm_muted_changed(bool muted) { (void)muted; }
+  virtual void on_sound_muted_changed(bool muted) { (void)muted; }
 };
 
 // `UI.UILayers` 的缝（UI 层未移植）。`push()` 时宿主自己把 `on_set/on_push/on_pop` 接到
@@ -214,6 +229,19 @@ class ILfwHost {
   // `lfw.sounds.bgm()`（`null` ⇒ 空串）/ `lfw.sounds.is_random`
   virtual std::u16string sounds_bgm() = 0;
   virtual bool sounds_is_random() = 0;
+  // 4BR：`lfw.sounds.volume()` / `.bgm_volume()` / `.sound_volume()` 与各自 setter
+  //（宿主照平台 `__Modern` 语义：clamp 0..1、同值早退、变更后发 `on_*_volume_changed`）。
+  virtual double sounds_volume() = 0;
+  virtual void sounds_set_volume(double v) = 0;
+  virtual double sounds_bgm_volume() = 0;
+  virtual void sounds_set_bgm_volume(double v) = 0;
+  virtual double sounds_sound_volume() = 0;
+  virtual void sounds_set_sound_volume(double v) = 0;
+  // `lfw.sounds.bgm_muted()` / `.sound_muted()` 与各自 setter（同值早退，变更后发事件）。
+  virtual bool sounds_bgm_muted() = 0;
+  virtual void sounds_set_bgm_muted(bool v) = 0;
+  virtual bool sounds_sound_muted() = 0;
+  virtual void sounds_set_sound_muted(bool v) = 0;
   // `lfw.sounds.callbacks.add(cb)` / `.del(cb)`
   virtual void sounds_callback_add(LFW& lfw, LfwSoundsCallback* cb) = 0;
   virtual void sounds_callback_del(LFW& lfw, LfwSoundsCallback* cb) = 0;
@@ -411,6 +439,17 @@ class LFW : public IWorldLfw,
   bool sounds_is_random();
   void sounds_callback_add(LfwSoundsCallback* cb);
   void sounds_callback_del(LfwSoundsCallback* cb);
+  // 4BR：`this.sounds.volume()` 一族 / `this.sounds.set_volume(v)` 一族（转发宿主）。
+  double sounds_volume();
+  void sounds_set_volume(double v);
+  double sounds_bgm_volume();
+  void sounds_set_bgm_volume(double v);
+  double sounds_sound_volume();
+  void sounds_set_sound_volume(double v);
+  bool sounds_bgm_muted();
+  void sounds_set_bgm_muted(bool v);
+  bool sounds_sound_muted();
+  void sounds_set_sound_muted(bool v);
 
   void dispose();
   void change_bg(const std::u16string& bg);
