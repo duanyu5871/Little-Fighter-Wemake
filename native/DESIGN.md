@@ -9827,3 +9827,60 @@ update** 让手柄缓动跨格，且要在**跨格前后的多个 update 点读 
 
 **测试**：用例 `cases/lfw/slider.txt` **462 行**（trace 行数；case 文件 531 行） ；变异
 `lfw_slider.mjs` **131/131 全杀**；全量差分 **244/244**。
+## 128. 切片 4BO：ScrollView
+
+**`scroll_view`**：props `direction`（`row`/`col` oneof，缺省 `col`）、`content`（UINode，缺省回退
+第一个 `self_visible` 子节点、再回退 `kids[0]`）、`scrollbar_thumb`（UINode）/`scrollbar`
+（SliderHandle，二选一）、`step`（40）、`speed`（0.4；≤0 或 ≥1 直接跳，否则 0.4 缓动 + <0.5
+吸附）、`wheel_speed`（1）、`drag_threshold`（8px）、`cull`（false）、
+`draggable`/`keyboard`/`wheel`/`follow_focus`（true）。坐标：`range()`（col =
+`{b.first - vt + base_y, b.second - (vt+vh) + base_y}`，内容高 ≤ 视口时 `{0,0}`；`b` =
+`box(content)` 沿滚动轴并集）；`window_lo()`（col = `cross().top - base_y + lo + _offset`，
+`lo = range().first`；row 镜像）；`apply_offset`（`t = range().first + _offset`，col
+`y = base_y - t`）。
+
+**update 管线**：目标收敛（拖拽中/瞬移速度时直接跳）→ `follow_focus` 门（`!_dragging &&
+!_sb_dragging`）→ `ensure_visible(focused_in(content))` → `apply_offset` → `sync_scrollbar` →
+`update_cull` → `update_keys(dt)` → 报告（`round(_offset) != _reported` 才发
+`on_scroll(offset, factor, this)`）。`ensure_visible`：`m<=0` 直接 false；`node_range` 从目标
+向上累加 x/y 到 content 止得 `[s,e]`；`s < win_lo` 补上、`else e > win_hi` 补下，变了才
+`scroll_to`（返回值 `o != _target_offset` 已滚动时恒真，照抄 TS）。
+
+**指针（PointListener，`LfwPointingsCallback`）**：down 门（可见/未禁用/左键/`max>0`）→ 轨道
+优先（thumb=prop→id 回退；命中 track：`_sb_dragging = true`，命中 thumb 记 `_sb_grab =
+axis - geo.top`，否则 `len/2` + 立即 `scrollbar_pointer`）→ 内容拖拽（`draggable()` +
+`pointer_in_node(node)` + `lfw().pointings_grabbing()==nullptr` 时让位子控件）→ move
+（`_sb_dragging` 走滚动条；`_armed` 累计过 `drag_threshold` 才 `_dragging` + `unfocus_content` +
+`on_scroll_start`，拖时 target 立即钳并跟随）→ up/cancel（end_drag，拖过才发 `on_scroll_end`）→
+wheel（`_armed||_dragging||_sb_dragging` 时不理；col 用 `dy||dx`、row `dx||dy`；
+`scroll_by(d * wheel_speed)`）。键盘 `KEY_REPEAT_MS=80`：门 `keyboard() && max>0 &&
+(node.focused() || content->focused())`，首次立即、长按连发。
+
+**滚动条同步**：thumb 直接驱动优先（`sync_thumb`：长度
+`round(clamp(track_len*view/(view+m), min(20,track_len), track_len))`、pos =
+`round(top - cross)`，`top = track.cross.top/left + travel*factor`）；否则 SliderHandle（强 min 0 /
+max 100 + 双向 factor 以 `_last_slider_factor` 判据）。`cull()` 时 `update_cull` 按
+`[win_lo,win_hi]` 收放子节点可见性（`_cull_orig` 恒 true 还原）。`scrollbar()` 的字符串 id
+回退（`search_component_by_id`）在台面数据下解析不到（`scrollbar` prop 的裸字符串会被校验剔除）
+⇒ 死路径。
+
+⚠ **新缝（滚轮）**：`LfwPointingsCallback` 加 `virtual void on_wheel(LfwPointingEvent&)`；
+`ILfwHost` 加 `pointings_grabbing(LFW&)`（缺省 nullptr，兼容 4BN 的世代 + 持有者语义）+ LFW
+转发器。
+
+⚠ **台面**：新 op `ptw <x> <y> <sx> <sy> <dx> <dy>`（滚轮）、`ptg`（读 grabbing）、
+`ptdn <nid> <btn> <x> <y> <sx> <sy>`（先注入节点 down 再抬世代分发，测子控件 grab 让位）；
+探针 `svgeo`（geo 四边）、`svsb`（滚动条三态）、`svd`（**7 字段**：
+offset|factor|max|dragging|clip|target_offset）、`svto/svby/svst/sven/svev/svcb/svcont`。
+
+⚠ **用例/变异教训**：`ptev` 的 sy 换算 = `450*(1-sy)/2 = 225*(1-sy)`（写坐标先按容器几何
+反推）；`center "0,0"` 的节点 `pos` = 矩形左上；`pointer_in_node` 用 `geo()`（全局、含 cross
+偏移）——press 点要落在**全局 geo 区间**内，且要**偏离 thumb 中心**才能区分「抓取」（不立即
+滚）与「轨道跳」（`len/2` 居中跳）；`ensure_visible` 的目标变化读 `svd` 第 7 字段；cull 边界
+读 `nrd <子> flags`；等效变异：`sbt.resize(sbt.w(), len)` 的 w 实参（SliderHandle
+default+col 每帧把宽钉回容器宽）、`focused_in` 的 `f == &node` 分支（正常数据不可达）——
+spec 里换成 `view / view`、「删 `f == c` 守卫」等可杀形式；变异日志被 PowerShell `*>` 缓冲 +
+GBK 乱码，存活提取用 `TextDecoder("gbk")` 反向编码匹配。
+
+**测试**：用例 `cases/lfw/scroll.txt` **636 行**（+ `scroll2.txt` **38 行**，默认 thumb id
+回退）；变异 `lfw_scroll.mjs` **152/152 全杀**；全量差分 **246/246**。

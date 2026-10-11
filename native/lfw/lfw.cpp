@@ -388,6 +388,8 @@ bool LFW::pointings_grab(const void* who) { return host_->pointings_grab(*this, 
 
 void LFW::pointings_ungrab(const void* who) { host_->pointings_ungrab(*this, who); }
 
+const void* LFW::pointings_grabbing() { return host_->pointings_grabbing(*this); }
+
 std::u16string LFW::sounds_bgm() { return host_->sounds_bgm(); }
 
 bool LFW::sounds_is_random() { return host_->sounds_is_random(); }

@@ -57,6 +57,7 @@
 #include "lfw/ui/component/integer_picker.h"
 #include "lfw/ui/component/slider_handle.h"
 #include "lfw/ui/component/arrow_switcher.h"
+#include "lfw/ui/component/scroll_view.h"
 #include "lfw/ui/component/ui_component.h"
 #include "lfw/ui/component/ui_props.h"
 #include "lfw/ui/instance_ref.h"
@@ -779,15 +780,17 @@ class FakeHost : public lfw::ILfwHost {
       else cb->on_key_up(e);
     }
   }
-  void dispatch_pointing(const std::string& what, lfw::LfwPointingEvent& e) {
+  void grab_begin() { ++_pt_grab_epoch; }
+  void dispatch_pointing(const std::string& what, lfw::LfwPointingEvent& e, bool bump = true) {
     // 真实平台在 pointer down 里 `grab_begin()`（世代 +1，之后才分发）。
-    if (what == "down") ++_pt_grab_epoch;
+    if (what == "down" && bump) ++_pt_grab_epoch;
     const std::vector<lfw::LfwPointingsCallback*> snapshot = _pt_cbs;
     for (lfw::LfwPointingsCallback* const cb : snapshot) {
       if (what == "down") cb->on_pointer_down(e);
       else if (what == "move") cb->on_pointer_move(e);
       else if (what == "up") cb->on_pointer_up(e);
       else if (what == "cancel") cb->on_pointer_cancel(e);
+      else if (what == "wheel") cb->on_wheel(e);
       else cb->on_click(e);
     }
   }
@@ -808,6 +811,11 @@ class FakeHost : public lfw::ILfwHost {
       _pt_grabbing = nullptr;
       push("pt_ungrab");
     }
+  }
+  // `this.pointings.grabbing`（世代不符/无人持有时为 nullptr）——`ptg` op 与 ScrollView 共用。
+  const void* pointings_grabbing(lfw::LFW&) override {
+    return _pt_grabbing != nullptr && _pt_grab_prev_epoch == _pt_grab_epoch ? _pt_grabbing
+                                                                           : nullptr;
   }
   void cache_forget(const std::u16string& type, double version) override {
     push("cache:forget|" + to_ascii(type) + "|" + num(version));
@@ -1200,6 +1208,143 @@ bool run_comp_ops(lfw::LFW& lfw, FakeHost& host, const std::vector<std::string>&
         push("ascb|" + num(v) + "|" + (&s == self ? "1" : "0"));
       });
       push("ascb|" + nid + "|bound");
+    }
+  } else if (op == "ptdn") {
+    // 平台口径的 down：先抬世代（grab_begin），再走节点级回调（组件在其中的 grab 于本世代生效），
+    // 最后分发 pointings（不再抬世代）——用于观察"子控件已抢占手势"的分支。
+    const std::string nid = t[i++];
+    const double btn = to_double(t[i++]);
+    const double x = to_double(t[i++]);
+    const double y = to_double(t[i++]);
+    const double sx = to_double(t[i++]);
+    const double sy = to_double(t[i++]);
+    lfw::LfwPointingEvent e;
+    e.button = btn;
+    e.x = x;
+    e.y = y;
+    e.scene_x = sx;
+    e.scene_y = sy;
+    host.grab_begin();
+    lfw::ui::UINode& n = *g_nodes.at(nid);
+    lfw::ui::LFWPointerEvent ne(lfw::Vector3(0, 0, 0), 0.0);
+    n.on_pointer_down(ne);
+    host.dispatch_pointing("down", e, false);
+    push("ptdn|" + nid + "|" + num(btn) + "|" + num(x) + "|" + num(y) + "|" + num(sx) +
+         "|" + num(sy));
+  } else if (op == "ptw") {
+    // 滚轮事件（`delta_x/delta_y` 已换算为 UI 像素）——按真实平台口径直接分发给回调表。
+    const double x = to_double(t[i++]);
+    const double y = to_double(t[i++]);
+    const double sx = to_double(t[i++]);
+    const double sy = to_double(t[i++]);
+    const double dx = to_double(t[i++]);
+    const double dy = to_double(t[i++]);
+    lfw::LfwPointingEvent e;
+    e.x = x;
+    e.y = y;
+    e.scene_x = sx;
+    e.scene_y = sy;
+    e.delta_x = dx;
+    e.delta_y = dy;
+    host.dispatch_pointing("wheel", e);
+    push("ptw|" + num(x) + "|" + num(y) + "|" + num(sx) + "|" + num(sy) + "|" + num(dx) +
+         "|" + num(dy));
+  } else if (op == "ptg") {
+    // `this.pointings.grabbing`（世代口径见 FakeHost）。
+    push(std::string("ptg|") + (lfw.pointings_grabbing() != nullptr ? "1" : "0"));
+  } else if (op == "svgeo") {
+    // 节点几何读数（视口命中判定用）。
+    const std::string nid = t[i++];
+    lfw::ui::UINode& n = *g_nodes.at(nid);
+    const lfw::ui::UINode::Geo& g = n.geo();
+    push("svgeo|" + nid + "|" + num(g.left) + "|" + num(g.top) + "|" + num(g.right) +
+         "|" + num(g.bottom));
+  } else if (op == "svsb") {
+    // 滚动条解析探针：`sb=`（SliderHandle 的组件 id）/`th=`（thumb 节点）。
+    const std::string nid = t[i++];
+    lfw::ui::UINode& n = *g_nodes.at(nid);
+    lfw::ui::ScrollView* p = nullptr;
+    for (lfw::ui::UIComponent* const c : n.components()) {
+      if (!lfw::is_class(c->clazz(), lfw::ui::ScrollView::class_tag())) continue;
+      p = static_cast<lfw::ui::ScrollView*>(c);
+      break;
+    }
+    if (p == nullptr) {
+      push("svsb|" + nid + "|none");
+    } else {
+      lfw::ui::SliderHandle* const sb = p->scrollbar();
+      lfw::ui::UINode* const thumb = p->scrollbar_thumb();
+      const std::optional<std::u16string> raw = p->props_holder.str(u"scrollbar");
+      push("svsb|" + nid + "|sb=" + (sb != nullptr ? to_ascii(sb->id) : "-") + "|th=" +
+           (thumb != nullptr ? node_ref(thumb) : "-") + "|raw=" +
+           (raw.has_value() ? to_ascii(*raw) : "-"));
+    }
+  } else if (op == "svd" || op == "svto" || op == "svby" || op == "svst" || op == "sven" ||
+             op == "svev" || op == "svcb" || op == "svcont") {
+    const std::string nid = t[i++];
+    lfw::ui::UINode& n = *g_nodes.at(nid);
+    lfw::ui::ScrollView* p = nullptr;
+    for (lfw::ui::UIComponent* const c : n.components()) {
+      if (!lfw::is_class(c->clazz(), lfw::ui::ScrollView::class_tag())) continue;
+      p = static_cast<lfw::ui::ScrollView*>(c);
+      break;
+    }
+    if (p == nullptr) {
+      push(op + "|" + nid + "|none");
+    } else if (op == "svd") {
+      push("svd|" + nid + "|" + num(p->offset()) + "|" + num(p->factor()) + "|" +
+           num(p->max_scroll()) + "|" + (p->dragging() ? "1" : "0") + "|" +
+           (n.clip_children() ? "1" : "0") + "|" + num(p->target_offset()));
+    } else if (op == "svto") {
+      p->scroll_to(to_double(t[i++]));
+      push("svto|" + nid + "|" + num(p->offset()));
+    } else if (op == "svby") {
+      p->scroll_by(to_double(t[i++]));
+      push("svby|" + nid + "|" + num(p->offset()));
+    } else if (op == "svst") {
+      p->scroll_to_start();
+      push("svst|" + nid + "|" + num(p->offset()));
+    } else if (op == "sven") {
+      p->scroll_to_end();
+      push("sven|" + nid + "|" + num(p->offset()));
+    } else if (op == "svev") {
+      const std::string target = t[i++];
+      const bool ret = p->ensure_visible(g_nodes.at(target).get());
+      push("svev|" + nid + "|" + (ret ? "1" : "0") + "|" + num(p->offset()));
+    } else if (op == "svcb") {
+      lfw::ui::ScrollView* const self = p;
+      p->callbacks.on(u"on_scroll",
+                      [self](const lfw::ui::ScrollViewCallbacks::Payloads& ps) {
+                        for (const lfw::ui::ScrollViewCallbackArgs& a : ps) {
+                          if (a.self != nullptr) {
+                            push("svcb|scroll|" + num(a.offset) + "|" + num(a.factor) + "|" +
+                                 (a.self == self ? "1" : "0"));
+                          }
+                        }
+                      });
+      p->callbacks.on(u"on_scroll_start",
+                      [self](const lfw::ui::ScrollViewCallbacks::Payloads& ps) {
+                        for (const lfw::ui::ScrollViewCallbackArgs& a : ps) {
+                          if (a.self != nullptr) {
+                            push("svcb|start|" + num(a.offset) + "|" + num(a.factor) + "|" +
+                                 (a.self == self ? "1" : "0"));
+                          }
+                        }
+                      });
+      p->callbacks.on(u"on_scroll_end",
+                      [self](const lfw::ui::ScrollViewCallbacks::Payloads& ps) {
+                        for (const lfw::ui::ScrollViewCallbackArgs& a : ps) {
+                          if (a.self != nullptr) {
+                            push("svcb|end|" + num(a.offset) + "|" + num(a.factor) + "|" +
+                                 (a.self == self ? "1" : "0"));
+                          }
+                        }
+                      });
+      push("svcb|" + nid + "|bound");
+    } else {
+      const std::string target = t[i++];
+      p->set_content(g_nodes.at(target).get());
+      push("svcont|" + nid + "|" + target + "|" + num(p->offset()));
     }
   } else if (op == "wpause") {
       const double v = to_double(t[i++]);

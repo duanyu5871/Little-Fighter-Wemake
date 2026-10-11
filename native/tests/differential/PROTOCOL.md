@@ -5110,3 +5110,31 @@ harness op：
   不可达；`cancel` 的回调 + ungrab 都挂在 `_on_me` / 持有者上。
 - ⚠ `auto_size_by_text` 按 (text, style, version) 记忆化 ⇒ 删 `sync_label` 的“文本有变化才写”
   守卫是**等效代码**（同名写同值不产生任何可观测差异）；spec 里把它换成“写固定文本”。
+### 6.9.172 ScrollView（`cases/lfw/scroll.txt` 636 行 + `scroll2.txt` 38 行；变异 152/152 全杀）
+
+- 新台面 op：`ptw <x> <y> <sx> <sy> <dx> <dy>`（滚轮事件，delta 为 UI px）；`ptg`（读
+  `lfw.pointings_grabbing()` 是否为空）；`ptdn <nid> <btn> <x> <y> <sx> <sy>`（先注入节点
+  `on_pointer_down` 再抬世代分发，测「子控件 grab 时内容拖拽让位」）。探针 `svgeo <nid>`
+  （geo 四边）、`svsb <nid>`（`sb=`类型判定 / `th=`thumb / `raw=`原始 prop）、`svd <nid>`
+  （**7 字段** offset|factor|max_scroll|dragging|clip|target_offset）、
+  `svto/svby/svst/sven/svev/svcb/svcont`。
+- ⚠ **sy 换算**：`fy = screen_height * (1 - scene_y) / 2`（本台面 450 ⇒ `fy = 225*(1-sy)`）。
+  写坐标前先按目标容器反推；thumb 的命中区间是**全局 `geo()`**（= `global_pos + cross`，含
+  `center` 偏移的半个尺寸）——press 点必须同时落在 track 与 thumb 的 geo 内，且**偏离 thumb
+  中心**（否则 `len/2` 与 `_sb_grab` 数值相同，抓取分支与轨道跳分支无法区分）。
+- ⚠ `svd` 第 7 字段（`target_offset`）是「ensure_visible / 拖拽是否改了目标」的唯一读点；
+  拖拽 move 后若不读 target，`_offset` 与 target 同值会让「不更新基准轴 / 不同步滚动条」类
+  变异存活。cull 边界用 `nrd <子> flags`（`visible+self+disabled` 四位串）。
+- ⚠ `center "0,0"` 的节点 `pos` = 矩形左上而非中心；`ptev` 的 down 会抬世代（`grab_begin`），
+  同一条拖拽链里第二次 down 前要注意 `_armed` 已被消费。
+- ⚠ **等效变异（别放进 spec）**：①`sync_scrollbar` col 分支 `sbt.resize(sbt.w(), len)` 的
+  **w 实参**——SliderHandle `default` 模式每帧 `set_w(容器宽)` 把它钉回，任何取值都不可观测；
+  ②`focused_in` 的 `f == &node` 守卫——内容节点是其子树（ancestor 场景数据不可达），删除
+  后行为等价（用「内容自身聚焦」：删 `f == c` 守卫）。替换成 `view / view`、`< 0.0` 阈值、
+  `scroll_by(step())` 等可杀形式。
+- ⚠ 变异运行注意：后台 `*>` 重定向会被 PowerShell 缓冲到结束才落盘（别看日志判断进度）；
+  日志为 GBK 双重编码乱码，存活提取用 `new TextDecoder("gbk").decode(buf)` 后再匹配 note。
+- 上下文：新缝 `LfwPointingsCallback::on_wheel` 与 `ILfwHost::pointings_grabbing`（缺省
+  nullptr）；`scrollbar` prop 的**裸字符串**值会被校验剔除（`make_schema` 解析不到类引用）
+  ⇒ `scrollbar()` 的 `search_component_by_id` 字符串回退在台面是死路径（滑块夹具必须放
+  视口子树内让 prop 解析成组件）。

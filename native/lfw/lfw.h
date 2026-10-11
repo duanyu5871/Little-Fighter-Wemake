@@ -104,6 +104,8 @@ struct LfwPointingsCallback {
   virtual void on_pointer_move(LfwPointingEvent& e) { (void)e; }
   virtual void on_pointer_up(LfwPointingEvent& e) { (void)e; }
   virtual void on_pointer_cancel(LfwPointingEvent& e) { (void)e; }
+  // `on_wheel`（滚轮；`delta_x/delta_y` 已由平台换算为 UI 像素）。
+  virtual void on_wheel(LfwPointingEvent& e) { (void)e; }
 };
 
 // TS `ISoundsCallback`（`ditto/sounds/ISoundsCallback.ts`）在 LFW 里用到的那一面。
@@ -161,6 +163,11 @@ class ILfwHost {
   virtual void pointings_ungrab(LFW& lfw, const void* who) {
     (void)lfw;
     (void)who;
+  }
+  // `this.pointings.grabbing`（当前持有指针者；世代不符/无人持有时为 nullptr）。
+  virtual const void* pointings_grabbing(LFW& lfw) {
+    (void)lfw;
+    return nullptr;
   }
   // `I.Ditto.Cache.forget(type, version)` / `I.Ditto.Zip.forget_stored(type, version)`
   virtual void cache_forget(const std::u16string& type, double version) = 0;
@@ -397,6 +404,8 @@ class LFW : public IWorldLfw,
   // `this.pointings.grab(who)` / `.ungrab(who)`（组件侧便捷转发；`who` 用 `this` 指针表达）。
   bool pointings_grab(const void* who);
   void pointings_ungrab(const void* who);
+  // `this.pointings.grabbing`（世代不符时为 nullptr）。
+  const void* pointings_grabbing();
   // `this.sounds.callbacks.add(cb)` / `.del(cb)`；`this.sounds.bgm()` / `this.sounds.is_random`
   std::u16string sounds_bgm();
   bool sounds_is_random();

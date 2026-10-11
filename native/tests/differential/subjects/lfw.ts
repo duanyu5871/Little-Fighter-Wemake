@@ -43,6 +43,7 @@ import { Dialogs } from "../../../../src/LFW/ui/component/Dialogs";
 import { BGMSwitcher } from "../../../../src/LFW/ui/component/BGMSwitcher";
 import { SliderHandle } from "../../../../src/LFW/ui/component/Slider/SliderHandle";
 import { ArrowSwitcher } from "../../../../src/LFW/ui/component/Slider/ArrowSwitcher";
+import { ScrollView } from "../../../../src/LFW/ui/component/ScrollView";
 import { FSM } from "../../../../src/LFW/base/FSM";
 import { ModeState } from "../../../../src/LFW/ui/component/ModeState";
 import {
@@ -543,14 +544,15 @@ function install_ditto(): void {
       },
     };
     constructor() {
-      pt_dispatch = (what, e) => {
+      pt_dispatch = (what, e, noBump) => {
         // 真实平台在 pointer down 里 `grab_begin()`（世代 +1，之后才分发）。
-        if (what === "down") this.grab_begin();
+        if (what === "down" && !noBump) this.grab_begin();
         for (const cb of [...this.callbacks]) {
           if (what === "down") cb.on_pointer_down?.(e);
           else if (what === "move") cb.on_pointer_move?.(e);
           else if (what === "up") cb.on_pointer_up?.(e);
           else if (what === "cancel") cb.on_pointer_cancel?.(e);
+          else if (what === "wheel") cb.on_wheel?.(e);
           else cb.on_click?.(e);
         }
       };
@@ -788,7 +790,7 @@ const CB_KEYS = [
 let lfw: LFW;
 // `FakeKeyboard` / `FakePointings` 在 `install_ditto` 里声明， 用模块级钩子接出分发入口。
 let kbd_dispatch: (dir: "down" | "up", e: Rec) => void = () => undefined;
-let pt_dispatch: (what: string, e: Rec) => void = () => undefined;
+let pt_dispatch: (what: string, e: Rec, noBump?: boolean) => void = () => undefined;
 // 假声音的状态探针（`sndbgm` op）：`<bgm>|<is_random>`。
 let snd_probe: () => string = () => "|0";
 
@@ -1010,6 +1012,122 @@ async function run_ops(): Promise<void> {
       };
       pt_dispatch(what, e as Rec);
       push(`ptev|${what}|${num(btn)}|${num(x)}|${num(y)}|${num(sx)}|${num(sy)}`);
+    } else if (op === "ptdn") {
+      const nid = next();
+      const btn = Number(nextKey());
+      const x = Number(nextKey());
+      const y = Number(nextKey());
+      const sx = Number(nextKey());
+      const sy = Number(nextKey());
+      const ne = new LFWPointerEvent({ x: 0, y: 0, z: 0 }, 0);
+      const n = tnodes.get(nid)!;
+      (lfw.pointings as unknown as Rec).grab_begin();
+      n.on_pointer_down(ne);
+      const e = {
+        x,
+        y,
+        scene_x: sx,
+        scene_y: sy,
+        is_pointing_event: true,
+        button: btn,
+        delta_x: 0,
+        delta_y: 0,
+      };
+      pt_dispatch("down", e as Rec, true);
+      push(`ptdn|${nid}|${num(btn)}|${num(x)}|${num(y)}|${num(sx)}|${num(sy)}`);
+    } else if (op === "ptw") {
+      const x = Number(nextKey());
+      const y = Number(nextKey());
+      const sx = Number(nextKey());
+      const sy = Number(nextKey());
+      const dx = Number(nextKey());
+      const dy = Number(nextKey());
+      const e = {
+        x,
+        y,
+        scene_x: sx,
+        scene_y: sy,
+        is_pointing_event: true,
+        button: 0,
+        delta_x: dx,
+        delta_y: dy,
+      };
+      pt_dispatch("wheel", e as Rec);
+      push(`ptw|${num(x)}|${num(y)}|${num(sx)}|${num(sy)}|${num(dx)}|${num(dy)}`);
+    } else if (op === "ptg") {
+      const g = (lfw.pointings as unknown as Rec).grabbing;
+      push(`ptg|${g !== void 0 ? 1 : 0}`);
+    } else if (op === "svgeo") {
+      const nid = next();
+      const n = tnodes.get(nid)!;
+      const g = n.geo;
+      push(`svgeo|${nid}|${num(g.left)}|${num(g.top)}|${num(g.right)}|${num(g.bottom)}`);
+    } else if (op === "svsb") {
+      const nid = next();
+      const n = tnodes.get(nid)!;
+      const p = n.components.find((c) => c instanceof ScrollView) as ScrollView | undefined;
+      if (!p) push(`svsb|${nid}|none`);
+      else {
+        const sb = p.scrollbar;
+        const thumb = p.scrollbar_thumb;
+        push(
+          `svsb|${nid}|sb=${sb ? sb.id : "-"}|th=${thumb ? nref(thumb) : "-"}|raw=${
+            p.props_holder.str("scrollbar") ?? "-"
+          }`,
+        );
+      }
+    } else if (
+      op === "svd" ||
+      op === "svto" ||
+      op === "svby" ||
+      op === "svst" ||
+      op === "sven" ||
+      op === "svev" ||
+      op === "svcb" ||
+      op === "svcont"
+    ) {
+      const nid = next();
+      const n = tnodes.get(nid)!;
+      const p = n.components.find((c) => c instanceof ScrollView) as ScrollView | undefined;
+      if (!p) push(`${op}|${nid}|none`);
+      else if (op === "svd") {
+        push(
+          `svd|${nid}|${num(p.offset)}|${num(p.factor)}|${num(p.max_scroll)}|${
+            p.dragging ? 1 : 0
+          }|${n.clip_children ? 1 : 0}|${num((p as never as Rec)._target_offset as number)}`,
+        );
+      } else if (op === "svto") {
+        p.scroll_to(Number(nextKey()));
+        push(`svto|${nid}|${num(p.offset)}`);
+      } else if (op === "svby") {
+        p.scroll_by(Number(nextKey()));
+        push(`svby|${nid}|${num(p.offset)}`);
+      } else if (op === "svst") {
+        p.scroll_to_start();
+        push(`svst|${nid}|${num(p.offset)}`);
+      } else if (op === "sven") {
+        p.scroll_to_end();
+        push(`sven|${nid}|${num(p.offset)}`);
+      } else if (op === "svev") {
+        const target = next();
+        const ret = p.ensure_visible(tnodes.get(target)!);
+        push(`svev|${nid}|${ret ? 1 : 0}|${num(p.offset)}`);
+      } else if (op === "svcb") {
+        p.on_scroll((o: number, f: number, self: ScrollView) =>
+          push(`svcb|scroll|${num(o)}|${num(f)}|${self === p ? 1 : 0}`),
+        );
+        p.callbacks.add({
+          on_scroll_start: (self: ScrollView) =>
+            push(`svcb|start|${num(p.offset)}|${num(p.factor)}|${self === p ? 1 : 0}`),
+          on_scroll_end: (self: ScrollView) =>
+            push(`svcb|end|${num(p.offset)}|${num(p.factor)}|${self === p ? 1 : 0}`),
+        });
+        push(`svcb|${nid}|bound`);
+      } else {
+        const target = next();
+        p.content = tnodes.get(target)!;
+        push(`svcont|${nid}|${target}|${num(p.offset)}`);
+      }
     } else if (op === "wtick") {
       // 推进 `world.lifetime`（暂停下 `step` 只做无害段；台面需要非零时间戳喂 `is_start`）。
       const n = Number(nextKey());

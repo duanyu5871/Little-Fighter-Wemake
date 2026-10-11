@@ -262,6 +262,7 @@ add_library(lfw_core STATIC
   ui/component/slider_handle.cpp
   ui/component/arrow_switcher.cpp
   ui/component/switcher_handle.cpp
+  ui/component/scroll_view.cpp
   ui/instance_ref.cpp
   helper/randoming.cpp
   state/spawn_ice_piece.cpp

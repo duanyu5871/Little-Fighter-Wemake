@@ -58,6 +58,7 @@
 #include "lfw/ui/component/slider_handle.h"
 #include "lfw/ui/component/arrow_switcher.h"
 #include "lfw/ui/component/switcher_handle.h"
+#include "lfw/ui/component/scroll_view.h"
 #include "lfw/ui/component/vertical_layout.h"
 #include "lfw/ui/component/wrap_content.h"
 
@@ -140,6 +141,7 @@ void regist_components() {
   regist_one<SliderHandle>(u"SliderHandle");
   regist_one<ArrowSwitcher>(u"ArrowSwitcher");
   regist_one<SwitcherHandle>(u"SwitcherHandle");
+  regist_one<ScrollView>(u"ScrollView");
 }
 
 }
