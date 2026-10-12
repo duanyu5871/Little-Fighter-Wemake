@@ -73,6 +73,7 @@
 #include "lfw/ui/component/switcher_handle.h"
 #include "lfw/ui/component/scroll_view.h"
 #include "lfw/ui/component/summary_logic.h"
+#include "lfw/ui/component/danmu_game_logic.h"
 #include "lfw/ui/component/fighter_stat_bar.h"
 #include "lfw/ui/component/player_score.h"
 #include "lfw/ui/component/player_score_cell.h"
@@ -180,6 +181,7 @@ void regist_components() {
   regist_one<GamePrepareLogic>(u"GamePrepareLogic");
   regist_one<LaunchPageLogic>(u"LaunchPage");
   regist_one<LittleFunnyAutoGame>(u"LittleFunnyAutoGame");
+  regist_one<DanmuGameLogic>(u"DanmuGameLogic");
 }
 
 }

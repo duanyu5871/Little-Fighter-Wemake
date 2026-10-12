@@ -45,8 +45,9 @@ class SummaryLogic : public UIComponent {
   // 台面观察口（不参与逻辑）：存活监听表大小。
   size_t cb_map_count() const { return _summary_cb_map.size(); }
 
-  void on_fighter_add(Entity& e);
-  void on_fighter_del(Entity& e);
+  // 4BV：DanmuGameLogic 在 TS 里覆写这两个钩子（端口改为虚函数）。
+  virtual void on_fighter_add(Entity& e);
+  virtual void on_fighter_del(Entity& e);
 
   void on_start() override;
   void on_stop() override;

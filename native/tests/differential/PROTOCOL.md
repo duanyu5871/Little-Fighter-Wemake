@@ -5384,3 +5384,37 @@ harness op：
 - ⚠ `pause` 观测：`on_pause` 的 `world().clear()` 会让实体 `fr=gone`、
   `dataset playrate` 归 1（用 `dataset playrate n 3` + `dsrd playrate` 钉死）；
   `resume` 清队要 `stop→start→resume` 才与 pause 序列可分辨（pause→resume 两次都清）。
+### 6.9.179 DanmuGameLogic（`cases/lfw/danmu.txt` 808 行；变异 99/99 全杀）
+
+- 新台面 op：
+  - `dj <nid> <uid> <name> [oid|-]` / `de`（enter）/ `dsw <nid> <uid> [oid|-]` /
+    `dleave <nid> <uid>` / `dtouch <nid> <uid>` / `dcheer <nid> <uid>`：组件 API 直调，
+    回显 `0/1`（`dtouch` 只回显 uid）。
+  - `dp <nid>`：`dp|…|mode=|time=|stg=|w=|teams=|caps=|q=|qu=|wts=|cr=|wr=|nsk=|gck=|sc=|qst=|st=|ca=|jf=|sv=|seen=|cd=|feed=`。
+  - `dlst <nid>`：实体表 `dl|<idx>|<eid>|u=|n=|p=x,y,z|sb=|nv=|dg=|bl=|iv=|hp=|fr=`（uid 取 DANMU_UID_MARK）。
+  - `dstats <nid>`：`dstats|n=` + 每观众 `vs|<uid>|<name>|sp=|k=|d=|dm=|ch=|al=`。
+  - `stgfin`：直发 `world.stage.callbacks().call("on_stage_finish", stage)`（Stage Completed 态 enter 同款）。
+  - `mttimes`：MT 抽取计数（RNG 流对齐调试）；`nset <nid> updaten <count> <dt>`：一次跑 N 帧组件 update。
+- ⚠ **`Times::add(d=1)` 逐帧 +1**：组件里的 `_xxx_countdown.add()` 全部无参 ⇒ 一次
+  `update(BIG)` 只推 1 帧。`updaten N dt` 是跑 N 次的节；`time += dt` 不受影响。
+- ⚠ **`world.clear()` / `edel` 只标 gone**，真正出列要**非暂停步进** `wdt`；`wtick`
+  （暂停步进）能出列 clear 标记的实体，但**不出列 `edel`/`ehp` 的实体**
+  （danmu 用例的 sweep/清场用 `wdt 0 1`，一次一帧）。
+- ⚠ **`wdt` 的 RNG 分叉窗口**：fixture 角色在 TS 里加载时注册了 BotController
+  （`DatMgr._cook_data`），C++ 只注册 creator 无消费 ⇒ 步进到实体 idle 决策后
+  TS 抽、C++ 不抽（`mttimes` 可证：9 帧后差 72 次）。用例把 `wdt` 压到 1 帧且隔离
+  在组件 `time` 大推进之外；**danmu 用例内不要出现两次以上的 `wdt 0 N`**。
+- ⚠ `eteam <idx> <t>` 改队**不触发** `on_fighter_del`；`_teams` 只在 fighter 增删时重算——
+  造 "某队少人" 场景要配合 `edel + wdt`（danmu 的 fallen 场景：先把观众改到 5 队、
+  再 `edel` 5 队原成员 + `wdt 0 1`，然后 `dj` 的新人应进 5 队）。
+- ⚠ `de`（enter）**无条件优先 `template_data()`**：ffa 段也会拉模板实体（id "0"），
+  `oid` 只在「无模板数据」时才走 `regular_data(oid)`。
+- ⚠ `dsw` 有模板守卫（实体 id 必须 == 模板 id "0"），`r1`/名字（大小写不敏感）走
+  `regular_data` 的 id / `base.name` 匹配；台面 `dlst` 里 uid/名字/位置/帧 id 是读点。
+- ⚠ `viewer_stats` 的 `localeCompare` 用 `js_locale_compare` 近似（ASCII 等价、
+  非 ASCII 记偏差）；排序全序，`_viewers` 的容器序不外漏。
+- ⚠ 台面夹具：`tmpl`(id "0"，frames 带 `waiting` 帧——`wdt` 步进需要能解帧)，
+  `r1/r2`(1000 组)，`sd11`(name "1-1" 且 `next=st_reg`)、`sdreg`(is_starting)、
+  `sddev`/`sdhid`(Dev/hidden 组)、`sdsurv`(chapter=survival)、`idsd/idsdnov/idsdc`
+  （多份 `*.index.json5`：可控 stages 追加顺序，把 coop 择优/回退/无候选分场景）；
+  stage 描述符只认 `{file}`，内容用 `imp sd/xx.json5 <key>` + `lzadd`。

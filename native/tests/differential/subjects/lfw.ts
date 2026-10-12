@@ -3,6 +3,7 @@
 // `Ditto` 的宿主包全脚本化（Sounds/ImageMgr/Keyboard/Pointings/UIInputHandle/WorldRender/
 // Cache/Zip/Clock/Render/Timeout/…）；`Date.now` 固定成 12345（端口侧 `host.now()`）。
 import { Ditto } from "../../../../src/LFW/ditto/Instance";
+import { Defines } from "../../../../src/LFW/defines";
 import { ImageInfo } from "../../../../src/LFW/ditto";
 import { Expression } from "../../../../src/LFW/base/Expression";
 import { Factory } from "../../../../src/LFW/Factory";
@@ -55,6 +56,7 @@ import { CameraCtrl } from "../../../../src/LFW/ui/component/CameraCtrl";
 import { CharMenuLogic } from "../../../../src/LFW/ui/component/CharMenu/CharMenuLogic";
 import { LaunchPage } from "../../../../src/LFW/ui/component/LaunchPageLogic";
 import { ActionDirector } from "../../../../src/LFW/ui/component/Tests/ActionDirector";
+import { DanmuGameLogic } from "../../../../src/LFW/ui/component/DanmuGameLogic";
 import { LittleFunnyAutoGame } from "../../../../src/LFW/ui/component/LittleFunnyAutoGame";
 import { SineOpacity } from "../../../../src/LFW/ui/component/SineOpacity";
 import { FadeOutOpacity } from "../../../../src/LFW/ui/component/FadeOutOpacity";
@@ -141,6 +143,13 @@ const tnodes = new Map<string, UINode>();
 const g_ncomps: Rec[] = [];
 // 4BU：ActionDirector 台面实例池。
 const g_ads = new Map<string, ActionDirector>();
+
+// 4BV：DanmuGameLogic 台面取件。
+const danmu_of = (nid: string): DanmuGameLogic | undefined => {
+  const n = tnodes.get(nid)!;
+  for (const c of n.components) if (c instanceof DanmuGameLogic) return c as DanmuGameLogic;
+  return undefined;
+};
 
 // 4AP：真 `UILayers`（台面直建，与 `lfw.layers` 的补丁面互不干扰）。
 const real_layers: { v: UILayers | null } = { v: null };
@@ -443,6 +452,58 @@ function kind_value(k: string): unknown {
         make_stage("st_srv", "SV", "bg_reg", "survival"),
         make_stage("50", "F50", "bg_oth", null),
       ];
+    }
+    // 4BV：弹幕互动的模板 / 常规池 / 场景（`_start_coop_stage` 的择优、排除与回退）。
+    if (k === "r1" || k === "r2") {
+      const nm = k === "r1" ? "RA" : "RB";
+      return {
+        id: k,
+        type: 8,
+        base: { name: nm, group: ["1000"] },
+        frames: { waiting: { id: "waiting", state: 0, wait: 2 } },
+      };
+    }
+    if (k === "tmpl") {
+      return {
+        id: "0",
+        type: 8,
+        base: { name: "TP", group: ["hidden"] },
+        frames: { waiting: { id: "waiting", state: 0, wait: 2 } },
+      };
+    }
+    if (k === "sd11") {
+      const st = stage_fixture("st_11", "1-1", "bg_reg", null, null) as Rec;
+      st.next = "st_reg";
+      return [st];
+    }
+    if (k === "sdreg") return [stage_fixture("st_reg", "S1", "bg_reg", null, "SR")];
+    if (k === "sddev") return [stage_fixture("st_dev", "S3", "bg_reg", "Dev", "DD")];
+    if (k === "sdhid") return [stage_fixture("st_hid", "S2", "bg_reg", "hidden", "SH")];
+    if (k === "sdsurv") {
+      const st = stage_fixture("st_surv", "SV", "bg_reg", null, "SV") as Rec;
+      st.chapter = "survival";
+      return [st];
+    }
+    if (k === "idso") {
+      return {
+        objects: [
+          { id: "0", file: "data/tmpl.json5" },
+          { id: "lfa", file: "data/lfa.json5" },
+          { id: "r1", file: "data/r1.json5" },
+          { id: "r2", file: "data/r2.json5" },
+        ],
+        backgrounds: [{ id: "bg_reg", file: "bg/reg.json5" }],
+      };
+    }
+    if (k === "idsd" || k === "idsdnov" || k === "idsdc") {
+      const stage_file = (path: string) => ({ file: path });
+      const stages: Rec[] = [];
+      if (k === "idsd") stages.push(stage_file("sd/11.json5"));
+      stages.push(stage_file("sd/dev.json5"));
+      stages.push(stage_file("sd/hid.json5"));
+      stages.push(stage_file("sd/surv.json5"));
+      if (k !== "idsdc") stages.push(stage_file("sd/reg.json5"));
+      return { stages };
     }
     if (k === "idg3") {
       return {
@@ -1000,6 +1061,12 @@ function listen(): void {
       const parts: string[] = [`cb|${name}`];
       if (name === "on_ui_changed") {
         for (const a of args) parts.push(a == null ? "u" : "?");
+        push(parts.join("|"));
+        return;
+      }
+      // 4BV：`on_component_broadcast(component, text)` 的 component 带环（C++ 台面同样落 `?`）。
+      if (name === "on_component_broadcast") {
+        parts.push("?");
         push(parts.join("|"));
         return;
       }
@@ -1745,6 +1812,13 @@ async function run_ops(): Promise<void> {
       for (let k = 0; k < n; ++k) w.update_once(16);
       lfw.world.set_paused(0);
       push(`wtick|${num(n)}|lt=${num(lfw.world.lifetime)}`);
+    } else if (op === "stgfin") {
+      // 4BV：直发舞台完成事件（`Stage` 的 Completed 态 enter 同款）。
+      const st = lfw.world.stage;
+      if (st) st.callbacks.call("on_stage_finish", st);
+      push(`stgfin|${st ? 1 : 0}`);
+    } else if (op === "mttimes") {
+      push(`mttimes|${num((lfw as Rec)["_mt"].times as number)}`);
     } else if (op === "kstat") {
       // 逐个驱动所有已挂载的按键状态（= `CMD_KEY_EVENT` 对 `mounted_keys` 做的事）。
       const gk = nextKey();
@@ -1959,6 +2033,105 @@ async function run_ops(): Promise<void> {
             `|b1=${ent_part(t1["boss"] as Entity | undefined)}|b2=${ent_part(t2["boss"] as Entity | undefined)}` +
             `|s1=${num((t1["soldiers"] as Entity[]).length)}|s2=${num((t2["soldiers"] as Entity[]).length)}` +
             `|s1i=${ids_of(t1["soldiers"] as Entity[])}|s2i=${ids_of(t2["soldiers"] as Entity[])}`
+        );
+      }
+    } else if (op === "dj" || op === "de" || op === "dsw") {
+      const nid = nextKey();
+      const uid = nextKey();
+      const d = danmu_of(nid);
+      if (op === "dsw") {
+        const oid = nextKey();
+        if (!d) push(`dsw|${uid}|none`);
+        else push(`dsw|${uid}|${d["switch"](uid, oid === "-" ? undefined : oid) ? 1 : 0}`);
+      } else {
+        const name = nextKey();
+        const oid = nextKey();
+        if (!d) push(`${op}|${uid}|none`);
+        else {
+          const ret = op === "dj"
+            ? d.join({ uid, name, oid: oid === "-" ? undefined : oid })
+            : d.enter({ uid, name, oid: oid === "-" ? undefined : oid });
+          push(`${op}|${uid}|${ret ? 1 : 0}`);
+        }
+      }
+    } else if (op === "dleave" || op === "dtouch" || op === "dcheer") {
+      const nid = nextKey();
+      const uid = nextKey();
+      const d = danmu_of(nid);
+      if (!d) push(`${op}|${uid}|none`);
+      else if (op === "dleave") push(`dleave|${uid}|${d.leave(uid) ? 1 : 0}`);
+      else if (op === "dtouch") {
+        d.touch(uid);
+        push(`dtouch|${uid}`);
+      } else push(`dcheer|${uid}|${d.cheer(uid) ? 1 : 0}`);
+    } else if (op === "dp") {
+      const nid = nextKey();
+      const d = danmu_of(nid);
+      if (!d) push(`dp|${nid}|none`);
+      else {
+        const rc = d as Rec;
+        const csv = (v: string[]): string => (v.length ? v.join(",") : "-");
+        let line = `dp|${nid}|mode=${d.mode}|time=${num(d.time)}`;
+        line += `|stg=${lfw.world.stage ? lfw.world.stage.name : "z"}`;
+        const wins = [...d.teams].map(([k, v]) => `${k}:${num((v as { wins: number }).wins)}`).sort();
+        line += `|w=${csv(wins)}`;
+        line += `|teams=${csv([...(rc["_teams"] as Set<string>)].sort())}`;
+        const caps = [...(rc["_team_caps"] as Map<string, number>)].map(([k, v]) => `${k}:${num(v)}`);
+        line += `|caps=${csv(caps)}`;
+        line += `|q=${num(d.join_queue.size)}`;
+        const qu = [...d.join_queue.all].map((e) => `${e.uid}:${e.name}:${renderValue(e.oid)}`);
+        line += `|qu=${csv(qu)}`;
+        line += `|wts=${d.waiting_next_stage ? 1 : 0}`;
+        line += `|cr=${rc["_coop_stage_ready"] ? 1 : 0}`;
+        line += `|wr=${rc["_waiting_respawn"] ? 1 : 0}`;
+        line += `|nsk=${num((rc["_next_stage_delay"] as { value: number }).value)}`;
+        line += `|gck=${num((rc["_gameover_countdown"] as { value: number }).value)}`;
+        line += `|sc=${num((rc["_staring_countdown"] as { value: number }).value)}`;
+        line += `|qst=${num((rc["_queue_sweep_timer"] as { value: number }).value)}`;
+        const cam = rc["_cam_ctrl"] as CameraCtrl | undefined;
+        const staring = cam?.staring;
+        line += `|st=${cam ? (staring ? staring.id : "z") : "u"}`;
+        line += `|ca=${cam ? (cam.auto ? 1 : 0) : "u"}`;
+        const jf = rc["_join_fallen"] as string | null;
+        line += `|jf=${jf ?? "z"}`;
+        const sv = rc["_survivors"] as { uid: string }[] | null;
+        line += `|sv=${sv ? (sv.length ? sv.map((e) => e.uid).join(",") : "e") : "z"}`;
+        const seen = [...(rc["_queue_seen"] as Map<string, number>)].map(([k, v]) => `${k}:${num(v)}`).sort();
+        line += `|seen=${csv(seen)}`;
+        const cd = [...(rc["_cheer_cd"] as Map<string, number>)].map(([k, v]) => `${k}:${num(v)}`).sort();
+        line += `|cd=${csv(cd)}`;
+        const feed = d.cheer_feed.map((e) => `${e.uid}:${e.name}:${num(e.time)}`);
+        line += `|feed=${csv(feed)}`;
+        push(line);
+      }
+    } else if (op === "dstats") {
+      const nid = nextKey();
+      const d = danmu_of(nid);
+      if (!d) push(`dstats|${nid}|none`);
+      else {
+        const list = d.viewer_stats();
+        push(`dstats|${nid}|n=${num(list.length)}`);
+        for (const v of list)
+          push(
+            `vs|${v.uid}|${v.name}|sp=${num(v.spawns)}|k=${num(v.kills)}|d=${num(v.deads)}|dm=${num(v.damages)}|ch=${num(v.cheers)}|al=${v.alive ? 1 : 0}`
+          );
+      }
+    } else if (op === "dlst") {
+      const nid = nextKey();
+      const ents = lfw.world.entities as unknown as Rec[];
+      push(`dlst|${nid}|${num(ents.length)}`);
+      for (let k = 0; k < ents.length; ++k) {
+        const e = ents[k];
+        if (!e) {
+          push(`dl|${num(k)}|z`);
+          continue;
+        }
+        const uid = (e["marks"] as Map<string, string>).get(Defines.DANMU_UID_MARK);
+        push(
+          `dl|${num(k)}|${e["id"]}|u=${uid ?? "-"}|n=${e["name"]}|p=${num((e["position"] as Rec).x as number)},${num((e["position"] as Rec).y as number)},${num((e["position"] as Rec).z as number)}` +
+            `|sb=${num(e["stat_bar"] as number)}|nv=${num(e["name_visible"] as number)}|dg=${num(e["dead_gone"] as number)}` +
+            `|bl=${num((e as Rec)["blinking"] as number)}|iv=${num((e as Rec)["invulnerable"] as number)}|hp=${num((e as Rec)["hp"] as number)}` +
+            `|fr=${(e["frame"] as Rec | undefined)?.["id"] ?? "-"}`
         );
       }
     } else if (op === "bcast") {
@@ -2198,6 +2371,12 @@ async function run_ops(): Promise<void> {
         n.set_scale(nnum(), nnum(), nnum());
       } else if (what === "update") {
         n.update(nnum());
+      } else if (what === "updaten") {
+        // 4BV：多帧推进（`Times.add()` 逐帧 +1，需要「跑 N 帧」的台面节）。
+        const count = nnum();
+        const dt = nnum();
+        for (let k = 0; k < count; ++k) n.update(dt);
+        push(`nupd|${nid}|${num(count)}`);
       } else if (what === "text") {
         n.set_text(keyOf(next()));
       } else if (what === "text2") {

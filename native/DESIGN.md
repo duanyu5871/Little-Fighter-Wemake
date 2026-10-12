@@ -10222,3 +10222,58 @@ work 打 `adw|<tag>`）、`lfgp` 全量探针（`lr/ox/wp/b1|b2(含 hp/hr/hm/fr/
 **测试**：用例 `cases/lfw/lfag.txt` **1303 行**（trace 行数）；
 变异 `lfw_lfag.mjs` **54 条（54/54 全杀）**（剔 3 条死代码等效：`freeguys` 复用族）；
 全量差分 **252/252**。
+## 135. 切片 4BV：DanmuGameLogic
+
+**`danmu_game_logic`**（`TAGS=["DanmuGameLogic"]`，props `mode: "ffa"|"teams8"|"coop"` 缺省 ffa）：
+弹幕互动三模式。
+* **ffa**：`update_bg` 用 `mt.take(fighters)` 取最多 8 个种子（池空即止），team 传空串；
+  `_teams.size<=1` 时进 gameover 倒计时（300 帧），到点给仍在场的队 `wins += 1` 并
+  `update_bg()` 重开（`Times` 已回卷到 min，`reset` 与回卷等效）。
+* **teams8**：八队各补 1 人（`add_random`）、`_team_caps` 全队 4 人；`join` 走
+  `pick_join_team`（人数最少队里挑首个满足上限者；`fallen` 在候选内优先）。
+* **coop**：`_start_coop_stage` 先从 stages 里滤掉 `Dev`/`hidden` 组，再 `1-1` 名优先、
+  否则首个 `is_starting && chapter!="survival"`；无候选返回 false。`OID.Template`（"0"）
+  数据即占位模板：`fill_templates` 补 4 个（`set_name("")`），claim 时改名/打
+  `DANMU_UID_MARK=danmu_uid` 即成为观众实体。舞台切换由 world `on_stage_change`
+  挂 `_waiting_respawn`（补人 + 补模板）；`on_stage_finish` 挂 `_waiting_next_stage`，
+  延迟 180 帧后收幸存者、`goto_next_stage`。
+* `join/enter` 都先查「已激活 viewer / 已在队」；`enter` 非 coop 还要 `_teams.size > 1`；
+  `switch` 有模板守卫（实体 id 必须等于模板 id），换人继承位置/朝向/hp 比例（`max(1, round(…))`）。
+* `cheer` 冷却 180 帧、回血 `15%`（夹到上限）、feed 上限 20；`viewer_stats` 按
+  「击杀↓、出勤↓、名字 localeCompare↑」排序并标 alive。
+* `CameraCtrl` 的 `candidates` 回调 + 组件自身的 `update_bg`/`update` 相机段
+  （`DIST_CAM` 推命令、`jump_x` 应用、按舞台左右界夹取）。
+* `sweep_queue`：队列见 5 分钟（18000 帧）未刷新即移出，并清孤儿 `_queue_seen`。
+
+**端口纠偏（语义级）**：
+* `viewer_stats` 的 `localeCompare` 无宿主 ICU，端口实现 `js_locale_compare`（主序大小写
+  不敏感、同主序小写在前、前缀短者前、非 ASCII 退码点序）；ASCII 名字上与 Node 的
+  `en` 结果一致（用例锁定 a/A/b/B 与跨 spawns 优先级），非 ASCII 记为偏差。
+* `_viewers`/`_queue_seen`/`_cheer_cd` 在 TS 是 `Map`（插入序），端口 `std::map`（uid 序）：
+  仅 `viewer_stats` 依赖该序，而它全序排序，输出不受影响；台面 `dp` 的 `seen`/`cd`
+  按字符串先排序对齐。
+* **`on_stop` 的监听摘除**：TS 里 `_viewer_tracks.clear()` 后对象仍被 callbacks 数组
+  持有（GC 保活，行为=继续收事件但无人观察）；C++ 的 `unique_ptr` 析构即悬挂 ⇒
+  端口显式从 summary / 实体 callbacks 里 `del` 再清（首个 danmu 用例曾因此让后续
+  `wdt` 崩溃：d1 段观众实体的悬挂监听在重开世界后被 `on_dead` 等事件命中）。
+* 台面 `Time` 类 API `add(d=1)` 逐帧 +1：`nset updaten N dt` 一次跑 N 帧（变异/用例节）。
+
+**台面**：`dj/de/dsw/dleave/dtouch/dcheer/dstats`（组件 API 直调）、`dp` 全量探针
+（`mode/time/stg/w(队胜数)/caps/q/qu/wts/cr/wr/nsk/gck/sc/qst/st/ca/jf/sv/seen/cd/feed`）、
+`dlst`（实体 × idx × uid × 名字 × 位置 × sb/nv/dg/bl/iv/hp/帧 id）。
+夹具：`tmpl`（id "0" 模板）、`r1/r2`（1000 组池）、`sd11/sdreg/sddev/sdhid/sdsurv`
+（舞台：1-1 优先 / Dev·hidden 排除 / survival 不进回退 / 正常回退）、
+`idsd/idsdnov/idsdc`（三份索引把择优、回退、无候选分场景）。
+
+**夹具坑**：
+* `de`（enter）**永远优先用 `template_data()`**——ffa 段也会拉模板实体，别按模式臆测。
+* `world().clear()`（stop）与 `edel` 都只标 gone，**要 `wdt`（非暂停步进）才真正出列**；
+  `wtick`（暂停步进）能出列 clear 标记，但**不出列 `edel`/死亡实体**。
+* `wdt` 帧数越多，实体 AI 越可能进入"抽随机"的 idle/决策分支：**C++ 侧 bot 未挂**
+  （fixture 数据在 TS 里 `DatMgr` 注册了 BotController，端口只注册 creator 但无消费），
+  于是 `wdt` 超过几帧后两侧 RNG 流分叉。用例因此只用 **`wdt 0 1` 出列**、隔离 AI 窗口。
+* `eteam` 改队不会触发 `on_fighter_del`；`_teams` 只在 fighter 增删时重算。
+
+**测试**：用例 `cases/lfw/danmu.txt` **808 行**（trace 行数）；
+变异 `lfw_danmu.mjs` **99 条（99/99 全杀）**（剔 5 条等效/不可观察：`untrack` 的两处回调摘除在出列路径上不可达——`Entity::release()` 同轮紧跟清 callbacks、summary 按实体 id 建键且 id 不复用；`update_bg` 相机段的左右 clamp 只在 gameover 重开那一帧执行、gcount 300 帧远超台面观察窗，无法构造稳定命中场景。另：`TEAMS8_TEAM_CAP` 变异锚点从 `.h` 改到 cpp 引用点——头部单独改动不会触发 ninja 重编，首条 `.h` 变异会假存活）；
+全量差分 **253/253**。

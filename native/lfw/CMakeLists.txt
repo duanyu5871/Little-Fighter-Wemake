@@ -278,6 +278,7 @@ add_library(lfw_core STATIC
   ui/component/launch_page_logic.cpp
   ui/component/action_director.cpp
   ui/component/little_funny_auto_game.cpp
+  ui/component/danmu_game_logic.cpp
   ui/component/fighter_stat_bar.cpp
   ui/component/player_score.cpp
   ui/component/player_score_cell.cpp

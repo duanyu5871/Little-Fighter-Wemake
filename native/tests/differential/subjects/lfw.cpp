@@ -1,4 +1,5 @@
 // `LFW`（门面 4AB）的 C++ 侧台面，op 与 `subjects/lfw.ts` 一一对应。
+#include <algorithm>
 #include <cstdio>
 #include <fstream>
 #include <map>
@@ -29,6 +30,7 @@
 #include "lfw/ui/component/img_loop.h"
 #include "lfw/ui/component/launch_page_logic.h"
 #include "lfw/ui/component/action_director.h"
+#include "lfw/ui/component/danmu_game_logic.h"
 #include "lfw/ui/component/little_funny_auto_game.h"
 #include "lfw/ui/component/sine_opacity.h"
 #include "lfw/ui/component/players.h"
@@ -539,6 +541,102 @@ lfw::Value build_kind_value(const std::string& k) {
     arr->push_back(make_stage(u"st_srv", u"SV", u"bg_reg", u"survival"));
     arr->push_back(make_stage(u"50", u"F50", u"bg_oth", nullptr));
     return lfw::Value(arr);
+  }
+  // 4BV：弹幕互动的模板 / 常规池 / 场景（`_start_coop_stage` 的择优、排除与回退）。
+  if (k == "r1" || k == "r2") {
+    const char16_t* const nm = k == "r1" ? u"RA" : u"RB";
+    lfw::Object base;
+    base.set(u"name", lfw::Value(std::u16string(nm)));
+    auto groups = std::make_shared<lfw::Array>();
+    groups->push_back(lfw::Value(std::u16string(u"1000")));
+    base.set(u"group", lfw::Value(groups));
+    lfw::Object frames;
+    lfw::Object frame;
+    frame.set(u"id", lfw::Value(std::u16string(u"waiting")));
+    frame.set(u"state", lfw::Value(0.0));
+    frame.set(u"wait", lfw::Value(2.0));
+    frames.set(u"waiting", lfw::Value(std::make_shared<lfw::Object>(frame)));
+    lfw::Object o;
+    o.set(u"id", lfw::Value(to_u16(k)));
+    o.set(u"type", lfw::Value(8.0));
+    o.set(u"base", lfw::Value(std::make_shared<lfw::Object>(base)));
+    o.set(u"frames", lfw::Value(std::make_shared<lfw::Object>(frames)));
+    return lfw::Value(std::make_shared<lfw::Object>(o));
+  }
+  if (k == "tmpl") {
+    lfw::Object base;
+    base.set(u"name", lfw::Value(std::u16string(u"TP")));
+    auto groups = std::make_shared<lfw::Array>();
+    groups->push_back(lfw::Value(std::u16string(u"hidden")));
+    base.set(u"group", lfw::Value(groups));
+    lfw::Object frames;
+    lfw::Object frame;
+    frame.set(u"id", lfw::Value(std::u16string(u"waiting")));
+    frame.set(u"state", lfw::Value(0.0));
+    frame.set(u"wait", lfw::Value(2.0));
+    frames.set(u"waiting", lfw::Value(std::make_shared<lfw::Object>(frame)));
+    lfw::Object o;
+    o.set(u"id", lfw::Value(std::u16string(u"0")));
+    o.set(u"type", lfw::Value(8.0));
+    o.set(u"base", lfw::Value(std::make_shared<lfw::Object>(base)));
+    o.set(u"frames", lfw::Value(std::make_shared<lfw::Object>(frames)));
+    return lfw::Value(std::make_shared<lfw::Object>(o));
+  }
+  if (k == "sd11") {
+    auto arr = std::make_shared<lfw::Array>();
+    lfw::Value st = stage_fixture(u"st_11", u"1-1", u"bg_reg", nullptr, nullptr);
+    if (lfw::Object* const so = lfw::as_object(st)) {
+      so->set(u"next", lfw::Value(std::u16string(u"st_reg")));
+    }
+    arr->push_back(st);
+    return lfw::Value(arr);
+  }
+  if (k == "sdreg") return stage_list_fixture(u"st_reg", u"S1", u"bg_reg", nullptr, u"SR");
+  if (k == "sddev") return stage_list_fixture(u"st_dev", u"S3", u"bg_reg", u"Dev", u"DD");
+  if (k == "sdhid") return stage_list_fixture(u"st_hid", u"S2", u"bg_reg", u"hidden", u"SH");
+  if (k == "sdsurv") {
+    auto arr = std::make_shared<lfw::Array>();
+    lfw::Value st = stage_fixture(u"st_surv", u"SV", u"bg_reg", nullptr, u"SV");
+    if (lfw::Object* const so = lfw::as_object(st)) {
+      so->set(u"chapter", lfw::Value(std::u16string(u"survival")));
+    }
+    arr->push_back(st);
+    return lfw::Value(arr);
+  }
+  if (k == "idso") {
+    auto file_of = [](const char16_t* id, const char16_t* path) {
+      lfw::Object o;
+      o.set(u"id", lfw::Value(std::u16string(id)));
+      o.set(u"file", lfw::Value(std::u16string(path)));
+      return lfw::Value(std::make_shared<lfw::Object>(o));
+    };
+    auto objs = std::make_shared<lfw::Array>();
+    objs->push_back(file_of(u"0", u"data/tmpl.json5"));
+    objs->push_back(file_of(u"lfa", u"data/lfa.json5"));
+    objs->push_back(file_of(u"r1", u"data/r1.json5"));
+    objs->push_back(file_of(u"r2", u"data/r2.json5"));
+    auto bgs = std::make_shared<lfw::Array>();
+    bgs->push_back(file_of(u"bg_reg", u"bg/reg.json5"));
+    lfw::Object o;
+    o.set(u"objects", lfw::Value(objs));
+    o.set(u"backgrounds", lfw::Value(bgs));
+    return lfw::Value(std::make_shared<lfw::Object>(o));
+  }
+  if (k == "idsd" || k == "idsdnov" || k == "idsdc") {
+    auto stage_file = [](const char16_t* path) {
+      lfw::Object o;
+      o.set(u"file", lfw::Value(std::u16string(path)));
+      return lfw::Value(std::make_shared<lfw::Object>(o));
+    };
+    auto stages = std::make_shared<lfw::Array>();
+    if (k == "idsd") stages->push_back(stage_file(u"sd/11.json5"));
+    stages->push_back(stage_file(u"sd/dev.json5"));
+    stages->push_back(stage_file(u"sd/hid.json5"));
+    stages->push_back(stage_file(u"sd/surv.json5"));
+    if (k != "idsdc") stages->push_back(stage_file(u"sd/reg.json5"));
+    lfw::Object o;
+    o.set(u"stages", lfw::Value(stages));
+    return lfw::Value(std::make_shared<lfw::Object>(o));
   }
   if (k == "idg3") {
     auto file_of = [](const char16_t* id, const char16_t* path) {
@@ -1839,6 +1937,16 @@ bool run_comp_ops(lfw::LFW& lfw, FakeHost& host, const std::vector<std::string>&
     for (double k = 0; k < n; ++k) lfw.world().update_once(16.0);
     lfw.world().set_paused_value(0.0);
     push("wtick|" + num(n) + "|lt=" + num(lfw.world().lifetime()));
+  } else if (op == "stgfin") {
+    // 4BV：直发舞台完成事件（`Stage` 的 Completed 态 enter 同款）。
+    lfw::stage::Stage* const st = lfw.world().stage();
+    if (st != nullptr) {
+      st->callbacks().call(u"on_stage_finish",
+                           {lfw::stage::StageCallbackArgs{st, lfw::Value(), lfw::Value()}});
+    }
+    push("stgfin|" + std::string(st != nullptr ? "1" : "0"));
+  } else if (op == "mttimes") {
+    push("mttimes|" + num(static_cast<double>(lfw.mt()->times())));
   } else if (op == "kstat") {
     // 逐个驱动所有已挂载的按键状态（= TS `CMD_KEY_EVENT` 对 `mounted_keys` 做的事）。
     const std::u16string key = key_of(t[i++]);
@@ -2988,6 +3096,195 @@ bool run_lfag_ops(lfw::LFW& lfw, FakeHost& host, const std::vector<std::string>&
   return false;
 }
 
+lfw::ui::DanmuGameLogic* danmu_of(const std::string& nid) {
+  lfw::ui::UINode& n = *g_nodes.at(nid);
+  for (lfw::ui::UIComponent* const c : n.components()) {
+    if (!lfw::is_class(c->clazz(), lfw::ui::DanmuGameLogic::class_tag())) continue;
+    return static_cast<lfw::ui::DanmuGameLogic*>(c);
+  }
+  return nullptr;
+}
+
+std::string csv_of(const std::vector<std::string>& v) {
+  std::string out;
+  for (const std::string& s : v) {
+    if (!out.empty()) out += ",";
+    out += s;
+  }
+  return out.empty() ? std::string("-") : out;
+}
+
+bool run_danmu_ops(lfw::LFW& lfw, FakeHost& host, const std::vector<std::string>& t, size_t& i,
+                   const std::string& op) {
+  (void)lfw;
+  (void)host;
+  if (op == "dj" || op == "de" || op == "dsw") {
+    const std::string nid = t[i++];
+    const std::string uid = t[i++];
+    lfw::ui::DanmuGameLogic* const d = danmu_of(nid);
+    if (op == "dsw") {
+      const std::string oid = i < t.size() ? t[i++] : "-";
+      if (d == nullptr) {
+        push("dsw|" + uid + "|none");
+        return true;
+      }
+      const bool ret =
+          d->switch_to(to_u16(uid), oid == "-" ? lfw::Value() : lfw::Value(to_u16(oid)));
+      push("dsw|" + uid + "|" + (ret ? "1" : "0"));
+      return true;
+    }
+    const std::string name = t[i++];
+    const std::string oid = i < t.size() ? t[i++] : "-";
+    if (d == nullptr) {
+      push(op + "|" + uid + "|none");
+      return true;
+    }
+    const lfw::helper::Entrant entrant{
+        to_u16(uid), to_u16(name), oid == "-" ? lfw::Value() : lfw::Value(to_u16(oid))};
+    const bool ret = op == "dj" ? d->join(entrant) : d->enter(entrant);
+    push(op + "|" + uid + "|" + (ret ? "1" : "0"));
+    return true;
+  }
+  if (op == "dleave" || op == "dtouch" || op == "dcheer") {
+    const std::string nid = t[i++];
+    const std::string uid = t[i++];
+    lfw::ui::DanmuGameLogic* const d = danmu_of(nid);
+    if (d == nullptr) {
+      push(op + "|" + uid + "|none");
+      return true;
+    }
+    if (op == "dleave") push("dleave|" + uid + "|" + (d->leave(to_u16(uid)) ? "1" : "0"));
+    else if (op == "dtouch") {
+      d->touch(to_u16(uid));
+      push("dtouch|" + uid);
+    } else {
+      push("dcheer|" + uid + "|" + (d->cheer(to_u16(uid)) ? "1" : "0"));
+    }
+    return true;
+  }
+  if (op == "dp") {
+    const std::string nid = t[i++];
+    lfw::ui::DanmuGameLogic* const d = danmu_of(nid);
+    if (d == nullptr) {
+      push("dp|" + nid + "|none");
+      return true;
+    }
+    std::string line = "dp|" + nid + "|mode=" + to_ascii(d->mode()) + "|time=" + num(d->time);
+    lfw::stage::Stage* const stg = lfw.world().stage();
+    line += "|stg=" + (stg != nullptr ? to_ascii(stg->name()) : std::string("z"));
+    std::vector<std::string> wins;
+    for (const auto& kv : d->teams) {
+      wins.push_back(to_ascii(kv.first) + ":" + num(kv.second.wins));
+    }
+    std::sort(wins.begin(), wins.end());
+    line += "|w=" + csv_of(wins);
+    std::vector<std::string> teams;
+    for (const std::u16string& s : d->teams_set()) teams.push_back(to_ascii(s));
+    std::sort(teams.begin(), teams.end());
+    line += "|teams=" + csv_of(teams);
+    std::string caps;
+    for (const auto& kv : d->team_caps()) {
+      if (!caps.empty()) caps += ",";
+      caps += to_ascii(kv.first) + ":" + num(kv.second);
+    }
+    line += "|caps=" + (caps.empty() ? std::string("-") : caps);
+    line += "|q=" + num(static_cast<double>(d->join_queue.size()));
+    std::string qu;
+    for (const lfw::helper::Entrant& e : d->join_queue.all()) {
+      if (!qu.empty()) qu += ",";
+      qu += to_ascii(e.uid) + ":" + to_ascii(e.name) + ":" + to_ascii(render_value(e.oid));
+    }
+    line += "|qu=" + (qu.empty() ? std::string("-") : qu);
+    line += "|wts=" + std::string(d->waiting_next_stage() ? "1" : "0");
+    line += "|cr=" + std::string(d->coop_stage_ready() ? "1" : "0");
+    line += "|wr=" + std::string(d->waiting_respawn() ? "1" : "0");
+    line += "|nsk=" + num(d->next_stage_delay());
+    line += "|gck=" + num(d->gameover_countdown());
+    line += "|sc=" + num(d->staring_countdown());
+    line += "|qst=" + num(d->queue_sweep_timer());
+    lfw::ui::CameraCtrl* const cam = d->cam_ctrl();
+    const lfw::Entity* const staring = cam != nullptr ? cam->staring() : nullptr;
+    line += "|st=" + (cam == nullptr ? std::string("u")
+                                     : (staring != nullptr ? to_ascii(staring->id)
+                                                           : std::string("z")));
+    line += "|ca=" + (cam == nullptr ? std::string("u")
+                                     : std::string(cam->auto_ ? "1" : "0"));
+    line += "|jf=" + (d->join_fallen().has_value() ? to_ascii(*d->join_fallen())
+                                                   : std::string("z"));
+    std::string sv;
+    if (d->survivors().has_value()) {
+      for (const lfw::helper::Entrant& e : *d->survivors()) {
+        if (!sv.empty()) sv += ",";
+        sv += to_ascii(e.uid);
+      }
+      if (sv.empty()) sv = "e";
+    } else {
+      sv = "z";
+    }
+    line += "|sv=" + sv;
+    std::vector<std::string> seen;
+    for (const auto& kv : d->queue_seen())
+      seen.push_back(to_ascii(kv.first) + ":" + num(kv.second));
+    std::sort(seen.begin(), seen.end());
+    line += "|seen=" + csv_of(seen);
+    std::vector<std::string> cd;
+    for (const auto& kv : d->cheer_cd()) cd.push_back(to_ascii(kv.first) + ":" + num(kv.second));
+    std::sort(cd.begin(), cd.end());
+    line += "|cd=" + csv_of(cd);
+    std::string feed;
+    for (const lfw::ui::DanmuGameLogic::CheerEvent& e : d->cheer_feed()) {
+      if (!feed.empty()) feed += ",";
+      feed += to_ascii(e.uid) + ":" + to_ascii(e.name) + ":" + num(e.time);
+    }
+    line += "|feed=" + (feed.empty() ? std::string("-") : feed);
+    push(line);
+    return true;
+  }
+  if (op == "dstats") {
+    const std::string nid = t[i++];
+    lfw::ui::DanmuGameLogic* const d = danmu_of(nid);
+    if (d == nullptr) {
+      push("dstats|" + nid + "|none");
+      return true;
+    }
+    const std::vector<lfw::ui::DanmuGameLogic::ViewerStat> list = d->viewer_stats();
+    push("dstats|" + nid + "|n=" + num(static_cast<double>(list.size())));
+    for (const lfw::ui::DanmuGameLogic::ViewerStat& v : list) {
+      push("vs|" + to_ascii(v.uid) + "|" + to_ascii(v.name) + "|sp=" + num(v.spawns) +
+           "|k=" + num(v.kills) + "|d=" + num(v.deads) + "|dm=" + num(v.damages) +
+           "|ch=" + num(v.cheers) + "|al=" + (v.alive ? "1" : "0"));
+    }
+    return true;
+  }
+  if (op == "dlst") {
+    const std::string nid = t[i++];
+    const lfw::Value* const mk = ::lfw::defines::find(u"Defines.DANMU_UID_MARK");
+    const std::u16string mark = mk != nullptr ? lfw::to_string(*mk) : std::u16string(u"danmu_uid");
+    const std::vector<lfw::Entity*>& ents = lfw.world().entities;
+    push("dlst|" + nid + "|" + num(static_cast<double>(ents.size())));
+    for (size_t k = 0; k < ents.size(); ++k) {
+      const lfw::Entity* const e = ents[k];
+      if (e == nullptr) {
+        push("dl|" + num(static_cast<double>(k)) + "|z");
+        continue;
+      }
+      const auto it = e->marks.find(mark);
+      const std::u16string uid = it != e->marks.end() ? it->second : std::u16string();
+      const lfw::Value fid = lfw::field_or(e->frame, u"id");
+      push("dl|" + num(static_cast<double>(k)) + "|" + to_ascii(e->id) +
+           "|u=" + (uid.empty() ? std::string("-") : to_ascii(uid)) +
+           "|n=" + to_ascii(lfw::to_string(e->name())) +
+           "|p=" + num(e->position.x) + "," + num(e->position.y) + "," + num(e->position.z) +
+           "|sb=" + num(e->stat_bar) + "|nv=" + num(e->name_visible) +
+           "|dg=" + num(e->dead_gone) + "|bl=" + num(e->blinking()) +
+           "|iv=" + num(e->invulnerable()) + "|hp=" + num(e->hp()) +
+           "|fr=" + (is_nullish_field(fid) ? std::string("-") : to_ascii(lfw::to_string(fid))));
+    }
+    return true;
+  }
+  return false;
+}
+
 void listen(lfw::LFW& lfw) {
   auto call = [&](const std::u16string& name, const lfw::LfwCallbacks::Payloads& p) {
     std::vector<lfw::LfwCallbacks::Payloads> packs = {p};
@@ -3956,6 +4253,12 @@ int main(int argc, char** argv) {
         else n.set_scale(x, y, z);
       } else if (what == "update") {
         n.update(to_double(t[i++]));
+      } else if (what == "updaten") {
+        // 4BV：多帧推进（`Times.add()` 逐帧 +1，需要「跑 N 帧」的台面节）。
+        const double count = to_double(t[i++]);
+        const double dt = to_double(t[i++]);
+        for (double k = 0; k < count; ++k) n.update(dt);
+        push("nupd|" + nid + "|" + num(count));
       } else if (what == "text") {
         n.set_text(key_of(t[i++]));
       } else if (what == "text2") {
@@ -4230,7 +4533,7 @@ int main(int argc, char** argv) {
              (r != nullptr ? node_ref(r) : std::string("u")));
       }
     } else if (run_comp_ops(lfw, host, t, i, op) || run_sum_ops(lfw, host, t, i, op) ||
-               run_lfag_ops(lfw, host, t, i, op)) {
+               run_lfag_ops(lfw, host, t, i, op) || run_danmu_ops(lfw, host, t, i, op)) {
     } else if (op == "ird") {
       const std::string nid = t[i++];
       lfw::ui::UINode& n = *g_nodes.at(nid);
