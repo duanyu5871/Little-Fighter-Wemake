@@ -1,5 +1,5 @@
 import type { LFW } from "..";
-import type { IBdyInfo, IEntityData, IFrameInfo, IItrInfo } from "../defines";
+import type { IBdyInfo, IEntityData, IFrameInfo, IItrInfo, IOpointInfo } from "../defines";
 
 export interface IEntityDataContext {
   lfw: LFW;
@@ -21,3 +21,8 @@ export interface IItrInfoContext extends IEntityDataContext {
   itr: IItrInfo;
 }
 
+export interface IOpointInfoContext extends IEntityDataContext {
+  index?: number;
+  frame?: IFrameInfo;
+  opoint: IOpointInfo;
+}

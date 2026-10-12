@@ -5,8 +5,12 @@ import { make_fb_firzen_disater_start } from "../LFW/dat_translator/frame_behavi
 import { make_fb_jan_chase_start } from "../LFW/dat_translator/frame_behavior/make_fb_jan_chase_start";
 import { make_fb_julian_ball_start } from "../LFW/dat_translator/frame_behavior/make_fb_julian_ball_start";
 import type { IOpointInfo } from "../LFW/defines";
+import { Defines } from "../LFW/defines/defines";
+import { EntityEnum } from "../LFW/defines/EntityEnum";
+import { StateEnum } from "../LFW/defines/StateEnum";
 import { Ditto } from "../LFW/ditto";
 import { Randoming } from "../LFW/helper/Randoming";
+import type { IOpointInfoContext } from "../LFW/loader/IEntityDataContext";
 import { preprocess_opoint } from "../LFW/loader/preprocess_opoint";
 import { round } from "../LFW/utils";
 import { MersenneTwister } from "../LFW/utils/math/MersenneTwister";
@@ -30,6 +34,9 @@ const frame = { width: 96, height: 48, centerx: 50, centery: 30 };
 const opoint = (extra: Partial<IOpointInfo>): IOpointInfo =>
   ({ kind: 0, x: 0, y: 0, oid: "test", action: { id: "0" }, ...extra }) as IOpointInfo;
 
+const pre = (o: IOpointInfo, extra: Partial<IOpointInfoContext> = {}): IOpointInfo =>
+  preprocess_opoint({ opoint: o, ...extra } as unknown as IOpointInfoContext);
+
 const make_emitter = (mt: FakeMt) => ({ frame, lfw: { mt } }) as unknown as Entity;
 
 const with_warn = (fn: () => void) => {
@@ -46,7 +53,7 @@ const with_warn = (fn: () => void) => {
 
 test("gen_x/gen_y/gen_z 编译为运行时 getter", () => {
   const mt = new FakeMt();
-  const ret = preprocess_opoint(
+  const ret = pre(
     opoint({
       gen_x: "rand(-w/6, w/6)",
       gen_y: "cy + rand(-h/4, 0)",
@@ -65,7 +72,7 @@ test("gen_x/gen_y/gen_z 编译为运行时 getter", () => {
 
 test("gen_dvx/gen_dvy/gen_dvz 编译为运行时 getter", () => {
   const mt = new FakeMt();
-  const ret = preprocess_opoint(
+  const ret = pre(
     opoint({
       gen_dvx: "pick(-1, 1)",
       gen_dvy: "rand(1, 3)",
@@ -84,7 +91,7 @@ test("gen_dvx/gen_dvy/gen_dvz 编译为运行时 getter", () => {
 
 test("未声明 gen_* 时不生成 getter", () => {
   const hook = { get: () => 7 };
-  const ret = preprocess_opoint(opoint({ __gen_x: hook }));
+  const ret = pre(opoint({ __gen_x: hook }));
   expect(ret.__gen_x).toBe(hook);
   expect(ret.__gen_y).toBeUndefined();
   expect(ret.__gen_z).toBeUndefined();
@@ -94,9 +101,7 @@ test("错误表达式：告警、不生成 getter、保留已有 __gen_*", () =>
   const hook = { get: () => 7 };
   let ret!: IOpointInfo;
   const warn = with_warn(() => {
-    ret = preprocess_opoint(
-      opoint({ gen_x: "1 +", gen_y: "rand(1)", __gen_z: hook }),
-    );
+    ret = pre(opoint({ gen_x: "1 +", gen_y: "rand(1)", __gen_z: hook }));
   });
   expect(warn).toHaveBeenCalledTimes(2);
   expect(warn.mock.calls[0]![0]).toContain("[ValExpression]");
@@ -110,8 +115,8 @@ test("燃烧烟雾: gen_x/gen_y 与旧公式抽取序列一致", () => {
   const exp_mt = new MersenneTwister(1234);
   const ref_mt = new MersenneTwister(1234);
   const e = { frame, lfw: { mt: exp_mt } } as unknown as Entity;
-  const o1 = preprocess_opoint(make_buring_smoke(1));
-  const o2 = preprocess_opoint(make_buring_smoke(2));
+  const o1 = pre(make_buring_smoke(1));
+  const o2 = pre(make_buring_smoke(2));
   const ww = round(w / 6);
   for (let i = 0; i < 200; ++i) {
     expect(o1.__gen_y!.get(e)).toBe(round(cy + ref_mt.range(-round(h / 2), 0)));
@@ -123,7 +128,7 @@ test("燃烧烟雾: gen_x/gen_y 与旧公式抽取序列一致", () => {
 
 test("gen_spread_* 编译并携带发射者调用", () => {
   const mt = new FakeMt();
-  const ret = preprocess_opoint(
+  const ret = pre(
     opoint({ spreading: 1, gen_spread_x: "bag(-1, 1)", gen_spread_y: "rand(-2, 2)" }),
   );
   const e = make_emitter(mt);
@@ -142,7 +147,7 @@ test("扩散迁移: 各工厂与旧 Randoming 机制抽取序列一致", () => {
   const spawn = (make: (f: any) => void): IOpointInfo => {
     const f: any = { centerx: 50, centery: 30 };
     make(f);
-    return preprocess_opoint(f.opoint[0]!);
+    return pre(f.opoint[0]!);
   };
 
   const bat = spawn(make_fb_bat_chase_start);
@@ -174,4 +179,36 @@ test("扩散迁移: 各工厂与旧 Randoming 机制抽取序列一致", () => {
     expect(julian.__gen_spread_y!.get(e)).toBe(ref_mt.range(-5, 5) / 10);
     expect(julian.__gen_spread_z!.get(e)).toBe(ref_mt.range(-15, 15) / 10);
   }
+});
+
+const fighter = { type: EntityEnum.Fighter } as any;
+
+const ball_states = [
+  StateEnum.Ball_Flying,
+  StateEnum.Ball_3006,
+  StateEnum.Weapon_Throwing,
+  StateEnum.HeavyWeapon_InTheSky,
+];
+
+test("斗士数据 + 弹道类状态：speedz 默认落 3.5", () => {
+  for (const state of ball_states) {
+    const ret = pre(opoint({}), { data: fighter, frame: { state } as any });
+    expect(ret.speedz).toBe(Defines.DEFAULT_OPOINT_SPEED_Z);
+  }
+});
+
+test("非弹道状态 / 无 frame：不落 speedz", () => {
+  expect(pre(opoint({}), { data: fighter, frame: { state: StateEnum.Standing } as any }).speedz).toBeUndefined();
+  expect(pre(opoint({}), { data: fighter }).speedz).toBeUndefined();
+  expect(pre(opoint({})).speedz).toBeUndefined();
+});
+
+test("非斗士数据：弹道状态也不落 speedz", () => {
+  const not_fighter = { type: 0 } as any;
+  expect(pre(opoint({}), { data: not_fighter, frame: { state: StateEnum.Ball_Flying } as any }).speedz).toBeUndefined();
+});
+
+test("已声明 speedz：??= 保留原值", () => {
+  const ret = pre(opoint({ speedz: 7 }), { data: fighter, frame: { state: StateEnum.Ball_Flying } as any });
+  expect(ret.speedz).toBe(7);
 });

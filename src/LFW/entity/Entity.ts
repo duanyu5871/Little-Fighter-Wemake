@@ -753,22 +753,6 @@ export class Entity {
     );
   }
 
-
-  get_opoint_speed_z(emitter: Entity, opoint: IOpointInfo): number {
-    if (opoint.speedz !== void 0) return opoint.speedz;
-    if (!is_fighter(emitter)) return 0;
-
-    /* TODO: 要想办法尽量摆脱 State 判定，保持数据行为透明 - Gim*/
-    switch (this.state) {
-      case StateEnum.Ball_Flying:
-      case StateEnum.Ball_3006:
-      case StateEnum.Weapon_Throwing:
-      case StateEnum.HeavyWeapon_InTheSky:
-        return Defines.DEFAULT_OPOINT_SPEED_Z;
-    }
-    return 0;
-  }
-
   set_state(state_code: number): void {
     const v = this._states.get(state_code) || this._states.fallback(this._data.type, state_code);
     if (this._state === v) return;
@@ -999,7 +983,7 @@ export class Entity {
     if (result) this.enter_frame(result.which);
     else this.enter_frame(Defines.NEXT_FRAME_AUTO);
 
-    const { speedz: o_speedz = this.get_opoint_speed_z(emitter, opoint) } = opoint;
+    const { speedz: o_speedz = 0 } = opoint;
     let o_dvx = (opoint.__gen_dvx ? opoint.__gen_dvx.get(emitter) : opoint.dvx) ?? 0
     let o_dvy = (opoint.__gen_dvy ? opoint.__gen_dvy.get(emitter) : opoint.dvy) ?? 0
     const o_dvz = (opoint.__gen_dvz ? opoint.__gen_dvz.get(emitter) : opoint.dvz) ?? 0

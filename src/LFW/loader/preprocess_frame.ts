@@ -33,7 +33,9 @@ export function preprocess_frame(ctx: IFrameInfoContext): IFrameInfo {
     throw prefab_error('preprocess_frame', `${data.id}:${raw_frame.id}`, 'frame', merged);
   const frame = merged.value;
 
-  if (data.processed != false) { }
+  if (data.processed != false) { 
+    // TODO: 我需要再想想 processed 与预处理的事 -Gim
+  }
   else if (is_ball_data(data)) { preprocess_ball_frame(ctx); }
   else if (is_weapon_data(data)) {
     data.indexes = data.indexes || {}
@@ -186,7 +188,7 @@ export function preprocess_frame(ctx: IFrameInfoContext): IFrameInfo {
       frame.opoint = ensure(frame.opoint, make_buring_smoke(2));
       break;
   }
-  frame.opoint?.forEach((n, i, l) => l[i] = preprocess_opoint(n))
+  frame.opoint?.forEach((n, i, l) => l[i] = preprocess_opoint({ ...ctx, opoint: n, index: i }))
 
   const unchecked_frame = frame as any;
   if (unchecked_frame) {
