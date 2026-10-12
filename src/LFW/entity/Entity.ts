@@ -983,7 +983,8 @@ export class Entity {
     if (result) this.enter_frame(result.which);
     else this.enter_frame(Defines.NEXT_FRAME_AUTO);
 
-    const { speedz: o_speedz = 0 } = opoint;
+    let { speedz: o_speedz = 0 } = opoint;
+    if (!is_fighter(emitter)) o_speedz = 0;
     let o_dvx = (opoint.__gen_dvx ? opoint.__gen_dvx.get(emitter) : opoint.dvx) ?? 0
     let o_dvy = (opoint.__gen_dvy ? opoint.__gen_dvy.get(emitter) : opoint.dvy) ?? 0
     const o_dvz = (opoint.__gen_dvz ? opoint.__gen_dvz.get(emitter) : opoint.dvz) ?? 0
