@@ -100,7 +100,7 @@ struct FakeEnt : IStateEntity {
   void attach(bool on) override {
     g_log.push_back(s_of(_id) + ":attach:" + std::string(on ? "1" : "0"));
   }
-  Value ground_y() const override { return _ground_y; }
+  double ground_y() const override { return lfw::to_number(_ground_y); }
   Value facing() const override { return _facing; }
   double ctrl_ud() const override { return _ctrl_ud; }
   double ctrl_lr() const override { return _ctrl_lr; }
@@ -108,7 +108,7 @@ struct FakeEnt : IStateEntity {
     g_log.push_back(s_of(_id) + ":dataset:" + s_of(key));
     return field_by(_dataset, key);
   }
-  Value velocity_x() const override { return _vx; }
+  double velocity_x() const override { return lfw::to_number(_vx); }
   Value velocity_z() const override { return _vz; }
   double velocity_y() const override { return lfw::to_number(_vy); }
   void set_velocity(const Value& x, const Value& y, const Value& z) override {

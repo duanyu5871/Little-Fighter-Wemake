@@ -1,31 +1,8 @@
 #include "lfw/entity/entity_state_view.h"
 
-#include <variant>
-
 #include "lfw/entity/entity.h"
-#include "lfw/utils/container_help/field_or.h"
 
 namespace lfw {
-namespace {
-
-// `null` / `undefined`（`??` 只在这两种情况下穿透）。
-bool is_missing(const Value& v) {
-  return std::holds_alternative<std::monostate>(v) || std::holds_alternative<NullTag>(v);
-}
-
-}  // namespace
-
-const std::u16string& EntityStateView::id() const { return _e.id; }
-
-void EntityStateView::position(double& x, double& y, double& z) const {
-  x = _e.position.x;
-  y = _e.position.y;
-  z = _e.position.z;
-}
-
-void EntityStateView::set_position(double x, double y, double z) {
-  _e.set_position(Value(x), Value(y), Value(z));
-}
 
 void EntityStateView::assign_position(double x, double y, double z) {
   _e.position.x = x;
@@ -33,65 +10,17 @@ void EntityStateView::assign_position(double x, double y, double z) {
   _e.position.z = z;
 }
 
-// 帧几何（`frame_centery` / `frame_height` / `frame_pic_h`）：`Buff.ts` 的读法是
-// `const { centery = 0, height = 0, pic } = victim.frame` 与 `pic?.h ?? 0` ⇒ 缺省 0、
-// `NaN` 保留（`||` 链在 `Buff::place_effect_center` 里）。
-double EntityStateView::frame_centery() const {
-  const Value v = field_or(_e.frame, u"centery");
-  return is_missing(v) ? 0.0 : to_number(v);
-}
+// `frame_centery` / `set_frame` / `buffs_*` / `set_outline_*` / `attach` 等
+// `buff::IBuffEntity` 面由 `EntityViewBase` 提供。
 
-double EntityStateView::frame_height() const {
-  const Value v = field_or(_e.frame, u"height");
-  return is_missing(v) ? 0.0 : to_number(v);
-}
-
-double EntityStateView::frame_pic_h() const {
-  const Value v = field_or(field_or(_e.frame, u"pic"), u"h");
-  return is_missing(v) ? 0.0 : to_number(v);
-}
-
-void EntityStateView::set_frame(const Value& info) { _e.set_frame(info); }
-
-void EntityStateView::buffs_set(const std::u16string& key, buff::Buff* b) {
-  _e.buffs[key] = b;
-}
-
-void EntityStateView::buffs_delete(const std::u16string& key) { _e.buffs.erase(key); }
-
-void EntityStateView::set_outline_alpha(double v) { _e.set_outline_alpha(v); }
-
-void EntityStateView::set_outline_width(double v) { _e.set_outline_width(v); }
-
-void EntityStateView::set_outline_color(const std::u16string& v) {
-  _e.set_outline_color(v);
-}
-
-void EntityStateView::enter_frame_by_id(const std::u16string& id) {
-  _e.enter_frame_by_id(Value(id));
-}
-
-void EntityStateView::attach(bool on) { _e.attach(Value(on)); }
-
-Value EntityStateView::velocity_x() const { return Value(_e.velocity.x); }
+double EntityStateView::velocity_x() const { return _e.velocity.x; }
 
 Value EntityStateView::velocity_z() const { return Value(_e.velocity.z); }
 
-double EntityStateView::velocity_y() const { return _e.velocity.y; }
-
-void EntityStateView::set_velocity(const Value& x, const Value& y, const Value& z) {
-  _e.set_velocity(x, y, z);
-}
-
-Value EntityStateView::hp() const { return Value(_e.hp()); }
-
-Value EntityStateView::hp_r() const { return Value(_e.hp_r()); }
-
-void EntityStateView::set_hp_r(const Value& v) { _e.set_hp_r(to_number(v)); }
+// `this.ground_y` —— 落地判定的读点（`py > this.ground_y`）。
+double EntityStateView::ground_y() const { return _e.ground_y(); }
 
 Value EntityStateView::hp_max() const { return Value(_e.hp_max()); }
-
-Value EntityStateView::mp() const { return Value(_e.mp()); }
 
 Value EntityStateView::motionless() const { return Value(_e.motionless); }
 
@@ -99,17 +28,11 @@ void EntityStateView::set_motionless(const Value& v) { _e.motionless = to_number
 
 Value EntityStateView::shaking() const { return Value(_e.shaking); }
 
-Value EntityStateView::state() const { return _e.state(); }
-
 Value EntityStateView::frame_info() const { return _e.frame; }
 
 Value EntityStateView::prev_frame() const { return _e.get_prev_frame(); }
 
 bool EntityStateView::is_on_ground() const { return _e.is_on_ground; }
-
-Value EntityStateView::team() const { return Value(_e.team()); }
-
-Value EntityStateView::data_type() const { return field_or(_e.data(), u"type"); }
 
 Value EntityStateView::jumping_x() const { return Value(_e.jumping.x); }
 
@@ -120,8 +43,6 @@ void EntityStateView::dismiss_fusion(const Value& frame_id) {
 }
 
 Value EntityStateView::world_puppets() const { return _e.world_puppets(); }
-
-Value EntityStateView::dataset(const std::u16string& key) const { return _e.dataset(key); }
 
 Value EntityStateView::world_dataset(const std::u16string& key) const {
   return _e.world_dataset(key);

@@ -70,20 +70,20 @@ export default {
     {
       note: "the update never returns early",
       file: "native/lfw/state/character_state_jump.cpp",
-      from: "  if (!float_equal(py, to_number(e.ground_y()))) return;",
+      from: "  if (!float_equal(py, e.ground_y())) return;",
       to: "  if (false) return;",
     },
     {
       note: "the update returns early on the ground",
       file: "native/lfw/state/character_state_jump.cpp",
-      from: "  if (!float_equal(py, to_number(e.ground_y()))) return;",
-      to: "  if (float_equal(py, to_number(e.ground_y()))) return;",
+      from: "  if (!float_equal(py, e.ground_y())) return;",
+      to: "  if (float_equal(py, e.ground_y())) return;",
     },
     {
       note: "the ground check reads the x position",
       file: "native/lfw/state/character_state_jump.cpp",
-      from: "  if (!float_equal(py, to_number(e.ground_y()))) return;",
-      to: "  if (!float_equal(px, to_number(e.ground_y()))) return;",
+      from: "  if (!float_equal(py, e.ground_y())) return;",
+      to: "  if (!float_equal(px, e.ground_y())) return;",
     },
     {
       note: "the prev frame is not read",

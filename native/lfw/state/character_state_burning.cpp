@@ -62,8 +62,8 @@ CharacterState_Burning::CharacterState_Burning() : CharacterState_Base(Value(sta
 
 void CharacterState_Burning::update(IStateEntity& e) {
   CharacterState_Base::update(e);
-  const Value vx = e.velocity_x();
-  if (truthy(vx)) e.set_facing(Value(to_number(vx) > 0 ? -1.0 : 1.0));
+  const double vx = e.velocity_x();
+  if (truthy(Value(vx))) e.set_facing(Value(vx > 0 ? -1.0 : 1.0));
 }
 
 void CharacterState_Burning::leave(IStateEntity& e, const Value& next_frame) {

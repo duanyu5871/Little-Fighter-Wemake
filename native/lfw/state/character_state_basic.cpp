@@ -28,6 +28,8 @@ void csi_enter(IStateEntity& e, const Value& prev_frame) {
   e.holding_set_team(e.team());
 }
 
+Value nan_to_null(double v) { return std::isnan(v) ? Value() : Value(v); }
+
 }
 
 void CharacterState_Standing::update(IStateEntity& e) {
@@ -40,7 +42,7 @@ void CharacterState_Standing::update(IStateEntity& e) {
   double py = 0;
   double pz = 0;
   e.position(px, py, pz);
-  if (py > to_number(e.ground_y())) {
+  if (py > e.ground_y()) {
     e.enter_frame_by_id(to_string(index_0(e.data_indexes_in_the_skys())));
   }
 }
@@ -48,12 +50,12 @@ void CharacterState_Standing::update(IStateEntity& e) {
 void CharacterState_Running::update(IStateEntity& e) {
   CharacterState_Base::update(e);
   const Value vz = e.velocity_z();
-  Value vx = e.velocity_x();
+  double vx = e.velocity_x();
   if (truthy(vz)) {
     const double dz = abs(to_number(vz) / 4);
-    if (to_number(vx) > dz) vx = Value(to_number(vx) - dz);
-    if (to_number(vx) < -dz) vx = Value(to_number(vx) + dz);
-    e.set_velocity(vx, Value(), Value());
+    if (vx > dz) vx = vx - dz;
+    if (vx < -dz) vx = vx + dz;
+    e.set_velocity(nan_to_null(vx), Value(), Value());
   }
   if (to_number(e.hp()) <= 0) e.enter_frame(e.get_sudden_death_frame());
 }

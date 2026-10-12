@@ -204,14 +204,14 @@ export default {
     {
       note: "a zero x velocity counts as positive",
       file: "native/lfw/state/character_state_caught_rowing.cpp",
-      from: "  const Value next_vx = to_number(prev_vx) >= 0 ? Value(vx) : Value(-vx);",
-      to: "  const Value next_vx = to_number(prev_vx) > 0 ? Value(vx) : Value(-vx);",
+      from: "  const Value next_vx = prev_vx >= 0 ? Value(vx) : Value(-vx);",
+      to: "  const Value next_vx = prev_vx > 0 ? Value(vx) : Value(-vx);",
     },
     {
       note: "the rowing direction is not flipped",
       file: "native/lfw/state/character_state_caught_rowing.cpp",
-      from: "  const Value next_vx = to_number(prev_vx) >= 0 ? Value(vx) : Value(-vx);",
-      to: "  const Value next_vx = to_number(prev_vx) >= 0 ? Value(-vx) : Value(vx);",
+      from: "  const Value next_vx = prev_vx >= 0 ? Value(vx) : Value(-vx);",
+      to: "  const Value next_vx = prev_vx >= 0 ? Value(-vx) : Value(vx);",
     },
     {
       note: "the previous y velocity is not read",

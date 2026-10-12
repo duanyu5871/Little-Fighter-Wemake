@@ -77,7 +77,7 @@ export default {
     {
       note: "the x axis is ignored",
       file: "native/lfw/state/state_base.cpp",
-      from: "  if (!float_equal(x, px)) vx = clamp_velocity(e.velocity_x());\n",
+      from: "  if (!float_equal(x, px)) vx = nan_to_null(clamp_velocity(e.velocity_x()));\n",
       to: "",
     },
     {
@@ -89,8 +89,8 @@ export default {
     {
       note: "a moved x is not detected",
       file: "native/lfw/state/state_base.cpp",
-      from: "  if (!float_equal(x, px)) vx = clamp_velocity(e.velocity_x());",
-      to: "  if (float_equal(x, px)) vx = clamp_velocity(e.velocity_x());",
+      from: "  if (!float_equal(x, px)) vx = nan_to_null(clamp_velocity(e.velocity_x()));",
+      to: "  if (float_equal(x, px)) vx = nan_to_null(clamp_velocity(e.velocity_x()));",
     },
     {
       note: "a moved z is not detected",
@@ -101,8 +101,8 @@ export default {
     {
       note: "the x test uses the z position",
       file: "native/lfw/state/state_base.cpp",
-      from: "  if (!float_equal(x, px)) vx = clamp_velocity(e.velocity_x());",
-      to: "  if (!float_equal(x, pz)) vx = clamp_velocity(e.velocity_x());",
+      from: "  if (!float_equal(x, px)) vx = nan_to_null(clamp_velocity(e.velocity_x()));",
+      to: "  if (!float_equal(x, pz)) vx = nan_to_null(clamp_velocity(e.velocity_x()));",
     },
     {
       note: "the z test uses the x position",
@@ -131,13 +131,13 @@ export default {
     {
       note: "a moved y does not clamp the x axis",
       file: "native/lfw/state/state_base.cpp",
-      from: "  if (!float_equal(y, py)) {\n    vx = clamp_velocity(e.velocity_x());\n    vz = clamp_velocity(e.velocity_z());\n  }\n",
+      from: "  if (!float_equal(y, py)) {\n    vx = nan_to_null(clamp_velocity(e.velocity_x()));\n    vz = clamp_velocity(e.velocity_z());\n  }\n",
       to: "",
     },
     {
       note: "a moved y clamps the x axis from the z velocity",
       file: "native/lfw/state/state_base.cpp",
-      from: "  if (!float_equal(y, py)) {\n    vx = clamp_velocity(e.velocity_x());",
+      from: "  if (!float_equal(y, py)) {\n    vx = nan_to_null(clamp_velocity(e.velocity_x()));",
       to: "  if (!float_equal(y, py)) {\n    vx = clamp_velocity(e.velocity_z());",
     },
     {
@@ -239,8 +239,8 @@ export default {
     {
       note: "the clamp ignores the original value",
       file: "native/lfw/state/state_base.cpp",
-      from: "  return v;\n}\n\n}",
-      to: "  return Value(d);\n}\n\n}",
+      from: "  if (d > kMinV) return Value(kMinV);\n  return v;\n}",
+      to: "  if (d > kMinV) return Value(kMinV);\n  return Value(d);\n}",
     },
     {
       note: "the state is not stored",

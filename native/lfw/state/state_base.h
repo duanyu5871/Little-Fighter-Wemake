@@ -12,9 +12,12 @@
 namespace lfw {
 namespace state {
 
-class IStateEntity : public buff::IBuffEntity {
+class IStateEntity : public virtual buff::IBuffEntity {
  public:
-  virtual Value velocity_x() const = 0;
+  // `velocity_x` / `ground_y()` 统一成 `double`：TS 里就是 number（端口的 `Value` 包装是纯防御），
+  // 而碰撞家族的 `IFallEntity`/`IActionEntity` 用 `double` —— `Value` 版会撞「同参不同返回」，
+  // 两个面再也合不进同一个实现类。
+  virtual double velocity_x() const = 0;
   virtual Value velocity_z() const = 0;
   virtual Value hp_max() const { return Value(); }
   virtual Value facing() const { return Value(); }
@@ -90,7 +93,7 @@ class IStateEntity : public buff::IBuffEntity {
     return 0;
   }
   virtual bool is_on_ground() const { return false; }
-  virtual Value ground_y() const { return Value(); }
+  virtual double ground_y() const { return 0; }
   virtual Value get_sudden_death_frame() { return Value(); }
   virtual void holding_set_team(const Value& v) { (void)v; }
   virtual Value lfw_new_team() const { return Value(); }

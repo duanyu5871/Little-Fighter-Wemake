@@ -59,6 +59,11 @@ env pos o 3 x n 0 y n 0 z n 0
 env velx n 0.25
 env velz n -0.25
 run restrict 10 0 10
+# ---- restrict: a positive z velocity is clamped too ----
+env pos o 3 x n 0 y n 0 z n 0
+env velx n 0.25
+env velz n 2
+run restrict 0 0 10
 # ---- restrict: a missing velocity stays missing ----
 env pos o 3 x n 0 y n 0 z n 0
 env velx u

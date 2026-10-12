@@ -3076,27 +3076,27 @@ export default {
     },
         {
       "note": "the view id is the data id",
-      "file": "native/lfw/entity/entity_state_view.cpp",
-      "from": "const std::u16string& EntityStateView::id() const { return _e.id; }",
-      "to": "const std::u16string& EntityStateView::id() const { return _e.origin_data_id(); }"
+      "file": "native/lfw/entity/entity_view_base.cpp",
+      "from": "const std::u16string& EntityViewBase::id() const { return _e.id; }",
+      "to": "const std::u16string& EntityViewBase::id() const { return _e.origin_data_id(); }"
     },
         {
       "note": "the view position swaps x and y",
-      "file": "native/lfw/entity/entity_state_view.cpp",
+      "file": "native/lfw/entity/entity_view_base.cpp",
       "from": "  x = _e.position.x;\n  y = _e.position.y;\n  z = _e.position.z;",
       "to": "  x = _e.position.y;\n  y = _e.position.x;\n  z = _e.position.z;"
     },
         {
       "note": "the view velocity x reads z",
       "file": "native/lfw/entity/entity_state_view.cpp",
-      "from": "Value EntityStateView::velocity_x() const { return Value(_e.velocity.x); }",
-      "to": "Value EntityStateView::velocity_x() const { return Value(_e.velocity.z); }"
+      "from": "double EntityStateView::velocity_x() const { return _e.velocity.x; }",
+      "to": "double EntityStateView::velocity_x() const { return _e.velocity.z; }"
     },
         {
       "note": "the view velocity y reads x",
-      "file": "native/lfw/entity/entity_state_view.cpp",
-      "from": "double EntityStateView::velocity_y() const { return _e.velocity.y; }",
-      "to": "double EntityStateView::velocity_y() const { return _e.velocity.x; }"
+      "file": "native/lfw/entity/entity_view_base.cpp",
+      "from": "double EntityViewBase::velocity_y() const { return _e.velocity.y; }",
+      "to": "double EntityViewBase::velocity_y() const { return _e.velocity.x; }"
     },
         {
       "note": "the view velocity z reads x",
@@ -3106,21 +3106,21 @@ export default {
     },
         {
       "note": "the view hp reads mp",
-      "file": "native/lfw/entity/entity_state_view.cpp",
-      "from": "Value EntityStateView::hp() const { return Value(_e.hp()); }",
-      "to": "Value EntityStateView::hp() const { return Value(_e.mp()); }"
+      "file": "native/lfw/entity/entity_view_base.cpp",
+      "from": "Value EntityViewBase::hp() const { return Value(_e.hp()); }",
+      "to": "Value EntityViewBase::hp() const { return Value(_e.mp()); }"
     },
         {
       "note": "the view hp_r reads hp",
-      "file": "native/lfw/entity/entity_state_view.cpp",
-      "from": "Value EntityStateView::hp_r() const { return Value(_e.hp_r()); }",
-      "to": "Value EntityStateView::hp_r() const { return Value(_e.hp()); }"
+      "file": "native/lfw/entity/entity_view_base.cpp",
+      "from": "Value EntityViewBase::hp_r() const { return Value(_e.hp_r()); }",
+      "to": "Value EntityViewBase::hp_r() const { return Value(_e.hp()); }"
     },
         {
       "note": "the view hp_r setter adds one",
-      "file": "native/lfw/entity/entity_state_view.cpp",
-      "from": "void EntityStateView::set_hp_r(const Value& v) { _e.set_hp_r(to_number(v)); }",
-      "to": "void EntityStateView::set_hp_r(const Value& v) { _e.set_hp_r(to_number(v) + 1); }"
+      "file": "native/lfw/entity/entity_view_base.cpp",
+      "from": "void EntityViewBase::set_hp_r(const Value& v) { _e.set_hp_r(to_number(v)); }",
+      "to": "void EntityViewBase::set_hp_r(const Value& v) { _e.set_hp_r(to_number(v) + 1); }"
     },
         {
       "note": "the view hp_max reads mp_max",
@@ -3130,9 +3130,9 @@ export default {
     },
         {
       "note": "the view mp reads hp",
-      "file": "native/lfw/entity/entity_state_view.cpp",
-      "from": "Value EntityStateView::mp() const { return Value(_e.mp()); }",
-      "to": "Value EntityStateView::mp() const { return Value(_e.hp()); }"
+      "file": "native/lfw/entity/entity_view_base.cpp",
+      "from": "Value EntityViewBase::mp() const { return Value(_e.mp()); }",
+      "to": "Value EntityViewBase::mp() const { return Value(_e.hp()); }"
     },
         {
       "note": "the view motionless reads shaking",
@@ -3154,9 +3154,9 @@ export default {
     },
         {
       "note": "the view state reads variant",
-      "file": "native/lfw/entity/entity_state_view.cpp",
-      "from": "Value EntityStateView::state() const { return _e.state(); }",
-      "to": "Value EntityStateView::state() const { return Value(_e.variant); }"
+      "file": "native/lfw/entity/entity_view_base.cpp",
+      "from": "Value EntityViewBase::state() const { return _e.state(); }",
+      "to": "Value EntityViewBase::state() const { return Value(_e.variant); }"
     },
         {
       "note": "the view frame_info reads the previous frame",
@@ -3178,15 +3178,15 @@ export default {
     },
         {
       "note": "the view team is a constant",
-      "file": "native/lfw/entity/entity_state_view.cpp",
-      "from": "Value EntityStateView::team() const { return Value(_e.team()); }",
-      "to": "Value EntityStateView::team() const { return Value(std::u16string(u\"x\")); }"
+      "file": "native/lfw/entity/entity_view_base.cpp",
+      "from": "Value EntityViewBase::team() const { return Value(_e.team()); }",
+      "to": "Value EntityViewBase::team() const { return Value(std::u16string(u\"x\")); }"
     },
         {
       "note": "the view data_type reads the data id",
-      "file": "native/lfw/entity/entity_state_view.cpp",
-      "from": "Value EntityStateView::data_type() const { return field_or(_e.data(), u\"type\"); }",
-      "to": "Value EntityStateView::data_type() const { return field_or(_e.data(), u\"id\"); }"
+      "file": "native/lfw/entity/entity_view_base.cpp",
+      "from": "Value EntityViewBase::data_type() const { return field_or(_e.data(), u\"type\"); }",
+      "to": "Value EntityViewBase::data_type() const { return field_or(_e.data(), u\"id\"); }"
     },
         {
       "note": "the view jumping_x reads y",
@@ -4468,9 +4468,9 @@ export default {
     },
         {
       "note": "the view's set_position bypasses the restrict chain",
-      "file": "native/lfw/entity/entity_state_view.cpp",
-      "from": "void EntityStateView::set_position(double x, double y, double z) {\n  _e.set_position(Value(x), Value(y), Value(z));\n}",
-      "to": "void EntityStateView::set_position(double x, double y, double z) {\n  assign_position(x, y, z);\n}"
+      "file": "native/lfw/entity/entity_view_base.cpp",
+      "from": "void EntityViewBase::set_position(double x, double y, double z) {\n  _e.set_position(Value(x), Value(y), Value(z));\n}",
+      "to": "void EntityViewBase::set_position(double x, double y, double z) {\n  _e.position.x = x;\n  _e.position.y = y;\n  _e.position.z = z;\n}"
     },
         {
       "note": "the view's assign_position writes a single axis",
@@ -4480,27 +4480,27 @@ export default {
     },
         {
       "note": "the view's set_frame drops the frame swap",
-      "file": "native/lfw/entity/entity_state_view.cpp",
-      "from": "void EntityStateView::set_frame(const Value& info) { _e.set_frame(info); }",
-      "to": "void EntityStateView::set_frame(const Value& info) { (void)info; }"
+      "file": "native/lfw/entity/entity_view_base.cpp",
+      "from": "void EntityViewBase::set_frame(const Value& info) { _e.set_frame(info); }",
+      "to": "void EntityViewBase::set_frame(const Value& info) { (void)info; }"
     },
         {
       "note": "the view's enter_frame_by_id never enters",
-      "file": "native/lfw/entity/entity_state_view.cpp",
-      "from": "void EntityStateView::enter_frame_by_id(const std::u16string& id) {\n  _e.enter_frame_by_id(Value(id));\n}",
-      "to": "void EntityStateView::enter_frame_by_id(const std::u16string& id) {\n  (void)id;\n}"
+      "file": "native/lfw/entity/entity_view_base.cpp",
+      "from": "void EntityViewBase::enter_frame_by_id(const std::u16string& id) {\n  _e.enter_frame_by_id(Value(id));\n}",
+      "to": "void EntityViewBase::enter_frame_by_id(const std::u16string& id) {\n  (void)id;\n}"
     },
         {
       "note": "the view's set_velocity drops the write",
-      "file": "native/lfw/entity/entity_state_view.cpp",
-      "from": "void EntityStateView::set_velocity(const Value& x, const Value& y, const Value& z) {\n  _e.set_velocity(x, y, z);\n}",
-      "to": "void EntityStateView::set_velocity(const Value& x, const Value& y, const Value& z) {\n  (void)x;\n  (void)y;\n  (void)z;\n}"
+      "file": "native/lfw/entity/entity_view_base.cpp",
+      "from": "void EntityViewBase::set_velocity(const Value& x, const Value& y, const Value& z) {\n  _e.set_velocity(x, y, z);\n}",
+      "to": "void EntityViewBase::set_velocity(const Value& x, const Value& y, const Value& z) {\n  (void)x;\n  (void)y;\n  (void)z;\n}"
     },
         {
       "note": "on_restrict drops the z clamp for a restricted y",
       "file": "native/lfw/state/state_base.cpp",
-      "from": "    vx = clamp_velocity(e.velocity_x());\n    vz = clamp_velocity(e.velocity_z());",
-      "to": "    vx = clamp_velocity(e.velocity_x());"
+      "from": "    vx = nan_to_null(clamp_velocity(e.velocity_x()));\n    vz = clamp_velocity(e.velocity_z());",
+      "to": "    vx = nan_to_null(clamp_velocity(e.velocity_x()));"
     },
         {
       "note": "on_restrict only writes when all three are restricted",
@@ -6099,10 +6099,10 @@ export default {
       to: `  _e.dismiss_fusion(u"0");`,
     },
     {
-      note: "state view：dataset 转发到 world_dataset",
-      file: "native/lfw/entity/entity_state_view.cpp",
-      from: `Value EntityStateView::dataset(const std::u16string& key) const { return _e.dataset(key); }`,
-      to: `Value EntityStateView::dataset(const std::u16string& key) const { return _e.world_dataset(key); }`,
+      note: "view base：dataset 转发到 world_dataset",
+      file: "native/lfw/entity/entity_view_base.cpp",
+      from: `Value EntityViewBase::dataset(const std::u16string& key) const { return _e.dataset(key); }`,
+      to: `Value EntityViewBase::dataset(const std::u16string& key) const { return _e.world_dataset(key); }`,
     },
     {
       note: "state view：world_dataset 转发到 dataset",

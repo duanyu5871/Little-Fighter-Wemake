@@ -115,7 +115,7 @@ struct FakeEnt : IStateEntity {
   bool holding_is_weapon() const override { return _holding_is_weapon; }
   double ctrl_ud() const override { return _ctrl_ud; }
   double ctrl_lr() const override { return _ctrl_lr; }
-  Value ground_y() const override { return _ground_y; }
+  double ground_y() const override { return lfw::to_number(_ground_y); }
   Value frame_info() const override { return _frame_info; }
   double handle_wait_flag(const Value& wait, const Value& frame) override {
     g_log.push_back(s_of(_id) + ":handle_wait_flag:" + render(wait) + ":" + render(frame));
@@ -129,7 +129,7 @@ struct FakeEnt : IStateEntity {
   Value data_indexes_in_the_skys() const override {
     return lfw::field_or(_indexes, u"in_the_skys");
   }
-  Value velocity_x() const override { return Value(); }
+  double velocity_x() const override { return lfw::to_number(Value()); }
   Value velocity_z() const override { return Value(); }
   void enter_frame(const Value& frame) override {
     g_log.push_back(s_of(_id) + ":enter_frame:" + render(frame));

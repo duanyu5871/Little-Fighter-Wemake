@@ -9,7 +9,7 @@
  * 2. `leave`'s `super.leave(e, next_frame)` resolves to `State_Base.leave`, whose
  *    `HealSelf` switch never matches `StateEnum.Burning` -- dropping the call is
  *    unobservable. (The port keeps it for structure.)
- * 3. `to_number(vx) > 0` cannot be mutated to `>= 0`: a **zero** x velocity is already
+ * 3. `vx > 0` cannot be mutated to `>= 0`: a **zero** x velocity is already
  *    filtered out by the surrounding `if (vx)` truthiness test, so the boundary is
  *    unreachable.
  * 4. `enter` calling `super.**update**(e)` (not `super.enter`) is a quirk of the TS
@@ -211,26 +211,26 @@ export default {
     {
       note: "the facing is derived from the z velocity",
       file: "native/lfw/state/character_state_burning.cpp",
-      from: "  const Value vx = e.velocity_x();",
-      to: "  const Value vx = e.velocity_z();",
+      from: "  const double vx = e.velocity_x();",
+      to: "  const double vx = to_number(e.velocity_z());",
     },
     {
       note: "the facing is never turned",
       file: "native/lfw/state/character_state_burning.cpp",
-      from: "  if (truthy(vx)) e.set_facing(Value(to_number(vx) > 0 ? -1.0 : 1.0));\n",
+      from: "  if (truthy(Value(vx))) e.set_facing(Value(vx > 0 ? -1.0 : 1.0));\n",
       to: "",
     },
     {
       note: "the facing is turned the wrong way",
       file: "native/lfw/state/character_state_burning.cpp",
-      from: "  if (truthy(vx)) e.set_facing(Value(to_number(vx) > 0 ? -1.0 : 1.0));",
-      to: "  if (truthy(vx)) e.set_facing(Value(to_number(vx) > 0 ? 1.0 : -1.0));",
+      from: "  if (truthy(Value(vx))) e.set_facing(Value(vx > 0 ? -1.0 : 1.0));",
+      to: "  if (truthy(Value(vx))) e.set_facing(Value(vx > 0 ? 1.0 : -1.0));",
     },
     {
       note: "the facing test is reversed",
       file: "native/lfw/state/character_state_burning.cpp",
-      from: "  if (truthy(vx)) e.set_facing(Value(to_number(vx) > 0 ? -1.0 : 1.0));",
-      to: "  if (truthy(vx)) e.set_facing(Value(to_number(vx) < 0 ? -1.0 : 1.0));",
+      from: "  if (truthy(Value(vx))) e.set_facing(Value(vx > 0 ? -1.0 : 1.0));",
+      to: "  if (truthy(Value(vx))) e.set_facing(Value(vx < 0 ? -1.0 : 1.0));",
     },
     {
       note: "leaving does not clear the bounced flag",

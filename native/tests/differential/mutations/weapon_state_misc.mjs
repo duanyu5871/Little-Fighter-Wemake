@@ -173,14 +173,14 @@ export default {
     {
       note: "enter reads the z velocity",
       file: "native/lfw/state/weapon_state_misc.cpp",
-      from: "    e.set_velocity(Value(to_number(e.velocity_x()) * 0.6), Value(), Value());",
+      from: "    e.set_velocity(Value(e.velocity_x() * 0.6), Value(), Value());",
       to: "    e.set_velocity(Value(to_number(e.velocity_z()) * 0.6), Value(), Value());",
     },
     {
       note: "enter uses the wrong scale",
       file: "native/lfw/state/weapon_state_misc.cpp",
-      from: "    e.set_velocity(Value(to_number(e.velocity_x()) * 0.6), Value(), Value());",
-      to: "    e.set_velocity(Value(to_number(e.velocity_x()) * 0.4), Value(), Value());",
+      from: "    e.set_velocity(Value(e.velocity_x() * 0.6), Value(), Value());",
+      to: "    e.set_velocity(Value(e.velocity_x() * 0.4), Value(), Value());",
     },
     {
       note: "the throwing update skips the decay",

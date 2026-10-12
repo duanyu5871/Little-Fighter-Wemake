@@ -18,10 +18,18 @@ constexpr double kStateHealSelfHp = 104;
 
 bool is_null(const Value& v) { return std::holds_alternative<NullTag>(v); }
 
+Value nan_to_null(double v) { return std::isnan(v) ? Value() : Value(v); }
+
 Value clamp_velocity(const Value& v) {
   const double d = to_number(v);
   if (d < -kMinV) return Value(-kMinV);
   if (d > kMinV) return Value(kMinV);
+  return v;
+}
+
+double clamp_velocity(double v) {
+  if (v < -kMinV) return -kMinV;
+  if (v > kMinV) return kMinV;
   return v;
 }
 
@@ -48,10 +56,10 @@ void State_Base::on_restrict(IStateEntity& e, double x, double y, double z) {
   double py = 0;
   double pz = 0;
   e.position(px, py, pz);
-  if (!float_equal(x, px)) vx = clamp_velocity(e.velocity_x());
+  if (!float_equal(x, px)) vx = nan_to_null(clamp_velocity(e.velocity_x()));
   if (!float_equal(z, pz)) vz = clamp_velocity(e.velocity_z());
   if (!float_equal(y, py)) {
-    vx = clamp_velocity(e.velocity_x());
+    vx = nan_to_null(clamp_velocity(e.velocity_x()));
     vz = clamp_velocity(e.velocity_z());
   }
   if (!is_null(vx) || !is_null(vz) || !is_null(vy)) e.set_velocity(vx, vy, vz);

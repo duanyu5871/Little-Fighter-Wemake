@@ -40,7 +40,7 @@ void CharacterState_Walking::update(IStateEntity& e) {
   double py = 0;
   double pz = 0;
   e.position(px, py, pz);
-  if (py > to_number(e.ground_y())) {
+  if (py > e.ground_y()) {
     e.enter_frame_by_id(to_string(index_0(e.data_indexes_in_the_skys())));
   }
 }

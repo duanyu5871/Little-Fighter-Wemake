@@ -177,14 +177,14 @@ export default {
     {
       note: "the fused velocity reads the depth speed",
       file: "native/lfw/state/character_state_falling.cpp",
-      from: "        const Value vx = e.velocity_x();\n        const double vy = e.velocity_y();",
-      to: "        const Value vx = e.velocity_z();\n        const double vy = e.velocity_y();",
+      from: "        const double vx = e.velocity_x();\n        const double vy = e.velocity_y();",
+      to: "        const double vx = to_number(e.velocity_z());\n        const double vy = e.velocity_y();",
     },
     {
       note: "the fused velocity passes the forward speed as depth",
       file: "native/lfw/state/character_state_falling.cpp",
-      from: "        const Value vz = e.velocity_z();\n        double next_vx = to_number(vx);",
-      to: "        const Value vz = e.velocity_x();\n        double next_vx = to_number(vx);",
+      from: "        const Value vz = e.velocity_z();\n        double next_vx = vx;",
+      to: "        const Value vz = e.velocity_x();\n        double next_vx = vx;",
     },
     {
       note: "the fused y and z speeds are swapped",
@@ -273,26 +273,26 @@ export default {
     {
       note: "the direction ignores the facing",
       file: "native/lfw/state/character_state_falling.cpp",
-      from: "    const double direction = to_number(vx) / to_number(e.facing()) > 0 ? 1 : -1;",
-      to: "    const double direction = to_number(vx) > 0 ? 1 : -1;",
+      from: "    const double direction = vx / to_number(e.facing()) > 0 ? 1 : -1;",
+      to: "    const double direction = vx > 0 ? 1 : -1;",
     },
     {
       note: "a zero speed counts as positive",
       file: "native/lfw/state/character_state_falling.cpp",
-      from: "    const double direction = to_number(vx) / to_number(e.facing()) > 0 ? 1 : -1;",
-      to: "    const double direction = to_number(vx) / to_number(e.facing()) >= 0 ? 1 : -1;",
+      from: "    const double direction = vx / to_number(e.facing()) > 0 ? 1 : -1;",
+      to: "    const double direction = vx / to_number(e.facing()) >= 0 ? 1 : -1;",
     },
     {
       note: "the direction branches are swapped",
       file: "native/lfw/state/character_state_falling.cpp",
-      from: "    const double direction = to_number(vx) / to_number(e.facing()) > 0 ? 1 : -1;",
-      to: "    const double direction = to_number(vx) / to_number(e.facing()) > 0 ? -1 : 1;",
+      from: "    const double direction = vx / to_number(e.facing()) > 0 ? 1 : -1;",
+      to: "    const double direction = vx / to_number(e.facing()) > 0 ? -1 : 1;",
     },
     {
       note: "the direction subtracts instead of dividing",
       file: "native/lfw/state/character_state_falling.cpp",
-      from: "    const double direction = to_number(vx) / to_number(e.facing()) > 0 ? 1 : -1;",
-      to: "    const double direction = to_number(vx) - to_number(e.facing()) > 0 ? 1 : -1;",
+      from: "    const double direction = vx / to_number(e.facing()) > 0 ? 1 : -1;",
+      to: "    const double direction = vx - to_number(e.facing()) > 0 ? 1 : -1;",
     },
     {
       note: "the falling pair ignores the direction",

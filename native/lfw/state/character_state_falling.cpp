@@ -105,10 +105,10 @@ CharacterState_Falling::CharacterState_Falling(Value state)
     if (to_number(e.hp()) <= 0) {
       const Value fuse_bys = e.fuse_bys();
       if (value_length(fuse_bys) > 0) {
-        const Value vx = e.velocity_x();
+        const double vx = e.velocity_x();
         const double vy = e.velocity_y();
         const Value vz = e.velocity_z();
-        double next_vx = to_number(vx);
+        double next_vx = vx;
         const Array* arr = as_array(fuse_bys);
         for (size_t i = 0; arr != nullptr && i < arr->size(); ++i) {
           next_vx = next_vx * -1.0;
@@ -146,12 +146,12 @@ void CharacterState_Falling::update_bouncing(IStateEntity& e) {
 
 void CharacterState_Falling::update_falling(IStateEntity& e) {
   if (to_number(e.wait()) <= 0) {
-    const Value vx = e.velocity_x();
+    const double vx = e.velocity_x();
     const double vy = e.velocity_y();
     double falling_frame_idx = 1;
     if (vy > 3) falling_frame_idx = 0;
     if (vy < -3) falling_frame_idx = 2;
-    const double direction = to_number(vx) / to_number(e.facing()) > 0 ? 1 : -1;
+    const double direction = vx / to_number(e.facing()) > 0 ? 1 : -1;
     Object frame;
     frame.set(u"id",
               js_at_index(js_at(e.data_indexes_falling(), Value(direction)), falling_frame_idx));

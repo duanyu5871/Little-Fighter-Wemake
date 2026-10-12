@@ -61,7 +61,7 @@ void CharacterState_Jump::update(IStateEntity& e) {
   double py = 0;
   double pz = 0;
   e.position(px, py, pz);
-  if (!float_equal(py, to_number(e.ground_y()))) return;
+  if (!float_equal(py, e.ground_y())) return;
 
   const Value prev = e.prev_frame();
   const Value jump_flag = field_or(prev, u"jump_flag");

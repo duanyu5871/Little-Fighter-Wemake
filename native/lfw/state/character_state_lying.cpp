@@ -73,7 +73,7 @@ CharacterState_Lying::CharacterState_Lying(Value state)
     double pz = 0;
     e.position(px, py, pz);
     if (to_number(e.hp()) <= 0 &&
-        py <= to_number(e.ground_y()) &&
+        py <= e.ground_y() &&
         strict_equals(e.state(), Value(static_cast<double>(StateEnum::Lying))) &&
         !truthy(e.dead_join())) {
       return e.frame_info();

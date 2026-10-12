@@ -141,7 +141,7 @@ struct FakeEnt : IStateEntity {
   void enter_frame(const Value& frame) override {
     g_log.push_back(s_of(_id) + ":enter_frame:" + render(frame));
   }
-  Value velocity_x() const override { return _vx; }
+  double velocity_x() const override { return lfw::to_number(_vx); }
   Value velocity_z() const override { return _vz; }
   void set_velocity(const Value& x, const Value& y, const Value& z) override {
     g_log.push_back(s_of(_id) + ":set_velocity:" + render(x) + ":" + render(y) + ":" + render(z));

@@ -13,6 +13,7 @@
 #include "lfw/collision/n_bdy_normal.h"
 #include "lfw/collision/weapon_is_hit.h"
 #include "lfw/core/value.h"
+#include "lfw/entity/entity_view_base.h"
 
 namespace lfw {
 
@@ -47,8 +48,8 @@ class ICollisionViewHost {
 // 菱形消失，于是本类一次实现三个视图的窄接口：
 //   `INdbdyDefendEntity`（含 `INbdyNormalEntity` / `IFallEntity` / `IHandlerEntity`）
 //   `IWeaponIsHitEntity`（含 `IHandlerEntity`）
-//   `IActionEntity` / `IH3Entity` / `IH4Entity` / `IFrozenEntity` / `IHealingEntity` /
-//   `buff::IBuffEntity`
+//   `IActionEntity` / `IH3Entity` / `IH4Entity` / `IFrozenEntity` / `IHealingEntity`
+//   + `EntityViewBase`（`buff::IBuffEntity` 面，与 `EntityStateView` 共用同一实现）
 // 两处代价（都不改行为）：
 //   1. `IHandlerEntity` 是虚基类 ⇒ 不能再 `static_cast` 回本类（见
 //      `ICollisionViewHost::entity_of_handler`）；
@@ -62,9 +63,10 @@ class EntityCollisionView : public collision::INdbdyDefendEntity,
                             public collision::IH4Entity,
                             public collision::IFrozenEntity,
                             public collision::IHealingEntity,
-                            public buff::IBuffEntity {
+                            public EntityViewBase {
  public:
-  EntityCollisionView(Entity& e, ICollisionViewHost& host) : _e(e), _host(host) {}
+  EntityCollisionView(Entity& e, ICollisionViewHost& host)
+      : EntityViewBase(e), _host(host) {}
   Entity& entity() const { return _e; }
 
   // --- `IHandlerEntity`（`buff::IBuffEntity` 不需要的那部分；两条链共用这一份）---
@@ -138,24 +140,17 @@ class EntityCollisionView : public collision::INdbdyDefendEntity,
   Value data_indexes_in_the_skys() const override;
   void leave_ground() override;
 
-  // --- `buff::IBuffEntity` ---
+  // --- `buff::IBuffEntity`（实现在 `EntityViewBase`）---
+  // `IBuffEntity` 与 `IHandlerEntity`/`INbdyNormalEntity`/… 是两条独立链，虚槽各是各的 ⇒
+  // 基类的实现只能顶 `IBuffEntity` 那条；与碰撞家族**同名**的条目（`id` / `hp` / `state` /
+  // `position` / `set_velocity` / …）已分散在各家族段里、只需保留一行转发（实现见 cpp）。
+  // `set_position` / 帧几何 / `set_frame` / `buffs_*` / `set_outline_*` / `attach` /
+  // `marks_*` / `velocity_y` 只在 `IBuffEntity` 链上 ⇒ 声明也已删。
+  // `IBuffEntity::enter_frame_by_id(u16string)` 与家族链的 `(Value)` 版是同名重载：声明
+  // 派生类重载会隐藏基类重载，故用 `using` 拉回来（不影响虚表）。
+  using EntityViewBase::enter_frame_by_id;
   void position(double& x, double& y, double& z) const override;
-  void set_position(double x, double y, double z) override;
-  double frame_centery() const override;
-  double frame_height() const override;
-  double frame_pic_h() const override;
-  void set_frame(const Value& info) override;
-  void buffs_set(const std::u16string& key, buff::Buff* b) override;
-  void buffs_delete(const std::u16string& key) override;
-  void set_outline_alpha(double v) override;
-  void set_outline_width(double v) override;
-  void set_outline_color(const std::u16string& v) override;
-  void enter_frame_by_id(const std::u16string& id) override;
-  void attach(bool on) override;
   Value data_type() const override;
-  Value marks_get(const std::u16string& key) const override;
-  void marks_set(const std::u16string& key, const std::u16string& value) override;
-  bool marks_delete(const std::u16string& key) override;
 
   // --- `IActionEntity` ---
   void set_velocity_x(const Value& v) override;
@@ -201,7 +196,6 @@ class EntityCollisionView : public collision::INdbdyDefendEntity,
   // `IHealingEntity` 只要 `id()` / `dataset()` / `buff_entity()` —— 都在上面。
 
  private:
-  Entity& _e;
   ICollisionViewHost& _host;
 };
 

@@ -42,9 +42,9 @@ void csr_enter(IStateEntity& e, const Value& prev_frame) {
   const Value bfall_h_f = e.dataset(u"bfall_h_f");
   const double vx = to_number(rowing_distance) * to_number(bfall_x_f);
   const double vy = to_number(rowing_height) * to_number(bfall_h_f);
-  const Value prev_vx = e.velocity_x();
+  const double prev_vx = e.velocity_x();
   const double prev_vy = e.velocity_y();
-  const Value next_vx = to_number(prev_vx) >= 0 ? Value(vx) : Value(-vx);
+  const Value next_vx = prev_vx >= 0 ? Value(vx) : Value(-vx);
   const double next_vy =
       entity::calc_v(prev_vy, vy, Value(static_cast<double>(SpeedMode::Default)), Value(0.0),
                      Value(1.0));

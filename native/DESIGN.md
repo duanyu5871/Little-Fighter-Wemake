@@ -10320,3 +10320,69 @@ attach「不转发 / ghost 反 / ghost 丢」。
 | buff 特效**真链路**（真 `Entity` + `DatMgr` 的 effect oid） | 仍未覆盖：`Buff::show_effect` 走 `find_data` → DatMgr，需数据包加载链；本刀的 `wgeom`/`wattach` 已为这条链路备好两组缝的观测，等 `load` 类用例接入 |
 
 **测试**：全量差分 **254/254**（新增 `world/attach`）；lint **9776 ok / 0 bad anchors**。
+
+## 137. 切片 4BX：视图面合一（EntityViewBase）与 velocity_x/ground_y 统一
+
+**背景**：4BW 收口后，`EntityCollisionView` 与 `EntityStateView` 各自复制同一批
+`buff::IBuffEntity` 面（14 纯虚 + 20 默认虚），差异只在“转发到哪个宿主读法”；
+而 TS 侧 `Entity.ts` 本就是一个类（视图语义 = 实体自身）。本刀按 Plan A 收敛：
+抽公共基类 `EntityViewBase`（持 `Entity& _e`），两个视图改为“状态/碰撞专属方法 +
+继承来的 buff 面”；`buff::IBuffEntity` 接口**保留**（台面假实体仍按接口写造假件）。
+
+**跨族签名冲突结算**（面合一的前提；两族接口机器差分 7 处冲突）：
+* 5 处可重载消解（`enter_frame` 参数名、`enter_frame_by_id`、`play_sound`、
+  `set_invulnerable`、`set_motionless`；独立链各留一行 final overrider 或 `using`）。
+* **2 处硬冲突（同参不同返回）统一为 `double`**：
+  - `velocity_x()`：`IHandlerEntity`(Value) 与 `IStateEntity`(Value) 收口为
+    `double`（TS 侧本就是 `number`；`this.velocity.x` 直读）。
+  - `ground_y()`：同上；`EntityStateView` 此前**漏实现**（落地判定 `py > ground_y`
+    读到默认值 ⇒ 恒 `NaN`）——本刀一并改为实读 `_e.ground_y()`（顺带补上潜在缺口）。
+
+**结构**：
+* 新增 `lfw/entity/entity_view_base.{h,cpp}`：
+  - `class EntityViewBase : public virtual buff::IBuffEntity`，`explicit
+    EntityViewBase(Entity& e)`，`protected: Entity& _e;`；
+  - 纯虚 14 个：id / position / set_position / 帧几何三缝（frame_centery /
+    frame_height / frame_pic_h）/ set_frame / buffs_set / buffs_delete /
+    set_outline_alpha / set_outline_width / set_outline_color / enter_frame_by_id /
+    attach；
+  - 默认虚 20 个：data / state / mp / set_mp / mp_max / dataset / hp / hp_r /
+    set_hp / set_hp_r / set_toughness / data_type / velocity_y / set_velocity /
+    team / set_team / data_indexes_in_the_skys / marks_get / marks_set /
+    marks_delete。
+* `EntityStateView : public state::IStateEntity, public EntityViewBase`；
+  `state::IStateEntity` 改 `public virtual buff::IBuffEntity`（否则菱形下两个
+  `IBuffEntity` 子对象）。保留状态专属成员：assign_position / velocity_x /
+  velocity_z / ground_y / hp_max / motionless / set_motionless / shaking /
+  frame_info / prev_frame / is_on_ground / jumping_x / dismiss_fusion /
+  world_puppets / world_dataset / facing / enter_frame / drop_holding /
+  handle_ground_velocity_decay ×2。
+* `EntityCollisionView : … , public EntityViewBase`：两条**独立虚链**的
+  final overrider 各自保留（`data_type` 转 `base_type` 的 override + 其余一行
+  转发；重叠面触发 C4250 dominance 警告，胜出者为 `EntityViewBase` 版，行为经
+  差分锁定）。
+
+**调用点适配（lfw 内 37+ 处）**：
+* `velocity_x()` 读数全面改 `double`：`character_state_basic`（running 的拖拽带）
+  / `character_state_dash`（三向分支与 next_vx 初值）/ `character_state_falling`
+  （融合速度、朝向判定）/ `character_state_burning`（truthy(Value(vx)) 保
+  NaN-falsy）/ `character_state_caught_rowing`（prev_vx ≥ 0）/ `weapon_state_misc`
+  （0.6 缩放进/进地阻尼）。
+* `ground_y()` 比较去 `to_number` 包裹：basic 站立、dash、jump、lying、walking。
+* `state::clamp_velocity` 增加 `double` 重载（Value 版保留给 `velocity_z`）。
+* **`nan_to_null(double)`**（`character_state_basic` / `state_base` 各一个匿名
+  助手）：实体“无值”（TS `undefined`）读回 `NaN`，直传 `set_velocity` 时还原为
+  `Value()`——两处 dump 漂移（`character_state_basic/main`、`state_base/main`
+  的 `set_velocity:nNaN:nan:…` vs `u`）由此修复；`value` 语义与 4BX 前一致。
+
+**台面适配（22 处假实体）**：`Value velocity_x()/ground_y()` →
+`double`（`lfw::to_number(字段)` 读回；`Value()` 常量改 `to_number` 包回）。
+`wgeom`/`wattach` 输出不变（经继承走同一份 `EntityViewBase` 实现）。
+
+**测试**：全量差分 **254/254**（含上述 2 处漂移修复）；lint **9776 ok / 0 bad
+anchors**（实现迁址 + 签名变更共 71 条锚点重指：`entity_view_base.cpp` 新址、
+double 文本、`nan_to_null`）；变异 **11 枚 spec 共 507 条全杀**：`world_attach.mjs`
+11/11、`weapon_state_misc.mjs` 61/61、`state_base.mjs` 37/37、`character_state_basic`
+37/37 / `burning` 37/37 / `caught_rowing` 39/39 / `dash` 42/42 / `falling` 77/77 /
+`jump` 48/48 / `lying` 84/84 / `walking` 34/34。`state_base` 补了一条用例场景
+（"z 轴正速度超限"进入 Value 版 clamp 上限分支，`main.txt` 46→50 行）。

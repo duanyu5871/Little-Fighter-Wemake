@@ -5430,3 +5430,15 @@ harness op：
   `enter_frame(Defines.NEXT_FRAME_AUTO)` ⇒ **几何探针必须放在 attach 之后**。
 - ⚠ `wmk` 数据对象的 `o N` 是**精确键数**：`base o 2` 少给一个键会吞掉后续 token
   （报 `value literal truncated at token …`）。
+
+### 6.9.181 视图面合一（4BX）对台面的影响（无新 op）
+
+- `wgeom`/`wattach`（§6.9.180）**输出不变**：帧几何与 `attach` 从 `EntityCollisionView`
+  挪进公共基类 `EntityViewBase`，用例经继承走同一份实现（差分 254/254 背书）。
+- `state_*` 假实体的 `velocity_x()/ground_y()` 端口签名由 `Value` 统一为 `double`：
+  缺省（未设置）读回 `NaN`，等价 TS 侧 `undefined` 的数值语义（`truthy` 假、比较
+  不命中、算术透传）。
+- ⚠ “未设置”的值在透传点由 `nan_to_null` 还原为 `u`（`Value()`）：`set_velocity`
+  的日志/存储格式与 4BX 前一致；只有真正被写入过 `NaN` 的运算产物才会打印 `nan`。
+- ⚠ 用例不要新增依赖“假实体 `velocity_x` 为 NaN 时 dump 成 `nan`”的断言：读取即
+  `NaN` 不落日志，落日志的是写入路径。

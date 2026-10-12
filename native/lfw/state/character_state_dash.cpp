@@ -11,10 +11,10 @@ void csd_enter(IStateEntity& e, const Value& prev_frame) {
   double py = 0;
   double pz = 0;
   e.position(px, py, pz);
-  if (py > to_number(e.ground_y()) && e.velocity_y() != 0) return;
-  const Value vx = e.velocity_x();
+  if (py > e.ground_y() && e.velocity_y() != 0) return;
+  const double vx = e.velocity_x();
   const Value vz = e.velocity_z();
-  Value next_vx = vx;
+  Value next_vx = Value(vx);
   Value next_vz = vz;
   const Value dash_distance = e.dataset(u"dash_distance");
   const Value dash_x_f = e.dataset(u"dash_x_f");
@@ -33,9 +33,9 @@ void csd_enter(IStateEntity& e, const Value& prev_frame) {
     next_vx = Value(to_number(e.facing()) * dx);
   } else if (truthy(Value(lr))) {
     next_vx = Value(lr * dx);
-  } else if (to_number(vx) > 0) {
+  } else if (vx > 0) {
     next_vx = Value(dx);
-  } else if (to_number(vx) < 0) {
+  } else if (vx < 0) {
     next_vx = Value(-dx);
   } else {
     next_vx = Value(to_number(e.facing()) * dx);

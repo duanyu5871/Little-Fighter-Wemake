@@ -105,9 +105,9 @@ struct FakeEnt : IStateEntity {
   void attach(bool on) override {
     g_log.push_back(s_of(_id) + ":attach:" + std::string(on ? "1" : "0"));
   }
-  Value velocity_x() const override { return Value(); }
+  double velocity_x() const override { return lfw::to_number(Value()); }
   Value velocity_z() const override { return Value(); }
-  Value ground_y() const override { return _gy; }
+  double ground_y() const override { return lfw::to_number(_gy); }
   bool ctrl_is_bot() const override { return _bot; }
   bool ctrl_is_end(const std::u16string& key) const override {
     g_log.push_back(s_of(_id) + ":ctrl_is_end:" + s_of(key));

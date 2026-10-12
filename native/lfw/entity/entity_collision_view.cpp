@@ -95,19 +95,21 @@ void set_prop_of(Entity& e, const std::u16string& name, const Value& v) {
 
 // ─────────────────────── `EntityCollisionView`（`IHandlerEntity` 那一面）───────────────────────
 
-const std::u16string& EntityCollisionView::id() const { return _e.id; }
+// `EntityViewBase` 里与碰撞家族**同名**的条目：各行只留一行转发（两条独立链的虚槽各要
+// 各自的 final overrider，基类只能顶 `IBuffEntity` 那条）。
+const std::u16string& EntityCollisionView::id() const { return EntityViewBase::id(); }
 
-Value EntityCollisionView::hp() const { return Value(_e.hp()); }
+Value EntityCollisionView::hp() const { return EntityViewBase::hp(); }
 
-void EntityCollisionView::set_hp(const Value& v) { _e.set_hp(to_number(v)); }
+void EntityCollisionView::set_hp(const Value& v) { EntityViewBase::set_hp(v); }
 
-Value EntityCollisionView::hp_r() const { return Value(_e.hp_r()); }
+Value EntityCollisionView::hp_r() const { return EntityViewBase::hp_r(); }
 
-void EntityCollisionView::set_hp_r(const Value& v) { _e.set_hp_r(to_number(v)); }
+void EntityCollisionView::set_hp_r(const Value& v) { EntityViewBase::set_hp_r(v); }
 
-void EntityCollisionView::set_toughness(const Value& v) { _e.set_toughness(to_number(v)); }
+void EntityCollisionView::set_toughness(const Value& v) { EntityViewBase::set_toughness(v); }
 
-Value EntityCollisionView::data() const { return _e.data(); }
+Value EntityCollisionView::data() const { return EntityViewBase::data(); }
 
 Value EntityCollisionView::data_indexes_ice() const { return indexes_of(_e.data(), u"ice"); }
 
@@ -115,7 +117,9 @@ Value EntityCollisionView::data_base_hit_sounds() const {
   return field_or(field_or(_e.data(), u"base"), u"hit_sounds");
 }
 
-Value EntityCollisionView::dataset(const std::u16string& key) const { return _e.dataset(key); }
+Value EntityCollisionView::dataset(const std::u16string& key) const {
+  return EntityViewBase::dataset(key);
+}
 
 bool EntityCollisionView::marks_has(const std::u16string& kind) const {
   return _e.marks.find(kind) != _e.marks.end();
@@ -167,7 +171,7 @@ void EntityCollisionView::set_shaking(const Value& v) { _e.shaking = to_number(v
 Value EntityCollisionView::motionless() const { return Value(_e.motionless); }
 
 void EntityCollisionView::set_velocity(const Value& x, const Value& y, const Value& z) {
-  _e.set_velocity(x, y, z);
+  EntityViewBase::set_velocity(x, y, z);
 }
 
 void EntityCollisionView::enter_frame(const Value& info) { _e.enter_frame(info); }
@@ -211,7 +215,7 @@ void EntityCollisionView::drop_holding() { _e.drop_holding(); }
 
 // ─────────────────────── `INbdyNormalEntity` ───────────────────────
 
-Value EntityCollisionView::state() const { return _e.state(); }
+Value EntityCollisionView::state() const { return EntityViewBase::state(); }
 
 double EntityCollisionView::position_y() const { return _e.position.y; }
 
@@ -247,9 +251,9 @@ void EntityCollisionView::set_dropping(bool v) { _e.dropping = v; }
 
 Value EntityCollisionView::base_type() const { return Value(_e.base_type()); }
 
-Value EntityCollisionView::team() const { return Value(_e.team()); }
+Value EntityCollisionView::team() const { return EntityViewBase::team(); }
 
-void EntityCollisionView::set_team(const Value& v) { _e.set_team(to_string(v)); }
+void EntityCollisionView::set_team(const Value& v) { EntityViewBase::set_team(v); }
 
 Value EntityCollisionView::data_id() const { return field_or(_e.data(), u"id"); }
 
@@ -258,78 +262,21 @@ Value EntityCollisionView::data_indexes_throwings() const {
 }
 
 Value EntityCollisionView::data_indexes_in_the_skys() const {
-  return indexes_of(_e.data(), u"in_the_skys");
+  return EntityViewBase::data_indexes_in_the_skys();
 }
 
 void EntityCollisionView::leave_ground() { _e.leave_ground(); }
 
-// ─────────────────────── `buff::IBuffEntity` ───────────────────────
+// ─────────────────────── `buff::IBuffEntity`（基类里）───────────────────────
 
+// `position` 同时被 `IH3Entity` 声明 ⇒ 保留一行转发；帧几何 / `set_position` /
+// `set_frame` / `buffs_*` / `set_outline_*` / `attach` / `marks_*` 只在 `IBuffEntity`
+// 链上（碰撞家族没有）⇒ 实现在 `EntityViewBase`。
 void EntityCollisionView::position(double& x, double& y, double& z) const {
-  x = _e.position.x;
-  y = _e.position.y;
-  z = _e.position.z;
+  EntityViewBase::position(x, y, z);
 }
 
-void EntityCollisionView::set_position(double x, double y, double z) {
-  _e.set_position(Value(x), Value(y), Value(z));
-}
-
-// 帧几何（`frame_centery` / `frame_height` / `frame_pic_h`）：`Buff.ts` 的读法是
-// `const { centery = 0, height = 0, pic } = victim.frame` 与 `pic?.h ?? 0` ⇒ 缺省 0、
-// `NaN` 保留（`||` 链在 `Buff::place_effect_center` 里）。
-double EntityCollisionView::frame_centery() const {
-  const Value v = field_or(_e.frame, u"centery");
-  return is_missing(v) ? 0.0 : to_number(v);
-}
-
-double EntityCollisionView::frame_height() const {
-  const Value v = field_or(_e.frame, u"height");
-  return is_missing(v) ? 0.0 : to_number(v);
-}
-
-double EntityCollisionView::frame_pic_h() const {
-  const Value v = field_or(field_or(_e.frame, u"pic"), u"h");
-  return is_missing(v) ? 0.0 : to_number(v);
-}
-
-void EntityCollisionView::set_frame(const Value& info) { _e.set_frame(info); }
-
-void EntityCollisionView::buffs_set(const std::u16string& key, buff::Buff* b) {
-  _e.buffs[key] = b;
-}
-
-void EntityCollisionView::buffs_delete(const std::u16string& key) { _e.buffs.erase(key); }
-
-void EntityCollisionView::set_outline_alpha(double v) { _e.set_outline_alpha(v); }
-
-void EntityCollisionView::set_outline_width(double v) { _e.set_outline_width(v); }
-
-void EntityCollisionView::set_outline_color(const std::u16string& v) {
-  _e.set_outline_color(v);
-}
-
-void EntityCollisionView::enter_frame_by_id(const std::u16string& id) {
-  _e.enter_frame_by_id(Value(id));
-}
-
-// `this.attach(on)` —— `Entity::attach` 本体已实现（含 `host->add_entities`）。
-void EntityCollisionView::attach(bool on) { _e.attach(Value(on)); }
-
-Value EntityCollisionView::data_type() const { return field_or(_e.data(), u"type"); }
-
-Value EntityCollisionView::marks_get(const std::u16string& key) const {
-  const auto it = _e.marks.find(key);
-  return it == _e.marks.end() ? Value() : Value(it->second);
-}
-
-void EntityCollisionView::marks_set(const std::u16string& key, const std::u16string& value) {
-  _e.marks[key] = value;
-}
-
-bool EntityCollisionView::marks_delete(const std::u16string& key) {
-  return _e.marks.erase(key) > 0;
-}
+Value EntityCollisionView::data_type() const { return EntityViewBase::data_type(); }
 
 // ─────────────────────── `IActionEntity` ───────────────────────
 
@@ -339,11 +286,11 @@ void EntityCollisionView::set_facing(const Value& v) { _e.facing = to_number(v);
 
 Value EntityCollisionView::hp_max() const { return Value(_e.hp_max()); }
 
-Value EntityCollisionView::mp() const { return Value(_e.mp()); }
+Value EntityCollisionView::mp() const { return EntityViewBase::mp(); }
 
-void EntityCollisionView::set_mp(const Value& v) { _e.set_mp(to_number(v)); }
+void EntityCollisionView::set_mp(const Value& v) { EntityViewBase::set_mp(v); }
 
-Value EntityCollisionView::mp_max() const { return Value(_e.mp_max()); }
+Value EntityCollisionView::mp_max() const { return EntityViewBase::mp_max(); }
 
 // TS 的 `is_bot_ctrl(e.ctrl)` 读的是控制器上的 `__is_bot_ctrl__`；端口落在
 // `BaseController::is_bot()` 上（`ctrl` 为 `nullptr` ⇒ false，与 TS 的 `undefined` 同）。

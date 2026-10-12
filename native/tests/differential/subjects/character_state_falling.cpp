@@ -127,7 +127,7 @@ struct FakeEnt : IStateEntity {
   void attach(bool on) override {
     g_log.push_back(s_of(_id) + ":attach:" + std::string(on ? "1" : "0"));
   }
-  Value velocity_x() const override { return _vx; }
+  double velocity_x() const override { return lfw::to_number(_vx); }
   Value velocity_z() const override { return _vz; }
   double velocity_y() const override { return _vy; }
   Value hp() const override { return _hp; }

@@ -180,19 +180,19 @@ export default {
     {
       note: "walking compares the wrong position axis",
       file: "native/lfw/state/character_state_walking.cpp",
-      from: "  if (py > to_number(e.ground_y())) {",
-      to: "  if (px > to_number(e.ground_y())) {",
+      from: "  if (py > e.ground_y()) {",
+      to: "  if (px > e.ground_y()) {",
     },
     {
       note: "walking accepts being exactly on the ground",
       file: "native/lfw/state/character_state_walking.cpp",
-      from: "  if (py > to_number(e.ground_y())) {",
-      to: "  if (py >= to_number(e.ground_y())) {",
+      from: "  if (py > e.ground_y()) {",
+      to: "  if (py >= e.ground_y()) {",
     },
     {
       note: "walking compares the hp as the ground",
       file: "native/lfw/state/character_state_walking.cpp",
-      from: "  if (py > to_number(e.ground_y())) {",
+      from: "  if (py > e.ground_y()) {",
       to: "  if (py > to_number(e.hp())) {",
     },
     {

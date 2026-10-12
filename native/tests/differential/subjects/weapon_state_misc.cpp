@@ -140,7 +140,7 @@ struct FakeEnt : IStateEntity {
   void set_team(const Value& v) override { _team = v; }
   Value lfw_new_team() const override { return _new_team; }
   double velocity_y() const override { return lfw::to_number(_vely); }
-  Value velocity_x() const override { return _velx; }
+  double velocity_x() const override { return lfw::to_number(_velx); }
   Value velocity_z() const override { return _velz; }
   void set_velocity(const Value& x, const Value& y, const Value& z) override {
     g_log.push_back(s_of(_id) + ":set_velocity:" + render(x) + ":" + render(y) + ":" +

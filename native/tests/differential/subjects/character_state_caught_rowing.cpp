@@ -127,7 +127,7 @@ struct FakeEnt : IStateEntity {
   Value data_indexes_landing_1() const override {
     return lfw::field_or(_indexes, u"landing_1");
   }
-  Value velocity_x() const override { return _vx; }
+  double velocity_x() const override { return lfw::to_number(_vx); }
   Value velocity_z() const override { return Value(); }
   double velocity_y() const override { return lfw::to_number(_vy); }
   void set_velocity(const Value& x, const Value& y, const Value& z) override {

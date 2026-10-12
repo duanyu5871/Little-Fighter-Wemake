@@ -125,7 +125,7 @@ struct FakeEnt : IStateEntity {
     g_log.push_back(s_of(_id) + ":holding_set_team:" + render(v));
   }
   bool is_on_ground() const override { return _on_ground; }
-  Value ground_y() const override { return _ground_y; }
+  double ground_y() const override { return lfw::to_number(_ground_y); }
   Value get_sudden_death_frame() override {
     g_log.push_back(s_of(_id) + ":get_sudden_death_frame");
     return marker_frame();
@@ -154,7 +154,7 @@ struct FakeEnt : IStateEntity {
     g_log.push_back(s_of(_id) + ":dataset:" + s_of(key));
     return field_by(_dataset, key);
   }
-  Value velocity_x() const override { return _vx; }
+  double velocity_x() const override { return lfw::to_number(_vx); }
   Value velocity_z() const override { return _vz; }
   void set_velocity(const Value& x, const Value& y, const Value& z) override {
     g_log.push_back(s_of(_id) + ":set_velocity:" + render(x) + ":" + render(y) + ":" + render(z));

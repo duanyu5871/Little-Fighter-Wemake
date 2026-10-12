@@ -489,20 +489,20 @@ export default {
     {
       note: "a dead frame needs no hp test",
       file: "native/lfw/state/character_state_lying.cpp",
-      from: "    if (to_number(e.hp()) <= 0 &&\n        py <= to_number(e.ground_y()) &&",
-      to: "    if (to_number(e.hp()) < 0 &&\n        py <= to_number(e.ground_y()) &&",
+      from: "    if (to_number(e.hp()) <= 0 &&\n        py <= e.ground_y() &&",
+      to: "    if (to_number(e.hp()) < 0 &&\n        py <= e.ground_y() &&",
     },
     {
       note: "the lying frame allows being above the ground",
       file: "native/lfw/state/character_state_lying.cpp",
-      from: "        py <= to_number(e.ground_y()) &&",
-      to: "        py < to_number(e.ground_y()) &&",
+      from: "        py <= e.ground_y() &&",
+      to: "        py < e.ground_y() &&",
     },
     {
       note: "the lying frame compares the x position",
       file: "native/lfw/state/character_state_lying.cpp",
-      from: "        py <= to_number(e.ground_y()) &&",
-      to: "        px <= to_number(e.ground_y()) &&",
+      from: "        py <= e.ground_y() &&",
+      to: "        px <= e.ground_y() &&",
     },
     {
       note: "the lying frame test uses another state",

@@ -50,7 +50,7 @@ void wst_enter(IStateEntity& e, const Value& prev_frame) {
   e.leave_ground();
   e.set_drop_hurted(Value(false));
   if (is_boomerang(e)) {
-    e.set_velocity(Value(to_number(e.velocity_x()) * 0.6), Value(), Value());
+    e.set_velocity(Value(e.velocity_x() * 0.6), Value(), Value());
   }
 }
 
@@ -114,7 +114,7 @@ void WeaponState_InTheSky::update(IStateEntity& e) {
   e.handle_ground_velocity_decay();
 
   const double vy = e.velocity_y();
-  const double vx = to_number(e.velocity_x());
+  const double vx = e.velocity_x();
   const double vz = to_number(e.velocity_z());
   const Value base = e.data_base();
   const Value wt = e.base_type();
