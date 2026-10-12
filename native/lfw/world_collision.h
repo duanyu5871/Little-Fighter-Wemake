@@ -61,6 +61,9 @@ class WorldCollisionHost : public ICollisionViewHost {
   EntityCollisionView* weapon_view(Entity* e) override;
   EntityCollisionView* action_view(Entity* e) override;
   buff::IBuffEntity* buff_view(Entity* e) override;
+  // 三个访问器（及台面探针）的公共实现：同一个实体只建一份视图（指针稳定，
+  // `catcher` / `bearer` 靠它）。
+  EntityCollisionView* collision_view(Entity* e);
   Entity* entity_by_id(const std::u16string& id) override;
   Entity* entity_of_handler(const collision::IHandlerEntity* v) override;
   double mt_range(double min, double max) override;
@@ -101,9 +104,6 @@ class WorldCollisionHost : public ICollisionViewHost {
   // `action.tester` / `bdy.__tester`：端口存源串（DESIGN §64.2），宿主按需编译。
   bool tester_run(const Value& tester, collision::Collision& c);
   Value tester_debug(const Value& tester);
-
-  // 三个视图访问器的公共实现：同一个实体只建一份视图（指针稳定，`catcher` / `bearer` 靠它）。
-  EntityCollisionView* collision_view(Entity* e);
 
   collision::Collision& acquire_collision();
   buff::Buff* find_buff(const std::u16string& id) const;

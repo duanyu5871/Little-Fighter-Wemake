@@ -10277,3 +10277,46 @@ work 打 `adw|<tag>`）、`lfgp` 全量探针（`lr/ox/wp/b1|b2(含 hp/hr/hm/fr/
 **测试**：用例 `cases/lfw/danmu.txt` **808 行**（trace 行数）；
 变异 `lfw_danmu.mjs` **99 条（99/99 全杀）**（剔 5 条等效/不可观察：`untrack` 的两处回调摘除在出列路径上不可达——`Entity::release()` 同轮紧跟清 callbacks、summary 按实体 id 建键且 id 不复用；`update_bg` 相机段的左右 clamp 只在 gameover 重开那一帧执行、gcount 300 帧远超台面观察窗，无法构造稳定命中场景。另：`TEAMS8_TEAM_CAP` 变异锚点从 `.h` 改到 cpp 引用点——头部单独改动不会触发 ninja 重编，首条 `.h` 变异会假存活）；
 全量差分 **253/253**。
+
+## 136. 切片 4BW：碰撞/状态视图的帧几何与 attach 缝（+ 4L 遗留核对）
+
+**背景**：4L/4Q 时 `EntityCollisionView` / `EntityStateView` 的注释写着「帧几何那一层还没搬」
+「`attach` 要 `world.add_entities` / 渲染层」——两条都已过时：帧几何的读法就是
+`Buff.ts` 的 `const { centery = 0, height = 0, pic } = victim.frame` 与 `pic?.h ?? 0`；
+`Entity::attach`（含 `enter_frame(AUTO)` / `add_entities` / ghost 语义）早在 opoint / spawn
+那一刀就落地了。本刀把四条缝接上真实现，并补上台面观测与变异：
+
+* `EntityCollisionView::frame_centery/frame_height/frame_pic_h`：缺省 `0`、`NaN` 保留
+  （`field_or` + `is_missing`）；`pic?.h` 的 `?? 0` 链在视图内（`||` 链留在 `Buff` 侧）。
+* `EntityCollisionView::attach(bool)` / `EntityStateView::attach(bool)`：
+  `_e.attach(Value(on))`。`state/` 层没有调用者（`IStateEntity` 这四条只有 buff 缝在用、
+  buff 走 collision 视图）⇒ 两份实现同构、只给 collision 视图写变异。
+* `WorldCollisionHost::collision_view` 从 private 提到 public（台面探针与分发共用）。
+* 语义点（都用变异锁住）：`attach(true)` 的 ghosted=1 ⇒ 实体进 **`ghosts`** 而不是
+  `entities`；`_mounted` 门挡重复 attach；`attach(false)` 走非幽灵支。
+
+**台面**：`wgeom <label>`（经视图回显 `cy/ht/ph`；TS 侧按同一读法直接读 `e.frame`）、
+`wattach <label> <1|0>`（回显 `mounted/n/g`）。用例 `cases/world/attach.txt` **43 行**：
+三字段齐（25/60/42 值互不相同）／缺 centery+height／无 pic／attach 双支 + 门挡 + 离地。
+⚠ 帧几何探针必须在 `attach` 之后：`wmk` 出来的实体帧是 None，`attach` 里那句
+`enter_frame(Defines.NEXT_FRAME_AUTO)` 才是进数据帧的时机（`fr="0"`）。
+变异 `world_attach.mjs` **11 条（11/11 全杀）**：三缝各「回退 0 / 缺省丢 / 取错字段」+
+attach「不转发 / ghost 反 / ghost 丢」。
+
+**4L 遗留核对结论**（`§78.6` / `§78.7` 的逐条结算）：
+
+| 项 | 现状 |
+| --- | --- |
+| `john_shield` / `ball_frozen` / `weapon_is_hit` / `healing` / `whirlwind` / `ball_hit_other` | 实现 + 用例都已落地（`collision_handlers*` / `collision_ball_frozen` / …）；4L 备注里的「还差」已闭环 |
+| `arest` 进 dump | 已做（`collision_handlers` / `collision_handlers4` / `entity` 探针均带 `arest=`） |
+| `create_buff` 缝 | 已接（`WorldCollisionHost::create_buff` → `LFW::create_buff` → `Factory::create_buff`） |
+| 帧几何三缝 / `attach(bool)` | **本刀接上**（见上） |
+| `get_bounding` 四字段 | `collision.txt` 第 12 组「部分重叠」已锁；`near/far`（z 框）仍对称不可分，保留 |
+| `_core.dataset` 恒空 | 保持（4L 已实测等价） |
+| `tester_debug` 恒 `undefined` | 保持（`Expression` 无 `stringify_expr_debug` 渲染层；只影响 `Ditto.DEV` 日志） |
+| `set_prop` 白名单 | 保持（数据面至今未出现 `SET_PROP`；白名单 16 条覆盖 handlers 用例用法） |
+| `collision_to_snapshot/from_snapshot` 宿主往返 | TS 侧**无调用者**（只有定义）⇒ 无行为差，保留实现待网络层 |
+| `hit_sounds` / `play_sound` 台面日志 | 保持（台面不记 sound 日志） |
+| buff 特效**真链路**（真 `Entity` + `DatMgr` 的 effect oid） | 仍未覆盖：`Buff::show_effect` 走 `find_data` → DatMgr，需数据包加载链；本刀的 `wgeom`/`wattach` 已为这条链路备好两组缝的观测，等 `load` 类用例接入 |
+
+**测试**：全量差分 **254/254**（新增 `world/attach`）；lint **9776 ok / 0 bad anchors**。

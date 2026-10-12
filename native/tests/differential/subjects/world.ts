@@ -594,6 +594,24 @@ function main(): void {
       const e = ent_of(t[i[0]!++]!);
       world.add_entities(e);
       log.push(`readd|${e.id}`);
+    } else if (op === "wgeom") {
+      // 与 C++ 的 `EntityCollisionView::frame_centery/frame_height/frame_pic_h` 同读法。
+      const label = t[i[0]!++]!;
+      const e = ent_of(label);
+      const f = (e.frame ?? {}) as Record<string, unknown>;
+      const pic = f["pic"] as Record<string, unknown> | undefined;
+      log.push(
+        `geom|${label}|cy=${num(f["centery"] ?? 0)}|ht=${num(f["height"] ?? 0)}|ph=${num(pic?.["h"] ?? 0)}`,
+      );
+    } else if (op === "wattach") {
+      // `Entity.attach`（`Buff::show_effect` 的 `effect.attach(true)` 同路）。
+      const label = t[i[0]!++]!;
+      const on = t[i[0]!++]! === "1";
+      const e = ent_of(label);
+      e.attach(on);
+      log.push(
+        `attach|${label}|mounted=${num((e as unknown as Bag)._mounted)}|n=${num(world.entities.length)}|g=${num(world.ghosts.length)}`,
+      );
     } else if (op === "went") {
       const e = ent_of(t[i[0]!++]!);
       const field = t[i[0]!++]!;

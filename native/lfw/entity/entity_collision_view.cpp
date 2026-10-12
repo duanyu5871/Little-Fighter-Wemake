@@ -275,13 +275,23 @@ void EntityCollisionView::set_position(double x, double y, double z) {
   _e.set_position(Value(x), Value(y), Value(z));
 }
 
-// 帧几何（`frame_centery` / `frame_height` / `frame_pic_h`）属于帧信息那一层，还没搬
-// ——与 `EntityStateView` 同一处置（buff 的特效摆放拿到 0）。
-double EntityCollisionView::frame_centery() const { return 0; }
+// 帧几何（`frame_centery` / `frame_height` / `frame_pic_h`）：`Buff.ts` 的读法是
+// `const { centery = 0, height = 0, pic } = victim.frame` 与 `pic?.h ?? 0` ⇒ 缺省 0、
+// `NaN` 保留（`||` 链在 `Buff::place_effect_center` 里）。
+double EntityCollisionView::frame_centery() const {
+  const Value v = field_or(_e.frame, u"centery");
+  return is_missing(v) ? 0.0 : to_number(v);
+}
 
-double EntityCollisionView::frame_height() const { return 0; }
+double EntityCollisionView::frame_height() const {
+  const Value v = field_or(_e.frame, u"height");
+  return is_missing(v) ? 0.0 : to_number(v);
+}
 
-double EntityCollisionView::frame_pic_h() const { return 0; }
+double EntityCollisionView::frame_pic_h() const {
+  const Value v = field_or(field_or(_e.frame, u"pic"), u"h");
+  return is_missing(v) ? 0.0 : to_number(v);
+}
 
 void EntityCollisionView::set_frame(const Value& info) { _e.set_frame(info); }
 
@@ -303,9 +313,8 @@ void EntityCollisionView::enter_frame_by_id(const std::u16string& id) {
   _e.enter_frame_by_id(Value(id));
 }
 
-// `this.attach(on)` 要 `world.add_entities` / 渲染层，属于宿主那一刀（与 `EntityStateView`
-// 一样先空着）。
-void EntityCollisionView::attach(bool on) { (void)on; }
+// `this.attach(on)` —— `Entity::attach` 本体已实现（含 `host->add_entities`）。
+void EntityCollisionView::attach(bool on) { _e.attach(Value(on)); }
 
 Value EntityCollisionView::data_type() const { return field_or(_e.data(), u"type"); }
 

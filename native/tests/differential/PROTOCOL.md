@@ -5418,3 +5418,15 @@ harness op：
   `sddev`/`sdhid`(Dev/hidden 组)、`sdsurv`(chapter=survival)、`idsd/idsdnov/idsdc`
   （多份 `*.index.json5`：可控 stages 追加顺序，把 coop 择优/回退/无候选分场景）；
   stage 描述符只认 `{file}`，内容用 `imp sd/xx.json5 <key>` + `lzadd`。
+
+### 6.9.180 视图帧几何与 attach 缝（`cases/world/attach.txt` 43 行；变异 11/11 全杀）
+
+- 新台面 op：
+  - `wgeom <label>`：经 `EntityCollisionView` 回显 `geom|<label>|cy=|ht=|ph=`（TS 侧按同一读法直接读 `e.frame`）。
+  - `wattach <label> <1|0>`：经视图转 `Entity::attach`；回显 `attach|<label>|mounted=|n=|g=`（n=entities、g=ghosts）。
+- ⚠ `attach(true)` 的实体进 **`ghosts`**（ghosted=1），`n=`（entities）恒 0 不是异常；
+  `attach(false)` 才进 `entities`。`_mounted` 门挡：重复 attach 不再入列。
+- ⚠ `wmk` 出来的实体帧是 None（`fr` 空）；进数据帧的时机是 `attach` 里的
+  `enter_frame(Defines.NEXT_FRAME_AUTO)` ⇒ **几何探针必须放在 attach 之后**。
+- ⚠ `wmk` 数据对象的 `o N` 是**精确键数**：`base o 2` 少给一个键会吞掉后续 token
+  （报 `value literal truncated at token …`）。

@@ -6,6 +6,14 @@
 #include "lfw/utils/container_help/field_or.h"
 
 namespace lfw {
+namespace {
+
+// `null` / `undefined`（`??` 只在这两种情况下穿透）。
+bool is_missing(const Value& v) {
+  return std::holds_alternative<std::monostate>(v) || std::holds_alternative<NullTag>(v);
+}
+
+}  // namespace
 
 const std::u16string& EntityStateView::id() const { return _e.id; }
 
@@ -25,11 +33,23 @@ void EntityStateView::assign_position(double x, double y, double z) {
   _e.position.z = z;
 }
 
-double EntityStateView::frame_centery() const { return 0; }
+// 帧几何（`frame_centery` / `frame_height` / `frame_pic_h`）：`Buff.ts` 的读法是
+// `const { centery = 0, height = 0, pic } = victim.frame` 与 `pic?.h ?? 0` ⇒ 缺省 0、
+// `NaN` 保留（`||` 链在 `Buff::place_effect_center` 里）。
+double EntityStateView::frame_centery() const {
+  const Value v = field_or(_e.frame, u"centery");
+  return is_missing(v) ? 0.0 : to_number(v);
+}
 
-double EntityStateView::frame_height() const { return 0; }
+double EntityStateView::frame_height() const {
+  const Value v = field_or(_e.frame, u"height");
+  return is_missing(v) ? 0.0 : to_number(v);
+}
 
-double EntityStateView::frame_pic_h() const { return 0; }
+double EntityStateView::frame_pic_h() const {
+  const Value v = field_or(field_or(_e.frame, u"pic"), u"h");
+  return is_missing(v) ? 0.0 : to_number(v);
+}
 
 void EntityStateView::set_frame(const Value& info) { _e.set_frame(info); }
 
@@ -51,7 +71,7 @@ void EntityStateView::enter_frame_by_id(const std::u16string& id) {
   _e.enter_frame_by_id(Value(id));
 }
 
-void EntityStateView::attach(bool on) { (void)on; }
+void EntityStateView::attach(bool on) { _e.attach(Value(on)); }
 
 Value EntityStateView::velocity_x() const { return Value(_e.velocity.x); }
 
