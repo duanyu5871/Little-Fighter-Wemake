@@ -54,6 +54,8 @@ import { FighterStatBar } from "../../../../src/LFW/ui/component/FighterStatBar"
 import { CameraCtrl } from "../../../../src/LFW/ui/component/CameraCtrl";
 import { CharMenuLogic } from "../../../../src/LFW/ui/component/CharMenu/CharMenuLogic";
 import { LaunchPage } from "../../../../src/LFW/ui/component/LaunchPageLogic";
+import { ActionDirector } from "../../../../src/LFW/ui/component/Tests/ActionDirector";
+import { LittleFunnyAutoGame } from "../../../../src/LFW/ui/component/LittleFunnyAutoGame";
 import { SineOpacity } from "../../../../src/LFW/ui/component/SineOpacity";
 import { FadeOutOpacity } from "../../../../src/LFW/ui/component/FadeOutOpacity";
 import { OpacityAnimation } from "../../../../src/LFW/ui/component/OpacityAnimation";
@@ -137,6 +139,8 @@ const flush_microtasks = async (): Promise<void> => {
 const tnodes = new Map<string, UINode>();
 // 4BQ：`ncomp` 创建的真组件（保引用防 GC）。
 const g_ncomps: Rec[] = [];
+// 4BU：ActionDirector 台面实例池。
+const g_ads = new Map<string, ActionDirector>();
 
 // 4AP：真 `UILayers`（台面直建，与 `lfw.layers` 的补丁面互不干扰）。
 const real_layers: { v: UILayers | null } = { v: null };
@@ -407,6 +411,19 @@ function kind_value(k: string): unknown {
     if (k === "lfx") {
       return { id: "lfx", type: 8, base: { name: "FX", group: ["1000"], bg_face: null }, frames: [] };
     }
+    // 4BU：LFAG 士兵池（group "3000"，ce 控制双方士兵数量差；lf3d 无 ce 走缺省 1）。
+    if (k === "lf3a" || k === "lf3b" || k === "lf3c" || k === "lf3d") {
+      const nm = k === "lf3a" ? "G1" : k === "lf3b" ? "G2" : k === "lf3c" ? "G3" : "G4";
+      const ce = k === "lf3a" ? 1 : k === "lf3b" ? 2 : k === "lf3c" ? 3 : 0;
+      const base: Rec = { name: nm, group: ["3000"] };
+      if (ce !== 0) base.ce = ce;
+      return {
+        id: k,
+        type: 8,
+        base,
+        frames: { running_0: { id: "running_0", state: 1, wait: 2 } },
+      };
+    }
     if (k === "lfy") {
       return { id: "4", type: 8, base: { name: "FY", group: ["1000"], bg_face: null }, frames: [] };
     }
@@ -426,6 +443,16 @@ function kind_value(k: string): unknown {
         make_stage("st_srv", "SV", "bg_reg", "survival"),
         make_stage("50", "F50", "bg_oth", null),
       ];
+    }
+    if (k === "idg3") {
+      return {
+        objects: [
+          { id: "lf3a", file: "data/lf3a.json5" },
+          { id: "lf3b", file: "data/lf3b.json5" },
+          { id: "lf3c", file: "data/lf3c.json5" },
+          { id: "lf3d", file: "data/lf3d.json5" },
+        ],
+      };
     }
     if (k === "idg2" || k === "idg2c") {
       return {
@@ -1841,6 +1868,97 @@ async function run_ops(): Promise<void> {
             `|yfo=${opa_done(props["yeonface"] as UINode)}|bfo=${opa_done(props["bearface"] as UINode)}|lto=${opa_done(props["long_text"] as UINode)}` +
             `|ysi=${sc_end(props["yeonface"] as UINode, "scale_in")}|yso=${sc_end(props["yeonface"] as UINode, "scale_out")}|bso=${sc_end(props["bearface"] as UINode, "scale_out")}` +
             `|dt=${hint ? (hint.visible ? 1 : 0) : "u"}`
+        );
+      }
+    } else if (op === "adnew") {
+      g_ads.set(nextKey(), new ActionDirector());
+    } else if (op === "adins" || op === "adoff" || op === "adrep") {
+      const id = nextKey();
+      const d = g_ads.get(id);
+      if (!d) {
+        push(`${op}|${id}|none`);
+      } else {
+        const work = (tag: string) => () => push(`adw|${tag}`);
+        if (op === "adins") {
+          const time = Number(nextKey());
+          d.insert(time, work(nextKey()));
+        } else if (op === "adoff") {
+          const delay = Number(nextKey());
+          d.offset(delay, work(nextKey()));
+        } else {
+          const times = Number(nextKey());
+          const delay = Number(nextKey());
+          d.repeat(times, delay, work(nextKey()));
+        }
+      }
+    } else if (op === "adwait" || op === "adt" || op === "adsort" || op === "adreset" || op === "adup") {
+      const id = nextKey();
+      const d = g_ads.get(id);
+      if (!d) {
+        push(`${op}|${id}|none`);
+      } else if (op === "adwait") d.wait(Number(nextKey()));
+      else if (op === "adt") d.times(Number(nextKey()));
+      else if (op === "adsort") d.sort();
+      else if (op === "adreset") d.reset();
+      else d.update(Number(nextKey()));
+    } else if (op === "adp") {
+      const id = nextKey();
+      const d = g_ads.get(id);
+      if (!d) {
+        push(`adp|${id}|none`);
+      } else {
+        const rc = d as Rec;
+        push(
+          `adp|${id}|life=${num(d.lifetime)}|end=${num(d.end_time)}|idx=${num(rc["_action_idx"])}` +
+            `|curr=${num(rc["_curr"])}|times=${num(rc["_times"])}|n=${num((rc["_actions"] as unknown[]).length)}`
+        );
+      }
+    } else if (op === "addump") {
+      const id = nextKey();
+      const d = g_ads.get(id);
+      if (!d) {
+        push(`addump|${id}|none`);
+      } else {
+        const list = (d as Rec)["_actions"] as Rec[];
+        push(`addump|${id}|n=${num(list.length)}`);
+        for (let k = 0; k < list.length; ++k) {
+          push(`ad|${id}|${num(k)}|t=${num(list[k]["time"] as number)}|s=${num(list[k]["seq"] as number)}`);
+        }
+      }
+    } else if (op === "lfgp") {
+      const nid = nextKey();
+      const n = tnodes.get(nid)!;
+      let lp: LittleFunnyAutoGame | undefined;
+      for (const c of n.components) {
+        if (c instanceof LittleFunnyAutoGame) {
+          lp = c as LittleFunnyAutoGame;
+          break;
+        }
+      }
+      if (!lp) {
+        push(`lfg|${nid}|none`);
+      } else {
+        const rc = lp as Rec;
+        const teams = rc["_teams"] as Rec;
+        const ent_part = (e: Entity | undefined): string => {
+          if (!e) return "z";
+          const fid = e.frame?.id ?? "-";
+          return (
+            `${e.id}|t=${e.team}|x=${num(e.position.x)}|hp=${num(e.hp)}|fm=${num(e.facing)}` +
+            `|hr=${num(e.hp_r)}|hm=${num(e.hp_max)}|fr=${fid}|dg=${num(e.dead_gone)}|nv=${num(e.name_visible)}|sb=${num(e.stat_bar)}`
+          );
+        };
+        const ids_of = (v: Entity[] | undefined): string => {
+          if (!v || !v.length) return "-";
+          return v.map((e) => e.id).join(",");
+        };
+        const t1 = teams["1"] as Rec;
+        const t2 = teams["2"] as Rec;
+        push(
+          `lfg|${nid}|lr=${num(rc["_lr"] as number)}|ox=${num(rc["_ox"] as number)}|wp=${num(lfw.world.paused ? 1 : 0)}` +
+            `|b1=${ent_part(t1["boss"] as Entity | undefined)}|b2=${ent_part(t2["boss"] as Entity | undefined)}` +
+            `|s1=${num((t1["soldiers"] as Entity[]).length)}|s2=${num((t2["soldiers"] as Entity[]).length)}` +
+            `|s1i=${ids_of(t1["soldiers"] as Entity[])}|s2i=${ids_of(t2["soldiers"] as Entity[])}`
         );
       }
     } else if (op === "bcast") {

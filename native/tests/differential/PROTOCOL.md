@@ -5354,3 +5354,33 @@ harness op：
   （`FakeHost::sounds_play_bgm` 只吐 `snd_bgm` 不吐名字；只覆盖「调用发生与否」）；
   `on_key_down` 里的 `on_tap()`（`nkey` 只在 End 态敲，本就不应推进）；`TAGS()`
   列表（注册走 `component_registry.cpp` 的显式 tag，台面无消费者——已删 1 条等效）。
+
+### 6.9.178 LittleFunnyAutoGame / ActionDirector（`cases/lfw/lfag.txt` 1303 行；变异 54/54 全杀）
+
+- 新台面 op（均进独立函数 `run_lfag_ops`，避开 C1061）：
+  - `adnew <id>` / `adins <id> <time> <tag>` / `adoff <id> <delay> <tag>` /
+    `adrep <id> <times> <delay> <tag>` / `adwait <id> <duration>` / `adt <id> <times>` /
+    `adsort <id>` / `adreset <id>` / `adup <id> <dt>`：ActionDirector 池驱动；
+    work 执行时打 `adw|<tag>`。
+  - `adp <id>`：`adp|<id>|life=|end=|idx=|curr=|times=|n=`；`addump <id>`：逐条
+    `ad|<id>|<i>|t=|s=`（排序/同刻稳定序的读点）。
+  - `lfgp <nid>`：`lfg|<nid>|lr=|ox=|wp=|b1=<id>|t|x|hp|fm|hr|hm|fr|dg|nv|sb|b2=…|s1=|s2=|s1i=|s2i=`。
+- ⚠ **TS 初值坑**：`private _lr: number = 0 | 1;` 是**按位或求值 = 1**（`_ox` 同）——
+  首探针就能看到 `lr=1`（resume 后才是 0，且 `_ox` 全程只翻面、不重置）。
+- ⚠ 夹具：LFAG 会把随机斗士 `enter_frame_by_id("running_0")`，夹具的 `frames` 要真的
+  带 `running_0` 帧（对象形式 `{running_0:{id,state,wait}}`），否则 TS 会打
+  `warn|Entity::find_frame_by_id` 首分歧。
+- ⚠ **自制包用例的加载项**：`load z:z1` 会请求 `builtin_data/launch/strings.json`
+  （漏掉即 `load|fail|unscripted import`）且主索引要 `data/data.index.json5`（`o` 空对象）——
+  新包除了 `spark` 还要这两项；自带索引放 `data/dataN.index.json5` 即可。
+- ⚠ **`freeguys` 复用分支是死代码**：裁军（`> ce`）与补员（`< ce`）由**同一个 ce** 派生，
+  同一次 `handle_soldiers` 不可能一边裁一边补；跨队复用需两侧 ce 同时反向变化（不可能）。
+  插桩 `host().warn` 在整份用例（16+ 次死亡、多轮 ce 起伏）从未命中 ⇒ 端口复用分支与
+  它的两条 `team != …` 改队分支不可观测（TS 同构，属真死代码）。
+- ⚠ 击杀驱动：`ehp <idx> 0` 同步触发 `on_dead`；杀 boss 会换人 + 重平衡（裁军/补员同 tick）；
+  杀 1/2 队士兵只弹名单 + 补位；杀 3 队余员只翻 lr。`lfgp` 的 `s1i/s2i` 是名单顺序与复用的唯一读点；
+  `eteam <idx> <t>` 把**榜内成员改成 3 队**再击杀 = 「3 队例外分支」的唯一可分辨场景
+  （否则双方都不动名单）。
+- ⚠ `pause` 观测：`on_pause` 的 `world().clear()` 会让实体 `fr=gone`、
+  `dataset playrate` 归 1（用 `dataset playrate n 3` + `dsrd playrate` 钉死）；
+  `resume` 清队要 `stop→start→resume` 才与 pause 序列可分辨（pause→resume 两次都清）。

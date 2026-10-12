@@ -10196,3 +10196,29 @@ lfa/lfb/f51/f50/lfc/lfd/lfe/lfj/lfz、`swf` 引用的 bg·st 文件都要 imp。
 **测试**：用例 `cases/lfw/launch_page.txt` **159 行**（trace 行数）；
 变异 `lfw_launch_page.mjs` **48 条（48/48 全杀）**（剔 1 条等效：`TAGS()` 列表）；
 全量差分 **251/251**。
+
+## 134. 切片 4BU：LittleFunnyAutoGame / ActionDirector
+
+**`action_director`**：定时工作队列（`insert/repeat/offset/wait/sort/times` 入表，`update`
+按「当前指针 + 一次性 `min(end_time, time)` 窗口」分发，`_lifetime` 到点 `fmod` 回卷；
+`end_time` 取**最后一条**（不排序也生效）；`repeat` 的 `do-while` 对 `times=0` **仍执行一遍**
+（`offset` 依赖此语义）；同刻稳定序按 `seq`。
+
+**`little_funny_auto_game`**（`TAGS=["LittleFunnyAutoGame"]`）：5s 后两面各抽一名 BOSS
+（`mt.take(_datas)` 袋抽、`_datas` 抽空后从 `datas.fighters` 重填），按双方 `base.ce`
+维持士兵差（t1 目标 `ce2-1`、t2 目标 `ce1-1`，`3000` 组用 `mt.pick` 抽、余员编 3 队）；
+实体死亡回调里先撤监听、`stopped||paused` 早退、`_lr` 翻面；BOSS 死则换人 + 重平衡，
+士兵死弹名单 + 重平衡。`add_random_fighter` 设 team/facing/hp(`150*ce`) 并统一
+`running_0` 入场 + attach + 配色描边。`on_resume` 清队、解除暂停、`change_bg('')`、
+`LOCK_CAM 0`、`director.reset()`；`on_pause` `world.clear()` + 清队。
+
+⚠ **TS 初值坑**：`private _lr: number = 0 | 1` / `_ox` 是按位或 = **1**（不是 0）。
+⚠ **`freeguys` 复用分支为死代码**（裁军/补员同 ce 派生、互斥；插桩未命中）——端口保留但标注。
+⚠ 端口纠偏：无。
+**台面**：`adnew/adins/adoff/adrep/adwait/adt/adsort/adreset/adup/adp/addump`（ActionDirector 池，
+work 打 `adw|<tag>`）、`lfgp` 全量探针（`lr/ox/wp/b1|b2(含 hp/hr/hm/fr/dg/nv/sb)/s1|s2/s1i|s2i`）。
+夹具 `lf3a~lf3d`（3000 组，ce=1/2/3/无）；击杀用 `ehp`，`eteam` 造「榜内改 3 队再杀」场景。
+
+**测试**：用例 `cases/lfw/lfag.txt` **1303 行**（trace 行数）；
+变异 `lfw_lfag.mjs` **54 条（54/54 全杀）**（剔 3 条死代码等效：`freeguys` 复用族）；
+全量差分 **252/252**。

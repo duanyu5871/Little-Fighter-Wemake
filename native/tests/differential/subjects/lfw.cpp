@@ -28,6 +28,8 @@
 #include "lfw/ui/component/flex_item.h"
 #include "lfw/ui/component/img_loop.h"
 #include "lfw/ui/component/launch_page_logic.h"
+#include "lfw/ui/component/action_director.h"
+#include "lfw/ui/component/little_funny_auto_game.h"
 #include "lfw/ui/component/sine_opacity.h"
 #include "lfw/ui/component/players.h"
 #include "lfw/ui/component/label_button.h"
@@ -492,6 +494,30 @@ lfw::Value build_kind_value(const std::string& k) {
     o.set(u"frames", lfw::Value(std::make_shared<lfw::Array>()));
     return lfw::Value(std::make_shared<lfw::Object>(o));
   }
+  // 4BU：LFAG 士兵池（group "3000"，ce 控制双方士兵数量差；lf3d 无 ce 走缺省 1）。
+  if (k == "lf3a" || k == "lf3b" || k == "lf3c" || k == "lf3d") {
+    const char16_t* const nm = k == "lf3a" ? u"G1" : k == "lf3b" ? u"G2" : k == "lf3c" ? u"G3" : u"G4";
+    const double ce = k == "lf3a" ? 1.0 : k == "lf3b" ? 2.0 : k == "lf3c" ? 3.0 : 0.0;
+    lfw::Object base;
+    base.set(u"name", lfw::Value(std::u16string(nm)));
+    if (ce != 0.0) base.set(u"ce", lfw::Value(ce));
+    auto groups = std::make_shared<lfw::Array>();
+    groups->push_back(lfw::Value(std::u16string(u"3000")));
+    base.set(u"group", lfw::Value(groups));
+    // `enter_frame_by_id("running_0")` 要能命中（否则 TS 会打找不到帧的 warn）。
+    lfw::Object frame;
+    frame.set(u"id", lfw::Value(std::u16string(u"running_0")));
+    frame.set(u"state", lfw::Value(1.0));
+    frame.set(u"wait", lfw::Value(2.0));
+    lfw::Object frames;
+    frames.set(u"running_0", lfw::Value(std::make_shared<lfw::Object>(frame)));
+    lfw::Object o;
+    o.set(u"id", lfw::Value(to_u16(k)));
+    o.set(u"type", lfw::Value(8.0));
+    o.set(u"base", lfw::Value(std::make_shared<lfw::Object>(base)));
+    o.set(u"frames", lfw::Value(std::make_shared<lfw::Object>(frames)));
+    return lfw::Value(std::make_shared<lfw::Object>(o));
+  }
   // 4BS：生存舞台夹具（主路 = chapter=survival + is_starting；回退路 = id "50"）。
   if (k == "srv") {
     auto make_stage = [](const char16_t* id, const char16_t* name, const char16_t* bg_id,
@@ -513,6 +539,22 @@ lfw::Value build_kind_value(const std::string& k) {
     arr->push_back(make_stage(u"st_srv", u"SV", u"bg_reg", u"survival"));
     arr->push_back(make_stage(u"50", u"F50", u"bg_oth", nullptr));
     return lfw::Value(arr);
+  }
+  if (k == "idg3") {
+    auto file_of = [](const char16_t* id, const char16_t* path) {
+      lfw::Object o;
+      o.set(u"id", lfw::Value(std::u16string(id)));
+      o.set(u"file", lfw::Value(std::u16string(path)));
+      return lfw::Value(std::make_shared<lfw::Object>(o));
+    };
+    auto objs = std::make_shared<lfw::Array>();
+    objs->push_back(file_of(u"lf3a", u"data/lf3a.json5"));
+    objs->push_back(file_of(u"lf3b", u"data/lf3b.json5"));
+    objs->push_back(file_of(u"lf3c", u"data/lf3c.json5"));
+    objs->push_back(file_of(u"lf3d", u"data/lf3d.json5"));
+    lfw::Object o;
+    o.set(u"objects", lfw::Value(objs));
+    return lfw::Value(std::make_shared<lfw::Object>(o));
   }
   if (k == "idg2" || k == "idg2c") {
     auto file_of = [](const char16_t* id, const char16_t* path) {
@@ -2823,6 +2865,129 @@ bool run_comp_ops(lfw::LFW& lfw, FakeHost& host, const std::vector<std::string>&
   return true;
 }
 
+std::map<std::string, lfw::ui::ActionDirector> g_ads;
+
+// `Value == null`（台面局部小助手，与各 cpp 的 `is_nullish` 同义）。
+bool is_nullish_field(const lfw::Value& v) {
+  return std::holds_alternative<std::monostate>(v) || std::holds_alternative<lfw::NullTag>(v);
+}
+
+bool run_lfag_ops(lfw::LFW& lfw, FakeHost& host, const std::vector<std::string>& t, size_t& i,
+                  const std::string& op) {
+  (void)host;
+  if (op == "adnew") {
+    g_ads[t[i++]];
+    return true;
+  }
+  if (op == "adins" || op == "adoff" || op == "adrep") {
+    const std::string id = t[i++];
+    const auto it = g_ads.find(id);
+    if (it == g_ads.end()) {
+      push(op + "|" + id + "|none");
+      return true;
+    }
+    if (op == "adins") {
+      const double time = to_double(t[i++]);
+      const std::string tag = t[i++];
+      it->second.insert(time, [tag]() { push("adw|" + tag); });
+    } else if (op == "adoff") {
+      const double delay = to_double(t[i++]);
+      const std::string tag = t[i++];
+      it->second.offset(delay, {[tag]() { push("adw|" + tag); }});
+    } else {
+      const double times = to_double(t[i++]);
+      const double delay = to_double(t[i++]);
+      const std::string tag = t[i++];
+      it->second.repeat(times, delay, {[tag]() { push("adw|" + tag); }});
+    }
+    return true;
+  }
+  if (op == "adwait" || op == "adt" || op == "adsort" || op == "adreset" || op == "adup") {
+    const std::string id = t[i++];
+    const auto it = g_ads.find(id);
+    if (it == g_ads.end()) {
+      push(op + "|" + id + "|none");
+      return true;
+    }
+    if (op == "adwait") it->second.wait(to_double(t[i++]));
+    else if (op == "adt") it->second.times(to_double(t[i++]));
+    else if (op == "adsort") it->second.sort_actions();
+    else if (op == "adreset") it->second.reset();
+    else it->second.update(to_double(t[i++]));
+    return true;
+  }
+  if (op == "adp") {
+    const std::string id = t[i++];
+    const auto it = g_ads.find(id);
+    if (it == g_ads.end()) {
+      push("adp|" + id + "|none");
+      return true;
+    }
+    const lfw::ui::ActionDirector& d = it->second;
+    push("adp|" + id + "|life=" + num(d.lifetime()) + "|end=" + num(d.end_time()) + "|idx=" +
+         num(static_cast<double>(d.action_index())) + "|curr=" + num(d.curr()) +
+         "|times=" + num(d.times_value()) + "|n=" + num(static_cast<double>(d.action_count())));
+    return true;
+  }
+  if (op == "addump") {
+    const std::string id = t[i++];
+    const auto it = g_ads.find(id);
+    if (it == g_ads.end()) {
+      push("addump|" + id + "|none");
+      return true;
+    }
+    const std::vector<lfw::ui::ActionDirector::Action>& list = it->second.actions();
+    push("addump|" + id + "|n=" + num(static_cast<double>(list.size())));
+    for (size_t k = 0; k < list.size(); ++k) {
+      push("ad|" + id + "|" + num(static_cast<double>(k)) + "|t=" + num(list[k].time) +
+           "|s=" + num(list[k].seq));
+    }
+    return true;
+  }
+  if (op == "lfgp") {
+    const std::string nid = t[i++];
+    lfw::ui::UINode& n = *g_nodes.at(nid);
+    lfw::ui::LittleFunnyAutoGame* p = nullptr;
+    for (lfw::ui::UIComponent* const c : n.components()) {
+      if (!lfw::is_class(c->clazz(), lfw::ui::LittleFunnyAutoGame::class_tag())) continue;
+      p = static_cast<lfw::ui::LittleFunnyAutoGame*>(c);
+      break;
+    }
+    if (p == nullptr) {
+      push("lfg|" + nid + "|none");
+      return true;
+    }
+    auto ent_part = [](lfw::Entity* e) {
+      if (e == nullptr) return std::string("z");
+      const lfw::Value fid = lfw::field_or(e->frame, u"id");
+      const std::string frame_id =
+          is_nullish_field(fid) ? std::string("-") : to_ascii(lfw::to_string(fid));
+      return to_ascii(e->id) + "|t=" + to_ascii(e->team()) + "|x=" + num(e->position.x) +
+             "|hp=" + num(e->hp()) + "|fm=" + num(e->facing) + "|hr=" + num(e->hp_r()) +
+             "|hm=" + num(e->hp_max()) + "|fr=" + frame_id + "|dg=" + num(e->dead_gone) +
+             "|nv=" + num(e->name_visible) + "|sb=" + num(e->stat_bar);
+    };
+    auto ids_of = [](const std::vector<lfw::Entity*>& v) {
+      std::string out;
+      for (lfw::Entity* const e : v) {
+        if (!out.empty()) out += ",";
+        out += e != nullptr ? to_ascii(e->id) : "-";
+      }
+      return out.empty() ? std::string("-") : out;
+    };
+    std::string line = "lfg|" + nid + "|lr=" + num(static_cast<double>(p->lr())) +
+                       "|ox=" + num(static_cast<double>(p->ox())) +
+                       "|wp=" + num(lfw.world().paused() ? 1.0 : 0.0) +
+                       "|b1=" + ent_part(p->boss(1)) + "|b2=" + ent_part(p->boss(2)) +
+                       "|s1=" + num(static_cast<double>(p->soldiers(1).size())) +
+                       "|s2=" + num(static_cast<double>(p->soldiers(2).size())) +
+                       "|s1i=" + ids_of(p->soldiers(1)) + "|s2i=" + ids_of(p->soldiers(2));
+    push(line);
+    return true;
+  }
+  return false;
+}
+
 void listen(lfw::LFW& lfw) {
   auto call = [&](const std::u16string& name, const lfw::LfwCallbacks::Payloads& p) {
     std::vector<lfw::LfwCallbacks::Payloads> packs = {p};
@@ -4064,7 +4229,8 @@ int main(int argc, char** argv) {
         push("cfind|" + nid + "|" + cid + "|" + to_ascii(which) + "|" +
              (r != nullptr ? node_ref(r) : std::string("u")));
       }
-    } else if (run_comp_ops(lfw, host, t, i, op) || run_sum_ops(lfw, host, t, i, op)) {
+    } else if (run_comp_ops(lfw, host, t, i, op) || run_sum_ops(lfw, host, t, i, op) ||
+               run_lfag_ops(lfw, host, t, i, op)) {
     } else if (op == "ird") {
       const std::string nid = t[i++];
       lfw::ui::UINode& n = *g_nodes.at(nid);
