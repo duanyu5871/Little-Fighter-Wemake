@@ -8,11 +8,41 @@
 
 #include "lfw/base/val_expression.h"
 #include "lfw/core/value.h"
+#include "lfw/defines/defines_data.h"
+#include "lfw/defines/state_enum.h"
+#include "lfw/utils/container_help/field_or.h"
 
 namespace lfw {
 
 // TS 的 `Ditto.warn`（`preprocess_opoint` 的 `compile_gen` 用它报解析错误）。
 using ValWarn = std::function<void(const std::u16string&)>;
+
+namespace opoint_detail {
+
+inline bool is_nullish(const Value& v) {
+  return std::holds_alternative<std::monostate>(v) || std::holds_alternative<NullTag>(v);
+}
+
+inline bool state_is_ball_default(const Value& state) {
+  const double* const d = std::get_if<double>(&state);
+  if (d == nullptr) return false;
+  return *d == static_cast<double>(StateEnum::Ball_Flying) ||
+         *d == static_cast<double>(StateEnum::Ball_3006) ||
+         *d == static_cast<double>(StateEnum::Weapon_Throwing) ||
+         *d == static_cast<double>(StateEnum::HeavyWeapon_InTheSky);
+}
+
+}
+
+// TS `preprocess_opoint` 尾部的 `speedz ??=` 默认：只看帧状态（弹道类）落
+// `Defines.DEFAULT_OPOINT_SPEED_Z`（**不再看 data 的斗士判定**；`frame?.state` 读的是
+// **ctx 的原始帧**，`preprocess_frame` 传的就是它；不在 prefab 合并后的帧上取）。
+inline void opoint_apply_speedz_default(Object& opoint, const Value& frame_state) {
+  if (!opoint_detail::state_is_ball_default(frame_state)) return;
+  const Value* const speedz = opoint.get(u"speedz");
+  if (speedz != nullptr && !opoint_detail::is_nullish(*speedz)) return;
+  opoint.set(u"speedz", Value(defines::num(u"Defines.DEFAULT_OPOINT_SPEED_Z")));
+}
 
 // TS: `gen_*` → `__gen_*` 的九组字段（`preprocess_opoint` 里九条 `if` 的**原顺序**：
 // 告警的顺序、以及差分用例打印的顺序都以它为准）。
@@ -43,7 +73,8 @@ inline const std::vector<std::pair<std::u16string, std::u16string>>& opoint_gen_
 // （数字 / 对象没有 `replace`）⇒ 端口跳过该字段（这条分支在 TS 侧没有可观察的 trace，
 // 记在 PROTOCOL §6.9.102 的「有意不覆盖」里）。
 template <typename Ctx>
-std::map<std::u16string, ValExpression<Ctx>> preprocess_opoint(const Object& opoint,
+std::map<std::u16string, ValExpression<Ctx>> preprocess_opoint(Object& opoint, const Value& data,
+                                                               const Value& frame,
                                                                const ValWarn& warn = {}) {
   std::map<std::u16string, ValExpression<Ctx>> out;
   for (const std::pair<std::u16string, std::u16string>& field : opoint_gen_fields()) {
@@ -60,6 +91,7 @@ std::map<std::u16string, ValExpression<Ctx>> preprocess_opoint(const Object& opo
     }
     out.emplace(field.second, std::move(expr));
   }
+  opoint_apply_speedz_default(opoint, field_or(frame, u"state"));
   return out;
 }
 

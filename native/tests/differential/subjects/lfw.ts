@@ -52,6 +52,7 @@ import { SummaryLogic } from "../../../../src/LFW/ui/component/SummaryLogic";
 import { make_sum_info } from "../../../../src/LFW/ui/component/make_sum_info";
 import { FighterStatBar } from "../../../../src/LFW/ui/component/FighterStatBar";
 import { CameraCtrl } from "../../../../src/LFW/ui/component/CameraCtrl";
+import { CharMenuLogic } from "../../../../src/LFW/ui/component/CharMenu/CharMenuLogic";
 import { PlayerScore } from "../../../../src/LFW/ui/component/PlayerScore";
 import { summary_mgr } from "../../../../src/LFW/entity/SummaryMgr";
 import { FSM } from "../../../../src/LFW/base/FSM";
@@ -365,7 +366,7 @@ function kind_value(k: string): unknown {
         { id: "bg_hid", file: "bg/hid.json5" },
         { id: "bg_oth", file: "bg/oth.json5" },
       ],
-      stages: [{ file: "st/reg.json5" }, { file: "st/hid.json5" }, { file: "st/dev.json5" }],
+      stages: [{ file: "st/reg.json5" }, { file: "st/hid.json5" }, { file: "st/dev.json5" }, { file: "st/srv.json5" }],
     };
   }
   if (k === "ftr") {
@@ -378,18 +379,63 @@ function kind_value(k: string): unknown {
     };
   }
     // 4BR：带分组的角色夹具（DemoModeLogic 的抽签池）。
-    if (k === "lfa") return { id: "lfa", type: 8, base: { name: "FA", group: ["1000"] }, frames: [] };
+    if (k === "lfa") return { id: "lfa", type: 8, base: { name: "FA", group: ["1000"], bg_face: "sprite/FA.png" }, frames: [] };
     if (k === "lfb") return { id: "lfb", type: 8, base: { name: "FB", group: ["Boss"] }, frames: [] };
     // 4BR：oid 情景（DemoMode 的 oids 表用数字 id）需要可解析的实体数据。
     if (k === "f51") return { id: "51", type: 8, base: { name: "FZ", group: ["Boss"] }, frames: [] };
     if (k === "f50") return { id: "50", type: 8, base: { name: "LE", group: ["Boss"] }, frames: [] };
-    if (k === "idg2") {
+    // 4BS：CharMenu 随机池夹具（含 hidden/Dev 分组与 bg_face）。
+    if (k === "lfc" || k === "lfd" || k === "lfe") {
+      const nm = k === "lfc" ? "FC" : k === "lfd" ? "FD" : "FE";
+      const group = ["1000", ...(k === "lfd" ? ["hidden"] : k === "lfe" ? ["Dev"] : [])];
+      return { id: k, type: 8, base: { name: nm, group, bg_face: `sprite/${nm}.png` }, frames: [] };
+    }
+    if (k === "lfj" || k === "lfz") {
+      const no_name = k === "lfz";
+      const base: Rec = { group: ["1000"], bg_face: no_name ? "sprite/FZ.png" : "!sprite/RFACE@4x.png" };
+      if (!no_name) base.name = "FJ";
+      if (!no_name) base.head = null;
+      return { id: no_name ? "lfz" : "2", type: 8, base, frames: [] };
+    }
+    if (k === "lfx") {
+      return { id: "lfx", type: 8, base: { name: "FX", group: ["1000"], bg_face: null }, frames: [] };
+    }
+    if (k === "lfy") {
+      return { id: "4", type: 8, base: { name: "FY", group: ["1000"], bg_face: null }, frames: [] };
+    }
+    // 4BS：生存舞台夹具（主路 = chapter=survival + is_starting；回退路 = id "50"）。
+    if (k === "srv") {
+      const make_stage = (id: string, name: string, bg_id: string, chapter: string | null) => ({
+        id,
+        name,
+        bg: bg_id,
+        is_starting: true,
+        starting_name: name,
+        ...(chapter !== null ? { chapter } : {}),
+        group: ["reg"],
+        phases: [],
+      });
+      return [
+        make_stage("st_srv", "SV", "bg_reg", "survival"),
+        make_stage("50", "F50", "bg_oth", null),
+      ];
+    }
+    if (k === "idg2" || k === "idg2c") {
       return {
         objects: [
           { id: "lfa", file: "data/lfa.json5" },
           { id: "lfb", file: "data/lfb.json5" },
           { id: "51", file: "data/f51.json5" },
           { id: "50", file: "data/f50.json5" },
+          ...(k === "idg2c" ? [
+            { id: "lfc", file: "data/lfc.json5" },
+            { id: "lfd", file: "data/lfd.json5" },
+            { id: "lfe", file: "data/lfe.json5" },
+            { id: "lfj", file: "data/lfj.json5" },
+            { id: "lfz", file: "data/lfz.json5" },
+            { id: "lfx", file: "data/lfx.json5" },
+            { id: "lfy", file: "data/lfy.json5" },
+          ] : []),
         ],
         stages: [{ file: "st/demo.json5" }],
       };
@@ -1692,6 +1738,31 @@ async function run_ops(): Promise<void> {
       const name = nextKey();
       const en = t[i[0]!++]!;
       lfw.set_cheat(name, team_to_bool(en));
+    } else if (op === "cheat") {
+      const name = nextKey();
+      const on = t[i[0]!++] === "1";
+      (lfw.world as Rec).dataset[name] = on;
+      (lfw.callbacks as Rec).call("on_cheat_changed", name, on);
+      push(`cheat|${name}|${on ? "1" : "0"}`);
+    } else if (op === "cmdbg") {
+      const nid = next();
+      const n = tnodes.get(nid)!;
+      const cm = n.components.find((c) => c instanceof CharMenuLogic) as CharMenuLogic | undefined;
+      if (!cm) push(`cmdbg|${nid}|none`);
+      else {
+        const arr = [...cm.players.entries()];
+        const last = arr.length ? arr[arr.length - 1] : undefined;
+        push(
+          `cmdbg|${nid}|n=${arr.length}|last=${last ? last[0].id : "-"}|lastic=${
+            last ? (last[0].is_com ? "1" : "0") : "-"
+          }|lc=${last && last[0].is_com ? last[0].id : "-"}`,
+        );
+      }
+    } else if (op === "dgrp") {
+      const g = nextKey();
+      let line = `dgrp|${g}`;
+      for (const v of lfw.datas.get_fighters_of_group(g as never)) line += `|${(v as Rec).id}`;
+      push(line);
     } else if (op === "ep") {
       lfw.emit_progress(nextKey(), Number(nextKey()));
     } else if (op === "eps") {
@@ -2872,6 +2943,75 @@ async function run_ops(): Promise<void> {
         push(
           `edump|${num(idx)}|id=${String(e["id"])}|team=${String(e["team"])}|x=${num(Number(pos["x"]))}|y=${num(Number(pos["y"]))}|z=${num(Number(pos["z"]))}|f=${num(Number(e["facing"]))}|mp=${num(Number(e["mp"]))}|hp=${num(Number(e["hp"]))}|bl=${num(Number(e["blinking"]))}|inv=${num(Number(e["invulnerable"]))}`,
         );
+      }
+    } else if (op === "nkeyp") {
+      const nid = next();
+      const pid = nextKey();
+      const dir = next();
+      const gk = nextKey();
+      const key = nextKey();
+      const pre = t[i[0]] === "1";
+      if (pre) ++i[0];
+      const n = tnodes.get(nid)!;
+      const e = new LFWKeyEvent(pid, dir === "down", gk as never, key);
+      if (pre) e.stop_immediate_propagation();
+      if (dir === "down") n.on_key_down(e);
+      else n.on_key_up(e);
+      push(`nkeyp|${nid}|${pid}|${dir}|stop=${e.stopped}`);
+    } else if (op === "cmprobe") {
+      const nid = next();
+      const n = tnodes.get(nid)!;
+      const cm = n.components.find((c) => c instanceof CharMenuLogic) as CharMenuLogic | undefined;
+      if (!cm) push(`cmprobe|${nid}|none`);
+      else {
+        const parts: string[] = [`cmprobe|${nid}`];
+        parts.push(`com=${num(cm.com_num)}`);
+        parts.push(`fsm=${cm.fsm.state ? String((cm.fsm.state as unknown as Rec).key) : ""}`);
+        parts.push(`prev=${cm.prev_players.size}`);
+        const ps: string[] = [];
+        for (const [p, s] of cm.players) {
+          ps.push(
+            `${p.id}:${s.step}:${s.random ? 1 : 0}:${s.team}:${s.fighter ? String((s.fighter as unknown as Rec).id) : ""}`,
+          );
+        }
+        parts.push(`ps=${ps.join(",")}`);
+        parts.push(`slots=${cm.slots.length}`);
+        parts.push(`max=${num(cm.max_player)}`);
+        parts.push(`min=${num(cm.min_player)}`);
+        parts.push(`tms=${cm.teams.join(",")}`);
+        parts.push(`oids=${cm.oids ? cm.oids.length : "z"}`);
+        const rnd = (cm as unknown as Rec)["_randoming"] as Randoming<unknown> | undefined;
+        parts.push(`rnd=${rnd ? rnd.src.length : 0}`);
+        const foc = n.root.focused_node as UINode | undefined;
+        parts.push(`foc=${foc ? String(foc.id) : "-"}`);
+        push(parts.join("|"));
+      }
+    } else if (op === "plist") {
+      const out: string[] = ["plist"];
+      for (const p of lfw.players.values()) out.push(`${p.id}:${p.is_com ? 1 : 0}`);
+      push(out.join("|"));
+    } else if (op === "srankdata") {
+      lfw.set_survival_rank_data(parseValue(t, i) as never);
+    } else if (op === "sprobe") {
+      push(`sprobe|${lfw.survival_rank_mode ? 1 : 0}|${lfw.survival_rank_available ? 1 : 0}|${lfw.survival_rank_2p ? 1 : 0}`);
+    } else if (op === "wbg") {
+      const bg = lfw.world.bg as { id?: string } | undefined;
+      push(`wbg|${bg ? String(bg.id) : "-"}`);
+    } else if (op === "cprops") {
+      const nid = next();
+      const cid = keyOf(next());
+      const key = keyOf(next());
+      const v = parseValue(t, i);
+      const n = tnodes.get(nid)!;
+      const found = n.components.find((c) => c.id === cid);
+      if (!found) push(`cprops|${nid}|none`);
+      else {
+        try {
+          (found.props as Rec)[key] = v;
+          push(`cprops|${nid}|${key}|${renderValue(v)}`);
+        } catch (e) {
+          push(`cprops|${nid}|err|${esc(err_msg(e))}`);
+        }
       }
     } else if (op === "loadobj") {
       const zid = nextKey();

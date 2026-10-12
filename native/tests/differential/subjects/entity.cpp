@@ -1912,16 +1912,6 @@ int main(int argc, char** argv) {
         Entity* e = g_entity->get_emitter(trace::to_double(idx_tok));
         std::printf("run getemitter %s || %s | v=%s\n", idx_tok.c_str(), join(g_log).c_str(),
                     e != nullptr ? render(id_ref(e)).c_str() : "u");
-      } else if (what == "opointz") {
-        const std::string& which = t[i++];
-        const Entity* other = which == "buddy"   ? g_buddy.get()
-                              : which == "null" ? nullptr
-                                                : g_entity.get();
-        const Value opoint = parse_value(t, i);
-        std::printf("run opointz %s %s || %s | v=%s state=%s\n", which.c_str(),
-                    render(opoint).c_str(), join(g_log).c_str(),
-                    render(g_entity->get_opoint_speed_z(other, opoint)).c_str(),
-                    render(g_entity->state()).c_str());
       } else if (what == "rec") {
         const std::string& which = t[i++];
         if (which == "stat") g_entity->stat_recovering();

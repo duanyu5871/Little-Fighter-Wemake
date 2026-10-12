@@ -138,6 +138,9 @@ TestCtx g_ctx;
 std::map<std::u16string, lfw::ValGetterFn<TestCtx>> g_vars;
 std::vector<lfw::ValExpression<TestCtx>> g_vexprs;
 lfw::Object g_opoint;
+// `pctx` 的脚本上下文（`preprocess_opoint` 的 `data` / `frame`；默认均为 undefined）。
+lfw::Value g_pctx_data;
+lfw::Value g_pctx_frame;
 
 // `xw` 的 4 位十六进制码元（用例用它拼出 U+3000 / U+00A0 这类 JS 空白）。
 char16_t hex_unit(const std::string& s) {
@@ -315,7 +318,8 @@ void fps_dump() {
 
 void opoint_compile() {
   const std::map<std::u16string, lfw::ValExpression<TestCtx>> gens =
-      lfw::preprocess_opoint<TestCtx>(g_opoint, [](const std::u16string& msg) {
+      lfw::preprocess_opoint<TestCtx>(g_opoint, g_pctx_data, g_pctx_frame,
+                                      [](const std::u16string& msg) {
         emit_line("WARN " + esc(msg));
       });
   Line head;
@@ -559,6 +563,18 @@ int main(int argc, char** argv) {
 
     } else if (op == "pc") {
       opoint_compile();
+
+    } else if (op == "pctx") {
+      const std::string which = t[i++];
+      const lfw::Value v = parse_value(t, i);
+      if (which == "data") g_pctx_data = v;
+      else g_pctx_frame = v;
+      emit_line("PX " + which + " " + to_ascii(render_value(v)));
+
+    } else if (op == "pget") {
+      const std::u16string key = to_u16(t[i++]);
+      const lfw::Value* const v = g_opoint.get(key);
+      emit_line("PE " + esc(key) + " " + (v != nullptr ? to_ascii(render_value(*v)) : "u"));
 
     } else if (op == "pkeys") {
       Line out;

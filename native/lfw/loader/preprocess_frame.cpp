@@ -26,6 +26,7 @@
 #include "lfw/loader/preprocess_bdy.h"
 #include "lfw/loader/preprocess_itr.h"
 #include "lfw/loader/preprocess_next_frame.h"
+#include "lfw/loader/preprocess_opoint.h"
 #include "lfw/loader/preprocess_pic.h"
 #include "lfw/loader/resolve_prefab.h"
 #include "lfw/utils/container_help/ensure.h"
@@ -364,6 +365,20 @@ bool preprocess_frame(Value& ctx, std::u16string& error) {
   }
   // `frame.opoint?.forEach(preprocess_opoint)`：编译结果（`__gen_*`）装不进 `Value`
   // （同 `__tester` / `__judger`），端口不落地 —— 宿主按 `IEntityHost::gen_or` 现解析。
+  // 但 `speedz ??=` 的默认是**真落值**的，必须镜像：TS 的 ctx.frame 是**原始帧**，
+  // 所以状态也读原始帧（与 prefab 合并后的 `frame` 无关）。
+  const Value opoints = field_or(frame, u"opoint");
+  if (!is_nullish(opoints)) {
+    const Array* const a = as_array(opoints);
+    if (a == nullptr) return false;  // TS 的 `?.forEach` 对非数组会抛
+    const Value raw_state = field_or(raw_frame, u"state");
+    for (size_t i = 0; i < a->size(); ++i) {
+      Value item = a->at(i);
+      Object* const rec = as_mut(item);
+      if (rec == nullptr) continue;  // 标量在 TS 给 `??=` 写属性会抛；端口按无效果处理
+      opoint_apply_speedz_default(*rec, raw_state);
+    }
+  }
 
   const Value center = field_or(frame, u"center");
   if (truthy(center)) {

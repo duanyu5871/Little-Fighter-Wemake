@@ -64,6 +64,10 @@ class UILayer {
   LFW* _lfw = nullptr;
   double _index = 0;
   std::vector<std::unique_ptr<UINode>> _pages;
+  // 被弹/被替换页的延迟销毁池：`pop`/`set` 里把旧页移到这里，下一次层级变更操作才真正
+  // 销毁。TS 里页对象只靠 GC 存活，弹出后调用方（如 `CharMenuLogic::press_j` 在 pop 后
+  // 继续播声/刷槽位）仍在使用；端口立即销毁会在同一次调用里触发 UAF。
+  std::vector<std::unique_ptr<UINode>> _trash;
 };
 
 // TS `ui/UILayer.ts` 的 `UILayers`（实现 `IUiLayers` 缝：`LFW::layers` 的接线面）。

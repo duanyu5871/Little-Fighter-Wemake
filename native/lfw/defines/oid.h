@@ -86,6 +86,13 @@ inline constexpr const char16_t* kJulianBall2 = u"229";
 inline constexpr const char16_t* kEtc = u"998";
 inline constexpr const char16_t* kBrokenWeapon = u"999";
 
+// TS `defines/OID.ts` 的 `SurvivalRankOids`（生存排行只允许主线斗士）。
+inline const std::vector<std::u16string>& survival_rank_oids() {
+  static const std::vector<std::u16string> v{kDeep,  kJohn,  kHenry,  kRudolf, kLouis,
+                                             kFiren, kFreeze, kDennis, kWoody,  kDavis};
+  return v;
+}
+
 }
 
 inline const std::vector<EnumTextEntry>& oid_entries() {

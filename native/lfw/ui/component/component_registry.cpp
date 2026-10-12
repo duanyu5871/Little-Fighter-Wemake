@@ -6,9 +6,12 @@
 #include "lfw/ui/component/background_switcher.h"
 #include "lfw/ui/component/bgm_switcher.h"
 #include "lfw/ui/component/camera_ctrl.h"
+#include "lfw/ui/component/char_menu.h"
+#include "lfw/ui/component/char_menu_head.h"
 #include "lfw/ui/component/components_player.h"
 #include "lfw/ui/component/demo_mode_logic.h"
 #include "lfw/ui/component/difficulty_text.h"
+#include "lfw/ui/component/game_prepare_logic.h"
 #include "lfw/ui/component/alignment.h"
 #include "lfw/ui/component/ending_page_logic.h"
 #include "lfw/ui/component/extra_zip_text.h"
@@ -170,6 +173,9 @@ void regist_components() {
   regist_one<StageModeLogic>(u"StageModeLogic");
   regist_one<MiscSettingsLogic>(u"MiscSettingsLogic");
   regist_one<DemoModeLogic>(u"DemoModeLogic");
+  regist_one<CharMenuHead>(u"CharMenuHead");
+  regist_one<CharMenuLogic>(u"CharMenuLogic");
+  regist_one<GamePrepareLogic>(u"GamePrepareLogic");
 }
 
 }

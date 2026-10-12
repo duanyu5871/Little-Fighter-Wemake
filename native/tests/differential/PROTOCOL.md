@@ -2767,8 +2767,10 @@ harness op：
   （都打印 `v=b0|b1` 与**排序后**的 marks 转储 `k:v,k2:v2`）、
   `run ally self|buddy`（同时打印双方的 `team`）、
   `run emit <下标> <id 字面量>` / `run emitid <下标> self|buddy`（写发射者数组，
-  后者塞活实体的 id 以免写死）、`run getemitter <下标>`（渲染解析到的实体，`u` 表示解析不到）、
-  `run opointz <self|buddy|null> <opoint 字面量>`（同时打印 `state`）。
+  后者塞活实体的 id 以免写死）、`run getemitter <下标>`（渲染解析到的实体，`u` 表示解析不到）。
+  ⚠ 原 `run opointz` 探针已移除：`speedz` 的真值判定已搬进 `preprocess_opoint`
+  （默认 `3.5` 在预处理期落值），运行时只剩 `or_nullish(speedz, 0)`；对应观测
+  换成 `base/val_expr` 用例的 `pctx`/`pget` 场景。
 - 状态接线层（9g 追加）：`run reg <数字>` / `run regbare <数字>` / `run regkey <键字面量>`
   （往 harness 自己的 `States` 里注册「会打日志的假状态」/「没有钩子的裸 `State_Base`」/
   任意键的假状态）、`run setstate <数字>` / `run setstateb <数字>`（`set_state`，
@@ -2844,8 +2846,7 @@ harness op：
 - `run ally <self|buddy> || <日志> | v=<b0|b1> team=<自己队伍> other=<对方队伍>`；
 - `run emit <下标> <id> || <日志> | n=<发射者数组长度>`、
   `run emitid <下标> <self|buddy> || <日志> | n=<发射者数组长度>`；
-- `run getemitter <下标> || <日志> | v=<实体或 u>`（渲染成 `{"id":s"…"}`）；
-- `run opointz <self|buddy|null> <opoint> || <日志> | v=<返回值> state=<当前 state>`。
+- `run getemitter <下标> || <日志> | v=<实体或 u>`（渲染成 `{"id":s"…"}`）。
 - `run reg|regbare|regkey … || <日志> | n=<注册表大小>`、
   `run statesdump || <日志> | v=<键:类名 列表>`；
 - `run setstate|setstateb <数字> || <日志> | n=<注册表大小> st=<b0|b1>`；
@@ -3081,11 +3082,12 @@ harness op：
 58. **空串 emitter id**：把实体 id 用快照窥视口改成 `""`（`snappokestr ID` +
     `snapapply`）之后 `run getemitter 0` 仍是 `u`——此时宿主 `find_entity("")`
     是能查到实体的，所以「漏了 `if (!id) return;`」立刻变成「返回那个实体」。
-59. **出弹点速度的四态矩阵**：状态 `3000 / 1002 / 3006 / 2000` 各给
-    `3.5`（`Defines.DEFAULT_OPOINT_SPEED_Z`），`3009` / `s "1002"` / `1002.5` /
-    `z` / `u` 一律 `0`；再加上 `speedz n 7`（先胜出）、`speedz z`（原样返回）、
-    `null` emitter（非 fighter）、`self` emitter（`type = 1`，非 fighter）
-    与 `buddy` emitter（`type = 8`，fighter）的对照，四个分支与两个守卫全被锁死。
+59. **出弹点速度的分工（4BS 尾刀起）**：默认 `3.5`（`Defines.DEFAULT_OPOINT_SPEED_Z`）
+    改由 `preprocess_opoint` 在**预处理期**落值（只看帧状态的四个弹道态，不看 data/emitter），
+    运行时 `on_spawn` 只剩 `o_speedz = or_nullish(speedz, 0)`：opoint 里显式 `speedz`
+    照旧先胜出、`null`/缺省归 `0`。原 `run opointz` 探针（旧 `get_opoint_speed_z`
+    的四态矩阵）已随此调整删除，观测改由 `base/val_expr` 的 `pctx`/`pget` 场景承担；
+    本主题保留 `speedz n 7` 与缺省对照的 spawn 场景锁运行时那一层。
 60. **注册表查找与兜底**：`run setstate 20`（`reg 20` 注册过）直接命中数字键；
     `run regkey s "31"` 只注册了字符串键 `"31"`，所以 `run setstate 31` 落到
     兜底键 `"1_31"`（`statesdump` 里能看到新建的 `State_Base`）——
@@ -3407,7 +3409,7 @@ harness op：
   映射对（见上）、`world_puppets` 的 `team` 槽与 `entity_view` 的 `emitters`（消费者只有
   状态钩子与 `summary_mgr.apply_damage`，本主题一个都不走）。
 
-### 6.9.102 `base/ValExpression` + `loader/preprocess_opoint`（`base` 用例 3127 → 3429 行 = core 3127 + val_expr 302；变异 87/87 全杀，其中本刀新增 66 条）
+### 6.9.102 `base/ValExpression` + `loader/preprocess_opoint`（`base` 用例 3127 → **3591 行** = core 3127 + val_expr **464**；本刀原为 87/87 全杀，4BS 尾刀再 +7 条 speedz 条目已单测全杀）
 
 - 新用例 `cases/base/val_expr.txt`：解析结构（空白剥离 / `text` / `tag` / 数字与小数点的
   边角）、逐字错误文案与 `@下标`、四则的优先级与结合性、一元负号的递归、括号、
@@ -3428,6 +3430,16 @@ harness op：
     `pc` 打 `PC <成功条数>` + 九行 `PG <__gen_* 名> <成功?> <err|-> <get 位模式|-> <保持的原值|->`，
     打完之后把记录里的 `__gen_*` **删掉**（§4.40 的对齐约定：TS 侧把函数对象挂在记录上，
     端口不挂）⇒ `pkeys` 才能对上键序。
+  * `pctx <data|frame> <valueLiteral>` / `pget <field>`：脚本 `preprocess_opoint` 的 ctx
+    （打 `PX <which> <值>`；默认两边都是 `undefined`）与读回记录字段
+    （打 `PE <field> <值|u>`）。
+- **速度默认（4BS 尾刀的用户调整）**：`preprocess_opoint` 尾部只看 `frame?.state`——
+  四个弹道状态（`3000/3006/1002/2000`）且 `speedz` 为空才 `??=` `DEFAULT_OPOINT_SPEED_Z`(3.5)。
+  **不再看 `data` 的斗士判定**（非斗士 / 缺 data 同样落）；`frame` 缺省或状态不命中不落；
+  已声明数字保留、`undefined` 与 `null` 落默认、`0` 保留。用例场景就用
+  `pctx`/`pget` 铺全（`po` → `pctx` → `pc` → `pget speedz`），七条新变异
+  （去状态条件 / 状态字段名错 / 少认一个状态 / 判空用 truthy / 默认值错 / 状态判定取反 / 不落默认）
+  全杀。
 - ⚠️ **`get` 取「最近一个」而不是按下标**：用例里表达式是逐行造的，按下标引用要人工数行
   （首版就数错了：`get 30` 打的是常量 `1+2`，六个 `3.0` 看上去还挺正常）。
 - ⚠️ **`x` 的 token 是用空格拼的**：`x 1 + 2` 与 `x 1+2` 的源都是「剥离空白后等价」的
@@ -5235,3 +5247,77 @@ harness op：
   端口传 `{LfwCallbackArgs{this}}` 会让台面 `listen` 打出 `|?` 而 TS 无后缀（差分首分歧）；
   台面 `listen` 也要显式分支（`line += ""`）。
 
+
+
+### 6.9.176 CharMenuHead / CharMenuLogic / GamePrepareLogic（`cases/lfw/char_menu.txt` 3416 行；变异 169/169 全杀）
+
+- 新台面 op：
+  - `nkeyp <nid> <pid> <down|up> <gk> <key> [1]`：**带玩家号**的 UI 键事件。
+    ⚠ 普通 `nkey` 的 player 恒为空串，`CharMenuLogic::on_key_down` 用 `players_get(player)`
+    路由 ⇒ 不带玩家号的事件全被丢弃（本切片几乎全部按键都要用它）。
+  - `cmprobe <nid>`：CharMenu 内部状态一行流
+    `cmprobe|<nid>|com=<num>|fsm=<状态串>|prev=<n>|ps=<id>:<step>:<rand>:<team>:<fighter>（逗号
+    分隔）|slots=<n>|max=<num>|min=<num>|tms=<teams 逗号拼>|oids=<个数或 z>|rnd=<池大小>|foc=<焦点 id>`
+    —— 池大小/oids/prev/槽位/步进全从这里读。
+  - `plist`：`plist|<pid>:<is_com>|…`（`players_delete` / COM 弹出的唯一读点）。
+  - `srankdata <值>`：直接 `lfw.set_survival_rank_data(v)`（走广播链路）。
+  - `sprobe`：`srank_mode|survival_rank_available|survival_rank_2p`。
+  - `wbg`：当前背景 id；`dsrd <键>`：看 dataset（`playrate/difficulty/atom_time`…）。
+  - `cprops <nid> <cid> <key> <值>`：给**活动组件**设 props（`cset` 只能切 enabled）。
+  - `dgrp <group>`：列出该分组斗士 id（查池顺序/池成员）。
+  - `cmdbg <nid>`：诊断 `n/last/lastic/lc`（`last_com()` 的直读）。
+  - `cheat <name> <0|1>`：**直接 set dataset + `lfw.cheat_changed(name, on)`**。
+    ⚠ `dataset` 只写值不发事件、`setcheat` 走 `push_cmd` 命令队列（台面不消费）=死；
+    cheat 类过滤/池重建必须用本 op（`set_oids` 之后才会 `rebuild_randoming`）。
+  - `fsuse <nid> <cid> <状态>`：直接切 FSM 态（准备态构造场景用，如 `fsuse cm cmc ComSel`）。
+- ⚠ **加载坑（最大）**：任何走 `load` 的用例必须 `imp data/spark.obj.json5 spk` ——
+  `load_data` 会请求内置 `Defines.kSpark`；漏掉则整包加载失败（`load|fail` + `dcnt
+  fighters=` 空），**随机池恒空** ⇒ 所有池/开赛/命中类变异批量假存活。本切片夹具还
+  需要：`imp` 全套 lfa/lfb/f51/f50/lfc/lfd/lfe/lfj/lfz/lfy + `bg/reg,hid,oth` +
+  `st/reg,hid,dev,demo,srv`（`idg2c` 索引与 `swf` 索引引用的文件；`srv` 必须进
+  `swf` 的 stages 列表才能进 `datas.stages`）。
+- ⚠ **池的触发链**：`rebuild_randoming` 只在 `ensure_randoming`（斗士数变化）与
+  `set_oids` 里发生；cheat 开关**不**重建池 ⇒ 用例要「`cheat` 切换 + `cprops … oids u`
+  强制重建 + `cmprobe`」三连才观测得到 cheat 过滤类变异；`handle_fighters_changed`
+  （清空失效槽位）则靠 `on_cheat_changed` 回调触发。
+- 夹具：`lfc/lfd/lfe`（group `1000`；lfd 挂 `hidden`、lfe 挂 `Dev`）、`lfj`（id
+  **`"2"`** = ∈`SurvivalRankOids`、`base.head = null`、`bg_face = !sprite/RFACE@4x.png`：
+  探「头像回退/换脸行序」）、`lfy`（id **`"4"`** ∈ `SurvivalRankOids`、`bg_face = null`：
+  探回退判空）、`lfz`（**无 `name`**：探 `noname` 回退）、`srv`（survival 章节舞台）；
+  `player 3` 也要建（满员/其它玩家按键场景）。
+- ⚠ **刷脸观测坑**：`ui_load_img` 在 TS 里是 async（pin/set_image 落微任务，flush
+  时才吐行），端口是同步链 ⇒ **别给换脸场景 `imgset`**（成功路径两侧时序不同 = 漂移）；
+  改成让加载**失败**，靠 `img:load|` 行的**顺序/条数/路径文本**杀变异：
+  A) oids 收窄到 lfj（RFACE 失败行 + MB0 回退行）→ 杀「少刷一个」「换脸不换位」；
+  B) oids 收窄到 lfy（bg_face=null）→ 回退路径文本 `MENU_BACK0` vs `null` 杀判空类；
+  C) 无 refresh 的变异靠 B 阶段整段缺行杀。
+- ⚠ `trace_util.h` 的 `to_u16` / `parse_js_string_literal` 已补 **UTF-8 → UTF-16
+  解码**：用例里裸中文词条（`i18nadd … 全榜`）此前被逐字节加宽成 `\u00e5…` 乱码，
+  与 TS 的 `\u5168…` 不符（4BS 首跑第二处漂移）。
+- ⚠ 端口偏差（已在 DESIGN §132 详述）：`UILayer` 弹页延迟销毁 `_trash`（TS GC 语义，
+  否则 `press_j` 弹页后 UAF）、`ui_load_img` 的 `error_is_error/host_error`（字符串 throw
+  不加 `Error: ` 前缀）、`game_prepare_logic` 三条 warn 的
+  `[GamePrepareLogic::start_game]` 前缀。
+- ⚠ 变异坑（本切片）：①「`pop_page` 后继续跑」类场景必须让页里组件在弹页后仍有后续
+  行为（`press_j` 弹页 + `nkeyp … j` 即触发）；②满员门（`max<=size`）类变异要用
+  **`cmprobe` 的 `ps` 或 `fsm`** 分辨（满员时 `press_a` 内部守卫会兜住「已放行但仍不
+  加入」的情况，只有 `fsm.use(PlayerSel)` 或直接入队才会暴露）；③`gk::ku` 不存在
+  （U 是大写 `kU`），写错是 **compile-error** 不是漂移。
+- ⚠ 第 5 轮补记（15 存活 → **169/169 全杀**）：
+  * `min_pages` 类变异（`press_j` / `auto_join` 路径）**只在 `len == min_pages` 时可分辨**：
+    无 `until` 的 `pop` 只要 `max_pop ≥ 1` 都只弹一页；既有层已累积 6 页时 1 vs 2 等价 ⇒
+    用例改用 `rlpush` 新层 + `rlpushp` **恰两页** + `npg` 取顶页（`rlinfo` 页数直接露）。
+  * `fighters()`（cheat 过滤名单）只喂 `handle_fighters_changed` 与 `press_lr`（**随机池
+    不受 cheat 影响**，池 = group "1000" ∩ oids）⇒ 过滤类变异靠「join → `L` → `R` 走查 +
+    每步 `cmprobe`」；槽位失效清理 = `oids=[lfd]` join（random 恒 lfd）后
+    `cheat GIM_INK 1` + `cheat LF2_NET 0`（只有 disable 触发 handler）。
+  * `add_com` 满员放宽的观测 = **先把现存 com 全 join 进槽位**（否则变异复用空闲 com、
+    `press_a` 仍被拦 ⇒ 该场景下等效）；`fsuse` 的状态键是 **`Computer`**（`ComSel` 是
+    枚举名不是 FSM key，用错会让 state 变空、enter 不跑）。
+  * `refresh_survival_rank` 有 `game_mode == survival` 门（切回 stage_mode 后所有 rank
+    更新无痕）；下划线宽度用 `setlang "en"` + `i18nadd` 拉长标签（宽度 40 vs min 变异 8，
+    `nrd rsu size` 直读；`setlang` 直接吃字符串字面量）。
+  * 撤除 2 条**真等效**（证据已写进退化记录）：`on_stop` 的 `change_stage(u"")` vs
+    `u"VOID"`（`"VOID"` 不是舞台 id，双路都落 `Defines.VOID_STAGE`；当前已是 VOID 时
+    `same_ref` 又一起早退）；生存背景 id 匹配取反（结果被随后 `change_stage(st_srv)`
+    覆盖，手工施加后整份 trace 一致）。

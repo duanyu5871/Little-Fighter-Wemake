@@ -650,6 +650,49 @@ export default {
       from: `    if (expr.has_err) {`,
       to: `    if (false) {`,
     },
+    {
+      note: "opoint：speedz 默认不看状态（条件去掉）",
+      file: "native/lfw/loader/preprocess_opoint.h",
+      from: `  if (!opoint_detail::state_is_ball_default(frame_state)) return;`,
+      to: `  if (false) return;`,
+    },
+    {
+      note: "opoint：speedz 默认的状态字段名写错",
+      file: "native/lfw/loader/preprocess_opoint.h",
+      from: `  opoint_apply_speedz_default(opoint, field_or(frame, u"state"));`,
+      to: `  opoint_apply_speedz_default(opoint, field_or(frame, u"states"));`,
+    },
+    {
+      note: "opoint：speedz 默认少认 Ball_3006（写成 Ball_Flying）",
+      file: "native/lfw/loader/preprocess_opoint.h",
+      from: `         *d == static_cast<double>(StateEnum::Ball_3006) ||`,
+      to: `         *d == static_cast<double>(StateEnum::Ball_Flying) ||`,
+    },
+    {
+      note: "opoint：speedz 判空用 truthy（0 也被覆盖）",
+      file: "native/lfw/loader/preprocess_opoint.h",
+      from: `  if (speedz != nullptr && !opoint_detail::is_nullish(*speedz)) return;`,
+      to: `  if (speedz != nullptr && truthy(*speedz)) return;`,
+    },
+    {
+      note: "opoint：speedz 默认值写错",
+      file: "native/lfw/loader/preprocess_opoint.h",
+      from: `  opoint.set(u"speedz", Value(defines::num(u"Defines.DEFAULT_OPOINT_SPEED_Z")));`,
+      to: `  opoint.set(u"speedz", Value(0.0));`,
+    },
+    {
+      note: "opoint：speedz 默认的状态判定取反",
+      file: "native/lfw/loader/preprocess_opoint.h",
+      from: `  if (!opoint_detail::state_is_ball_default(frame_state)) return;`,
+      to: `  if (opoint_detail::state_is_ball_default(frame_state)) return;`,
+    },
+    {
+      note: "opoint：不落 speedz 默认",
+      file: "native/lfw/loader/preprocess_opoint.h",
+      from: `  opoint_apply_speedz_default(opoint, field_or(frame, u"state"));
+  return out;`,
+      to: `  return out;`,
+    },
 
     // ---- 2f：base/Ticker ---------------------------------------------------------
     {

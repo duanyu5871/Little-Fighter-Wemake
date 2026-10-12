@@ -35,6 +35,8 @@ const fake = { frame, lfw: { mt } } as never;
 const customVars: Record<string, (e: unknown) => number> = {};
 const vexprs: ValExpression[] = [];
 let opoint: Record<string, unknown> = {};
+let pctx_data: unknown;
+let pctx_frame: unknown;
 
 const GEN_FIELDS: [string, string][] = [
   ["gen_x", "__gen_x"],
@@ -61,7 +63,7 @@ function veGet(idx: number, times: number): void {
 }
 
 function opointCompile(): void {
-  preprocess_opoint(opoint as never);
+  preprocess_opoint({ opoint, lfw: { mt }, data: pctx_data, frame: pctx_frame } as never);
   let present = 0;
   const rows: string[] = [];
   for (const [genKey, dstKey] of GEN_FIELDS) {
@@ -367,6 +369,15 @@ function main(): void {
       out.push(line("PS", esc(key), renderValue(v)));
     } else if (op === "pc") {
       opointCompile();
+    } else if (op === "pctx") {
+      const which = t[idx[0]!++]!;
+      const v = parseValue(t, idx);
+      if (which === "data") pctx_data = v;
+      else pctx_frame = v;
+      out.push(line("PX", which, renderValue(v)));
+    } else if (op === "pget") {
+      const key = t[idx[0]!++]!;
+      out.push(line("PE", esc(key), key in opoint ? renderValue(opoint[key]) : "u"));
     } else if (op === "pkeys") {
       out.push(line("PK", ...Object.keys(opoint).map((k) => esc(k))));
     } else if (op === "fire") {

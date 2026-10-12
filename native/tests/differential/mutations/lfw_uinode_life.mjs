@@ -368,15 +368,15 @@ export default {
     {
       note: "layer.pop：不从栈里移除",
       file: "native/lfw/ui/uilayer.cpp",
-      from: `  _pages.resize(len - poppeds.size());`,
+      from: `  _pages.erase(_pages.begin() + static_cast<std::ptrdiff_t>(len - poppeds.size()), _pages.end());`,
       to: `  _pages.resize(len);`,
     },
     {
       note: "layer.pop：弹出后不恢复下层",
       file: "native/lfw/ui/uilayer.cpp",
-      from: `  _pages.resize(len - poppeds.size());
+      from: `  _pages.erase(_pages.begin() + static_cast<std::ptrdiff_t>(len - poppeds.size()), _pages.end());
   if (ui() != nullptr) ui()->on_resume();`,
-      to: `  _pages.resize(len - poppeds.size());`,
+      to: `  _pages.erase(_pages.begin() + static_cast<std::ptrdiff_t>(len - poppeds.size()), _pages.end());`,
     },
     {
       note: "layers.ensure：index 不当尺寸",

@@ -58,6 +58,7 @@ export default {
       file: "native/lfw/ui/ui_load_img.cpp",
       from: `  if (!lfw.host().ui_image_load(img_key, path != nullptr ? *path : Value(), Value(ops), out,
                                 error)) {
+    if (host_error != nullptr) *host_error = true;
     return false;
   }`,
       to: `  lfw.host().ui_image_load(img_key, path != nullptr ? *path : Value(), Value(ops), out, error);`,

@@ -35,6 +35,10 @@ struct UIImgLoadResult {
   Value texture;             // out-of-date 时带的图（可空）
   Value image;               // ok 时的 ImageInfo
   std::u16string error;      // 失败文本（out-of-date 时是 `out_of_date`）
+  // 失败值在 TS 里是不是 `Error` 对象（`'' + e` 是否带 `Error: ` 前缀）：
+  // 端口内 throw（校验 / node 空 / out-of-date）⇒ true；宿主 `images.load_img`
+  // 拒绝 ⇒ false（宿主抛的可能是字符串）。
+  bool error_is_error = true;
 };
 
 class UIImgLoader {

@@ -1883,13 +1883,6 @@ function main(): void {
         out.push(
           `run getemitter ${idx} || ${log.join(",")} | v=${found === undefined ? "u" : r(idRef(found))}`,
         );
-      } else if (what === "opointz") {
-        const which = t[i++]!;
-        const other = which === "buddy" ? buddy : which === "null" ? undefined : ent;
-        const opoint = parseValue(t, [i]);
-        out.push(
-          `run opointz ${which} ${r(opoint)} || ${log.join(",")} | v=${r(ent!.get_opoint_speed_z(other!, opoint as never))} state=${r(ent!.state)}`,
-        );
       } else if (what === "rec") {
         const which = t[i++]!;
         const e = ent!;

@@ -544,10 +544,6 @@ class Entity {
   // `this.emitters[idx]` → `world.entity_map.get(...)`; a fractional / negative /
   // out-of-range index behaves like a hole in the JS array (`undefined`).
   Entity* get_emitter(double idx) const;
-  // `get_opoint_speed_z(emitter, opoint)`: `speedz !== void 0` wins (a `null` is
-  // passed through), otherwise only fighters in a ball / throwing state get the
-  // default z speed.  A missing emitter (`undefined` upstream) is not a fighter.
-  Value get_opoint_speed_z(const Entity* emitter, const Value& opoint) const;
 
   // --- v_rest / relation cleanup / blink arming --------------------------------
   // TS keeps three `Map<string, Collision>` — `vrests` plus the `itr.kind`-driven

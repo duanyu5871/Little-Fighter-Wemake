@@ -88,7 +88,8 @@ void Picture::set_src(const std::u16string& v) {
   const UIImgLoadResult result = _img_loader.load(Value(info));
   if (!result.ok) {
     // TS: `.catch(e => Ditto.warn('[Picture::set_src]' + e))`
-    const std::u16string text = result.out_of_date ? u"Error: out_of_date" : u"Error: " + result.error;
+    const std::u16string text =
+        result.error_is_error ? u"Error: " + result.error : result.error;
     lfw().host().warn_async({Value(u"[Picture::set_src]" + text)});
   }
 }

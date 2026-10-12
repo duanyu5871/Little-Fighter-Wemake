@@ -50,6 +50,7 @@ void UILayer::dispose() {
 }
 
 void UILayer::set(const UIPushPageOpts& opts) {
+  _trash.clear();
   if (opts.has_id && ui() != nullptr) {
     const Value idv = ui()->id();
     const std::u16string* const cur = std::get_if<std::u16string>(&idv);
@@ -76,9 +77,11 @@ void UILayer::set(const UIPushPageOpts& opts) {
   if (curr_raw != nullptr || prev != nullptr) {
     if (callbacks.on_set) callbacks.on_set(curr_raw, prev.get(), *this);
   }
+  if (prev != nullptr) _trash.push_back(std::move(prev));
 }
 
 void UILayer::push(const UIPushPageOpts& opts) {
+  _trash.clear();
   UINode* const prev = ui();
   if (prev != nullptr) prev->on_pause();
   std::unique_ptr<UINode> curr = create_page(opts);
@@ -94,6 +97,7 @@ void UILayer::push(const UIPushPageOpts& opts) {
 }
 
 void UILayer::pop(const UIPopPageOpts& opts) {
+  _trash.clear();
   std::vector<UINode*> poppeds;
   const size_t len = _pages.size();
   const double max_pop =
@@ -115,7 +119,10 @@ void UILayer::pop(const UIPopPageOpts& opts) {
     if (i == 0) poppeds[i]->on_pause();
     poppeds[i]->on_stop();
   }
-  _pages.resize(len - poppeds.size());
+  for (size_t i = len - poppeds.size(); i < len; ++i) {
+    _trash.push_back(std::move(_pages[i]));
+  }
+  _pages.erase(_pages.begin() + static_cast<std::ptrdiff_t>(len - poppeds.size()), _pages.end());
   if (ui() != nullptr) ui()->on_resume();
   if (callbacks.on_pop) callbacks.on_pop(ui(), poppeds, *this);
 }

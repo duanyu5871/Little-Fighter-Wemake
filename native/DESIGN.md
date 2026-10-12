@@ -4977,6 +4977,11 @@ emitter 的 `data.type`，所以仍然可以整片锁死。
   下标 `0 / 1 / 2 / 3 / -1 / 1.5 / 0.5` 与「同一 id 的空串」、
   四个命中状态 + 未命中状态 + 字符串 / 小数 / `null` / `undefined` 状态。
 
+> ⚠ **4BS 尾刀（用户调整）**：`get_opoint_speed_z` 已随 TS 一起删掉 —— 默认 `speedz`
+> 改在 `preprocess_opoint` 预处理期落值（只看 `frame.state`，**不再看 data/emitter**），
+> 运行时 `on_spawn` 只剩 `or_nullish(speedz, 0)`；差分观察从 `run opointz` 换成
+> `base/val_expr` 的 `pctx`/`pget` 场景（见 PROTOCOL §6.9.102 与 §59）。
+
 ## 50. 切片 9g：`Entity` 的状态接线（`set_state` + `_state`）
 
 `entity.{h,cpp}` 的第七刀，也是 Entity 块里第一刀**结构接线**：新增
@@ -5508,10 +5513,11 @@ TS 的 `State_Base.on_restrict` 结尾是 `e.position.x = x; …`（**直写**�
 7. **`ud` 要求发射者是 fighter**：`is_fighter_data(emitter.data())` 比较的是
    `HitFlag.Fighter`(8) 而不是 1 ⇒ 用例末尾专门 `run make` 一个 `type n 8` 的发射者，
    否则 `ud` 恒 0、`o_speedz * ud` 这一项永远不可观察。
-8. **`o_speedz` 的三条来源**：opoint 里的 `speedz`、`get_opoint_speed_z` 的
-   「发射者是 fighter 且自身 state 在 Ball_Flying/Ball_3006/Weapon_Throwing/HeavyWeapon_InTheSky 里」
-   ⇒ `Defines.DEFAULT_OPOINT_SPEED_Z`(3.5)、否则 0。用例第三条路（`oid "w3"`
-   state 1002 且不写 `speedz`）就是为它准备的。
+8. **`o_speedz` 的来源**（4BS 尾刀起）：opoint 里的 `speedz`（`null`/缺省 → 0）；
+   预处理层（`preprocess_opoint`）已对「帧状态 ∈ Ball_Flying/Ball_3006/Weapon_Throwing/
+   HeavyWeapon_InTheSky」的 opoint 落了 `Defines.DEFAULT_OPOINT_SPEED_Z`(3.5)，
+   运行时不再有 emitter / 状态判定。用例里「`oid "w3"` state 1002 且不写 `speedz`」
+   仍能看到 3.5（预处理期落的），另用显式 `speedz n 7` 锁「已声明优先」。
 9. **`pos_type` 两支要分得开需要非零中心点**：`centerx == 0` 时两支等价 ⇒
    用例里把带 `centerx 7 / centery 3` 的帧**放在 pos_type 场景之前**。
 10. **`OpointKind::Pick`(2) 不只是设 bearer**：它先 `emitter.drop_holding()`，
@@ -10044,3 +10050,106 @@ FSM Running + `set_open(true)`；`on_requrie_goto_next_stage` ⇒ 关帘；`on_k
 **139/139 全杀**（首轮基线干净 94/50；补探针后 128/11；再补夹具/端口对齐后全杀。剔除 4 条
 等效/未抽中：`bg_oth` 覆盖、`clearup` 不清世界（台面等效）、两条「首队改 2」变体（对应
 表项从未被抽中））；全量差分 **249/249**。
+
+
+## 132. 切片 4BS：CharMenuHead / CharMenuLogic / GamePrepareLogic
+
+**`char_menu_logic`**：选角菜单主逻辑（FSM 五态 `Player` / `CountingDown` /
+`ComNumberSel` / `Computer` / `GameSetting`；状态对象持 `CharMenuLogic&`，`IState::name`
+= 状态串）。prop 缺省 `min/max_player=8`、`teams` 缺省走 `Defines.Teams`（`toString`
+化，缺表返回空）。槽位 = `on_start` 扫 `CharMenuHead` / `PlayerName` / `FighterName` /
+`PlayerTeamName` 四族，按四者长度 **max** 配对（并行数组压成 `ISlotPack`；数量不齐也要
+对齐——`min` 会丢槽）。随机池 `rebuild_randoming` = `datas().get_fighters_of_group("1000")`
+→ `filter_oids`（`oids` 非空时按 id 白名单）→ `Randoming`（**袋抽不重复**，`mt.mark =
+"charmenu_fighter_randoming"`）；`fighters()` 再加 cheat 过滤：`!LF2_NET` 剔
+`EntityGroup.Hidden`、`!GIM_INK` 剔 `Dev`（两者所在组经 `base.group` 判定），过滤后全空
+回退全表；`ensure_randoming` 以「`datas().fighters().size()` 变了」为重建触发器 +
+补抽 random 槽位；`set_oids` 重建池后跑 `handle_fighters_changed`（现役槽位不在池里的
+⇒ `random=true` + fighter 置空）。`press_a`：未入队 ⇒ 从 prev 快照恢复或新槽（队伍
+`teams[0]`、fighter `randoming_next`）、`step=FighterSel`；已入队 `step<Ready` ⇒
+`FighterSel && teams<=1` 直达 `Ready`，否则 `min(step+1, Ready)`；`Ready` 再按无事。
+`press_j`：未入队 && Player 态 ⇒ `pop_page(min_pages=1)`；`step<=FighterSel` ⇒
+auto_join 时播音 + 弹页返回、否则退队；否则 `max(step-1, FighterSel)`。`press_lr`：
+`FighterSel` 列池前后步进（越界 `fmod` 回随机）；`TeamSel` 走 `fmod(len+idx+dir)` 环绕。
+`press_u`：`FighterSel` ⇒ 随机重抽。`update` 每帧比对「玩家 id+名字」串，变化才
+`update_slots`（组件的 `join/quit` 由槽位刷）。广播：`reset_gpl`（prev=players 快照
+后清空 + 回 Player 态）、`update_random`（只重抽 `random` 槽）、`char_menu_pick_prev/next`
+（`char_menu_pick_prev_<n>` 带 1 基槽位，等价 L/R）。⚠ **`pop_page` 之后页内组件继续跑**
+（TS GC 语义）：`press_j` 弹页后还要播音 + 刷槽 ⇒ 端口 `UILayer` 加了**弹页延迟销毁
+`_trash`**（`set/push/pop` 入口清 trash；`pop` 把弹出页移进 trash 再 `erase`；`set`
+的旧页在回调后进 trash）——没有它 4BS 的 `nkeyp … j` 直接 UAF 崩。
+
+**`char_menu_head`**：单槽头像（props：`countdown_label` / `hints_node` /
+`head_pic`(Picture) / `start_hints_node` / `pick_prev_node` / `pick_next_node`）。
+`join(path)`：记 `_joined/_path`、显头像 + `set_src`、隐 hints/countdown；`quit()`
+反向（hints 显、头像隐）；`update` 按 `hints_visible = !_joined && !cd`
+（hints 带 `Sine(0.65,1,6)` 闪烁）、`start_hints = _joined && !cd`、左右箭头 =
+`_joined && !cd`、头像 = `!hints && !cd && !_path.empty()`；`count_down(num)`：`floor`
+后变了才写 `countdown_label` 文本、`countdown_text` 显隐 `num>=1`。
+
+**`game_prepare_logic`**：准备页（props：`stage_switcher` / `bg_switcher` /
+`game_mode`(string|null) / `players`(n)）。`on_resume` 按模式布线：survival ⇒
+隐 background_row/stage_row + `teams=["1"]` + min=max=`player_count()` +
+`oids=SurvivalRankOids`；stage ⇒ 显 stage_row + `teams=["1"]` + min=1；vs ⇒ 显
+background_row + min=2；尾部 `refresh_survival_rank()` + `refresh_selection_face()`。
+`refresh_survival_rank`：`layout_rank_rows()`（36 高 + 8 隙重排）、按
+`survival_rank_available()` 开关整组（标题/页签/刷新/滚动/我的排名）+`_rank_board_shown`；
+不可用 ⇒ 清行 + 隐下划线；可用 ⇒ `update_rank_period_tabs()`（选中 `#ffffff` / 其它
+`#9b9bff`、下划线 `width=max(文本宽,8)` 居中 + 底 +2）、`_rank_loaded` 才重渲染、
+广播 `rank_request`（并写 `survival_rank_period` / `survival_rank_2p =
+player_count()>=2`）。`on_survival_rank_changed`（回调）：非 survival 忽略；空数据
+⇒ 清 `_rank_entries/_rank_mine` + `_rank_loaded=false` + 清行；否则截
+`kRankLimit=100` 条、存 `_rank_mine`、`_rank_loaded=true`、渲染 + `scroll_to_start()`。
+渲染 = 逐行显隐（空榜占 1 行）、斑马 `row->color`（奇位行白 4%）、四列文本（名次
+`rank.`、昵称 `player2` 用 ` & ` 拼、斗士同规则（走 `lfw().string`）、
+`i18n_fmt(floor_reached, score)`）、我的排名（ranked 双 `%` 嵌套 / unranked）。
+`start_game`（`start_game` 广播）：任一槽位无斗士 ⇒ `[GamePrepareLogic::start_game]
+fighter data missing, start canceled` 取消；survival 分支先 `reset_world_dataset`
+（新 `WorldDataset().dump_dataset()` 逐键覆盖 + 还原 difficulty + `playrate=1`）、
+找 `chapter=="survival" && is_starting` 舞台（缺 ⇒ id `"50"`）并 `change_bg`
+（按 datas 背景表找 id）；否则 stage switcher / bg switcher 分支换背景；相机
+`cam_x`（stage/survival 0；否则 `mt.range(left, right - screen_w)`，`mark =
+"gpl_start_game_cam_x"`）；逐玩家造实体（com ⇒ `create_entity_with_bot`；team 缺省
+`new_team`；facing stage 恒 Right 否则 `mt.pick`；`xx1/xx2` = 40/80（stage）或
+`w/3`、`2w/3`；x=range+cam_x、z=range(far,near)；`begin_blink_time` 写
+blinking/invulnerable；survival hp/mp 2000/1000；stage hp/mp 走难度表
+2500/1000/500；vs mp = `max*2/5`）；层 `push`（survival/stage ⇒ `stage_mode_page`
++ `srank_mode=true`；vs ⇒ `vs_mode_page`）；`camera().jump_x(cam_x)`。
+`on_stop`：`change_stage("")` + `change_bg("")` + 撤订阅。
+
+⚠ **端口纠错/偏差**：
+- `ui_load_img` 失败通道补「**错误来源**」标志：`UIImgLoadResult.error_is_error` +
+  `host_error` 出参（宿主抛字符串 ⇒ `''+e` 不带 `Error: ` 前缀；端口内 throw（校验/node
+  空/out-of-date）⇒ 带前缀）。`Picture::set_src` / `Dialogs::set_head_img` 的 warn 按此
+  拼 `'' + e`，与 TS `.catch(e => Ditto.warn('…' + e))` 对齐（诊断出首轮 4BS 用例的
+  `[Picture::set_src]Error: unscripted image` vs `…]unscripted image` 漂移）。
+- `game_prepare_logic` 三条 warn 带 `[GamePrepareLogic::start_game]` 前缀（端口最初漏；
+  `failed to create fighter` 的 `${fighter_data}` 用 `to_string` = JS stringify）。
+- `CharMenuLogic::last_com()` 的 `is_com` 判定曾写反（`if (is_com) return nullopt`）——
+  台面 `cmdbg` 探针抓出（`last=com_101|lastic=1|lc=-`）：ComSel 的 A 键会走
+  「无最后一名 COM」分支去 `add_com`，与 TS 行为相反。
+- `LFW::players_delete`（插入序 vector 删除；ComSel 弹出 COM 时用）+ `oid::
+  survival_rank_oids()`。
+
+**台面**：新 op `nkeyp <nid> <pid> <down> <gk> <key>`（**带玩家号的 UI 键事件**——
+普通 `nkey` 的 player 是空串、CharMenu 按玩家路由收不到）、`cmprobe <nid>`
+（`com/fsm/prev/ps=id:step:rand:team:fighter/slots/max/min/tms/oids/rnd/foc`）、
+`cmdbg <nid>`（诊断：`n/last/lastic/lc`）、`plist`、`srankdata`、`sprobe`、`wbg`、
+`cprops <nid> <cid> <key> <值>`（给活动组件设 props；`cset` 只能切 enabled）、
+`cheat <name> <0|1>`（**直接 set dataset + `lfw.cheat_changed`**——`dataset` 生效但不发
+事件、`setcheat` 走 push_cmd 队列=死）、`dgrp <group>`（列某分组的斗士 id）、
+`fsuse`（直接切 FSM 态）。⚠ **任何走 `load` 的用例必须 `imp data/spark.obj.json5 spk`**：
+`load_data` 会请求内置 `Defines.kSpark`——漏掉整包加载失败（`dcnt fighters=` 空），
+池/开赛类变异批量假存活（本轮首跑 176 条里 80 条假红的根因）；连带 `idg2c` 引用的
+lfa/lfb/f51/f50/lfc/lfd/lfe/lfj/lfz、`swf` 引用的 bg·st 文件都要 imp。夹具：
+`lfc/lfd/lfe`（group `1000`；lfd 挂 `hidden`、lfe 挂 `Dev`）、`lfj`（id **`"2"`** =
+∈`SurvivalRankOids`，`base.head = null`、`bg_face = !sprite/RFACE@4x.png` 探「头像回退/
+换脸行序」）、`lfy`（id **`"4"`** ∈ `SurvivalRankOids`，`bg_face = null` 探回退判空）、
+`lfz`（**无 `name`** 探 noname 回退）、`srv`（survival 章节舞台，经 `swf` 索引入包）；
+`trace_util.h` 的 `to_u16` /
+`parse_js_string_literal` 补 **UTF-8 → UTF-16 解码**（用例里裸中文词条此前被逐字节加宽
+成乱码 `\u00e5…`，与 TS 的 `\u5168…` 不符——4BS 用例首跑的第二处漂移）。
+
+**测试**：用例 `cases/lfw/char_menu.txt` **3416 行**（trace 行数）；
+变异 `lfw_char_menu.mjs` **169 条（169/169 全杀）**；全量差分
+**250/250**。

@@ -97,7 +97,8 @@ void Dialogs::set_head_img(const std::u16string& path) {
   const UIImgLoadResult result = _head_loader.set_img(path);
   if (!result.ok) {
     // TS: `.catch(e => Ditto.warn('' + e))`（微任务 ⇒ 走 `warn_async`）
-    const std::u16string text = result.out_of_date ? u"Error: out_of_date" : u"Error: " + result.error;
+    const std::u16string text =
+        result.error_is_error ? u"Error: " + result.error : result.error;
     lfw().host().warn_async({Value(text)});
   }
 }

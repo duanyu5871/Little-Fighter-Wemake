@@ -215,6 +215,66 @@ pc
 pkeys
 mdraw 0 1000000
 
+# ---- speedz 默认：弹道类帧状态（只看 state，不看 data）------------------------
+po
+pctx data o 1 type n 8
+pctx frame o 1 state n 3000
+pc
+pget speedz
+pkeys
+po
+pctx frame o 1 state n 3006
+pc
+pget speedz
+po
+pctx frame o 1 state n 1002
+pc
+pget speedz
+po
+pctx frame o 1 state n 2000
+pc
+pget speedz
+# 非弹道状态 / 无 frame：不落
+po
+pctx frame o 1 state n 0
+pc
+pget speedz
+pctx frame u
+pc
+pget speedz
+# 新行为：不看 data（斗士判定已移除）⇒ 非斗士 / 缺 data 同样落
+po
+pctx data o 1 type n 16
+pctx frame o 1 state n 3000
+pc
+pget speedz
+po
+pctx data u
+pctx frame o 1 state n 3000
+pc
+pget speedz
+# 已声明：数字保留 / undefined 与 null 落默认 / 0 保留
+po
+ps speedz n 7
+pctx data o 1 type n 8
+pc
+pget speedz
+po
+ps speedz u
+pc
+pget speedz
+po
+ps speedz z
+pc
+pget speedz
+po
+ps speedz n 0
+pc
+pget speedz
+# 复位上下文
+pctx data u
+pctx frame u
+
 # ---- 补齐：边界与求值顺序 ------------------------------------------------------
 # 报错的表达式仍可 `get`（TS 的回落 `() => 0`），且不写 mark
 x foo

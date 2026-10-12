@@ -1827,33 +1827,6 @@ run getemitter 3
 run getemitter -1
 run getemitter 1.5
 run getemitter 0.5
-run opointz self o 1 speedz n 7
-run opointz self o 1 speedz z
-run opointz null o 1 speedz n 7
-run opointz null o 1 speedz z
-run opointz null o 0
-run opointz self o 0
-run opointz buddy o 0
-run frame o 2 id s "s1" state n 3000
-run opointz buddy o 0
-run opointz self o 0
-run opointz null o 0
-run frame o 2 id s "s1" state n 1002
-run opointz buddy o 0
-run frame o 2 id s "s1" state n 3006
-run opointz buddy o 0
-run frame o 2 id s "s1" state n 2000
-run opointz buddy o 0
-run frame o 2 id s "s1" state n 3009
-run opointz buddy o 0
-run frame o 2 id s "s1" state s "1002"
-run opointz buddy o 0
-run frame o 2 id s "s1" state n 1002.5
-run opointz buddy o 0
-run frame o 2 id s "s1" state z
-run opointz buddy o 0
-run frame o 2 id s "s1" state u
-run opointz buddy o 0
 
 # --- 9f: an empty emitter id is falsy, so it never resolves ---
 run snapbuf

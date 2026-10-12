@@ -44,6 +44,10 @@
 //    dropped notification, an inverted clamp or a swapped `??` all surface as drift.
 
 // 9l（spawn / on_spawn / attach）补充说明：
+//  * 4BS 尾刀起：`get_opoint_speed_z` 删除（TS 同步移除），默认 `speedz` 改在
+//    `preprocess_opoint` 预处理期落值；运行时只剩 `or_nullish(speedz, 0)`。
+//    原 9f 的 emitter / 状态矩阵变异与 `run opointz` 场景一并撤除，
+//    相关观测改由 `base/val_expr` 的 `pctx`/`pget` 场景与 PROTOCOL §59 承担。
 //  * 端口把 `Entity::_team` 建模成 `std::u16string`（9a 起的设计），而 TS 的 `team`
 //    保持原值。碰撞攻击者带**数字**队伍时两边表示不同（TS 存 3、端口存 "3"）⇒ 用例里
 //    的 `run lastcollided` 只喂字符串队伍；这条偏差记录在 README 的已知偏差表。
@@ -2993,88 +2997,16 @@ export default {
       "to": "  if (!emitters[i].empty()) return nullptr;"
     },
         {
-      "note": "the opoint speedz is only honoured when it is null",
-      "file": "native/lfw/entity/entity.cpp",
-      "from": "  if (!std::holds_alternative<std::monostate>(speedz)) return speedz;",
-      "to": "  if (std::holds_alternative<NullTag>(speedz)) return speedz;"
-    },
-        {
-      "note": "a null opoint speedz falls through to the state switch",
-      "file": "native/lfw/entity/entity.cpp",
-      "from": "  if (!std::holds_alternative<std::monostate>(speedz)) return speedz;",
-      "to": "  if (!std::holds_alternative<std::monostate>(speedz) && !std::holds_alternative<NullTag>(speedz)) return speedz;"
-    },
-        {
       "note": "the opoint speedz field name is misspelled",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "  const Value speedz = field_or(opoint, u\"speedz\");",
-      "to": "  const Value speedz = field_or(opoint, u\"speedZ\");"
+      "from": "  const Value speedz_field = field_or(opoint, u\"speedz\");",
+      "to": "  const Value speedz_field = field_or(opoint, u\"speedZ\");"
     },
         {
-      "note": "a missing emitter passes the fighter test",
+      "note": "the missing opoint speedz default is not zero",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "  if (emitter == nullptr || !entity::is_fighter_data(emitter->data())) return Value(0.0);",
-      "to": "  if (emitter != nullptr || !entity::is_fighter_data(emitter->data())) return Value(0.0);"
-    },
-        {
-      "note": "every present emitter fails the fighter test",
-      "file": "native/lfw/entity/entity.cpp",
-      "from": "  if (emitter == nullptr || !entity::is_fighter_data(emitter->data())) return Value(0.0);",
-      "to": "  if (emitter == nullptr && !entity::is_fighter_data(emitter->data())) return Value(0.0);"
-    },
-        {
-      "note": "the fighter test reads the receiver data instead of the emitter data",
-      "file": "native/lfw/entity/entity.cpp",
-      "from": "  if (emitter == nullptr || !entity::is_fighter_data(emitter->data())) return Value(0.0);",
-      "to": "  if (emitter == nullptr || !entity::is_fighter_data(data())) return Value(0.0);"
-    },
-        {
-      "note": "the fighter test is inverted",
-      "file": "native/lfw/entity/entity.cpp",
-      "from": "  if (emitter == nullptr || !entity::is_fighter_data(emitter->data())) return Value(0.0);",
-      "to": "  if (emitter == nullptr || entity::is_fighter_data(emitter->data())) return Value(0.0);"
-    },
-        {
-      "note": "the state is coerced before the switch",
-      "file": "native/lfw/entity/entity.cpp",
-      "from": "  const Value st = state();",
-      "to": "  const Value st = Value(to_number(state()));"
-    },
-        {
-      "note": "the state switch drops the ball flying case",
-      "file": "native/lfw/entity/entity.cpp",
-      "from": "    if (*d == static_cast<double>(StateEnum::Ball_Flying) ||\n        *d == static_cast<double>(StateEnum::Ball_3006) ||\n        *d == static_cast<double>(StateEnum::Weapon_Throwing) ||\n        *d == static_cast<double>(StateEnum::HeavyWeapon_InTheSky)) {",
-      "to": "    if (*d == static_cast<double>(StateEnum::Ball_3006) ||\n        *d == static_cast<double>(StateEnum::Ball_3006) ||\n        *d == static_cast<double>(StateEnum::Weapon_Throwing) ||\n        *d == static_cast<double>(StateEnum::HeavyWeapon_InTheSky)) {"
-    },
-        {
-      "note": "the state switch drops the ball 3006 case",
-      "file": "native/lfw/entity/entity.cpp",
-      "from": "    if (*d == static_cast<double>(StateEnum::Ball_Flying) ||\n        *d == static_cast<double>(StateEnum::Ball_3006) ||\n        *d == static_cast<double>(StateEnum::Weapon_Throwing) ||\n        *d == static_cast<double>(StateEnum::HeavyWeapon_InTheSky)) {",
-      "to": "    if (*d == static_cast<double>(StateEnum::Ball_Flying) ||\n        *d == static_cast<double>(StateEnum::Ball_Flying) ||\n        *d == static_cast<double>(StateEnum::Weapon_Throwing) ||\n        *d == static_cast<double>(StateEnum::HeavyWeapon_InTheSky)) {"
-    },
-        {
-      "note": "the state switch drops the weapon throwing case",
-      "file": "native/lfw/entity/entity.cpp",
-      "from": "    if (*d == static_cast<double>(StateEnum::Ball_Flying) ||\n        *d == static_cast<double>(StateEnum::Ball_3006) ||\n        *d == static_cast<double>(StateEnum::Weapon_Throwing) ||\n        *d == static_cast<double>(StateEnum::HeavyWeapon_InTheSky)) {",
-      "to": "    if (*d == static_cast<double>(StateEnum::Ball_Flying) ||\n        *d == static_cast<double>(StateEnum::Ball_3006) ||\n        *d == static_cast<double>(StateEnum::HeavyWeapon_InTheSky)) {"
-    },
-        {
-      "note": "the state switch drops the heavy weapon case",
-      "file": "native/lfw/entity/entity.cpp",
-      "from": "    if (*d == static_cast<double>(StateEnum::Ball_Flying) ||\n        *d == static_cast<double>(StateEnum::Ball_3006) ||\n        *d == static_cast<double>(StateEnum::Weapon_Throwing) ||\n        *d == static_cast<double>(StateEnum::HeavyWeapon_InTheSky)) {",
-      "to": "    if (*d == static_cast<double>(StateEnum::Ball_Flying) ||\n        *d == static_cast<double>(StateEnum::Ball_3006) ||\n        *d == static_cast<double>(StateEnum::Weapon_Throwing)) {"
-    },
-        {
-      "note": "the default z speed is not the define",
-      "file": "native/lfw/entity/entity.cpp",
-      "from": "      return defines::num(u\"Defines.DEFAULT_OPOINT_SPEED_Z\");",
-      "to": "      return Value(0.0);"
-    },
-        {
-      "note": "an unmatched state still gets a z speed",
-      "file": "native/lfw/entity/entity.cpp",
-      "from": "      return defines::num(u\"Defines.DEFAULT_OPOINT_SPEED_Z\");\n    }\n  }\n  return Value(0.0);\n}",
-      "to": "      return defines::num(u\"Defines.DEFAULT_OPOINT_SPEED_Z\");\n    }\n  }\n  return Value(3.5);\n}"
+      "from": "  const double o_speedz = to_number(or_nullish(speedz_field, Value(0.0)));",
+      "to": "  const double o_speedz = to_number(or_nullish(speedz_field, Value(1.0)));"
     },
         {
       "note": "set_state ignores the registry",
@@ -4881,12 +4813,10 @@ export default {
   }`,
     },
     {
-      note: "on_spawn：speedz 不看 get_opoint_speed_z",
+      note: "on_spawn：speedz 直接置 0",
       file: "native/lfw/entity/entity.cpp",
-      from: `  const double o_speedz = std::holds_alternative<std::monostate>(speedz_field)
-                              ? to_number(get_opoint_speed_z(&emitter, opoint))
-                              : to_number(speedz_field);`,
-      to: `  const double o_speedz = to_number(speedz_field);`,
+      from: `  const double o_speedz = to_number(or_nullish(speedz_field, Value(0.0)));`,
+      to: `  const double o_speedz = 0.0;`,
     },
     {
       note: "on_spawn：__gen_dvx 被忽略",

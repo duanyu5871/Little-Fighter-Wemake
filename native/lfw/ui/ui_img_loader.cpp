@@ -35,8 +35,10 @@ UIImgLoadResult UIImgLoader::load(const Value& uiimg) {
 
   Value imgs;
   std::u16string error;
-  if (!ui_load_img(node->lfw(), uiimg, imgs, error)) {
+  bool host_error = false;
+  if (!ui_load_img(node->lfw(), uiimg, imgs, error, &host_error)) {
     result.error = error;
+    result.error_is_error = !host_error;
     return result;
   }
   if (jid != _jid.value()) {

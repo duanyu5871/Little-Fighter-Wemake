@@ -272,6 +272,9 @@ add_library(lfw_core STATIC
   ui/component/stage_mode_logic.cpp
   ui/component/misc_settings_logic.cpp
   ui/component/demo_mode_logic.cpp
+  ui/component/char_menu.cpp
+  ui/component/char_menu_head.cpp
+  ui/component/game_prepare_logic.cpp
   ui/component/fighter_stat_bar.cpp
   ui/component/player_score.cpp
   ui/component/player_score_cell.cpp

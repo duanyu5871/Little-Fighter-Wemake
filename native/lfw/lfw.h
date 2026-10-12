@@ -400,6 +400,8 @@ class LFW : public IWorldLfw,
   Keys* keys();
   World& world() { return *world_; }
   PlayerInfo* player(const std::u16string& player_id);
+  // TS `lfw.players.delete(id)`（移除玩家号；队列表是插入序）。
+  void players_delete(const std::u16string& player_id);
   const std::vector<std::pair<std::u16string, std::unique_ptr<PlayerInfo>>>& players() const {
     return _players;
   }

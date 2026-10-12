@@ -1165,26 +1165,6 @@ Entity* Entity::get_emitter(double idx) const {
   return host_->find_entity(emitters[i]);
 }
 
-Value Entity::get_opoint_speed_z(const Entity* emitter, const Value& opoint) const {
-  const Value speedz = field_or(opoint, u"speedz");
-  if (!std::holds_alternative<std::monostate>(speedz)) return speedz;
-  // `is_fighter(emitter)` only reads `emitter.data`; `v?.data` makes a missing
-  // emitter behave like a non-fighter.
-  if (emitter == nullptr || !entity::is_fighter_data(emitter->data())) return Value(0.0);
-  // `switch (this.state)` compares strictly, so a non-number state never matches.
-  const Value st = state();
-  const double* d = std::get_if<double>(&st);
-  if (d != nullptr) {
-    if (*d == static_cast<double>(StateEnum::Ball_Flying) ||
-        *d == static_cast<double>(StateEnum::Ball_3006) ||
-        *d == static_cast<double>(StateEnum::Weapon_Throwing) ||
-        *d == static_cast<double>(StateEnum::HeavyWeapon_InTheSky)) {
-      return defines::num(u"Defines.DEFAULT_OPOINT_SPEED_Z");
-    }
-  }
-  return Value(0.0);
-}
-
 // --- v_rest / relation cleanup / blink arming ---------------------------------
 
 // `this.vrests.set(c.aid, c)` plus the two `itr.kind` mirrors.  The kind is compared
@@ -2178,9 +2158,7 @@ Entity& Entity::on_spawn(Entity& emitter, const Value& opoint, const Vector3& of
   }
 
   const Value speedz_field = field_or(opoint, u"speedz");
-  const double o_speedz = std::holds_alternative<std::monostate>(speedz_field)
-                              ? to_number(get_opoint_speed_z(&emitter, opoint))
-                              : to_number(speedz_field);
+  const double o_speedz = to_number(or_nullish(speedz_field, Value(0.0)));
   double o_dvx =
       num_of(or_nullish(emitter.gen_or(opoint, u"__gen_dvx", field_or(opoint, u"dvx")), Value(0.0)));
   double o_dvy =

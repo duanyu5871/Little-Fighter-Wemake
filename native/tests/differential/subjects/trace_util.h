@@ -130,7 +130,36 @@ inline std::u16string parse_js_string_literal(const std::string& tok) {
         out.push_back(static_cast<char16_t>(static_cast<unsigned char>(e)));
       }
     } else {
-      out.push_back(static_cast<char16_t>(static_cast<unsigned char>(c)));
+      const unsigned char b = static_cast<unsigned char>(c);
+      if (b < 0x80) {
+        out.push_back(static_cast<char16_t>(b));
+      } else {
+        size_t len = 0;
+        uint32_t cp = 0;
+        if ((b & 0xe0) == 0xc0) { len = 1; cp = b & 0x1f; }
+        else if ((b & 0xf0) == 0xe0) { len = 2; cp = b & 0x0f; }
+        else if ((b & 0xf8) == 0xf0) { len = 3; cp = b & 0x07; }
+        if (len != 0 && i + len < tok.size()) {
+          bool ok = true;
+          for (size_t k = 1; k <= len; ++k) {
+            const unsigned char cb = static_cast<unsigned char>(tok[i + k]);
+            if ((cb & 0xc0) != 0x80) { ok = false; break; }
+            cp = (cp << 6) | (cb & 0x3f);
+          }
+          if (ok) {
+            i += len;
+            if (cp < 0x10000) {
+              out.push_back(static_cast<char16_t>(cp));
+            } else {
+              cp -= 0x10000;
+              out.push_back(static_cast<char16_t>(0xd800 + (cp >> 10)));
+              out.push_back(static_cast<char16_t>(0xdc00 + (cp & 0x3ff)));
+            }
+            continue;
+          }
+        }
+        out.push_back(static_cast<char16_t>(b));
+      }
     }
   }
   return out;
@@ -165,7 +194,38 @@ inline std::string esc(const std::u16string& s) {
 inline std::u16string to_u16(const std::string& s) {
   std::u16string out;
   out.reserve(s.size());
-  for (char c : s) out.push_back(static_cast<char16_t>(static_cast<unsigned char>(c)));
+  for (size_t i = 0; i < s.size(); ++i) {
+    const unsigned char b = static_cast<unsigned char>(s[i]);
+    if (b < 0x80) {
+      out.push_back(static_cast<char16_t>(b));
+      continue;
+    }
+    size_t len = 0;
+    uint32_t cp = 0;
+    if ((b & 0xe0) == 0xc0) { len = 1; cp = b & 0x1f; }
+    else if ((b & 0xf0) == 0xe0) { len = 2; cp = b & 0x0f; }
+    else if ((b & 0xf8) == 0xf0) { len = 3; cp = b & 0x07; }
+    if (len != 0 && i + len < s.size()) {
+      bool ok = true;
+      for (size_t k = 1; k <= len; ++k) {
+        const unsigned char cb = static_cast<unsigned char>(s[i + k]);
+        if ((cb & 0xc0) != 0x80) { ok = false; break; }
+        cp = (cp << 6) | (cb & 0x3f);
+      }
+      if (ok) {
+        i += len;
+        if (cp < 0x10000) {
+          out.push_back(static_cast<char16_t>(cp));
+        } else {
+          cp -= 0x10000;
+          out.push_back(static_cast<char16_t>(0xd800 + (cp >> 10)));
+          out.push_back(static_cast<char16_t>(0xdc00 + (cp & 0x3ff)));
+        }
+        continue;
+      }
+    }
+    out.push_back(static_cast<char16_t>(b));
+  }
   return out;
 }
 

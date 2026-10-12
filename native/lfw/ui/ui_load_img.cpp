@@ -31,7 +31,8 @@ bool truthy_field(const Value* const v) { return v != nullptr && truthy(*v); }
 
 }
 
-bool ui_load_img(LFW& lfw, const Value& img, Value& out, std::u16string& error) {
+bool ui_load_img(LFW& lfw, const Value& img, Value& out, std::u16string& error,
+                 bool* host_error) {
   std::vector<std::u16string> errors;
   validate_ui_img_info(img, &errors);
   if (!errors.empty()) {
@@ -83,6 +84,7 @@ bool ui_load_img(LFW& lfw, const Value& img, Value& out, std::u16string& error) 
 
   if (!lfw.host().ui_image_load(img_key, path != nullptr ? *path : Value(), Value(ops), out,
                                 error)) {
+    if (host_error != nullptr) *host_error = true;
     return false;
   }
   lfw.host().ui_image_pin(img_key);

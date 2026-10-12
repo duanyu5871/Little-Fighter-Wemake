@@ -91,11 +91,11 @@ export default {
       note: "宿主失败的错误文本不再透传",
       file: "native/lfw/ui/ui_img_loader.cpp",
       from: `    result.error = error;
-    return result;
-  }`,
+    result.error_is_error = !host_error;
+    return result;`,
       to: `    result.error = u"x";
-    return result;
-  }`,
+    result.error_is_error = !host_error;
+    return result;`,
     },
     {
       note: "成功结果不带 image",

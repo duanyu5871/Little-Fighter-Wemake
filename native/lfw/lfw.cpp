@@ -319,6 +319,14 @@ PlayerInfo* LFW::player(const std::u16string& player_id) {
 
 PlayerInfo* LFW::player(const Value& player_id) { return player(to_string(player_id)); }
 
+void LFW::players_delete(const std::u16string& player_id) {
+  for (size_t i = 0; i < _players.size(); ++i) {
+    if (_players[i].first != player_id) continue;
+    _players.erase(_players.begin() + static_cast<std::ptrdiff_t>(i));
+    return;
+  }
+}
+
 PlayerInfo* LFW::players_get(const Value& player_id) const {
   const std::u16string* const s = as_str(player_id);
   return s != nullptr ? find_player(*s) : nullptr;

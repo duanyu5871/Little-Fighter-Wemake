@@ -44,6 +44,7 @@
 #include "lfw/ui/component/game_mode_fsm_state.h"
 #include "lfw/ui/component/mode_state.h"
 #include "lfw/ui/component/sounds.h"
+#include "lfw/ui/component/char_menu.h"
 #include "lfw/ui/component/opacity_animation.h"
 #include "lfw/ui/component/opacity_flash.h"
 #include "lfw/ui/component/picture.h"
@@ -372,6 +373,7 @@ lfw::Value build_kind_value(const std::string& k) {
     stages->push_back(stage_file(u"st/reg.json5"));
     stages->push_back(stage_file(u"st/hid.json5"));
     stages->push_back(stage_file(u"st/dev.json5"));
+    stages->push_back(stage_file(u"st/srv.json5"));
     lfw::Object o;
     o.set(u"backgrounds", lfw::Value(bgs));
     o.set(u"stages", lfw::Value(stages));
@@ -405,12 +407,15 @@ lfw::Value build_kind_value(const std::string& k) {
     return lfw::Value(std::make_shared<lfw::Object>(o));
   }
   // 4BR：带分组的角色夹具（DemoModeLogic 的抽签池）。
-  auto grouped_fighter = [](const char16_t* id, const char16_t* name, const char16_t* group) {
+  auto grouped_fighter = [](const char16_t* id, const char16_t* name, const char16_t* group,
+                            const char16_t* bg_face = nullptr) {
     lfw::Object base;
     base.set(u"name", lfw::Value(std::u16string(name)));
     auto groups = std::make_shared<lfw::Array>();
     groups->push_back(lfw::Value(std::u16string(group)));
     base.set(u"group", lfw::Value(groups));
+    // 4BS：刷脸夹具要能真下到图（否则 `Picture.image` 恒 null 探不了换脸类变异）。
+    if (bg_face != nullptr) base.set(u"bg_face", lfw::Value(std::u16string(bg_face)));
     lfw::Object o;
     o.set(u"id", lfw::Value(std::u16string(id)));
     o.set(u"type", lfw::Value(8.0));
@@ -418,12 +423,96 @@ lfw::Value build_kind_value(const std::string& k) {
     o.set(u"frames", lfw::Value(std::make_shared<lfw::Array>()));
     return lfw::Value(std::make_shared<lfw::Object>(o));
   };
-  if (k == "lfa") return grouped_fighter(u"lfa", u"FA", u"1000");
+  if (k == "lfa") return grouped_fighter(u"lfa", u"FA", u"1000", u"sprite/FA.png");
   if (k == "lfb") return grouped_fighter(u"lfb", u"FB", u"Boss");
   // 4BR：oid 情景（DemoMode 的 oids 表用数字 id）需要可解析的实体数据。
   if (k == "f51") return grouped_fighter(u"51", u"FZ", u"Boss");
   if (k == "f50") return grouped_fighter(u"50", u"LE", u"Boss");
-  if (k == "idg2") {
+  // 4BS：CharMenu 随机池夹具（含 hidden/Dev 分组与 bg_face）。
+  if (k == "lfc" || k == "lfd" || k == "lfe") {
+    const char16_t* const nm = k == "lfc" ? u"FC" : k == "lfd" ? u"FD" : u"FE";
+    lfw::Object base;
+    base.set(u"name", lfw::Value(std::u16string(nm)));
+    auto groups = std::make_shared<lfw::Array>();
+    groups->push_back(lfw::Value(std::u16string(u"1000")));
+    if (k == "lfd") groups->push_back(lfw::Value(std::u16string(u"hidden")));
+    if (k == "lfe") groups->push_back(lfw::Value(std::u16string(u"Dev")));
+    base.set(u"group", lfw::Value(groups));
+    base.set(u"bg_face", lfw::Value(std::u16string(u"sprite/") + nm + u".png"));
+    lfw::Object o;
+    o.set(u"id", lfw::Value(to_u16(k)));
+    o.set(u"type", lfw::Value(8.0));
+    o.set(u"base", lfw::Value(std::make_shared<lfw::Object>(base)));
+    o.set(u"frames", lfw::Value(std::make_shared<lfw::Array>()));
+    return lfw::Value(std::make_shared<lfw::Object>(o));
+  }
+  if (k == "lfj" || k == "lfz") {
+    const bool no_name = k == "lfz";
+    lfw::Object base;
+    if (!no_name) base.set(u"name", lfw::Value(std::u16string(u"FJ")));
+    if (!no_name) base.set(u"head", lfw::Value(lfw::NullTag{}));
+    auto groups = std::make_shared<lfw::Array>();
+    groups->push_back(lfw::Value(std::u16string(u"1000")));
+    base.set(u"group", lfw::Value(groups));
+    base.set(u"bg_face", lfw::Value(std::u16string(no_name ? u"sprite/FZ.png" : u"!sprite/RFACE@4x.png")));
+    lfw::Object o;
+    o.set(u"id", lfw::Value(std::u16string(no_name ? u"lfz" : u"2")));
+    o.set(u"type", lfw::Value(8.0));
+    o.set(u"base", lfw::Value(std::make_shared<lfw::Object>(base)));
+    o.set(u"frames", lfw::Value(std::make_shared<lfw::Array>()));
+    return lfw::Value(std::make_shared<lfw::Object>(o));
+  }
+  if (k == "lfx") {
+    lfw::Object base;
+    base.set(u"name", lfw::Value(std::u16string(u"FX")));
+    auto groups = std::make_shared<lfw::Array>();
+    groups->push_back(lfw::Value(std::u16string(u"1000")));
+    base.set(u"group", lfw::Value(groups));
+    base.set(u"bg_face", lfw::Value(lfw::NullTag{}));
+    lfw::Object o;
+    o.set(u"id", lfw::Value(std::u16string(u"lfx")));
+    o.set(u"type", lfw::Value(8.0));
+    o.set(u"base", lfw::Value(std::make_shared<lfw::Object>(base)));
+    o.set(u"frames", lfw::Value(std::make_shared<lfw::Array>()));
+    return lfw::Value(std::make_shared<lfw::Object>(o));
+  }
+  if (k == "lfy") {
+    lfw::Object base;
+    base.set(u"name", lfw::Value(std::u16string(u"FY")));
+    auto groups = std::make_shared<lfw::Array>();
+    groups->push_back(lfw::Value(std::u16string(u"1000")));
+    base.set(u"group", lfw::Value(groups));
+    base.set(u"bg_face", lfw::Value(lfw::NullTag{}));
+    lfw::Object o;
+    o.set(u"id", lfw::Value(std::u16string(u"4")));
+    o.set(u"type", lfw::Value(8.0));
+    o.set(u"base", lfw::Value(std::make_shared<lfw::Object>(base)));
+    o.set(u"frames", lfw::Value(std::make_shared<lfw::Array>()));
+    return lfw::Value(std::make_shared<lfw::Object>(o));
+  }
+  // 4BS：生存舞台夹具（主路 = chapter=survival + is_starting；回退路 = id "50"）。
+  if (k == "srv") {
+    auto make_stage = [](const char16_t* id, const char16_t* name, const char16_t* bg_id,
+                         const char16_t* chapter) {
+      lfw::Object o;
+      o.set(u"id", lfw::Value(std::u16string(id)));
+      o.set(u"name", lfw::Value(std::u16string(name)));
+      o.set(u"bg", lfw::Value(std::u16string(bg_id)));
+      o.set(u"is_starting", lfw::Value(true));
+      o.set(u"starting_name", lfw::Value(std::u16string(name)));
+      if (chapter != nullptr) o.set(u"chapter", lfw::Value(std::u16string(chapter)));
+      auto groups = std::make_shared<lfw::Array>();
+      groups->push_back(lfw::Value(std::u16string(u"reg")));
+      o.set(u"group", lfw::Value(groups));
+      o.set(u"phases", lfw::Value(std::make_shared<lfw::Array>()));
+      return lfw::Value(std::make_shared<lfw::Object>(o));
+    };
+    auto arr = std::make_shared<lfw::Array>();
+    arr->push_back(make_stage(u"st_srv", u"SV", u"bg_reg", u"survival"));
+    arr->push_back(make_stage(u"50", u"F50", u"bg_oth", nullptr));
+    return lfw::Value(arr);
+  }
+  if (k == "idg2" || k == "idg2c") {
     auto file_of = [](const char16_t* id, const char16_t* path) {
       lfw::Object o;
       o.set(u"id", lfw::Value(std::u16string(id)));
@@ -435,6 +524,16 @@ lfw::Value build_kind_value(const std::string& k) {
     objs->push_back(file_of(u"lfb", u"data/lfb.json5"));
     objs->push_back(file_of(u"51", u"data/f51.json5"));
     objs->push_back(file_of(u"50", u"data/f50.json5"));
+    // 4BS：CharMenu 专用变体（多带三个分组角色）——不污染其他用例的 idg2。
+    if (k == "idg2c") {
+      objs->push_back(file_of(u"lfc", u"data/lfc.json5"));
+      objs->push_back(file_of(u"lfd", u"data/lfd.json5"));
+      objs->push_back(file_of(u"lfe", u"data/lfe.json5"));
+      objs->push_back(file_of(u"lfj", u"data/lfj.json5"));
+      objs->push_back(file_of(u"lfz", u"data/lfz.json5"));
+      objs->push_back(file_of(u"lfx", u"data/lfx.json5"));
+      objs->push_back(file_of(u"lfy", u"data/lfy.json5"));
+    }
     auto stages = std::make_shared<lfw::Array>();
     {
       lfw::Object s;
@@ -1632,6 +1731,42 @@ bool run_comp_ops(lfw::LFW& lfw, FakeHost& host, const std::vector<std::string>&
       g_real_comps[nid].push_back(std::move(c));
     }
     push("ncomp|" + nid + "|" + std::to_string(n.components().size()));
+  } else if (op == "cheat") {
+    // 4BS：直接置 dataset + 发 `on_cheat_changed`（`setcheat` 走 push_cmd 队，台面不消费）。
+    const std::u16string name = key_of(t[i++]);
+    const bool on = t[i++] == "1";
+    lfw.world().dataset.set(name, lfw::Value(on));
+    lfw.cheat_changed(name, on);
+    push("cheat|" + to_ascii(name) + "|" + (on ? "1" : "0"));
+  } else if (op == "cmdbg") {
+    const std::string nid = t[i++];
+    lfw::ui::UINode& node = pick_node(nid);
+    lfw::ui::CharMenuLogic* cm = nullptr;
+    for (lfw::ui::UIComponent* const c : node.components()) {
+      if (lfw::is_class(c->clazz(), lfw::ui::CharMenuLogic::class_tag())) {
+        cm = static_cast<lfw::ui::CharMenuLogic*>(c);
+        break;
+      }
+    }
+    if (cm == nullptr) {
+      push("cmdbg|" + nid + "|none");
+    } else {
+      const std::optional<std::pair<lfw::PlayerInfo*, lfw::ui::SlotState*>> lp = cm->last_player();
+      const std::optional<std::pair<lfw::PlayerInfo*, lfw::ui::SlotState*>> lc = cm->last_com();
+      std::string line = "cmdbg|" + nid;
+      line += "|n=" + std::to_string(cm->players.size());
+      line += "|last=" + (lp.has_value() ? to_ascii(lp->first->id()) : std::string("-"));
+      line += "|lastic=" + (lp.has_value() ? (lp->first->is_com() ? "1" : "0") : std::string("-"));
+      line += "|lc=" + (lc.has_value() ? to_ascii(lc->first->id()) : std::string("-"));
+      push(line);
+    }
+  } else if (op == "dgrp") {
+    const std::u16string g = key_of(t[i++]);
+    std::string line = "dgrp|" + to_ascii(g);
+    for (const lfw::Value& v : lfw.datas().get_fighters_of_group(g)) {
+      line += "|" + to_ascii(lfw::to_string(field_or(v, u"id")));
+    }
+    push(line);
   } else if (op == "ptev") {
     const std::string what = t[i++];
     const double btn = to_double(t[i++]);
@@ -2717,7 +2852,9 @@ int main(int argc, char** argv) {
     if (op == "camr" || op == "cams" || op == "sran" || op == "danm" || op == "pfight" ||
         op == "cdbg" || op == "fsuse" || op == "fsr" || op == "eol" || op == "dsrd" ||
         op == "epos" || op == "npg" || op == "sndset" || op == "sndv" || op == "fpge" ||
-        op == "stid" || op == "bcasts" || op == "edump" || op == "phid" || op == "ppup") {
+        op == "stid" || op == "bcasts" || op == "edump" || op == "phid" || op == "ppup" ||
+        op == "nkeyp" || op == "cmprobe" || op == "plist" || op == "srankdata" ||
+        op == "sprobe" || op == "wbg" || op == "cprops") {
       if (op == "camr") {
         const lfw::Vector2& p = lfw.world().camera().position;
         push("camr|" + num(p.x) + "|" + num(p.y));
@@ -2898,6 +3035,112 @@ int main(int argc, char** argv) {
                "|x=" + num(e->position.x) + "|y=" + num(e->position.y) + "|z=" + num(e->position.z) +
                "|f=" + num(e->facing) + "|mp=" + num(e->mp()) + "|hp=" + num(e->hp()) +
                "|bl=" + num(e->blinking()) + "|inv=" + num(e->invulnerable()));
+        }
+      } else if (op == "nkeyp") {
+        // 4BS：带玩家号的 UI 键事件（`nkey` 的 player 恒为空串，CharMenuLogic 要按玩家路由）。
+        const std::string nid = t[i++];
+        const std::u16string pid = key_of(t[i++]);
+        const std::string dir = t[i++];
+        const std::u16string gk = key_of(t[i++]);
+        const std::u16string key = key_of(t[i++]);
+        const bool pre = i < t.size() && t[i] == "1";
+        if (pre) ++i;
+        lfw::ui::LFWKeyEvent e(pid, dir == "down", gk, key);
+        if (pre) e.stop_immediate_propagation();
+        lfw::ui::UINode& n = pick_node(nid);
+        if (dir == "down") n.on_key_down(e);
+        else n.on_key_up(e);
+        push("nkeyp|" + nid + "|" + to_ascii(pid) + "|" + dir +
+             "|stop=" + std::to_string(e.stopped()));
+      } else if (op == "cmprobe") {
+        // 4BS：CharMenuLogic 内部状态（fsm/com_num/prev/players/slots/随机池）。
+        const std::string nid = t[i++];
+        lfw::ui::UINode& node = pick_node(nid);
+        lfw::ui::CharMenuLogic* cm = nullptr;
+        for (lfw::ui::UIComponent* const c : node.components()) {
+          if (lfw::is_class(c->clazz(), lfw::ui::CharMenuLogic::class_tag())) {
+            cm = static_cast<lfw::ui::CharMenuLogic*>(c);
+            break;
+          }
+        }
+        if (cm == nullptr) {
+          push("cmprobe|" + nid + "|none");
+        } else {
+          std::string line = "cmprobe|" + nid;
+          line += "|com=" + num(cm->com_num);
+          line += "|fsm=" + to_ascii(cm->fsm() != nullptr && cm->fsm()->state() != nullptr
+                                         ? lfw::to_string(cm->fsm()->state()->key())
+                                         : std::u16string());
+          line += "|prev=" + std::to_string(cm->prev_players.size());
+          line += "|ps=";
+          for (size_t k = 0; k < cm->players.size(); ++k) {
+            if (k != 0) line += ",";
+            lfw::PlayerInfo* const p = cm->players[k].first;
+            const lfw::ui::SlotState& s = cm->players[k].second;
+            std::u16string fid;
+            const lfw::Value* const idv = lfw::ui::field_of(s.fighter, u"id");
+            if (idv != nullptr) fid = lfw::to_string(*idv);
+            line += to_ascii(p->id()) + ":" + std::to_string(static_cast<int>(s.step)) + ":" +
+                    (s.random ? "1" : "0") + ":" + to_ascii(s.team) + ":" + to_ascii(fid);
+          }
+          line += "|slots=" + std::to_string(cm->slots.size());
+          line += "|max=" + num(cm->max_player());
+          line += "|min=" + num(cm->min_player());
+          {
+            std::string tms;
+            const std::vector<std::u16string> tv = cm->teams();
+            for (size_t k = 0; k < tv.size(); ++k) {
+              if (k != 0) tms += ",";
+              tms += to_ascii(tv[k]);
+            }
+            line += "|tms=" + tms;
+            const std::optional<std::vector<std::u16string>> od = cm->oids();
+            line += "|oids=" + (od.has_value() ? std::to_string(od->size()) : std::string("z"));
+          }
+          line += "|rnd=" + std::to_string(cm->randoming() != nullptr
+                                               ? cm->randoming()->src().size()
+                                               : static_cast<size_t>(0));
+          lfw::ui::UINode* const foc = node.root().focused_node();
+          line += "|foc=" + (foc != nullptr ? to_ascii(lfw::to_string(foc->id())) : std::string("-"));
+          push(line);
+        }
+      } else if (op == "plist") {
+        std::string line = "plist";
+        for (const std::pair<std::u16string, std::unique_ptr<lfw::PlayerInfo>>& kv :
+             lfw.players()) {
+          line += "|" + to_ascii(kv.first) + ":" + (kv.second->is_com() ? "1" : "0");
+        }
+        push(line);
+      } else if (op == "srankdata") {
+        lfw.set_survival_rank_data(parse_value(t, i));
+      } else if (op == "sprobe") {
+        push(std::string("sprobe|") + (lfw.srank_mode ? "1" : "0") + "|" +
+             (lfw.survival_rank_available() ? "1" : "0") + "|" +
+             (lfw.survival_rank_2p ? "1" : "0"));
+      } else if (op == "wbg") {
+        lfw::Background* const bg = lfw.world().bg();
+        push("wbg|" + (bg != nullptr ? to_ascii(lfw::to_string(bg->id())) : std::string("-")));
+      } else if (op == "cprops") {
+        // 4BS：给活动组件设 props（`cset` 只能切 enabled）；未命中打 none。
+        const std::string nid = t[i++];
+        const std::u16string cid = key_of(t[i++]);
+        const std::u16string key = key_of(t[i++]);
+        const lfw::Value v = parse_value(t, i);
+        lfw::ui::UINode& n = pick_node(nid);
+        lfw::ui::UIComponent* found = nullptr;
+        for (lfw::ui::UIComponent* const c : n.components()) {
+          if (c->id == cid) {
+            found = c;
+            break;
+          }
+        }
+        if (found == nullptr) {
+          push("cprops|" + nid + "|none");
+        } else {
+          lfw::Value* const props = const_cast<lfw::Value*>(found->props());
+          lfw::Object* const o = props != nullptr ? lfw::as_object(*props) : nullptr;
+          if (o != nullptr) o->set(key, v);
+          push("cprops|" + nid + "|" + to_ascii(key) + "|" + to_ascii(render_value(v)));
         }
       }
       continue;
