@@ -203,9 +203,10 @@ test("非弹道状态 / 无 frame：不落 speedz", () => {
   expect(pre(opoint({})).speedz).toBeUndefined();
 });
 
-test("非斗士数据：弹道状态也不落 speedz", () => {
+test("不看 data：非斗士数据也落 speedz", () => {
   const not_fighter = { type: 0 } as any;
-  expect(pre(opoint({}), { data: not_fighter, frame: { state: StateEnum.Ball_Flying } as any }).speedz).toBeUndefined();
+  expect(pre(opoint({}), { data: not_fighter, frame: { state: StateEnum.Ball_Flying } as any }).speedz).toBe(Defines.DEFAULT_OPOINT_SPEED_Z);
+  expect(pre(opoint({}), { frame: { state: StateEnum.Ball_Flying } as any }).speedz).toBe(Defines.DEFAULT_OPOINT_SPEED_Z);
 });
 
 test("已声明 speedz：??= 保留原值", () => {
