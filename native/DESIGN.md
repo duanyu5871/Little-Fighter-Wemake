@@ -10153,3 +10153,46 @@ lfa/lfb/f51/f50/lfc/lfd/lfe/lfj/lfz、`swf` 引用的 bg·st 文件都要 imp。
 **测试**：用例 `cases/lfw/char_menu.txt` **3416 行**（trace 行数）；
 变异 `lfw_char_menu.mjs` **169 条（169/169 全杀）**；全量差分
 **250/250**。
+
+## 133. 切片 4BT：LaunchPageLogic
+
+**`launch_page_logic`**（`TAGS=["LaunchPage"]`）：启动页四态 FSM
+`TapHints` → `Introduction` → `GoToEntry` → `End`。props：`entry`(string) /
+`loading_anim`(ImgLoop) / `tap_to_launch`、`sound_warning`、`yeonface`、`bearface`、
+`long_text`(UINode) / `translation_note`(UINode|null)。
+
+- `TapHints.enter`：`loading_anim` 次数 = `prel ? 1 : 0`（计数清 0）；tap/sw 的
+  `SineOpacity.enabled=true`、`FadeOutOpacity.enabled=false`；`translation_note`（可空）
+  同规则。`leave` 全翻转。
+- `Introduction.enter`：`timeout_add(→ sounds_play("builtin_data/launch/093.wav.mp3"),
+  1000)`；yf/bf 三件套 `scale_in`(`ScaleAnimation`)、`move_in`(`PositionAnimation`)、
+  首个 `OpacityAnimation` 各 `start(false)`；lt：`move_in` + `opacity`(按 id)。
+  `leave`：yf/bf/lt 三处 `fade_finish`（`start(true)` + `update(最后一段时长)`）+
+  yf/bf `scale_out.start(false)`。
+- `Introduction.update`：`prel_loaded && lt-opacity.done` ⇒ `GoToEntry`；
+  `GoToEntry.enter`：`sounds_play_bgm("bgm/main.wma.mp3")`；`update`：
+  `lt-opacity.done` ⇒ `node.layer().set({id: entry})` ⇒ `End`；`End.update` 空。
+- `on_prel_loaded`：置真 + `loading_anim` 次数 4、计数 0；`on_start`：`_prel_loaded =
+  ui_loaded`、`sounds_load(093)`、订阅 `on_prel_loaded`（`on_stop` 撤，守卫
+  `if (_cb_remover)`）；`on_resume`：`is_desktop()` ⇒ 隐 `desktop_hint` + `use(TapHints)`；
+  `on_key_down`/`on_click` → `on_tap`（**只在 TapHints 态**切 `Introduction`）。
+
+**端口纠偏（语义级）**：TS `UIProps.instance_setter` 是空函数（写 props 不落值）⇒
+`on_resume` 里五处 `props.x = node.find_child("x")!` 实为空操作，取值全部靠
+`instance_getter` 惰性解析；端口删掉 `find_child` 缓存成员，取值器直接
+`prop_instance` 现解析并**先 `ensure_props()`**（漏掉则惰性实例表为空、解析恒
+`NullTag`——首跑 `tap=u`/`yf=0` 的根因）。`find_child("desktop_hint")` 是真查子节点。
+
+**新宿主缝**：`ILfwHost::sounds_load(name, src)`（纯虚）与 `ILfwHost::is_desktop()`
+（默认 `false`）；台面 `FakeHost` 分别打 `snd_file|<name>|<src>` 与读 `desktop_flag`。
+
+**台面**：`lprel`（`on_prel_loaded` 回调 + `cb|on_prel_loaded|self`）、`desktop`、
+`lpl` 探针（`fsm/prel/la_t/la_c/tap/sw/note/yf/bf/lt/yfo/bfo/lto/ysi/yso/bso/dt`；
+`ysi`=yeonface `scale_in`、`yso`=yeonface `scale_out`、`bso`=bearface `scale_out`）。
+夹具坑：动画 `play` 位必须 0（否则 `on_start` 自动起步掩盖 `enter` 的 `start` ⇒
+组件 id 类变异假存活）；`scale_out` 1000ms 让 `yso/bso` 在转移后处于中途；
+`nset <nid> update` 只更新本节点组件（动画观察要在 `nset lp update` 递归后读）。
+
+**测试**：用例 `cases/lfw/launch_page.txt` **159 行**（trace 行数）；
+变异 `lfw_launch_page.mjs` **48 条（48/48 全杀）**（剔 1 条等效：`TAGS()` 列表）；
+全量差分 **251/251**。

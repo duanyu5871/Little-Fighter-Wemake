@@ -53,6 +53,13 @@ import { make_sum_info } from "../../../../src/LFW/ui/component/make_sum_info";
 import { FighterStatBar } from "../../../../src/LFW/ui/component/FighterStatBar";
 import { CameraCtrl } from "../../../../src/LFW/ui/component/CameraCtrl";
 import { CharMenuLogic } from "../../../../src/LFW/ui/component/CharMenu/CharMenuLogic";
+import { LaunchPage } from "../../../../src/LFW/ui/component/LaunchPageLogic";
+import { SineOpacity } from "../../../../src/LFW/ui/component/SineOpacity";
+import { FadeOutOpacity } from "../../../../src/LFW/ui/component/FadeOutOpacity";
+import { OpacityAnimation } from "../../../../src/LFW/ui/component/OpacityAnimation";
+import { ScaleAnimation } from "../../../../src/LFW/ui/component/ScaleAnimation";
+import { PositionAnimation } from "../../../../src/LFW/ui/component/PositionAnimation";
+import { ImgLoop } from "../../../../src/LFW/ui/component/ImgLoop";
 import { PlayerScore } from "../../../../src/LFW/ui/component/PlayerScore";
 import { summary_mgr } from "../../../../src/LFW/entity/SummaryMgr";
 import { FSM } from "../../../../src/LFW/base/FSM";
@@ -589,6 +596,10 @@ function install_ditto(): void {
     }
     play_with_load(): void {
       push("snd_load");
+    }
+    load(name: string, src: string): Promise<void> {
+      push(`snd_file|${name}|${src}`);
+      return Promise.resolve();
     }
     play_preset(name: unknown, x: unknown, y: unknown, z: unknown): void {
       push(`snd_preset|${renderValue(name)}|${renderValue(x)}|${renderValue(y)}|${renderValue(z)}`);
@@ -1780,6 +1791,58 @@ async function run_ops(): Promise<void> {
       const reason = parseValue(t, i);
       (lfw.callbacks as Rec).call("on_loading_failed", reason);
       push(`lfail|${renderValue(reason)}`);
+    } else if (op === "lprel") {
+      (lfw.callbacks as Rec).call("on_prel_loaded", lfw);
+      push("lprel");
+    } else if (op === "desktop") {
+      const on = nextKey() === "1";
+      (Ditto as Rec).IsDesktop = on;
+      push(`desktop|${on ? 1 : 0}`);
+    } else if (op === "lpl") {
+      const nid = nextKey();
+      const n = tnodes.get(nid)!;
+      let lp: LaunchPage | undefined;
+      for (const c of n.components) {
+        if (c instanceof LaunchPage) {
+          lp = c as LaunchPage;
+          break;
+        }
+      }
+      if (!lp) {
+        push(`lpl|${nid}|none`);
+      } else {
+        const rc = lp as Rec;
+        const props = rc["props"] as Rec;
+        const fsmv = ((rc["fsm"] as Rec | undefined)?.["state"] as Rec | undefined)?.["key"] ?? "";
+        const la = props["loading_anim"] as ImgLoop | undefined;
+        const flags = (node: UINode | undefined): string => {
+          if (!node) return "u";
+          const sc = node.find_component(SineOpacity);
+          const fc = node.find_component(FadeOutOpacity);
+          return `${sc ? (sc.enabled ? 1 : 0) : -1}${fc ? (fc.enabled ? 1 : 0) : -1}`;
+        };
+        const opa_done = (node: UINode | undefined): string => {
+          if (!node) return "u";
+          const c = node.find_component(OpacityAnimation);
+          return c ? (c.done ? "1" : "0") : "u";
+        };
+        const sc_end = (node: UINode | undefined, id: string): string => {
+          if (!node) return "u";
+          const c = node.find_component(ScaleAnimation, id);
+          return c ? (c.is_end ? "1" : "0") : "u";
+        };
+        const hint = n.find_child("desktop_hint");
+        push(
+          `lpl|${nid}|fsm=${fsmv}|prel=${rc["_prel_loaded"] ? 1 : 0}` +
+            `|la_t=${num(la ? la.anim.times : 0)}|la_c=${num(la ? la.anim.count : 0)}` +
+            `|tap=${flags(props["tap_to_launch"] as UINode)}|sw=${flags(props["sound_warning"] as UINode)}` +
+            `|note=${flags(props["translation_note"] as UINode | undefined)}` +
+            `|yf=${props["yeonface"] ? 1 : 0}|bf=${props["bearface"] ? 1 : 0}|lt=${props["long_text"] ? 1 : 0}` +
+            `|yfo=${opa_done(props["yeonface"] as UINode)}|bfo=${opa_done(props["bearface"] as UINode)}|lto=${opa_done(props["long_text"] as UINode)}` +
+            `|ysi=${sc_end(props["yeonface"] as UINode, "scale_in")}|yso=${sc_end(props["yeonface"] as UINode, "scale_out")}|bso=${sc_end(props["bearface"] as UINode, "scale_out")}` +
+            `|dt=${hint ? (hint.visible ? 1 : 0) : "u"}`
+        );
+      }
     } else if (op === "bcast") {
       lfw.broadcast(nextKey());
     } else if (op === "dataset") {

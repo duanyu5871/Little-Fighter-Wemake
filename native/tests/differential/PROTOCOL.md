@@ -5321,3 +5321,36 @@ harness op：
     `u"VOID"`（`"VOID"` 不是舞台 id，双路都落 `Defines.VOID_STAGE`；当前已是 VOID 时
     `same_ref` 又一起早退）；生存背景 id 匹配取反（结果被随后 `change_stage(st_srv)`
     覆盖，手工施加后整份 trace 一致）。
+
+### 6.9.177 LaunchPageLogic（`cases/lfw/launch_page.txt` 159 行；变异 48/48 全杀）
+
+- 新台面 op：
+  - `lprel`：`lfw.callbacks.call("on_prel_loaded", lfw)`（台面 `listen` 打
+    `cb|on_prel_loaded|self`；TS 侧要**传 `lfw`** 才有 `self` 后缀，否则与端口首分歧）。
+  - `desktop <0|1>`：置 `FakeHost.desktop_flag`（C++）/ `Ditto.IsDesktop`（TS），
+    `is_desktop()` 的唯一开关。
+  - `lpl <nid>`：LaunchPage 一行探针
+    `lpl|<nid>|fsm=|prel=|la_t=|la_c=|tap=|sw=|note=|yf=|bf=|lt=|yfo=|bfo=|lto=|ysi=|yso=|bso=|dt=`。
+    ⚠ `ysi` 读 **yeonface** 的 `scale_in`、`yso` 读 **yeonface** 的 `scale_out`、
+    `bso` 读 **bearface** 的 `scale_out`——单侧被摘时另一侧探针会掩盖，两边都要探。
+- 新宿主缝：`ILfwHost::sounds_load(name, src)`（纯虚；FakeHost 打
+  `snd_file|<name>|<src>`，`on_start` 直读）与 `ILfwHost::is_desktop()`（默认 `false`）。
+- ⚠ **`on_resume` 的 props 重绑定是空操作**（最大坑）：TS `UIProps` 的
+  `instance_setter` 是空函数 ⇒ `props.x = node.find_child("x")!` 不落值，取值始终走
+  `instance_getter` 惰性解析（`search_component/search_node` + parent lookup）。端口
+  **不要**缓存 `find_child` 结果；取值器一律 `prop_instance` 现解析，且必须先
+  `ensure_props()`（漏掉则 `_defined` 空、解析恒 `NullTag`，首跑 `tap=u` 的根因；
+  `node.find_child("desktop_hint")` 是**真**子节点查找，唯一例外）。
+- ⚠ 夹具：动画组件参数 `play` 位必须 `b 0`——`b 1` 时 `on_start` 就自动起步，`enter` 里
+  的 `start` 调用变异（组件 id 拼错类）会**假存活**；`scale_out` 时长拉到 1000ms，让
+  `yso/bso` 在转移后停在 `done()==false`（`is_end()==0`），否则「起点即终点」不可分辨。
+- ⚠ `nset <nid> update <dt>` 只更新该节点自己的组件；`nset lp update` 才递归子节点 ⇒
+  动画类观察一律在 `nset lp update` 之后读 `nrd <子 nid> pos/scale` 与 `lpl`。
+- ⚠ 装配：`ncomp` 需要组件数据参数（裸 `ncomp lp` 解析报错）；节点数据带 `component`
+  时对象计数要**含** component 对（5 个基础属性 + component = `o 6`）；动画组件项是
+  三对（`cls/id/args` ⇒ `o 3`，写成 `o 4` 会在下一项处 `bad value literal`）。
+- ⚠ 不可观察 / 有意不覆盖：`Introduction.enter` 的 `timeout_add(…,1000)` 与其回调
+  `sounds_play`（台面无 FakeTimeout，`timeout()` 槽空恒 no-op）；BGM **路径字符串**
+  （`FakeHost::sounds_play_bgm` 只吐 `snd_bgm` 不吐名字；只覆盖「调用发生与否」）；
+  `on_key_down` 里的 `on_tap()`（`nkey` 只在 End 态敲，本就不应推进）；`TAGS()`
+  列表（注册走 `component_registry.cpp` 的显式 tag，台面无消费者——已删 1 条等效）。

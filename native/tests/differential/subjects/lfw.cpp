@@ -27,6 +27,8 @@
 #include "lfw/ui/component/alignment.h"
 #include "lfw/ui/component/flex_item.h"
 #include "lfw/ui/component/img_loop.h"
+#include "lfw/ui/component/launch_page_logic.h"
+#include "lfw/ui/component/sine_opacity.h"
 #include "lfw/ui/component/players.h"
 #include "lfw/ui/component/label_button.h"
 #include "lfw/ui/component/player_ctrl_type.h"
@@ -1138,6 +1140,11 @@ class FakeHost : public lfw::ILfwHost {
     push("snd_play");
   }
   void sounds_play_with_load(const lfw::Value&) override { push("snd_load"); }
+  void sounds_load(const lfw::Value& name, const lfw::Value& src) override {
+    push("snd_file|" + to_ascii(lfw::to_string(name)) + "|" + to_ascii(lfw::to_string(src)));
+  }
+  bool desktop_flag = false;
+  bool is_desktop() const override { return desktop_flag; }
   void sounds_play_preset(const lfw::Value& name, const lfw::Value& x, const lfw::Value& y,
                           const lfw::Value& z) override {
     push("snd_preset|" + to_ascii(render_value(name)) + "|" + to_ascii(render_value(x)) + "|" +
@@ -2736,6 +2743,80 @@ bool run_comp_ops(lfw::LFW& lfw, FakeHost& host, const std::vector<std::string>&
     a.value = reason;
     lfw.callbacks.call(u"on_loading_failed", {a});
     push("lfail|" + to_ascii(render_value(reason)));
+  } else if (op == "lprel") {
+    lfw::LfwCallbackArgs a;
+    a.lfw = &lfw;
+    lfw.callbacks.call(u"on_prel_loaded", {a});
+    push("lprel");
+  } else if (op == "desktop") {
+    host.desktop_flag = t[i++] == "1";
+    push("desktop|" + std::string(host.desktop_flag ? "1" : "0"));
+  } else if (op == "lpl") {
+    const std::string nid = t[i++];
+    lfw::ui::UINode& n = *g_nodes.at(nid);
+    lfw::ui::LaunchPageLogic* p = nullptr;
+    for (lfw::ui::UIComponent* const c : n.components()) {
+      if (!lfw::is_class(c->clazz(), lfw::ui::LaunchPageLogic::class_tag())) continue;
+      p = static_cast<lfw::ui::LaunchPageLogic*>(c);
+      break;
+    }
+    if (p == nullptr) {
+      push("lpl|" + nid + "|none");
+    } else {
+      std::string line = "lpl|" + nid;
+      line += "|fsm=" + to_ascii(p->fsm() != nullptr && p->fsm()->state() != nullptr
+                                     ? lfw::to_string(p->fsm()->state()->key())
+                                     : std::u16string());
+      line += "|prel=" + std::string(p->prel_loaded() ? "1" : "0");
+      lfw::ui::ImgLoop* const la = p->loading_anim();
+      line += "|la_t=" + num(la != nullptr ? la->anim().times() : 0.0);
+      line += "|la_c=" + num(la != nullptr ? la->anim().count() : 0.0);
+      auto flags = [](lfw::ui::UINode* node) {
+        if (node == nullptr) return std::string("u");
+        int sine = -1;
+        int fade = -1;
+        if (lfw::ui::UIComponent* const c =
+                node->find_component(lfw::ui::SineOpacity::class_tag())) {
+          sine = c->enabled() ? 1 : 0;
+        }
+        if (lfw::ui::UIComponent* const c =
+                node->find_component(lfw::ui::FadeOutOpacity::class_tag())) {
+          fade = c->enabled() ? 1 : 0;
+        }
+        return std::to_string(sine) + std::to_string(fade);
+      };
+      auto opa_done = [](lfw::ui::UINode* node) {
+        if (node == nullptr) return std::string("u");
+        lfw::ui::UIComponent* const c =
+            node->find_component(lfw::ui::OpacityAnimation::class_tag());
+        return c != nullptr
+                   ? std::string(static_cast<lfw::ui::OpacityAnimation*>(c)->done() ? "1" : "0")
+                   : std::string("u");
+      };
+      auto sc_end = [](lfw::ui::UINode* node, const char16_t* id) {
+        if (node == nullptr) return std::string("u");
+        lfw::ui::UIComponent* const c =
+            node->find_component_by_id(lfw::ui::ScaleAnimation::class_tag(), id);
+        return c != nullptr
+                   ? std::string(static_cast<lfw::ui::ScaleAnimation*>(c)->is_end() ? "1" : "0")
+                   : std::string("u");
+      };
+      line += "|tap=" + flags(p->tap_to_launch());
+      line += "|sw=" + flags(p->sound_warning());
+      line += "|note=" + flags(p->translation_note());
+      line += "|yf=" + std::string(p->yeonface() != nullptr ? "1" : "0");
+      line += "|bf=" + std::string(p->bearface() != nullptr ? "1" : "0");
+      line += "|lt=" + std::string(p->long_text() != nullptr ? "1" : "0");
+      line += "|yfo=" + opa_done(p->yeonface());
+      line += "|bfo=" + opa_done(p->bearface());
+      line += "|lto=" + opa_done(p->long_text());
+      line += "|ysi=" + sc_end(p->yeonface(), u"scale_in");
+      line += "|yso=" + sc_end(p->yeonface(), u"scale_out");
+      line += "|bso=" + sc_end(p->bearface(), u"scale_out");
+      lfw::ui::UINode* const hint = n.find_child(u"desktop_hint");
+      line += "|dt=" + std::string(hint != nullptr ? (hint->visible() ? "1" : "0") : "u");
+      push(line);
+    }
   } else {
     return false;
   }

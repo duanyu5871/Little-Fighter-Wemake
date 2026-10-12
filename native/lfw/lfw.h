@@ -184,6 +184,8 @@ class ILfwHost {
     (void)lfw;
     return nullptr;
   }
+  // `I.Ditto.IsDesktop`（只有启动页用它：桌面端隐藏操作提示）。
+  virtual bool is_desktop() const { return false; }
   // `I.Ditto.Cache.forget(type, version)` / `I.Ditto.Zip.forget_stored(type, version)`
   virtual void cache_forget(const std::u16string& type, double version) = 0;
   virtual void zip_forget_stored(const std::u16string& type, double version) = 0;
@@ -226,6 +228,8 @@ class ILfwHost {
   virtual void sounds_play_preset(const Value& name, const Value& x, const Value& y,
                                   const Value& z) = 0;
   virtual void sounds_play_with_load(const Value& path) = 0;
+  // `lfw.sounds.load(name, src)`（启动页预载 093；`Sounds._sounds` 缓存/去重属平台侧）。
+  virtual void sounds_load(const Value& name, const Value& src) = 0;
   // `lfw.sounds.bgm()`（`null` ⇒ 空串）/ `lfw.sounds.is_random`
   virtual std::u16string sounds_bgm() = 0;
   virtual bool sounds_is_random() = 0;

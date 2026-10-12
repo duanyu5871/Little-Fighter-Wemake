@@ -12,6 +12,7 @@
 #include "lfw/ui/component/demo_mode_logic.h"
 #include "lfw/ui/component/difficulty_text.h"
 #include "lfw/ui/component/game_prepare_logic.h"
+#include "lfw/ui/component/launch_page_logic.h"
 #include "lfw/ui/component/alignment.h"
 #include "lfw/ui/component/ending_page_logic.h"
 #include "lfw/ui/component/extra_zip_text.h"
@@ -176,6 +177,7 @@ void regist_components() {
   regist_one<CharMenuHead>(u"CharMenuHead");
   regist_one<CharMenuLogic>(u"CharMenuLogic");
   regist_one<GamePrepareLogic>(u"GamePrepareLogic");
+  regist_one<LaunchPageLogic>(u"LaunchPage");
 }
 
 }

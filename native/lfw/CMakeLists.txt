@@ -275,6 +275,7 @@ add_library(lfw_core STATIC
   ui/component/char_menu.cpp
   ui/component/char_menu_head.cpp
   ui/component/game_prepare_logic.cpp
+  ui/component/launch_page_logic.cpp
   ui/component/fighter_stat_bar.cpp
   ui/component/player_score.cpp
   ui/component/player_score_cell.cpp
