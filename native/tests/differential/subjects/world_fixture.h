@@ -341,7 +341,7 @@ class FakeLfw : public lfw::LFW {
     push("h:release");
   }
 
-  std::vector<lfw::IWorldUi*> layer_uis() override { return {}; }
+  std::vector<lfw::ui::UINode*> layer_nodes() override { return {}; }
 
   double mt_range(double min_v, double max_v) override { return g_mt.range(min_v, max_v); }
 

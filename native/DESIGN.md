@@ -11541,10 +11541,41 @@ coverage OK；宿主 prel 300 = `7335aa25f4e1ce86`、stage 1 900 = `e4a943729204
 coverage OK；宿主 prel 300 = `7335aa25f4e1ce86`、stage 1 900 = `e4a9437292047044`、`--vs` 600 =
 `f29d3bb1ea330c32` —— 三条**逐字节不变**。
 
-### 149.8 剩下的同类缝
+### 149.8 缝家族退役（7/7）：`IUiLayers` + `IWorldUi`（切片 4CT / ck2）
 
-`IUiLayers`(6) / `IWorldUi`(2)（ck2：真实现 `ui::UILayers`，卡在 `world` subject 的 `h:ui=` 覆盖
-口径，要用户定夺）；`IStageEntity`(18) / `IItemEntity`(22)（仿实体，真实现就是 `Entity`，适配器同
-4CR 的 `StageEntityView` / `EntityItem`）；`IKeysLfw`(3) **没有真实现** ⇒ 属待移植而不是退役。
-A 组（`ICameraWorld` / `IWorldUi` / `IStageWorld` / `IItemHost` / `IDatMgrHost`）到此全部退完。
+这一族是「A 组」最后的两条，也是唯一需要动**真类**（而不是只换持有类型）的一刀：
+
+- `IWorldUi`(2 面：`disabled` / `update`) 的真实现是 `ui::UILayers` 里那个私有适配器
+  `UILayers::UiAdapter`（把 `ui::UINode` 包成缝）。删缝 + 删适配器 ⇒ `World::update_ui` 直接遍历
+  **真 `UINode`**（这正是 TS 的写法：`lfw.layers.at(i)?.ui` 就是节点本身）。
+- `IUiLayers`(6 面：`push` / `set_page` / `push_page` / `dispose` / `ui` / `layer_uis`) 的真实现就是
+  `ui::UILayers`。删缝 ⇒ `UILayers` 变成普通具体类（六面留在本类上，`layer_uis()` 改名
+  `layer_nodes()` 并直接返回 `ui::UINode*`）；`LFW::_layers`（`_layers_own` 的别名）删掉，
+  `ui_layers()` 直接 `_layers_own.get()`、`LFW::layer_uis()` → `layer_nodes()`。
+- `UINode::disabled()` / `update(double)` 加 **`virtual`**：不是为了让真实现走虚表，而是台面要脚本化
+  这两条（旧假件 `IWorldUi` 就是这两面）。全仓 `ui/*.h` 里那些 `void update(double dt) override;`
+  覆写的是 `UIComponent::update`，与 `UINode` 无关 ⇒ 加 `virtual` 不改变任何既有行为。
+- ⚠ **踩到的坑（干净构建才暴露）**：`UILayer` 的 `_pages` / `_trash` 是 `unique_ptr<UINode>`，而
+  `uilayer.h` 只前置声明 `UINode` ⇒ `~UILayer` 的隐式实例化要完整类型。以前这条被缝的排列掩盖，
+  本刀把它逼出来（`error C2027 + static_assert 'can't delete an incomplete type'`，一堆 `lfw_core`
+  TU 一起报）⇒ 给 `UILayer` 加**声明在头、定义在 .cpp** 的析构函数；另 `scroll_view.cpp` 用
+  `ui_layers()->ui()` 需要 `ui::UILayers` 完整类型 ⇒ 补 `#include "lfw/ui/uilayer.h"`。
+- 台面 `subjects/world.cpp` 的 `FakeUi` 改成**派生真 `lfw::ui::UINode`**（构造体写在 `g_lfw` 之后，
+  同 4CS 的 C2065 教训），`FakeLfw` 的 `layer_uis()` → `layer_nodes()`；`world_fixture.h` 的假 `lfw`
+  同样改名。真 `UINode` 的 ctor 不打印、不抽随机（只读字段）⇒ 台面输出逐字节不变。
+- 变异锚点：`world.mjs` 2 条（`IWorldUi* const ui = uis[...]`）+ `lfw.mjs` 1 条（`_layers->set_page`）
+  同步更新。
+
+实测（纯重构）：差分 **255/255**；锚点 **9764 ok / 0 bad**；include 836 clean / 0 failed / 9 warnings；
+coverage OK；宿主 prel 300 = `7335aa25f4e1ce86`、stage 1 900 = `e4a9437292047044`、`--vs` 600 =
+`f29d3bb1ea330c32` —— 三条**逐字节不变**。
+
+### 149.9 剩下的同类缝
+
+`IStageEntity`(18) / `IItemEntity`(22)（仿实体，真实现就是 `Entity`，适配器同 4CR 的
+`StageEntityView` / `EntityItem`）；`IKeysLfw`(3) **没有真实现** ⇒ 属待移植而不是退役。
+A 组（`ICameraWorld` / `IWorldUi` / `IStageWorld` / `IItemHost` / `IDatMgrHost`）与 B 组的
+`IUiLayers` 到此全部退完：`IUiLayers` / `IWorldUi` / `IStageWorld` / `IItemHost` / `IDatMgrHost` /
+`ICameraWorld` / `IWorldLfw` / `IStageLfw` / `IHelperLfw` / `IUiHelperLfw` / `IEntityHost` /
+`IBuffEntity` / `IStateEntity` 只剩两组仿实体在册。
 

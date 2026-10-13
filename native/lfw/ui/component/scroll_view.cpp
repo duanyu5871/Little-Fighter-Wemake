@@ -11,6 +11,7 @@
 #include "lfw/keys.h"
 #include "lfw/ui/component/slider_handle.h"
 #include "lfw/ui/instance_ref.h"
+#include "lfw/ui/uilayer.h"
 #include "lfw/ui/uinode.h"
 #include "lfw/utils/is_class.h"
 #include "lfw/utils/math/base.h"
@@ -155,7 +156,7 @@ UINode* ScrollView::scrollbar_thumb() {
   const std::u16string sid = props_holder.str(u"scrollbar_thumb").value_or(u"scroll_thumb");
   UINode* found = node.root().search_node(sid);
   if (found == nullptr) {
-    IUiLayers* const layers = lfw().ui_layers();
+    lfw::ui::UILayers* const layers = lfw().ui_layers();
     UINode* const ui_root = layers != nullptr ? layers->ui() : nullptr;
     if (ui_root != nullptr) found = ui_root->search_node(sid);
   }

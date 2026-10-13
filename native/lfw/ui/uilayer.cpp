@@ -127,17 +127,9 @@ void UILayer::pop(const UIPopPageOpts& opts) {
   if (callbacks.on_pop) callbacks.on_pop(ui(), poppeds, *this);
 }
 
-class UILayers::UiAdapter : public IWorldUi {
- public:
-  explicit UiAdapter(UINode* node) : _node(node) {}
-  bool disabled() const override { return _node->disabled(); }
-  void update(double dt) override { _node->update(dt); }
-
- private:
-  UINode* _node;
-};
-
 UILayers::UILayers(LFW& lfw) : _lfw(&lfw) {}
+
+UILayer::~UILayer() = default;
 
 UILayer* UILayers::bottom() const { return _all.empty() ? nullptr : _all.front().get(); }
 
@@ -198,15 +190,13 @@ void UILayers::dispose() {
 
 UINode* UILayers::ui() { return ui_top(); }
 
-std::vector<IWorldUi*> UILayers::layer_uis() {
-  _adapters.clear();
-  std::vector<IWorldUi*> ret;
+std::vector<UINode*> UILayers::layer_nodes() {
+  std::vector<UINode*> ret;
   for (const std::unique_ptr<UILayer>& l : _all) {
     if (l == nullptr) continue;
     UINode* const u = l->ui();
     if (u == nullptr) continue;
-    _adapters.push_back(std::make_unique<UiAdapter>(u));
-    ret.push_back(_adapters.back().get());
+    ret.push_back(u);
   }
   return ret;
 }

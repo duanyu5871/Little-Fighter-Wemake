@@ -185,7 +185,7 @@ export default {
       file: "native/lfw/lfw.cpp",
       from: `    Object opts;
     opts.set(u"id", found ? id : Value());
-    _layers->set_page(Value(std::make_shared<Object>(opts)), 0.0);`,
+    _layers_own->set_page(Value(std::make_shared<Object>(opts)), 0.0);`,
       to: `    Object opts;
     opts.set(u"id", found ? id : Value());
     (void)opts;`,

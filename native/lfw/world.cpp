@@ -23,6 +23,7 @@
 #include "lfw/defines/weapon_type.h"
 #include "lfw/entity/entity_ref.h"
 #include "lfw/entity/entity_type_check.h"
+#include "lfw/ui/uinode.h"
 #include "lfw/utils/container_help/field_or.h"
 #include "lfw/utils/math/base.h"
 #include "lfw/utils/math/clamp.h"
@@ -838,9 +839,10 @@ const Vector3& World::restrict(Entity& e) {
 
 void World::update_ui() {
   const double uidt = round_float(16.66666 * to_number(dataset.get(u"atom_time")));
-  const std::vector<IWorldUi*> uis = lfw_->layer_uis();
+  // 切片 4CT（ck2）：`IWorldUi` 退役 ⇒ 直接走 `lfw.layers.all[i].ui` 那个真 `UINode`。
+  const std::vector<ui::UINode*> uis = lfw_->layer_nodes();
   for (size_t i = uis.size(); i > 0; --i) {
-    IWorldUi* const ui = uis[i - 1];
+    ui::UINode* const ui = uis[i - 1];
     if (ui == nullptr || ui->disabled()) continue;
     ui->update(uidt);
   }

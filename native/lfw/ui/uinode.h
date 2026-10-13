@@ -185,7 +185,9 @@ class UINode {
   void set_outline_color(Value v) { _outlineColor = std::move(v); }
   void set_outline_width(Value v) { _outlineWidth = std::move(v); }
   void set_outline_alpha(Value v) { _outlineAlpha = std::move(v); }
-  bool disabled() const;
+  // 切片 4CT（ck2）：`IWorldUi` 退役 ⇒ `World::update_ui` 直接遍历真 `UINode`。这两条改
+  // `virtual` 只为台面脚本化（覆写体就是旧假件的行为，一字不改）。
+  virtual bool disabled() const;
   bool self_disabled() const { return _disabled; }
   double global_opacity() const;
   double opacity() const;
@@ -261,7 +263,7 @@ class UINode {
   static std::unique_ptr<UINode> create(LFW& lfw, const Value& info, UINode* parent = nullptr,
                                         UILayer* layer = nullptr);
 
-  void update(double dt);
+  virtual void update(double dt);
 
   // `set_disabled`（TS 返回 this）。
   UINode& set_disabled(bool v);

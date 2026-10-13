@@ -10,8 +10,6 @@
 
 namespace lfw {
 
-class IWorldUi;
-
 namespace ui {
 
 class UINode;
@@ -45,6 +43,9 @@ struct UIPushPageOpts {
 class UILayer {
  public:
   UILayer(LFW& lfw, double index);
+  // 切片 4CT：定义在 .cpp —— `_pages` / `_trash` 里的 `unique_ptr<UINode>` 需要完整类型才能析构
+  // （本头只前置声明 `UINode`）。
+  ~UILayer();
 
   LFW& lfw() const { return *_lfw; }
   double index() const { return _index; }
@@ -70,11 +71,12 @@ class UILayer {
   std::vector<std::unique_ptr<UINode>> _trash;
 };
 
-// TS `ui/UILayer.ts` 的 `UILayers`（实现 `IUiLayers` 缝：`LFW::layers` 的接线面）。
+// TS `ui/UILayer.ts` 的 `UILayers`（切片 4CT / ck2：`IUiLayers` 缝退役 ⇒ 本类就是
+// `LFW::layers` 的真类型，`push/set_page/push_page/dispose/ui` 六面留在本类上）。
 //
 // 偏差：TS 的非整数/负数层号会挂在数组对象属性上（不进 `all`、不计长度）；端口把这些层
 // 放进 `_loose`（同样不进 `all`），但 `at()` 只认非负整数下标（与 JS 数组下标一致）。
-class UILayers : public IUiLayers {
+class UILayers {
  public:
   explicit UILayers(LFW& lfw);
 
@@ -89,21 +91,20 @@ class UILayers : public IUiLayers {
   UILayer& ensure(double index);
   UILayer* at(double index);
 
-  // `IUiLayers`
-  void push() override;
-  void set_page(const Value& opts, double index) override;
-  void push_page(const Value& opts, double index) override;
-  void dispose() override;
-  UINode* ui() override;
-  std::vector<IWorldUi*> layer_uis() override;
+  // 原 `IUiLayers` 的六面（4CT 起就是本类自己的方法）。
+  void push();
+  void set_page(const Value& opts, double index);
+  void push_page(const Value& opts, double index);
+  void dispose();
+  UINode* ui();
+  // `LFW::layer_nodes()` 的面：各层的 `ui`（洞与无页的层跳过）。
+  std::vector<UINode*> layer_nodes();
 
  private:
-  class UiAdapter;
   static UIPushPageOpts to_opts(const Value& opts);
   LFW* _lfw = nullptr;
   std::vector<std::unique_ptr<UILayer>> _all;
   std::vector<std::unique_ptr<UILayer>> _loose;
-  mutable std::vector<std::unique_ptr<UiAdapter>> _adapters;
 };
 
 }  // namespace ui

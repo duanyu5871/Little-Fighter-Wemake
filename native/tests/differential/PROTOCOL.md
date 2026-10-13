@@ -5639,3 +5639,14 @@ harness op：
   声明即可，定义仍在后面。
 - `Stage` 的 ctor 有构造期副作用（`change_bg` ⇒ `world.bg()`/`set_bg`/`datas_backgrounds_find`，
   以及 `new_team()`）⇒ 日志由 `main` 开头的 `g_log.clear()` 清掉、`team_counter` 复位（见 6.9.191）。
+
+### 6.9.193 `IUiLayers` + `IWorldUi` 退役 ⇒ `World::update_ui` 遍历真 `UINode`（4CT）
+
+- `IUiLayers`(6 面) / `IWorldUi`(2 面) 都已删除：`ui::UILayers` 现在是普通具体类（六面留在本类上），
+  `LFW::ui_layers()` 直接给真 `ui::UILayers*`。
+- 台面要脚本化「每层的 ui」：**派生真 `lfw::ui::UINode`**（见 `subjects/world.cpp` 的 `FakeUi`）
+  并覆写 `disabled()` / `update(double)`（这两条为台面加了 `virtual`）——不要再自己造「只有这两面的
+  小对象」。假 `lfw` 里覆写的是 `std::vector<lfw::ui::UINode*> layer_nodes()`（旧 `layer_uis()`）。
+- ⚠ `UILayer` 的析构**定义在 `uilayer.cpp`**：头里只前置声明 `UINode`，而 `_pages` / `_trash` 是
+  `unique_ptr<UINode>` ⇒ 头里隐式析构会撞 `can't delete an incomplete type`。新增「持有
+  `unique_ptr<UINode>`」的头时同样要这么处理。

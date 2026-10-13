@@ -1,7 +1,7 @@
 // `World`（`native/lfw/world.h`）的 C++ 侧台面。TS 侧是 `subjects/world.ts`，op 一一对应。
 //
-// 用例：`cases/world/*.txt`。假件（4CO：`IWorldLfw` 退役 ⇒ 假 `lfw` 派生真 `lfw::LFW`）：`IWorldRenderer`、
-// `IWorldUi`、`IClock`（`Ditto.Clock` / `Ditto.Render`）。实体是真的 `Entity`（切片 4CJ 后
+// 用例：`cases/world/*.txt`。假件（4CO：`IWorldLfw` 退役 ⇒ 假 `lfw` 派生真 `lfw::LFW`）：`IWorldRenderer`、真
+// `ui::UINode`（4CT 起 `IWorldUi` 退役）、`IClock`（`Ditto.Clock` / `Ditto.Render`）。实体是真的 `Entity`（切片 4CJ 后
 // 直接持有真 `lfw::World`），`step` 那一半（实体推进 / 碰撞配对 / 相机目标）在下一刀。
 #include <cmath>
 #include <cstdio>
@@ -28,6 +28,7 @@
 #include "lfw/entity/entity_ref.h"
 #include "lfw/player_info.h"
 #include "lfw/stage/expressions.h"
+#include "lfw/ui/uinode.h"
 #include "lfw/state/states.h"
 #include "lfw/utils/container_help/field_or.h"
 #include "lfw/utils/math/mersenne_twister.h"
@@ -197,9 +198,12 @@ class FakeRenderer : public lfw::IWorldRenderer {
 
 FakeRenderer g_renderer;
 
-class FakeUi : public lfw::IWorldUi {
+// 切片 4CT（ck2）：`IWorldUi` 退役 ⇒ 这个假件改成**派生真 `lfw::ui::UINode`**（`World::update_ui`
+// 现在直接遍历真节点）；覆写面一字不改 ⇒ 语义等价。构造函数体写到 `g_lfw` 之后（C2065 教训）。
+class FakeUi : public lfw::ui::UINode {
  public:
-  FakeUi(int index, bool disabled) : _index(index), _disabled(disabled) {}
+  FakeUi(int index, bool disabled);
+
   bool disabled() const override { return _disabled; }
   void update(double dt) override {
     push("h:ui=" + std::to_string(_index) + ":" + num(dt));
@@ -484,8 +488,8 @@ class FakeLfw : public lfw::LFW {
     (void)cmd;
     (void)enabled;
   }
-  std::vector<lfw::IWorldUi*> layer_uis() override {
-    std::vector<lfw::IWorldUi*> out;
+  std::vector<lfw::ui::UINode*> layer_nodes() override {
+    std::vector<lfw::ui::UINode*> out;
     for (const std::unique_ptr<FakeUi>& ui : g_uis) out.push_back(ui.get());
     return out;
   }
@@ -547,6 +551,9 @@ class FakeLfw : public lfw::LFW {
 };
 
 FakeLfw g_lfw;
+
+FakeUi::FakeUi(int index, bool disabled)
+    : lfw::ui::UINode(g_lfw, lfw::Value()), _index(index), _disabled(disabled) {}
 
 // ---------------------------------------------------------------- 摘要
 

@@ -397,9 +397,9 @@ export default {
       note: "World: update_ui 正序遍历图层",
       file: "native/lfw/world.cpp",
       from: `  for (size_t i = uis.size(); i > 0; --i) {
-    IWorldUi* const ui = uis[i - 1];`,
+    ui::UINode* const ui = uis[i - 1];`,
       to: `  for (size_t i = 0; i < uis.size(); ++i) {
-    IWorldUi* const ui = uis[i];`,
+    ui::UINode* const ui = uis[i];`,
     },
     {
       note: "World: update_ui 不跳过 disabled 的图层",

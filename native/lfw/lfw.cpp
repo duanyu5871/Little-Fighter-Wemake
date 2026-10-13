@@ -250,7 +250,6 @@ LFW::LFW(ILfwHost& host, bool dev) : host_(&host), zips_(), _mt(host.now()) {
   host_->pointings_add_ui_input(*this);
   // `this.layers = new UI.UILayers(this); this.layers.push().callback.add({...})`
   _layers_own = std::make_unique<ui::UILayers>(*this);
-  _layers = _layers_own.get();
   {
     ui::UILayer& bottom = _layers_own->push_layer();
     bottom.callbacks.on_set = [this](ui::UINode* curr, ui::UINode* prev, ui::UILayer&) {
@@ -572,7 +571,7 @@ void LFW::dispose() {
   host_->sounds_dispose();
   host_->keyboard_dispose();
   host_->pointings_dispose();
-  _layers->dispose();
+  _layers_own->dispose();
   std::vector<LFW*>& list = instances_ref();
   for (size_t i = 0; i < list.size();) {
     if (list[i] == this) list.erase(list.begin() + static_cast<std::ptrdiff_t>(i));
@@ -591,7 +590,7 @@ void LFW::goto_next_stage() {
   if (!truthy(next)) return;
   const std::u16string* const next_s = as_str(next);
   if (next_s != nullptr && *next_s == u"end") {
-    _layers->set_page(Value(std::make_shared<Object>([] {
+    _layers_own->set_page(Value(std::make_shared<Object>([] {
                        Object o;
                        o.set(u"id", Value(std::u16string(u"ending_page")));
                        return o;
@@ -916,9 +915,9 @@ const std::vector<Value>& LFW::fighters() { return datas_->fighters(); }
 
 const std::vector<Value>& LFW::weapons() { return datas_->weapons(); }
 
-void LFW::push_page(const Value& page, double stack_idx) { _layers->push_page(page, stack_idx); }
+void LFW::push_page(const Value& page, double stack_idx) { _layers_own->push_page(page, stack_idx); }
 
-void LFW::set_page(const Value& page, double stack_idx) { _layers->set_page(page, stack_idx); }
+void LFW::set_page(const Value& page, double stack_idx) { _layers_own->set_page(page, stack_idx); }
 
 Value LFW::datas_backgrounds_find(const Value& id) {
   const Value* const found = datas_->find_background(id);
@@ -1043,7 +1042,7 @@ void LFW::cheat_changed(const std::u16string& cmd, bool enabled) {
   callbacks.call(u"on_cheat_changed", {args});
 }
 
-std::vector<IWorldUi*> LFW::layer_uis() { return _layers->layer_uis(); }
+std::vector<ui::UINode*> LFW::layer_nodes() { return _layers_own->layer_nodes(); }
 
 double LFW::mt_range(double min_v, double max_v) { return _mt.range(min_v, max_v); }
 
@@ -1568,7 +1567,7 @@ bool LFW::load(const std::vector<ZipItem>& arg1, std::u16string& error) {
     }
     Object opts;
     opts.set(u"id", found ? id : Value());
-    _layers->set_page(Value(std::make_shared<Object>(opts)), 0.0);
+    _layers_own->set_page(Value(std::make_shared<Object>(opts)), 0.0);
   }
 
   bool failed = false;

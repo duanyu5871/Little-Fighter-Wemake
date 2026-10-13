@@ -57,14 +57,6 @@ struct WorldCallbackArgs {
 };
 using WorldCallbacks = CallbacksT<WorldCallbackArgs>;
 
-// `lfw.layers.at(i)?.ui`（`World::update_ui`）：UI 组件未移植 ⇒ 宿主给这一面。
-class IWorldUi {
- public:
-  virtual ~IWorldUi() = default;
-  virtual bool disabled() const = 0;
-  virtual void update(double dt) = 0;
-};
-
 // `this.renderer`（TS `Ditto.WorldRender`）：渲染未移植 ⇒ 宿主给这一面。
 class IWorldRenderer {
  public:

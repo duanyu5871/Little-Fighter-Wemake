@@ -46,7 +46,6 @@ class EntityItem;
 }  // namespace stage
 
 class LFW;
-class IUiLayers;
 
 // TS `ILFWCallback` 的端口替身：每个回调的参数塞进这个包（同 `WorldCallbackArgs` 先例）。
 struct LfwCallbackArgs {
@@ -131,20 +130,6 @@ struct LfwSoundsCallback {
   }
   virtual void on_bgm_muted_changed(bool muted) { (void)muted; }
   virtual void on_sound_muted_changed(bool muted) { (void)muted; }
-};
-
-// `UI.UILayers` 的缝（UI 层未移植）。`push()` 时宿主自己把 `on_set/on_push/on_pop` 接到
-// `LFW::ui_changed(curr, prev)`（TS 里这段接线注册在 `LFW.ctor` 里那个 layer callback 上）。
-class IUiLayers {
- public:
-  virtual ~IUiLayers() = default;
-  virtual void push() = 0;
-  virtual void set_page(const Value& opts, double index) = 0;
-  virtual void push_page(const Value& opts, double index) = 0;
-  virtual void dispose() = 0;
-  virtual ui::UINode* ui() = 0;
-  // `layers.all` 里各层的 `ui`（`World::update_ui` 的倒序遍历）。
-  virtual std::vector<IWorldUi*> layer_uis() = 0;
 };
 
 // TS 的 `I.Ditto`（宿主平台包）在 LFW 里用到的那一面。方法注释逐一对应一条 TS 表达式。
@@ -369,7 +354,8 @@ class LFW : public IResourcesHost,
 
   I18N& i18n() { return _i18n; }
   ILfwHost& host() { return *host_; }
-  IUiLayers* ui_layers() const { return _layers; }
+  // `this.layers`（切片 4CT / ck2：`IUiLayers` 退役 ⇒ 直接给真 `ui::UILayers`）。
+  ui::UILayers* ui_layers() const { return _layers_own.get(); }
 
   virtual MersenneTwister& mt_ref();
   bool ui_loaded() const { return _ui_loaded; }
@@ -568,7 +554,8 @@ class LFW : public IResourcesHost,
   virtual Value datas_weapons_of_group(const Value& group);
   virtual void entities_add(const Value& data, double num);
   virtual void cheat_changed(const std::u16string& cmd, bool enabled);
-  virtual std::vector<IWorldUi*> layer_uis();
+  // `lfw.layers.at(i)?.ui` 那一列（`World::update_ui` 倒序遍历）。
+  virtual std::vector<ui::UINode*> layer_nodes();
   virtual double mt_range(double min_v, double max_v);
   virtual Value find_bot(const std::u16string& bot_id) const;
   virtual buff::Buff* create_buff(const std::u16string& kind, const std::u16string& id);
@@ -597,7 +584,6 @@ class LFW : public IResourcesHost,
   PlayerInfo* find_player(const std::u16string& player_id) const;
 
   ILfwHost* host_ = nullptr;
-  IUiLayers* _layers = nullptr;
   // `this.layers = new UI.UILayers(this)`（4AQ：不再经宿主缝；本对象持有）。
   std::unique_ptr<ui::UILayers> _layers_own;
   I18N _i18n;
