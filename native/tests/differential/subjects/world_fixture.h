@@ -124,8 +124,34 @@ lfw::Entity* new_fake_entity(World& world, const Value& data) {
   return raw;
 }
 
-class FakeLfw : public lfw::IWorldLfw {
+// 台面宿主（切片 4CM）：`lfw::host::HeadlessHost` 的静音版 —— `warn/error/log/debug_msg` 不打印
+// （case 的 stdout 是差分比较对象，不能被宿主日志污染），其它一字不改。
+class StubHost : public lfw::host::HeadlessHost {
  public:
+  StubHost() : lfw::host::HeadlessHost({}, false) {}
+
+  void warn(const std::vector<Value>&) override {}
+  void error(const std::vector<Value>&) override {}
+  void log(const std::vector<Value>&) override {}
+  void debug_msg(const std::vector<Value>&) override {}
+};
+
+inline StubHost& shared_stub_host() {
+  static StubHost h;
+  return h;
+}
+
+// 台面共享的假 `lfw`。
+//
+// 切片 4CM：它原来是 `IWorldLfw` 的实现（那是「`LFW` 未移植」年代的窄缝），现在**派生真
+// `lfw::LFW`**（宿主用上面的静音 headless 宿主），只覆写各用例脚本化的那些面 ——
+// 不覆写的面走 `LFW` 的真实现。这样做的直接理由：`ui::UILayers` / `DatMgr` / `LFW` 自身的
+// 真实现都以**具体 `LFW&`** 为入参，假件造不出来就退不掉那几族缝（DESIGN §148/§149）。
+// 覆写的面一律**不调真基类**（复现原来假件的语义），因此行为与改之前逐字节一致。
+class FakeLfw : public lfw::LFW {
+ public:
+  FakeLfw() : lfw::LFW(shared_stub_host(), false) {}
+
   // ---- `IStageLfw` ----
   lfw::MersenneTwister* mt() override { return &g_mt; }
 
@@ -504,24 +530,7 @@ inline TestWorld& shared_world() {
 // ---- 真 `LFW` 的台面通路（切片 4CL）----
 //
 // 为什么要有：`ui::UILayers` / `DatMgr` / 整个 `IWorldLfw` 的真实现都以**具体 `LFW&`** 为入参，
-// 台面造不出 `LFW` 就退不掉那些缝（4CK-2 就是这么被卡住的）。这里复用 headless 宿主
-// （`lfw::host::HeadlessHost`，本就是 `ILfwHost` 的最小可用实现），只把它的打印静音 ——
-// case 的输出是差分的比较对象，不能被宿主日志污染。
-class StubHost : public lfw::host::HeadlessHost {
- public:
-  StubHost() : lfw::host::HeadlessHost({}, false) {}
-
-  void warn(const std::vector<Value>&) override {}
-  void error(const std::vector<Value>&) override {}
-  void log(const std::vector<Value>&) override {}
-  void debug_msg(const std::vector<Value>&) override {}
-};
-
-inline StubHost& shared_stub_host() {
-  static StubHost h;
-  return h;
-}
-
+// 台面造不出 `LFW` 就退不掉那些缝（4CK-2 就是这么被卡住的）。宿主用上面那个静音 headless 宿主。
 // 进程内共享的真 `LFW`（首次用到才构造，`HeadlessHost({}, false)` 不读盘）。
 inline lfw::LFW& shared_real_lfw() {
   static lfw::LFW l(shared_stub_host());

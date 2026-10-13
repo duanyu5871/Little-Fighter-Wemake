@@ -11351,3 +11351,25 @@ coverage OK；宿主 prel 300 = `7335aa25f4e1ce86`、`--vs` 600 = `f29d3bb1ea330
   `lfw` 改成**派生真 `LFW`**（用「覆写原假件那几个面、对它们不调真基类」的复现法，同 §147.2 的
   相机台面）。这也是 `player_info.cpp` 用 `IPlayerInfoHost` 桩住平台边界那套范式的同一招。
 - 仍然独立的一条：**`IKeysLfw` 没有真实现**（`LFW` 没接 keys 面）⇒ 它是「待移植」，不是退役。
+
+---
+
+## 149. 缝家族退役（2/5）：跨过 `LFW` 这座桥（切片 4CM 起）
+
+### 149.1 4CM：台面假 `lfw` 变成真 `LFW` 的派生类
+
+`IWorldLfw` / `IStageLfw` / `IHelperLfw` / `IUiHelperLfw` 这一族（以及靠它们才退得掉的
+`IUiLayers` / `IWorldUi` / `IDatMgrHost`）有一个共同前提：**真实现都以具体 `LFW&` 为入参**。
+所以退役的第一步是让**台面也能造出 `LFW`**：
+
+- 复用端口现成的 `host::HeadlessHost`（`ILfwHost` 的最小可用实现，4CL 已经把它链接进测试目标）；
+- `fx::StubHost : host::HeadlessHost` 只静音 `warn/error/log/debug_msg`（case 的 stdout 是差分
+  比较对象）；
+- `fx::FakeLfw`（258 行、51 个覆写）由 `: lfw::IWorldLfw` 改为 **`: lfw::LFW`**（宿主 =
+  `fx::shared_stub_host()`），覆写面**一字不改**、一律不调真基类 ⇒ 语义与改前等价。
+
+测下来正是如此：差分 **255/255**、宿主摘要（prel 300 = `7335aa25f4e1ce86`、`--vs` 600 =
+`f29d3bb1ea330c32`）**逐字节不变**，一次编过（51 个覆写的签名与 `LFW` 的虚函数完全对上）。
+
+⚠ 一个排查记录：验证时见过一次 `prel 300 warns=1`（平时 0），重跑同命令即恢复 0 —— 是加载期
+`DatMgr::_add_obj id duplicated` 那种宿主告警的**瞬时**表现（同 digest），不是本刀引入的。
