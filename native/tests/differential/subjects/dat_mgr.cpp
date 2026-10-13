@@ -20,6 +20,7 @@
 #include "lfw/zip_mgr.h"
 
 #include "trace_util.h"
+#include "world_fixture.h"
 
 namespace {
 
@@ -193,8 +194,16 @@ class FakeHost : public lfw::IResourcesHost {
 
 FakeHost g_host;
 
-class FakeMgrHost : public lfw::loader::IDatMgrHost {
+// `DatMgr` 的假宿主（4CQ：`IDatMgrHost` 退役 ⇒ 派生真 `lfw::LFW`）。
+// ⚠ `LFW` 的构造会跑 `regist_buffs()` / `regist_components()`（表级单次登记）⇒ 清空，
+// 否则 dump 全局表的用例会漂移（同 `fx::FakeLfw` 的做法）。
+class FakeMgrHost : public lfw::LFW {
  public:
+  FakeMgrHost() : lfw::LFW(fx::shared_stub_host(), false) {
+    lfw::Factory::buff_groups().clear();
+    lfw::Factory::buff_creators().clear();
+    lfw::Factory::components().clear();
+  }
   lfw::Resources& resources() override { return *g_resources; }
   lfw::MersenneTwister& mt_ref() override { return g_mt; }
   void load_img(const std::u16string& path) override {

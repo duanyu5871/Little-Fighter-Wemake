@@ -306,12 +306,11 @@ class ILfwHost {
 // TS `src/LFW/LFW.ts`（门面）。
 //
 // 本刀（4AB）范围：静态面 / 构造 / 玩家 / 按键 / 作弊码 / 命令与广播 / 语言 / 生存排行字段 /
-// 宿主缝实现（`IKeysLfw` / `IDatMgrHost` / `IResourcesHost` / `IPlayerInfoHost` /
-// `IDatMgrHost` / `IResourcesHost` / `IPlayerInfoHost`）/ `end_testers` 编译。
+// 宿主缝实现（`IKeysLfw` / `IResourcesHost` / `IPlayerInfoHost` /
+// `IResourcesHost` / `IPlayerInfoHost`）/ `end_testers` 编译。
 // **下一刀（4AC）**：`load` / `load_data` / `load_ui` / `load_builtin_ui` / `_load_zip_*` /
 // `_pick_zip_info` / `collect_data_infos` / `dispose_guard` 等加载流程。
-class LFW : public loader::IDatMgrHost,
-            public IResourcesHost,
+class LFW : public IResourcesHost,
             public IKeysLfw,
             public IPlayerInfoHost,
             public LfwKeyboardCallback {
@@ -372,7 +371,7 @@ class LFW : public loader::IDatMgrHost,
   ILfwHost& host() { return *host_; }
   IUiLayers* ui_layers() const { return _layers; }
 
-  MersenneTwister& mt_ref() override;
+  virtual MersenneTwister& mt_ref();
   bool ui_loaded() const { return _ui_loaded; }
   bool loading() const { return _loading; }
   bool playable() const { return _playable; }
@@ -466,7 +465,7 @@ class LFW : public loader::IDatMgrHost,
   void set_lang(const Value& lang);
   Value canonical_lang(const std::optional<std::u16string>& lang = std::nullopt) const;
 
-  void emit_progress(const std::u16string& content, double progress) override;
+  virtual void emit_progress(const std::u16string& content, double progress);
   void emit_progress_size(const std::u16string& content, double progress, const Value& size);
   virtual void broadcast(const Value& m);
   void on_component_broadcast(ui::UIComponent* component, const std::u16string& message);
@@ -491,11 +490,11 @@ class LFW : public loader::IDatMgrHost,
   // ---- IKeysLfw ----
   double lifetime() override;
 
-  // ---- loader::IDatMgrHost ----
-  Resources& resources() override { return *resources_; }
-  void load_img(const std::u16string& path) override;
-  void warn(const std::vector<Value>& args) override;
-  void error(const std::vector<Value>& args) override;
+  // ---- `DatMgr` 的宿主面（4CQ：`IDatMgrHost` 退役后并入本类；`virtual` 供台面覆写）----
+  virtual Resources& resources() { return *resources_; }
+  virtual void load_img(const std::u16string& path);
+  virtual void warn(const std::vector<Value>& args);
+  virtual void error(const std::vector<Value>& args);
 
   // ---- IResourcesHost ----
   bool import_as_json(const std::vector<std::u16string>& urls, Value& data, Value& hit,

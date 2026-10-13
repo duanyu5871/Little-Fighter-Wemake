@@ -11469,3 +11469,20 @@ public helper::IUiHelperLfw`（基类列表本身就是证据）。4CL（台面�
 `World`/`Stage`，本来就没有先决障碍）；`IStageEntity`(18) / `IItemEntity`(22)（仿实体，真实现就是
 `Entity`，适配器是 `StageEntityView` / `EntityItem`）；`IKeysLfw`(3) / `IResourcesHost`(6) 里
 `IKeysLfw` **没有真实现** ⇒ 属待移植，不是退役。
+
+### 149.5 缝家族退役（4/5）：`IDatMgrHost`（切片 4CQ / ck5）
+
+`IDatMgrHost`(6 面：`resources` / `mt_ref` / `load_img` / `emit_progress` / `warn` / `error`) 的真实现
+就是 `LFW` 自己（`class LFW : public loader::IDatMgrHost` —— 基类列表即证据），开口理由同样是
+「`LFW` 未移植」。本刀：
+
+- 删掉 `IDatMgrHost`；`DatMgr` 改持 **`LFW*`**（`dat_mgr.h` 只前置声明，`dat_mgr.cpp` include `lfw.h`）；
+- `LFW` 基类列表去掉它；原本靠它「虚」的 4 条（`resources` / `load_img` / `warn` / `error`）改成
+  `virtual`；另两条（`mt_ref` / `emit_progress`）本来在别的段里、4CO 去了 `override` 之后变成非虚
+  ⇒ 一并补回 `virtual`（台面假宿主还要覆写它们）；
+- 台面 `subjects/dat_mgr.cpp` 的假宿主 `FakeMgrHost` 从「实现窄缝」改成**派生真 `lfw::LFW`**
+  （宿主用 `fx::shared_stub_host()`），覆写面一字不改；按 4CP 的教训在构造里清空 `Factory` 的全局表
+  （真 `LFW` 的 ctor 会 `regist_buffs()` / `regist_components()`）。
+
+实测（纯重构）：差分 **255/255**；锚点 9764 ok/0 bad；include 836 clean/0 failed/9 warnings；
+coverage OK；宿主 prel 300 = `7335aa25f4e1ce86`、`--vs` 600 = `f29d3bb1ea330c32` —— 逐字节不变。

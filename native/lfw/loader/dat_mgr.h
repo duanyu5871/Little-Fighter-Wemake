@@ -11,6 +11,8 @@
 
 namespace lfw {
 
+class LFW;
+
 class MersenneTwister;
 class Resources;
 
@@ -19,20 +21,9 @@ namespace loader {
 // TS `DatMgr` 直接拿整个 `LFW`（`lfw.resources` / `lfw.images` / `lfw.mt` /
 // `lfw.emit_progress`）与全局 `Ditto.warn/error` 用 ⇒ 端口收成一个宿主缝。
 // 台面假件与将来的 `LFW` 都实现它。
-class IDatMgrHost {
- public:
-  virtual ~IDatMgrHost() = default;
-  virtual Resources& resources() = 0;
-  // `lfw.mt`（`Randoming` 的默认随机源）。
-  virtual MersenneTwister& mt_ref() = 0;
-  // `await lfw.images.load_img(path, path)`：端口同步，返回即「加载完成」。
-  virtual void load_img(const std::u16string& path) = 0;
-  // `lfw.emit_progress(content, progress)`（TS 的第三参 `size` 这边不传）。
-  virtual void emit_progress(const std::u16string& content, double progress) = 0;
-  // 全局 `Ditto.warn(...)` / `Ditto.error(...)`：参数原样转给宿主（台面负责渲染）。
-  virtual void warn(const std::vector<Value>& args) = 0;
-  virtual void error(const std::vector<Value>& args) = 0;
-};
+// `DatMgr` 的宿主（切片 4CQ：`IDatMgrHost` 退役）。它要的 6 条面（`resources` / `mt_ref` /
+// `load_img` / `emit_progress` / `warn` / `error`）在 `LFW` 上都有实现 —— 那层缝的开口理由
+// 「`LFW` 未移植」早已不成立 ⇒ 直接持 `LFW*`。
 
 // TS `loader/DatMgr.ts`（`DatMgr` + `Inner`）。数据对象都是 JSON 形态 ⇒ 端口一律用
 // `Value`（列表 = `std::vector<Value>`，`Map` = 插入序的 pair 表，见 `factory.cpp` 的
@@ -56,7 +47,7 @@ class DatMgr {
   using FindPredicate =
       std::function<bool(const Value& value, double index, const std::vector<Value>& arr)>;
 
-  explicit DatMgr(IDatMgrHost* host);
+  explicit DatMgr(LFW* host);
 
   int inner_id() const { return _inner_id; }
 
@@ -104,7 +95,7 @@ class DatMgr {
  private:
   struct Inner;
 
-  IDatMgrHost* _host = nullptr;
+  LFW* _host = nullptr;
   int _inner_id = 0;
   std::shared_ptr<Inner> _inner;
 };

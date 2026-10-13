@@ -1,5 +1,7 @@
 #include "lfw/loader/dat_mgr.h"
 
+#include "lfw/lfw.h"
+
 #include <cmath>
 #include <cstddef>
 #include <string>
@@ -157,7 +159,7 @@ long js_index_of(const Value& holder, const Value& item) {
 struct DatMgr::Inner {
   DatMgr* mgr = nullptr;
   int id = 0;
-  IDatMgrHost* host = nullptr;
+  LFW* host = nullptr;
 
   // `create_data_list_map()`：键 = `"4"` / `"8"` / `"16"` / `"32"`（`EntityEnum` 的
   // 数字键按 JS 的属性顺序排在字符串键前）+ `background` / `objects` / `bots` / `moves`。
@@ -650,7 +652,7 @@ struct DatMgr::Inner {
   }
 };
 
-DatMgr::DatMgr(IDatMgrHost* host) : _host(host) {
+DatMgr::DatMgr(LFW* host) : _host(host) {
   _inner = std::make_shared<Inner>(this, ++_inner_id);
 }
 
