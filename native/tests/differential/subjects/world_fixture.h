@@ -16,7 +16,9 @@
 #include <utility>
 #include <vector>
 
-#include "host/headless_host.h"
+
+#include "lfw/core/value.h"
+#include "lfw/lfw.h"
 
 #include "lfw/camera.h"
 #include "lfw/cmds/cmds.h"
@@ -33,6 +35,10 @@
 #include "lfw/world.h"
 
 #include "trace_util.h"
+
+namespace lfw {
+class ILfwHost;
+}
 
 namespace fx {
 
@@ -81,7 +87,7 @@ inline std::vector<Value> g_datas;
 inline std::vector<Value> g_fighter_datas;
 inline std::vector<Value> g_weapon_datas;
 inline std::vector<std::unique_ptr<lfw::PlayerInfo>> g_players;
-std::vector<std::pair<std::string, lfw::PlayerInfo*>> g_player_map;
+inline std::vector<std::pair<std::string, lfw::PlayerInfo*>> g_player_map;
 inline int g_id_counter = 0;
 inline int g_team_counter = 0;
 inline std::unique_ptr<World> g_world;
@@ -100,7 +106,7 @@ inline FakePlayerHost g_player_host;
 
 inline std::vector<std::unique_ptr<lfw::controller::BaseController>> g_ctrls;
 
-lfw::controller::BaseController* make_ctrl(const std::string& kind) {
+inline lfw::controller::BaseController* make_ctrl(const std::string& kind) {
   if (kind == "none") return nullptr;
   auto c = std::make_unique<lfw::controller::BaseController>();
   c->set_kind(kind == "human", kind == "bot");
@@ -117,7 +123,7 @@ lfw::controller::BaseController* make_ctrl(const std::string& kind) {
 }
 
 // 台面实体工厂：`add` op 与 `create_entity*` 缝共用（新实体的 id 来自假 `new_id`）。
-lfw::Entity* new_fake_entity(World& world, const Value& data) {
+inline lfw::Entity* new_fake_entity(World& world, const Value& data) {
   auto e = std::make_unique<lfw::Entity>(world, data, &g_states);
   lfw::Entity* const raw = e.get();
   g_created.push_back(std::move(e));
@@ -126,20 +132,14 @@ lfw::Entity* new_fake_entity(World& world, const Value& data) {
 
 // 台面宿主（切片 4CM）：`lfw::host::HeadlessHost` 的静音版 —— `warn/error/log/debug_msg` 不打印
 // （case 的 stdout 是差分比较对象，不能被宿主日志污染），其它一字不改。
-class StubHost : public lfw::host::HeadlessHost {
- public:
-  StubHost() : lfw::host::HeadlessHost({}, false) {}
-
-  void warn(const std::vector<Value>&) override {}
-  void error(const std::vector<Value>&) override {}
-  void log(const std::vector<Value>&) override {}
-  void debug_msg(const std::vector<Value>&) override {}
-};
-
-inline StubHost& shared_stub_host() {
-  static StubHost h;
-  return h;
-}
+//
+// ⚠ 定义在 `world_fixture.cpp`（4CL 收尾）：`host/headless_host.h` 会拉进 `<filesystem>` 这类
+// MSVC 内部头，而 subject TU 与 `lfw_core` / headless 目标的 RTTI/异常开关不一致，混在同一个 TU
+// 里会撞出 `__msvc_heap_algorithms.hpp` 里 `_Iter_diff_t` 那种内建错误（本会话踩过两次）。
+// 头里只留前置声明 ⇒ subject 的 TU 再也看不到 `<filesystem>`，也拿不到 `StubHost` 的类体。
+class StubHost;
+// 只暴露 `ILfwHost&`：`StubHost` 在 subject 的 TU 里是不完整类型，而构造 `LFW` 只需要基类引用。
+lfw::ILfwHost& shared_stub_host();
 
 // 台面共享的假 `lfw`。
 //
@@ -150,7 +150,15 @@ inline StubHost& shared_stub_host() {
 // 覆写的面一律**不调真基类**（复现原来假件的语义），因此行为与改之前逐字节一致。
 class FakeLfw : public lfw::LFW {
  public:
-  FakeLfw() : lfw::LFW(shared_stub_host(), false) {}
+  FakeLfw() : lfw::LFW(shared_stub_host(), false) {
+    // `LFW` 的构造会跑 `regist_buffs()` / `regist_components()`（`Factory` 的**表级单次**登记）
+    // ⇒ 真表里会多出 7 个 buff / 一批 UI 组件。台面这个假 `lfw` 在 4CM 之前是「没注册过」的状态
+    // （也从没构造过 `LFW`），TS 侧的假件同样没有 ⇒ 这里清空真表以复现旧语义，否则
+    // `factory/all` 这类「dump 全局表」的用例会漂移（DESIGN §149.2）。
+    lfw::Factory::buff_groups().clear();
+    lfw::Factory::buff_creators().clear();
+    lfw::Factory::components().clear();
+  }
 
   // ---- `IStageLfw` ----
   lfw::MersenneTwister* mt() override { return &g_mt; }
@@ -532,15 +540,9 @@ inline TestWorld& shared_world() {
 // 为什么要有：`ui::UILayers` / `DatMgr` / 整个 `IWorldLfw` 的真实现都以**具体 `LFW&`** 为入参，
 // 台面造不出 `LFW` 就退不掉那些缝（4CK-2 就是这么被卡住的）。宿主用上面那个静音 headless 宿主。
 // 进程内共享的真 `LFW`（首次用到才构造，`HeadlessHost({}, false)` 不读盘）。
-inline lfw::LFW& shared_real_lfw() {
-  static lfw::LFW l(shared_stub_host());
-  return l;
-}
+lfw::LFW& shared_real_lfw();
 
 // 挂在真 `LFW` 上的台面世界：那些「真实现需要 `LFW&`」的缝，台面改用这条通路。
-inline TestWorld& shared_real_lfw_world() {
-  static TestWorld w(shared_real_lfw(), g_renderer, &g_states);
-  return w;
-}
+TestWorld& shared_real_lfw_world();
 
 }  // namespace fx

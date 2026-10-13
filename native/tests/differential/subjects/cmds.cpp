@@ -46,11 +46,9 @@
 #include "lfw/world.h"
 
 #include "trace_util.h"
+#include "world_fixture.h"
 
 namespace {
-
-// 共享台面假件（定义 `namespace fx`）得先立起来，`using namespace fx;` 才认得它。
-#include "world_fixture.h"
 
 using namespace fx;
 

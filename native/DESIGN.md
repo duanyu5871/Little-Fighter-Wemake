@@ -11373,3 +11373,53 @@ coverage OK；宿主 prel 300 = `7335aa25f4e1ce86`、`--vs` 600 = `f29d3bb1ea330
 
 ⚠ 一个排查记录：验证时见过一次 `prel 300 warns=1`（平时 0），重跑同命令即恢复 0 —— 是加载期
 `DatMgr::_add_obj id duplicated` 那种宿主告警的**瞬时**表现（同 digest），不是本刀引入的。
+
+---
+
+## 150. 构建修复：`namespace {` 里 include 头文件（切片 4CP）
+
+### 150.1 症状与真因
+
+从干净构建目录重编时，凡 include `world_fixture.h` 的 subject 都炸 ✗，两种表现：
+
+1. 93 条 `__msvc_heap_algorithms.hpp` 里 `_Iter_diff_t` / `_Val` 的内建错误；
+2. `factory.h` / `i_zip_object.h` 里 `标识符"Value"` 未知（81 条）。
+
+**真因（第二条）**：`subjects/cmds.cpp` 把 `#include "world_fixture.h"` 写在了 **`namespace {` 里面**
+（4CJ 迁移时为了让 `using namespace fx;` 认得它）。头文件里的 `namespace lfw { ... }` 因此落在匿名
+命名空间里 ⇒ 造出一个**新的、空的** `lfw` ✗，把真的 `lfw::Value` 遮住 ⇒ 后续所有 `Value` 都报未声明。
+
+**真因（第一条）**：`world_fixture.h` 直接 include 了 `host/headless_host.h` ⇒ 每个 subject 的 TU 都会
+预处理 `<filesystem>` / `<algorithm>`，而 subject 的 RTTI/异常开关与 `lfw_core` / headless 目标不一致，
+MSVC 在这套组合下会崩出内建错误。
+
+⚠ 这两个 bug 从 4CJ/4CL 起就存在，一直被**陈旧 obj** 掩盖：`build.ninja` 没有头依赖，改了头不会触发重编
+⇒ 之前那些「绿」有一部分是跑在旧二进制上的。删掉整个 `build/msvc-x64` 才暴露出来。
+
+### 150.2 修法
+
+- `cmds.cpp`：include 挪到文件顶部的头文件区（匿名命名空间**外**）。
+- `world_fixture.h`：不再 include 宿主头；`StubHost` 类体、`shared_stub_host()`、`shared_real_lfw()`、
+  `shared_real_lfw_world()` 的实现全部搬到新的 `tests/differential/world_fixture.cpp`（编进
+  `lfw_headless_host` 目标）⇒ subject 的 TU 再也看不到 `<filesystem>`；头里只留 `class StubHost;` 与
+  `lfw::ILfwHost& shared_stub_host();`（只给基类引用，不需要完整类型）。
+- 三处漏 `inline` 的顶层定义补上（`g_player_map` / `make_ctrl` / `new_fake_entity`）——`world_fixture.cpp`
+  会与每个 subject 一起链 ⇒ 不 `inline` 就是 LNK2005 多重定义。
+- subject 目标的编译开关与 `lfw_core` 对齐（`/GR-` + `_HAS_EXCEPTIONS=0`）。
+- `FakeLfw`（现在是真 `LFW` 的派生类）的构造里**清空** `Factory` 的全局表：`LFW` 的构造会跑
+  `regist_buffs()` / `regist_components()`（表级单次登记），而 4CM 之前的假件是「什么都没注册」的状态、
+  TS 侧假件同样没有 ⇒ 不清空的话 `factory/all` 这种 dump 全局表的用例会漂移（这条是真 bug 修复）。
+
+### 150.3 实测（干净构建目录 + 全量清 obj）
+
+差分 **255/255**；锚点 **9764 ok / 0 bad**；include 836 clean / 0 failed / 9 warnings；coverage OK；
+宿主 prel 300 = `7335aa25f4e1ce86`、stage 1 900 = `e4a9437292047044`、`--vs` 600 = `f29d3bb1ea330c32`
+—— 三条**逐字节不变**（这一刀没碰端口逻辑）。
+
+### 150.4 教训（下次别再踩）
+
+- **不要在任何命名空间里 include 头文件**（尤其是定义 `namespace lfw` 的这种）——`cmds.cpp` 那个写法
+  会让头里的命名空间变成嵌套的，报出来的错和真因毫无关系。
+- 改了**被广泛 include 的头**之后，必须**整树清 obj**（`*.obj,*.lib,*.exe`，保留目录）再编；只清
+  `lfw_core.dir` 不够 —— subject 的 obj 同样会陈旧。
+- 想让 subject 的 TU 干净，就别让它们看到宿主/平台头：把实现挪进 `.cpp`（本刀的 `world_fixture.cpp`）。
