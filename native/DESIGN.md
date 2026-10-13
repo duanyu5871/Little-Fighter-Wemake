@@ -10901,3 +10901,79 @@ holding 一族、`world_*` / `ref_*` / `ctrl_*` / `datas_find*`、`ground_segmen
 落实它们属**功能**（`状态面占位落实`），与本次纯重构分开。
 另外两条「非虚但台面靠别的缝观测」的现状（如需统一：`frame_id()` 读字段、`world_dataset`
 走宿主缝）已在 PROTOCOL §6.9.183 记明。
+
+## 143. 切片 4CG：状态面占位落实（第一段：输入面 / 帧面 / 持有物面）
+
+### 143.1 为什么
+
+4CF 把 `IStateEntity` 收进 `Entity` 时，那些「宿主/后面的切片回答」的成员是**逐字照搬的占位**
+（`return Value();` / `return false;` …）。占位不影响差分（台面假实体会覆写），但真数据下就等于
+「实体面没有输入、没有帧、没有持有物」。这一刀按**「真数据里跑得到的先做」**把它们落实。
+
+落实前的定位（全是只读勘察核对出来的端口调用点）：
+
+- 输入面：`CharacterState_Walking.cpp:28` 的 `!e.ctrl_ud() && !e.ctrl_lr()` **恒真**（两条占位都回 0）
+  ⇒ 走路状态每帧重进 `enter_frame_by_id(default)`；`CharacterState_Jump.cpp:99-100` 拿 `0/0` 当输入；
+  `CharacterState_Jump.cpp:70` 的 `ctrl_is_bot` 恒假 ⇒ bot 走**人类**分支；`CharacterState_Jump.cpp:75-95`
+  与 `CharacterState_Lying.cpp:90,100` 的 `ctrl_is_end` 恒真 ⇒ 人类分支里每条按键判定都成立；
+  `CharacterState_Falling.cpp:82` / `CharacterState_Lying.cpp:58` 的 `ctrl_reset_key_list` 是空实现。
+- 帧面：`CharacterState_Base.cpp:52`（`frame_on_landing`）、`CharacterState_Base.cpp:70`
+  （`data_frames`：`csb_get_auto_frame` 按索引取帧）。
+- 持有物面：`CharacterState_Drink.cpp:41-56`（喝东西：mt 打标、设 hp / 速度）、
+  `CharacterState_Lying.cpp:19` 与 `CharacterState_Basic.cpp:29`、`CharacterState_CaughtRowing.cpp:21`
+  （`holding_set_team`）、`CharacterState_Walking.cpp:29`（`holding_is_weapon`）。
+- 背人 / 被抱：`weapon_state_misc`（`bearer_motionless`）、`CharacterState_Falling.cpp:21`
+  （`catcher_drop_catching`）。
+
+### 143.2 落实了什么
+
+| 成员 | TS 原文 |
+| --- | --- |
+| `frame_on_landing` | `const { on_landing } = e.frame`（`state/CharacterState_Base.ts:13`） |
+| `frame_behavior` | `c.victim.frame.behavior`（`defines/CollisionVal.ts:54`） |
+| `data_base` / `data_frames` / `has_data_indexes` | `const { base, indexes } = e.data` / `e.data.frames[fid]` / `if (!indexes) return void 0`（`state/CharacterState_Base.ts:25`、`WeaponState_Base.ts:9,22,32`） |
+| `ctrl_ud` / `ctrl_lr` | `this.ctrl.UD` / `.LR`（`controller/BaseController.ts:56-65`） |
+| `ctrl_is_bot` | `is_bot_ctrl(this.ctrl)`（`entity/type_check.ts:29`） |
+| `ctrl_is_end` | `!!this.keys[k]?.is_end()`（`controller/BaseController.ts:186`） |
+| `ctrl_reset_key_list` | `this.keys.reset_key_list()`（`controller/BaseController.ts:102`） |
+| `holding_drink` | `e.holding?.drink`（`state/CharacterState_Drink.ts:14`） |
+| `holding_set_hp` / `holding_set_hp_r` | `holding.hp = holding.hp_r = 1`（同文件 `:42`） |
+| `holding_set_velocity` | `holding.set_velocity(vx, vy, 0)`（同文件 `:45`） |
+| `holding_set_team` | `holding.team = e.team`（`state/CharacterState_Lying.ts:19`） |
+| `holding_is_weapon` | `is_weapon(e.holding)`（`state/CharacterState_Walking.ts:29`） |
+| `catcher_drop_catching` | `e.catcher?.drop_catching()`（`state/CharacterState_Falling.ts:21`） |
+| `bearer_motionless` / `set_bearer_motionless` | `e.bearer.motionless`（`weapon_state_misc`） |
+| `lfw_new_team` | `` team_${++this.__team} ``（`LFW.ts:299`，走 `IEntityHost::new_team`） |
+| `datas_find` | `this.lfw.datas.find(oid)`（`buff/Buff.ts:109`，走 `IEntityHost::find_data`） |
+
+### 143.3 实测
+
+| 项 | 结果 |
+| --- | --- |
+| 库编译 | 通过。两处口径修正：`field_or` 只在 `.cpp` 可见 ⇒ 帧面五条从内联挪到 `entity.cpp`；`set_hp/set_hp_r` 收 `double` ⇒ 走 `to_number` |
+| 全量差分 | **254/254**（台面覆写了这些成员 ⇒ 这同时是「真实现不破坏台面」的回归） |
+| 变异锚点 | **9764 ok / 0 bad** |
+| include 分层 | 836 clean / 0 failed / 9 warnings（既有） |
+| defines 覆盖 | OK |
+| 宿主摘要 | 与 4CF **逐位一致**：`d9b00db799724a2b`（prel 300）、`eeecc812075e8b74`（prel+data 900，warns=1 既有） |
+
+⚠ **诚实说明**：宿主摘要**一点没变** ⇒ 这一刀在「两个 bot 对打 stage 1」这个场景里**没有改变
+可观测行为**：勘察里标「live」的状态分支（walking / jump / dash / lying）在这局里根本没被走到
+（两个战士全程停在 `state=0/2`，只靠速度滑行）。这一刀的价值是**把前置面补齐**（帧链一旦正常
+推进，这些面立刻是必需的），**不是**直接修好「bot 不攻击」。
+
+### 143.4 留给下一刀
+
+1. **判帧器（`__judger`）没接线 —— 「帧链不走」的主要嫌疑。** TS 的
+   `loader/preprocess_next_frame.ts` 会给带 `expression` 的下帧挂 `__judger = new Expression(...)`；
+   端口的 `native/lfw/loader/preprocess_next_frame.cpp` 只递归数组、**不编译任何表达式**，转而指望
+   宿主缝 `IEntityHost::has_next_frame_judge` / `next_frame_judge`（`entity.h:188/195`），而
+   `native/host` **没有实现那两条** ⇒ 带判定器的下帧在真游戏里**永不触发**。
+   端口其实已有这一层所需的一切：`base/expression.h` + `val_expression.h`，以及两条**已经接线**的
+   先例 —— `bot_controller.cpp:961`（`Ctx = BotController`）、`world_collision.cpp:195`（碰撞 ctx）
+   ⇒ 下一刀按同一条「编译进表 + `run(ctx)`」的约定把 `next` 的判定器接上（函数对象不塞 `Value`）。
+2. `world_entities` / `world_etc` / `world_callbacks_call` / `ground_segment` / `ground_y(seg, x, z)`：
+   宿主只有 `list_entities` / `puppets` / `ground_step`，缺这几条缝。
+3. `ref_*`（含写面 `ref_set_velocity`）：引用现在是 `Value` 浅拷贝，写面要身份 ⇒ 引用得带可查的 `id`。
+4. `datas_find_fighter`：`IEntityHost` 只有 `find_data`，没有只查战士表的那条缝。
+5. `holding_mt_mark` / `holding_mt_range`：`mt` 缝有了，缺 `MersenneTwister::mark` / `range` 那一层。

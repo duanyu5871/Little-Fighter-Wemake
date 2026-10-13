@@ -5516,3 +5516,16 @@ harness op：
   `SSlot::DATA_ID` 一并跟上。
 - 4CE 立的三条台面口径照旧：配置直写后备字段（不产日志）、库内写入落**虚 setter**（日志文本与
   孪生逐字一致）、「没设过」用 (值, 设过没有) 两件套承载 `u`。
+
+### 6.9.184 状态面占位落实（4CG）对台面的影响（无新 op）
+
+- 这批成员从「占位体」变成**真实现**：`frame_on_landing` / `frame_behavior` / `data_base` /
+  `data_frames` / `has_data_indexes`、`ctrl_ud` / `ctrl_lr` / `ctrl_is_bot` / `ctrl_is_end` /
+  `ctrl_reset_key_list`、`holding_drink` / `holding_set_hp` / `holding_set_hp_r` /
+  `holding_set_velocity` / `holding_set_team` / `holding_is_weapon`、`catcher_drop_catching`、
+  `bearer_motionless` / `set_bearer_motionless`、`lfw_new_team`、`datas_find`。
+- **对台面无害的前提是「假实体覆写了这些成员」**：没覆写又依赖旧占位（恒 `Value()` / 恒 `0` /
+  恒 `true`）的台面会在这次之后读**真值** ⇒ 以后写新台面时，凡是让库走到这些读点的路径，都要
+  么覆写、么把用例里的实体字段喂成与孪生一致（`data()` 镜像 / `ctrl` 缝 / `holding` 指针）。
+- `ctrl_*` 一族在 `ctrl_ == nullptr`（TS 里「没有控制器」，会抛）时给中性值：`0` / `true`
+  （与旧占位同口径），台面可以直接依赖。

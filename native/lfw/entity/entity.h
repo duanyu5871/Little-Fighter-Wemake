@@ -462,18 +462,23 @@ class Entity {
 
   // --- 切片 4CF：状态族窄接口退役 ⇒ 原 `state::IStateEntity` 的实体面收进实体 ---
   // 命名与签名跟那个接口逐字对齐（`Entity` 自己已有原生类型的几条除外：那几条由状态层直接
-  // 用字段/原生方法，见 DESIGN §142）。**默认体照搬接口**：`IStateEntity` 里成片的
-  // `return Value();` 是「宿主/后面的切片回答」的占位，本刀只搬不改语义（占位清单见 §142.4）。
-  // `velocity_x` / `velocity_z` 用原生 `double`（与 `velocity_y` 同款；4BX 已把这两条统一成
-  // `double`）；`frame_on_landing` / `frame_behavior` / `data_base` / `data_frames` /
-  // `has_data_indexes` 也照搬占位体。
+  // 用字段/原生方法，见 DESIGN §142）。
+  // 切片 4CG：这一片「照搬占位」开始**落实**，每个表达式都对着 TS 原文。落实顺序按「真数据
+  // （`lfw_run` 跑 dist 包）下跑得到」排：输入面 `ctrl_*`、帧面 `frame_*` / `data_*`、持有物
+  // `holding_*` / 背人 `bearer_*` / `catcher_*` 先做；`world_*` / `ground_*` / `ref_*` /
+  // `datas_find_fighter` 还缺宿主缝或引用身份，留到下一刀（DESIGN §143.4）。
   virtual double velocity_x() const { return velocity.x; }
   virtual double velocity_z() const { return velocity.z; }
-  virtual Value frame_on_landing() const { return Value(); }
-  virtual Value frame_behavior() const { return Value(); }
-  virtual Value data_base() const { return Value(); }
-  virtual Value data_frames() const { return Value(); }
-  virtual bool has_data_indexes() const { return false; }
+  // `const { on_landing } = e.frame`（`state/CharacterState_Base.ts:13`；`WeaponState_Base.ts:22`）。
+  virtual Value frame_on_landing() const;
+  // `c.victim.frame.behavior`（`defines/CollisionVal.ts:54` 的 `v_frame_behavior`）。
+  virtual Value frame_behavior() const;
+  // `const { base, indexes } = e.data`（`state/WeaponState_Base.ts:32`）。
+  virtual Value data_base() const;
+  // `e.data.frames[fid]`（`state/CharacterState_Base.ts:25`）/ `data.frames[indexes]`（武器）。
+  virtual Value data_frames() const;
+  // `if (!indexes) return void 0`（`state/WeaponState_Base.ts:9`）。
+  virtual bool has_data_indexes() const;
   virtual Value frame_info() const { return frame; }
   virtual Value jumping_x() const { return Value(jumping.x); }
   virtual void set_jumping_x(const Value& v) { jumping.x = to_number(v); }
@@ -498,37 +503,53 @@ class Entity {
     position.y = y;
     position.z = z;
   }
-  // 持有物（`this.holding`）与「宿主回答」的那几面：占位体逐字照搬 `IStateEntity`。
+  // 持有物（`this.holding`）、背人（`this.bearer`）、被抱（`this.catcher`）三面 ——
+  // 切片 4CG 落实（原 `IStateEntity` 占位），默认体照抄 TS 的 `?.` 语义（没有则什么都不做）。
   virtual bool has_holding() const { return holding != nullptr; }
-  virtual DrinkInfo* holding_drink() const { return nullptr; }
-  virtual void holding_set_hp(const Value& v) { (void)v; }
-  virtual void holding_set_hp_r(const Value& v) { (void)v; }
-  virtual void holding_set_velocity(const Value& x, const Value& y, const Value& z) {
-    (void)x;
-    (void)y;
-    (void)z;
-  }
-  virtual void holding_set_team(const Value& v) { (void)v; }
+  // `e.holding?.drink`（`state/CharacterState_Drink.ts:14`）。
+  virtual DrinkInfo* holding_drink() const;
+  // `holding.hp = holding.hp_r = 1`（`state/CharacterState_Drink.ts:42`）。
+  virtual void holding_set_hp(const Value& v);
+  virtual void holding_set_hp_r(const Value& v);
+  // `holding.set_velocity(vx, vy, 0)`（`state/CharacterState_Drink.ts:45`）。
+  virtual void holding_set_velocity(const Value& x, const Value& y, const Value& z);
+  // `holding.team = e.team`（`state/CharacterState_Lying.ts:19` 等）。
+  virtual void holding_set_team(const Value& v);
+  // `holding.lfw.mt.mark = 'drink_drop'` / `holding.lfw.mt.range(-6, 6)`
+  // （`state/CharacterState_Drink.ts:41-42`）：`mt` 缝已有，`MersenneTwister::mark/range`
+  // 那一层留给下一刀（真数据下只有喝东西状态走这两条）。
   virtual void holding_mt_mark(const std::u16string& mark) { (void)mark; }
   virtual Value holding_mt_range(double lo, double hi) {
     (void)lo;
     (void)hi;
     return Value();
   }
-  virtual bool holding_is_weapon() const { return false; }
+  // `is_weapon(e.holding)`（`state/CharacterState_Walking.ts:29`）。
+  virtual bool holding_is_weapon() const;
   virtual bool has_catcher() const { return catcher != nullptr; }
-  virtual void catcher_drop_catching() {}
+  // `e.catcher?.drop_catching()`（`state/CharacterState_Falling.ts:21`）。
+  virtual void catcher_drop_catching();
   virtual bool has_bearer() const { return bearer != nullptr; }
-  virtual Value bearer_motionless() const { return Value(); }
-  virtual void set_bearer_motionless(const Value& v) { (void)v; }
+  // `e.bearer.motionless`（`weapon_state_misc` 的 `wsoh_pre_update`）。
+  virtual Value bearer_motionless() const;
+  // `e.bearer.motionless = v`（同上）。TS 的 `motionless` 是任意值，端口是 `double` 字段
+  // ⇒ 走 `to_number`（与实体面其它 `motionless` 写入一致）。
+  virtual void set_bearer_motionless(const Value& v);
+  // --- 切片 4CG 还没落实的那一组：都要新宿主缝或「引用身份」（DESIGN §143.4）----------
+  // `m.world.entities`（`state/CharacterState_Teleport2NearestEnemy.ts:13`）：宿主只有
+  // `list_entities` / `puppets`，没有「世界实体表」这条缝。
   virtual Value world_entities() const { return Value(); }
+  // `e.lfw.world.etc(x, y, z, '6')`（`state/CharacterState_Lying.ts:52`）：宿主没有这条缝
+  // （`entity.cpp` 的 `refresh_ctrl_env` 里 `env.world_etc` 也还是 `nullptr`）。
   virtual void world_etc(double x, double y, double z, const std::u16string& kind) {
     (void)x;
     (void)y;
     (void)z;
     (void)kind;
   }
+  // `e.world.callbacks.call("on_fighter_add", e)`（`state/State_TransformTo8XXX.ts:14`）。
   virtual void world_callbacks_call(const std::u16string& name) { (void)name; }
+  // `m.world.ground.segment(x, z)` / `.y(seg, x, z)`（teleport 系列）：宿主只有 `ground_step`。
   virtual Value ground_segment(double x, double z) {
     (void)x;
     (void)z;
@@ -540,6 +561,8 @@ class Entity {
     (void)z;
     return 0;
   }
+  // teleport / falling 系列拿到的「实体引用」是 `Value`（`entity_ref.h` 的 `ref_of`）：读面
+  // 能直接读，写面（`ref_set_velocity`）要身份 ⇒ 需要引用带可查的 `id`，留给下一刀。
   virtual bool is_fighter_ref(const Value& o) const {
     (void)o;
     return false;
@@ -571,23 +594,27 @@ class Entity {
     (void)y;
     (void)z;
   }
-  virtual Value lfw_new_team() const { return Value(); }
-  virtual double ctrl_ud() const { return 0; }
-  virtual double ctrl_lr() const { return 0; }
-  virtual bool ctrl_is_bot() const { return false; }
-  virtual bool ctrl_is_end(const std::u16string& key) const {
-    (void)key;
-    return true;
-  }
-  virtual void ctrl_reset_key_list() {}
-  virtual Value datas_find(const std::u16string& oid) {
-    (void)oid;
-    return Value();
-  }
+  // `e.lfw.datas.find_fighter("50")`（`state/CharacterState_TransformToLouisEX.ts:9`）：
+  // `IEntityHost` 只有 `find_data`，没有只查战士表的那条缝。
   virtual Value datas_find_fighter(const std::u16string& oid) {
     (void)oid;
     return Value();
   }
+  // --- 切片 4CG 落实：控制器面（输入）× 资料面 -----------------------------------
+  // `this.ctrl.UD` / `this.ctrl.LR`（`controller/BaseController.ts:56-65`）——`ctrl_` 为空
+  // 对应 TS 的「没有控制器」，端口给中性 `0`。
+  virtual double ctrl_ud() const;
+  virtual double ctrl_lr() const;
+  // `is_bot_ctrl(this.ctrl)`（`entity/type_check.ts:29-30`）。
+  virtual bool ctrl_is_bot() const;
+  // `!!this.keys[k]?.is_end()`（`controller/BaseController.ts:186-187`）。
+  virtual bool ctrl_is_end(const std::u16string& key) const;
+  // `this.keys.reset_key_list()`（`controller/BaseController.ts:102`）。
+  virtual void ctrl_reset_key_list();
+  // `world.lfw.new_team`（`LFW.ts:299`：`` team_${++this.__team} ``）。
+  virtual Value lfw_new_team() const;
+  // `this.lfw.datas.find(oid)`（`buff/Buff.ts:109`）。
+  virtual Value datas_find(const std::u16string& oid);
 
   // --- frame lookup / flags ---------------------------------------------------
   // `find_frame_by_id` falls back to `find_auto_frame()` when the id is unknown;

@@ -1049,6 +1049,82 @@ Value Entity::data_base_hit_sounds() const {
 // `this.data.id`：必须走虚的 `data()`（台面会替换 `data`），而不是私有的 `_data`。
 Value Entity::data_id() const { return field_or(data(), u"id"); }
 
+// `const { on_landing } = e.frame`（`state/CharacterState_Base.ts:13`）。
+Value Entity::frame_on_landing() const { return field_or(frame, u"on_landing"); }
+
+// `c.victim.frame.behavior`（`defines/CollisionVal.ts:54`）。
+Value Entity::frame_behavior() const { return field_or(frame, u"behavior"); }
+
+// `const { base, indexes } = e.data`（`state/WeaponState_Base.ts:32`）。
+Value Entity::data_base() const { return field_or(data(), u"base"); }
+
+// `e.data.frames[fid]`（`state/CharacterState_Base.ts:25`）。
+Value Entity::data_frames() const { return field_or(data(), u"frames"); }
+
+// `if (!indexes) return void 0`（`state/WeaponState_Base.ts:9`）。
+bool Entity::has_data_indexes() const { return truthy(field_or(data(), u"indexes")); }
+
+// --- 切片 4CG：状态面的「输入面 / 持有物面」落实（原 `IStateEntity` 的占位体）------------
+// 每条对着一个 TS 表达式。`ctrl_ == nullptr` 是 TS 里「这个实体没有控制器」的情形（TS 那边
+// 会抛，端口按台面已有的中性口径给 `0` / `true`）。
+double Entity::ctrl_ud() const {
+  return ctrl_ != nullptr ? static_cast<double>(ctrl_->UD()) : 0.0;
+}
+
+double Entity::ctrl_lr() const {
+  return ctrl_ != nullptr ? static_cast<double>(ctrl_->LR()) : 0.0;
+}
+
+bool Entity::ctrl_is_bot() const { return entity::is_bot_ctrl(ctrl_); }
+
+bool Entity::ctrl_is_end(const std::u16string& key) const {
+  return ctrl_ != nullptr ? ctrl_->is_end(key) : true;
+}
+
+void Entity::ctrl_reset_key_list() {
+  if (ctrl_ != nullptr) ctrl_->reset_key_list();
+}
+
+DrinkInfo* Entity::holding_drink() const {
+  return holding != nullptr ? holding->drink.get() : nullptr;
+}
+
+void Entity::holding_set_hp(const Value& v) {
+  if (holding != nullptr) holding->set_hp(to_number(v));
+}
+
+void Entity::holding_set_hp_r(const Value& v) {
+  if (holding != nullptr) holding->set_hp_r(to_number(v));
+}
+
+void Entity::holding_set_velocity(const Value& x, const Value& y, const Value& z) {
+  if (holding != nullptr) holding->set_velocity(x, y, z);
+}
+
+void Entity::holding_set_team(const Value& v) {
+  if (holding != nullptr) holding->set_team(to_string(v));
+}
+
+bool Entity::holding_is_weapon() const {
+  return holding != nullptr && entity::is_weapon(ref_of(*holding));
+}
+
+void Entity::catcher_drop_catching() {
+  if (catcher != nullptr) catcher->drop_catching();
+}
+
+Value Entity::bearer_motionless() const {
+  return bearer != nullptr ? Value(bearer->motionless) : Value();
+}
+
+void Entity::set_bearer_motionless(const Value& v) {
+  if (bearer != nullptr) bearer->motionless = to_number(v);
+}
+
+Value Entity::lfw_new_team() const { return Value(host().new_team()); }
+
+Value Entity::datas_find(const std::u16string& oid) { return host().find_data(oid); }
+
 Value Entity::frame_id() const { return field_or(frame, u"id"); }
 
 Value Entity::cpoint_backhurtact() const {
