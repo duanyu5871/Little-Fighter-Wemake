@@ -393,7 +393,13 @@ class FakeStageWorld;
 
 class FakeStageLfw : public lfw::LFW {
  public:
-  FakeStageLfw() : lfw::LFW(fx::shared_stub_host(), false) {}
+  FakeStageLfw() : lfw::LFW(fx::shared_stub_host(), false) {
+    // 与 `fx::FakeLfw` 同口径（DESIGN §149.2）：真 `LFW` 的构造会跑 `regist_buffs()` /
+    // `regist_components()` 这些「表级单次」登记 ⇒ 清空真表，复现旧假件「没注册过」的状态。
+    lfw::Factory::buff_groups().clear();
+    lfw::Factory::buff_creators().clear();
+    lfw::Factory::components().clear();
+  }
 
   lfw::MersenneTwister mt_value{0.0};
   std::vector<std::pair<lfw::Value, lfw::Value>> backgrounds;
@@ -517,16 +523,18 @@ void prepare_data(lfw::Value& data) {
   }
 }
 
-class FakeStageWorld : public lfw::stage::IStageWorld {
+// 切片 4CR：`IStageWorld` 退役 ⇒ 这个假件改成**派生真 `lfw::World`**，只覆写用例脚本化的那几面
+// （覆写体一律不调真基类，复现原来假件的语义与日志）。
+class FakeStageWorld : public lfw::World {
  public:
+  FakeStageWorld();
+
   std::unique_ptr<lfw::Background> bg_value;
   lfw::stage::Stage* self = nullptr;
   std::vector<lfw::stage::IStageEntity*> entity_list;
   std::vector<lfw::stage::IStageEntity*> puppet_list;
   lfw::Value diff_value = lfw::Value(2.0);
   double cam_x = 0.0;
-
-  lfw::World* world_ptr() const override { return nullptr; }
 
   lfw::Background* bg() const override {
     push("h:bg");
@@ -548,12 +556,12 @@ class FakeStageWorld : public lfw::stage::IStageWorld {
     return self;
   }
 
-  std::vector<lfw::stage::IStageEntity*>& entities() override {
+  std::vector<lfw::stage::IStageEntity*>& entity_views() override {
     push("h:ents=" + std::to_string(entity_list.size()));
     return entity_list;
   }
 
-  std::vector<lfw::stage::IStageEntity*>& puppets() override {
+  std::vector<lfw::stage::IStageEntity*>& puppet_views() override {
     push("h:pupts=" + std::to_string(puppet_list.size()));
     return puppet_list;
   }
@@ -580,6 +588,7 @@ class FakeStageWorld : public lfw::stage::IStageWorld {
 
 FakeStageLfw g_slfw;
 FakeStageWorld g_sworld;
+FakeStageWorld::FakeStageWorld() : lfw::World(g_slfw, fx::g_renderer, &fx::g_states) {}
 lfw::Value g_stage_data;
 std::unique_ptr<lfw::stage::Stage> g_stage;
 std::vector<std::unique_ptr<FakeStageEntity>> g_sentities;
@@ -696,6 +705,12 @@ int main(int argc, char** argv) {
   lfw::stage::Stage::set_warn([](const std::u16string& where, const std::u16string& text) {
     push("warn:" + to_ascii(where) + ":" + to_ascii(text));
   });
+  // 切片 4CR：`FakeStageWorld` 现在派生真 `lfw::World`，全局构造期会经 `World` 的构造函数触发
+  // `FakeStageLfw` 的两条挂钩日志（`h:bgfind=` / `h:newteam=`）并消耗掉一次 `new_team` 计数。
+  // 旧假件不碰 `LFW`，TS 孪生也没有这两行、也没被提前消耗 ⇒ 用例开跑前把这两样都还原。
+  g_log.clear();
+  g_slfw.team_counter = 0.0;
+
   if (argc < 2) {
     std::fprintf(stderr, "usage: lfw_trace_stage <case-file>\n");
     return 2;

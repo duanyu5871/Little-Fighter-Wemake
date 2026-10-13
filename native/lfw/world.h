@@ -77,9 +77,10 @@ class IWorldRenderer {
 
 // TS `World.ts`：世界（实体表 / 边界 / 相机 / 场景 / 计分）。
 //
-// 两类宿主面各有一个视图实现（定义在 `world.cpp` 里）：`stage::IStageWorld`（`Stage` 要的）；
-// `Entity` 侧自 4CJ 起直接读本类，`Camera` 侧的三条属性读（`world_stage` / `world_bg` /
-// `world_dataset`）自 4CK-1 起也并入本类 —— 那几个名字与 TS 的字段名不撞。
+// 两处宿主面：`Entity` 侧自 4CJ 起直接读本类；`Stage` 侧自 4CR 起并入本类（原来那个
+// `stage::IStageWorld` 窄缝与 `WorldStageView` 转发类都已删除）；`Camera` 侧的三条属性读
+// （`world_stage` / `world_bg` / `world_dataset`）自 4CK-1 起也并进来了 —— 那几个名字与 TS 的
+// 字段名不撞。
 class World {
  public:
   static constexpr const char* TAG = "World";
@@ -115,7 +116,17 @@ class World {
   LFW& lfw() const { return *lfw_; }
   IWorldRenderer& renderer() const { return *renderer_; }
   Camera& camera() const { return *camera_; }
-  stage::IStageWorld& stage_world() const { return *stage_view_; }
+  // ---- `Stage` 要的 `world.*` 面（切片 4CR：`IStageWorld` 退役后并入本类）----
+  // `world.entities` / `world.puppets`：TS 里是两个真数组，端口把 `Entity*` 投影成
+  // `IStageEntity*`。**每次读到同一份投影**（同一个 `vector` 对象、同样的顺序），与 TS 的
+  // 「同一个数组」等价。
+  virtual std::vector<stage::IStageEntity*>& entity_views();
+  virtual std::vector<stage::IStageEntity*>& puppet_views();
+  virtual void del_entities(const std::vector<stage::IStageEntity*>& es);
+  // `world.dataset.difficulty`
+  virtual Value difficulty() const { return dataset.get(u"difficulty"); }
+  // `world.camera.jump_x(x)`
+  virtual void camera_jump_x(const Value& x);
 
   // ---- TS 里 `Entity` 直接读的 `this.world.*` 面（切片 4CJ：`IEntityHost` 退役后并入本类）----
   // 这七条都是「台面脚本化」的面（旧缝时代的假宿主逐条覆写）⇒ 保持 `virtual` 供台面挂钩。
@@ -145,10 +156,10 @@ class World {
   WorldCollisionHost& collision_host();
 
   // ---- `get bg` / `set bg`：换背景时顺带把缩放交给 transform，并 dispose 旧的 ----
-  Background* bg() const { return bg_.get(); }
-  void set_bg(std::unique_ptr<Background> v);
+  virtual Background* bg() const { return bg_.get(); }
+  virtual void set_bg(std::unique_ptr<Background> v);
   // ---- `get stage` / `set stage` ----
-  Stage* stage() const { return stage_.get(); }
+  virtual Stage* stage() const { return stage_.get(); }
   void set_stage(std::unique_ptr<Stage> v);
 
   // ---- `get player_l()` … `get middle()`：转发 `stage` ----
@@ -283,8 +294,12 @@ class World {
   LFW* lfw_ = nullptr;
   IWorldRenderer* renderer_ = nullptr;
   state::States* states_ = nullptr;
-  std::unique_ptr<stage::IStageWorld> stage_view_;
   std::unique_ptr<Background> bg_;
+  // `Stage` 侧的实体投影缓存（切片 4CR：`IStageWorld` 退役后从 `WorldStageView` 搬进来）。
+  // 存基类指针 ⇒ 不必把 `world.cpp` 内部的 `StageEntityView` 暴露到头文件。
+  std::map<Entity*, std::unique_ptr<stage::IStageEntity>> views_;
+  std::vector<stage::IStageEntity*> entity_view_;
+  std::vector<stage::IStageEntity*> puppet_view_;
   std::unique_ptr<Stage> stage_;
   std::unique_ptr<Camera> camera_;
   std::unique_ptr<WorldCollisionHost> collision_host_;

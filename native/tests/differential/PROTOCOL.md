@@ -5611,3 +5611,17 @@ harness op：
   这么做），否则 dump 全局表的用例（如 `factory/all`）会与孪生漂移。
 - `World` / `Stage` / `helper::ObjectsHelper` / `helper::UIHelper` 现在持具体 `LFW*`；只前置声明，
   实现文件里 include `lfw.h`。台面若要给它们换 `lfw`，同样只能给真 `LFW` 的派生类。
+
+### 6.9.191 `IStageWorld` 退役 ⇒ 台面 `Stage` 挂真 `World`（4CR）
+
+- `IStageWorld`(9 面) 与 `world.cpp` 里的 63 行适配器 `WorldStageView` 都已删除；`Stage` 现在直接持
+  `World*`。想脚本化 `Stage` 看出去的世界面，就**派生真 `lfw::World`**（见
+  `subjects/stage.cpp` 的 `FakeStageWorld`），覆写面一字不改、不调真基类。
+- **投影入口改名**：`IStageWorld::entities()` / `puppets()` 与 `World` 的数据成员 `entities` /
+  `puppets` 同名（C++ 不允许）⇒ 台面/调用点用 `entity_views()` / `puppet_views()`（返回
+  `std::vector<stage::IStageEntity*>&`，是 `Entity*` 数组的投影缓存）。
+- ⚠ **真 `World` 的 ctor 有可观测副作用**：构造期会经假 `lfw` 触发挂钩日志（`h:bgfind=` /
+  `h:newteam=`）并消耗 `new_team` 计数。旧假件不碰 `LFW` ⇒ 台面要在用例开跑前 `g_log.clear()` 并把
+  相关计数复位（`subjects/stage.cpp` 的 `team_counter = 0`）。
+- ⚠ 类内构造函数体若引用**在其后声明**的全局假 `lfw`（`g_slfw`）会 C2065 ⇒ 构造函数体写到类外。
+- `subjects/lfw.cpp` 的 `wstage` op 用 `Stage(&lfw.world(), &lfw, data)`（不再有 `stage_world()`）。

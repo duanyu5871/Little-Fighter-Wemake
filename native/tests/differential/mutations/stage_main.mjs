@@ -68,9 +68,9 @@ export default {
     {
       note: "change_bg：不写 left 那一串边界",
       file: "native/lfw/stage/stage.cpp",
-      from: `  auto bg = std::make_unique<Background>(_world->world_ptr(), data);
+      from: `  auto bg = std::make_unique<Background>(_world, data);
   left = cam_l = player_l = enemy_l = bg->left();`,
-      to: `  auto bg = std::make_unique<Background>(_world->world_ptr(), data);
+      to: `  auto bg = std::make_unique<Background>(_world, data);
   left = cam_l = player_l = enemy_l = 0.0;`,
     },
     {
@@ -196,12 +196,12 @@ export default {
       note: "set_phase：puppets 不参与队伍表",
       file: "native/lfw/stage/stage.cpp",
       from: `    std::vector<Value> teams;
-    for (IStageEntity* f : _world->puppets()) set_add(teams, f->team());
-    for (IStageEntity* f : _world->entities()) {
+    for (IStageEntity* f : _world->puppet_views()) set_add(teams, f->team());
+    for (IStageEntity* f : _world->entity_views()) {
       if (!entity::is_fighter(f->ref()) || !set_has(teams, f->team())) continue;`,
       to: `    std::vector<Value> teams;
-    for (IStageEntity* f : _world->puppets()) set_add(teams, f->team());
-    for (IStageEntity* f : _world->entities()) {
+    for (IStageEntity* f : _world->puppet_views()) set_add(teams, f->team());
+    for (IStageEntity* f : _world->entity_views()) {
       if (!entity::is_fighter(f->ref())) continue;`,
     },
     {
@@ -534,12 +534,12 @@ void Stage::clear_dialogs() {`,
     {
       note: "ce：puppets 的 ce 缺省写成 0",
       file: "native/lfw/stage/stage.cpp",
-      from: `  for (IStageEntity* c : _world->puppets()) {
+      from: `  for (IStageEntity* c : _world->puppet_views()) {
     const Value base = field_or(c->data(), u"base");
     const Value ce_v = field_or(base, u"ce");
     count += is_nullish(ce_v) ? 1.0 : to_number(ce_v);
   }`,
-      to: `  for (IStageEntity* c : _world->puppets()) {
+      to: `  for (IStageEntity* c : _world->puppet_views()) {
     const Value base = field_or(c->data(), u"base");
     const Value ce_v = field_or(base, u"ce");
     count += is_nullish(ce_v) ? 0.0 : to_number(ce_v);
@@ -549,9 +549,9 @@ void Stage::clear_dialogs() {`,
       note: "ce：`if (!count)` 的反向（有 count 也去累加实体）",
       file: "native/lfw/stage/stage.cpp",
       from: `  if (!truthy(Value(count))) {
-    for (IStageEntity* e : _world->entities()) {`,
+    for (IStageEntity* e : _world->entity_views()) {`,
       to: `  if (truthy(Value(count))) {
-    for (IStageEntity* e : _world->entities()) {`,
+    for (IStageEntity* e : _world->entity_views()) {`,
     },
     {
       note: "ce：count 为 0 时不兜底成 1",

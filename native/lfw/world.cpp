@@ -133,70 +133,6 @@ class StageEntityView : public stage::IStageEntity {
   StageEntityView* _bearer_view = nullptr;
 };
 
-// `stage::IStageWorld`（`Stage` 那刀开的缝）：转发到真 `World`。
-class WorldStageView : public stage::IStageWorld {
- public:
-  explicit WorldStageView(World& world) : _world(world) {}
-
-  World* world_ptr() const override { return &_world; }
-  Background* bg() const override { return _world.bg(); }
-  void set_bg(std::unique_ptr<Background> bg) override { _world.set_bg(std::move(bg)); }
-  Stage* stage() const override { return _world.stage(); }
-
-  // `world.entities` / `world.puppets`：TS 里是两个真数组，端口把 `Entity*` 投影成
-  // `IStageEntity*`。**每次读到同一份投影**（同一个 `vector` 对象、同样的顺序），
-  // 与 TS 的「同一个数组」等价。
-  std::vector<stage::IStageEntity*>& entities() override {
-    entity_view_.clear();
-    for (Entity* const e : _world.entities) entity_view_.push_back(view_of(e));
-    return entity_view_;
-  }
-  std::vector<stage::IStageEntity*>& puppets() override {
-    puppet_view_.clear();
-    for (const std::pair<std::u16string, Entity*>& kv : _world.puppets) {
-      puppet_view_.push_back(view_of(kv.second));
-    }
-    return puppet_view_;
-  }
-  void del_entities(const std::vector<stage::IStageEntity*>& es) override {
-    std::vector<Entity*> list;
-    list.reserve(es.size());
-    for (stage::IStageEntity* const e : es) {
-      Entity* const real = entity_of(e);
-      if (real != nullptr) list.push_back(real);
-    }
-    _world.del_entities(list);
-  }
-  // `world.dataset.difficulty`
-  Value difficulty() const override { return _world.dataset.get(u"difficulty"); }
-  // `world.camera.jump_x(x)`
-  void camera_jump_x(const Value& x) override { _world.camera().jump_x(to_number(x)); }
-
- private:
-  StageEntityView* view_of(Entity* const e) {
-    const std::map<Entity*, std::unique_ptr<StageEntityView>>::iterator it = views_.find(e);
-    if (it != views_.end()) return it->second.get();
-    std::unique_ptr<StageEntityView> view = std::make_unique<StageEntityView>(*e);
-    StageEntityView* const raw = view.get();
-    views_.emplace(e, std::move(view));
-    return raw;
-  }
-  Entity* entity_of(stage::IStageEntity* const view) const {
-    for (const std::pair<Entity* const, std::unique_ptr<StageEntityView>>& kv : views_) {
-      if (kv.second.get() == view) {
-        StageEntityView* const v = static_cast<StageEntityView*>(view);
-        (void)v;
-        return kv.first;
-      }
-    }
-    return nullptr;
-  }
-
-  World& _world;
-  std::map<Entity*, std::unique_ptr<StageEntityView>> views_;
-  std::vector<stage::IStageEntity*> entity_view_;
-  std::vector<stage::IStageEntity*> puppet_view_;
-};
 
 
 }
@@ -256,20 +192,67 @@ std::optional<Value> World::gen_field(const Value& holder, const std::u16string&
   return std::nullopt;
 }
 
+// ---- `Stage` 侧的实体投影（4CR：原 `WorldStageView` 的成员搬成自由函数）----
+stage::IStageEntity* view_of(Entity* const e,
+                             std::map<Entity*, std::unique_ptr<stage::IStageEntity>>& views) {
+  const std::map<Entity*, std::unique_ptr<stage::IStageEntity>>::iterator it = views.find(e);
+  if (it != views.end()) return it->second.get();
+  std::unique_ptr<StageEntityView> view = std::make_unique<StageEntityView>(*e);
+  stage::IStageEntity* const raw = view.get();
+  views.emplace(e, std::move(view));
+  return raw;
+}
+
+Entity* entity_of(stage::IStageEntity* const view,
+                  std::map<Entity*, std::unique_ptr<stage::IStageEntity>>& views) {
+  for (const std::pair<Entity* const, std::unique_ptr<stage::IStageEntity>>& kv : views) {
+    if (kv.second.get() == view) return kv.first;
+  }
+  return nullptr;
+}
+
 void World::play_sound(const Value& sounds, const Value& pos) {
   (void)sounds;
   (void)pos;
 }
 
+// ---- `Stage` 要的 `world.*` 面（4CR：`IStageWorld` 退役后并入本类）----
+std::vector<stage::IStageEntity*>& World::entity_views() {
+  entity_view_.clear();
+  for (Entity* const e : entities) entity_view_.push_back(view_of(e, views_));
+  return entity_view_;
+}
+
+std::vector<stage::IStageEntity*>& World::puppet_views() {
+  puppet_view_.clear();
+  for (const std::pair<std::u16string, Entity*>& kv : puppets) {
+    puppet_view_.push_back(view_of(kv.second, views_));
+  }
+  return puppet_view_;
+}
+
+// ⚠ 与 `del_entities(const std::vector<Entity*>&)` 是**两个重载**：这条收的是 `Stage` 拿到的
+// `IStageEntity*` 投影，先还原成真 `Entity*` 再交给下面那条（原 `WorldStageView` 的语义）。
+void World::del_entities(const std::vector<stage::IStageEntity*>& es) {
+  std::vector<Entity*> list;
+  list.reserve(es.size());
+  for (stage::IStageEntity* const e : es) {
+    Entity* const real = entity_of(e, views_);
+    if (real != nullptr) list.push_back(real);
+  }
+  del_entities(list);
+}
+
+void World::camera_jump_x(const Value& x) { camera().jump_x(to_number(x)); }
+
 World::World(LFW& lfw, IWorldRenderer& renderer, state::States* states)
     : lfw_(&lfw), renderer_(&renderer), states_(states) {
-  stage_view_ = std::make_unique<WorldStageView>(*this);
   // `this._bg = new Background(this, Defines.VOID_BG)`
   bg_ = std::make_unique<Background>(this, defines_value(u"Defines.VOID_BG"));
   // `this.transform.set_scale(bg.zoom_x, bg.zoom_y, bg.zoom_z)`
   transform.set_scale(bg_->zoom_x(), bg_->zoom_y(), bg_->zoom_z());
   // `this._stage = new Stage(this, Defines.VOID_STAGE)`
-  stage_ = std::make_unique<Stage>(stage_view_.get(), lfw_, defines_value(u"Defines.VOID_STAGE"));
+  stage_ = std::make_unique<Stage>(this, lfw_, defines_value(u"Defines.VOID_STAGE"));
   // `this.renderer = new Ditto.WorldRender(this)`：宿主注入（渲染未移植）。
   // `this.camera = new Camera(this)`
   camera_ = std::make_unique<Camera>(this);
@@ -1232,7 +1215,7 @@ void World::change_bg(const Value& bg_id) {
   if (!truthy(bg_data)) bg_data = defines_value(u"Defines.VOID_BG");
 
   std::unique_ptr<Stage> stage =
-      std::make_unique<Stage>(stage_view_.get(), lfw_, defines_value(u"Defines.VOID_STAGE"));
+      std::make_unique<Stage>(this, lfw_, defines_value(u"Defines.VOID_STAGE"));
   stage->change_bg(bg_data);
   set_stage(std::move(stage));
 }
@@ -1241,7 +1224,7 @@ void World::change_stage(const Value& stage_id) {
   Value stage_data = lfw_->datas_stages_find(stage_id);
   if (!truthy(stage_data)) stage_data = defines_value(u"Defines.VOID_STAGE");
   if (same_ref(stage_data, stage_->data())) return;
-  set_stage(std::make_unique<Stage>(stage_view_.get(), lfw_, stage_data));
+  set_stage(std::make_unique<Stage>(this, lfw_, stage_data));
 }
 
 void World::handle_cmds() {
@@ -1327,7 +1310,7 @@ void World::clear() {
   for (Entity* const e : ghosts) e->set_frame(gone_frame_info());
   for (std::pair<std::u16string, buff::Buff*>& kv : buffs) kv.second->set_duration(0);
   if (stage_->id() != std::u16string(u"VOID_STAGE")) {
-    set_stage(std::make_unique<Stage>(stage_view_.get(), lfw_, defines_value(u"Defines.VOID_STAGE")));
+    set_stage(std::make_unique<Stage>(this, lfw_, defines_value(u"Defines.VOID_STAGE")));
   }
   if (!strict_equals(bg_->id(), field_or(defines_value(u"Defines.VOID_BG"), u"id"))) {
     stage_->change_bg(defines_value(u"Defines.VOID_BG"));

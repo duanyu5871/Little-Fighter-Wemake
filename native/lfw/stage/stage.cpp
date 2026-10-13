@@ -1,4 +1,6 @@
 #include "lfw/stage/stage.h"
+
+#include "lfw/world.h"
 #include "lfw/lfw.h"
 
 #include <algorithm>
@@ -140,6 +142,10 @@ void Stage::warn(const std::u16string& where, const std::u16string& text) {
 
 // `IItemHost` 的转发（4CO：`IStageLfw` 退役 ⇒ `stage.h` 里只剩 `LFW` 的前置声明，
 // 这几个 inline 体搬到实现文件）。
+// `IStageWorld` 退役后 `stage.h` 只前置声明 `World` ⇒ 这两个 inline 体搬到这里。
+Background* Stage::bg() const { return _world->bg(); }
+Value Stage::difficulty() const { return _world->difficulty(); }
+
 MersenneTwister* Stage::mt() { return _lfw->mt(); }
 Value Stage::datas_find(const Value& oid) { return _lfw->datas_find(oid); }
 std::shared_ptr<Randoming> Stage::datas_randoming_by_group(const Value& oid) {
@@ -149,7 +155,7 @@ IItemEntity* Stage::create_entity_with_bot(const Value& data) {
   return _lfw->create_entity_with_bot(data);
 }
 
-Stage::Stage(IStageWorld* world, LFW* lfw, Value data)    : _world(world), _lfw(lfw), _data(std::move(data)) {
+Stage::Stage(World* world, LFW* lfw, Value data)    : _world(world), _lfw(lfw), _data(std::move(data)) {
   _states.push_back(std::make_unique<StageRunningState>(this));
   _states.push_back(std::make_unique<StageCompletedState>(this));
   _states.push_back(std::make_unique<StageEndState>());
@@ -196,7 +202,7 @@ Background* Stage::change_bg(const Value& data) {
     return curr_bg;
   }
 
-  auto bg = std::make_unique<Background>(_world->world_ptr(), data);
+  auto bg = std::make_unique<Background>(_world, data);
   left = cam_l = player_l = enemy_l = bg->left();
   right = cam_r = player_r = enemy_r = bg->right();
   _near = bg->near_plane();
@@ -319,8 +325,8 @@ void Stage::set_phase(const Value& phase) {
       truthy(Value(hp_recovery)) || truthy(Value(hp_respawn)) || truthy(Value(mp_recovery));
   if (loop_players_fighters) {
     std::vector<Value> teams;
-    for (IStageEntity* f : _world->puppets()) set_add(teams, f->team());
-    for (IStageEntity* f : _world->entities()) {
+    for (IStageEntity* f : _world->puppet_views()) set_add(teams, f->team());
+    for (IStageEntity* f : _world->entity_views()) {
       if (!entity::is_fighter(f->ref()) || !set_has(teams, f->team())) continue;
       if (f->hp() <= 0.0 && truthy(Value(hp_respawn))) {
         const double hp = hp_respawn < 1.0 ? lfw::min(f->hp_max() * hp_respawn, f->hp_max())
@@ -389,8 +395,8 @@ void Stage::set_phase(const Value& phase) {
   const Value player_f = is_num(player_facing) ? player_facing : Value();
 
   std::vector<Value> teams;
-  for (IStageEntity* v : _world->puppets()) set_add(teams, v->team());
-  for (IStageEntity* e : _world->entities()) {
+  for (IStageEntity* v : _world->puppet_views()) set_add(teams, v->team());
+  for (IStageEntity* e : _world->entity_views()) {
     if (!entity::is_fighter(e->ref()) || !set_has(teams, e->team())) continue;
     if (strict_equals(player_f, Value(1.0)) || strict_equals(player_f, Value(-1.0))) {
       e->set_facing(player_f);
@@ -471,13 +477,13 @@ void Stage::enter_phase(double idx) {
 
 double Stage::ce() {
   double count = 0.0;
-  for (IStageEntity* c : _world->puppets()) {
+  for (IStageEntity* c : _world->puppet_views()) {
     const Value base = field_or(c->data(), u"base");
     const Value ce_v = field_or(base, u"ce");
     count += is_nullish(ce_v) ? 1.0 : to_number(ce_v);
   }
   if (!truthy(Value(count))) {
-    for (IStageEntity* e : _world->entities()) {
+    for (IStageEntity* e : _world->entity_views()) {
       if (!entity::is_fighter(e->ref()) || !e->mounted() || e->hp() <= 0.0) continue;
       if (!strict_equals(e->team(), Value(std::u16string(team_enum::kTeam_1)))) continue;
       const Value base = field_or(e->data(), u"base");
@@ -552,8 +558,8 @@ void Stage::dispose() {
 
   std::vector<IStageEntity*> temp;
   std::vector<Value> player_teams;
-  for (IStageEntity* v : _world->puppets()) set_add(player_teams, v->team());
-  for (IStageEntity* e : _world->entities()) {
+  for (IStageEntity* v : _world->puppet_views()) set_add(player_teams, v->team());
+  for (IStageEntity* e : _world->entity_views()) {
     if (entity::is_fighter(e->ref()) && set_has(player_teams, e->team())) continue;
     if (entity::is_weapon(e->ref()) && e->bearer() != nullptr &&
         set_has(player_teams, e->bearer()->team())) {
@@ -613,7 +619,7 @@ bool Stage::check_dialog_end() {
 bool Stage::should_goto_next_stage() {
   if (is_chapter_finish() || !is_stage_finish()) return false;
 
-  for (IStageEntity* e : _world->entities()) {
+  for (IStageEntity* e : _world->entity_views()) {
     if (!entity::is_fighter(e->ref())) continue;   // 非角色不判断
     if (e->hp() <= 0.0) continue;                  // 无血，不判断
     if (e->position_x() >= cam_r) continue;        // 已达右侧，不判断

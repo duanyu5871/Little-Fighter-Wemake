@@ -50,23 +50,6 @@ class IStageEntity {
   virtual IStageEntity* bearer() const = 0;  // 武器持有者（`e.bearer`）
 };
 
-// `World` 的缝（`World` 那一刀再实现它）。`world.bg` 是**读写**的（`change_bg` 会换掉它）。
-class IStageWorld {
- public:
-  virtual ~IStageWorld() = default;
-  virtual World* world_ptr() const = 0;                     // `new Background(this.world, data)`
-  virtual Background* bg() const = 0;                       // `world.bg`
-  virtual void set_bg(std::unique_ptr<Background> bg) = 0;  // `world.bg = bg`
-  // `world.stage`（`change_bg` / `enter_phase` / `spawn` 三处要读）⇒ 一次取值（打一次日志），
-  // 与 TS 的属性读一一对应。
-  virtual Stage* stage() const = 0;
-  virtual std::vector<IStageEntity*>& entities() = 0;
-  virtual std::vector<IStageEntity*>& puppets() = 0;
-  virtual void del_entities(const std::vector<IStageEntity*>& es) = 0;
-  virtual Value difficulty() const = 0;                     // `world.dataset.difficulty`
-  virtual void camera_jump_x(const Value& x) = 0;
-};
-
 // `Callbacks<IStageCallbacks>` 的端口替身。TS 的回调第一个/最后一个参数是 `Stage` 本身，
 // 而 `Value` 装不下 C++ 对象 ⇒ 给一个专用 payload（同 `FSM` 用 `CallbacksT<FSM*>` 的先例）：
 // `stage` 一律是「触发这次回调的 Stage」，`a` / `b` 放那两个值参数
@@ -87,10 +70,10 @@ class Stage : public IItemHost {
   static void set_warn(Warn warn);
   static void warn(const std::u16string& where, const std::u16string& text);
 
-  Stage(IStageWorld* world, LFW* lfw, Value data);
+  Stage(World* world, LFW* lfw, Value data);
   ~Stage();
 
-  IStageWorld* world() const { return _world; }
+  World* world() const { return _world; }
   LFW* lfw() const { return _lfw; }
   const Value& data() const { return _data; }
   const Value& next_stage() const { return _next_stage; }
@@ -102,7 +85,7 @@ class Stage : public IItemHost {
   double near_plane() const override { return _near; }
   Value team() const override { return Value(_team); }
   bool all_boss_dead() override;
-  Value difficulty() const override { return _world->difficulty(); }
+  Value difficulty() const override;
   MersenneTwister* mt() override;
   Value datas_find(const Value& oid) override;
   std::shared_ptr<Randoming> datas_randoming_by_group(const Value& oid) override;
@@ -111,7 +94,7 @@ class Stage : public IItemHost {
   Value title() const;
   bool is_stage_finish() const { return _is_stage_finish; }
   bool is_chapter_finish() const { return _is_chapter_finish; }
-  Background* bg() const { return _world->bg(); }
+  Background* bg() const;
   Value phases() const;
   std::u16string id() const;
   std::u16string name() const;
@@ -179,7 +162,7 @@ class Stage : public IItemHost {
   void apply_phase_bounds();
   Value dialog_state_value(const DialogState& s) const;
 
-  IStageWorld* _world = nullptr;
+  World* _world = nullptr;
   LFW* _lfw = nullptr;
   Value _data;
   Value _next_stage;

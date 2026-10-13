@@ -32,8 +32,8 @@ export default {
     {
       note: "World: 初始舞台用 VOID_BG 的数据",
       file: "native/lfw/world.cpp",
-      from: `  stage_ = std::make_unique<Stage>(stage_view_.get(), lfw_, defines_value(u"Defines.VOID_STAGE"));`,
-      to: `  stage_ = std::make_unique<Stage>(stage_view_.get(), lfw_, defines_value(u"Defines.VOID_BG"));`,
+      from: `  stage_ = std::make_unique<Stage>(this, lfw_, defines_value(u"Defines.VOID_STAGE"));`,
+      to: `  stage_ = std::make_unique<Stage>(this, lfw_, defines_value(u"Defines.VOID_BG"));`,
     },
     {
       note: "World: dataset 变更回调把 curr / prev 传反",

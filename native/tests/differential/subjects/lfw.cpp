@@ -2410,7 +2410,7 @@ bool run_comp_ops(lfw::LFW& lfw, FakeHost& host, const std::vector<std::string>&
       a.lfw = &lfw;
       lfw.callbacks.call(key_of(t[i++]), {a});
     } else if (op == "wstage") {
-      lfw.world().set_stage(std::make_unique<lfw::stage::Stage>(&lfw.world().stage_world(), &lfw,
+      lfw.world().set_stage(std::make_unique<lfw::stage::Stage>(&lfw.world(), &lfw,
                                                                parse_value(t, i)));
     } else if (op == "sphase") {
       lfw.world().stage()->enter_phase(to_double(t[i++]));

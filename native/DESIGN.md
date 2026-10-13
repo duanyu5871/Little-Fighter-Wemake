@@ -11486,3 +11486,41 @@ public helper::IUiHelperLfw`（基类列表本身就是证据）。4CL（台面�
 
 实测（纯重构）：差分 **255/255**；锚点 9764 ok/0 bad；include 836 clean/0 failed/9 warnings；
 coverage OK；宿主 prel 300 = `7335aa25f4e1ce86`、`--vs` 600 = `f29d3bb1ea330c32` —— 逐字节不变。
+
+### 149.6 缝家族退役（5/5）：`IStageWorld`（切片 4CR / ck3）
+
+`IStageWorld`(9 面：`world_ptr` / `bg` / `set_bg` / `stage` / `entities` / `puppets` /
+`del_entities` / `difficulty` / `camera_jump_x`) 的真实现就是 `World` 自己；适配器是 `world.cpp` 里
+那个 63 行的 `WorldStageView`（它同时持有 `views_` / `entity_view_` / `puppet_view_` 三个投影缓存）。
+这几面本来就没有先决障碍（`World` 早就能构造），只是当年 `Stage` 只被喂了窄缝。
+
+- 删掉 `IStageWorld` 与 `WorldStageView`；`Stage` 改持 **`World*`**（`stage.h` 里 `World` 是完整类型，
+  因为它 include 了 `stage/stage.h` 的反向 —— 实际是 `stage.h` 前置声明 `World`、`stage.cpp` include
+  `lfw/world.h`）；`stage.h` 里两个 inline 体（`bg` / `difficulty`）需要完整 `World` ⇒ 搬进 `stage.cpp`。
+- 投影缓存从视图类搬成 `World` 的私有成员，`view_of` / `entity_of` 变成匿名命名空间里的自由函数
+  （多带一个 `views&` 参数 —— 它们要用只有 `world.cpp` 看得见的私有 `StageEntityView`）。
+- **改名的坑**：`IStageWorld::entities()` / `puppets()` 与 `World` 的**数据成员** `entities` /
+  `puppets`（TS 里的两个真数组）同名 —— C++ 里成员函数不能与数据成员同名 ⇒ 这两条投影入口改名成
+  `entity_views()` / `puppet_views()`（`Stage` 侧 11 处调用点跟着改）。`del_entities` 则天然是重载
+  （收 `IStageEntity*` 投影 vs 收真 `Entity*`），保留两条、投影那条先还原成真实体再转发。
+- 台面 `subjects/stage.cpp` 的 `FakeStageWorld` 从「实现窄缝」改成**派生真 `lfw::World`**（`LFW` 用
+  台面自己的 `FakeStageLfw` + `fx::g_renderer` + `fx::g_states`），覆写面一字不改、一律不调真基类 ⇒
+  语义等价；构造顺序上 `FakeStageWorld` 的构造函数体必须**写到类外**（放在 `g_slfw` 之后），否则
+  类内引用还没声明的全局 `g_slfw` 编不过（C2065）。
+- **真 `World` 的 ctor 有副作用**：全局构造期它会经 `FakeStageLfw` 触发 `h:bgfind=` / `h:newteam=`
+  两条挂钩日志，并**消耗掉一次 `new_team` 计数**。旧假件不碰 `LFW`、TS 孪生也没有这两行 ⇒ 用例开跑前
+  `g_log.clear()` + `team_counter = 0` 还原（否则 `stage/stage` 首处漂移：`team_2` vs `team_1`）。
+- `world.h` 里原先已有一条 `world_ptr()`（`Background` 构造要用），4CR 新加的同类方法重复 ⇒ 删重复项。
+- 变异锚点里有 5 条文本引用了 `_world->world_ptr()` / `_world->entities()` 等 ⇒ 同步更新（`stage_main.mjs`
+  4 条 + `world.mjs` 1 条）。
+
+实测（纯重构）：差分 **255/255**；锚点 **9764 ok / 0 bad**；include 836 clean / 0 failed / 9 warnings；
+coverage OK；宿主 prel 300 = `7335aa25f4e1ce86`、stage 1 900 = `e4a9437292047044`、`--vs` 600 =
+`f29d3bb1ea330c32` —— 三条**逐字节不变**。
+
+### 149.7 剩下的同类缝
+
+`IUiLayers`(6) / `IWorldUi`(2)（ck2：真实现 `ui::UILayers`，卡在 `world` subject 的 `h:ui=` 覆盖
+口径，要用户定夺）；`IItemHost`(9)（ck4，同 4CR 的配方）；`IStageEntity`(18) / `IItemEntity`(22)
+（仿实体，真实现就是 `Entity`，适配器同 4CR 的 `StageEntityView` / `EntityItem`）；`IKeysLfw`(3)
+**没有真实现** ⇒ 属待移植而不是退役。
