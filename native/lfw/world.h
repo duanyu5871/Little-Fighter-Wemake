@@ -171,15 +171,15 @@ class IWorldRenderer {
 
 // TS `World.ts`：世界（实体表 / 边界 / 相机 / 场景 / 计分）。
 //
-// 两类宿主面各有一个视图实现（定义在 `world.cpp` 里）：`stage::IStageWorld`（`Stage` 要的）；`Entity` 侧
-// `world.*` / `lfw.*`）与 `stage::IStageWorld`（`Stage` 要的）。`ICameraWorld` 由本类直接实现
-// —— 那三个方法名（`world_stage` / `world_bg` / `world_dataset`）与 TS 的字段名不撞。
-class World : public ICameraWorld {
+// 两类宿主面各有一个视图实现（定义在 `world.cpp` 里）：`stage::IStageWorld`（`Stage` 要的）；
+// `Entity` 侧自 4CJ 起直接读本类，`Camera` 侧的三条属性读（`world_stage` / `world_bg` /
+// `world_dataset`）自 4CK-1 起也并入本类 —— 那几个名字与 TS 的字段名不撞。
+class World {
  public:
   static constexpr const char* TAG = "World";
 
   World(IWorldLfw& lfw, IWorldRenderer& renderer, state::States* states);
-  ~World() override;
+  ~World();
 
   World(const World&) = delete;
   World& operator=(const World&) = delete;
@@ -284,10 +284,11 @@ class World : public ICameraWorld {
   bool is_stage_finish() const;
   bool is_chapter_finish() const;
 
-  // ---- `ICameraWorld`：TS 里是 `world.stage` / `world.bg` / `world.dataset` 三次属性读 ----
-  Value world_stage() override;
-  Value world_bg() override;
-  Value world_dataset() override;
+  // ---- TS 里 `Camera.update()` 读的 `world.stage` / `world.bg` / `world.dataset` 三次属性读
+  // （切片 4CK-1：`ICameraWorld` 退役后并入本类；`virtual` 供台面脚本化）----
+  virtual Value world_stage();
+  virtual Value world_bg();
+  virtual Value world_dataset();
   // `CollisionCoreEnv::dataset` 用的同一份快照（`world.dataset`）。
   Value dataset_value() const;
   // `new Background(this, data)` 那一处要的 `World*`（`Background` 只前置声明了它）。

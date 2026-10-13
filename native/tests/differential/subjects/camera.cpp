@@ -9,8 +9,10 @@
 
 #include "lfw/camera.h"
 #include "lfw/core/value.h"
+#include "lfw/world.h"
 
 #include "trace_util.h"
+#include "world_fixture.h"
 
 namespace {
 
@@ -35,8 +37,13 @@ std::string pair(const lfw::Vector2* v) {
 
 // 假世界：三个对象（`stage` / `bg` / `dataset`），对应 TS 台面里那三个 bag。
 // 只记 `world.stage` / `world.bg` / `world.dataset` 这几次属性读。
-class FakeWorld : public lfw::ICameraWorld {
+//
+// 切片 4CK-1：`ICameraWorld` 缝退役 ⇒ 直接派生真 `lfw::World` 覆写那三条（`fx::` 那几个假件
+// 只是把 `World` 供起来），其余全走真实现。
+class FakeWorld : public lfw::World {
  public:
+  FakeWorld() : lfw::World(fx::g_lfw, fx::g_renderer, &fx::g_states) {}
+
   lfw::Value stage;
   lfw::Value bg;
   lfw::Value dataset;

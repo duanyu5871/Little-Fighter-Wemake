@@ -4,6 +4,7 @@
 #include <variant>
 
 #include "lfw/defines/defines_data.h"
+#include "lfw/world.h"
 #include "lfw/ditto/instance.h"
 #include "lfw/utils/container_help/field_or.h"
 #include "lfw/utils/math/base.h"
@@ -22,7 +23,7 @@ bool is_nullish(const Value& v) {
 
 }
 
-Camera::Camera(ICameraWorld* world) : _world(world) {
+Camera::Camera(World* world) : _world(world) {
   destination = ditto::vec2();
   position = ditto::vec2();
   velocity = ditto::vec2();

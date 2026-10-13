@@ -5571,3 +5571,15 @@ harness op：
 - 台面的 `new_id` 脚本化仍在假 `lfw` 侧（`fx::g_id_counter` / `FakeLfw::new_id`），不在实体上。
 - ⚠ 这一刀是**纯重构**：孪生与端口的行为必须逐字节一致 ⇒ 台面里任何「顺手修正」的冲动都要按住；
   语义要对齐旧假宿主（例如玩家表仍给空 `Value`）。
+
+### 6.9.188 `ICameraWorld` 退役 ⇒ 相机台面派生真 `World`（4CK-1）
+
+- `Camera` 的构造签名从 `Camera(ICameraWorld*)` 改成 `Camera(World*)`（`camera.h` 只前置声明，
+  实现里 include `world.h`）。台面不再实现 `ICameraWorld`，改为 **派生 `lfw::World`** 覆写
+  `world_stage()` / `world_bg()` / `world_dataset()`（那三条现在是 `World` 的 `virtual`），
+  其余走真实现；`World` 的构造仍需要一个假 `lfw` + 假 renderer + `States`（`world_fixture.h`
+  的 `fx::g_lfw` / `fx::g_renderer` / `fx::g_states` 直接用）。
+- 台面原来靠「实现窄缝」拿到的「读几次就记几次」能力**没有丢**：覆写那三条即可，日志口径一字不变。
+- ⚠ 改过 `world.h` / `camera.h` 这类被广泛 include 的头之后，**必须整树清 obj 再编**：
+  `build.ninja` 没有头依赖，只清 `lfw_core.dir` 会留下陈旧的台面 obj，症状是链接期
+  「找不到 `Camera::Camera(ICameraWorld*)`」或「找不到 `World::~World`」。

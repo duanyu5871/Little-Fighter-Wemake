@@ -11232,3 +11232,52 @@ fighter `101` 血量 500 → 339 → 288 说明**阶段模式也在真打**。`w
 - 同类「上游已存在、缝还没接」的面：`holding_mt_mark` / `mt_range`（要 `MersenneTwister::mark/range`）、
   `datas_find_fighter`（`LFW::datas_fighters_find`）、`env.lfw_player`（`LFW::players_get`）、
   玩家表（`World::player_value` 仍是空值）。
+
+---
+
+## 147. 缝家族退役（1/5）：`ICameraWorld`（切片 4CK-1）
+
+### 147.1 背景与判据
+
+`IEntityHost`（§146）之后，端口里还剩十个同性质的「老脚手架」接口：
+`IWorldLfw` / `IStageLfw` / `IStageWorld` / `ICameraWorld` / `IItemHost` / `IDatMgrHost` /
+`IKeysLfw` / `IHelperLfw` / `IUiHelperLfw` / `IWorldUi`。它们与 `IEntityHost` 同源：
+**开口时为「对面那个类还没移植」，现在真类都在了**。
+
+退役判据两条，缺一不可：
+
+1. **真实现已存在**（不是只有假件）—— 例如 `ICameraWorld` 由 `World` 直接实现；
+2. **台面假件的替代成本可接受** —— 这点把家族劈成两半：
+
+| 组 | 成员 | 台面假件在哪 | 处理 |
+| --- | --- | --- | --- |
+| A | `ICameraWorld` / `IWorldUi` / `IStageWorld` / `IItemHost` / `IDatMgrHost` | **端口里**（`camera.cpp` / `world.cpp` / `stage.cpp` / `dat_mgr.cpp` 各带一个 no-op 兜底）+ 个别 subject | 先退 |
+| B | `IWorldLfw` / `IStageLfw` / `IHelperLfw` / `IUiHelperLfw` / `IKeysLfw` | **台面唯一的假 `LFW` 手段**（`world_fixture.h` 的 `FakeLfw` 就是 `: IWorldLfw`） | 后退：要先给台面一条「造得出真 `LFW`」的路（`ILfwHost` 64 条纯虚要么桩掉、要么想别的办法） |
+
+⚠ 另一条独立判据：`IKeysLfw` **没有真实现**（`LFW` 没接 `keys` 那一面）⇒ 它不是「退役」而是
+「待移植」，归到功能欠账里，不在这五刀内。
+
+### 147.2 本刀（A 组第一个，最小面）
+
+`ICameraWorld` 只有三条：`world_stage()` / `world_bg()` / `world_dataset()`（TS 里就是
+`this.world.stage` / `.bg` / `.dataset` 三次属性读，给 `Value` 是为了保住 JS 的强转与
+「读了几次」的可观测性）。
+
+- `camera.h`：删接口；`Camera` 改持真 `World*`（`camera.h` 只前置声明 `World`，`camera.cpp` include `world.h`）。
+- `world.h`：`class World {`（不再有基类）；那三条方法从 `override` 变成本类的 `virtual`
+  （语义一字不改，加 `virtual` 是为了让相机台面仍旧能脚本化）；`~World()` 顺手去掉 `override`
+  （没有基类了，MSVC C3668）。
+- 台面：`subjects/camera.cpp` 的 `FakeWorld : ICameraWorld` 改成 `: lfw::World`（走
+  `world_fixture.h` 的假 `lfw`/renderer/states 供起），三个 bag 与三条日志一字不动。
+
+### 147.3 实测（仍是纯重构）
+
+差分 **255/255**；锚点 **9764 ok / 0 bad**（无需重指）；include 836 clean/0/9；coverage OK；
+宿主三条摘要 **逐字节不变**（`7335aa25f4e1ce86` / `e4a9437292047044` / `f29d3bb1ea330c32`）。
+
+### 147.4 工作流教训（写下来省下一次踩坑）
+
+`build.ninja` **没有头依赖**：删掉/改掉一个被广泛 include 的头（`world.h`、`camera.h` 这种）之后，
+只删 `lfw_core.dir` 的 obj 不够 —— **台面目录的 obj 也会陈旧**，表现是链接期「找不到
+`Camera::Camera(ICameraWorld*)`」或「找不到 `World::~World`」，看着像真 bug。可靠姿势：
+`Get-ChildItem -Recurse -File <build> -Include *.obj,*.lib,*.exe | Remove-Item`（**保留目录**）再编。

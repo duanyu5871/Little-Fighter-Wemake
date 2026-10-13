@@ -16,7 +16,7 @@ class MersenneTwister;
 
 namespace stage {
 
-// TS 里 `Item` 直接吃 `Entity`；端口沿用既有的窄缝写法（同 `ICameraWorld` / `IEntityHost`）：
+// TS 里 `Item` 直接吃 `Entity`；端口沿用既有的窄缝写法（同 `IItemHost` / `IStageWorld`）：
 // 把 `Item` 真正用到的成员收成接口，宿主（`World` 那一刀）再实现它。
 class IItemEntity {
  public:
