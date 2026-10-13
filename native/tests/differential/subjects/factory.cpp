@@ -203,6 +203,10 @@ int main(int argc, char** argv) {
 
   lfw::Factory::set_warn([](const std::u16string& text) { push("warn:" + to_ascii(text)); });
 
+  // TS 侧的这份台面只 import `Factory.ts`（没引 `Entity.ts`）⇒ 它的创建器表是空的；
+  // C++ 这边 `entity.cpp` 的模块级注册（`regist_entities`）一定会被链进来 ⇒ 台面自己清一遍对齐。
+  lfw::Factory::entity_creators().clear();
+
   std::string raw;
   int lineno = 0;
   while (std::getline(in, raw)) {

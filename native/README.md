@@ -150,7 +150,10 @@ native/
   tools/
     native.mjs                       configure / build / lint / test
     check_lfw_cpp_includes.mjs       分层规则检查
-  host/                              宿主实现，镜像 src/DittoImpl/（尚未创建）
+  host/                              ★ 宿主实现（M1：headless 可运行入口）
+    fs_zip.{h,cpp}                   目录当 zip 用（`IZip` / `IZipObject` 的读盘实现）
+    headless_host.{h,cpp}            `ILfwHost` 的最小可用实现 + 手动时钟/定时器 + 空渲染器
+    lfw_run.cpp                      `lfw_run`：装数据包 → 起世界 → 推帧（每 N 帧打摘要）
   ffi/lfw_c.h                        纯 C ABI 导出（尚未创建）
 ```
 
@@ -223,6 +226,39 @@ VS Code 里也已经指好（`.vscode/settings.json`）：
   ⚠️ 跑之前先确认 `native/build/mutate-backup/` **不存在** —— 它存在说明上一次跑被中断，
   源文件可能还是变异体（下次启动会自动恢复）。
 
+### 跑起来（headless，`host/`）
+
+`lfw_run` 把宿主缝接到真数据上、**手动推帧**（不依赖平台的 raf / setInterval），跑完打
+每帧摘要与实体表快照。M1 只支持「已解包的包」：
+
+```
+# 一次性：把包解开（目录 = 包内容）
+mkdir native\build\host-data\prel -Force; Expand-Archive dist\prel.zip -DestinationPath native\build\host-data\prel -Force
+mkdir native\build\host-data\data -Force; Expand-Archive dist\data.zip  -DestinationPath native\build\host-data\data  -Force
+
+# 跑（`--root` 给 `builtin_data/…` 的根；`--zip` 按给定顺序 load）
+native\build\msvc-x64\bin\lfw_run.exe --root dist ^
+  --zip native\build\host-data\prel --frames 300 --every 100
+```
+
+输出形如：
+
+```
+[lfw_run] loaded: fighters=1 weapons=0 balls=0 entities=1 stages=2 bg=3
+[lfw_run] spawn p1 gim @(-80.0, 0.0, 0.0) team=1
+[lfw_run] stage=tutorial bg=ash_forest entities=2
+[frame    299] entities=2 ghosts=0 hp=1000.0 digest=d9b00db799724a2b
+[lfw_run] done: frames=300 ups=60 digest=d9b00db799724a2b warns=0 errors=0 …
+```
+
+`digest` 是「实体表（按 id 排序）的位置/血量/队/状态」的 FNV-1a —— 同参数**逐位可复现**
+（`--time` 给时钟初值 = `MersenneTwister` 的种子）。渲染 / 音频 / 指针 / UI 图片在
+headless 宿主里是空实现（会计数并在结尾报一行）。
+
+⚠️ `--zip ...\data`（完整数据包）目前**加载不了**：包里有 12 个 `.xml`（7 个 bg、5 把武器），
+而 `ToolXML::parse` 还没搬（见 `i_xml.h`）⇒ 读到第一个 `.obj.xml` 就整包失败。
+`prel` 包里没有 xml（除 `ui/entry_page.ui.xml`，不在 load 路径上），所以能跑通。
+
 ---
 
 ## 移植进度
@@ -263,6 +299,7 @@ VS Code 里也已经指好（`.vscode/settings.json`）：
 | 3 | `loader/get_val_*` 余下部分（`get_val_from_bot_ctrl` / `get_val_getter_from_stage` 要等 `BotController` / `Stage`） | 待做 |
 | 4r | `controller/BallController` + `helper/closer_one` | ✅ 通过（`entity/ball_ctrl` 174 行；49 条变异全杀） |
 | 4 | `entity` + `collision` + `buff` + `state` + `controller` + `bot` + `World` | 待做（**必须整块搬**，见下） |
+| 4宿主 | 步骤 4 **宿主接入（M1：headless 可运行）**：`host/` 的 `FsZip`（目录当 zip）+ `HeadlessHost`（`ILfwHost` 最小实现：读盘 import / `ToolXML` / 手动时钟 / 空渲染）+ `lfw_run`（装包 → 起世界 → 手动推帧 → 摘要） | ✅ 通过（`prel` 包：2 个 gim 起 `tutorial` 舞台，300 帧逐位可复现；差分 **254/254**；lint 9776/0）。顺带补上两处**只在真跑时才现形**的移植缺口：`Entity.ts` 底部那四句模块级 `Factory.register_entity` 与 `IWorldLfw::acquire_entity` 缝。完整数据包卡在 `ToolXML::parse`（未搬）⇒ 下一刀 |
 | 4主干 | 步骤 4 **主干**（宿主层：`stage/` 与 `World` / `LFW` / `Factory` / `Resources` / `Camera` / `Keys` **之前**能单独搬的部分，按依赖序：`I18N` → `loader/get_import_fallbacks` → `PlayerInfo` → `Camera` → `ZipMgr` → `Resources` → `Factory` → `stage/*` → `World` → `LFW`） | 进行中（`I18N` + `loader/get_import_fallbacks` ✅ 262 行 / 67 全杀；`PlayerInfo` ✅ 270 行 / 76 全杀；`ZipMgr` ✅ 114 行 / 33 全杀；`Camera` ✅ 369 行 / 93 全杀；`Resources` ✅ 136 行 / 44 全杀；`Factory` ✅ 92 行 / 35 全杀；`stage/Expressions` + `stage/Status` + `bg/{Background,Layer}` ✅ 70 + 83 行 / 46 全杀；`stage/Item` ✅ 622 行 / 93 全杀；`stage/Stage` ✅ 1045 行 / 108 全杀；`World`（状态与查询那半）✅ 638 行 / 133 全杀；`World::step` + `update_once` + `catch_up` + `start_update` + `Entity::release`（**非碰撞配对**那半；配对与 `collision_get` / `collisions_keeper.handle` 留给 4L）✅ 用例 315 行 / 95 全杀） |
 
 **步骤 2–4 是修正过的。** 把 `import type` 排除后算运行时依赖图，得到两个关键事实：
@@ -312,6 +349,12 @@ VS Code 里也已经指好（`.vscode/settings.json`）：
 | `State_Frozen::leave` 里 `StateBase_Proxy::leave` 被调了两次 | TS 只调一次 `super.leave(e, next_frame)`，端口在 `e.apply_opoints(ice_piece_opoints())` 之后又多调了一次 | 9m 复核 `apply_opoints` 调用点时发现；`apply_opoints` 的相对顺序与 TS 一致，所以不影响 9m，但这多出来的一次是**真的多**（`get_proxy(e).leave`）⇒ 归状态切片复核/修（现有 `entity_states` / `character_state_*` 用例观察不到） |
 | `base/ValExpression` 的宿主面 | TS 的取数器是 `(e: Entity) => number`（`DEFAULT_VARS` 直接读 `e.frame.width` 等、`rand`/`pick`/`bag`/`flip` 读 `e.lfw.mt`）；端口把它收成 **Ctx 概念**：`frame_var(name)` + `mt()` | 端口没有能被 `base/` 依赖的 `Entity`（循环包含）⇒ 照 `Expression<Ctx>` 的既有约定模板化。取数器给 `double`：帧**缺字段**时 TS 拿到 `undefined`，那一支（`range(undefined, undefined)` 提前返回、`pick` 的 `v !== undefined` 过滤）端口不复现，用例只喂有值的帧（见 PROTOCOL §6.9.102） |
 | `preprocess_opoint` 不写回 `__gen_*` | TS 把编译出来的 `ValExpression` **挂到记录上**；端口把九组编译结果**交还调用方**（`std::map<__gen_* 名, ValExpression>`），编译失败的字段不在表里 | `Value` 只有 7 种类型装不下函数（§4.40 的既有结论）。差分时两侧都按「把 `__gen_*` 删掉」对齐（TS 侧由 harness 删），`?? opoint.__gen_x` 的「失败保持原值」语义照旧成立 |
+| `host/`（宿主实现） | 渲染 / 音频 / 指针 / UI 图片是**空实现**（图片给零尺寸占位并计数） | 都是平台侧的东西；M1 只要「能起世界、能推帧」，它们不参与世界推进（DESIGN §139） |
+| `host/HeadlessHost::md5` | 占位哈希（FNV-1a ×2），**不是真 MD5** | 只给 `ui_load_img` 拼 key 用；与 `Ditto.MD5` 逐位一致留到 zip 那刀 |
+| `host/FsZip` | 只吃「已解包」的目录；压缩包本体（中央目录 / DEFLATE / md5 校验）未做 | M1 先用 `Expand-Archive` 出来的目录跑通（DESIGN §139.4） |
+| `host/` 的 `zip_*` | 下载 / 读 blob / zip 缓存一律「没有」⇒ 只走 `ZipItem{path, IZip*}` 这条**对象**加载路 | 宿主没有 blob / 下载层（DESIGN §139.4）；`load_zip_from_url` 那条路等 zip 那刀 |
+| `Entity.ts` 底部的模块级 `Factory.register_entity` | 端口用 `entity.cpp` 里一次**静态初始化**顶「模块副作用」 | C++ 没有模块初始化；时间点必须早于任何用户代码，差分台面靠「后注册覆盖」与 TS 对齐（DESIGN §139.2） |
+| `host/ToolXML::parse` | 未搬 ⇒ 宿主 `xml_parse` 恒失败，带 `.xml` 的数据包（完整 `data.zip`）加载不了 | `DatMgr` 对失败是致命的（照抄 TS 的 `throw`）；下一刀就是它（DESIGN §139.5） |
 | `base/Ticker` / `base/FPS` 的三处省略 | ① `Ticker.TAG`（`static readonly`）不移植；② `ITimeout.add` 的 `...args` 不移植；③ `Ticker._tick` 的 `try { this._step_once() } finally { this._schedule() }` 写成顺序两句 | ① 全仓库没有读取点（同其它槽的约定）；② TS 源码里自己注明「无用的预留参数」；③ lint 禁 `try`/`catch`，且端口的 `on_step` 不抛 ⇒ 「抛异常也重排」这条路径不可表示（见 DESIGN §59.4） |
 | `Number.prototype.toFixed` 只移植了 **f = 1** | 端口叫 `number_to_fixed_1`（`core/js_string.h`） | 唯一的调用点是 `get_short_file_size_txt`；一般化要 `10^f·m` 的大整数尾数（f ≤ 22 才进得了 128 位）。**别拿 `dat_translator/fixed_float` 顶替**：它返回数值、走浮点路径，只在 `\|x\|·10^f < 2^53` 时与 JS 等价（DESIGN §60.4 第 1 条） |
 | `base/clock.h` 的空槽回落 | TS 里 `Ditto.Clock` / `Ditto.Timeout` 永远装着宿主；端口的 `clock()` / `timeout()` 可能是空槽 ⇒ `clock_now()` 回 `0.0`、`clock_hidden()` 回 `false`、`clock_add`/`timeout_add` 回 `0`（=「没有句柄」）、`clock_del`/`timeout_del` 变 no-op | 不是防御性编程：`Randoming::default_mt()` 在**静态初始化期**取时钟取种子，那时宿主还没装槽（与 `callbacks_warn()` 的 `if (warn)` 同款约定） |
@@ -602,4 +645,5 @@ VS Code 里也已经指好（`.vscode/settings.json`）：
 | 4BW | 切片 4BW（**步骤 4 主干第七十五刀**）：**碰撞/状态视图的帧几何与 attach 缝（+ 4L 遗留核对）** —— `EntityCollisionView`/`EntityStateView` 的 `frame_centery/frame_height/frame_pic_h` 接真值（`Buff.ts` 的 destructure 读法：缺省 0、`NaN` 保留、`pic?.h ?? 0`），`attach(bool)` 转发 `Entity::attach`（ghost 语义：`true` 进 ghosts、`false` 进 entities；`_mounted` 门挡）；`collision_view` 提 public 供台面探针。台面 `wgeom`/`wattach`（回显 `cy/ht/ph`、`mounted/n/g`）。⚠ 坑：`wmk` 实体帧为 None，进数据帧靠 `attach` 的 `enter_frame(AUTO)` ⇒ 几何探针要在 attach 后；`attach(true)` 走 ghosts 不是 entities。4L 遗留逐条结算：john_shield/ball_frozen/arest dump/create_buff 已闭环；`get_bounding` near/far、`_core.dataset`、`tester_debug`、`set_prop` 白名单、snapshot 往返（TS 无调用者）、hit_sounds 保留在案；buff 特效真链路用例待数据加载接入。用例 `attach.txt` 43 行；变异 `world_attach.mjs` **11 条（11/11 全杀）**；全量差分 **254/254**。细节见 DESIGN §136 |
 | 4BX | 切片 4BX（**步骤 4 主干第七十六刀**）：**视图面合一（EntityViewBase）与 velocity_x/ground_y 统一** —— `EntityCollisionView`/`EntityStateView` 的 `buff::IBuffEntity` 面（14 纯虚 + 20 默认虚）收敛到新公共基类 `EntityViewBase`（持 `Entity& _e`；`EntityStateView : state::IStateEntity + EntityViewBase`，`IStateEntity` 改 `virtual buff::IBuffEntity`）；跨族签名 7 处冲突结算（5 处重载消解 + **2 处硬冲突 `velocity_x`/`ground_y` 统一 `double`**——TS 侧本就是 number；顺带修掉 `EntityStateView::ground_y` 漏实现、落地判定读到默认 NaN 的潜在缺口）。lfw 内 37+ 调用点与 22 个台面假实体签名适配；“无值”透传用 `nan_to_null`（NaN ⇔ TS `undefined`，修出 `character_state_basic`/`state_base` 两处 drift）。`wgeom`/`wattach` 输出不变（经继承同一实现）。用例 `state_base/main.txt` 补“z 轴正速度超限”场景（46→50 行）。变异 **11 枚 spec 共 507 条全杀**（world_attach 11 / weapon_state_misc 61 / state_base 37 / character_state_* 全杀）；全量差分 **254/254**；lint 9776/0。细节见 DESIGN §137 |
 | 4BY | 切片 4BY（**步骤 4 主干第七十七刀**）：**`buff::IBuffEntity` 退役（buff 以 `lfw::Entity` 为准入）** —— 删掉 14 纯虚 + 20 默认虚的 `buff::IBuffEntity`；`BuffEnv::find_entity/create_entity`、`Buff` 族签名（`attacter/set_attacker_entity/set_victim/add_victim/del_victim/place_effect(_center)/show_effect/on_*`）、`grant_buff`、`MagicFluteEnv::summary_apply_damage` 一律改收/返回 `Entity*`；`Entity` 吸收实体面（`data_indexes_of`、`frame_centery/height/pic_h`、`data_type`、`data_indexes_falling/in_the_skys`、`set_fallinjury`、`set_wait`、`velocity_y`、`marks_*`），`buffs_set/buffs_delete` **转虚**（台面要观测这两条）；`EntityViewBase` 退成纯转发类；`state::IStateEntity` 剪掉 14 条实体面、新增桥 `virtual Entity* entity_self()`（缺省空），`State_Base::leave` 经它取实体。⚠ **本刀最大的一处静默回归**：`EntityStateView` 丢了 21 条 final overrider（接口退役后 `IStateEntity` 的默认体赢了：`hp()` 读回 `undefined`、`position()` 恒 `0/0/0`、`team()` 空串），靠差分 `entity/main|spawn|update` 抓出后逐条补 `override` + 转发。台面 29 个 subject 的假实体从窄接口改成**真 `Entity` 派生**（新增 `entity_fixture.h`：`fx::Host`/`fx::shared_host()`/`fx::StubEntity`；⚠ 坑：`Entity` 自带成员 `host()`，派生类构造初始化表里裸写 `host()` 会解引用未初始化的指针 —— `state_base_proxy` 崩过一次、`sizeof(Entity)=5840` 那轮才定位到）；实体面上是有具体类型的字段（`hp/team` 等）用 (值, 已设) 两件套承载 TS 的「没设过 ⇒ `u`」。用例 `buff_magic_flute/main.txt` 的 `ateam`/`vteam` 改字符串（`Entity.team` 是 `u16string`）。变异 51 条锚点重指 + 运行器补两个坑（头文件变异顶台面 mtime、测试段 60s 上限），6 枚 spec **250 条全杀**；全量差分 **254/254**；lint 9776/0。细节见 DESIGN §138 |
+| 4宿主 | 切片 **4宿主（M1：headless 可运行入口）**：**`native/host/` + `lfw_run`** —— 新建 `fs_zip.{h,cpp}`（目录当 zip：`IZip`/`IZipObject` 读盘，`file_regex` 按条目名字典序）、`headless_host.{h,cpp}`（`ILfwHost` 最小实现：`import_as_*` 读盘、`xml_parse` 走 `ToolXML`、手动 `IClock`/`ITimeout`、空 `IWorldRenderer`、内存态存档、`md5` 占位、按键/指针回调列表）、`lfw_run.cpp`（CLI：`--root/--zip/--stage/--players/--fighter/--frames/--time/--every/--dump`；装包 → `change_bg` → 造 bot 战士 `attach` → `change_stage` → 手动 `update_once` 推帧 → 每 N 帧打摘要 + 结尾实体表）。⚠ 顺带修掉两处**只在真跑时才现形**的移植缺口：① `Entity.ts` 底部四句模块级 `Factory.register_entity(...)` 没有对应物（`create_entity*` 恒 `nullptr`）⇒ 端口加 `regist_entities()` + 静态初始化顶「模块副作用」；② `IWorldLfw` 缺 `acquire_entity` 缝（`common_creator` 要从池里取复用）。⚠ 坑：往 `IWorldLfw` 中间插虚函数 + 本机无头文件依赖 ⇒ **28 个 subject 用的是旧 vtable**（新鲜构建才现形），`rm -rf` 全量重编后恢复。实测：`prel` 包起 `tutorial` 舞台、2 个 gim、300 帧摘要 `d9b00db799724a2b` **逐位可复现**（三次运行一致）。差分 **254/254**；lint 9776/0。完整数据包卡在 `ToolXML::parse` 未搬（12 个 `.xml`）——下一刀。细节见 DESIGN §139 |
 

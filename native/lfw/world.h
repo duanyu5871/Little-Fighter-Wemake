@@ -86,6 +86,9 @@ class IWorldLfw : public stage::IStageLfw {
   // `lfw.factory.recycle_entity(e)` / `lfw.factory.recycle_buff(b)`
   virtual void recycle_entity(Entity* e) = 0;
   virtual void recycle_buff(buff::Buff* b) = 0;
+  // `lfw.factory.acquire_entity(data.type)`（`Entity.ts` 底部 `common_creator` 的第一句：
+  // 先从对象池里拿一个复用，拿不到才 `new`）。
+  virtual Entity* acquire_entity(const Value& type) = 0;
   // `lfw.factory.acquire_ctrl(InvalidController, "", this)` / `lfw.factory.release_ctrl(ctrl)`
   virtual controller::BaseController* acquire_invalid_ctrl(World& world) = 0;
   virtual void release_ctrl(controller::BaseController* ctrl) = 0;

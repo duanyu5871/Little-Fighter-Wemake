@@ -20,4 +20,5 @@ else()
 endif()
 
 add_subdirectory(lfw)
+add_subdirectory(host)
 add_subdirectory(tests)

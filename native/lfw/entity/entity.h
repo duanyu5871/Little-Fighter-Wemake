@@ -725,4 +725,10 @@ class Entity {
   Value ctrl_ref(controller::BaseController* ctrl) const;
 };
 
+// TS `Entity.ts` **底部**那四句模块级注册：
+//   `Factory.register_entity(EntityEnum.{Ball,Weapon,Entity,Fighter}, common_creator)`
+// C++ 没有模块初始化 ⇒ 由 `LFW` 构造函数（`regist_components()` / `regist_buffs()` 旁边）调一次。
+// 与 TS 一致：重复调用只 warn（`Factory::register_entity` 的门）。
+void regist_entities();
+
 }

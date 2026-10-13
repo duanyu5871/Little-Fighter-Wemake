@@ -425,6 +425,13 @@ class FakeLfw : public lfw::IWorldLfw {
   void recycle_entity(lfw::Entity* e) override {
     push(std::string("h:recycle=") + (e != nullptr ? to_ascii(e->id) : std::string("z")));
   }
+
+  // `lfw.factory.acquire_entity(type)`：假 LFW 没有对象池 ⇒ 恒「没拿到」（台面直接 new）。
+  lfw::Entity* acquire_entity(const Value& type) override {
+    (void)type;
+    return nullptr;
+  }
+
   void recycle_buff(lfw::buff::Buff* b) override {
     (void)b;
     push("h:recyclebuff");

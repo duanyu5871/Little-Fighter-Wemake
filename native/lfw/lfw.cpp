@@ -1006,6 +1006,8 @@ void LFW::recycle_entity(Entity* e) { factory.recycle_entity(e); }
 
 void LFW::recycle_buff(buff::Buff* b) { factory.recycle_buff(b); }
 
+Entity* LFW::acquire_entity(const Value& type) { return factory.acquire_entity(type); }
+
 controller::BaseController* LFW::acquire_invalid_ctrl(World& world) {
   (void)world;
   return factory.acquire_ctrl(controller::invalid_controller_creator(), std::u16string(), nullptr);

@@ -34,10 +34,12 @@
 #include "lfw/entity/entity_state_view.h"
 #include "lfw/entity/face_helper.h"
 #include "lfw/entity/summary_mgr.h"
+#include "lfw/factory.h"
 #include "lfw/ground.h"
 #include "lfw/loader/get_val_from_entity.h"
 #include "lfw/state/entity_states.h"
 #include "lfw/state/state_base.h"
+#include "lfw/world.h"
 #include "lfw/utils/container_help/field_or.h"
 #include "lfw/utils/container_help/find.h"
 #include "lfw/utils/math/base.h"
@@ -3043,5 +3045,35 @@ Value Entity::data_indexes_of(const char16_t* key) const {
 }
 
 Value Entity::data_type() const { return field_or(data(), u"type"); }
+
+namespace {
+
+// TS `Entity.ts` 底部的 `common_creator`：先问对象池（`Factory.acquire_entity(data.type)`），
+// 拿不到才新建。端口里 `Entity` 由**这里**造出来、交给池子回收（`Factory::recycle_entity`），
+// 与 TS 的 GC 语义对齐 —— 因此不 `delete`（池子会复用；进程退出时随进程回收）。
+Entity* common_creator(World* world, const Value& data, state::States* states) {
+  Entity* ret = world->lfw().acquire_entity(field_or(data, u"type"));
+  if (ret == nullptr) return new Entity(world->host(), data, states);
+  ret->reset(data, states);
+  return ret;
+}
+
+}  // namespace
+
+void regist_entities() {
+  Factory::register_entity(Value(static_cast<double>(EntityEnum::Ball)), common_creator);
+  Factory::register_entity(Value(static_cast<double>(EntityEnum::Weapon)), common_creator);
+  Factory::register_entity(Value(static_cast<double>(EntityEnum::Entity)), common_creator);
+  Factory::register_entity(Value(static_cast<double>(EntityEnum::Fighter)), common_creator);
+}
+
+namespace {
+
+// TS 的注册是**模块级**副作用（`Entity.ts` 底部）：C++ 用一次静态初始化顶它 —— 时间点必须
+// 比任何「用户代码」早，差分台面（`subjects/lfw.cpp` 的 `main`）会在这之后再注册自己的
+// 带日志版本覆盖掉（TS 侧的顺序也是如此：先模块副作用、后台面代码）。
+const bool s_regist_entities = (regist_entities(), true);
+
+}  // namespace
 
 }

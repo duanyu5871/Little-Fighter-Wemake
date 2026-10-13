@@ -563,6 +563,7 @@ class LFW : public IWorldLfw,
                                  const Value& data) override;
   void recycle_entity(Entity* e) override;
   void recycle_buff(buff::Buff* b) override;
+  Entity* acquire_entity(const Value& type) override;
   controller::BaseController* acquire_invalid_ctrl(World& world) override;
   void release_ctrl(controller::BaseController* ctrl) override;
   controller::BaseController* acquire_local_ctrl(const std::u16string& player_id,

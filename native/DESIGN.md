@@ -10499,3 +10499,94 @@ coverage 不变（1 条 `text-enum?` 提示是既有）。变异：本刀涉及�
 `deps = msvc` + `/showIncludes`；但 ninja 只认英文前缀，本机 cl 输出的是
 `注意: 包含文件:` ⇒ 还得给 `build.ninja` 补一行 `msvc_deps_prefix = 注意: 包含文件:`。
 在 `native/build/dep-probe` 里验过：补上之后 `ninja -t deps` 能列出 `../../lfw/core/js_num.h`。）
+## 139. 切片 4宿主（M1：headless 可运行入口）
+
+**背景**：到 4BY 为止 `lfw` 侧已经齐了——`core` / `utils` / `defines` / `dat_translator` /
+`loader` / `entity` / `collision` / `buff` / `state` / `controller` / `bot` / `World` / `LFW` /
+`datas` / `ui` 都有实现，但它们只被差分台面驱动过（`tests/differential/subjects/*`，自带假
+实体、假宿主、脚本化数据）。**真数据、真时间轴、真实体表**从来没跑过。本刀把宿主缝接上，
+目标不大但真：装包 → 起世界 → 推帧 → 可复现摘要。
+
+### 139.1 新增 `native/host/`（三件）
+
+* **`fs_zip.{h,cpp}`** —— 目录当 zip 用（`IZip` / `IZipObject` 的读盘实现）：条目名 = 相对
+  `root` 的路径（`/` 分隔、字典序），`file(path)` 直查索引、`file_regex(pattern)` 复用
+  `zip_name_matches`（与 TS 的正则口径一致）。`json()` 先 JSON5 再退回严格 JSON（包里的
+  `.json5` 与 `.json` 走同一条），`text()` 走 `decode_utf8`，`array_buffer()` 给字节数组，
+  `blob_url()` 给条目名（宿主没有 blob 层），`image_bitmap()` 明确拒绝（宿主没有位图解码）。
+  ⚠ M1 只支持**已解包**的包（压缩包本体的中央目录 / DEFLATE 留到后面那刀）。
+* **`headless_host.{h,cpp}`** —— `ILfwHost` 的最小可用实现：
+  - 读盘：按 `--root` 顺序找 `builtin_data/...` 这类 import 路径；
+  - `xml_parse`：转发 `ToolXML`（`ToolXML::parse` 未搬 ⇒ 见 139.4）；
+  - 时间：`ManualClock` + `NoopTimeout`（`add` 恒回 0 = 没有句柄）⇒ `Ticker` 自己不会走，
+    帧由 app 显式推——**可复现**，也不依赖平台 raf / setInterval；
+  - 渲染：`NullWorldRenderer`（只记 `add/del/render` 次数）；UI 图片给零尺寸占位并计数；
+  - 音频 / 指针：空实现（音量/静音按字段存着，回调列表成对增删）；
+  - 存档（`Ditto.Cache` / zip cache）：内存态；`md5()` 是**占位哈希**（FNV-1a ×2，同输入同
+    输出），与 `Ditto.MD5` 逐位一致那件事留到 zip 那刀；
+  - `lang_apply`：只切 i18n 语言表，UI 节点文本的重写留给 UI 文本那一刀。
+* **`lfw_run.cpp`** —— CLI 入口：装包 → `change_bg` → 造 `--players` 个 bot 战士（`set_team`
+  / `set_hp(_max)` / `set_mp(_max)` / `set_position`（走 `Ground::segment` + `Ground::y`）
+  / `set_blinking` / `set_invulnerable` / `attach()`）→ `change_stage` → 逐帧
+  `clock.advance(dt)` + `world.update_once(dt)`，每 `--every` 帧打一行「实体数 / 总血量 /
+  摘要」，结尾打实体表快照与宿主统计。摘要 = 实体表（按 id 排序）的
+  `position/hp/mp/team/state` 做 FNV-1a（`core/state_hash`）。
+
+### 139.2 顺带修掉的两处移植缺口（**只有真跑才现形**）
+
+1. **`Entity.ts` 底部的模块级注册没有对应物**：TS 里 `Entity.ts` 最后四句
+   `Factory.register_entity(EntityEnum.{Ball,Weapon,Entity,Fighter}, common_creator)` 是
+   **模块副作用**，所以 `lfw.factory.create_entity*` 在 TS 永远有创建器；端口只搬了
+   `Factory::register_entity` 这个 API，**没人调用** ⇒ `create_entity_with_bot` 恒回
+   `nullptr`（差分台面自己注册假的，所以一直没露）。修法：`entity/entity.{h,cpp}` 加
+   `regist_entities()` + `common_creator`（先 `lfw.acquire_entity(type)` 取复用，拿不到才
+   `new Entity(world->host(), data, states)`），并在 `entity.cpp` 里用一次**静态初始化**顶
+   「模块副作用」——顺序很重要：台面（`subjects/lfw.cpp` 的 `main`）在这之后再注册自己的
+   带日志版本覆盖掉，与 TS 的「先模块副作用、后台面代码」一致。
+2. **`IWorldLfw` 缺 `acquire_entity` 缝**：TS 的 `common_creator` 第一句就是
+   `world.lfw.factory.acquire_entity(data.type)`。补
+   `virtual Entity* acquire_entity(const Value&)` + `LFW::acquire_entity` 转发
+   `factory.acquire_entity`；两份台面假 LFW 给「恒 nullptr」（台面自己 `new`）。
+
+⚠ **坑（本刀踩实了）**：往 `IWorldLfw` **中间**插虚函数会挪 vtable 槽位，而本机 ninja 不记
+头文件依赖（见 §138）⇒ 只有被碰过的 `.cpp` 重编，**28 个 subject 带着旧 vtable 跑**（症状是
+一堆 `world/*`「C++ failed」与 `cmds/*` drift，看着像逻辑坏了）。`rm -rf build/msvc-x64` 全量
+重编后 254/254。⇒ 改接口（尤其虚函数表）**必须全量重编**，这也是 §138 那条建议的价值所在。
+
+另外两处小改：`subjects/factory.cpp` 在开头 `Factory::entity_creators().clear()`——TS 侧那份
+台面只 import `Factory.ts`（没引 `Entity.ts`）所以表是空的，C++ 侧 `entity.cpp` 一定被链进来
+⇒ 台面自己清一遍对齐。`subjects/world.cpp` / `subjects/cmds.cpp` 的假 LFW 补 `acquire_entity`。
+
+### 139.3 实测
+
+```
+lfw_run --root dist --zip build/host-data/prel --frames 300 --every 100
+  loaded: fighters=1 weapons=0 balls=0 entities=1 stages=2 bg=3
+  spawn p1 gim …；spawn p2 gim … → stage=tutorial bg=ash_forest entities=2
+  [frame 299] entities=2 ghosts=0 hp=1000.0 digest=d9b00db799724a2b
+  done: frames=300 ups=60 digest=d9b00db799724a2b warns=0 errors=0 ignored_images=283
+```
+
+* **逐位可复现**：同参数连跑三次摘要一致（时钟手动、`MersenneTwister` 种子 = `--time`）。
+* 舞台相位真的在走：`tutorial` 的 `end_test: cur_phase_time>240` 在第 240 帧把相位推到 1。
+* 两个 gim 都走到了舞台脚本指定的落点（`bound: 900` ⇒ `x=900`），但**没有互相伤害** ——
+  `gim` 是 Dev 用的占位角色（两套图、没有真 bot 数据），要验真对打得等完整数据包。
+* 回归：差分 **254/254**、lint **9776 ok / 0 bad anchors**。
+
+### 139.4 偏差与限制（同时登记在 README 的偏差表）
+
+1. 宿主不渲染 / 不出声 / 不解图 / 不接指针：`ui_image_load` 给零尺寸占位并计数，`md5` 是
+   占位哈希，`Ditto.Cache` 只在内存里，`zip_*`（下载 / 读 blob / 缓存）一律「没有」——
+   所以只走 `ZipItem{path, IZip*}` 这条**对象**加载路，不走 `load_zip_from_url`。
+2. `ToolXML::parse` 未搬 ⇒ `xml_parse` 恒失败；`DatMgr` 对失败是**致命**的（照抄 TS 的
+   `throw`）⇒ 带 `.xml` 的完整数据包加载不了。
+3. `--zip` 必须给**已解包**目录（README 里给了 `Expand-Archive` 两行），压缩包本体留到
+   后面那刀。
+
+### 139.5 下一刀
+
+**`ToolXML::parse`（XML 文本 → `IXMLElement` 树）**：完整数据包里有 12 个 `.xml`（7 个 bg：
+football_field / moon / move_table / nekketsu_f_01 / octagon / pixel_ruler / sys/bc；5 把武器：
+basketball / book_*），`DatMgr` 读到第一个就整包失败。搬完它就能 `--zip data` 起完整数据包
+（100+ 角色、真 bot、真舞台），而 `lfw_run` 一行都不用改——它已经走
+`host.xml_parse → ToolXML::parse`。
