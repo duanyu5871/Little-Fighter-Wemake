@@ -41,19 +41,6 @@ bool is_missing(const Value& v) {
 
 Value from_str(const std::u16string* p) { return p == nullptr ? Value() : Value(*p); }
 
-// `collision::IActionEntity&` / `IH3Entity&` 这类窄接口 → 视图 → `Entity`。视图之外没有别的
-// 实现者（`collision/` 层只收接口），而这两个接口都是**非虚基类** ⇒ 静态向下转换即可
-// （`-fno-rtti`）。`IHandlerEntity*` 现在是虚基类指针、转不了 —— 走宿主的反向表
-// （`WorldCollisionHost::entity_of_handler`）。
-const Entity& action_entity_of(const collision::IActionEntity& v) {
-  return static_cast<const EntityCollisionView&>(v).entity();
-}
-
-// `IH3Entity` 是唯一没有 `data()` 的那个接口（TS 那边读的是 `victim.data.type`）⇒ 走视图。
-const Entity& h3_entity_of(const collision::IH3Entity& v) {
-  return static_cast<const EntityCollisionView&>(v).entity();
-}
-
 Value position_value(double x, double y, double z) {
   Object o;
   o.set(u"x", Value(x));
@@ -95,42 +82,9 @@ WorldCollisionHost::~WorldCollisionHost() {
   g_published = nullptr;
 }
 
-// ───────────────────────────── 视图 / 实体 ─────────────────────────────
+// ───────────────────────────── 实体 ─────────────────────────────
 
-Entity* WorldCollisionHost::entity_by_id(const std::u16string& id) {
-  return _world->find_entity(id);
-}
-
-EntityCollisionView* WorldCollisionHost::collision_view(Entity* e) {
-  if (e == nullptr) return nullptr;
-  std::unique_ptr<EntityCollisionView>& slot = _collision_views[e];
-  if (slot == nullptr) {
-    slot = std::make_unique<EntityCollisionView>(*e, *this);
-    _entity_of_handler[static_cast<collision::IHandlerEntity*>(slot.get())] = e;
-  }
-  return slot.get();
-}
-
-// 三个访问器给的是**同一个**实例：合并三视图之前它们各建一份，现在只是同一个对象的三面。
-EntityCollisionView* WorldCollisionHost::handler_view(Entity* e) { return collision_view(e); }
-
-EntityCollisionView* WorldCollisionHost::weapon_view(Entity* e) { return collision_view(e); }
-
-EntityCollisionView* WorldCollisionHost::action_view(Entity* e) { return collision_view(e); }
-
-Entity* WorldCollisionHost::entity_of_handler(const collision::IHandlerEntity* v) {
-  if (v == nullptr) return nullptr;
-  const auto it = _entity_of_handler.find(v);
-  return it == _entity_of_handler.end() ? nullptr : it->second;
-}
-
-Entity* WorldCollisionHost::buff_view(Entity* e) { return e; }
-
-double WorldCollisionHost::mt_range(double min, double max) {
-  MersenneTwister* const mt = _world->lfw().mt();
-  return mt == nullptr ? min : mt->range(min, max);
-}
-
+// `lfw.mt.mark = mark`
 void WorldCollisionHost::mt_mark(const std::u16string& mark) {
   MersenneTwister* const mt = _world->lfw().mt();
   if (mt != nullptr) mt->mark = mark;
@@ -484,15 +438,14 @@ void WorldCollisionHost::bind_keeper() {
     Entity* const v = _world->find_entity(first.id);
     Entity* const a = _world->find_entity(second.id);
     if (v == nullptr || a == nullptr) return false;
-    return collision::handle_ball_frozen(*action_view(v), *action_view(a), itr);
+    return collision::handle_ball_frozen(*v, *a, itr);
   };
   _keeper.run_action = [this](const std::u16string& type, const Value& action,
                               collision::Collision& c) {
     Entity* const a = entity_of_collision_a(c);
     Entity* const v = entity_of_collision_v(c);
     if (a == nullptr || v == nullptr) return;
-    collision::run_action(_action, type, action, *action_view(a), *action_view(v), c.injury,
-                          c.real_injury);
+    collision::run_action(_action, type, action, *a, *v, c.injury, c.real_injury);
   };
   // `victim.collided_list.push(victim.lastest_collided = collision)`
   _keeper.victim_push_collided = [this](collision::Collision& c) {
@@ -507,7 +460,7 @@ void WorldCollisionHost::bind_keeper() {
   };
   _keeper.victim_play_sound = [this](const Value& sounds) {
     if (_cur_v == nullptr) return;
-    handler_view(_cur_v)->play_sound(sounds);
+    _cur_v->play_sound(sounds);
   };
 }
 
@@ -526,10 +479,10 @@ void WorldCollisionHost::bind_handlers() {
     return _cur_a == nullptr ? Value() : Value(_cur_a->itr_motionless());
   };
   _handlers.attacker_set_motionless = [this](const Value& v) {
-    if (_cur_a != nullptr) _cur_a->motionless = to_number(v);
+    if (_cur_a != nullptr) _cur_a->set_motionless(to_number(v));
   };
   _handlers.victim_set_shaking = [this](const Value& v) {
-    if (_cur_v != nullptr) _cur_v->shaking = to_number(v);
+    if (_cur_v != nullptr) _cur_v->set_shaking(to_number(v));
   };
   _handlers.attacker_set_arest = [this](double v) {
     if (_cur_a != nullptr) _cur_a->set_arest(v);
@@ -550,7 +503,7 @@ void WorldCollisionHost::bind_handlers() {
   };
   _handlers.buff_set_victim = [this](const std::u16string& id, const std::u16string& victim_id) {
     buff::Buff* const b = find_buff(id);
-    if (b != nullptr) b->set_victim(buff_view(_world->find_entity(victim_id)));
+    if (b != nullptr) b->set_victim(_world->find_entity(victim_id));
   };
   _handlers.buff_mount = [this](const std::u16string& id) {
     buff::Buff* const b = find_buff(id);
@@ -572,12 +525,10 @@ void WorldCollisionHost::bind_action() {
   };
   _action.broadcast = [this](const std::u16string& msg) { _world->lfw().broadcast(Value(msg)); };
   _action.alert = [this](const std::u16string& msg) { _world->lfw().warn(msg); };
-  _action.find_entity = [this](const std::u16string& id) -> collision::IActionEntity* {
-    return action_view(_world->find_entity(id));
+  _action.find_entity = [this](const std::u16string& id) -> Entity* {
+    return _world->find_entity(id);
   };
-  _action.is_ally = [this](const collision::IActionEntity& a, const collision::IActionEntity& v) {
-    return action_entity_of(a).is_ally(action_entity_of(v));
-  };
+  _action.is_ally = [](const Entity& a, const Entity& v) { return a.is_ally(v); };
   _action.buff_env = [this]() -> const buff::BuffEnv* { return &_buff_env; };
 }
 
@@ -587,35 +538,31 @@ void WorldCollisionHost::bind_handlers2() {
   _handlers2.hp_recoverability = [this]() {
     return field_or(_world->world_dataset(), u"hp_recoverability");
   };
-  _handlers2.find_entity = [this](const std::u16string& id) -> collision::IHandlerEntity* {
-    return handler_view(_world->find_entity(id));
+  _handlers2.find_entity = [this](const std::u16string& id) -> Entity* {
+    return _world->find_entity(id);
   };
-  _handlers2.summary_apply_damage = [this](collision::IHandlerEntity* a, const Value& injury,
-                                           collision::IHandlerEntity* v, const Value& prev_hp) {
-    Entity* const ea = entity_of_handler(a);
-    Entity* const ev = entity_of_handler(v);
-    if (ea == nullptr || ev == nullptr) return;
-    summary_mgr().apply_damage(entity_helpers_value(*ea), injury, entity_helpers_value(*ev),
+  _handlers2.summary_apply_damage = [this](Entity* a, const Value& injury, Entity* v,
+                                           const Value& prev_hp) {
+    if (a == nullptr || v == nullptr) return;
+    summary_mgr().apply_damage(entity_helpers_value(*a), injury, entity_helpers_value(*v),
                                prev_hp);
   };
   _handlers2.buff_env = [this]() -> const buff::BuffEnv* { return &_buff_env; };
-  _handlers2.is_fighter = [](const collision::IHandlerEntity& e) {
-    return entity::is_fighter_data(e.data());
-  };
+  _handlers2.is_fighter = [](const Entity& e) { return entity::is_fighter_data(e.data()); };
   _handlers2.calc_velocity = [this](collision::Collision& c) {
     return collision::calc_itr_velocity(collision_helpers_value(c));
   };
 }
 
 void WorldCollisionHost::bind_handlers3() {
-  _handlers3.find_entity = [this](const std::u16string& id) -> collision::IH3Entity* {
-    return action_view(_world->find_entity(id));
+  _handlers3.find_entity = [this](const std::u16string& id) -> Entity* {
+    return _world->find_entity(id);
   };
-  _handlers3.is_ball = [](const collision::IH3Entity& e) {
-    return entity::is_ball_data(field_or(h3_entity_of(e).data(), u"type"));
+  _handlers3.is_ball = [](const Entity& e) {
+    return entity::is_ball_data(field_or(e.data(), u"type"));
   };
-  _handlers3.is_weapon = [](const collision::IH3Entity& e) {
-    return entity::is_weapon_data(field_or(h3_entity_of(e).data(), u"type"));
+  _handlers3.is_weapon = [](const Entity& e) {
+    return entity::is_weapon_data(field_or(e.data(), u"type"));
   };
   // `victim.spark_point(a_cube, b_cube)`
   _handlers3.spark_point = [this](const collision::Cube& a, const collision::Cube& b, double& x,
@@ -626,7 +573,7 @@ void WorldCollisionHost::bind_handlers3() {
       z = 0;
       return;
     }
-    handler_view(_cur_v)->spark_point(a, b, x, y, z);
+    _cur_v->spark_point(a, b, x, y, z);
   };
   _handlers3.spark = [this](double x, double y, double z, const Value& type) {
     _world->spark(x, y, z, to_string(type));
@@ -640,12 +587,10 @@ void WorldCollisionHost::bind_handlers3() {
 }
 
 void WorldCollisionHost::bind_handlers4() {
-  _handlers4.find_entity = [this](const std::u16string& id) -> collision::IH4Entity* {
-    return action_view(_world->find_entity(id));
+  _handlers4.find_entity = [this](const std::u16string& id) -> Entity* {
+    return _world->find_entity(id);
   };
-  _handlers4.is_fighter = [](const collision::IH4Entity& e) {
-    return entity::is_fighter_data(e.data());
-  };
+  _handlers4.is_fighter = [](const Entity& e) { return entity::is_fighter_data(e.data()); };
   // `attacker.find_align_frame(frame_id, throwings, in_the_skys)`
   _handlers4.find_align_frame = [this](const Value& frame_id, const Value& throwings,
                                        const Value& in_the_skys) {
@@ -655,12 +600,10 @@ void WorldCollisionHost::bind_handlers4() {
 }
 
 void WorldCollisionHost::bind_fall() {
-  _fall.find_entity = [this](const std::u16string& id) -> collision::IFallEntity* {
-    return handler_view(_world->find_entity(id));
+  _fall.find_entity = [this](const std::u16string& id) -> Entity* {
+    return _world->find_entity(id);
   };
-  _fall.is_fighter = [](const collision::IFallEntity& e) {
-    return entity::is_fighter_data(e.data());
-  };
+  _fall.is_fighter = [](const Entity& e) { return entity::is_fighter_data(e.data()); };
   _fall.spark = [this](const Value& x, const Value& y, const Value& z, const Value& type) {
     _world->spark(to_number(x), to_number(y), to_number(z), to_string(type));
   };
@@ -670,12 +613,10 @@ void WorldCollisionHost::bind_fall() {
 }
 
 void WorldCollisionHost::bind_nbdy_normal() {
-  _nbdy_normal.find_entity = [this](const std::u16string& id) -> collision::INbdyNormalEntity* {
-    return handler_view(_world->find_entity(id));
+  _nbdy_normal.find_entity = [this](const std::u16string& id) -> Entity* {
+    return _world->find_entity(id);
   };
-  _nbdy_normal.is_fighter = [](const collision::INbdyNormalEntity& e) {
-    return entity::is_fighter_data(e.data());
-  };
+  _nbdy_normal.is_fighter = [](const Entity& e) { return entity::is_fighter_data(e.data()); };
   _nbdy_normal.is_fall = [this](collision::Collision& c) {
     return collision::is_fall(collision_helpers_value(c));
   };
@@ -688,8 +629,8 @@ void WorldCollisionHost::bind_nbdy_normal() {
 }
 
 void WorldCollisionHost::bind_nbd_defend() {
-  _nbd_defend.find_entity = [this](const std::u16string& id) -> collision::INdbdyDefendEntity* {
-    return handler_view(_world->find_entity(id));
+  _nbd_defend.find_entity = [this](const std::u16string& id) -> Entity* {
+    return _world->find_entity(id);
   };
   _nbd_defend.calc_velocity = [this](collision::Collision& c) {
     return collision::calc_itr_velocity(collision_helpers_value(c));
@@ -700,14 +641,14 @@ void WorldCollisionHost::bind_nbd_defend() {
   // 「只在防御里触发」的那四个动作：TS 走 `collision_action_handlers[handler_type]`。
   _nbd_defend.dispatch = [this](const std::u16string& handler_type, const Value& action) {
     if (_cur_a == nullptr || _cur_v == nullptr) return;
-    collision::run_action(_action, handler_type, action, *action_view(_cur_a),
-                          *action_view(_cur_v), Value(NullTag{}), Value(NullTag{}));
+    collision::run_action(_action, handler_type, action, *_cur_a, *_cur_v, Value(NullTag{}),
+                          Value(NullTag{}));
   };
 }
 
 void WorldCollisionHost::bind_weapon_is_hit() {
-  _weapon_is_hit.find_entity = [this](const std::u16string& id) -> collision::IWeaponIsHitEntity* {
-    return weapon_view(_world->find_entity(id));
+  _weapon_is_hit.find_entity = [this](const std::u16string& id) -> Entity* {
+    return _world->find_entity(id);
   };
   // `victim.spark_point(a_cube, b_cube)`
   _weapon_is_hit.spark_point = [this](const collision::Cube& a, const collision::Cube& b) {
@@ -715,7 +656,7 @@ void WorldCollisionHost::bind_weapon_is_hit() {
     double x = 0;
     double y = 0;
     double z = 0;
-    if (_cur_v != nullptr) handler_view(_cur_v)->spark_point(a, b, x, y, z);
+    if (_cur_v != nullptr) _cur_v->spark_point(a, b, x, y, z);
     sp.x = Value(x);
     sp.y = Value(y);
     sp.z = Value(z);
@@ -738,29 +679,24 @@ void WorldCollisionHost::bind_weapon_is_hit() {
 }
 
 void WorldCollisionHost::bind_ball_frozen() {
-  _ball_frozen.is_ball = [](const collision::IFrozenEntity& e) {
-    return entity::is_ball_data(e.data());
-  };
-  _ball_frozen.is_fighter = [](const collision::IFrozenEntity& e) {
-    return entity::is_fighter_data(e.data());
-  };
+  _ball_frozen.is_ball = [](const Entity& e) { return entity::is_ball_data(e.data()); };
+  _ball_frozen.is_fighter = [](const Entity& e) { return entity::is_fighter_data(e.data()); };
 }
 
 void WorldCollisionHost::bind_healing() {
-  _healing.find_entity = [this](const std::u16string& id) -> collision::IHealingEntity* {
-    return action_view(_world->find_entity(id));
+  _healing.find_entity = [this](const std::u16string& id) -> Entity* {
+    return _world->find_entity(id);
   };
   _healing.buff_env = [this]() -> const buff::BuffEnv* { return &_buff_env; };
 }
 
 void WorldCollisionHost::bind_buff_env() {
   _buff_env.find_entity = [this](const std::u16string& id) -> Entity* {
-    return buff_view(_world->find_entity(id));
+    return _world->find_entity(id);
   };
   // `lfw.factory.create_entity(world, data)`
   _buff_env.create_entity = [this](const Value& data) -> Entity* {
-    Entity* const e = _world->lfw().create_entity(*_world, data);
-    return buff_view(e);
+    return _world->lfw().create_entity(*_world, data);
   };
   _buff_env.find_data = [this](const std::u16string& oid) {
     return _world->lfw().datas_find(Value(oid));

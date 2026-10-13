@@ -6,6 +6,7 @@
 #include "lfw/defines/frame_behavior.h"
 #include "lfw/defines/state_enum.h"
 #include "lfw/defines/weapon_type.h"
+#include "lfw/entity/entity.h"
 #include "lfw/utils/container_help/field_or.h"
 
 namespace lfw {
@@ -14,9 +15,9 @@ namespace {
 
 Handlers4Env g_env;
 
-void zero_hp(IH4Entity& e) {
-  e.set_hp_r(Value(0.0));
-  e.set_hp(Value(0.0));
+void zero_hp(Entity& e) {
+  e.set_hp_r(0.0);
+  e.set_hp(0.0);
 }
 
 bool state_is(const Value& state, StateEnum want) {
@@ -31,8 +32,8 @@ void set_handlers4_env(const Handlers4Env& env) { g_env = env; }
 void handle_ball_hit_other(Collision& c) {
   handle_rest(c);
   handle_stiffness(c);
-  IH4Entity* a = g_env.find_entity(c.aid);
-  IH4Entity* v = g_env.find_entity(c.vid);
+  Entity* a = g_env.find_entity(c.aid);
+  Entity* v = g_env.find_entity(c.vid);
   if (a == nullptr || v == nullptr) return;
   if (strict_equals(field_or(c.aframe, u"behavior"),
                     Value(static_cast<double>(FrameBehavior::JohnChase)))) {
@@ -44,7 +45,7 @@ void handle_ball_hit_other(Collision& c) {
         const Value bdefend = field_or(c.itr, u"bdefend");
         if (truthy(bdefend) && ge(bdefend, Value(kDefaultForceBreakDefendValue))) {
           zero_hp(*a);
-        } else if (strict_equals(v->facing(), a->facing())) {
+        } else if (strict_equals(Value(v->facing), Value(a->facing))) {
           zero_hp(*a);
         }
       }
@@ -54,10 +55,10 @@ void handle_ball_hit_other(Collision& c) {
 }
 
 void handle_weapon_hit_other(Collision& c) {
-  IH4Entity* a = g_env.find_entity(c.aid);
+  Entity* a = g_env.find_entity(c.aid);
   if (a == nullptr) return;
   if (state_is(a->state(), StateEnum::Weapon_OnHand)) return;
-  const Value base_type = a->base_type();
+  const Value base_type = Value(a->base_type());
   const bool is_base_ball =
       strict_equals(base_type, Value(static_cast<double>(WeaponEnum::Baseball))) ||
       strict_equals(base_type, Value(static_cast<double>(WeaponEnum::Drink)));
@@ -65,17 +66,17 @@ void handle_weapon_hit_other(Collision& c) {
   if (is_base_ball) {
     a->set_velocity(Value(0.0), Value(5.0), Value(0.0));
   } else {
-    double vx = 0;
-    double vy = 0;
-    double vz = 0;
-    a->velocity(vx, vy, vz);
+    const double vx = a->velocity.x;
+    const double vy = a->velocity.y;
+    const double vz = a->velocity.z;
+    (void)vz;
     a->set_velocity(Value(-0.3 * vx), Value(0.3 * vy), Value(0.0));
   }
-  const Value nf = g_env.find_align_frame(a->frame_id(), a->data_indexes_throwings(),
+  const Value nf = g_env.find_align_frame(a->frame_id(), a->data_indexes_of(u"throwings"),
                                           a->data_indexes_in_the_skys());
-  const Value arest = a->arest();
+  const Value arest = Value(a->arest());
   a->enter_frame(nf);
-  a->set_arest(arest);
+  a->set_arest(to_number(arest));
   a->set_dropping(true);
 }
 

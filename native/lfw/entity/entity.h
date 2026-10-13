@@ -318,10 +318,10 @@ class Entity {
   double greyscale() const { return _greyscale; }
   void set_greyscale(double v);
 
-  double ground_y() const { return _ground_y; }
+  virtual double ground_y() const { return _ground_y; }
   virtual const Value& data() const { return _data; }
   std::u16string origin_data_id() const;
-  Value group() const;
+  virtual Value group() const;
   double mounted() const { return _mounted; }
   double ghosted() const { return _ghosted; }
   void set_ghosted(double v) { _ghosted = v; }
@@ -335,25 +335,25 @@ class Entity {
   void set_toughness_resting_max(double v);
   double resting_max() const;
   void set_resting_max(double v);
-  double resting() const { return _resting; }
-  void set_resting(double v);
-  double fall_value() const { return _fall_value; }
-  void set_fall_value(double v);
-  double toughness() const { return _toughness; }
+  virtual double resting() const { return _resting; }
+  virtual void set_resting(double v);
+  virtual double fall_value() const { return _fall_value; }
+  virtual void set_fall_value(double v);
+  virtual double toughness() const { return _toughness; }
   virtual void set_toughness(double v);
-  double toughness_max() const { return _toughness_max; }
+  virtual double toughness_max() const { return _toughness_max; }
   void set_toughness_max(double v);
   double toughness_resting() const { return _toughness_resting; }
   void set_toughness_resting(double v);
-  double catch_time_max() const;
+  virtual double catch_time_max() const;
   void set_catch_time_max(double v);
-  double fall_value_max() const;
+  virtual double fall_value_max() const;
   void set_fall_value_max(double v);
-  double defend_value() const { return _defend_value; }
-  void set_defend_value(double v);
-  double defend_value_max() const;
+  virtual double defend_value() const { return _defend_value; }
+  virtual void set_defend_value(double v);
+  virtual double defend_value_max() const;
   void set_defend_value_max(double v);
-  double defend_ratio() const;
+  virtual double defend_ratio() const;
   void set_defend_ratio(double v);
 
   Value name() const;
@@ -366,7 +366,7 @@ class Entity {
   virtual void set_hp(double v);
   virtual double mp_max() const;
   void set_mp_max(double v);
-  double hp_max() const;
+  virtual double hp_max() const;
   void set_hp_max(double v);
   virtual const std::u16string& team() const { return _team; }
   virtual void set_team(std::u16string v);
@@ -375,9 +375,9 @@ class Entity {
   double blinking() const { return _blinking; }
   void set_blinking(double v);
   double invisible() const { return _invisible; }
-  void set_invisible(double v);
+  virtual void set_invisible(double v);
   double invulnerable() const { return _invulnerable; }
-  void set_invulnerable(double v);
+  virtual void set_invulnerable(double v);
   Value bot_ignore() const;
   controller::BaseController* ctrl() const { return ctrl_; }
   void set_ctrl(controller::BaseController* v);
@@ -388,10 +388,10 @@ class Entity {
   void auto_key_role();
   double gravity() const;
   double itr_motionless() const;
-  double arest() const { return _arest; }
-  void set_arest(double v);
-  double weight() const;
-  double base_type() const;
+  virtual double arest() const { return _arest; }
+  virtual void set_arest(double v);
+  virtual double weight() const;
+  virtual double base_type() const;
   virtual Value state() const;
 
   // --- 实体面（接口退役：原 `Entity` 的其余读面收进实体；此前由
@@ -419,6 +419,44 @@ class Entity {
   }
   virtual bool marks_delete(const std::u16string& key) { return marks.erase(key) > 0; }
 
+  // --- 切片 4CE：碰撞族窄接口退役 ⇒ 原先只在 `EntityCollisionView` 里的那几条读面收进实体 ---
+  // 名字对得上 TS 的读法（`e.marks.has(k)` / `e.data.base.hit_sounds` / `e.frame.cpoint?.x`），
+  // 与已经上收的 `data_indexes_falling` / `marks_get` 同一待遇：实体面只写一遍。
+  bool marks_has(const std::u16string& kind) const {
+    return marks.find(kind) != marks.end();
+  }
+  Value data_base_hit_sounds() const;
+  Value data_id() const;
+  Value frame_id() const;
+  Value cpoint_backhurtact() const;
+  Value cpoint_fronthurtact() const;
+  // `this._data.indexes?.in_the_skys` 的第一项（数组取 `[0]`，记录取 `.0`）。
+  Value data_in_the_skys_first() const;
+  // `this.holding?.base_type()`（没拿武器给 `undefined`）。
+  Value holding_base_type() const;
+  // `this.fuse_bys`：TS 是实体数组，实体面把它投影成 id 数组（对称的写入见 `set_fuse_bys`，
+  // 与其它台面要观测的写面一样是虚的）。
+  Value fuse_bys_of() const;
+  virtual void set_fuse_bys(const Value& v);
+  virtual void set_dismiss_data(const Value& v) { dismiss_data = v; }
+  virtual void set_dismiss_time(const Value& v);
+  // `this.play_sound(sounds, pos = this.position)`；单参版本用自身位置。
+  virtual void play_sound(const Value& sounds, const Value& pos);
+  virtual void play_sound(const Value& sounds);
+  // `this.spark_point(r0, r1)`：TS 返回 `[x, y, z]`，端口按调用方已有的出参形状给。
+  // 切片 4CE：加 `virtual` —— 台面假实体要观测这条调用（TS 台面在 `spark_point` 上打日志）。
+  virtual void spark_point(const collision::Cube& a, const collision::Cube& b, double& x, double& y,
+                           double& z) const;
+  // `A_SET_PROP` / `V_SET_PROP` 的 `entity[name] = value`：端口没有动态字段表 ⇒ 白名单写入
+  // （名单外的名字 no-op，DESIGN §78 记偏差）。
+  virtual void set_prop(const std::u16string& name, const Value& v);
+  // `A_SET_VELOCITY_X` / `A_SET_FACING`：TS 直接写字段，端口收成方法（台面要观测写入）。
+  virtual void set_velocity_x(const Value& v) { velocity.x = to_number(v); }
+  virtual void set_facing(const Value& v) { facing = to_number(v); }
+  virtual Entity& set_shaking(double v);
+  virtual Entity& set_motionless(double v);
+  virtual Entity& set_catcher(Entity* v);
+
   // --- frame lookup / flags ---------------------------------------------------
   // `find_frame_by_id` falls back to `find_auto_frame()` when the id is unknown;
   // `handle_facing_flag` / `handle_wait_flag` / `get_frame_wait` are the pure flag
@@ -443,7 +481,9 @@ class Entity {
   Value dvz() const;
   // TS `set_velocity(x?, y?, z?)` — `undefined` / `null` skip the axis.
   virtual void set_velocity(const Value& x, const Value& y, const Value& z);
-  void leave_ground();
+  // 切片 4CE：加 `virtual` —— `handle_weapon_is_hit` 直接调它，台面要观测这条调用
+  // （`collision_weapon_is_hit.ts` 在 `leave_ground` 上打日志）。
+  virtual void leave_ground();
   void handle_ground_velocity_decay(double factor = 1);
   virtual void handle_velocity_decay(const Value& accx,
                              std::optional<Value> accz = std::nullopt,
@@ -464,7 +504,9 @@ class Entity {
   // `next_frame_judge`, `lfw.mt` the `mt()` seam, and `world.restrict` the
   // `world_restrict` seam.
   virtual void set_frame(const Value& v);
-  EnterFrameResult enter_frame(const Value& nf, bool fallback = false);
+  // 切片 4CE：`enter_frame` 加 `virtual` —— 台面假实体要观测「进入哪一帧」这条调用
+  // （`collision_ball_frozen` 等 TS 台面在 `enter_frame` 上打日志）。
+  virtual EnterFrameResult enter_frame(const Value& nf, bool fallback = false);
   virtual EnterFrameResult enter_frame_by_id(const Value& id, bool fallback = false);
   EnterFrameResult handle_next_frame_result(const Value& result, bool fallback = false);
   Value get_next_frame(const Value& which);
@@ -538,9 +580,11 @@ class Entity {
 
   // --- stat helpers ----------------------------------------------------------
   void reset_armor();
-  Entity& set_catching(Entity* v);
+  virtual Entity& set_catching(Entity* v);
   Entity& add_catch_time(double value);
-  Entity& set_catch_time(double value);
+  virtual Entity& set_catch_time(double value);
+  // `A_SET_DROPPING`（`drop_holding` 那条链上的 `this.dropping = v`）——台面要观测这条写入。
+  virtual void set_dropping(bool v) { dropping = v; }
   virtual Value dataset(const std::u16string& name) const;
   // 只读世界那一层（TS 的状态代码写 `this.world.dataset.X`，端口的状态缝是
   // `e.world_dataset("X")`）。

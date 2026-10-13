@@ -5458,3 +5458,27 @@ harness op：
   的日志/存储格式与 4BX 前一致；只有真正被写入过 `NaN` 的运算产物才会打印 `nan`。
 - ⚠ 用例不要新增依赖“假实体 `velocity_x` 为 NaN 时 dump 成 `nan`”的断言：读取即
   `NaN` 不落日志，落日志的是写入路径。
+
+### 6.9.182 碰撞族窄接口退役（4CE）对台面的影响（无新 op）
+
+- `collision_*` 十个 subject + `action_handlers` 的假实体**不再实现窄接口**，改为派生真
+  `lfw::Entity`（`struct Fake : lfw::Entity`；构造 `Entity(fx::shared_host(), Value())` 后钉
+  `this->id`）。`entity_fixture.h` 的 `fx::shared_host()` 就是给这条用的。
+- 分工口径（与 TS 台面逐字对应）：
+  * `env <side> <field>` **直接写后备字段/成员**（`facing`、`motionless`、`catching`、
+    `catcher`、`position`、`velocity`、`frame`、`armor`、`data` 镜像…）—— TS 的 `walkSide`
+    也是直写 `f._x`、绕开自有 setter，所以两边**都不产生日志**；
+  * 库里发生的写入落在**被覆写的虚 setter** 上打日志（`set_hp` / `set_fall_value` /
+    `set_arest` / `set_catching` / …）。哪几条能拦取决于 `lfw::Entity` 的虚表，
+    4CE 按台面需要给这批加了 `virtual`（DESIGN §141.3 有清单）；
+  * 库**读**的值要么写进真字段/成员，要么覆写虚 getter 给镜像；`data()` 返回
+    `const Value&` ⇒ 镜像必须是成员，不能返回临时量。
+- 「没设过」的 `u`：实体面上的 `double` 字段缺省是 `0`（不是 `undefined`）⇒ 台面用
+  「设过没有」小标记承载（`buff_healing.cpp` 的 `Stat` 是原型）：未设 ⇒ dump 印 `u`；
+  用例给了值、或库经虚 setter 写过 ⇒ 印数字。
+- `find_entity` 缝一律返 `Entity*`；`buff_entity()` 这层身份转发整条消失
+  （`grant_buff(...)` 直接收 `&attacker` / `&victim`）。
+- `world` subject 的 `wgeom` / `wattach` 探针不再经 `collision_view`，改在实体面上调
+  `frame_centery()/frame_height()/frame_pic_h()` 与 `attach(Value(on))`；输出逐字不变。
+- 变异锚点：窄接口类型名与 `Value` 包装消失 ⇒ 198 条锚点按新源文重指，3 条指向
+  `entity_collision_view.cpp` 的锚点随文件删除（`world_collision.mjs`）。

@@ -76,6 +76,12 @@ bool is_base_ctrl(const Value& v) { return flag_is_true(v, u"__is_base_ctrl__");
 
 bool is_bot_ctrl(const Value& v) { return flag_is_true(v, u"__is_bot_ctrl__"); }
 
+// `v?.__is_bot_ctrl__ === true`：端口侧的控制器对象只有 `is_bot()` 这一个等价读点
+// （`BaseController` 的 `_is_bot` 就是那个标记），`nullptr` 对应 TS 的 `undefined`。
+bool is_bot_ctrl(const controller::BaseController* ctrl) {
+  return ctrl != nullptr && ctrl->is_bot();
+}
+
 bool is_human_ctrl(const Value& v) { return flag_is_true(v, u"__is_human_ctrl__"); }
 
 bool is_ball_ctrl(const Value& v) { return flag_is_true(v, u"__is_ball_ctrl__"); }

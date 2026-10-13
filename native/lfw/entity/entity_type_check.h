@@ -4,6 +4,7 @@
 #include <string>
 #include <variant>
 
+#include "lfw/controller/base_controller.h"
 #include "lfw/core/value.h"
 #include "lfw/defines/entity_enum.h"
 #include "lfw/defines/entity_group.h"
@@ -28,6 +29,9 @@ bool is_base_ctrl(const Value& v);
 bool is_bot_ctrl(const Value& v);
 bool is_human_ctrl(const Value& v);
 bool is_ball_ctrl(const Value& v);
+// `is_bot_ctrl(v: any): v is BotController`（TS 的 `type_check.ts` 读 `v?.__is_bot_ctrl__`）：
+// 端口里控制器是对象 ⇒ 这一条直接收对象（`Value` 形状的那条按 `__is_bot_ctrl__` 字段读）。
+bool is_bot_ctrl(const controller::BaseController* ctrl);
 
 }
 }

@@ -5,6 +5,7 @@
 #include "lfw/defines/oid.h"
 #include "lfw/defines/spark_enum.h"
 #include "lfw/defines/weapon_type.h"
+#include "lfw/entity/entity.h"
 #include "lfw/utils/container_help/field_or.h"
 
 namespace lfw {
@@ -27,9 +28,9 @@ Value index_0(const Value& holder) {
   return Value();
 }
 
-void zero_hp(IWeaponIsHitEntity& e) {
-  e.set_hp_r(Value(0.0));
-  e.set_hp(Value(0.0));
+void zero_hp(Entity& e) {
+  e.set_hp_r(0.0);
+  e.set_hp(0.0);
 }
 
 }
@@ -42,8 +43,8 @@ void handle_weapon_is_hit(Collision& c) {
   handle_stiffness(c);
   handle_injury(c, 1.0, false);
 
-  IWeaponIsHitEntity* a = g_env.find_entity(c.aid);
-  IWeaponIsHitEntity* v = g_env.find_entity(c.vid);
+  Entity* a = g_env.find_entity(c.aid);
+  Entity* v = g_env.find_entity(c.vid);
   if (a == nullptr || v == nullptr) return;
 
   v->set_dropping(false);
@@ -63,7 +64,7 @@ void handle_weapon_is_hit(Collision& c) {
   double vx = iv.x;
   const double vy = iv.y;
   const double vz = iv.z;
-  const Value base_type = v->base_type();
+  const Value base_type = Value(v->base_type());
   const bool is_base_ball =
       strict_equals(base_type, Value(static_cast<double>(WeaponEnum::Baseball))) ||
       strict_equals(base_type, Value(static_cast<double>(WeaponEnum::Drink)));
@@ -74,7 +75,7 @@ void handle_weapon_is_hit(Collision& c) {
     g_env.mt_mark(u"hwih_1");
     Value nid;
     if (is_base_ball && (vx >= 6 || vx <= -6)) {
-      nid = g_env.mt_pick(v->data_indexes_throwings());
+      nid = g_env.mt_pick(v->data_indexes_of(u"throwings"));
     } else {
       nid = g_env.mt_pick(v->data_indexes_in_the_skys());
     }
@@ -82,13 +83,13 @@ void handle_weapon_is_hit(Collision& c) {
   }
 
   if (strict_equals(a->data_id(), Value(oid::kWeapon_Stick)) && is_base_ball) {
-    vx = to_number(a->facing()) * 2;
+    vx = a->facing * 2;
     g_env.mt_mark(u"hwih_2");
-    v->enter_frame_by_id(index_0(v->data_indexes_throwings()));
+    v->enter_frame_by_id(index_0(v->data_indexes_of(u"throwings")));
     v->set_velocity(Value(vx), Value(), Value());
   }
 
-  if (is_fly && !v->has_bearer()) {
+  if (is_fly && v->bearer == nullptr) {
     v->set_team(a->team());
   }
 }

@@ -42,6 +42,7 @@
 #include "lfw/world.h"
 #include "lfw/utils/container_help/field_or.h"
 #include "lfw/utils/container_help/find.h"
+#include "lfw/utils/cross_bounding.h"
 #include "lfw/utils/math/base.h"
 #include "lfw/utils/math/clamp.h"
 #include "lfw/utils/math/clamp_add.h"
@@ -1039,6 +1040,150 @@ Value Entity::dataset(const std::u16string& name) const {
   if (nullish(v)) v = host_->bg_dataset(name);
   if (nullish(v)) v = host_->world_dataset(name);
   return v;
+}
+
+// ─────────────── 切片 4CE：碰撞族窄接口上收后的读面（原 `EntityCollisionView`）───────────────
+
+Value Entity::data_base_hit_sounds() const {
+  return field_or(field_or(_data, u"base"), u"hit_sounds");
+}
+
+Value Entity::data_id() const { return field_or(_data, u"id"); }
+
+Value Entity::frame_id() const { return field_or(frame, u"id"); }
+
+Value Entity::cpoint_backhurtact() const {
+  return field_or(field_or(frame, u"cpoint"), u"backhurtact");
+}
+
+Value Entity::cpoint_fronthurtact() const {
+  return field_or(field_or(frame, u"cpoint"), u"fronthurtact");
+}
+
+Value Entity::data_in_the_skys_first() const {
+  const Value list = data_indexes_of(u"in_the_skys");
+  if (const Array* a = as_array(list)) return a->empty() ? Value() : a->at(0);
+  return field_or(list, u"0");
+}
+
+Value Entity::holding_base_type() const {
+  return holding == nullptr ? Value() : Value(holding->base_type());
+}
+
+Value Entity::fuse_bys_of() const {
+  if (fuse_bys.empty()) return Value();
+  std::vector<Value> ids;
+  ids.reserve(fuse_bys.size());
+  for (Entity* e : fuse_bys) ids.push_back(Value(e->id));
+  return Value(std::make_shared<Array>(std::move(ids)));
+}
+
+void Entity::set_fuse_bys(const Value& v) {
+  fuse_bys.clear();
+  const Array* arr = as_array(v);
+  if (arr == nullptr) {
+    has_fuse_bys = false;
+    return;
+  }
+  for (size_t i = 0; i < arr->size(); ++i) {
+    Entity* e = host_->find_entity(to_string(arr->at(i)));
+    if (e != nullptr) fuse_bys.push_back(e);
+  }
+  has_fuse_bys = !fuse_bys.empty();
+}
+
+void Entity::set_dismiss_time(const Value& v) {
+  if (std::holds_alternative<std::monostate>(v) || std::holds_alternative<NullTag>(v)) {
+    dismiss_time = std::nullopt;
+    return;
+  }
+  dismiss_time = to_number(v);
+}
+
+void Entity::play_sound(const Value& sounds, const Value& pos) {
+  host_->play_sound(sounds, pos);
+}
+
+void Entity::play_sound(const Value& sounds) {
+  play_sound(sounds, position_value(position));
+}
+
+void Entity::spark_point(const collision::Cube& a, const collision::Cube& b, double& x, double& y,
+                         double& z) const {
+  Bounding rb{};
+  rb.left = a.left;
+  rb.right = a.right;
+  rb.top = a.top;
+  rb.bottom = a.bottom;
+  rb.near = a.near;
+  rb.far = a.far;
+  Bounding rc{};
+  rc.left = b.left;
+  rc.right = b.right;
+  rc.top = b.top;
+  rc.bottom = b.bottom;
+  rc.near = b.near;
+  rc.far = b.far;
+  const Bounding cross = cross_bounding(rb, rc);
+  host_->mt().mark = u"sp_1";
+  x = host_->mt().range(cross.left, cross.right);
+  y = 2 + round_float((cross.bottom + cross.top) / 2);
+  z = max(cross.far, cross.near) + 3;
+}
+
+void Entity::set_prop(const std::u16string& name, const Value& v) {
+  if (name == u"hp") {
+    set_hp(to_number(v));
+  } else if (name == u"hp_r") {
+    set_hp_r(to_number(v));
+  } else if (name == u"hp_max") {
+    set_hp_max(to_number(v));
+  } else if (name == u"mp") {
+    set_mp(to_number(v));
+  } else if (name == u"mp_max") {
+    set_mp_max(to_number(v));
+  } else if (name == u"invisible") {
+    set_invisible(to_number(v));
+  } else if (name == u"invulnerable") {
+    set_invulnerable(to_number(v));
+  } else if (name == u"toughness") {
+    set_toughness(to_number(v));
+  } else if (name == u"fallinjury") {
+    fallinjury = to_number(v);
+  } else if (name == u"throwinjury") {
+    throwinjury = to_number(v);
+  } else if (name == u"motionless") {
+    set_motionless(to_number(v));
+  } else if (name == u"shaking") {
+    set_shaking(to_number(v));
+  } else if (name == u"facing") {
+    set_facing(v);
+  } else if (name == u"arest") {
+    set_arest(to_number(v));
+  } else if (name == u"dropping") {
+    set_dropping(truthy(v));
+  } else if (name == u"team") {
+    // 切片 4CE 补：白名单漏了 `team`，而 `V_SET_PROP name=team` 在 TS 侧是实打实的字段写入
+    // （`(victim as any)[name] = value`）。
+    set_team(to_string(v));
+  } else if (name == u"reserve") {
+    set_reserve(to_number(v));
+  }
+}
+
+Entity& Entity::set_shaking(double v) {
+  shaking = v;
+  return *this;
+}
+
+Entity& Entity::set_motionless(double v) {
+  motionless = v;
+  return *this;
+}
+
+Entity& Entity::set_catcher(Entity* v) {
+  catcher = v;
+  return *this;
 }
 
 Value Entity::world_dataset(const std::u16string& name) const {

@@ -18,7 +18,6 @@ namespace {
 using lfw::Value;
 using lfw::collision::Collision;
 using lfw::collision::HealingEnv;
-using lfw::collision::IHealingEntity;
 using trace::parse_value;
 using trace::render_value;
 using trace::split_ws;
@@ -44,35 +43,19 @@ std::string join(const std::vector<std::string>& xs) {
 
 struct Fake;
 
-// 切片 4BY：`buff` 以 `lfw::Entity` 为准入 ⇒ `buff_entity()` 交出真 `Entity`
-// （原空壳窄接口假件，但 `dataset` 转发给宿主 `Fake`）—— `Buff_Healing.duration_of`
-// 读的就是它。
-struct FakeBuff : lfw::Entity {
-  Fake* _owner;
-  explicit FakeBuff(std::u16string id, Fake* owner)
-      : Entity(fx::shared_host(), Value()), _owner(owner) {
+// 切片 4CE：碰撞族窄接口（`IHealingEntity` 等）退役 ⇒ 台面假实体就是真 `lfw::Entity`
+// （TS 台面同样只给 `id` / `dataset` / `buffs_set` 这几条读面，见 `collision_healing.ts`）。
+struct Fake : lfw::Entity {
+  Value _dataset;
+
+  explicit Fake(std::u16string id) : Entity(fx::shared_host(), Value()) {
     this->id = std::move(id);
   }
-  Value dataset(const std::u16string& key) const override;
-};
-
-struct Fake : IHealingEntity {
-  std::u16string _id;
-  Value _dataset;
-  FakeBuff _buff;
-
-  explicit Fake(std::u16string id) : _id(std::move(id)), _buff(_id, this) {}
-
-  const std::u16string& id() const override { return _id; }
 
   Value dataset(const std::u16string& key) const override {
     return lfw::field_or(_dataset, key.c_str());
   }
-
-  lfw::Entity* buff_entity() override { return &_buff; }
 };
-
-Value FakeBuff::dataset(const std::u16string& key) const { return _owner->dataset(key); }
 
 Fake g_att(u"A");
 Fake g_vic(u"V");
@@ -80,17 +63,17 @@ Collision g_c;
 
 void bind() {
   HealingEnv env;
-  env.find_entity = [](const std::u16string& id) -> IHealingEntity* {
-    if (id == g_att._id) return &g_att;
-    if (id == g_vic._id) return &g_vic;
+  env.find_entity = [](const std::u16string& id) -> lfw::Entity* {
+    if (id == g_att.id) return &g_att;
+    if (id == g_vic.id) return &g_vic;
     return nullptr;
   };
   env.buff_env = []() -> const lfw::buff::BuffEnv* { return &g_benv; };
   lfw::collision::set_healing_env(env);
 
   g_benv.find_entity = [](const std::u16string& id) -> lfw::Entity* {
-    if (id == g_att._buff.id) return &g_att._buff;
-    if (id == g_vic._buff.id) return &g_vic._buff;
+    if (id == g_att.id) return &g_att;
+    if (id == g_vic.id) return &g_vic;
     return nullptr;
   };
   g_benv.create_entity = [](const Value&) -> lfw::Entity* { return nullptr; };
@@ -104,7 +87,7 @@ void bind() {
   };
 }
 
-std::string side_text(const Fake& f) { return s_of(f._id) + ".dataset=" + render(f._dataset); }
+std::string side_text(const Fake& f) { return s_of(f.id) + ".dataset=" + render(f._dataset); }
 
 std::string state_text() {
   std::string s = side_text(g_att) + " " + side_text(g_vic);

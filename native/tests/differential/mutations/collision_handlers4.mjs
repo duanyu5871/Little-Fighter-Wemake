@@ -21,9 +21,12 @@
  *    case), so this is faithful, not a port defect. Mutations that make the guard
  *    *fire on other states* (inverting it, or comparing `Weapon_Throwing`) are
  *    observable and are included below.
- * 3. `double vx = 0;` / `double vy = 0;` initialisers -> any other number, and
- *    reordering the three declarations. `a->velocity(vx, vy, vz)` overwrites all
- *    three before they are read, so the initial values are dead.
+ * 3. Reordering the three `const double vx/vy/vz = a->velocity.{x,y,z};` lines ->
+ *    unobservable. Each declaration carries its own initialiser, so moving the
+ *    lines around still maps every name to the same component. (The port no longer
+ *    calls the old out-param form `a->velocity(vx, vy, vz)`; the components are
+ *    read directly. Mutating *which component* a name reads is observable and is
+ *    anchored below.)
  * 4. The TS `switch (aframe.behavior)` lists `DennisChase`, `Boomerang`,
  *    `AngelBlessing`, `AngelBlessingStart`, `DevilJudgementStart`,
  *    `ChasingSameEnemy`, `BatStart`, `FirzenDisasterStart`, `JohnBiscuitLeaving`,
@@ -46,26 +49,26 @@ export default {
     {
       note: "zero_hp: hp_r is zeroed with 1 instead of 0",
       file: "native/lfw/collision/handlers4.cpp",
-      from: "  e.set_hp_r(Value(0.0));",
-      to: "  e.set_hp_r(Value(1.0));",
+      from: "  e.set_hp_r(0.0);",
+      to: "  e.set_hp_r(1.0);",
     },
     {
       note: "zero_hp: hp is zeroed with 1 instead of 0",
       file: "native/lfw/collision/handlers4.cpp",
-      from: "  e.set_hp(Value(0.0));",
-      to: "  e.set_hp(Value(1.0));",
+      from: "  e.set_hp(0.0);",
+      to: "  e.set_hp(1.0);",
     },
     {
       note: "zero_hp: assignment order swapped (TS assigns hp_r first)",
       file: "native/lfw/collision/handlers4.cpp",
-      from: "  e.set_hp_r(Value(0.0));\n  e.set_hp(Value(0.0));",
-      to: "  e.set_hp(Value(0.0));\n  e.set_hp_r(Value(0.0));",
+      from: "  e.set_hp_r(0.0);\n  e.set_hp(0.0);",
+      to: "  e.set_hp(0.0);\n  e.set_hp_r(0.0);",
     },
     {
       note: "zero_hp: hp_r written through the hp setter",
       file: "native/lfw/collision/handlers4.cpp",
-      from: "  e.set_hp_r(Value(0.0));\n  e.set_hp(Value(0.0));",
-      to: "  e.set_hp(Value(0.0));\n  e.set_hp(Value(0.0));",
+      from: "  e.set_hp_r(0.0);\n  e.set_hp(0.0);",
+      to: "  e.set_hp(0.0);\n  e.set_hp(0.0);",
     },
     {
       note: "state_is: comparison inverted",
@@ -94,14 +97,14 @@ export default {
     {
       note: "handle_ball_hit_other: attacker looked up by the victim id",
       file: "native/lfw/collision/handlers4.cpp",
-      from: "  IH4Entity* a = g_env.find_entity(c.aid);\n  IH4Entity* v = g_env.find_entity(c.vid);",
-      to: "  IH4Entity* a = g_env.find_entity(c.vid);\n  IH4Entity* v = g_env.find_entity(c.vid);",
+      from: "  Entity* a = g_env.find_entity(c.aid);\n  Entity* v = g_env.find_entity(c.vid);",
+      to: "  Entity* a = g_env.find_entity(c.vid);\n  Entity* v = g_env.find_entity(c.vid);",
     },
     {
       note: "handle_ball_hit_other: victim looked up by the attacker id",
       file: "native/lfw/collision/handlers4.cpp",
-      from: "  IH4Entity* a = g_env.find_entity(c.aid);\n  IH4Entity* v = g_env.find_entity(c.vid);",
-      to: "  IH4Entity* a = g_env.find_entity(c.aid);\n  IH4Entity* v = g_env.find_entity(c.aid);",
+      from: "  Entity* a = g_env.find_entity(c.aid);\n  Entity* v = g_env.find_entity(c.vid);",
+      to: "  Entity* a = g_env.find_entity(c.aid);\n  Entity* v = g_env.find_entity(c.aid);",
     },
     {
       note: "handle_ball_hit_other: aframe key misspelled",
@@ -232,32 +235,32 @@ export default {
     {
       note: "handle_ball_hit_other: facing comparison inverted",
       file: "native/lfw/collision/handlers4.cpp",
-      from: "        } else if (strict_equals(v->facing(), a->facing())) {",
-      to: "        } else if (!strict_equals(v->facing(), a->facing())) {",
+      from: "        } else if (strict_equals(Value(v->facing), Value(a->facing))) {",
+      to: "        } else if (!strict_equals(Value(v->facing), Value(a->facing))) {",
     },
     {
       note: "handle_ball_hit_other: victim facing compared against itself",
       file: "native/lfw/collision/handlers4.cpp",
-      from: "        } else if (strict_equals(v->facing(), a->facing())) {",
-      to: "        } else if (strict_equals(v->facing(), v->facing())) {",
+      from: "        } else if (strict_equals(Value(v->facing), Value(a->facing))) {",
+      to: "        } else if (strict_equals(Value(v->facing), Value(v->facing))) {",
     },
     {
       note: "handle_ball_hit_other: attacker facing compared against itself",
       file: "native/lfw/collision/handlers4.cpp",
-      from: "        } else if (strict_equals(v->facing(), a->facing())) {",
-      to: "        } else if (strict_equals(a->facing(), a->facing())) {",
+      from: "        } else if (strict_equals(Value(v->facing), Value(a->facing))) {",
+      to: "        } else if (strict_equals(Value(a->facing), Value(a->facing))) {",
     },
     {
       note: "handle_ball_hit_other: victim facing replaced by base type",
       file: "native/lfw/collision/handlers4.cpp",
-      from: "        } else if (strict_equals(v->facing(), a->facing())) {",
-      to: "        } else if (strict_equals(v->base_type(), a->facing())) {",
+      from: "        } else if (strict_equals(Value(v->facing), Value(a->facing))) {",
+      to: "        } else if (strict_equals(Value(v->base_type()), Value(a->facing))) {",
     },
     {
       note: "handle_ball_hit_other: attacker facing replaced by state",
       file: "native/lfw/collision/handlers4.cpp",
-      from: "        } else if (strict_equals(v->facing(), a->facing())) {",
-      to: "        } else if (strict_equals(v->facing(), a->state())) {",
+      from: "        } else if (strict_equals(Value(v->facing), Value(a->facing))) {",
+      to: "        } else if (strict_equals(Value(v->facing), Value(a->state()))) {",
     },
     {
       note: "handle_ball_hit_other: Normal branch zeroes the victim",
@@ -274,8 +277,8 @@ export default {
     {
       note: "handle_ball_hit_other: facing branch zeroes the victim",
       file: "native/lfw/collision/handlers4.cpp",
-      from: "        } else if (strict_equals(v->facing(), a->facing())) {\n          zero_hp(*a);",
-      to: "        } else if (strict_equals(v->facing(), a->facing())) {\n          zero_hp(*v);",
+      from: "        } else if (strict_equals(Value(v->facing), Value(a->facing))) {\n          zero_hp(*a);",
+      to: "        } else if (strict_equals(Value(v->facing), Value(a->facing))) {\n          zero_hp(*v);",
     },
     {
       note: "handle_ball_hit_other: force-break branch skipped",
@@ -286,8 +289,8 @@ export default {
     {
       note: "handle_ball_hit_other: facing branch skipped",
       file: "native/lfw/collision/handlers4.cpp",
-      from: "        } else if (strict_equals(v->facing(), a->facing())) {\n          zero_hp(*a);\n        }",
-      to: "        } else if (strict_equals(v->facing(), a->facing())) {\n        }",
+      from: "        } else if (strict_equals(Value(v->facing), Value(a->facing))) {\n          zero_hp(*a);\n        }",
+      to: "        } else if (strict_equals(Value(v->facing), Value(a->facing))) {\n        }",
     },
     {
       note: "handle_ball_hit_other: sound payload taken from the frame id",
@@ -328,8 +331,8 @@ export default {
     {
       note: "handle_weapon_hit_other: base_type read from state",
       file: "native/lfw/collision/handlers4.cpp",
-      from: "  const Value base_type = a->base_type();",
-      to: "  const Value base_type = a->state();",
+      from: "  const Value base_type = Value(a->base_type());",
+      to: "  const Value base_type = Value(a->state());",
     },
     {
       note: "handle_weapon_hit_other: baseball compared instead of drink",
@@ -406,14 +409,14 @@ export default {
     {
       note: "handle_weapon_hit_other: velocity snapshot reads x and y swapped",
       file: "native/lfw/collision/handlers4.cpp",
-      from: "    a->velocity(vx, vy, vz);",
-      to: "    a->velocity(vy, vx, vz);",
+      from: "    const double vx = a->velocity.x;\n    const double vy = a->velocity.y;\n    const double vz = a->velocity.z;",
+      to: "    const double vx = a->velocity.y;\n    const double vy = a->velocity.x;\n    const double vz = a->velocity.z;",
     },
     {
       note: "handle_weapon_hit_other: velocity snapshot reads y into z",
       file: "native/lfw/collision/handlers4.cpp",
-      from: "    a->velocity(vx, vy, vz);",
-      to: "    a->velocity(vx, vz, vy);",
+      from: "    const double vx = a->velocity.x;\n    const double vy = a->velocity.y;\n    const double vz = a->velocity.z;",
+      to: "    const double vx = a->velocity.x;\n    const double vy = a->velocity.z;\n    const double vz = a->velocity.y;",
     },
     {
       note: "handle_weapon_hit_other: damped x coefficient magnitude",
@@ -454,56 +457,56 @@ export default {
     {
       note: "handle_weapon_hit_other: damped source velocity not read",
       file: "native/lfw/collision/handlers4.cpp",
-      from: "    a->velocity(vx, vy, vz);",
-      to: "    a->velocity(vz, vy, vz);",
+      from: "    const double vx = a->velocity.x;\n    const double vy = a->velocity.y;\n    const double vz = a->velocity.z;",
+      to: "    const double vx = a->velocity.z;\n    const double vy = a->velocity.y;\n    const double vz = a->velocity.z;",
     },
     {
       note: "handle_weapon_hit_other: align frame resolved from arest instead of frame id",
       file: "native/lfw/collision/handlers4.cpp",
-      from: "  const Value nf = g_env.find_align_frame(a->frame_id(), a->data_indexes_throwings(),",
-      to: "  const Value nf = g_env.find_align_frame(a->arest(), a->data_indexes_throwings(),",
+      from: "  const Value nf = g_env.find_align_frame(a->frame_id(), a->data_indexes_of(u\"throwings\"),",
+      to: "  const Value nf = g_env.find_align_frame(Value(a->arest()), a->data_indexes_of(u\"throwings\"),",
     },
     {
       note: "handle_weapon_hit_other: throwings indexes replaced by sky indexes",
       file: "native/lfw/collision/handlers4.cpp",
-      from: "  const Value nf = g_env.find_align_frame(a->frame_id(), a->data_indexes_throwings(),\n                                          a->data_indexes_in_the_skys());",
+      from: "  const Value nf = g_env.find_align_frame(a->frame_id(), a->data_indexes_of(u\"throwings\"),\n                                          a->data_indexes_in_the_skys());",
       to: "  const Value nf = g_env.find_align_frame(a->frame_id(), a->data_indexes_in_the_skys(),\n                                          a->data_indexes_in_the_skys());",
     },
     {
       note: "handle_weapon_hit_other: sky indexes replaced by throwings indexes",
       file: "native/lfw/collision/handlers4.cpp",
-      from: "  const Value nf = g_env.find_align_frame(a->frame_id(), a->data_indexes_throwings(),\n                                          a->data_indexes_in_the_skys());",
-      to: "  const Value nf = g_env.find_align_frame(a->frame_id(), a->data_indexes_throwings(),\n                                          a->data_indexes_throwings());",
+      from: "  const Value nf = g_env.find_align_frame(a->frame_id(), a->data_indexes_of(u\"throwings\"),\n                                          a->data_indexes_in_the_skys());",
+      to: "  const Value nf = g_env.find_align_frame(a->frame_id(), a->data_indexes_of(u\"throwings\"),\n                                          a->data_indexes_of(u\"throwings\"));",
     },
     {
       note: "handle_weapon_hit_other: frame id argument replaced by base type",
       file: "native/lfw/collision/handlers4.cpp",
-      from: "  const Value nf = g_env.find_align_frame(a->frame_id(), a->data_indexes_throwings(),",
-      to: "  const Value nf = g_env.find_align_frame(a->base_type(), a->data_indexes_throwings(),",
+      from: "  const Value nf = g_env.find_align_frame(a->frame_id(), a->data_indexes_of(u\"throwings\"),",
+      to: "  const Value nf = g_env.find_align_frame(Value(a->base_type()), a->data_indexes_of(u\"throwings\"),",
     },
     {
       note: "handle_weapon_hit_other: arest snapshot taken from the frame id",
       file: "native/lfw/collision/handlers4.cpp",
-      from: "  const Value arest = a->arest();",
-      to: "  const Value arest = a->frame_id();",
+      from: "  const Value arest = Value(a->arest());",
+      to: "  const Value arest = Value(a->frame_id());",
     },
     {
       note: "handle_weapon_hit_other: arest restored after the frame transition is skipped",
       file: "native/lfw/collision/handlers4.cpp",
-      from: "  a->enter_frame(nf);\n  a->set_arest(arest);\n  a->set_dropping(true);",
+      from: "  a->enter_frame(nf);\n  a->set_arest(to_number(arest));\n  a->set_dropping(true);",
       to: "  a->enter_frame(nf);\n  a->set_dropping(true);",
     },
     {
       note: "handle_weapon_hit_other: frame transition not entered",
       file: "native/lfw/collision/handlers4.cpp",
-      from: "  a->enter_frame(nf);\n  a->set_arest(arest);\n  a->set_dropping(true);",
-      to: "  a->set_arest(arest);\n  a->set_dropping(true);",
+      from: "  a->enter_frame(nf);\n  a->set_arest(to_number(arest));\n  a->set_dropping(true);",
+      to: "  a->set_arest(to_number(arest));\n  a->set_dropping(true);",
     },
     {
       note: "handle_weapon_hit_other: arest restore and frame transition swapped",
       file: "native/lfw/collision/handlers4.cpp",
-      from: "  a->enter_frame(nf);\n  a->set_arest(arest);\n  a->set_dropping(true);",
-      to: "  a->set_arest(arest);\n  a->enter_frame(nf);\n  a->set_dropping(true);",
+      from: "  a->enter_frame(nf);\n  a->set_arest(to_number(arest));\n  a->set_dropping(true);",
+      to: "  a->set_arest(to_number(arest));\n  a->enter_frame(nf);\n  a->set_dropping(true);",
     },
     {
       note: "handle_weapon_hit_other: align frame result replaced by the current frame id",
@@ -514,20 +517,14 @@ export default {
     {
       note: "handle_weapon_hit_other: dropping flag never set",
       file: "native/lfw/collision/handlers4.cpp",
-      from: "  a->set_arest(arest);\n  a->set_dropping(true);",
-      to: "  a->set_arest(arest);",
+      from: "  a->set_arest(to_number(arest));\n  a->set_dropping(true);",
+      to: "  a->set_arest(to_number(arest));",
     },
     {
       note: "handle_weapon_hit_other: dropping flag set to false",
       file: "native/lfw/collision/handlers4.cpp",
       from: "  a->set_dropping(true);",
       to: "  a->set_dropping(false);",
-    },
-    {
-      note: "handle_weapon_hit_other: arest restore applies the align frame instead",
-      file: "native/lfw/collision/handlers4.cpp",
-      from: "  a->set_arest(arest);",
-      to: "  a->set_arest(nf);",
     },
   ],
 };

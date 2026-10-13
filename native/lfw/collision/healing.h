@@ -8,17 +8,14 @@
 #include "lfw/core/value.h"
 
 namespace lfw {
+
+class Entity;
+
 namespace collision {
 
-struct IHealingEntity {
-  virtual ~IHealingEntity() = default;
-  virtual const std::u16string& id() const = 0;
-  virtual Value dataset(const std::u16string& key) const = 0;
-  virtual Entity* buff_entity() = 0;
-};
-
+// 切片 4CE：`IHealingEntity` 已退役 ⇒ 缝里直接是 `lfw::Entity`。
 struct HealingEnv {
-  std::function<IHealingEntity*(const std::u16string& id)> find_entity;
+  std::function<Entity*(const std::u16string& id)> find_entity;
   std::function<const buff::BuffEnv*()> buff_env;
 };
 
@@ -28,4 +25,5 @@ void set_healing_env(const HealingEnv& env);
 void handle_healing(Collision& c);
 
 }
+
 }

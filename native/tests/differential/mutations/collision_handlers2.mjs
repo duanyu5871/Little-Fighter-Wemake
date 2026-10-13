@@ -32,8 +32,8 @@ export default {
     {
       note: "扣血变成回血",
       file: "native/lfw/collision/handlers2.cpp",
-      from: "  v->set_hp(Value(to_number(prev_hp) - injury));",
-      to: "  v->set_hp(Value(to_number(prev_hp) + injury));",
+      from: "  v->set_hp(prev_hp - injury);",
+      to: "  v->set_hp(prev_hp + injury);",
     },
     {
       note: "hp_r 不按恢复率折算",
@@ -44,38 +44,38 @@ export default {
     {
       note: "injury_r 为 0 也写",
       file: "native/lfw/collision/handlers2.cpp",
-      from: "  if (injury_r) v->set_hp_r(Value(to_number(prev_hp_r) - injury_r));",
-      to: "  v->set_hp_r(Value(to_number(prev_hp_r) - injury_r));",
+      from: "  if (injury_r) v->set_hp_r(prev_hp_r - injury_r);",
+      to: "  v->set_hp_r(prev_hp_r - injury_r);",
     },
     {
       note: "real_injury 算式颠倒",
       file: "native/lfw/collision/handlers2.cpp",
-      from: "  const Value real_injury = Value(to_number(prev_hp) - to_number(v->hp()));",
-      to: "  const Value real_injury = Value(to_number(v->hp()) - to_number(prev_hp));",
+      from: "  const Value real_injury = Value(prev_hp - v->hp());",
+      to: "  const Value real_injury = Value(v->hp() - prev_hp);",
     },
     {
       note: "real_injury_r 取错字段",
       file: "native/lfw/collision/handlers2.cpp",
-      from: "  const Value real_injury_r = Value(to_number(prev_hp_r) - to_number(v->hp_r()));",
-      to: "  const Value real_injury_r = Value(to_number(prev_hp) - to_number(v->hp()));",
+      from: "  const Value real_injury_r = Value(prev_hp_r - v->hp_r());",
+      to: "  const Value real_injury_r = Value(prev_hp - v->hp());",
     },
     {
       note: "keep_toughness 判定取反",
       file: "native/lfw/collision/handlers2.cpp",
-      from: "  if (!keep_toughness) v->set_toughness(Value(0.0));",
-      to: "  if (keep_toughness) v->set_toughness(Value(0.0));",
+      from: "  if (!keep_toughness) v->set_toughness(0.0);",
+      to: "  if (keep_toughness) v->set_toughness(0.0);",
     },
     {
       note: "src_emitter 从受击方取",
       file: "native/lfw/collision/handlers2.cpp",
-      from: "  const Value se = a == nullptr ? Value() : a->src_emitter();",
-      to: "  const Value se = v->src_emitter();",
+      from: "  const std::u16string* const se = a == nullptr ? nullptr : a->src_emitter();",
+      to: "  const std::u16string* const se = v->src_emitter();",
     },
     {
       note: "src_emitter 转嫁被忽略",
       file: "native/lfw/collision/handlers2.cpp",
-      from: "  if (truthy(se)) att = g_env.find_entity(to_string(se));",
-      to: "  if (false) att = g_env.find_entity(to_string(se));",
+      from: "  if (se != nullptr && !se->empty()) att = g_env.find_entity(*se);",
+      to: "  if (false) att = g_env.find_entity(*se);",
     },
     {
       note: "injury_r 写成 injury",
@@ -98,8 +98,8 @@ export default {
     {
       note: "记分用原攻击方",
       file: "native/lfw/collision/handlers2.cpp",
-      from: "  g_env.summary_apply_damage(att, Value(injury), v, prev_hp);",
-      to: "  g_env.summary_apply_damage(a, Value(injury), v, prev_hp);",
+      from: "  g_env.summary_apply_damage(att, Value(injury), v, Value(prev_hp));",
+      to: "  g_env.summary_apply_damage(a, Value(injury), v, Value(prev_hp));",
     },
     {
       note: "Electrify 与 Fighter 判定用或",
@@ -134,27 +134,27 @@ export default {
     {
       note: "感电 buff 种类写错",
       file: "native/lfw/collision/handlers2.cpp",
-      from: "    buff::grant_buff(g_env.buff_env(), u\"Electroshock\", att->buff_entity(), v->buff_entity(),",
-      to: "    buff::grant_buff(g_env.buff_env(), u\"Electrify\", att->buff_entity(), v->buff_entity(),",
+      from: "    buff::grant_buff(g_env.buff_env(), u\"Electroshock\", att, v,",
+      to: "    buff::grant_buff(g_env.buff_env(), u\"Electrify\", att, v,",
     },
     {
       note: "感电 buff 主客互换",
       file: "native/lfw/collision/handlers2.cpp",
-      from: "    buff::grant_buff(g_env.buff_env(), u\"Electroshock\", att->buff_entity(), v->buff_entity(),",
-      to: "    buff::grant_buff(g_env.buff_env(), u\"Electroshock\", v->buff_entity(), att->buff_entity(),",
+      from: "    buff::grant_buff(g_env.buff_env(), u\"Electroshock\", att, v,",
+      to: "    buff::grant_buff(g_env.buff_env(), u\"Electroshock\", v, att,",
     },
     // ---- handle_itr_catch ----
     {
       note: "catch 已在抓仍继续",
       file: "native/lfw/collision/handlers2.cpp",
-      from: "  if (a->catching()) return;",
-      to: "  if (!a->catching()) return;",
+      from: "  if (a->catching != nullptr) return;",
+      to: "  if (a->catching == nullptr) return;",
     },
     {
       note: "catch 已被抓仍继续",
       file: "native/lfw/collision/handlers2.cpp",
-      from: "  if (v->catcher() != nullptr) return;",
-      to: "  if (v->catcher() == nullptr) return;",
+      from: "  if (v->catcher != nullptr) return;",
+      to: "  if (v->catcher == nullptr) return;",
     },
     {
       note: "catch 抓取时长写 0",
@@ -201,8 +201,8 @@ export default {
     {
       note: "catch 清醒值写 1",
       file: "native/lfw/collision/handlers2.cpp",
-      from: "  v->set_resting(Value(0.0));",
-      to: "  v->set_resting(Value(1.0));",
+      from: "  v->set_resting(0.0);",
+      to: "  v->set_resting(1.0);",
     },
     {
       note: "catch 不补满 fall_value",
@@ -226,14 +226,14 @@ export default {
     {
       note: "freeze fall_value 反向",
       file: "native/lfw/collision/handlers2.cpp",
-      from: "  v->set_fall_value(Value(to_number(v->fall_value()) - to_number(a->itr_fall(c.itr))));\n  handle_injury(c, 1, false);\n  handle_rest(c);\n  handle_stiffness(c);\n  v->enter_frame_by_id(v->data_indexes_ice());\n}\n\nvoid handle_itr_effect_freeze",
-      to: "  v->set_fall_value(Value(to_number(v->fall_value()) + to_number(a->itr_fall(c.itr))));\n  handle_injury(c, 1, false);\n  handle_rest(c);\n  handle_stiffness(c);\n  v->enter_frame_by_id(v->data_indexes_ice());\n}\n\nvoid handle_itr_effect_freeze",
+      from: "  v->set_fall_value(v->fall_value() - to_number(a->itr_fall(c.itr)));\n  handle_injury(c, 1, false);\n  handle_rest(c);\n  handle_stiffness(c);\n  v->enter_frame_by_id(v->data_indexes_of(u\"ice\"));\n}\n\nvoid handle_itr_effect_freeze",
+      to: "  v->set_fall_value(v->fall_value() + to_number(a->itr_fall(c.itr)));\n  handle_injury(c, 1, false);\n  handle_rest(c);\n  handle_stiffness(c);\n  v->enter_frame_by_id(v->data_indexes_of(u\"ice\"));\n}\n\nvoid handle_itr_effect_freeze",
     },
     {
       note: "freeze 取受击方的 itr_fall",
       file: "native/lfw/collision/handlers2.cpp",
-      from: "  v->set_fall_value(Value(to_number(v->fall_value()) - to_number(a->itr_fall(c.itr))));\n  handle_injury(c, 1, false);\n  handle_rest(c);\n  handle_stiffness(c);\n  v->enter_frame_by_id(v->data_indexes_ice());\n}",
-      to: "  v->set_fall_value(Value(to_number(v->fall_value()) - to_number(v->itr_fall(c.itr))));\n  handle_injury(c, 1, false);\n  handle_rest(c);\n  handle_stiffness(c);\n  v->enter_frame_by_id(v->data_indexes_ice());\n}",
+      from: "  v->set_fall_value(v->fall_value() - to_number(a->itr_fall(c.itr)));\n  handle_injury(c, 1, false);\n  handle_rest(c);\n  handle_stiffness(c);\n  v->enter_frame_by_id(v->data_indexes_of(u\"ice\"));\n}",
+      to: "  v->set_fall_value(v->fall_value() - to_number(v->itr_fall(c.itr)));\n  handle_injury(c, 1, false);\n  handle_rest(c);\n  handle_stiffness(c);\n  v->enter_frame_by_id(v->data_indexes_of(u\"ice\"));\n}",
     },
     {
       note: "efreeze 先 rest 后 injury",
@@ -244,14 +244,14 @@ export default {
     {
       note: "freeze 不再 stiffness",
       file: "native/lfw/collision/handlers2.cpp",
-      from: "  handle_injury(c, 1, false);\n  handle_rest(c);\n  handle_stiffness(c);\n  v->enter_frame_by_id(v->data_indexes_ice());\n}\n\nvoid handle_itr_effect_freeze",
-      to: "  handle_injury(c, 1, false);\n  handle_rest(c);\n  v->enter_frame_by_id(v->data_indexes_ice());\n}\n\nvoid handle_itr_effect_freeze",
+      from: "  handle_injury(c, 1, false);\n  handle_rest(c);\n  handle_stiffness(c);\n  v->enter_frame_by_id(v->data_indexes_of(u\"ice\"));\n}\n\nvoid handle_itr_effect_freeze",
+      to: "  handle_injury(c, 1, false);\n  handle_rest(c);\n  v->enter_frame_by_id(v->data_indexes_of(u\"ice\"));\n}\n\nvoid handle_itr_effect_freeze",
     },
     {
       note: "freeze 冰帧进到攻击方",
       file: "native/lfw/collision/handlers2.cpp",
-      from: "  v->enter_frame_by_id(v->data_indexes_ice());\n}\n\nvoid handle_itr_effect_freeze",
-      to: "  a->enter_frame_by_id(v->data_indexes_ice());\n}\n\nvoid handle_itr_effect_freeze",
+      from: "  v->enter_frame_by_id(v->data_indexes_of(u\"ice\"));\n}\n\nvoid handle_itr_effect_freeze",
+      to: "  a->enter_frame_by_id(v->data_indexes_of(u\"ice\"));\n}\n\nvoid handle_itr_effect_freeze",
     },
     {
       note: "efreeze 丢掉速度",
@@ -274,33 +274,33 @@ export default {
     {
       note: "efreeze 不扣 fall_value",
       file: "native/lfw/collision/handlers2.cpp",
-      from: "  v->set_fall_value(Value(to_number(v->fall_value()) - to_number(a->itr_fall(c.itr))));\n  const ItrVelocity vel = g_env.calc_velocity(c);",
+      from: "  v->set_fall_value(v->fall_value() - to_number(a->itr_fall(c.itr)));\n  const ItrVelocity vel = g_env.calc_velocity(c);",
       to: "  const ItrVelocity vel = g_env.calc_velocity(c);",
     },
     // ---- handle_john_shield_hit_other_ball ----
     {
       note: "shield 先 injury 后 rest",
       file: "native/lfw/collision/handlers2.cpp",
-      from: "  handle_rest(c);\n  handle_injury(c, 1, false);\n  handle_stiffness(c);\n  IHandlerEntity* a = g_env.find_entity(c.aid);",
-      to: "  handle_injury(c, 1, false);\n  handle_rest(c);\n  handle_stiffness(c);\n  IHandlerEntity* a = g_env.find_entity(c.aid);",
+      from: "  handle_rest(c);\n  handle_injury(c, 1, false);\n  handle_stiffness(c);\n  Entity* a = g_env.find_entity(c.aid);",
+      to: "  handle_injury(c, 1, false);\n  handle_rest(c);\n  handle_stiffness(c);\n  Entity* a = g_env.find_entity(c.aid);",
     },
     {
       note: "shield 抖动量写 0",
       file: "native/lfw/collision/handlers2.cpp",
-      from: "  a->set_shaking(a->motionless());",
-      to: "  a->set_shaking(Value(0.0));",
+      from: "  a->set_shaking(a->motionless);",
+      to: "  a->set_shaking(0.0);",
     },
     {
       note: "shield 抖动写到受击方",
       file: "native/lfw/collision/handlers2.cpp",
-      from: "  a->set_shaking(a->motionless());",
-      to: "  g_env.find_entity(c.vid)->set_shaking(a->motionless());",
+      from: "  a->set_shaking(a->motionless);",
+      to: "  g_env.find_entity(c.vid)->set_shaking(a->motionless);",
     },
     {
       note: "shield 用受击方的 motionless",
       file: "native/lfw/collision/handlers2.cpp",
-      from: "  a->set_shaking(a->motionless());",
-      to: "  a->set_shaking(g_env.find_entity(c.vid)->motionless());",
+      from: "  a->set_shaking(a->motionless);",
+      to: "  a->set_shaking(g_env.find_entity(c.vid)->motionless);",
     },
     {
       note: "shield 不播音效",

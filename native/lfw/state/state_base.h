@@ -21,7 +21,8 @@ class IStateEntity {
  public:
   // `velocity_x` / `ground_y()` 统一成 `double`：TS 里就是 number（端口的 `Value` 包装是纯防御），
   // 而碰撞家族的 `IFallEntity`/`IActionEntity` 用 `double` —— `Value` 版会撞「同参不同返回」，
-  // 两个面再也合不进同一个实现类。
+  // 两个面再也合不进同一个实现类。（切片 4CE 已把碰撞家族那套窄接口整个退役，这里的两条
+  // `double` 约定按原样留在状态面上。）
   virtual double velocity_x() const = 0;
   virtual Value velocity_z() const = 0;
   virtual Value hp_max() const { return Value(); }

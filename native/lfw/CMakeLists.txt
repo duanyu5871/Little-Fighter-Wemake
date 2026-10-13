@@ -97,7 +97,6 @@ add_library(lfw_core STATIC
   entity/entity.cpp
   entity/entity_state_view.cpp
   entity/entity_view_base.cpp
-  entity/entity_collision_view.cpp
   entity/summary.cpp
   entity/entity_ref.cpp
   entity/summary_mgr.cpp

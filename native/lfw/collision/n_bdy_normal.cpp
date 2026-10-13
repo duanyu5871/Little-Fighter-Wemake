@@ -10,6 +10,7 @@
 #include "lfw/defines/itr_effect.h"
 #include "lfw/defines/spark_enum.h"
 #include "lfw/defines/state_enum.h"
+#include "lfw/entity/entity.h"
 #include "lfw/utils/container_help/field_or.h"
 #include "lfw/utils/math/base.h"
 
@@ -70,12 +71,12 @@ void apply_normal_impact(Collision& c, const Value& effect_v) {
   handle_rest(c);
   handle_stiffness(c);
 
-  INbdyNormalEntity* a = g_env.find_entity(c.aid);
-  INbdyNormalEntity* v = g_env.find_entity(c.vid);
+  Entity* a = g_env.find_entity(c.aid);
+  Entity* v = g_env.find_entity(c.vid);
   if (a == nullptr || v == nullptr) return;
 
-  v->set_fall_value(Value(to_number(v->fall_value()) - to_number(a->itr_fall(c.itr))));
-  v->set_defend_value(Value(0.0));
+  v->set_fall_value(v->fall_value() - to_number(a->itr_fall(c.itr)));
+  v->set_defend_value(0.0);
   if (g_env.is_fall(c)) {
     handle_fall(c);
     return;
@@ -101,21 +102,21 @@ void apply_normal_impact(Collision& c, const Value& effect_v) {
   const bool ic = strict_equals(v->state(), Value(static_cast<double>(StateEnum::Caught)));
   const Value backhurtact = v->cpoint_backhurtact();
   const Value fronthurtact = v->cpoint_fronthurtact();
-  const Value fvm = v->fall_value_max();
-  const Value fv = v->fall_value();
-  const Value dizzy = v->data_indexes_dizzy();
-  const Value grand_injured = v->data_indexes_grand_injured();
-  const Value injured = v->data_indexes_injured();
-  const bool on_hurt_side = v->position_y() <= v->ground_y();
+  const double fvm = v->fall_value_max();
+  const double fv = v->fall_value();
+  const Value dizzy = v->data_indexes_of(u"dizzy");
+  const Value grand_injured = v->data_indexes_of(u"grand_injured");
+  const Value injured = v->data_indexes_of(u"injured");
+  const bool on_hurt_side = v->position.y <= v->ground_y();
   const Value hurt_list = on_hurt_side ? grand_injured : injured;
-  const double r = to_number(fvm) - to_number(fv);
+  const double r = fvm - fv;
   const double d = kDefaultFallValueDizzy;
-  const bool same_face = strict_equals(a->facing(), v->facing());
+  const bool same_face = strict_equals(Value(a->facing), Value(v->facing));
 
   Value id;
   if (ic) {
     id = same_face ? backhurtact : fronthurtact;
-  } else if (to_number(fv) <= d) {
+  } else if (fv <= d) {
     id = dizzy;
   } else {
     id = index_by(hurt_list, to_string(Value(hurt_frame_group(r))));
@@ -147,7 +148,7 @@ void handle_itr_normal_bdy_normal(Collision& c) {
     return;
   }
   if (effect_is(effect_v, ItrEffect::Ice)) {
-    const INbdyNormalEntity* v = g_env.find_entity(c.vid);
+    const Entity* v = g_env.find_entity(c.vid);
     const bool frozen =
         v != nullptr && strict_equals(v->state(), Value(static_cast<double>(StateEnum::Frozen)));
     if (frozen) {

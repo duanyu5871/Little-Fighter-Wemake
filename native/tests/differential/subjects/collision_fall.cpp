@@ -1,12 +1,16 @@
+#include <cmath>
 #include <cstdio>
 #include <fstream>
+#include <memory>
 #include <string>
+#include <variant>
 #include <vector>
 
 #include "lfw/collision/fall.h"
 #include "lfw/core/value.h"
 #include "lfw/defines/itr_effect.h"
 #include "lfw/defines/state_enum.h"
+#include "lfw/entity/entity.h"
 #include "lfw/entity/entity_type_check.h"
 #include "lfw/utils/container_help/field_or.h"
 
@@ -15,12 +19,11 @@
 
 namespace {
 
+using lfw::Entity;
 using lfw::Value;
 using lfw::collision::Collision;
 using lfw::collision::Cube;
 using lfw::collision::FallEnv;
-using lfw::collision::IFallEntity;
-using lfw::collision::IHandlerEntity;
 using lfw::collision::ItrVelocity;
 using trace::parse_value;
 using trace::render_value;
@@ -46,183 +49,162 @@ bool nullish(const Value& v) {
   return std::holds_alternative<std::monostate>(v) || std::holds_alternative<lfw::NullTag>(v);
 }
 
-// 切片 4BY：`buff` 以 `lfw::Entity` 为准入 ⇒ `buff_entity()` 交出真 `Entity`
-// （原空壳窄接口假件；TS 侧同样是空壳，观测点不在这里）。
-struct FakeBuff : lfw::Entity {
-  explicit FakeBuff(std::u16string id) : Entity(fx::shared_host(), Value()) {
-    this->id = std::move(id);
-  }
-};
+// 切片 4CE：碰撞族窄接口（`IFallEntity` 等）退役 ⇒ 台面假实体就是真 `lfw::Entity`，
+// 只覆写实体面上确实存在的那几条读/写（TS 台面同样只给这几条，见 `collision_fall.ts`）。
+//
+// 唯一一处「库里有、台面拦不到」的调用是 `drop_holding`（实体上至今非虚），而 TS 台面的假件
+// 拦得到、日志就在那儿 ⇒ 那一行由被拿武器假件补：见 `HeldFake`（真 `drop_holding()` 会碰它
+// 的虚方法）。
 
-struct Fake : IFallEntity {
-  std::u16string _id;
+struct Fake : lfw::Entity {
+  // 用例面（TS 台面的后备字段）与显示面（`| 状态`）读的都是镜像；库读的那些走 override。
+  // `_ice` / `_hit_sounds` / `_src_emitter` / `_motionless` / `_dataset_values` 只挂在用例面
+  // 上（窄接口退役后本单元没有读它们的调用），留着是为了不动 `env a|v` 的字段面。
   Value _hp = Value(50.0);
   Value _hp_r = Value(50.0);
+  double _toughness = 9;
   Value _fall = Value(0.0);
   Value _fall_max = Value(100.0);
   Value _defend = Value(1.0);
   Value _resting = Value(0.0);
-  Value _catch_time = Value(0.0);
-  Value _catch_time_max = Value(30.0);
-  Value _src_emitter;
-  Value _shaking;
-  Value _motionless;
-  Value _itr_fall = Value(2.0);
-  Value _hit_sounds;
-  Value _ice;
-  Value _elec_dur = Value(7.0);
   Value _state;
   Value _facing = Value(1.0);
+  Value _type = Value(8.0);
   Value _fire;
   Value _crit;
-  Value _holding;
-  bool _catching = false;
-  IHandlerEntity* _catcher = nullptr;
-  double _vel[3] = {0, 0, 0};
-  double _toughness = 9;
-  FakeBuff _buff;
+  Value _src_emitter;
+  Value _motionless;
+  Value _hit_sounds;
+  Value _ice;
   Value _dataset_values;
-  Value _data;
+  double _vel[3] = {0, 0, 0};
+  mutable Value _data_cache;
 
-  explicit Fake(std::u16string id) : _id(std::move(id)), _buff(_id) { set_type(Value(8.0)); }
+  explicit Fake(std::u16string id) : lfw::Entity(fx::shared_host(), Value()) {
+    this->id = std::move(id);
+  }
 
-  void set_type(const Value& t) {
+  // `data` 按 TS 台面的样子现搭（`type` 决定 `is_fighter`，`indexes` 供 `data_indexes_of`）。
+  const Value& data() const override {
+    auto indexes = std::make_shared<lfw::Object>();
+    indexes->set(u"fire", _fire);
+    indexes->set(u"critical_hit", _crit);
     auto o = std::make_shared<lfw::Object>();
-    o->set(u"type", t);
-    _data = Value(o);
+    o->set(u"type", _type);
+    o->set(u"indexes", Value(indexes));
+    _data_cache = Value(o);
+    return _data_cache;
   }
 
-  const std::u16string& id() const override { return _id; }
-  Value hp() const override { return _hp; }
-  void set_hp(const Value& v) override {
-    _hp = v;
-    g_log.push_back(s_of(_id) + ":set_hp:" + render(v));
-  }
-  Value hp_r() const override { return _hp_r; }
-  void set_hp_r(const Value& v) override {
-    _hp_r = v;
-    g_log.push_back(s_of(_id) + ":set_hp_r:" + render(v));
-  }
-  void set_toughness(const Value& v) override {
-    _toughness = lfw::to_number(v);
-    g_log.push_back(s_of(_id) + ":set_toughness:" + render(v));
-  }
-  Value data() const override {
-    auto o = std::make_shared<lfw::Object>();
-    o->set(u"type", lfw::field_or(_data, u"type"));
-    auto idx = std::make_shared<lfw::Object>();
-    idx->set(u"fire", _fire);
-    idx->set(u"critical_hit", _crit);
-    o->set(u"indexes", Value(idx));
-    return Value(o);
-  }
-  Value data_indexes_ice() const override { return _ice; }
-  Value data_base_hit_sounds() const override { return _hit_sounds; }
-  Value dataset(const std::u16string& key) const override {
-    if (key == u"electrify_duration") return _elec_dur;
-    return lfw::field_or(_dataset_values, key.c_str());
-  }
-  bool marks_has(const std::u16string&) const override { return false; }
-  bool catching() const override { return _catching; }
-  void set_catching(IHandlerEntity*) override {}
-  Value catch_time_max() const override { return _catch_time_max; }
-  void set_catch_time(const Value& v) override {
-    _catch_time = v;
-    g_log.push_back(s_of(_id) + ":set_catch_time:" + render(v));
-  }
-  IHandlerEntity* catcher() const override { return _catcher; }
-  void set_catcher(IHandlerEntity* v) override {
-    _catcher = v;
-    g_log.push_back(s_of(_id) + ":set_catcher:" + (v == nullptr ? "-" : s_of(v->id())));
-  }
-  Value resting() const override { return _resting; }
-  void set_resting(const Value& v) override {
-    _resting = v;
-    g_log.push_back(s_of(_id) + ":set_resting:" + render(v));
-  }
-  Value fall_value() const override { return _fall; }
-  void set_fall_value(const Value& v) override {
-    _fall = v;
-    g_log.push_back(s_of(_id) + ":set_fall_value:" + render(v));
-  }
-  Value fall_value_max() const override { return _fall_max; }
-  Value defend_value() const override { return _defend; }
-  void set_defend_value(const Value& v) override {
-    _defend = v;
-    g_log.push_back(s_of(_id) + ":set_defend_value:" + render(v));
-  }
-  Value defend_value_max() const override { return _defend; }
-  Value itr_fall(const Value&) const override { return _itr_fall; }
-  Value src_emitter() const override { return _src_emitter; }
-  Value shaking() const override { return _shaking; }
-  void set_shaking(const Value& v) override {
-    _shaking = v;
-    g_log.push_back(s_of(_id) + ":set_shaking:" + render(v));
-  }
-  Value motionless() const override { return _motionless; }
+  double hp() const override { return lfw::to_number(_hp); }
+  void set_hp(double v) override { _hp = Value(v); log_set("set_hp", v); }
+  double hp_r() const override { return lfw::to_number(_hp_r); }
+  void set_hp_r(double v) override { _hp_r = Value(v); log_set("set_hp_r", v); }
+  double toughness() const override { return _toughness; }
+  void set_toughness(double v) override { _toughness = v; log_set("set_toughness", v); }
+  double fall_value() const override { return lfw::to_number(_fall); }
+  void set_fall_value(double v) override { _fall = Value(v); log_set("set_fall_value", v); }
+  double fall_value_max() const override { return lfw::to_number(_fall_max); }
+  double defend_value() const override { return lfw::to_number(_defend); }
+  void set_defend_value(double v) override { _defend = Value(v); log_set("set_defend_value", v); }
+  double defend_value_max() const override { return lfw::to_number(_defend); }
+  double resting() const override { return lfw::to_number(_resting); }
+  void set_resting(double v) override { _resting = Value(v); log_set("set_resting", v); }
 
+  // `set_velocity(x?, y?, z?)`：`undefined` / `null` 的分量跳过（TS 台面同式）；真速度也
+  // 写进实体字段 —— `handle_fall` 的 `normal_fall_act` 直接读 `velocity.x`。
   void set_velocity(const Value& x, const Value& y, const Value& z) override {
-    std::string s = s_of(_id) + ":set_velocity";
+    std::string s = s_of(id) + ":set_velocity";
     if (!nullish(x)) {
       _vel[0] = lfw::to_number(x);
+      velocity.x = _vel[0];
       s += ":" + render(x);
     }
     if (!nullish(y)) {
       _vel[1] = lfw::to_number(y);
+      velocity.y = _vel[1];
       s += ":" + render(y);
     }
     if (!nullish(z)) {
       _vel[2] = lfw::to_number(z);
+      velocity.z = _vel[2];
       s += ":" + render(z);
     }
     g_log.push_back(s);
   }
 
-  void enter_frame(const Value& info) override {
-    g_log.push_back(s_of(_id) + ":enter_frame:" + render(info));
-  }
-  void enter_frame_by_id(const Value& id) override {
-    g_log.push_back(s_of(_id) + ":enter_frame_by_id:" + render(id));
-  }
-  void play_sound(const Value& sounds) override {
-    g_log.push_back(s_of(_id) + ":play_sound:" + render(sounds));
-  }
-  lfw::Entity* buff_entity() override { return &_buff; }
-
-  Value facing() const override { return _facing; }
-  double velocity_x() const override { return _vel[0]; }
-  void spark_point(const Cube& a, const Cube& b, double& x, double& y, double& z) override {
+  // TS 台面的假 `spark_point`：x/y/z 从两个 cube 取，并把 `sp:` 一行打进日志（真
+  // `handle_fall` 拿这三个出参去喂 `spark` 缝 ⇒ `spark:` 那一行也随之一致）。
+  void spark_point(const Cube& a, const Cube& b, double& x, double& y, double& z) const override {
     x = a.left;
     y = b.top;
     z = a.near;
     g_log.push_back("sp:" + num(x) + ":" + num(y) + ":" + num(z));
   }
-  Value data_indexes_fire() const override { return _fire; }
-  Value data_indexes_critical_hit() const override { return _crit; }
-  Value holding_base_type() const override { return lfw::field_or(_holding, u"base_type"); }
-  void drop_holding() override {
-    _holding = Value();
-    g_log.push_back(s_of(_id) + ":drop_holding");
+
+  // 台面的假件只打这一行（真 `enter_frame` 会去翻帧表，这里没有帧表可翻）。
+  lfw::EnterFrameResult enter_frame(const Value& nf, bool fallback = false) override {
+    (void)fallback;
+    g_log.push_back(s_of(id) + ":enter_frame:" + render(nf));
+    return lfw::EnterFrameResult::NotFound;
+  }
+
+  // 同上：台面的假件只打这一行。
+  lfw::EnterFrameResult enter_frame_by_id(const Value& id_value,
+                                          bool fallback = false) override {
+    (void)fallback;
+    g_log.push_back(s_of(id) + ":enter_frame_by_id:" + render(id_value));
+    return lfw::EnterFrameResult::NotFound;
+  }
+
+ private:
+  void log_set(const char* name, double v) {
+    g_log.push_back(s_of(id) + ":" + name + ":" + num(v));
   }
 };
 
 Fake g_att(u"A");
 Fake g_vic(u"V");
+
+// 受害者手里那把武器：真 `Entity::drop_holding()` 会读它的 `data`、摆它的位置并让它
+// `enter_frame` —— 台面借这几条虚方法观测「真的走了掉落这条链」，同时把真 `drop_holding`
+// 顺带的副作用挡掉（TS 台面的假 `drop_holding` 也只打一行日志）。
+struct HeldFake : lfw::Entity {
+  double _base_type = 0;
+  mutable Value _data_empty;
+
+  HeldFake() : lfw::Entity(fx::shared_host(), Value()) {
+    this->id = u"H";
+    // TS 台面的假件没有帧表（它的 `frame` 是 `undefined`）：这里也让真 `enter_frame` 拿不到
+    // 帧，免得它顺手改 `arest` / `state` / `facing` 这些 TS 台面并没有的东西。
+    frame = Value();
+  }
+
+  double base_type() const override { return _base_type; }
+  const Value& data() const override { return _data_empty; }
+  void set_position(const Value& x, const Value& y, const Value& z) override {
+    (void)x;
+    (void)y;
+    (void)z;
+    g_log.push_back(s_of(g_vic.id) + ":drop_holding");
+  }
+};
+
+HeldFake g_held;
 Collision g_c;
 FallEnv g_env;
 ItrVelocity g_iv;
 Value g_itr_motionless;
 
 void bind() {
-  g_env.find_entity = [](const std::u16string& id) -> IFallEntity* {
-    if (id == g_att._id) return &g_att;
-    if (id == g_vic._id) return &g_vic;
+  g_env.find_entity = [](const std::u16string& id) -> Entity* {
+    if (id == g_att.id) return &g_att;
+    if (id == g_vic.id) return &g_vic;
     return nullptr;
   };
-  g_env.is_fighter = [](const IFallEntity& e) {
-    return lfw::entity::is_fighter_data(e.data());
-  };
+  g_env.is_fighter = [](const Entity& e) { return lfw::entity::is_fighter_data(e.data()); };
   g_env.spark = [](const Value& x, const Value& y, const Value& z, const Value& type) {
+    // 三个数就是假 `spark_point` 交给缝的读数（TS 台面的 `world.spark` 记的就是它们）。
     g_log.push_back("spark:" + render(x) + ":" + render(y) + ":" + render(z) + ":" +
                     render(type));
   };
@@ -244,12 +226,12 @@ void bind() {
 }
 
 std::string side_text(const Fake& f) {
-  return s_of(f._id) + ".hp=" + render(f._hp) + " " + s_of(f._id) + ".hp_r=" + render(f._hp_r) +
-         " " + s_of(f._id) + ".tough=" + num(f._toughness) + " " + s_of(f._id) +
-         ".fall=" + render(f._fall) + " " + s_of(f._id) + ".fall_max=" + render(f._fall_max) +
-         " " + s_of(f._id) + ".defend=" + render(f._defend) + " " + s_of(f._id) +
-         ".resting=" + render(f._resting) + " " + s_of(f._id) + ".state=" + render(f._state) +
-         " " + s_of(f._id) + ".face=" + render(f._facing) + " " + s_of(f._id) +
+  return s_of(f.id) + ".hp=" + render(f._hp) + " " + s_of(f.id) + ".hp_r=" + render(f._hp_r) +
+         " " + s_of(f.id) + ".tough=" + num(f._toughness) + " " + s_of(f.id) +
+         ".fall=" + render(f._fall) + " " + s_of(f.id) + ".fall_max=" + render(f._fall_max) +
+         " " + s_of(f.id) + ".defend=" + render(f._defend) + " " + s_of(f.id) +
+         ".resting=" + render(f._resting) + " " + s_of(f.id) + ".state=" + render(f._state) +
+         " " + s_of(f.id) + ".face=" + render(f._facing) + " " + s_of(f.id) +
          ".vel=" + num(f._vel[0]) + "/" + num(f._vel[1]) + "/" + num(f._vel[2]);
 }
 
@@ -273,9 +255,11 @@ void walk_side(Fake& f, const std::string& field, const std::vector<std::string>
   } else if (field == "state") {
     f._state = parse_value(tok, i);
   } else if (field == "face") {
-    f._facing = parse_value(tok, i);
+    const Value v = parse_value(tok, i);
+    f._facing = v;
+    f.facing = lfw::to_number(v);  // `handle_fall` 直接读实体字段
   } else if (field == "type") {
-    f.set_type(parse_value(tok, i));
+    f._type = parse_value(tok, i);
   } else if (field == "velx") {
     f._vel[0] = trace::to_double(tok[i++]);
   } else if (field == "vely") {
@@ -287,7 +271,14 @@ void walk_side(Fake& f, const std::string& field, const std::vector<std::string>
   } else if (field == "crit") {
     f._crit = parse_value(tok, i);
   } else if (field == "holding") {
-    f._holding = parse_value(tok, i);
+    // `holding_base_type()` 是实体自己的读法（`holding->base_type()`）⇒ 台面摆一把假武器。
+    const Value v = parse_value(tok, i);
+    if (nullish(v)) {
+      g_vic.holding = nullptr;
+    } else {
+      g_held._base_type = lfw::to_number(lfw::field_or(v, u"base_type"));
+      g_vic.holding = &g_held;
+    }
   } else if (field == "ice") {
     f._ice = parse_value(tok, i);
   } else if (field == "hit_sounds") {

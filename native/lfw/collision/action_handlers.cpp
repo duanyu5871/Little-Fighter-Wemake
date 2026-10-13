@@ -5,6 +5,8 @@
 
 #include "lfw/defines/action_type.h"
 #include "lfw/defines/hit_flag.h"
+#include "lfw/entity/entity.h"
+#include "lfw/entity/entity_type_check.h"
 #include "lfw/entity/face_helper.h"
 #include "lfw/utils/container_help/ensure.h"
 #include "lfw/utils/container_help/field_or.h"
@@ -28,8 +30,7 @@ Value data_of(const Value& action) { return field_or(action, u"data"); }
 
 Value field_of(const Value& holder, const char16_t* key) { return field_or(holder, key); }
 
-void apply_buff(const ActionEnv& env, const Value& action, IActionEntity& attacker,
-                IActionEntity& victim) {
+void apply_buff(const ActionEnv& env, const Value& action, Entity& attacker, Entity& victim) {
   const Value data = data_of(action);
   if (!truthy(data)) return;
   Value hitflag = field_or(data, u"hitflag");
@@ -45,13 +46,13 @@ void apply_buff(const ActionEnv& env, const Value& action, IActionEntity& attack
     if (!bit_and(hf, ally_flag)) return;
   }
   const buff::BuffEnv* benv = env.buff_env();
-  buff::grant_buff(benv, kind, attacker.buff_entity(), victim.buff_entity(), duration);
+  buff::grant_buff(benv, kind, &attacker, &victim, duration);
 }
 
 }
 
 Value run_action(const ActionEnv& env, const std::u16string& type, const Value& action,
-                 IActionEntity& attacker, IActionEntity& victim, const Value& injury,
+                 Entity& attacker, Entity& victim, const Value& injury,
                  const Value& real_injury) {
   if (type == action_type::kA_SOUND) {
     const Value data = data_of(action);
@@ -90,21 +91,21 @@ Value run_action(const ActionEnv& env, const std::u16string& type, const Value& 
     return Value(0.0);
   }
   if (type == action_type::kA_REBOUND_VX) {
-    attacker.set_velocity_x(Value(-attacker.velocity_x()));
+    attacker.set_velocity_x(Value(-attacker.velocity.x));
     return Value();
   }
   if (type == action_type::kV_REBOUND_VX) {
-    victim.set_velocity_x(Value(-victim.velocity_x()));
+    victim.set_velocity_x(Value(-victim.velocity.x));
     return Value();
   }
   if (type == action_type::kV_TURN_FACE) {
-    victim.set_facing(entity::turn_face(victim.facing()));
+    victim.set_facing(entity::turn_face(Value(victim.facing)));
     return Value();
   }
   if (type == action_type::kV_TURN_TEAM) {
     Value team = field_of(data_of(action), u"team");
-    if (!truthy(team)) team = attacker.team();
-    victim.set_team(team);
+    if (!truthy(team)) team = Value(attacker.team());
+    victim.set_team(to_string(team));
     return Value();
   }
   if (type == action_type::kFUSION) {
@@ -112,10 +113,10 @@ Value run_action(const ActionEnv& env, const std::u16string& type, const Value& 
     env.mt_set_mark(u"cact_" + std::u16string(action_type::kFUSION));
     Value oid_data;
     if (!env.find_data(to_string(field_of(data, u"oid")), oid_data)) return Value();
-    const int a_v = attacker.is_bot_ctrl() ? 0 : 1;
-    const int v_v = victim.is_bot_ctrl() ? 0 : 1;
-    IActionEntity* f1 = nullptr;
-    IActionEntity* f2 = nullptr;
+    const int a_v = entity::is_bot_ctrl(attacker.ctrl()) ? 0 : 1;
+    const int v_v = entity::is_bot_ctrl(victim.ctrl()) ? 0 : 1;
+    Entity* f1 = nullptr;
+    Entity* f2 = nullptr;
     if (a_v > v_v) {
       f1 = &attacker;
       f2 = &victim;
@@ -129,14 +130,14 @@ Value run_action(const ActionEnv& env, const std::u16string& type, const Value& 
       f1 = &victim;
       f2 = &attacker;
     }
-    const double hp = to_number(f1->hp()) + to_number(f2->hp());
-    const double hp_r = max({hp, to_number(f1->hp_r()), to_number(f2->hp_r())});
+    const double hp = f1->hp() + f2->hp();
+    const double hp_r = max({hp, f1->hp_r(), f2->hp_r()});
     f1->set_dismiss_data(f1->data());
     f1->transform(oid_data);
-    f1->set_hp(Value(min(hp, to_number(f1->hp_max()))));
-    f1->set_hp_r(Value(min(hp_r, to_number(f1->hp_max()))));
-    Value fuse = f1->fuse_bys();
-    f1->set_fuse_bys(ensure(fuse, Value(f2->id())));
+    f1->set_hp(min(hp, f1->hp_max()));
+    f1->set_hp_r(min(hp_r, f1->hp_max()));
+    Value fuse = f1->fuse_bys_of();
+    f1->set_fuse_bys(ensure(fuse, Value(f2->id)));
     const Value time_v = field_of(data, u"time");
     f1->set_dismiss_time(missing(time_v) ? Value(NullTag{}) : time_v);
     f1->set_mp(f1->mp_max());
@@ -157,53 +158,48 @@ Value run_action(const ActionEnv& env, const std::u16string& type, const Value& 
     const Value over_injury = field_of(d, u"over_injury");
     const Value itr_value = truthy(over_injury) ? injury : real_injury;
     if (!truthy(itr_value)) return Value();
-    IActionEntity* t = nullptr;
+    Entity* t = nullptr;
     const double target = to_number(field_of(d, u"target"));
     if (target == 1) {
-      const Value se = attacker.src_emitter();
-      if (truthy(se)) t = env.find_entity(to_string(se));
+      const std::u16string* const se = attacker.src_emitter();
+      if (se != nullptr && !se->empty()) t = env.find_entity(*se);
     } else if (target == 2) {
-      const Value em = attacker.emitter();
-      if (truthy(em)) t = env.find_entity(to_string(em));
+      const std::u16string* const em = attacker.emitter();
+      if (em != nullptr && !em->empty()) t = env.find_entity(*em);
     } else if (target == 3) {
-      t = attacker.bearer();
+      t = attacker.bearer;
     } else {
       t = &attacker;
     }
     if (t == nullptr) return Value();
-    if (!truthy(field_of(d, u"revive")) && to_number(t->hp()) <= 0) return Value();
+    if (!truthy(field_of(d, u"revive")) && t->hp() <= 0) return Value();
     const Value mp_v = field_of(d, u"mp");
-    if (truthy(mp_v))
-      t->set_mp(Value(min(to_number(t->mp()) + to_number(mp_v), to_number(t->mp_max()))));
+    if (truthy(mp_v)) t->set_mp(min(t->mp() + to_number(mp_v), t->mp_max()));
     const Value itr_mp_ratio = field_of(d, u"itr_mp_ratio");
     if (truthy(itr_mp_ratio))
-      t->set_mp(Value(min(to_number(t->mp()) + round(to_number(itr_value) * to_number(itr_mp_ratio)),
-                          to_number(t->mp_max()))));
+      t->set_mp(min(t->mp() + round(to_number(itr_value) * to_number(itr_mp_ratio)),
+                    t->mp_max()));
     const Value hp_r_v = field_of(d, u"hp_r");
-    if (truthy(hp_r_v))
-      t->set_hp_r(Value(min(to_number(t->hp_r()) + to_number(hp_r_v), to_number(t->hp_max()))));
+    if (truthy(hp_r_v)) t->set_hp_r(min(t->hp_r() + to_number(hp_r_v), t->hp_max()));
     const Value itr_hp_r_ratio = field_of(d, u"itr_hp_r_ratio");
     if (truthy(itr_hp_r_ratio))
-      t->set_hp_r(
-          Value(min(to_number(t->hp_r()) + round(to_number(itr_value) * to_number(itr_hp_r_ratio)),
-                    to_number(t->hp_max()))));
+      t->set_hp_r(min(t->hp_r() + round(to_number(itr_value) * to_number(itr_hp_r_ratio)),
+                      t->hp_max()));
     if (truthy(field_of(d, u"over_hp_r"))) {
       const Value hp_v = field_of(d, u"hp");
-      if (truthy(hp_v))
-        t->set_hp(Value(min(to_number(t->hp()) + to_number(hp_v), to_number(t->hp_r()))));
+      if (truthy(hp_v)) t->set_hp(min(t->hp() + to_number(hp_v), t->hp_r()));
       if (truthy(itr_hp_r_ratio))
-        t->set_hp(Value(min(to_number(t->hp()) + round(to_number(itr_value) * to_number(itr_hp_r_ratio)),
-                            to_number(t->hp_r()))));
+        t->set_hp(
+            min(t->hp() + round(to_number(itr_value) * to_number(itr_hp_r_ratio)), t->hp_r()));
     } else {
       const Value hp_v = field_of(d, u"hp");
-      if (truthy(hp_v))
-        t->set_hp(Value(min(to_number(t->hp()) + to_number(hp_v), to_number(t->hp_max()))));
+      if (truthy(hp_v)) t->set_hp(min(t->hp() + to_number(hp_v), t->hp_max()));
       const Value itr_hp_ratio = field_of(d, u"itr_hp_ratio");
       if (truthy(itr_hp_ratio))
-        t->set_hp(Value(min(to_number(t->hp()) + round(to_number(itr_value) * to_number(itr_hp_ratio)),
-                            to_number(t->hp_max()))));
+        t->set_hp(min(t->hp() + round(to_number(itr_value) * to_number(itr_hp_ratio)),
+                      t->hp_max()));
     }
-    t->set_hp_r(Value(max(to_number(t->hp_r()), to_number(t->hp()))));
+    t->set_hp_r(max(t->hp_r(), t->hp()));
     return Value();
   }
   if (type == action_type::kV_BUFF) {

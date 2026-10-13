@@ -53,20 +53,20 @@ export default {
     {
       note: "zero_hp: hp_r is zeroed with 1",
       file: "native/lfw/collision/weapon_is_hit.cpp",
-      from: "  e.set_hp_r(Value(0.0));",
-      to: "  e.set_hp_r(Value(1.0));",
+      from: "  e.set_hp_r(0.0);",
+      to: "  e.set_hp_r(1.0);",
     },
     {
       note: "zero_hp: hp is zeroed with 1",
       file: "native/lfw/collision/weapon_is_hit.cpp",
-      from: "  e.set_hp(Value(0.0));",
-      to: "  e.set_hp(Value(1.0));",
+      from: "  e.set_hp(0.0);",
+      to: "  e.set_hp(1.0);",
     },
     {
       note: "zero_hp: assignment order swapped",
       file: "native/lfw/collision/weapon_is_hit.cpp",
-      from: "  e.set_hp_r(Value(0.0));\n  e.set_hp(Value(0.0));",
-      to: "  e.set_hp(Value(0.0));\n  e.set_hp_r(Value(0.0));",
+      from: "  e.set_hp_r(0.0);\n  e.set_hp(0.0);",
+      to: "  e.set_hp(0.0);\n  e.set_hp_r(0.0);",
     },
     {
       note: "enemy rest handling removed",
@@ -107,14 +107,14 @@ export default {
     {
       note: "attacker resolved from the victim id",
       file: "native/lfw/collision/weapon_is_hit.cpp",
-      from: "  IWeaponIsHitEntity* a = g_env.find_entity(c.aid);\n  IWeaponIsHitEntity* v = g_env.find_entity(c.vid);",
-      to: "  IWeaponIsHitEntity* a = g_env.find_entity(c.vid);\n  IWeaponIsHitEntity* v = g_env.find_entity(c.vid);",
+      from: "  Entity* a = g_env.find_entity(c.aid);\n  Entity* v = g_env.find_entity(c.vid);",
+      to: "  Entity* a = g_env.find_entity(c.vid);\n  Entity* v = g_env.find_entity(c.vid);",
     },
     {
       note: "victim resolved from the attacker id",
       file: "native/lfw/collision/weapon_is_hit.cpp",
-      from: "  IWeaponIsHitEntity* a = g_env.find_entity(c.aid);\n  IWeaponIsHitEntity* v = g_env.find_entity(c.vid);",
-      to: "  IWeaponIsHitEntity* a = g_env.find_entity(c.aid);\n  IWeaponIsHitEntity* v = g_env.find_entity(c.aid);",
+      from: "  Entity* a = g_env.find_entity(c.aid);\n  Entity* v = g_env.find_entity(c.vid);",
+      to: "  Entity* a = g_env.find_entity(c.aid);\n  Entity* v = g_env.find_entity(c.aid);",
     },
     {
       note: "dropping flag never cleared",
@@ -299,8 +299,8 @@ export default {
     {
       note: "base type read from the attacker",
       file: "native/lfw/collision/weapon_is_hit.cpp",
-      from: "  const Value base_type = v->base_type();",
-      to: "  const Value base_type = a->base_type();",
+      from: "  const Value base_type = Value(v->base_type());",
+      to: "  const Value base_type = Value(a->base_type());",
     },
     {
       note: "base-ball test compares drink twice",
@@ -431,14 +431,14 @@ export default {
     {
       note: "fast pick reads the sky indexes",
       file: "native/lfw/collision/weapon_is_hit.cpp",
-      from: "      nid = g_env.mt_pick(v->data_indexes_throwings());",
+      from: "      nid = g_env.mt_pick(v->data_indexes_of(u\"throwings\"));",
       to: "      nid = g_env.mt_pick(v->data_indexes_in_the_skys());",
     },
     {
       note: "slow pick reads the throwings indexes",
       file: "native/lfw/collision/weapon_is_hit.cpp",
       from: "      nid = g_env.mt_pick(v->data_indexes_in_the_skys());",
-      to: "      nid = g_env.mt_pick(v->data_indexes_throwings());",
+      to: "      nid = g_env.mt_pick(v->data_indexes_of(u\"throwings\"));",
     },
     {
       note: "frame transition skipped in the velocity block",
@@ -467,31 +467,31 @@ export default {
     {
       note: "stick launch factor is three",
       file: "native/lfw/collision/weapon_is_hit.cpp",
-      from: "    vx = to_number(a->facing()) * 2;",
-      to: "    vx = to_number(a->facing()) * 3;",
+      from: "    vx = a->facing * 2;",
+      to: "    vx = a->facing * 3;",
     },
     {
       note: "stick launch uses the victim facing",
       file: "native/lfw/collision/weapon_is_hit.cpp",
-      from: "    vx = to_number(a->facing()) * 2;",
-      to: "    vx = to_number(v->facing()) * 2;",
+      from: "    vx = a->facing * 2;",
+      to: "    vx = v->facing * 2;",
     },
     {
       note: "stick launch factor is added",
       file: "native/lfw/collision/weapon_is_hit.cpp",
-      from: "    vx = to_number(a->facing()) * 2;",
-      to: "    vx = to_number(a->facing()) + 2;",
+      from: "    vx = a->facing * 2;",
+      to: "    vx = a->facing + 2;",
     },
     {
       note: "stick frame reads the sky indexes",
       file: "native/lfw/collision/weapon_is_hit.cpp",
-      from: "    v->enter_frame_by_id(index_0(v->data_indexes_throwings()));",
+      from: "    v->enter_frame_by_id(index_0(v->data_indexes_of(u\"throwings\")));",
       to: "    v->enter_frame_by_id(index_0(v->data_indexes_in_the_skys()));",
     },
     {
       note: "stick frame uses a constant instead of the throwings entry",
       file: "native/lfw/collision/weapon_is_hit.cpp",
-      from: "    v->enter_frame_by_id(index_0(v->data_indexes_throwings()));",
+      from: "    v->enter_frame_by_id(index_0(v->data_indexes_of(u\"throwings\")));",
       to: '    v->enter_frame_by_id(Value(u"nid"));',
     },
     {
@@ -509,25 +509,25 @@ export default {
     {
       note: "team switch guard drops the fly test",
       file: "native/lfw/collision/weapon_is_hit.cpp",
-      from: "  if (is_fly && !v->has_bearer()) {",
-      to: "  if (!v->has_bearer()) {",
+      from: "  if (is_fly && v->bearer == nullptr) {",
+      to: "  if (v->bearer == nullptr) {",
     },
     {
       note: "team switch guard uses or",
       file: "native/lfw/collision/weapon_is_hit.cpp",
-      from: "  if (is_fly && !v->has_bearer()) {",
-      to: "  if (is_fly || !v->has_bearer()) {",
+      from: "  if (is_fly && v->bearer == nullptr) {",
+      to: "  if (is_fly || v->bearer == nullptr) {",
     },
     {
       note: "team switch guard requires a bearer",
       file: "native/lfw/collision/weapon_is_hit.cpp",
-      from: "  if (is_fly && !v->has_bearer()) {",
-      to: "  if (is_fly && v->has_bearer()) {",
+      from: "  if (is_fly && v->bearer == nullptr) {",
+      to: "  if (is_fly && v->bearer != nullptr) {",
     },
     {
       note: "team switch always fires",
       file: "native/lfw/collision/weapon_is_hit.cpp",
-      from: "  if (is_fly && !v->has_bearer()) {",
+      from: "  if (is_fly && v->bearer == nullptr) {",
       to: "  if (true) {",
     },
     {

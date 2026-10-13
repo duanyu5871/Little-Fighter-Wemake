@@ -28,9 +28,6 @@ using lfw::collision::FallEnv;
 using lfw::collision::Handlers2Env;
 using lfw::collision::Handlers3Env;
 using lfw::collision::HandlersEnv;
-using lfw::collision::IH3Entity;
-using lfw::collision::IHandlerEntity;
-using lfw::collision::INbdyNormalEntity;
 using lfw::collision::ItrVelocity;
 using lfw::collision::NbdyNormalEnv;
 using trace::parse_value;
@@ -59,15 +56,19 @@ bool nullish(const Value& v) {
 
 Value g_collision_dataset;
 
-// 切片 4BY：`buff` 以 `lfw::Entity` 为准入 ⇒ `buff_entity()` 交出真 `Entity`
-// （原空壳窄接口假件；TS 侧同样是空壳，观测点不在这里）。
+// 窄接口退役后 `buff_entity()` 这条读面已不在实体面上：TS 台面对应的是个没人读的
+// `buff_entity = { id: "buff" }` 字段 ⇒ 台面照旧留一个同形的空壳，观测点不在这里。
 struct FakeBuff : lfw::Entity {
   explicit FakeBuff(std::u16string id) : Entity(fx::shared_host(), Value()) {
     this->id = std::move(id);
   }
 };
 
-struct Fake : INbdyNormalEntity, IH3Entity {
+// 切片 4CE：碰撞族窄接口（`INbdyNormalEntity` / `IH3Entity` 等）退役 ⇒ 台面假实体就是真
+// `lfw::Entity`，与 TS 台面同形；观测点只剩「实体面自己写一遍」的那几条虚函数，其余读面
+//（`data_indexes_of` / `cpoint_*` / `holding_base_type`）由实体从台面给的 `data()` / `frame` /
+// `dataset()` 上取。
+struct Fake : lfw::Entity {
   std::u16string _id;
   Value _hp = Value(50.0);
   Value _hp_r = Value(50.0);
@@ -76,8 +77,6 @@ struct Fake : INbdyNormalEntity, IH3Entity {
   Value _defend = Value(3.0);
   Value _defend_max = Value(50.0);
   Value _resting = Value(0.0);
-  Value _catch_time = Value(0.0);
-  Value _catch_time_max = Value(30.0);
   Value _src_emitter;
   Value _shaking;
   Value _motionless;
@@ -100,65 +99,81 @@ struct Fake : INbdyNormalEntity, IH3Entity {
   Value _backhurtact;
   Value _fronthurtact;
   bool _bearer = false;
-  bool _catching = false;
-  IHandlerEntity* _catcher = nullptr;
-  double _pos[3] = {0, 0, 0};
-  double _vel[3] = {0, 0, 0};
   double _ground_y = 0;
   double _toughness = 9;
   double _toughness_max = 9;
   FakeBuff _buff;
   Value _dataset_values;
-  Value _data;
+  Value _data_raw;
+  // `Entity::data()` 返回 `const Value&` ⇒ 镜像必须是成员（不能返回临时量）。
+  mutable Value _data_out;
 
-  explicit Fake(std::u16string id) : _id(std::move(id)), _buff(_id) { set_type(Value(8.0)); }
+  explicit Fake(std::u16string id) : Entity(fx::shared_host(), Value()), _buff(id) {
+    this->id = std::move(id);
+    _id = this->id;
+    // TS 台面的 `_armor = undefined`：实体面的 `armor` 也要是「没设过」（结构体默认 `NullTag`）。
+    armor = Value();
+    set_type(Value(8.0));
+    sync_frame();
+  }
 
   void set_type(const Value& t) {
     auto o = std::make_shared<lfw::Object>();
     o->set(u"type", t);
-    _data = Value(o);
+    _data_raw = Value(o);
   }
 
-  const std::u16string& id() const override { return _id; }
-  Value hp() const override { return _hp; }
-  void set_hp(const Value& v) override {
-    _hp = v;
-    g_log.push_back(s_of(_id) + ":set_hp:" + render(v));
+  // TS 台面的 `get frame()` 只交出 `cpoint` 的那两个动作；实体面的 `cpoint_backhurtact()` /
+  // `cpoint_fronthurtact()` 只写一遍、从 `frame` 上取 ⇒ 台面把这个形状钉进 `frame`。
+  void sync_frame() {
+    auto cp = std::make_shared<lfw::Object>();
+    cp->set(u"backhurtact", _backhurtact);
+    cp->set(u"fronthurtact", _fronthurtact);
+    auto fr = std::make_shared<lfw::Object>();
+    fr->set(u"id", Value(std::u16string(u"f1")));
+    fr->set(u"cpoint", Value(cp));
+    frame = Value(fr);
   }
-  Value hp_r() const override { return _hp_r; }
-  void set_hp_r(const Value& v) override {
-    _hp_r = v;
-    g_log.push_back(s_of(_id) + ":set_hp_r:" + render(v));
+
+  double hp() const override { return lfw::to_number(_hp); }
+  void set_hp(double v) override {
+    _hp = Value(v);
+    g_log.push_back(s_of(_id) + ":set_hp:" + num(v));
   }
-  void set_toughness(const Value& v) override {
-    _toughness = lfw::to_number(v);
-    g_log.push_back(s_of(_id) + ":set_toughness:" + render(v));
+  double hp_r() const override { return lfw::to_number(_hp_r); }
+  void set_hp_r(double v) override {
+    _hp_r = Value(v);
+    g_log.push_back(s_of(_id) + ":set_hp_r:" + num(v));
   }
-  Value toughness() const override { return Value(_toughness); }
-  Value toughness_max() const override { return Value(_toughness_max); }
-  Value armor() const override { return _armor; }
-  Value data() const override {
+  double toughness() const override { return _toughness; }
+  void set_toughness(double v) override {
+    _toughness = v;
+    g_log.push_back(s_of(_id) + ":set_toughness:" + num(v));
+  }
+  double toughness_max() const override { return _toughness_max; }
+  // TS 台面的 `get data()`：`data_indexes_of` / `is_fighter_data` 都从这条读面上取。
+  const Value& data() const override {
     auto o = std::make_shared<lfw::Object>();
-    o->set(u"type", lfw::field_or(_data, u"type"));
+    o->set(u"type", lfw::field_or(_data_raw, u"type"));
+    auto base = std::make_shared<lfw::Object>();
+    base->set(u"hit_sounds", _hit_sounds);
+    o->set(u"base", Value(base));
     auto idx = std::make_shared<lfw::Object>();
     idx->set(u"fire", _fire);
     idx->set(u"critical_hit", _crit);
     idx->set(u"dizzy", _dizzy);
     idx->set(u"grand_injured", _grand_injured);
     idx->set(u"injured", _injured);
+    idx->set(u"ice", _ice);
     o->set(u"indexes", Value(idx));
-    return Value(o);
+    _data_out = Value(o);
+    return _data_out;
   }
-  Value data_indexes_ice() const override { return _ice; }
-  Value data_indexes_fire() const override { return _fire; }
-  Value data_indexes_critical_hit() const override { return _crit; }
-  Value data_indexes_dizzy() const override { return _dizzy; }
-  Value data_indexes_grand_injured() const override { return _grand_injured; }
-  Value data_indexes_injured() const override { return _injured; }
-  Value data_in_the_skys_first() const override { return lfw::field_or(_in_the_sky, u"0"); }
-  Value data_base_hit_sounds() const override { return _hit_sounds; }
   Value dataset(const std::u16string& key) const override {
     if (key == u"electrify_duration") return _elec_dur;
+    // `Entity::itr_fall()`（非虚，实体面只写一遍）读 `itr.fall ?? dataset("itr_fall")`：
+    // TS 台面用 `itr_fall(itr)` 方法交出这个值，这里改从 `dataset` 交出去。
+    if (key == u"itr_fall") return _itr_fall;
     if (key == u"itr_shaking" || key == u"itr_motionless") {
       const Value own = lfw::field_or(_dataset_values, key.c_str());
       if (!std::holds_alternative<std::monostate>(own)) return own;
@@ -166,112 +181,71 @@ struct Fake : INbdyNormalEntity, IH3Entity {
     }
     return lfw::field_or(_dataset_values, key.c_str());
   }
-  bool marks_has(const std::u16string&) const override { return false; }
-  bool catching() const override { return _catching; }
-  void set_catching(IHandlerEntity*) override {}
-  Value catch_time_max() const override { return _catch_time_max; }
-  void set_catch_time(const Value& v) override {
-    _catch_time = v;
-    g_log.push_back(s_of(_id) + ":set_catch_time:" + render(v));
+  double resting() const override { return lfw::to_number(_resting); }
+  void set_resting(double v) override {
+    _resting = Value(v);
+    g_log.push_back(s_of(_id) + ":set_resting:" + num(v));
   }
-  IHandlerEntity* catcher() const override { return _catcher; }
-  void set_catcher(IHandlerEntity* v) override {
-    _catcher = v;
-    g_log.push_back(s_of(_id) + ":set_catcher:" + (v == nullptr ? "-" : s_of(v->id())));
+  double fall_value() const override { return lfw::to_number(_fall); }
+  void set_fall_value(double v) override {
+    _fall = Value(v);
+    g_log.push_back(s_of(_id) + ":set_fall_value:" + num(v));
   }
-  Value resting() const override { return _resting; }
-  void set_resting(const Value& v) override {
-    _resting = v;
-    g_log.push_back(s_of(_id) + ":set_resting:" + render(v));
+  double fall_value_max() const override { return lfw::to_number(_fall_max); }
+  double defend_value() const override { return lfw::to_number(_defend); }
+  void set_defend_value(double v) override {
+    _defend = Value(v);
+    g_log.push_back(s_of(_id) + ":set_defend_value:" + num(v));
   }
-  Value fall_value() const override { return _fall; }
-  void set_fall_value(const Value& v) override {
-    _fall = v;
-    g_log.push_back(s_of(_id) + ":set_fall_value:" + render(v));
+  // TS 台面的 `get defend_value_max()` 故意回 `this._defend`（手办缺陷照抄）。
+  double defend_value_max() const override { return lfw::to_number(_defend); }
+  Entity& set_shaking(double v) override {
+    shaking = v;
+    g_log.push_back(s_of(_id) + ":set_shaking:" + num(v));
+    return *this;
   }
-  Value fall_value_max() const override { return _fall_max; }
-  Value defend_value() const override { return _defend; }
-  void set_defend_value(const Value& v) override {
-    _defend = v;
-    g_log.push_back(s_of(_id) + ":set_defend_value:" + render(v));
-  }
-  Value defend_value_max() const override { return _defend_max; }
-  Value itr_fall(const Value&) const override { return _itr_fall; }
-  Value src_emitter() const override { return _src_emitter; }
-  Value shaking() const override { return _shaking; }
-  void set_shaking(const Value& v) override {
-    _shaking = v;
-    g_log.push_back(s_of(_id) + ":set_shaking:" + render(v));
-  }
-  Value motionless() const override { return _motionless; }
-  void set_motionless(const Value& v) override {
-    _motionless = v;
-    g_log.push_back(s_of(_id) + ":set_motionless:" + render(v));
+  Entity& set_motionless(double v) override {
+    motionless = v;
+    g_log.push_back(s_of(_id) + ":set_motionless:" + num(v));
+    return *this;
   }
 
   void set_velocity(const Value& x, const Value& y, const Value& z) override {
     std::string s = s_of(_id) + ":set_velocity";
     if (!nullish(x)) {
-      _vel[0] = lfw::to_number(x);
+      velocity.x = lfw::to_number(x);
       s += ":" + render(x);
     }
     if (!nullish(y)) {
-      _vel[1] = lfw::to_number(y);
+      velocity.y = lfw::to_number(y);
       s += ":" + render(y);
     }
     if (!nullish(z)) {
-      _vel[2] = lfw::to_number(z);
+      velocity.z = lfw::to_number(z);
       s += ":" + render(z);
     }
     g_log.push_back(s);
   }
 
-  void enter_frame(const Value& info) override {
-    g_log.push_back(s_of(_id) + ":enter_frame:" + render(info));
-  }
-  void enter_frame_by_id(const Value& id) override {
-    g_log.push_back(s_of(_id) + ":enter_frame_by_id:" + render(id));
+  lfw::EnterFrameResult enter_frame_by_id(const Value& frame_ref, bool fallback) override {
+    (void)fallback;
+    g_log.push_back(s_of(_id) + ":enter_frame_by_id:" + render(frame_ref));
+    return lfw::EnterFrameResult::Gone;
   }
   void play_sound(const Value& sounds) override {
     g_log.push_back(s_of(_id) + ":play_sound:" + render(sounds));
   }
-  lfw::Entity* buff_entity() override { return &_buff; }
 
-  Value facing() const override { return _facing; }
-  double velocity_x() const override { return _vel[0]; }
-  void velocity(double& x, double& y, double& z) const override {
-    x = _vel[0];
-    y = _vel[1];
-    z = _vel[2];
-  }
-  void position(double& x, double& y, double& z) const override {
-    x = _pos[0];
-    y = _pos[1];
-    z = _pos[2];
-  }
-  double position_y() const override { return _pos[1]; }
-  double ground_y() const override { return _ground_y; }
-  void spark_point(const Cube& a, const Cube& b, double& x, double& y, double& z) override {
+  // TS 台面把 `spark_point` 桩成 `[a.left, b.top, a.near]`（真算法要走 `world.mt` + 交汇盒，
+  // 两边都省掉：TS 台面的桩和这里逐字相同）。
+  void spark_point(const Cube& a, const Cube& b, double& x, double& y, double& z) const override {
     x = a.left;
     y = b.top;
     z = a.near;
     g_log.push_back("sp:" + num(x) + ":" + num(y) + ":" + num(z));
   }
-  Value holding_base_type() const override { return lfw::field_or(_holding, u"base_type"); }
-  void drop_holding() override {
-    _holding = Value();
-    g_log.push_back(s_of(_id) + ":drop_holding");
-  }
-  Value cpoint_backhurtact() const override { return _backhurtact; }
-  Value cpoint_fronthurtact() const override { return _fronthurtact; }
+  double ground_y() const override { return _ground_y; }
 
-  Value team() const override { return _team; }
-  void set_team(const Value& v) override {
-    _team = v;
-    g_log.push_back(s_of(_id) + ":set_team:" + render(v));
-  }
-  bool has_bearer() const override { return _bearer; }
-  Value base_type() const override { return _base_type; }
   Value state() const override { return _state; }
 };
 
@@ -291,7 +265,7 @@ Value is_fall_graph() {
   auto v = std::make_shared<lfw::Object>();
   v->set(u"fall_value", g_vic._fall);
   v->set(u"hp", g_vic._hp);
-  v->set(u"is_on_ground", Value(g_vic._pos[1] <= g_vic._ground_y));
+  v->set(u"is_on_ground", Value(g_vic.position.y <= g_vic._ground_y));
   auto fr = std::make_shared<lfw::Object>();
   fr->set(u"state", g_vic._state);
   v->set(u"frame", Value(fr));
@@ -341,34 +315,30 @@ void bind() {
 
   g_h2.warn = [](const std::u16string& m) { g_log.push_back("warn:" + s_of(m)); };
   g_h2.hp_recoverability = []() { return lfw::field_or(g_collision_dataset, u"hp_recoverability"); };
-  g_h2.find_entity = [](const std::u16string& id) -> IHandlerEntity* {
+  g_h2.find_entity = [](const std::u16string& id) -> lfw::Entity* {
     if (id == g_att._id) return &g_att;
     if (id == g_vic._id) return &g_vic;
     return nullptr;
   };
-  g_h2.summary_apply_damage = [](IHandlerEntity* a, const Value& injury, IHandlerEntity* v,
+  g_h2.summary_apply_damage = [](lfw::Entity* a, const Value& injury, lfw::Entity* v,
                                  const Value& prev_hp) {
-    g_log.push_back("summary:" + s_of(a->id()) + ":" + render(injury) + ":" + s_of(v->id()) + ":" +
+    g_log.push_back("summary:" + s_of(a->id) + ":" + render(injury) + ":" + s_of(v->id) + ":" +
                     render(prev_hp));
   };
   g_h2.buff_env = []() { return static_cast<const lfw::buff::BuffEnv*>(nullptr); };
-  g_h2.is_fighter = [](const IHandlerEntity& e) {
+  g_h2.is_fighter = [](const lfw::Entity& e) {
     return lfw::entity::is_fighter_data(e.data());
   };
   g_h2.calc_velocity = seam_velocity;
   lfw::collision::set_handlers2_env(g_h2);
 
-  g_h3.find_entity = [](const std::u16string& id) -> IH3Entity* {
+  g_h3.find_entity = [](const std::u16string& id) -> lfw::Entity* {
     if (id == g_att._id) return &g_att;
     if (id == g_vic._id) return &g_vic;
     return nullptr;
   };
-  g_h3.is_ball = [](const IH3Entity& e) {
-    return lfw::entity::is_ball_data(static_cast<const Fake&>(e).data());
-  };
-  g_h3.is_weapon = [](const IH3Entity& e) {
-    return lfw::entity::is_weapon_data(static_cast<const Fake&>(e).data());
-  };
+  g_h3.is_ball = [](const lfw::Entity& e) { return lfw::entity::is_ball_data(e.data()); };
+  g_h3.is_weapon = [](const lfw::Entity& e) { return lfw::entity::is_weapon_data(e.data()); };
   g_h3.spark_point = [](const Cube& a, const Cube& b, double& x, double& y, double& z) {
     x = a.left;
     y = b.top;
@@ -384,12 +354,12 @@ void bind() {
   g_h3.is_armor_work = [](Collision&) { return g_armor_work; };
   lfw::collision::set_handlers3_env(g_h3);
 
-  g_fall.find_entity = [](const std::u16string& id) -> lfw::collision::IFallEntity* {
+  g_fall.find_entity = [](const std::u16string& id) -> lfw::Entity* {
     if (id == g_att._id) return &g_att;
     if (id == g_vic._id) return &g_vic;
     return nullptr;
   };
-  g_fall.is_fighter = [](const lfw::collision::IFallEntity& e) {
+  g_fall.is_fighter = [](const lfw::Entity& e) {
     return lfw::entity::is_fighter_data(e.data());
   };
   g_fall.spark = [](const Value& x, const Value& y, const Value& z, const Value& type) {
@@ -398,12 +368,12 @@ void bind() {
   g_fall.calc_velocity = seam_velocity;
   lfw::collision::set_fall_env(g_fall);
 
-  g_nb.find_entity = [](const std::u16string& id) -> INbdyNormalEntity* {
+  g_nb.find_entity = [](const std::u16string& id) -> lfw::Entity* {
     if (id == g_att._id) return &g_att;
     if (id == g_vic._id) return &g_vic;
     return nullptr;
   };
-  g_nb.is_fighter = [](const INbdyNormalEntity& e) {
+  g_nb.is_fighter = [](const lfw::Entity& e) {
     return lfw::entity::is_fighter_data(e.data());
   };
   g_nb.is_fall = [](Collision&) { return lfw::collision::is_fall(is_fall_graph()); };
@@ -422,7 +392,7 @@ std::string side_text(const Fake& f) {
          s_of(f._id) + ".fall=" + render(f._fall) + " " + s_of(f._id) +
          ".fall_max=" + render(f._fall_max) + " " + s_of(f._id) + ".defend=" + render(f._defend) +
          " " + s_of(f._id) + ".resting=" + render(f._resting) + " " + s_of(f._id) +
-         ".vel=" + num(f._vel[0]) + "/" + num(f._vel[1]) + "/" + num(f._vel[2]);
+         ".vel=" + num(f.velocity.x) + "/" + num(f.velocity.y) + "/" + num(f.velocity.z);
 }
 
 std::string state_text() {
@@ -443,10 +413,12 @@ void walk_side(Fake& f, const std::string& field, const std::vector<std::string>
     f._toughness_max = trace::to_double(tok[i++]);
   } else if (field == "armor") {
     f._armor = parse_value(tok, i);
+    f.armor = f._armor;
   } else if (field == "state") {
     f._state = parse_value(tok, i);
   } else if (field == "face") {
     f._facing = parse_value(tok, i);
+    f.facing = lfw::to_number(f._facing);
   } else if (field == "team") {
     f._team = parse_value(tok, i);
   } else if (field == "base_type") {
@@ -456,17 +428,17 @@ void walk_side(Fake& f, const std::string& field, const std::vector<std::string>
   } else if (field == "type") {
     f.set_type(parse_value(tok, i));
   } else if (field == "velx") {
-    f._vel[0] = trace::to_double(tok[i++]);
+    f.velocity.x = trace::to_double(tok[i++]);
   } else if (field == "vely") {
-    f._vel[1] = trace::to_double(tok[i++]);
+    f.velocity.y = trace::to_double(tok[i++]);
   } else if (field == "velz") {
-    f._vel[2] = trace::to_double(tok[i++]);
+    f.velocity.z = trace::to_double(tok[i++]);
   } else if (field == "posx") {
-    f._pos[0] = trace::to_double(tok[i++]);
+    f.position.x = trace::to_double(tok[i++]);
   } else if (field == "posy") {
-    f._pos[1] = trace::to_double(tok[i++]);
+    f.position.y = trace::to_double(tok[i++]);
   } else if (field == "posz") {
-    f._pos[2] = trace::to_double(tok[i++]);
+    f.position.z = trace::to_double(tok[i++]);
   } else if (field == "ground_y") {
     f._ground_y = trace::to_double(tok[i++]);
   } else if (field == "fall") {
@@ -491,8 +463,10 @@ void walk_side(Fake& f, const std::string& field, const std::vector<std::string>
     f._injured = parse_value(tok, i);
   } else if (field == "backhurtact") {
     f._backhurtact = parse_value(tok, i);
+    f.sync_frame();
   } else if (field == "fronthurtact") {
     f._fronthurtact = parse_value(tok, i);
+    f.sync_frame();
   } else if (field == "holding") {
     f._holding = parse_value(tok, i);
   } else if (field == "ice") {

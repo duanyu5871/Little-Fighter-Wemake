@@ -9,56 +9,22 @@
 #include "lfw/core/value.h"
 
 namespace lfw {
+
+class Entity;
+
 namespace collision {
 
-struct IHandlerEntity {
-  virtual ~IHandlerEntity() = default;
-  virtual const std::u16string& id() const = 0;
-  virtual Value hp() const = 0;
-  virtual void set_hp(const Value& v) = 0;
-  virtual Value hp_r() const = 0;
-  virtual void set_hp_r(const Value& v) = 0;
-  virtual void set_toughness(const Value& v) = 0;
-  virtual Value data() const = 0;
-  virtual Value data_indexes_ice() const = 0;
-  virtual Value data_base_hit_sounds() const = 0;
-  virtual Value dataset(const std::u16string& key) const = 0;
-  virtual bool marks_has(const std::u16string& kind) const = 0;
-  virtual bool catching() const = 0;
-  virtual void set_catching(IHandlerEntity* v) = 0;
-  virtual Value catch_time_max() const = 0;
-  virtual void set_catch_time(const Value& v) = 0;
-  virtual IHandlerEntity* catcher() const = 0;
-  virtual void set_catcher(IHandlerEntity* v) = 0;
-  virtual Value resting() const = 0;
-  virtual void set_resting(const Value& v) = 0;
-  virtual Value fall_value() const = 0;
-  virtual void set_fall_value(const Value& v) = 0;
-  virtual Value fall_value_max() const = 0;
-  virtual Value defend_value() const = 0;
-  virtual void set_defend_value(const Value& v) = 0;
-  virtual Value defend_value_max() const = 0;
-  virtual Value itr_fall(const Value& itr) const = 0;
-  virtual Value src_emitter() const = 0;
-  virtual Value shaking() const = 0;
-  virtual void set_shaking(const Value& v) = 0;
-  virtual Value motionless() const = 0;
-  virtual void set_velocity(const Value& x, const Value& y, const Value& z) = 0;
-  virtual void enter_frame(const Value& info) = 0;
-  virtual void enter_frame_by_id(const Value& id) = 0;
-  virtual void play_sound(const Value& sounds) = 0;
-  virtual Entity* buff_entity() = 0;
-};
-
+// 切片 4CE：碰撞族不再有自己的「实体窄接口」——TS 里碰撞两边就是 `Entity`
+//（`collision.attacker: Entity`），端口原来那套 `IHandlerEntity` / `IFallEntity` / … 只是
+// 把 `Entity` 转发一遍（实现见已删除的 `entity/entity_collision_view.*`）。现在直接收 `Entity`。
 struct Handlers2Env {
   std::function<void(const std::u16string& msg)> warn;
   std::function<Value()> hp_recoverability;
-  std::function<IHandlerEntity*(const std::u16string& id)> find_entity;
-  std::function<void(IHandlerEntity* a, const Value& injury, IHandlerEntity* v,
-                     const Value& prev_hp)>
+  std::function<Entity*(const std::u16string& id)> find_entity;
+  std::function<void(Entity* a, const Value& injury, Entity* v, const Value& prev_hp)>
       summary_apply_damage;
   std::function<const buff::BuffEnv*()> buff_env;
-  std::function<bool(const IHandlerEntity& e)> is_fighter;
+  std::function<bool(const Entity& e)> is_fighter;
   std::function<ItrVelocity(Collision& c)> calc_velocity;
 };
 
@@ -72,4 +38,5 @@ const Handlers2Env& handlers2_env();
 void set_handlers2_env(const Handlers2Env& env);
 
 }
+
 }

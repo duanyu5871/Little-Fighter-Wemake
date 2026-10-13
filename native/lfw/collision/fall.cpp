@@ -4,6 +4,7 @@
 #include "lfw/defines/itr_effect.h"
 #include "lfw/defines/spark_enum.h"
 #include "lfw/defines/weapon_type.h"
+#include "lfw/entity/entity.h"
 #include "lfw/entity/face_helper.h"
 #include "lfw/utils/container_help/field_or.h"
 
@@ -52,13 +53,13 @@ const FallEnv& fall_env() { return g_env; }
 void set_fall_env(const FallEnv& env) { g_env = env; }
 
 void handle_fall(Collision& c) {
-  IFallEntity* v = g_env.find_entity(c.vid);
+  Entity* v = g_env.find_entity(c.vid);
   if (v == nullptr) return;
 
-  v->set_toughness(Value(0.0));
-  v->set_fall_value(Value(0.0));
-  v->set_defend_value(Value(0.0));
-  v->set_resting(Value(0.0));
+  v->set_toughness(0.0);
+  v->set_fall_value(0.0);
+  v->set_defend_value(0.0);
+  v->set_resting(0.0);
 
   const ItrVelocity iv = g_env.calc_velocity(c);
   v->set_velocity(Value(iv.x), Value(iv.y), Value(iv.z));
@@ -88,12 +89,12 @@ void handle_fall(Collision& c) {
 
   g_env.spark(Value(sx), Value(sy), Value(sz), Value(std::u16string(effect)));
 
-  const Value fire = v->data_indexes_fire();
-  const Value critical_hit = v->data_indexes_critical_hit();
+  const Value fire = v->data_indexes_of(u"fire");
+  const Value critical_hit = v->data_indexes_of(u"critical_hit");
 
   auto normal_fall_act = [&]() {
     if (!truthy(critical_hit)) return;
-    const double direction = v->velocity_x() / to_number(v->facing()) >= 0 ? 1.0 : -1.0;
+    const double direction = v->velocity.x / v->facing >= 0 ? 1.0 : -1.0;
     v->enter_frame_by_id(index_0(index_by(critical_hit, to_string(Value(direction)))));
   };
 

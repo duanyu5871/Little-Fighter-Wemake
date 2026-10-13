@@ -1,29 +1,40 @@
+#include <cstddef>
 #include <cstdio>
 #include <fstream>
 #include <memory>
+#include <optional>
 #include <string>
-#include <variant>
 #include <vector>
 
 #include "lfw/collision/ball_frozen.h"
 #include "lfw/core/value.h"
 #include "lfw/defines/entity_enum.h"
+#include "lfw/entity/entity.h"
 #include "lfw/entity/entity_type_check.h"
+#include "lfw/entity/face_helper.h"
 #include "lfw/utils/container_help/field_or.h"
 
+#include "entity_fixture.h"
 #include "trace_util.h"
 
 namespace {
 
 using lfw::Value;
+using lfw::EnterFrameResult;
 using lfw::collision::BallFrozenEnv;
-using lfw::collision::IFrozenEntity;
 using trace::parse_value;
 using trace::render_value;
 using trace::split_ws;
 using trace::to_ascii;
 
 std::vector<std::string> g_log;
+// `create_entity_with_bot` 造出来的实体由台面持有（与 TS 的 GC 对齐：进程退出时回收）。
+std::vector<std::unique_ptr<lfw::Entity>> g_spawns;
+// 切片 4CE：`Entity::spawn` 不是虚函数 ⇒ 台面只能用宿主缝（`find_data` /
+// `create_entity_with_bot` / `gen_field`）观测它。opoint 是处理器里的**函数静态对象**
+// （每次原地改写 x/y/z），所以从 `gen_field` 抓到的那份引用之后每次读到的都是本次坐标；
+// 「生成失败」那条路径（`create_entity_with_bot` 返回 nullptr）就靠它补日志。
+Value g_opoint;
 
 std::string render(const Value& v) { return to_ascii(render_value(v)); }
 std::string s_of(const std::u16string& s) { return to_ascii(s); }
@@ -46,70 +57,135 @@ Value make_frame(double cx, double cy, double w, double h) {
   return Value(std::make_shared<lfw::Object>(o));
 }
 
-struct Fake : IFrozenEntity {
-  std::u16string _id;
+struct Fake;
+
+// 每个假实体配一个宿主：`create_entity_with_bot` / `gen_field` / `has_next_frame_judge`
+// 都发生在**发起方**的宿主上，所以 `owner` 就是这一次调用的实体，`victim` 是另一方
+//（处理器传给 `spawn` 的第三个实参是 `turn_face(v.facing)`，取自受害者）。
+struct Host : fx::Host {
+  Fake* owner = nullptr;
+  Fake* victim = nullptr;
+  bool pending_spawn_log = false;
+
+  // `world.lfw.datas.find(oid)`：opoint 的 oid 在端口里写死为 `209`；返回非空即让
+  // 真 `spawn` 继续走到 `create_entity_with_bot`。
+  Value find_data(const std::u16string& id) const override {
+    if (id != u"209") return Value();
+    lfw::Object o;
+    o.set(u"id", Value(std::u16string(u"209")));
+    return Value(std::make_shared<lfw::Object>(o));
+  }
+
+  lfw::Entity* create_entity_with_bot(const Value& data) override;
+
+  // `on_spawn` 里每一条 `opoint.__gen_*` 都会问一次宿主；第一次拿到的 `holder` 就是
+  // opoint 本体 ⇒ 在那儿补 `A:spawn:...` 那一行（与 TS 假实体的 `spawn` 同时刻）。
+  std::optional<Value> gen_field(const Value& holder, const std::u16string& kind,
+                                 lfw::Entity& emitter) override {
+    (void)kind;
+    (void)emitter;
+    if (!pending_spawn_log) return std::nullopt;
+    pending_spawn_log = false;
+    g_opoint = holder;
+    log_spawn();
+    return std::nullopt;
+  }
+
+  // `Entity::enter_frame` 不是虚函数时，台面只能借 `get_next_frame` 一定先问一次的
+  // `__judger` 缝观测它；现在它是虚的（父级已改 `entity.h`），直接覆写即可 —— 见 `Fake`。
+  void log_spawn() const;
+};
+
+Host g_host_a;
+Host g_host_v;
+
+// 切片 4CE：碰撞族窄接口退役 ⇒ 台面假实体就是真 `lfw::Entity`（TS 台面同样只给
+// `group` / `state` / `data` / `frame` / `facing` / `position` / `spawn` 这几条读面）。
+struct Fake : lfw::Entity {
   Value _group;
   Value _state;
   Value _type = Value(static_cast<double>(lfw::EntityEnum::Fighter));
   Value _face = Value(1.0);
-  double _pos[3] = {0.0, 0.0, 0.0};
-  Value _frame = make_frame(0, 0, 0, 0);
   bool _spawn_ok = true;
+  // `Entity::data()` 返回 `const Value&` ⇒ 镜像必须是成员（不能返回临时量）。
+  mutable Value _data_mirror;
 
-  explicit Fake(std::u16string id) : _id(std::move(id)) {}
-
-  Value data() const override {
-    lfw::Object o;
-    o.set(u"type", _type);
-    return Value(std::make_shared<lfw::Object>(o));
+  Fake(std::u16string id, Host& h) : Entity(h, Value()) {
+    this->id = std::move(id);
+    h.owner = this;
+    // TS 假实体的字段初值：`_frame = {centerx:0,centery:0,width:0,height:0}`、`_face = 1`。
+    frame = make_frame(0, 0, 0, 0);
+    facing = 1;
   }
 
   Value group() const override { return _group; }
   Value state() const override { return _state; }
-  Value frame() const override { return _frame; }
-  Value facing() const override { return _face; }
-
-  double position_x() const override { return _pos[0]; }
-  double position_y() const override { return _pos[1]; }
-  double position_z() const override { return _pos[2]; }
-
-  bool spawn(const Value& opoint, const Value& face) override {
-    const Value action = lfw::field_or(opoint, u"action");
-    g_log.push_back(s_of(_id) + ":spawn:" + render(lfw::field_or(opoint, u"oid")) + ":" +
-                    render(lfw::field_or(opoint, u"kind")) + ":" +
-                    render(lfw::field_or(opoint, u"x")) + ":" +
-                    render(lfw::field_or(opoint, u"y")) + ":" +
-                    render(lfw::field_or(opoint, u"z")) + ":" +
-                    render(lfw::field_or(action, u"id")) + ":" + render(face));
-    return _spawn_ok;
+  const Value& data() const override {
+    lfw::Object o;
+    o.set(u"type", _type);
+    _data_mirror = Value(std::make_shared<lfw::Object>(o));
+    return _data_mirror;
   }
-
-  void enter_frame(const Value& info) override {
-    g_log.push_back(s_of(_id) + ":enter_frame:" + render(lfw::field_or(info, u"id")));
+  // 处理器用 `v->enter_frame(GONE_FRAME_INFO)` 收尾；`enter_frame` 已是虚函数，
+  // 这里逐字复刻 TS 假实体的那条日志（`info.id`），不跑真 `enter_frame` 的帧逻辑
+  //（TS 台面的假实体同样只有这一行日志）。
+  EnterFrameResult enter_frame(const Value& nf, bool fallback = false) override {
+    (void)fallback;
+    g_log.push_back(s_of(id) + ":enter_frame:" + render(lfw::field_or(nf, u"id")));
+    return EnterFrameResult::NotFound;
   }
 };
 
-Fake g_att(u"A");
-Fake g_vic(u"V");
+Fake g_att(u"A", g_host_a);
+Fake g_vic(u"V", g_host_v);
+
+void Host::log_spawn() const {
+  const Value action = lfw::field_or(g_opoint, u"action");
+  // TS 假实体拿到的第三个实参是 `turn_face(v.facing)`；端口把它收成了 `double`
+  //（`to_number(...)`），台面按镜像的 `Value` 形态渲染，才保得住 `face` 为 `undefined`
+  // 的用例（`env a|v face u`）。
+  const Value face = victim != nullptr ? lfw::entity::turn_face(victim->_face) : Value();
+  g_log.push_back(s_of(owner->id) + ":spawn:" + render(lfw::field_or(g_opoint, u"oid")) + ":" +
+                  render(lfw::field_or(g_opoint, u"kind")) + ":" +
+                  render(lfw::field_or(g_opoint, u"x")) + ":" +
+                  render(lfw::field_or(g_opoint, u"y")) + ":" +
+                  render(lfw::field_or(g_opoint, u"z")) + ":" +
+                  render(lfw::field_or(action, u"id")) + ":" + render(face));
+}
+
+lfw::Entity* Host::create_entity_with_bot(const Value& data) {
+  if (owner == nullptr || !owner->_spawn_ok) {
+    // 生成失败：真 `spawn` 在这儿就早退，之后没有别的缝可打那一行 ⇒ 当场补上。
+    pending_spawn_log = false;
+    if (owner != nullptr) log_spawn();
+    return nullptr;
+  }
+  pending_spawn_log = true;
+  // 生成物挂到**无日志**的最小宿主上：它内部的 `on_spawn`（`__judge` / `__gen_*`）
+  // 属于生成物的实现细节，不是台面的观测点。
+  auto e = std::make_unique<lfw::Entity>(fx::shared_host(), data);
+  lfw::Entity* raw = e.get();
+  g_spawns.push_back(std::move(e));
+  return raw;
+}
+
 Value g_itr;
 
 void bind() {
+  g_host_a.victim = &g_vic;
+  g_host_v.victim = &g_att;
   BallFrozenEnv env;
-  env.is_ball = [](const IFrozenEntity& e) {
-    return lfw::entity::is_ball_data(static_cast<const Fake&>(e).data());
-  };
-  env.is_fighter = [](const IFrozenEntity& e) {
-    return lfw::entity::is_fighter_data(static_cast<const Fake&>(e).data());
-  };
+  env.is_ball = [](const lfw::Entity& e) { return lfw::entity::is_ball_data(e.data()); };
+  env.is_fighter = [](const lfw::Entity& e) { return lfw::entity::is_fighter_data(e.data()); };
   lfw::collision::set_ball_frozen_env(env);
 }
 
 std::string side_text(const Fake& f) {
-  const std::string id = s_of(f._id);
+  const std::string id = s_of(f.id);
   return id + ".group=" + render(f._group) + " " + id + ".state=" + render(f._state) + " " + id +
          ".type=" + render(f._type) + " " + id + ".face=" + render(f._face) + " " + id +
-         ".pos=" + render(Value(f._pos[0])) + "/" + render(Value(f._pos[1])) + "/" +
-         render(Value(f._pos[2])) + " " + id + ".spawn=" + (f._spawn_ok ? "1" : "0");
+         ".pos=" + render(Value(f.position.x)) + "/" + render(Value(f.position.y)) + "/" +
+         render(Value(f.position.z)) + " " + id + ".spawn=" + (f._spawn_ok ? "1" : "0");
 }
 
 std::string state_text() { return side_text(g_att) + " " + side_text(g_vic); }
@@ -123,14 +199,16 @@ void walk_side(Fake& f, const std::string& field, const std::vector<std::string>
     f._type = parse_value(t, i);
   } else if (field == "face") {
     f._face = parse_value(t, i);
+    // 真实体读的是 `facing`（`double`）；`u` 按 TS 的 `Number(undefined)` = NaN 落。
+    f.facing = lfw::to_number(f._face);
   } else if (field == "posx") {
-    f._pos[0] = trace::to_double(t[i++]);
+    f.position.x = trace::to_double(t[i++]);
   } else if (field == "posy") {
-    f._pos[1] = trace::to_double(t[i++]);
+    f.position.y = trace::to_double(t[i++]);
   } else if (field == "posz") {
-    f._pos[2] = trace::to_double(t[i++]);
+    f.position.z = trace::to_double(t[i++]);
   } else if (field == "frame") {
-    f._frame = parse_value(t, i);
+    f.frame = parse_value(t, i);
   } else if (field == "spawn") {
     f._spawn_ok = t[i++] == "1";
   } else {
@@ -145,7 +223,7 @@ void run() {
               hit ? "1" : "0");
 }
 
-}
+}  // namespace
 
 int main(int argc, char** argv) {
   if (argc < 2) {

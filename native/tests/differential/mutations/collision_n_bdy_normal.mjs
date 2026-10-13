@@ -31,7 +31,7 @@
  *    defined divergence, so it is excluded on purpose.
  * 7. `if (arr->size() == 0) return Value();` inside `index_0` -> changing the bound
  *    reads `Array::at(0)` out of bounds for the empty-list cases.
- * 8. `const INbdyNormalEntity* v = g_env.find_entity(c.vid);` inside the Ice arm is
+ * 8. `const Entity* v = g_env.find_entity(c.vid);` inside the Ice arm is
  *    a port artefact (the TS original already has `victim` in hand); its guard is
  *    covered by 1.
  * 9. `equals(effect_v, ...Ignore)` -> `strict_equals`. Loose and strict equality
@@ -211,74 +211,74 @@ export default {
     {
       note: "impact path drops the injury handler",
       file: "native/lfw/collision/n_bdy_normal.cpp",
-      from: "  handle_injury(c, 1.0, false);\n  handle_rest(c);\n  handle_stiffness(c);\n\n  INbdyNormalEntity* a = g_env.find_entity(c.aid);",
-      to: "  handle_rest(c);\n  handle_stiffness(c);\n\n  INbdyNormalEntity* a = g_env.find_entity(c.aid);",
+      from: "  handle_injury(c, 1.0, false);\n  handle_rest(c);\n  handle_stiffness(c);\n\n  Entity* a = g_env.find_entity(c.aid);",
+      to: "  handle_rest(c);\n  handle_stiffness(c);\n\n  Entity* a = g_env.find_entity(c.aid);",
     },
     {
       note: "impact path drops the rest handler",
       file: "native/lfw/collision/n_bdy_normal.cpp",
-      from: "  handle_injury(c, 1.0, false);\n  handle_rest(c);\n  handle_stiffness(c);\n\n  INbdyNormalEntity* a = g_env.find_entity(c.aid);",
-      to: "  handle_injury(c, 1.0, false);\n  handle_stiffness(c);\n\n  INbdyNormalEntity* a = g_env.find_entity(c.aid);",
+      from: "  handle_injury(c, 1.0, false);\n  handle_rest(c);\n  handle_stiffness(c);\n\n  Entity* a = g_env.find_entity(c.aid);",
+      to: "  handle_injury(c, 1.0, false);\n  handle_stiffness(c);\n\n  Entity* a = g_env.find_entity(c.aid);",
     },
     {
       note: "impact path drops the stiffness handler",
       file: "native/lfw/collision/n_bdy_normal.cpp",
-      from: "  handle_injury(c, 1.0, false);\n  handle_rest(c);\n  handle_stiffness(c);\n\n  INbdyNormalEntity* a = g_env.find_entity(c.aid);",
-      to: "  handle_injury(c, 1.0, false);\n  handle_rest(c);\n\n  INbdyNormalEntity* a = g_env.find_entity(c.aid);",
+      from: "  handle_injury(c, 1.0, false);\n  handle_rest(c);\n  handle_stiffness(c);\n\n  Entity* a = g_env.find_entity(c.aid);",
+      to: "  handle_injury(c, 1.0, false);\n  handle_rest(c);\n\n  Entity* a = g_env.find_entity(c.aid);",
     },
     {
       note: "impact path scales the injury by two",
       file: "native/lfw/collision/n_bdy_normal.cpp",
-      from: "  handle_injury(c, 1.0, false);\n  handle_rest(c);\n  handle_stiffness(c);\n\n  INbdyNormalEntity* a = g_env.find_entity(c.aid);",
-      to: "  handle_injury(c, 2.0, false);\n  handle_rest(c);\n  handle_stiffness(c);\n\n  INbdyNormalEntity* a = g_env.find_entity(c.aid);",
+      from: "  handle_injury(c, 1.0, false);\n  handle_rest(c);\n  handle_stiffness(c);\n\n  Entity* a = g_env.find_entity(c.aid);",
+      to: "  handle_injury(c, 2.0, false);\n  handle_rest(c);\n  handle_stiffness(c);\n\n  Entity* a = g_env.find_entity(c.aid);",
     },
     {
       note: "impact path keeps the toughness",
       file: "native/lfw/collision/n_bdy_normal.cpp",
-      from: "  handle_injury(c, 1.0, false);\n  handle_rest(c);\n  handle_stiffness(c);\n\n  INbdyNormalEntity* a = g_env.find_entity(c.aid);",
-      to: "  handle_injury(c, 1.0, true);\n  handle_rest(c);\n  handle_stiffness(c);\n\n  INbdyNormalEntity* a = g_env.find_entity(c.aid);",
+      from: "  handle_injury(c, 1.0, false);\n  handle_rest(c);\n  handle_stiffness(c);\n\n  Entity* a = g_env.find_entity(c.aid);",
+      to: "  handle_injury(c, 1.0, true);\n  handle_rest(c);\n  handle_stiffness(c);\n\n  Entity* a = g_env.find_entity(c.aid);",
     },
     {
       note: "attacker resolved from the victim id",
       file: "native/lfw/collision/n_bdy_normal.cpp",
-      from: "  INbdyNormalEntity* a = g_env.find_entity(c.aid);\n  INbdyNormalEntity* v = g_env.find_entity(c.vid);",
-      to: "  INbdyNormalEntity* a = g_env.find_entity(c.vid);\n  INbdyNormalEntity* v = g_env.find_entity(c.vid);",
+      from: "  Entity* a = g_env.find_entity(c.aid);\n  Entity* v = g_env.find_entity(c.vid);",
+      to: "  Entity* a = g_env.find_entity(c.vid);\n  Entity* v = g_env.find_entity(c.vid);",
     },
     {
       note: "victim resolved from the attacker id",
       file: "native/lfw/collision/n_bdy_normal.cpp",
-      from: "  INbdyNormalEntity* a = g_env.find_entity(c.aid);\n  INbdyNormalEntity* v = g_env.find_entity(c.vid);",
-      to: "  INbdyNormalEntity* a = g_env.find_entity(c.aid);\n  INbdyNormalEntity* v = g_env.find_entity(c.aid);",
+      from: "  Entity* a = g_env.find_entity(c.aid);\n  Entity* v = g_env.find_entity(c.vid);",
+      to: "  Entity* a = g_env.find_entity(c.aid);\n  Entity* v = g_env.find_entity(c.aid);",
     },
     {
       note: "fall value decreases instead of accumulating",
       file: "native/lfw/collision/n_bdy_normal.cpp",
-      from: "  v->set_fall_value(Value(to_number(v->fall_value()) - to_number(a->itr_fall(c.itr))));",
-      to: "  v->set_fall_value(Value(to_number(v->fall_value()) + to_number(a->itr_fall(c.itr))));",
+      from: "  v->set_fall_value(v->fall_value() - to_number(a->itr_fall(c.itr)));",
+      to: "  v->set_fall_value(v->fall_value() + to_number(a->itr_fall(c.itr)));",
     },
     {
       note: "fall value uses the victim itr_fall",
       file: "native/lfw/collision/n_bdy_normal.cpp",
-      from: "  v->set_fall_value(Value(to_number(v->fall_value()) - to_number(a->itr_fall(c.itr))));",
-      to: "  v->set_fall_value(Value(to_number(v->fall_value()) - to_number(v->itr_fall(c.itr))));",
+      from: "  v->set_fall_value(v->fall_value() - to_number(a->itr_fall(c.itr)));",
+      to: "  v->set_fall_value(v->fall_value() - to_number(v->itr_fall(c.itr)));",
     },
     {
       note: "fall value not written",
       file: "native/lfw/collision/n_bdy_normal.cpp",
-      from: "  v->set_fall_value(Value(to_number(v->fall_value()) - to_number(a->itr_fall(c.itr))));\n",
+      from: "  v->set_fall_value(v->fall_value() - to_number(a->itr_fall(c.itr)));\n",
       to: "",
     },
     {
       note: "defend value not cleared",
       file: "native/lfw/collision/n_bdy_normal.cpp",
-      from: "  v->set_defend_value(Value(0.0));\n  if (g_env.is_fall(c)) {",
+      from: "  v->set_defend_value(0.0);\n  if (g_env.is_fall(c)) {",
       to: "  if (g_env.is_fall(c)) {",
     },
     {
       note: "defend value set to one",
       file: "native/lfw/collision/n_bdy_normal.cpp",
-      from: "  v->set_defend_value(Value(0.0));",
-      to: "  v->set_defend_value(Value(1.0));",
+      from: "  v->set_defend_value(0.0);",
+      to: "  v->set_defend_value(1.0);",
     },
     {
       note: "impact path falls through instead of handing over",
@@ -386,14 +386,14 @@ export default {
     {
       note: "hurt side comparison flipped",
       file: "native/lfw/collision/n_bdy_normal.cpp",
-      from: "  const bool on_hurt_side = v->position_y() <= v->ground_y();",
-      to: "  const bool on_hurt_side = v->position_y() >= v->ground_y();",
+      from: "  const bool on_hurt_side = v->position.y <= v->ground_y();",
+      to: "  const bool on_hurt_side = v->position.y >= v->ground_y();",
     },
     {
       note: "hurt side comparison is strict",
       file: "native/lfw/collision/n_bdy_normal.cpp",
-      from: "  const bool on_hurt_side = v->position_y() <= v->ground_y();",
-      to: "  const bool on_hurt_side = v->position_y() < v->ground_y();",
+      from: "  const bool on_hurt_side = v->position.y <= v->ground_y();",
+      to: "  const bool on_hurt_side = v->position.y < v->ground_y();",
     },
     {
       note: "hurt list alternatives swapped",
@@ -410,14 +410,14 @@ export default {
     {
       note: "frame group delta adds instead of subtracting",
       file: "native/lfw/collision/n_bdy_normal.cpp",
-      from: "  const double r = to_number(fvm) - to_number(fv);",
-      to: "  const double r = to_number(fvm) + to_number(fv);",
+      from: "  const double r = fvm - fv;",
+      to: "  const double r = fvm + fv;",
     },
     {
       note: "frame group delta operands swapped",
       file: "native/lfw/collision/n_bdy_normal.cpp",
-      from: "  const double r = to_number(fvm) - to_number(fv);",
-      to: "  const double r = to_number(fv) - to_number(fvm);",
+      from: "  const double r = fvm - fv;",
+      to: "  const double r = fv - fvm;",
     },
     {
       note: "dizzy threshold uses the critical default",
@@ -434,26 +434,26 @@ export default {
     {
       note: "dizzy comparison is strict",
       file: "native/lfw/collision/n_bdy_normal.cpp",
-      from: "  } else if (to_number(fv) <= d) {",
-      to: "  } else if (to_number(fv) < d) {",
+      from: "  } else if (fv <= d) {",
+      to: "  } else if (fv < d) {",
     },
     {
       note: "dizzy comparison flipped",
       file: "native/lfw/collision/n_bdy_normal.cpp",
-      from: "  } else if (to_number(fv) <= d) {",
-      to: "  } else if (to_number(fv) >= d) {",
+      from: "  } else if (fv <= d) {",
+      to: "  } else if (fv >= d) {",
     },
     {
       note: "facing comparison inverted",
       file: "native/lfw/collision/n_bdy_normal.cpp",
-      from: "  const bool same_face = strict_equals(a->facing(), v->facing());",
-      to: "  const bool same_face = !strict_equals(a->facing(), v->facing());",
+      from: "  const bool same_face = strict_equals(Value(a->facing), Value(v->facing));",
+      to: "  const bool same_face = !strict_equals(Value(a->facing), Value(v->facing));",
     },
     {
       note: "facing comparison compares the attacker with itself",
       file: "native/lfw/collision/n_bdy_normal.cpp",
-      from: "  const bool same_face = strict_equals(a->facing(), v->facing());",
-      to: "  const bool same_face = strict_equals(a->facing(), a->facing());",
+      from: "  const bool same_face = strict_equals(Value(a->facing), Value(v->facing));",
+      to: "  const bool same_face = strict_equals(Value(a->facing), Value(a->facing));",
     },
     {
       note: "cpoint actions swapped",
@@ -596,8 +596,8 @@ export default {
     {
       note: "ice arm compares ice2",
       file: "native/lfw/collision/n_bdy_normal.cpp",
-      from: "  if (effect_is(effect_v, ItrEffect::Ice)) {\n    const INbdyNormalEntity* v = g_env.find_entity(c.vid);",
-      to: "  if (effect_is(effect_v, ItrEffect::Ice2)) {\n    const INbdyNormalEntity* v = g_env.find_entity(c.vid);",
+      from: "  if (effect_is(effect_v, ItrEffect::Ice)) {\n    const Entity* v = g_env.find_entity(c.vid);",
+      to: "  if (effect_is(effect_v, ItrEffect::Ice2)) {\n    const Entity* v = g_env.find_entity(c.vid);",
     },
     {
       note: "ice frozen test compares caught",

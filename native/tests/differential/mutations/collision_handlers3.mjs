@@ -71,8 +71,8 @@ export default {
     {
       note: "whirlwind drops the is_ball guard",
       file: "native/lfw/collision/handlers3.cpp",
-      from: "  if (g_env.is_ball(*v)) return;\n  double vx = 0;",
-      to: "  if (g_env.is_ball(*v) && false) return;\n  double vx = 0;",
+      from: "  if (g_env.is_ball(*v)) return;\n  double vx = v->velocity.x;",
+      to: "  if (g_env.is_ball(*v) && false) return;\n  double vx = v->velocity.x;",
     },
     {
       note: "whirlwind z delta sign flipped",
@@ -155,14 +155,14 @@ export default {
     {
       note: "whirlwind bearer check inverted",
       file: "native/lfw/collision/handlers3.cpp",
-      from: "  if (!v->has_bearer() &&",
-      to: "  if (v->has_bearer() &&",
+      from: "  if (v->bearer == nullptr &&",
+      to: "  if (v->bearer != nullptr &&",
     },
     {
       note: "whirlwind heavy weapon check inverted",
       file: "native/lfw/collision/handlers3.cpp",
-      from: "      !strict_equals(v->base_type(), Value(static_cast<double>(WeaponEnum::Heavy)))) {",
-      to: "      strict_equals(v->base_type(), Value(static_cast<double>(WeaponEnum::Heavy)))) {",
+      from: "      !strict_equals(Value(v->base_type()), Value(static_cast<double>(WeaponEnum::Heavy)))) {",
+      to: "      strict_equals(Value(v->base_type()), Value(static_cast<double>(WeaponEnum::Heavy)))) {",
     },
     {
       note: "whirlwind takes victim team instead of attacker team",
@@ -209,32 +209,32 @@ export default {
     {
       note: "ball_is_hit_a drops handle_rest",
       file: "native/lfw/collision/handlers3.cpp",
-      from: "void handle_ball_is_hit_a(Collision& c) {\n  IH3Entity* a = g_env.find_entity(c.aid);\n  IH3Entity* v = g_env.find_entity(c.vid);\n  if (v == nullptr) return;\n  handle_rest(c);\n  handle_stiffness(c);",
-      to: "void handle_ball_is_hit_a(Collision& c) {\n  IH3Entity* a = g_env.find_entity(c.aid);\n  IH3Entity* v = g_env.find_entity(c.vid);\n  if (v == nullptr) return;\n  handle_stiffness(c);",
+      from: "void handle_ball_is_hit_a(Collision& c) {\n  Entity* a = g_env.find_entity(c.aid);\n  Entity* v = g_env.find_entity(c.vid);\n  if (v == nullptr) return;\n  handle_rest(c);\n  handle_stiffness(c);",
+      to: "void handle_ball_is_hit_a(Collision& c) {\n  Entity* a = g_env.find_entity(c.aid);\n  Entity* v = g_env.find_entity(c.vid);\n  if (v == nullptr) return;\n  handle_stiffness(c);",
     },
     {
       note: "ball_is_hit_a drops handle_stiffness",
       file: "native/lfw/collision/handlers3.cpp",
-      from: "void handle_ball_is_hit_a(Collision& c) {\n  IH3Entity* a = g_env.find_entity(c.aid);\n  IH3Entity* v = g_env.find_entity(c.vid);\n  if (v == nullptr) return;\n  handle_rest(c);\n  handle_stiffness(c);",
-      to: "void handle_ball_is_hit_a(Collision& c) {\n  IH3Entity* a = g_env.find_entity(c.aid);\n  IH3Entity* v = g_env.find_entity(c.vid);\n  if (v == nullptr) return;\n  handle_rest(c);",
+      from: "void handle_ball_is_hit_a(Collision& c) {\n  Entity* a = g_env.find_entity(c.aid);\n  Entity* v = g_env.find_entity(c.vid);\n  if (v == nullptr) return;\n  handle_rest(c);\n  handle_stiffness(c);",
+      to: "void handle_ball_is_hit_a(Collision& c) {\n  Entity* a = g_env.find_entity(c.aid);\n  Entity* v = g_env.find_entity(c.vid);\n  if (v == nullptr) return;\n  handle_rest(c);",
     },
     {
       note: "ball_is_hit_a force break uses > instead of >=",
       file: "native/lfw/collision/handlers3.cpp",
-      from: "  handle_stiffness(c);\n  const Value bdefend = field_or(c.itr, u\"bdefend\");\n  if (truthy(bdefend) && to_number(bdefend) >= kDefaultForceBreakDefendValue) {\n    v->set_hp_r(Value(0.0));\n    v->set_hp(Value(0.0));\n  }\n  v->set_velocity(Value(0.0), Value(0.0), Value(0.0));\n  const double st = to_number(v->state());",
-      to: "  handle_stiffness(c);\n  const Value bdefend = field_or(c.itr, u\"bdefend\");\n  if (truthy(bdefend) && to_number(bdefend) > kDefaultForceBreakDefendValue) {\n    v->set_hp_r(Value(0.0));\n    v->set_hp(Value(0.0));\n  }\n  v->set_velocity(Value(0.0), Value(0.0), Value(0.0));\n  const double st = to_number(v->state());",
+      from: "  handle_stiffness(c);\n  const Value bdefend = field_or(c.itr, u\"bdefend\");\n  if (truthy(bdefend) && to_number(bdefend) >= kDefaultForceBreakDefendValue) {\n    v->set_hp_r(0.0);\n    v->set_hp(0.0);\n  }\n  v->set_velocity(Value(0.0), Value(0.0), Value(0.0));\n  const double st = to_number(v->state());",
+      to: "  handle_stiffness(c);\n  const Value bdefend = field_or(c.itr, u\"bdefend\");\n  if (truthy(bdefend) && to_number(bdefend) > kDefaultForceBreakDefendValue) {\n    v->set_hp_r(0.0);\n    v->set_hp(0.0);\n  }\n  v->set_velocity(Value(0.0), Value(0.0), Value(0.0));\n  const double st = to_number(v->state());",
     },
     {
       note: "ball_is_hit_a force break threshold lowered",
       file: "native/lfw/collision/handlers3.cpp",
-      from: "  if (truthy(bdefend) && to_number(bdefend) >= kDefaultForceBreakDefendValue) {\n    v->set_hp_r(Value(0.0));\n    v->set_hp(Value(0.0));\n  }\n  v->set_velocity(Value(0.0), Value(0.0), Value(0.0));\n  const double st = to_number(v->state());",
-      to: "  if (truthy(bdefend) && to_number(bdefend) >= 100.0) {\n    v->set_hp_r(Value(0.0));\n    v->set_hp(Value(0.0));\n  }\n  v->set_velocity(Value(0.0), Value(0.0), Value(0.0));\n  const double st = to_number(v->state());",
+      from: "  if (truthy(bdefend) && to_number(bdefend) >= kDefaultForceBreakDefendValue) {\n    v->set_hp_r(0.0);\n    v->set_hp(0.0);\n  }\n  v->set_velocity(Value(0.0), Value(0.0), Value(0.0));\n  const double st = to_number(v->state());",
+      to: "  if (truthy(bdefend) && to_number(bdefend) >= 100.0) {\n    v->set_hp_r(0.0);\n    v->set_hp(0.0);\n  }\n  v->set_velocity(Value(0.0), Value(0.0), Value(0.0));\n  const double st = to_number(v->state());",
     },
     {
       note: "ball_is_hit_a hp assigned before hp_r",
       file: "native/lfw/collision/handlers3.cpp",
-      from: "  if (truthy(bdefend) && to_number(bdefend) >= kDefaultForceBreakDefendValue) {\n    v->set_hp_r(Value(0.0));\n    v->set_hp(Value(0.0));\n  }\n  v->set_velocity(Value(0.0), Value(0.0), Value(0.0));\n  const double st = to_number(v->state());",
-      to: "  if (truthy(bdefend) && to_number(bdefend) >= kDefaultForceBreakDefendValue) {\n    v->set_hp(Value(0.0));\n    v->set_hp_r(Value(0.0));\n  }\n  v->set_velocity(Value(0.0), Value(0.0), Value(0.0));\n  const double st = to_number(v->state());",
+      from: "  if (truthy(bdefend) && to_number(bdefend) >= kDefaultForceBreakDefendValue) {\n    v->set_hp_r(0.0);\n    v->set_hp(0.0);\n  }\n  v->set_velocity(Value(0.0), Value(0.0), Value(0.0));\n  const double st = to_number(v->state());",
+      to: "  if (truthy(bdefend) && to_number(bdefend) >= kDefaultForceBreakDefendValue) {\n    v->set_hp(0.0);\n    v->set_hp_r(0.0);\n  }\n  v->set_velocity(Value(0.0), Value(0.0), Value(0.0));\n  const double st = to_number(v->state());",
     },
     {
       note: "ball_is_hit_a victim velocity zeroed with 1",
@@ -269,14 +269,14 @@ export default {
     {
       note: "ball_is_hit_b drops handle_rest",
       file: "native/lfw/collision/handlers3.cpp",
-      from: "void handle_ball_is_hit_b(Collision& c) {\n  IH3Entity* v = g_env.find_entity(c.vid);\n  if (v == nullptr) return;\n  handle_rest(c);\n  handle_stiffness(c);",
-      to: "void handle_ball_is_hit_b(Collision& c) {\n  IH3Entity* v = g_env.find_entity(c.vid);\n  if (v == nullptr) return;\n  handle_stiffness(c);",
+      from: "void handle_ball_is_hit_b(Collision& c) {\n  Entity* v = g_env.find_entity(c.vid);\n  if (v == nullptr) return;\n  handle_rest(c);\n  handle_stiffness(c);",
+      to: "void handle_ball_is_hit_b(Collision& c) {\n  Entity* v = g_env.find_entity(c.vid);\n  if (v == nullptr) return;\n  handle_stiffness(c);",
     },
     {
       note: "ball_is_hit_b force break uses > instead of >=",
       file: "native/lfw/collision/handlers3.cpp",
-      from: "void handle_ball_is_hit_b(Collision& c) {\n  IH3Entity* v = g_env.find_entity(c.vid);\n  if (v == nullptr) return;\n  handle_rest(c);\n  handle_stiffness(c);\n  const Value bdefend = field_or(c.itr, u\"bdefend\");\n  if (truthy(bdefend) && to_number(bdefend) >= kDefaultForceBreakDefendValue) {",
-      to: "void handle_ball_is_hit_b(Collision& c) {\n  IH3Entity* v = g_env.find_entity(c.vid);\n  if (v == nullptr) return;\n  handle_rest(c);\n  handle_stiffness(c);\n  const Value bdefend = field_or(c.itr, u\"bdefend\");\n  if (truthy(bdefend) && to_number(bdefend) > kDefaultForceBreakDefendValue) {",
+      from: "void handle_ball_is_hit_b(Collision& c) {\n  Entity* v = g_env.find_entity(c.vid);\n  if (v == nullptr) return;\n  handle_rest(c);\n  handle_stiffness(c);\n  const Value bdefend = field_or(c.itr, u\"bdefend\");\n  if (truthy(bdefend) && to_number(bdefend) >= kDefaultForceBreakDefendValue) {",
+      to: "void handle_ball_is_hit_b(Collision& c) {\n  Entity* v = g_env.find_entity(c.vid);\n  if (v == nullptr) return;\n  handle_rest(c);\n  handle_stiffness(c);\n  const Value bdefend = field_or(c.itr, u\"bdefend\");\n  if (truthy(bdefend) && to_number(bdefend) > kDefaultForceBreakDefendValue) {",
     },
     {
       note: "ball_is_hit_b victim velocity zeroed with 1",
@@ -335,8 +335,8 @@ export default {
     {
       note: "armor full-toughness test inverted",
       file: "native/lfw/collision/handlers3.cpp",
-      from: "  const bool is_full = to_number(v->toughness()) == to_number(v->toughness_max());",
-      to: "  const bool is_full = to_number(v->toughness()) != to_number(v->toughness_max());",
+      from: "  const bool is_full = v->toughness() == v->toughness_max();",
+      to: "  const bool is_full = v->toughness() != v->toughness_max();",
     },
     {
       note: "armor partial-toughness break uses <=",
@@ -395,14 +395,14 @@ export default {
     {
       note: "armor sound pick uses >= 0",
       file: "native/lfw/collision/handlers3.cpp",
-      from: "  const Value sounds = to_number(v->toughness()) > 0 ? hit_sounds : dead_sounds;",
-      to: "  const Value sounds = to_number(v->toughness()) >= 0 ? hit_sounds : dead_sounds;",
+      from: "  const Value sounds = v->toughness() > 0 ? hit_sounds : dead_sounds;",
+      to: "  const Value sounds = v->toughness() >= 0 ? hit_sounds : dead_sounds;",
     },
     {
       note: "armor sound pick branches swapped",
       file: "native/lfw/collision/handlers3.cpp",
-      from: "  const Value sounds = to_number(v->toughness()) > 0 ? hit_sounds : dead_sounds;",
-      to: "  const Value sounds = to_number(v->toughness()) > 0 ? dead_sounds : hit_sounds;",
+      from: "  const Value sounds = v->toughness() > 0 ? hit_sounds : dead_sounds;",
+      to: "  const Value sounds = v->toughness() > 0 ? dead_sounds : hit_sounds;",
     },
     {
       note: "armor sound loop replays the first sound",
@@ -419,26 +419,26 @@ export default {
     {
       note: "armor writes motionless to victim",
       file: "native/lfw/collision/handlers3.cpp",
-      from: "  a->set_motionless(Value(round(motionless_ratio * motionless)));",
-      to: "  v->set_motionless(Value(round(motionless_ratio * motionless)));",
+      from: "  a->set_motionless(round(motionless_ratio * motionless));",
+      to: "  v->set_motionless(round(motionless_ratio * motionless));",
     },
     {
       note: "armor ignores motionless ratio",
       file: "native/lfw/collision/handlers3.cpp",
-      from: "  a->set_motionless(Value(round(motionless_ratio * motionless)));",
-      to: "  a->set_motionless(Value(round(motionless)));",
+      from: "  a->set_motionless(round(motionless_ratio * motionless));",
+      to: "  a->set_motionless(round(motionless));",
     },
     {
       note: "armor writes shaking to attacker",
       file: "native/lfw/collision/handlers3.cpp",
-      from: "  v->set_shaking(Value(round(shaking_ratio * shaking)));",
-      to: "  a->set_shaking(Value(round(shaking_ratio * shaking)));",
+      from: "  v->set_shaking(round(shaking_ratio * shaking));",
+      to: "  a->set_shaking(round(shaking_ratio * shaking));",
     },
     {
       note: "armor ignores shaking ratio",
       file: "native/lfw/collision/handlers3.cpp",
-      from: "  v->set_shaking(Value(round(shaking_ratio * shaking)));",
-      to: "  v->set_shaking(Value(round(shaking)));",
+      from: "  v->set_shaking(round(shaking_ratio * shaking));",
+      to: "  v->set_shaking(round(shaking));",
     },
     {
       note: "armor velocity zeroed with 1",

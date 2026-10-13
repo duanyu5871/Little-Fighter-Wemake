@@ -777,19 +777,17 @@ int main(int argc, char** argv) {
       g_world->add_entities(*e);
       push("readd|" + to_ascii(e->id));
     } else if (op == "wgeom") {
-      // 经 `EntityCollisionView` 读帧几何（Buff 特效摆放读的就是这三条）。
+      // 切片 4CE：碰撞视图退役 ⇒ 帧几何直接在实体面上读。
       const std::string label = t[i++];
       lfw::Entity* const e = ent_of(label);
-      lfw::EntityCollisionView* const v = g_world->collision_host().collision_view(e);
-      push("geom|" + label + "|cy=" + num(v->frame_centery()) + "|ht=" + num(v->frame_height()) +
-           "|ph=" + num(v->frame_pic_h()));
+      push("geom|" + label + "|cy=" + num(e->frame_centery()) + "|ht=" + num(e->frame_height()) +
+           "|ph=" + num(e->frame_pic_h()));
     } else if (op == "wattach") {
-      // 经视图转发的 `Entity::attach`（`Buff::show_effect` 的 `effect.attach(true)` 同路）。
+      // `Entity::attach`（`Buff::show_effect` 的 `effect.attach(true)` 同路）。
       const std::string label = t[i++];
       const bool on = t[i++] == "1";
       lfw::Entity* const e = ent_of(label);
-      lfw::EntityCollisionView* const v = g_world->collision_host().collision_view(e);
-      v->attach(on);
+      e->attach(Value(on));
       push("attach|" + label + "|mounted=" + num(e->mounted()) +
            "|n=" + num(static_cast<double>(g_world->entities.size())) +
            "|g=" + num(static_cast<double>(g_world->ghosts.size())));

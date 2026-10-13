@@ -19,13 +19,12 @@ void handle_healing(Collision& c) {
   const Value injury = field_or(c.itr, u"injury");
   if (!truthy(injury)) return;
 
-  IHealingEntity* a = g_env.find_entity(c.aid);
-  IHealingEntity* v = g_env.find_entity(c.vid);
+  Entity* a = g_env.find_entity(c.aid);
+  Entity* v = g_env.find_entity(c.vid);
   if (v == nullptr) return;
 
-  buff::grant_buff(g_env.buff_env(), u"Healing", a == nullptr ? nullptr : a->buff_entity(),
-                   v->buff_entity(),
-                   buff::Buff_Healing::duration_of(*v->buff_entity(), to_number(injury)));
+  buff::grant_buff(g_env.buff_env(), u"Healing", a, v,
+                   buff::Buff_Healing::duration_of(*v, to_number(injury)));
 }
 
 }

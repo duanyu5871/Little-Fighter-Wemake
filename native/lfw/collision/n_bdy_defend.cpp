@@ -8,6 +8,7 @@
 #include "lfw/defines/collision_defaults.h"
 #include "lfw/defines/itr_effect.h"
 #include "lfw/defines/spark_enum.h"
+#include "lfw/entity/entity.h"
 #include "lfw/utils/container_help/field_or.h"
 
 namespace lfw {
@@ -44,8 +45,8 @@ const NbdDefendEnv& nbd_defend_env() { return g_env; }
 void set_nbd_defend_env(const NbdDefendEnv& env) { g_env = env; }
 
 void handle_itr_normal_bdy_defend(Collision& c) {
-  INdbdyDefendEntity* a = g_env.find_entity(c.aid);
-  INdbdyDefendEntity* v = g_env.find_entity(c.vid);
+  Entity* a = g_env.find_entity(c.aid);
+  Entity* v = g_env.find_entity(c.vid);
   if (a == nullptr || v == nullptr) return;
 
   const Value effect_v = field_or(c.itr, u"effect");
@@ -54,14 +55,14 @@ void handle_itr_normal_bdy_defend(Collision& c) {
 
   const bool explosive =
       is_effect(effect_v, ItrEffect::FireExplosion) || is_effect(effect_v, ItrEffect::Explosion);
-  if ((!explosive && strict_equals(a->facing(), v->facing())) ||
+  if ((!explosive && strict_equals(Value(a->facing), Value(v->facing))) ||
       bdefend >= kDefaultForceBreakDefendValue) {
     handle_itr_normal_bdy_normal(c);
     return;
   }
 
-  v->set_defend_value(Value(to_number(v->defend_value()) - bdefend));
-  handle_injury(c, to_number(v->defend_ratio()), false);
+  v->set_defend_value(v->defend_value() - bdefend);
+  handle_injury(c, v->defend_ratio(), false);
   handle_rest(c);
   handle_stiffness(c);
 
@@ -75,8 +76,8 @@ void handle_itr_normal_bdy_defend(Collision& c) {
   const Value itr_actions = field_or(c.itr, u"actions");
   const Value bdy_actions = field_or(c.bdy, u"actions");
 
-  if (to_number(v->defend_value()) <= 0) {
-    v->set_defend_value(Value(0.0));
+  if (v->defend_value() <= 0) {
+    v->set_defend_value(0.0);
     g_env.spark(Value(x), Value(y), Value(z), Value(std::u16string(spark_enum::kBrokenDefend)));
     run_actions(itr_actions, action_type::kA_DEFEND, action_type::kV_DEFEND,
                 action_type::kA_NEXT_FRAME, action_type::kV_NEXT_FRAME);

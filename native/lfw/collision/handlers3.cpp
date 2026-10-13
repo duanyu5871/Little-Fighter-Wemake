@@ -9,6 +9,7 @@
 #include "lfw/defines/spark_enum.h"
 #include "lfw/defines/state_enum.h"
 #include "lfw/defines/weapon_type.h"
+#include "lfw/entity/entity.h"
 #include "lfw/utils/container_help/field_or.h"
 #include "lfw/utils/math/base.h"
 #include "lfw/utils/math/normalize.h"
@@ -38,22 +39,21 @@ const Handlers3Env& handlers3_env() { return g_env; }
 void set_handlers3_env(const Handlers3Env& env) { g_env = env; }
 
 void handle_itr_kind_whirlwind(Collision& c) {
-  IH3Entity* a = g_env.find_entity(c.aid);
-  IH3Entity* v = g_env.find_entity(c.vid);
+  Entity* a = g_env.find_entity(c.aid);
+  Entity* v = g_env.find_entity(c.vid);
   if (a == nullptr || v == nullptr) return;
   if (g_env.is_ball(*v)) return;
-  double vx = 0;
-  double vy = 0;
-  double vz = 0;
-  v->velocity(vx, vy, vz);
-  double ax = 0;
-  double ay = 0;
-  double az = 0;
-  a->position(ax, ay, az);
-  double px = 0;
-  double py = 0;
-  double pz = 0;
-  v->position(px, py, pz);
+  double vx = v->velocity.x;
+  double vy = v->velocity.y;
+  double vz = v->velocity.z;
+  const double ax = a->position.x;
+  const double ay = a->position.y;
+  const double az = a->position.z;
+  const double px = v->position.x;
+  const double py = v->position.y;
+  const double pz = v->position.z;
+  (void)ay;
+  (void)py;
   const double dz = round(az - pz);
   const double dx = round(ax - px);
   const double x_direction = normalize(dx);
@@ -68,8 +68,8 @@ void handle_itr_kind_whirlwind(Collision& c) {
   vz += z_direction * acc_z;
   v->set_velocity(Value(vx), Value(vy), Value(vz));
   if (!g_env.is_weapon(*v)) return;
-  if (!v->has_bearer() &&
-      !strict_equals(v->base_type(), Value(static_cast<double>(WeaponEnum::Heavy)))) {
+  if (v->bearer == nullptr &&
+      !strict_equals(Value(v->base_type()), Value(static_cast<double>(WeaponEnum::Heavy)))) {
     v->set_team(a->team());
   }
   const double st = to_number(v->state());
@@ -83,21 +83,23 @@ void handle_itr_kind_whirlwind(Collision& c) {
 }
 
 void handle_ball_is_hit_a(Collision& c) {
-  IH3Entity* a = g_env.find_entity(c.aid);
-  IH3Entity* v = g_env.find_entity(c.vid);
+  Entity* a = g_env.find_entity(c.aid);
+  Entity* v = g_env.find_entity(c.vid);
   if (v == nullptr) return;
   handle_rest(c);
   handle_stiffness(c);
   const Value bdefend = field_or(c.itr, u"bdefend");
   if (truthy(bdefend) && to_number(bdefend) >= kDefaultForceBreakDefendValue) {
-    v->set_hp_r(Value(0.0));
-    v->set_hp(Value(0.0));
+    v->set_hp_r(0.0);
+    v->set_hp(0.0);
   }
   v->set_velocity(Value(0.0), Value(0.0), Value(0.0));
   const double st = to_number(v->state());
   if (st == static_cast<double>(StateEnum::Ball_Flying) ||
       st == static_cast<double>(StateEnum::Ball_Rebounding)) {
-    v->set_team(a == nullptr ? Value() : a->team());
+    // `v.team = a?.team`：`a` 缺席时 TS 赋 `undefined`；端口实体面的 `team` 是字符串 ⇒ 保留
+    // 原视图那层的 `to_string(undefined)`（`u"undefined"`），行为逐字不变。
+    v->set_team(a == nullptr ? to_string(Value()) : a->team());
   }
   double x = 0;
   double y = 0;
@@ -108,14 +110,14 @@ void handle_ball_is_hit_a(Collision& c) {
 }
 
 void handle_ball_is_hit_b(Collision& c) {
-  IH3Entity* v = g_env.find_entity(c.vid);
+  Entity* v = g_env.find_entity(c.vid);
   if (v == nullptr) return;
   handle_rest(c);
   handle_stiffness(c);
   const Value bdefend = field_or(c.itr, u"bdefend");
   if (truthy(bdefend) && to_number(bdefend) >= kDefaultForceBreakDefendValue) {
-    v->set_hp_r(Value(0.0));
-    v->set_hp(Value(0.0));
+    v->set_hp_r(0.0);
+    v->set_hp(0.0);
   }
   v->set_velocity(Value(0.0), Value(0.0), Value(0.0));
   double x = 0;
@@ -127,10 +129,10 @@ void handle_ball_is_hit_b(Collision& c) {
 }
 
 bool handle_armor(Collision& c) {
-  IH3Entity* a = g_env.find_entity(c.aid);
-  IH3Entity* v = g_env.find_entity(c.vid);
+  Entity* a = g_env.find_entity(c.aid);
+  Entity* v = g_env.find_entity(c.vid);
   if (a == nullptr || v == nullptr) return false;
-  const Value armor = v->armor();
+  const Value armor = v->armor;
   if (!truthy(armor) || !g_env.is_armor_work(c)) return false;
   const Value bdefend_v = field_or(c.itr, u"bdefend");
   const Value injury_v = field_or(c.itr, u"injury");
@@ -150,9 +152,9 @@ bool handle_armor(Collision& c) {
   } else if (armor_type == static_cast<double>(ArmorEnum::Injury)) {
     decrease_value = injury;
   }
-  const bool is_full = to_number(v->toughness()) == to_number(v->toughness_max());
-  const double pre_toughness = to_number(v->toughness());
-  v->set_toughness(Value(pre_toughness - decrease_value));
+  const bool is_full = v->toughness() == v->toughness_max();
+  const double pre_toughness = v->toughness();
+  v->set_toughness(pre_toughness - decrease_value);
   if (!is_full && pre_toughness < decrease_value) return false;
   const Value hit_sounds = field_or(armor, u"hit_sounds");
   const double injury_ratio =
@@ -168,7 +170,7 @@ bool handle_armor(Collision& c) {
   double z = 0;
   g_env.spark_point(c.a_cube, c.b_cube, x, y, z);
   g_env.spark(x, y, z, spark_type_of(Value(fall), true));
-  const Value sounds = to_number(v->toughness()) > 0 ? hit_sounds : dead_sounds;
+  const Value sounds = v->toughness() > 0 ? hit_sounds : dead_sounds;
   if (truthy(sounds)) {
     const Array* arr = as_array(sounds);
     if (arr != nullptr) {
@@ -181,8 +183,8 @@ bool handle_armor(Collision& c) {
   const double shaking = missing(shaking_v) ? to_number(v->dataset(u"itr_shaking")) : to_number(shaking_v);
   const double motionless =
       missing(motionless_v) ? to_number(v->dataset(u"itr_motionless")) : to_number(motionless_v);
-  a->set_motionless(Value(round(motionless_ratio * motionless)));
-  v->set_shaking(Value(round(shaking_ratio * shaking)));
+  a->set_motionless(round(motionless_ratio * motionless));
+  v->set_shaking(round(shaking_ratio * shaking));
   v->set_velocity(Value(0.0), Value(0.0), Value(0.0));
   handle_rest(c);
   handle_injury(c, injury_ratio, true);

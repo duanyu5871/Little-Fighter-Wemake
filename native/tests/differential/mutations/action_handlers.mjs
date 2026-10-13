@@ -1,6 +1,8 @@
 // action_handlers 变异规格
 //
 // 覆盖 native/lfw/collision/action_handlers.cpp 的全部动作分发与 apply_buff。
+// 切片 4CE 后目标码以 lfw::Entity 为准：字段直取（velocity.x / facing / bearer / id）、
+// 控制判定走 entity::is_bot_ctrl(attacker.ctrl())，以下锚点按此逐字节对齐。
 //
 // 按证明删除的变异（不可观测）：
 // 1) `if (type == action_type::kNONE) return Value();` 整行删除：
@@ -94,58 +96,58 @@ export default {
     {
       note: "A_REBOUND_VX 未取负",
       file: "native/lfw/collision/action_handlers.cpp",
-      from: "    attacker.set_velocity_x(Value(-attacker.velocity_x()));",
-      to: "    attacker.set_velocity_x(Value(attacker.velocity_x()));",
+      from: "    attacker.set_velocity_x(Value(-attacker.velocity.x));",
+      to: "    attacker.set_velocity_x(Value(attacker.velocity.x));",
     },
     {
       note: "A_REBOUND_VX 反受击方",
       file: "native/lfw/collision/action_handlers.cpp",
-      from: "    attacker.set_velocity_x(Value(-attacker.velocity_x()));",
-      to: "    victim.set_velocity_x(Value(-victim.velocity_x()));",
+      from: "    attacker.set_velocity_x(Value(-attacker.velocity.x));",
+      to: "    victim.set_velocity_x(Value(-victim.velocity.x));",
     },
     {
       note: "V_REBOUND_VX 未取负",
       file: "native/lfw/collision/action_handlers.cpp",
-      from: "    victim.set_velocity_x(Value(-victim.velocity_x()));",
-      to: "    victim.set_velocity_x(Value(victim.velocity_x()));",
+      from: "    victim.set_velocity_x(Value(-victim.velocity.x));",
+      to: "    victim.set_velocity_x(Value(victim.velocity.x));",
     },
     {
       note: "V_REBOUND_VX 反攻击方",
       file: "native/lfw/collision/action_handlers.cpp",
-      from: "    victim.set_velocity_x(Value(-victim.velocity_x()));",
-      to: "    attacker.set_velocity_x(Value(-attacker.velocity_x()));",
+      from: "    victim.set_velocity_x(Value(-victim.velocity.x));",
+      to: "    attacker.set_velocity_x(Value(-attacker.velocity.x));",
     },
     // ---- 转身 ----
     {
       note: "V_TURN_FACE 不转身",
       file: "native/lfw/collision/action_handlers.cpp",
-      from: "    victim.set_facing(entity::turn_face(victim.facing()));",
-      to: "    victim.set_facing(victim.facing());",
+      from: "    victim.set_facing(entity::turn_face(Value(victim.facing)));",
+      to: "    victim.set_facing(Value(victim.facing));",
     },
     {
       note: "V_TURN_FACE 转攻击方",
       file: "native/lfw/collision/action_handlers.cpp",
-      from: "    victim.set_facing(entity::turn_face(victim.facing()));",
-      to: "    attacker.set_facing(entity::turn_face(attacker.facing()));",
+      from: "    victim.set_facing(entity::turn_face(Value(victim.facing)));",
+      to: "    attacker.set_facing(entity::turn_face(Value(attacker.facing)));",
     },
     // ---- 换队 ----
     {
       note: "V_TURN_TEAM 无条件用攻击方队伍",
       file: "native/lfw/collision/action_handlers.cpp",
-      from: "    if (!truthy(team)) team = attacker.team();",
-      to: "    if (truthy(team)) team = attacker.team();",
+      from: "    if (!truthy(team)) team = Value(attacker.team());",
+      to: "    if (truthy(team)) team = Value(attacker.team());",
     },
     {
       note: "V_TURN_TEAM 取受击方队伍",
       file: "native/lfw/collision/action_handlers.cpp",
-      from: "    if (!truthy(team)) team = attacker.team();",
-      to: "    if (!truthy(team)) team = victim.team();",
+      from: "    if (!truthy(team)) team = Value(attacker.team());",
+      to: "    if (!truthy(team)) team = Value(victim.team());",
     },
     {
       note: "V_TURN_TEAM 写攻击方",
       file: "native/lfw/collision/action_handlers.cpp",
-      from: "    victim.set_team(team);",
-      to: "    attacker.set_team(team);",
+      from: "    victim.set_team(to_string(team));",
+      to: "    attacker.set_team(to_string(team));",
     },
     // ---- FUSION ----
     {
@@ -163,14 +165,14 @@ export default {
     {
       note: "FUSION 攻击方判断取反",
       file: "native/lfw/collision/action_handlers.cpp",
-      from: "    const int a_v = attacker.is_bot_ctrl() ? 0 : 1;",
-      to: "    const int a_v = attacker.is_bot_ctrl() ? 1 : 0;",
+      from: "    const int a_v = entity::is_bot_ctrl(attacker.ctrl()) ? 0 : 1;",
+      to: "    const int a_v = entity::is_bot_ctrl(attacker.ctrl()) ? 1 : 0;",
     },
     {
       note: "FUSION 受击方判断取反",
       file: "native/lfw/collision/action_handlers.cpp",
-      from: "    const int v_v = victim.is_bot_ctrl() ? 0 : 1;",
-      to: "    const int v_v = victim.is_bot_ctrl() ? 1 : 0;",
+      from: "    const int v_v = entity::is_bot_ctrl(victim.ctrl()) ? 0 : 1;",
+      to: "    const int v_v = entity::is_bot_ctrl(victim.ctrl()) ? 1 : 0;",
     },
     {
       note: "FUSION 随机序取反",
@@ -187,20 +189,20 @@ export default {
     {
       note: "FUSION 血量只取 f1",
       file: "native/lfw/collision/action_handlers.cpp",
-      from: "    const double hp = to_number(f1->hp()) + to_number(f2->hp());",
-      to: "    const double hp = to_number(f1->hp());",
+      from: "    const double hp = f1->hp() + f2->hp();",
+      to: "    const double hp = f1->hp();",
     },
     {
       note: "FUSION hp_r 用 min",
       file: "native/lfw/collision/action_handlers.cpp",
-      from: "    const double hp_r = max({hp, to_number(f1->hp_r()), to_number(f2->hp_r())});",
-      to: "    const double hp_r = min({hp, to_number(f1->hp_r()), to_number(f2->hp_r())});",
+      from: "    const double hp_r = max({hp, f1->hp_r(), f2->hp_r()});",
+      to: "    const double hp_r = min({hp, f1->hp_r(), f2->hp_r()});",
     },
     {
       note: "FUSION 丢掉 f2.hp_r",
       file: "native/lfw/collision/action_handlers.cpp",
-      from: "    const double hp_r = max({hp, to_number(f1->hp_r()), to_number(f2->hp_r())});",
-      to: "    const double hp_r = max({hp, to_number(f1->hp_r())});",
+      from: "    const double hp_r = max({hp, f1->hp_r(), f2->hp_r()});",
+      to: "    const double hp_r = max({hp, f1->hp_r()});",
     },
     {
       note: "FUSION dismiss_data 取 f2",
@@ -217,20 +219,20 @@ export default {
     {
       note: "FUSION hp 用 max",
       file: "native/lfw/collision/action_handlers.cpp",
-      from: "    f1->set_hp(Value(min(hp, to_number(f1->hp_max()))));",
-      to: "    f1->set_hp(Value(max(hp, to_number(f1->hp_max()))));",
+      from: "    f1->set_hp(min(hp, f1->hp_max()));",
+      to: "    f1->set_hp(max(hp, f1->hp_max()));",
     },
     {
       note: "FUSION hp_r 上限用自身 hp_r",
       file: "native/lfw/collision/action_handlers.cpp",
-      from: "    f1->set_hp_r(Value(min(hp_r, to_number(f1->hp_max()))));",
-      to: "    f1->set_hp_r(Value(min(hp_r, to_number(f1->hp_r()))));",
+      from: "    f1->set_hp_r(min(hp_r, f1->hp_max()));",
+      to: "    f1->set_hp_r(min(hp_r, f1->hp_r()));",
     },
     {
       note: "FUSION fuse_bys 记 f1 的 id",
       file: "native/lfw/collision/action_handlers.cpp",
-      from: "    f1->set_fuse_bys(ensure(fuse, Value(f2->id())));",
-      to: "    f1->set_fuse_bys(ensure(fuse, Value(f1->id())));",
+      from: "    f1->set_fuse_bys(ensure(fuse, Value(f2->id)));",
+      to: "    f1->set_fuse_bys(ensure(fuse, Value(f1->id)));",
     },
     {
       note: "FUSION dismiss_time 缺省取反",
@@ -297,13 +299,13 @@ export default {
     {
       note: "STEAL target1 当 target2",
       file: "native/lfw/collision/action_handlers.cpp",
-      from: "    if (target == 1) {\n      const Value se = attacker.src_emitter();",
-      to: "    if (target == 2) {\n      const Value se = attacker.src_emitter();",
+      from: "    if (target == 1) {\n      const std::u16string* const se = attacker.src_emitter();",
+      to: "    if (target == 2) {\n      const std::u16string* const se = attacker.src_emitter();",
     },
     {
       note: "STEAL target3 不取 bearer",
       file: "native/lfw/collision/action_handlers.cpp",
-      from: "    } else if (target == 3) {\n      t = attacker.bearer();\n    } else {",
+      from: "    } else if (target == 3) {\n      t = attacker.bearer;\n    } else {",
       to: "    } else if (target == 3) {\n      t = &attacker;\n    } else {",
     },
     {
@@ -315,50 +317,50 @@ export default {
     {
       note: "STEAL revive 判定取反",
       file: "native/lfw/collision/action_handlers.cpp",
-      from: "    if (!truthy(field_of(d, u\"revive\")) && to_number(t->hp()) <= 0) return Value();",
-      to: "    if (truthy(field_of(d, u\"revive\")) && to_number(t->hp()) <= 0) return Value();",
+      from: "    if (!truthy(field_of(d, u\"revive\")) && t->hp() <= 0) return Value();",
+      to: "    if (truthy(field_of(d, u\"revive\")) && t->hp() <= 0) return Value();",
     },
     {
       note: "STEAL 死亡判定用小于",
       file: "native/lfw/collision/action_handlers.cpp",
-      from: "    if (!truthy(field_of(d, u\"revive\")) && to_number(t->hp()) <= 0) return Value();",
-      to: "    if (!truthy(field_of(d, u\"revive\")) && to_number(t->hp()) < 0) return Value();",
+      from: "    if (!truthy(field_of(d, u\"revive\")) && t->hp() <= 0) return Value();",
+      to: "    if (!truthy(field_of(d, u\"revive\")) && t->hp() < 0) return Value();",
     },
     {
       note: "STEAL mp 用 max",
       file: "native/lfw/collision/action_handlers.cpp",
-      from: "      t->set_mp(Value(min(to_number(t->mp()) + to_number(mp_v), to_number(t->mp_max()))));",
-      to: "      t->set_mp(Value(max(to_number(t->mp()) + to_number(mp_v), to_number(t->mp_max()))));",
+      from: "    if (truthy(mp_v)) t->set_mp(min(t->mp() + to_number(mp_v), t->mp_max()));",
+      to: "    if (truthy(mp_v)) t->set_mp(max(t->mp() + to_number(mp_v), t->mp_max()));",
     },
     {
       note: "STEAL mp 上限用 hp_max",
       file: "native/lfw/collision/action_handlers.cpp",
-      from: "      t->set_mp(Value(min(to_number(t->mp()) + to_number(mp_v), to_number(t->mp_max()))));",
-      to: "      t->set_mp(Value(min(to_number(t->mp()) + to_number(mp_v), to_number(t->hp_max()))));",
+      from: "    if (truthy(mp_v)) t->set_mp(min(t->mp() + to_number(mp_v), t->mp_max()));",
+      to: "    if (truthy(mp_v)) t->set_mp(min(t->mp() + to_number(mp_v), t->hp_max()));",
     },
     {
       note: "STEAL itr_mp_ratio 换了系数",
       file: "native/lfw/collision/action_handlers.cpp",
-      from: "      t->set_mp(Value(min(to_number(t->mp()) + round(to_number(itr_value) * to_number(itr_mp_ratio)),\n                          to_number(t->mp_max()))));",
-      to: "      t->set_mp(Value(min(to_number(t->mp()) + round(to_number(itr_value) * to_number(field_of(d, u\"itr_hp_ratio\"))),\n                          to_number(t->mp_max()))));",
+      from: "      t->set_mp(min(t->mp() + round(to_number(itr_value) * to_number(itr_mp_ratio)),\n                    t->mp_max()));",
+      to: "      t->set_mp(min(t->mp() + round(to_number(itr_value) * to_number(field_of(d, u\"itr_hp_ratio\"))),\n                    t->mp_max()));",
     },
     {
       note: "STEAL hp_r 上限用 hp_r",
       file: "native/lfw/collision/action_handlers.cpp",
-      from: "      t->set_hp_r(Value(min(to_number(t->hp_r()) + to_number(hp_r_v), to_number(t->hp_max()))));",
-      to: "      t->set_hp_r(Value(min(to_number(t->hp_r()) + to_number(hp_r_v), to_number(t->hp_r()))));",
+      from: "    if (truthy(hp_r_v)) t->set_hp_r(min(t->hp_r() + to_number(hp_r_v), t->hp_max()));",
+      to: "    if (truthy(hp_r_v)) t->set_hp_r(min(t->hp_r() + to_number(hp_r_v), t->hp_r()));",
     },
     {
       note: "STEAL over_hp_r 分支用 hp_max",
       file: "native/lfw/collision/action_handlers.cpp",
-      from: "        t->set_hp(Value(min(to_number(t->hp()) + to_number(hp_v), to_number(t->hp_r()))));",
-      to: "        t->set_hp(Value(min(to_number(t->hp()) + to_number(hp_v), to_number(t->hp_max()))));",
+      from: "      if (truthy(hp_v)) t->set_hp(min(t->hp() + to_number(hp_v), t->hp_r()));",
+      to: "      if (truthy(hp_v)) t->set_hp(min(t->hp() + to_number(hp_v), t->hp_max()));",
     },
     {
       note: "STEAL 非 over_hp_r 分支用 hp_r",
       file: "native/lfw/collision/action_handlers.cpp",
-      from: "        t->set_hp(Value(min(to_number(t->hp()) + to_number(hp_v), to_number(t->hp_max()))));",
-      to: "        t->set_hp(Value(min(to_number(t->hp()) + to_number(hp_v), to_number(t->hp_r()))));",
+      from: "      if (truthy(hp_v)) t->set_hp(min(t->hp() + to_number(hp_v), t->hp_max()));",
+      to: "      if (truthy(hp_v)) t->set_hp(min(t->hp() + to_number(hp_v), t->hp_r()));",
     },
     {
       note: "STEAL itr_hp_ratio 换成 itr_hp_r_ratio",
@@ -369,8 +371,8 @@ export default {
     {
       note: "STEAL 收尾 hp_r 用 min",
       file: "native/lfw/collision/action_handlers.cpp",
-      from: "    t->set_hp_r(Value(max(to_number(t->hp_r()), to_number(t->hp()))));",
-      to: "    t->set_hp_r(Value(min(to_number(t->hp_r()), to_number(t->hp()))));",
+      from: "    t->set_hp_r(max(t->hp_r(), t->hp()));",
+      to: "    t->set_hp_r(min(t->hp_r(), t->hp()));",
     },
     {
       note: "STEAL 无 data 仍继续",

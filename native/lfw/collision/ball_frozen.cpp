@@ -10,6 +10,7 @@
 #include "lfw/defines/itr_kind.h"
 #include "lfw/defines/oid.h"
 #include "lfw/defines/state_enum.h"
+#include "lfw/entity/entity.h"
 #include "lfw/entity/face_helper.h"
 #include "lfw/utils/container_help/field_or.h"
 #include "lfw/utils/math/base.h"
@@ -72,9 +73,9 @@ const BallFrozenEnv& ball_frozen_env() { return g_env; }
 
 void set_ball_frozen_env(const BallFrozenEnv& env) { g_env = env; }
 
-bool handle_ball_frozen(IFrozenEntity& a_ref, IFrozenEntity& v_ref, const Value& itr) {
-  IFrozenEntity* a = &a_ref;
-  IFrozenEntity* v = &v_ref;
+bool handle_ball_frozen(Entity& a_ref, Entity& v_ref, const Value& itr) {
+  Entity* a = &a_ref;
+  Entity* v = &v_ref;
 
   if (!group_length_truthy(a->group())) return false;
   if (!group_length_truthy(v->group())) return false;
@@ -89,7 +90,7 @@ bool handle_ball_frozen(IFrozenEntity& a_ref, IFrozenEntity& v_ref, const Value&
   const Value v_group = v->group();
   if (group_some_equal(v_group, entity_group::kFreezer) &&
       group_some_equal(a_group, entity_group::kFreezableBall)) {
-    IFrozenEntity* temp = a;
+    Entity* temp = a;
     a = v;
     v = temp;
   } else if (group_some_not_equal(a_group, entity_group::kFreezer) ||
@@ -104,15 +105,15 @@ bool handle_ball_frozen(IFrozenEntity& a_ref, IFrozenEntity& v_ref, const Value&
     }
   }
 
-  const double x1 = a->position_x();
-  const double y1 = a->position_y();
-  const double z1 = a->position_z();
-  const double x2 = v->position_x();
-  const double y2 = v->position_y();
-  const double z2 = v->position_z();
+  const double x1 = a->position.x;
+  const double y1 = a->position.y;
+  const double z1 = a->position.z;
+  const double x2 = v->position.x;
+  const double y2 = v->position.y;
+  const double z2 = v->position.z;
 
-  const Value a_frame = a->frame();
-  const Value v_frame = v->frame();
+  const Value a_frame = a->frame;
+  const Value v_frame = v->frame;
   const double a_centerx = frame_number(a_frame, u"centerx");
   const double a_centery = frame_number(a_frame, u"centery");
   const double v_centerx = frame_number(v_frame, u"centerx");
@@ -120,8 +121,8 @@ bool handle_ball_frozen(IFrozenEntity& a_ref, IFrozenEntity& v_ref, const Value&
   const double v_width = frame_number(v_frame, u"width");
   const double v_height = frame_number(v_frame, u"height");
 
-  const double a_facing = to_number(a->facing());
-  const double v_facing_number = to_number(v->facing());
+  const double a_facing = a->facing;
+  const double v_facing_number = v->facing;
 
   const double cy1 = y1 + a_centery;
   const double cx1 = a_facing > 0 ? x1 - a_centerx : x1 + a_centerx - a_centerx;
@@ -136,7 +137,9 @@ bool handle_ball_frozen(IFrozenEntity& a_ref, IFrozenEntity& v_ref, const Value&
   opoint->set(u"y", Value(round(cy1 - cy2)));
   opoint->set(u"z", Value(round(z2 - z1)));
 
-  const bool freeze_ball = a->spawn(opoint_v, entity::turn_face(v->facing()));
+  Vector3 zero{};
+  const bool freeze_ball =
+      a->spawn(opoint_v, zero, to_number(entity::turn_face(Value(v->facing)))) != nullptr;
   if (!freeze_ball) return false;
   v->enter_frame(gone_frame_info());
   return true;

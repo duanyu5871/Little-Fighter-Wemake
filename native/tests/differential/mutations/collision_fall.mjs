@@ -25,10 +25,9 @@
  * 5. `if (arr->size() == 0) return Value();` inside `index_0` -> changing the
  *    comparison bound. Any such change reads `Array::at(0)` out of bounds for the
  *    empty-list cases, i.e. undefined behaviour rather than a defined divergence.
- * 6. `v->velocity_x() / to_number(v->facing())` -> `v->velocity_x() *
- *    to_number(v->facing())`. `x / f` and `x * f` always have the same sign for the
- *    only two facings the case file uses (`1` and `-1`), so no case can separate
- *    them.
+ * 6. `v->velocity.x / v->facing` -> `v->velocity.x * v->facing`. `x / f` and `x * f`
+ *    always have the same sign for the only two facings the case file uses (`1` and
+ *    `-1`), so no case can separate them.
  *
  * Deliberate divergence from the TS original: `critical_hit[direction]` throws a
  * `TypeError` when the key is missing, which aborts collision resolution. The port
@@ -78,62 +77,62 @@ export default {
     {
       note: "victim resolved from the attacker id",
       file: "native/lfw/collision/fall.cpp",
-      from: "  IFallEntity* v = g_env.find_entity(c.vid);",
-      to: "  IFallEntity* v = g_env.find_entity(c.aid);",
+      from: "  Entity* v = g_env.find_entity(c.vid);",
+      to: "  Entity* v = g_env.find_entity(c.aid);",
     },
     {
       note: "toughness not zeroed",
       file: "native/lfw/collision/fall.cpp",
-      from: "  v->set_toughness(Value(0.0));\n  v->set_fall_value(Value(0.0));",
-      to: "  v->set_fall_value(Value(0.0));",
+      from: "  v->set_toughness(0.0);\n  v->set_fall_value(0.0);",
+      to: "  v->set_fall_value(0.0);",
     },
     {
       note: "toughness set to one",
       file: "native/lfw/collision/fall.cpp",
-      from: "  v->set_toughness(Value(0.0));",
-      to: "  v->set_toughness(Value(1.0));",
+      from: "  v->set_toughness(0.0);",
+      to: "  v->set_toughness(1.0);",
     },
     {
       note: "fall value not zeroed",
       file: "native/lfw/collision/fall.cpp",
-      from: "  v->set_fall_value(Value(0.0));\n  v->set_defend_value(Value(0.0));",
-      to: "  v->set_defend_value(Value(0.0));",
+      from: "  v->set_fall_value(0.0);\n  v->set_defend_value(0.0);",
+      to: "  v->set_defend_value(0.0);",
     },
     {
       note: "fall value set to one",
       file: "native/lfw/collision/fall.cpp",
-      from: "  v->set_fall_value(Value(0.0));",
-      to: "  v->set_fall_value(Value(1.0));",
+      from: "  v->set_fall_value(0.0);",
+      to: "  v->set_fall_value(1.0);",
     },
     {
       note: "defend value not zeroed",
       file: "native/lfw/collision/fall.cpp",
-      from: "  v->set_defend_value(Value(0.0));\n  v->set_resting(Value(0.0));",
-      to: "  v->set_resting(Value(0.0));",
+      from: "  v->set_defend_value(0.0);\n  v->set_resting(0.0);",
+      to: "  v->set_resting(0.0);",
     },
     {
       note: "defend value set to one",
       file: "native/lfw/collision/fall.cpp",
-      from: "  v->set_defend_value(Value(0.0));",
-      to: "  v->set_defend_value(Value(1.0));",
+      from: "  v->set_defend_value(0.0);",
+      to: "  v->set_defend_value(1.0);",
     },
     {
       note: "resting not zeroed",
       file: "native/lfw/collision/fall.cpp",
-      from: "  v->set_resting(Value(0.0));\n\n  const ItrVelocity iv = g_env.calc_velocity(c);",
+      from: "  v->set_resting(0.0);\n\n  const ItrVelocity iv = g_env.calc_velocity(c);",
       to: "  const ItrVelocity iv = g_env.calc_velocity(c);",
     },
     {
       note: "resting set to one",
       file: "native/lfw/collision/fall.cpp",
-      from: "  v->set_resting(Value(0.0));",
-      to: "  v->set_resting(Value(1.0));",
+      from: "  v->set_resting(0.0);",
+      to: "  v->set_resting(1.0);",
     },
     {
       note: "resting zeroed before the defend value",
       file: "native/lfw/collision/fall.cpp",
-      from: "  v->set_defend_value(Value(0.0));\n  v->set_resting(Value(0.0));",
-      to: "  v->set_resting(Value(0.0));\n  v->set_defend_value(Value(0.0));",
+      from: "  v->set_defend_value(0.0);\n  v->set_resting(0.0);",
+      to: "  v->set_resting(0.0);\n  v->set_defend_value(0.0);",
     },
     {
       note: "velocity not written",
@@ -318,14 +317,14 @@ export default {
     {
       note: "fire list read from the critical list slot",
       file: "native/lfw/collision/fall.cpp",
-      from: "  const Value fire = v->data_indexes_fire();",
-      to: "  const Value fire = v->data_indexes_critical_hit();",
+      from: "  const Value fire = v->data_indexes_of(u\"fire\");",
+      to: "  const Value fire = v->data_indexes_of(u\"critical_hit\");",
     },
     {
       note: "critical list read from the fire slot",
       file: "native/lfw/collision/fall.cpp",
-      from: "  const Value critical_hit = v->data_indexes_critical_hit();",
-      to: "  const Value critical_hit = v->data_indexes_fire();",
+      from: "  const Value critical_hit = v->data_indexes_of(u\"critical_hit\");",
+      to: "  const Value critical_hit = v->data_indexes_of(u\"fire\");",
     },
     {
       note: "critical list guard dropped",
@@ -342,32 +341,32 @@ export default {
     {
       note: "direction comparison is strict",
       file: "native/lfw/collision/fall.cpp",
-      from: "    const double direction = v->velocity_x() / to_number(v->facing()) >= 0 ? 1.0 : -1.0;",
-      to: "    const double direction = v->velocity_x() / to_number(v->facing()) > 0 ? 1.0 : -1.0;",
+      from: "    const double direction = v->velocity.x / v->facing >= 0 ? 1.0 : -1.0;",
+      to: "    const double direction = v->velocity.x / v->facing > 0 ? 1.0 : -1.0;",
     },
     {
       note: "direction compares the facing only",
       file: "native/lfw/collision/fall.cpp",
-      from: "    const double direction = v->velocity_x() / to_number(v->facing()) >= 0 ? 1.0 : -1.0;",
-      to: "    const double direction = v->velocity_x() / 1.0 >= 0 ? 1.0 : -1.0;",
+      from: "    const double direction = v->velocity.x / v->facing >= 0 ? 1.0 : -1.0;",
+      to: "    const double direction = v->velocity.x / 1.0 >= 0 ? 1.0 : -1.0;",
     },
     {
       note: "direction numerator is a constant",
       file: "native/lfw/collision/fall.cpp",
-      from: "    const double direction = v->velocity_x() / to_number(v->facing()) >= 0 ? 1.0 : -1.0;",
-      to: "    const double direction = 1.0 / to_number(v->facing()) >= 0 ? 1.0 : -1.0;",
+      from: "    const double direction = v->velocity.x / v->facing >= 0 ? 1.0 : -1.0;",
+      to: "    const double direction = 1.0 / v->facing >= 0 ? 1.0 : -1.0;",
     },
     {
       note: "positive direction is two",
       file: "native/lfw/collision/fall.cpp",
-      from: "    const double direction = v->velocity_x() / to_number(v->facing()) >= 0 ? 1.0 : -1.0;",
-      to: "    const double direction = v->velocity_x() / to_number(v->facing()) >= 0 ? 2.0 : -1.0;",
+      from: "    const double direction = v->velocity.x / v->facing >= 0 ? 1.0 : -1.0;",
+      to: "    const double direction = v->velocity.x / v->facing >= 0 ? 2.0 : -1.0;",
     },
     {
       note: "negative direction is minus two",
       file: "native/lfw/collision/fall.cpp",
-      from: "    const double direction = v->velocity_x() / to_number(v->facing()) >= 0 ? 1.0 : -1.0;",
-      to: "    const double direction = v->velocity_x() / to_number(v->facing()) >= 0 ? 1.0 : -2.0;",
+      from: "    const double direction = v->velocity.x / v->facing >= 0 ? 1.0 : -1.0;",
+      to: "    const double direction = v->velocity.x / v->facing >= 0 ? 1.0 : -2.0;",
     },
     {
       note: "direction key is always positive",

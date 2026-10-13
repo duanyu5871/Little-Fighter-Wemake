@@ -7,22 +7,12 @@
 #include "lfw/core/value.h"
 
 namespace lfw {
+
+class Entity;
+
 namespace collision {
 
-// `IHandlerEntity` 用**虚基类**（与 `fall.h` 的 `IFallEntity` 对称，见那里的注释）。
-struct IWeaponIsHitEntity : virtual IHandlerEntity {
-  virtual bool has_bearer() const = 0;
-  virtual void set_dropping(bool v) = 0;
-  virtual Value base_type() const = 0;
-  virtual Value facing() const = 0;
-  virtual Value team() const = 0;
-  virtual void set_team(const Value& v) = 0;
-  virtual Value data_id() const = 0;
-  virtual Value data_indexes_throwings() const = 0;
-  virtual Value data_indexes_in_the_skys() const = 0;
-  virtual void leave_ground() = 0;
-};
-
+// 切片 4CE：`IWeaponIsHitEntity` 已退役（与 `fall.h` 同一刀）⇒ 缝里直接是 `lfw::Entity`。
 struct SparkPoint {
   Value x;
   Value y;
@@ -30,7 +20,7 @@ struct SparkPoint {
 };
 
 struct WeaponIsHitEnv {
-  std::function<IWeaponIsHitEntity*(const std::u16string& id)> find_entity;
+  std::function<Entity*(const std::u16string& id)> find_entity;
   std::function<SparkPoint(const Cube& a, const Cube& b)> spark_point;
   std::function<void(const Value& x, const Value& y, const Value& z,
                      const std::u16string& kind)>
@@ -46,4 +36,5 @@ const WeaponIsHitEnv& weapon_is_hit_env();
 void set_weapon_is_hit_env(const WeaponIsHitEnv& env);
 
 }
+
 }

@@ -15,9 +15,10 @@
  *    `collision.vid` (`"V"`), so neither lookup can fail. The guard is a port
  *    artefact of turning the TS destructuring (`const { attacker, victim }`) into
  *    two id lookups; it is not reachable from any in-contract input.
- * 2. `a == nullptr ? nullptr : a->buff_entity()` degenerates to `a->buff_entity()`
- *    because `a` is never null here; the ternary is kept for symmetry with the TS
- *    original, which passes `attacker` straight through (`grant_buff` itself only
+ * 2. Handing the attacker straight through degenerates to `a` because `a` is never
+ *    null here; the old `a == nullptr ? nullptr : a->buff_entity()` indirection
+ *    disappeared with the collision entity interfaces (4CE), so `a` is passed as-is.
+ *    The TS original also passes `attacker` straight through (`grant_buff` itself only
  *    calls `set_attacker` when the attacker is truthy).
  * 3. Swapping the two `set_healing_env` / `healing_env` accessors or reordering the
  *    three `grant_buff` arguments that follow the kind is behaviour preserving for
@@ -55,50 +56,50 @@ export default {
     {
       note: "attacker resolved from the victim id",
       file: "native/lfw/collision/healing.cpp",
-      from: "  IHealingEntity* a = g_env.find_entity(c.aid);",
-      to: "  IHealingEntity* a = g_env.find_entity(c.vid);",
+      from: "  Entity* a = g_env.find_entity(c.aid);",
+      to: "  Entity* a = g_env.find_entity(c.vid);",
     },
     {
       note: "attacker resolved from an empty id",
       file: "native/lfw/collision/healing.cpp",
-      from: "  IHealingEntity* a = g_env.find_entity(c.aid);",
-      to: "  IHealingEntity* a = g_env.find_entity(std::u16string());",
+      from: "  Entity* a = g_env.find_entity(c.aid);",
+      to: "  Entity* a = g_env.find_entity(std::u16string());",
     },
     {
       note: "victim resolved from the attacker id",
       file: "native/lfw/collision/healing.cpp",
-      from: "  IHealingEntity* v = g_env.find_entity(c.vid);",
-      to: "  IHealingEntity* v = g_env.find_entity(c.aid);",
+      from: "  Entity* v = g_env.find_entity(c.vid);",
+      to: "  Entity* v = g_env.find_entity(c.aid);",
     },
     {
       note: "buff kind misspelled",
       file: "native/lfw/collision/healing.cpp",
-      from: '  buff::grant_buff(g_env.buff_env(), u"Healing", a == nullptr ? nullptr : a->buff_entity(),',
-      to: '  buff::grant_buff(g_env.buff_env(), u"healing", a == nullptr ? nullptr : a->buff_entity(),',
+      from: '  buff::grant_buff(g_env.buff_env(), u"Healing", a, v,',
+      to: '  buff::grant_buff(g_env.buff_env(), u"healing", a, v,',
     },
     {
       note: "attacker handed to grant_buff is the victim",
       file: "native/lfw/collision/healing.cpp",
-      from: "  buff::grant_buff(g_env.buff_env(), u\"Healing\", a == nullptr ? nullptr : a->buff_entity(),\n                   v->buff_entity(),\n                   buff::Buff_Healing::duration_of(*v->buff_entity(), to_number(injury)));",
-      to: '  buff::grant_buff(g_env.buff_env(), u"Healing", v->buff_entity(),\n                   v->buff_entity(),\n                   buff::Buff_Healing::duration_of(*v->buff_entity(), to_number(injury)));',
+      from: "  buff::grant_buff(g_env.buff_env(), u\"Healing\", a, v,\n                   buff::Buff_Healing::duration_of(*v, to_number(injury)));",
+      to: '  buff::grant_buff(g_env.buff_env(), u"Healing", v, v,\n                   buff::Buff_Healing::duration_of(*v, to_number(injury)));',
     },
     {
       note: "victim handed to grant_buff is the attacker",
       file: "native/lfw/collision/healing.cpp",
-      from: "  buff::grant_buff(g_env.buff_env(), u\"Healing\", a == nullptr ? nullptr : a->buff_entity(),\n                   v->buff_entity(),\n                   buff::Buff_Healing::duration_of(*v->buff_entity(), to_number(injury)));",
-      to: '  buff::grant_buff(g_env.buff_env(), u"Healing", a == nullptr ? nullptr : a->buff_entity(),\n                   a == nullptr ? nullptr : a->buff_entity(),\n                   buff::Buff_Healing::duration_of(*v->buff_entity(), to_number(injury)));',
+      from: "  buff::grant_buff(g_env.buff_env(), u\"Healing\", a, v,\n                   buff::Buff_Healing::duration_of(*v, to_number(injury)));",
+      to: '  buff::grant_buff(g_env.buff_env(), u"Healing", a, a,\n                   buff::Buff_Healing::duration_of(*v, to_number(injury)));',
     },
     {
       note: "duration is not derived from the injury",
       file: "native/lfw/collision/healing.cpp",
-      from: "                   buff::Buff_Healing::duration_of(*v->buff_entity(), to_number(injury)));",
+      from: "                   buff::Buff_Healing::duration_of(*v, to_number(injury)));",
       to: "                   0.0);",
     },
     {
       note: "duration reads the attacker dataset",
       file: "native/lfw/collision/healing.cpp",
-      from: "                   buff::Buff_Healing::duration_of(*v->buff_entity(), to_number(injury)));",
-      to: "                   buff::Buff_Healing::duration_of(*a->buff_entity(), to_number(injury)));",
+      from: "                   buff::Buff_Healing::duration_of(*v, to_number(injury)));",
+      to: "                   buff::Buff_Healing::duration_of(*a, to_number(injury)));",
     },
   ],
 };

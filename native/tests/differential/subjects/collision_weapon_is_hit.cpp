@@ -1,11 +1,20 @@
+#include <cstddef>
 #include <cstdio>
 #include <fstream>
+#include <memory>
 #include <string>
+#include <variant>
 #include <vector>
 
+#include "lfw/collision/collision.h"
+#include "lfw/collision/handlers.h"
+#include "lfw/collision/handlers2.h"
 #include "lfw/collision/weapon_is_hit.h"
 #include "lfw/core/value.h"
+#include "lfw/defines/entity_enum.h"
+#include "lfw/entity/entity.h"
 #include "lfw/entity/entity_type_check.h"
+#include "lfw/entity/enter_frame_result.h"
 #include "lfw/utils/container_help/field_or.h"
 
 #include "entity_fixture.h"
@@ -14,12 +23,11 @@
 namespace {
 
 using lfw::Value;
+using lfw::EnterFrameResult;
 using lfw::collision::Collision;
 using lfw::collision::Cube;
 using lfw::collision::Handlers2Env;
 using lfw::collision::HandlersEnv;
-using lfw::collision::IHandlerEntity;
-using lfw::collision::IWeaponIsHitEntity;
 using lfw::collision::ItrVelocity;
 using lfw::collision::SparkPoint;
 using lfw::collision::WeaponIsHitEnv;
@@ -27,6 +35,7 @@ using trace::parse_value;
 using trace::render_value;
 using trace::split_ws;
 using trace::to_ascii;
+using trace::to_u16;
 
 std::vector<std::string> g_log;
 
@@ -47,130 +56,143 @@ bool nullish(const Value& v) {
   return std::holds_alternative<std::monostate>(v) || std::holds_alternative<lfw::NullTag>(v);
 }
 
-// 切片 4BY：`buff` 以 `lfw::Entity` 为准入 ⇒ `buff_entity()` 交出真 `Entity`
-// （原空壳窄接口假件；TS 侧同样是空壳，观测点不在这里）。
-struct FakeBuff : lfw::Entity {
-  explicit FakeBuff(std::u16string id) : Entity(fx::shared_host(), Value()) {
-    this->id = std::move(id);
-  }
-};
+struct Fake;
 
-struct Fake : IWeaponIsHitEntity {
-  std::u16string _id;
+Fake* other_of(const Fake& f);
+
+// 切片 4CE：碰撞族窄接口退役 ⇒ 台面假实体就是真 `lfw::Entity`（TS 台面同样只给
+// `hp` / `hp_r` / `state` / `team` / `base_type` / `data` / `set_velocity` … 这几条面）。
+// 不可虚的面用「镜像」补：
+//   * `data_id()` / `data_base_hit_sounds()`（非虚，读私有 `_data`）⇒ 构造时把 `_data`
+//     钉在台面自己持有的 `Object` 上，写镜像时同步进去；
+//   * `src_emitter()`（非虚，读 `emitters`）⇒ `env a src_emitter <值>` 直接把串落进去。
+struct Fake : lfw::Entity {
+  // --- TS 假实体字段的镜像（`collision_weapon_is_hit.ts` 的初值）---
   Value _hp = Value(50.0);
   Value _hp_r = Value(50.0);
-  Value _fall = Value(5.0);
-  Value _fall_max = Value(100.0);
-  Value _defend = Value(3.0);
-  Value _defend_max = Value(50.0);
-  Value _resting = Value(0.0);
-  Value _catch_time = Value(0.0);
-  Value _catch_time_max = Value(30.0);
-  Value _src_emitter;
-  Value _shaking;
-  Value _motionless;
-  Value _itr_fall = Value(2.0);
-  Value _hit_sounds;
-  Value _ice;
-  bool _catching = false;
-  IHandlerEntity* _catcher = nullptr;
-  Value _elec_dur = Value(7.0);
+  double _toughness = 9;
   Value _state;
-  Value _facing = Value(1.0);
+  Value _face = Value(1.0);
   Value _base_type;
   Value _team = Value(0.0);
-  Value _data_id;
-  Value _throwings;
-  Value _in_the_skys;
   bool _bearer = false;
   bool _dropping = false;
   bool _on_ground = true;
+  Value _data_id;
+  Value _type = Value(static_cast<double>(lfw::EntityEnum::Fighter));
+  Value _throwings;
+  Value _in_the_skys;
   double _vel[3] = {0, 0, 0};
-  double _toughness = 9;
-  FakeBuff _buff;
+  Value _fall = Value(5.0);
+  Value _fall_max = Value(100.0);
+  Value _defend = Value(3.0);
+  Value _resting = Value(0.0);
+  Value _catch_time = Value(0.0);
+  Value _catch_time_max = Value(30.0);
+  Value _arest;
+  Value _source_emitter;
+  Value _shaking;
+  Value _motionless;
+  Value _elec_dur = Value(7.0);
+  Value _hit_sounds;
+  Value _ice;
   Value _dataset_values;
-  Value _data;
+  // `Entity::data()` 返回 `const Value&` ⇒ 镜像必须是成员（不能返回临时量）。
+  mutable Value _data_mirror;
+  // `team()` 返回 `std::u16string`（TS 的 `team` 是 `unknown`，用例里是数字 3）⇒ 台面把
+  // 镜像的 trace 串当载体，写入端再按同一串还原，值类型才不丢。
+  std::u16string _team_carrier = u"0";
+  // `_data` 指向这个对象（构造时交给基类），非虚的 `data_id()` 因此能跟上台面的改动。
+  std::shared_ptr<lfw::Object> _data_obj;
+  std::shared_ptr<lfw::Object> _data_base_obj;
+  std::shared_ptr<lfw::Object> _data_indexes_obj;
 
-  explicit Fake(std::u16string id) : _id(std::move(id)), _buff(_id) { set_type(Value(8.0)); }
-
-  void set_type(const Value& t) {
-    auto o = std::make_shared<lfw::Object>();
-    o->set(u"type", t);
-    _data = Value(o);
+  explicit Fake(std::u16string id)
+      : Entity(fx::shared_host(), Value(std::make_shared<lfw::Object>())) {
+    this->id = std::move(id);
+    // 基类 `_data` 就是我们传进去的那个对象 ⇒ 非虚的 `data_id()` / `data_base_hit_sounds()`
+    // 也能跟着台面对镜像的改动走。
+    _data_obj = std::get<std::shared_ptr<lfw::Object>>(lfw::Entity::data());
+    _data_base_obj = std::make_shared<lfw::Object>();
+    _data_indexes_obj = std::make_shared<lfw::Object>();
+    sync_data();
+    sync_team();
   }
 
-  const std::u16string& id() const override { return _id; }
-  Value hp() const override { return _hp; }
-  void set_hp(const Value& v) override {
-    _hp = v;
-    g_log.push_back(s_of(_id) + ":set_hp:" + render(v));
-  }
-  Value hp_r() const override { return _hp_r; }
-  void set_hp_r(const Value& v) override {
-    _hp_r = v;
-    g_log.push_back(s_of(_id) + ":set_hp_r:" + render(v));
-  }
-  void set_toughness(const Value& v) override {
-    _toughness = lfw::to_number(v);
-    g_log.push_back(s_of(_id) + ":set_toughness:" + render(v));
-  }
-  Value data() const override {
-    auto o = std::make_shared<lfw::Object>();
-    o->set(u"type", lfw::field_or(_data, u"type"));
+  void sync_team() { _team_carrier = to_u16(render(_team)); }
+
+  void sync_data() {
+    lfw::Object* o = _data_obj.get();
     o->set(u"id", _data_id);
-    auto idx = std::make_shared<lfw::Object>();
-    idx->set(u"throwings", _throwings);
-    idx->set(u"in_the_skys", _in_the_skys);
-    o->set(u"indexes", Value(idx));
-    return Value(o);
+    o->set(u"type", _type);
+    _data_base_obj->set(u"hit_sounds", _hit_sounds);
+    o->set(u"base", Value(_data_base_obj));
+    _data_indexes_obj->set(u"throwings", _throwings);
+    _data_indexes_obj->set(u"in_the_skys", _in_the_skys);
+    o->set(u"indexes", Value(_data_indexes_obj));
   }
-  Value data_indexes_ice() const override { return _ice; }
-  Value data_base_hit_sounds() const override { return _hit_sounds; }
+
+  // --- 读面 ---------------------------------------------------------------
+  double hp() const override { return lfw::to_number(_hp); }
+  double hp_r() const override { return lfw::to_number(_hp_r); }
+  double toughness() const override { return _toughness; }
+  double weight() const override { return 1.0; }
+  double catch_time_max() const override { return lfw::to_number(_catch_time_max); }
+  Value state() const override { return _state; }
+  double base_type() const override { return lfw::to_number(_base_type); }
+  const std::u16string& team() const override { return _team_carrier; }
+  const Value& data() const override {
+    lfw::Object o;
+    o.set(u"type", _type);
+    o.set(u"id", _data_id);
+    lfw::Object base;
+    base.set(u"hit_sounds", _hit_sounds);
+    o.set(u"base", Value(std::make_shared<lfw::Object>(base)));
+    lfw::Object indexes;
+    indexes.set(u"throwings", _throwings);
+    indexes.set(u"in_the_skys", _in_the_skys);
+    o.set(u"indexes", Value(std::make_shared<lfw::Object>(indexes)));
+    _data_mirror = Value(std::make_shared<lfw::Object>(o));
+    return _data_mirror;
+  }
   Value dataset(const std::u16string& key) const override {
     if (key == u"electrify_duration") return _elec_dur;
-    return lfw::field_or(_dataset_values, key.c_str());
+    if (key == u"ivx_f" || key == u"ivy_f" || key == u"ivz_f" || key == u"ivy_d")
+      return Value(1.0);
+    const lfw::Object* d = lfw::as_object(_dataset_values);
+    if (d == nullptr) return Value();
+    const Value* p = d->get(key);
+    return p != nullptr ? *p : Value();
   }
-  bool marks_has(const std::u16string&) const override { return false; }
-  bool catching() const override { return _catching; }
-  void set_catching(IHandlerEntity*) override {}
-  Value catch_time_max() const override { return _catch_time_max; }
-  void set_catch_time(const Value& v) override {
-    _catch_time = v;
-    g_log.push_back(s_of(_id) + ":set_catch_time:" + render(v));
-  }
-  IHandlerEntity* catcher() const override { return _catcher; }
-  void set_catcher(IHandlerEntity* v) override {
-    _catcher = v;
-    g_log.push_back(s_of(_id) + ":set_catcher:" + (v == nullptr ? "-" : s_of(v->id())));
-  }
-  Value resting() const override { return _resting; }
-  void set_resting(const Value& v) override {
-    _resting = v;
-    g_log.push_back(s_of(_id) + ":set_resting:" + render(v));
-  }
-  Value fall_value() const override { return _fall; }
-  void set_fall_value(const Value& v) override {
-    _fall = v;
-    g_log.push_back(s_of(_id) + ":set_fall_value:" + render(v));
-  }
-  Value fall_value_max() const override { return _fall_max; }
-  Value defend_value() const override { return _defend; }
-  void set_defend_value(const Value& v) override {
-    _defend = v;
-    g_log.push_back(s_of(_id) + ":set_defend_value:" + render(v));
-  }
-  Value defend_value_max() const override { return _defend_max; }
-  Value itr_fall(const Value&) const override { return _itr_fall; }
-  Value src_emitter() const override { return _src_emitter; }
-  Value shaking() const override { return _shaking; }
-  void set_shaking(const Value& v) override {
-    _shaking = v;
-    g_log.push_back(s_of(_id) + ":set_shaking:" + render(v));
-  }
-  Value motionless() const override { return _motionless; }
 
+  // --- 写面（库里的写入都在这里落日志）-------------------------------------
+  void set_hp(double v) override {
+    _hp = Value(v);
+    g_log.push_back(s_of(id) + ":set_hp:" + render(_hp));
+  }
+  void set_hp_r(double v) override {
+    _hp_r = Value(v);
+    g_log.push_back(s_of(id) + ":set_hp_r:" + render(_hp_r));
+  }
+  void set_toughness(double v) override {
+    _toughness = v;
+    g_log.push_back(s_of(id) + ":set_toughness:" + num(v));
+  }
+  void set_dropping(bool v) override {
+    dropping = v;
+    _dropping = v;
+    g_log.push_back(s_of(id) + ":set_dropping:" + (v ? "1" : "0"));
+  }
+  void set_team(std::u16string v) override;
+  // `Entity::leave_ground` 现在是虚的（父级已改 `entity.h`）⇒ 直接覆写，逐字复刻 TS
+  // 假实体那一行（`_on_ground` 是状态行的镜像，真实体成员顺手保持一致）。
+  void leave_ground() override {
+    _on_ground = false;
+    this->is_on_ground = false;
+    g_log.push_back(s_of(id) + ":leave_ground");
+  }
   void set_velocity(const Value& x, const Value& y, const Value& z) override {
-    std::string s = s_of(_id) + ":set_velocity";
+    std::string s = s_of(id) + ":set_velocity";
     if (!nullish(x)) {
       _vel[0] = lfw::to_number(x);
       s += ":" + render(x);
@@ -184,43 +206,41 @@ struct Fake : IWeaponIsHitEntity {
       s += ":" + render(z);
     }
     g_log.push_back(s);
+    // TS 假实体在 `set_velocity` 里自己 `leave_ground()`。
     if (_vel[1] > 0) leave_ground();
   }
-
-  void enter_frame(const Value& info) override {
-    g_log.push_back(s_of(_id) + ":enter_frame:" + render(info));
-  }
-  void enter_frame_by_id(const Value& id) override {
-    g_log.push_back(s_of(_id) + ":enter_frame_by_id:" + render(id));
+  EnterFrameResult enter_frame_by_id(const Value& id_value, bool fallback) override {
+    (void)fallback;
+    g_log.push_back(s_of(id) + ":enter_frame_by_id:" + render(id_value));
+    return EnterFrameResult::NotFound;
   }
   void play_sound(const Value& sounds) override {
-    g_log.push_back(s_of(_id) + ":play_sound:" + render(sounds));
-  }
-  lfw::Entity* buff_entity() override { return &_buff; }
-
-  bool has_bearer() const override { return _bearer; }
-  void set_dropping(bool v) override {
-    _dropping = v;
-    g_log.push_back(s_of(_id) + ":set_dropping:" + (v ? "1" : "0"));
-  }
-  Value base_type() const override { return _base_type; }
-  Value facing() const override { return _facing; }
-  Value team() const override { return _team; }
-  void set_team(const Value& v) override {
-    _team = v;
-    g_log.push_back(s_of(_id) + ":set_team:" + render(v));
-  }
-  Value data_id() const override { return _data_id; }
-  Value data_indexes_throwings() const override { return _throwings; }
-  Value data_indexes_in_the_skys() const override { return _in_the_skys; }
-  void leave_ground() override {
-    _on_ground = false;
-    g_log.push_back(s_of(_id) + ":leave_ground");
+    g_log.push_back(s_of(id) + ":play_sound:" + render(sounds));
   }
 };
 
 Fake g_att(u"A");
 Fake g_vic(u"V");
+
+Fake* other_of(const Fake& f) {
+  if (&f == &g_att) return &g_vic;
+  if (&f == &g_vic) return &g_att;
+  return nullptr;
+}
+
+// `victim.team = attacker.team`：端口把值收成了 `std::u16string` ⇒ 台面按**来源实体**的
+// 镜像还原（本切片唯一的写入点就是这句），镜头里的数字 3 才不会被写成字符串 `"3"`。
+void Fake::set_team(std::u16string v) {
+  Fake* src = other_of(*this);
+  if (src != nullptr && src->team() == v) {
+    _team = src->_team;
+  } else {
+    _team = Value(v);
+  }
+  sync_team();
+  g_log.push_back(s_of(id) + ":set_team:" + render(_team));
+}
+
 Collision g_c;
 HandlersEnv g_henv;
 Handlers2Env g_h2;
@@ -230,8 +250,6 @@ Cube g_bcube;
 Value g_itr_motionless;
 Value g_recov = Value(0.25);
 ItrVelocity g_iv;
-Value g_emitter_target;
-Fake* g_emitter = nullptr;
 
 void bind() {
   g_henv.attacker_itr_motionless = []() { return g_itr_motionless; };
@@ -243,7 +261,10 @@ void bind() {
     g_vic._shaking = v;
     g_log.push_back("V:set_shaking:" + render(v));
   };
-  g_henv.attacker_set_arest = [](double v) { g_log.push_back("A:set_arest:" + num(v)); };
+  g_henv.attacker_set_arest = [](double v) {
+    g_att._arest = Value(v);
+    g_log.push_back("A:set_arest:" + num(v));
+  };
   g_henv.victim_add_v_rest = [](Collision& c) {
     g_log.push_back("add_v_rest:" + s_of(c.vid) + ":" + num(c.rest));
   };
@@ -258,30 +279,30 @@ void bind() {
 
   g_h2.warn = [](const std::u16string& m) { g_log.push_back("warn:" + s_of(m)); };
   g_h2.hp_recoverability = []() { return g_recov; };
-  g_h2.find_entity = [](const std::u16string& id) -> IHandlerEntity* {
-    if (id == g_att._id) return &g_att;
-    if (id == g_vic._id) return &g_vic;
+  g_h2.find_entity = [](const std::u16string& id) -> lfw::Entity* {
+    if (id == g_att.id) return &g_att;
+    if (id == g_vic.id) return &g_vic;
     return nullptr;
   };
-  g_h2.summary_apply_damage = [](IHandlerEntity* a, const Value& injury, IHandlerEntity* v,
+  g_h2.summary_apply_damage = [](lfw::Entity* a, const Value& injury, lfw::Entity* v,
                                  const Value& prev_hp) {
-    g_log.push_back("summary:" + s_of(a->id()) + ":" + render(injury) + ":" + s_of(v->id()) +
-                    ":" + render(prev_hp));
+    g_log.push_back("summary:" + s_of(a->id) + ":" + render(injury) + ":" + s_of(v->id) + ":" +
+                    render(prev_hp));
   };
   g_h2.buff_env = []() { return static_cast<const lfw::buff::BuffEnv*>(nullptr); };
-  g_h2.is_fighter = [](const IHandlerEntity& e) {
+  g_h2.is_fighter = [](const lfw::Entity& e) {
     return lfw::entity::is_fighter_data(e.data());
   };
   g_h2.calc_velocity = [](Collision&) {
     ItrVelocity r = g_iv;
-    r.x = g_iv.x * lfw::to_number(g_att._facing);
+    r.x = g_iv.x * g_att.facing;
     return r;
   };
   lfw::collision::set_handlers2_env(g_h2);
 
-  g_env.find_entity = [](const std::u16string& id) -> IWeaponIsHitEntity* {
-    if (id == g_att._id) return &g_att;
-    if (id == g_vic._id) return &g_vic;
+  g_env.find_entity = [](const std::u16string& id) -> lfw::Entity* {
+    if (id == g_att.id) return &g_att;
+    if (id == g_vic.id) return &g_vic;
     return nullptr;
   };
   g_env.spark_point = [](const Cube& a, const Cube& b) {
@@ -303,22 +324,22 @@ void bind() {
   };
   g_env.calc_velocity = [](Collision&) {
     ItrVelocity r = g_iv;
-    r.x = g_iv.x * lfw::to_number(g_att._facing);
+    r.x = g_iv.x * g_att.facing;
     return r;
   };
   lfw::collision::set_weapon_is_hit_env(g_env);
 }
 
 std::string side_text(const Fake& f) {
-  return s_of(f._id) + ".hp=" + render(f._hp) + " " + s_of(f._id) + ".hp_r=" + render(f._hp_r) +
-         " " + s_of(f._id) + ".tough=" + num(f._toughness) + " " + s_of(f._id) +
-         ".state=" + render(f._state) + " " + s_of(f._id) + ".face=" + render(f._facing) + " " +
-         s_of(f._id) + ".base_type=" + render(f._base_type) + " " + s_of(f._id) +
-         ".team=" + render(f._team) + " " + s_of(f._id) +
-         ".bearer=" + (f._bearer ? "1" : "0") + " " + s_of(f._id) +
-         ".dropping=" + (f._dropping ? "1" : "0") + " " + s_of(f._id) +
-         ".on_ground=" + (f._on_ground ? "1" : "0") + " " + s_of(f._id) +
-         ".data_id=" + render(f._data_id) + " " + s_of(f._id) + ".vel=" + num(f._vel[0]) + "/" +
+  return s_of(f.id) + ".hp=" + render(f._hp) + " " + s_of(f.id) + ".hp_r=" + render(f._hp_r) +
+         " " + s_of(f.id) + ".tough=" + num(f._toughness) + " " + s_of(f.id) +
+         ".state=" + render(f._state) + " " + s_of(f.id) + ".face=" + render(f._face) + " " +
+         s_of(f.id) + ".base_type=" + render(f._base_type) + " " + s_of(f.id) +
+         ".team=" + render(f._team) + " " + s_of(f.id) +
+         ".bearer=" + (f._bearer ? "1" : "0") + " " + s_of(f.id) +
+         ".dropping=" + (f._dropping ? "1" : "0") + " " + s_of(f.id) +
+         ".on_ground=" + (f._on_ground ? "1" : "0") + " " + s_of(f.id) +
+         ".data_id=" + render(f._data_id) + " " + s_of(f.id) + ".vel=" + num(f._vel[0]) + "/" +
          num(f._vel[1]) + "/" + num(f._vel[2]);
 }
 
@@ -329,7 +350,8 @@ std::string state_text() {
   return s;
 }
 
-void walk_side(Fake& f, const std::string& field, const std::vector<std::string>& tok, size_t& i) {
+void walk_side(Fake& f, const std::string& field, const std::vector<std::string>& tok,
+               size_t& i) {
   if (field == "hp") {
     f._hp = parse_value(tok, i);
   } else if (field == "hp_r") {
@@ -339,21 +361,29 @@ void walk_side(Fake& f, const std::string& field, const std::vector<std::string>
   } else if (field == "state") {
     f._state = parse_value(tok, i);
   } else if (field == "face") {
-    f._facing = parse_value(tok, i);
+    f._face = parse_value(tok, i);
+    // 真实体读的是 `facing`（`double`）；`u` 按 TS 的 `Number(undefined)` = NaN 落。
+    f.facing = lfw::to_number(f._face);
   } else if (field == "base_type") {
     f._base_type = parse_value(tok, i);
   } else if (field == "team") {
     f._team = parse_value(tok, i);
+    f.sync_team();
   } else if (field == "bearer") {
     f._bearer = tok[i++] == "1";
+    f.bearer = f._bearer ? &f : nullptr;
   } else if (field == "drop") {
     f._dropping = tok[i++] == "1";
+    f.dropping = f._dropping;
   } else if (field == "data_id") {
     f._data_id = parse_value(tok, i);
+    f.sync_data();
   } else if (field == "throwings") {
     f._throwings = parse_value(tok, i);
+    f.sync_data();
   } else if (field == "in_the_sky") {
     f._in_the_skys = parse_value(tok, i);
+    f.sync_data();
   } else if (field == "velx") {
     f._vel[0] = trace::to_double(tok[i++]);
   } else if (field == "vely") {
@@ -371,13 +401,19 @@ void walk_side(Fake& f, const std::string& field, const std::vector<std::string>
   } else if (field == "resting") {
     f._resting = parse_value(tok, i);
   } else if (field == "type") {
-    f.set_type(parse_value(tok, i));
+    f._type = parse_value(tok, i);
+    f.sync_data();
   } else if (field == "src_emitter") {
-    f._src_emitter = parse_value(tok, i);
+    f._source_emitter = parse_value(tok, i);
+    // `src_emitter()` 不是虚函数（读 `emitters`）⇒ 只有给字符串时才落得进去。
+    const std::u16string* e = std::get_if<std::u16string>(&f._source_emitter);
+    f.emitters.clear();
+    if (e != nullptr) f.emitters.push_back(*e);
   } else if (field == "ice") {
     f._ice = parse_value(tok, i);
   } else if (field == "hit_sounds") {
     f._hit_sounds = parse_value(tok, i);
+    f.sync_data();
   } else if (field == "motionless") {
     f._motionless = parse_value(tok, i);
   } else if (field == "dataset") {
@@ -398,7 +434,7 @@ void run(const std::string& name) {
   std::printf("run %s || %s | %s\n", name.c_str(), join(g_log).c_str(), state_text().c_str());
 }
 
-}
+}  // namespace
 
 int main(int argc, char** argv) {
   if (argc < 2) {

@@ -10,7 +10,7 @@
  *    artefact: the TS original destructures `collision.attacker/victim`.
  * 2. The action dispatch is a seam (`g_env.dispatch`), because the TS side calls
  *    `collision_action_handlers[AT.A_NEXT_FRAME](action, collision)` and the port's
- *    `run_action` would drag in `ActionEnv` plus the 34-method `IActionEntity`. The
+ *    `run_action` would drag in `ActionEnv` and the whole `lfw::Entity` surface. The
  *    handler bodies belong to the `action_handlers` subject; what this unit owns is
  *    *which* handler key is dispatched and *which* `action.type` values are
  *    filtered, and both are fully observable through the seam's log.
@@ -80,14 +80,14 @@ export default {
     {
       note: "attacker resolved from the victim id",
       file: "native/lfw/collision/n_bdy_defend.cpp",
-      from: "  INdbdyDefendEntity* a = g_env.find_entity(c.aid);\n  INdbdyDefendEntity* v = g_env.find_entity(c.vid);",
-      to: "  INdbdyDefendEntity* a = g_env.find_entity(c.vid);\n  INdbdyDefendEntity* v = g_env.find_entity(c.vid);",
+      from: "  Entity* a = g_env.find_entity(c.aid);\n  Entity* v = g_env.find_entity(c.vid);",
+      to: "  Entity* a = g_env.find_entity(c.vid);\n  Entity* v = g_env.find_entity(c.vid);",
     },
     {
       note: "victim resolved from the attacker id",
       file: "native/lfw/collision/n_bdy_defend.cpp",
-      from: "  INdbdyDefendEntity* a = g_env.find_entity(c.aid);\n  INdbdyDefendEntity* v = g_env.find_entity(c.vid);",
-      to: "  INdbdyDefendEntity* a = g_env.find_entity(c.aid);\n  INdbdyDefendEntity* v = g_env.find_entity(c.aid);",
+      from: "  Entity* a = g_env.find_entity(c.aid);\n  Entity* v = g_env.find_entity(c.vid);",
+      to: "  Entity* a = g_env.find_entity(c.aid);\n  Entity* v = g_env.find_entity(c.aid);",
     },
     {
       note: "effect key misspelled",
@@ -146,32 +146,32 @@ export default {
     {
       note: "guard drops the explosive test",
       file: "native/lfw/collision/n_bdy_defend.cpp",
-      from: "  if ((!explosive && strict_equals(a->facing(), v->facing())) ||",
-      to: "  if (strict_equals(a->facing(), v->facing()) ||",
+      from: "  if ((!explosive && strict_equals(Value(a->facing), Value(v->facing))) ||",
+      to: "  if (strict_equals(Value(a->facing), Value(v->facing))) ||",
     },
     {
       note: "guard requires an explosive itr",
       file: "native/lfw/collision/n_bdy_defend.cpp",
-      from: "  if ((!explosive && strict_equals(a->facing(), v->facing())) ||",
-      to: "  if ((explosive && strict_equals(a->facing(), v->facing())) ||",
+      from: "  if ((!explosive && strict_equals(Value(a->facing), Value(v->facing))) ||",
+      to: "  if ((explosive && strict_equals(Value(a->facing), Value(v->facing))) ||",
     },
     {
       note: "guard combines the facing test with or",
       file: "native/lfw/collision/n_bdy_defend.cpp",
-      from: "  if ((!explosive && strict_equals(a->facing(), v->facing())) ||",
-      to: "  if ((!explosive || strict_equals(a->facing(), v->facing())) ||",
+      from: "  if ((!explosive && strict_equals(Value(a->facing), Value(v->facing))) ||",
+      to: "  if ((!explosive || strict_equals(Value(a->facing), Value(v->facing))) ||",
     },
     {
       note: "guard facing test inverted",
       file: "native/lfw/collision/n_bdy_defend.cpp",
-      from: "  if ((!explosive && strict_equals(a->facing(), v->facing())) ||",
-      to: "  if ((!explosive && !strict_equals(a->facing(), v->facing())) ||",
+      from: "  if ((!explosive && strict_equals(Value(a->facing), Value(v->facing))) ||",
+      to: "  if ((!explosive && !strict_equals(Value(a->facing), Value(v->facing))) ||",
     },
     {
       note: "guard facing test compares the victim with itself",
       file: "native/lfw/collision/n_bdy_defend.cpp",
-      from: "  if ((!explosive && strict_equals(a->facing(), v->facing())) ||",
-      to: "  if ((!explosive && strict_equals(v->facing(), v->facing())) ||",
+      from: "  if ((!explosive && strict_equals(Value(a->facing), Value(v->facing))) ||",
+      to: "  if ((!explosive && strict_equals(Value(v->facing), Value(v->facing))) ||",
     },
     {
       note: "guard force break threshold shifted by one",
@@ -212,62 +212,62 @@ export default {
     {
       note: "defend value grows instead of decreasing",
       file: "native/lfw/collision/n_bdy_defend.cpp",
-      from: "  v->set_defend_value(Value(to_number(v->defend_value()) - bdefend));",
-      to: "  v->set_defend_value(Value(to_number(v->defend_value()) + bdefend));",
+      from: "  v->set_defend_value(v->defend_value() - bdefend);",
+      to: "  v->set_defend_value(v->defend_value() + bdefend);",
     },
     {
       note: "defend value read from the attacker",
       file: "native/lfw/collision/n_bdy_defend.cpp",
-      from: "  v->set_defend_value(Value(to_number(v->defend_value()) - bdefend));",
-      to: "  v->set_defend_value(Value(to_number(a->defend_value()) - bdefend));",
+      from: "  v->set_defend_value(v->defend_value() - bdefend);",
+      to: "  v->set_defend_value(a->defend_value() - bdefend);",
     },
     {
       note: "defend value not written",
       file: "native/lfw/collision/n_bdy_defend.cpp",
-      from: "  v->set_defend_value(Value(to_number(v->defend_value()) - bdefend));\n",
+      from: "  v->set_defend_value(v->defend_value() - bdefend);\n",
       to: "",
     },
     {
       note: "injury scale taken from the attacker defend ratio",
       file: "native/lfw/collision/n_bdy_defend.cpp",
-      from: "  handle_injury(c, to_number(v->defend_ratio()), false);",
-      to: "  handle_injury(c, to_number(a->defend_ratio()), false);",
+      from: "  handle_injury(c, v->defend_ratio(), false);",
+      to: "  handle_injury(c, a->defend_ratio(), false);",
     },
     {
       note: "injury keeps the toughness",
       file: "native/lfw/collision/n_bdy_defend.cpp",
-      from: "  handle_injury(c, to_number(v->defend_ratio()), false);",
-      to: "  handle_injury(c, to_number(v->defend_ratio()), true);",
+      from: "  handle_injury(c, v->defend_ratio(), false);",
+      to: "  handle_injury(c, v->defend_ratio(), true);",
     },
     {
       note: "injury scale is a constant",
       file: "native/lfw/collision/n_bdy_defend.cpp",
-      from: "  handle_injury(c, to_number(v->defend_ratio()), false);",
+      from: "  handle_injury(c, v->defend_ratio(), false);",
       to: "  handle_injury(c, 1.0, false);",
     },
     {
       note: "injury handler dropped",
       file: "native/lfw/collision/n_bdy_defend.cpp",
-      from: "  handle_injury(c, to_number(v->defend_ratio()), false);\n",
+      from: "  handle_injury(c, v->defend_ratio(), false);\n",
       to: "",
     },
     {
       note: "rest handler dropped",
       file: "native/lfw/collision/n_bdy_defend.cpp",
-      from: "  handle_injury(c, to_number(v->defend_ratio()), false);\n  handle_rest(c);\n  handle_stiffness(c);",
-      to: "  handle_injury(c, to_number(v->defend_ratio()), false);\n  handle_stiffness(c);",
+      from: "  handle_injury(c, v->defend_ratio(), false);\n  handle_rest(c);\n  handle_stiffness(c);",
+      to: "  handle_injury(c, v->defend_ratio(), false);\n  handle_stiffness(c);",
     },
     {
       note: "stiffness handler dropped",
       file: "native/lfw/collision/n_bdy_defend.cpp",
-      from: "  handle_injury(c, to_number(v->defend_ratio()), false);\n  handle_rest(c);\n  handle_stiffness(c);",
-      to: "  handle_injury(c, to_number(v->defend_ratio()), false);\n  handle_rest(c);",
+      from: "  handle_injury(c, v->defend_ratio(), false);\n  handle_rest(c);\n  handle_stiffness(c);",
+      to: "  handle_injury(c, v->defend_ratio(), false);\n  handle_rest(c);",
     },
     {
       note: "rest and stiffness swapped",
       file: "native/lfw/collision/n_bdy_defend.cpp",
-      from: "  handle_injury(c, to_number(v->defend_ratio()), false);\n  handle_rest(c);\n  handle_stiffness(c);",
-      to: "  handle_injury(c, to_number(v->defend_ratio()), false);\n  handle_stiffness(c);\n  handle_rest(c);",
+      from: "  handle_injury(c, v->defend_ratio(), false);\n  handle_rest(c);\n  handle_stiffness(c);",
+      to: "  handle_injury(c, v->defend_ratio(), false);\n  handle_stiffness(c);\n  handle_rest(c);",
     },
     {
       note: "spark point uses the b cube as source",
@@ -326,32 +326,32 @@ export default {
     {
       note: "broken defend test is strict",
       file: "native/lfw/collision/n_bdy_defend.cpp",
-      from: "  if (to_number(v->defend_value()) <= 0) {",
-      to: "  if (to_number(v->defend_value()) < 0) {",
+      from: "  if (v->defend_value() <= 0) {",
+      to: "  if (v->defend_value() < 0) {",
     },
     {
       note: "broken defend test flipped",
       file: "native/lfw/collision/n_bdy_defend.cpp",
-      from: "  if (to_number(v->defend_value()) <= 0) {",
-      to: "  if (to_number(v->defend_value()) >= 0) {",
+      from: "  if (v->defend_value() <= 0) {",
+      to: "  if (v->defend_value() >= 0) {",
     },
     {
       note: "broken defend test reads the attacker",
       file: "native/lfw/collision/n_bdy_defend.cpp",
-      from: "  if (to_number(v->defend_value()) <= 0) {",
-      to: "  if (to_number(a->defend_value()) <= 0) {",
+      from: "  if (v->defend_value() <= 0) {",
+      to: "  if (a->defend_value() <= 0) {",
     },
     {
       note: "broken branch does not clamp the defend value",
       file: "native/lfw/collision/n_bdy_defend.cpp",
-      from: "    v->set_defend_value(Value(0.0));\n    g_env.spark(Value(x), Value(y), Value(z), Value(std::u16string(spark_enum::kBrokenDefend)));",
+      from: "    v->set_defend_value(0.0);\n    g_env.spark(Value(x), Value(y), Value(z), Value(std::u16string(spark_enum::kBrokenDefend)));",
       to: "    g_env.spark(Value(x), Value(y), Value(z), Value(std::u16string(spark_enum::kBrokenDefend)));",
     },
     {
       note: "broken branch clamps to one",
       file: "native/lfw/collision/n_bdy_defend.cpp",
-      from: "    v->set_defend_value(Value(0.0));",
-      to: "    v->set_defend_value(Value(1.0));",
+      from: "    v->set_defend_value(0.0);",
+      to: "    v->set_defend_value(1.0);",
     },
     {
       note: "broken spark kind swapped",

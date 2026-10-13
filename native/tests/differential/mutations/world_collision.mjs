@@ -59,9 +59,10 @@
 //     `find_entity` / `hp_recoverability` / `summary_apply_damage` / `is_fighter` / `calc_velocity`
 //     / `buff_env`，其中 `hp_recoverability` 与 `calc_velocity` 的结果进了 `hp_r` / 速度，
 //     前者 dump 里没有、后者被 `handle_fall` 的 `set_velocity` 吃掉 ⇒ 也够不着）；
-//   * 三个视图已合并成一个 `EntityCollisionView`（4Q）：视图里只留 `handle_itr_catch` 走的那三
-//     条（`catcher` / `set_catching` / `set_catcher`）；其余转发方法（`hp` / `set_hp` / `data` …）
-//     改坏了也会让 `hp` / `data` 变，但观测面与 `handle_injury` 那几条重叠 ⇒ 留给视图自己的用例。
+//   * 视图层已在 4CE 退役（`EntityCollisionView` / `ICollisionViewHost` 连同 `I*Entity` 窄接口一并
+//     删除），`handle_itr_catch` 现在直接写 `Entity::catching` / `Entity::catcher`
+//     （`collision/handlers2.cpp`）⇒ 原先锁视图方法的 `catcher` / `set_catching` / `set_catcher`
+//     三条变异改由 `collision_handlers2.mjs` 覆盖，本档不再重复。
 //   * `step: 宿主不再置当前那一对（collision_get 的包装器）`：**实测**（手工去掉两行 + `build`
 //     + 对比输出：零差异）—— `collision_get` 期间的 `collision_test` 只在这条缝上读
 //     `attacker_is_ally`，而用例里没有任何一对能在这一步分岔（场景 4 试过「同队」：
@@ -200,46 +201,19 @@ export default {
     {
       note: "handlers: attacker_set_motionless 空实现（攻击方的 `motionless` 不进实体）",
       file: "native/lfw/world_collision.cpp",
-      from: "    if (_cur_a != nullptr) _cur_a->motionless = to_number(v);",
+      from: "    if (_cur_a != nullptr) _cur_a->set_motionless(to_number(v));",
       to: "    (void)v;",
     },
     {
       note: "handlers: victim_set_shaking 空实现（受害方的 `shaking` 不进实体）",
       file: "native/lfw/world_collision.cpp",
-      from: "    if (_cur_v != nullptr) _cur_v->shaking = to_number(v);",
+      from: "    if (_cur_v != nullptr) _cur_v->set_shaking(to_number(v));",
       to: "    (void)v;",
     },
-    // ───────────── `handle_itr_catch` 走的那三个视图方法 ─────────────
-    {
-      note: "view: EntityCollisionView::catcher() 恒非空（`handle_itr_catch` 直接放弃）",
-      file: "native/lfw/entity/entity_collision_view.cpp",
-      from:
-        "collision::IHandlerEntity* EntityCollisionView::catcher() const {\n" +
-        "  return _e.catcher == nullptr ? nullptr : _host.handler_view(_e.catcher);\n" +
-        "}",
-      to:
-        "collision::IHandlerEntity* EntityCollisionView::catcher() const {\n" +
-        "  return _host.handler_view(&_e);\n" +
-        "}",
-    },
-    {
-      note: "view: EntityCollisionView::set_catching 空实现（攻击方不记受害者）",
-      file: "native/lfw/entity/entity_collision_view.cpp",
-      from:
-        "void EntityCollisionView::set_catching(collision::IHandlerEntity* v) {\n" +
-        "  _e.catching = _host.entity_of_handler(v);\n" +
-        "}",
-      to: "void EntityCollisionView::set_catching(collision::IHandlerEntity* v) { (void)v; }",
-    },
-    {
-      note: "view: EntityCollisionView::set_catcher 空实现（受害者不记攻击方）",
-      file: "native/lfw/entity/entity_collision_view.cpp",
-      from:
-        "void EntityCollisionView::set_catcher(collision::IHandlerEntity* v) {\n" +
-        "  _e.catcher = _host.entity_of_handler(v);\n" +
-        "}",
-      to: "void EntityCollisionView::set_catcher(collision::IHandlerEntity* v) { (void)v; }",
-    },
+    // ───────────── `handle_itr_catch` 那三条视图方法（4CE 已随视图层删除） ─────────────
+    // 视图层（`EntityCollisionView` / `ICollisionViewHost`）退役后 `handle_itr_catch` 直接写
+    // `Entity::catching` / `Entity::catcher`（见 `collision/handlers2.cpp`）⇒ 原先锁视图方法的那
+    // 三条变异改由 `collision_handlers2.mjs` 覆盖，这里不再重复。
     // ───────────── Pick / `handle_rest` / Freeze 这三条支路（用例第 7–10 组） ─────────────
     {
       note: "keeper: 丢掉 Pick 那一支（武器不再被捡起）",

@@ -10678,3 +10678,104 @@ lfw_run --root dist --zip build/host-data/prel --zip build/host-data/data \
   4 个 `team_13` 的关卡兵），但两个 bot 战士只是**走到敌人旁边站着**（`state` 停在 0/2、双方
   血量不动）。下一步要么顺着 `BotController` 查「为什么不出招」，要么改走「喂键盘输入」那条
   路（`LocalController` + `Keys`）——后者还能顺手把「可复现的对打录像」立起来。
+
+## 141. 切片 4CE：碰撞族窄接口退役（`I*Entity` → `Entity`）
+
+### 141.1 为什么
+
+TS 里碰撞的两边**就是** `Entity`（`collision.attacker: Entity` / `collision.victim: Entity`）。
+端口在 4Q 那一刀建了一整套窄接口（`IHandlerEntity` / `IFallEntity` / …）+ `EntityCollisionView`
+适配层，把同一个 `Entity` 按「碰撞层用得到的那几条」重新拼一遍。那是**只有端口有**的一层：
+TS 从来没有这些接口，`collision/*.ts` 读的就是实体字段。这一刀把这层退役 ——
+与 4BY 退役 `buff::IBuffEntity` 是同一个口径：**实体面只写一遍，谁要就用 `lfw::Entity`**。
+
+### 141.2 删掉的（`native/lfw/` 净减 ~620 行：+540 / −1161）
+
+| 东西 | 位置 |
+| --- | --- |
+| 10 个窄接口 | `collision/{handlers2,fall,weapon_is_hit,n_bdy_normal,n_bdy_defend,action_handlers,handlers3,handlers4,ball_frozen,healing}.h` |
+| `ICollisionViewHost` + `EntityCollisionView` | `entity/entity_collision_view.{h,cpp}`（整文件删除） |
+| 视图宿主那半边 | `WorldCollisionHost` 不再是视图宿主：去掉 `handler_view` / `weapon_view` / `action_view` / `buff_view` / `entity_by_id` / `entity_of_handler` / `collision_view` / `mt_range`，以及视图缓存与「虚基指针 → 实体」反向表 |
+| 缝里的实体类型 | `collision/` 的 10 个 Env（`Handlers2Env` / `ActionEnv` / `Handlers3Env` / `Handlers4Env` / `FallEnv` / `NbdyNormalEnv` / `NbdDefendEnv` / `WeaponIsHitEnv` / `BallFrozenEnv` / `HealingEnv`）的 `find_entity` / `is_fighter` / `is_ball` / `is_weapon` / `is_ally` / `summary_apply_damage` / `handle_ball_frozen` / `run_action` 一律收 `lfw::Entity*` / `Entity&`（`buff::BuffEnv` 自 4BY 起已是 `Entity*`） |
+
+顺带消失的两处历史包袱：`IFallEntity::velocity_x()` 与 `IActionEntity::velocity_x()` 的
+「同名同参不同返回」冲突（那是视图被迫合并三接口才有的问题），以及 4Q 记在 DESIGN 里的
+`-fno-rtti` 反向表。
+
+### 141.3 收进 `Entity` 的实体面
+
+**新增读面**（原实现只在视图里）：`marks_has` / `data_base_hit_sounds` / `data_id` / `frame_id` /
+`cpoint_backhurtact` / `cpoint_fronthurtact` / `data_in_the_skys_first` / `holding_base_type` /
+`fuse_bys_of` / `play_sound(sounds)` + `play_sound(sounds, pos)` / `spark_point(a, b, x, y, z)` /
+`set_prop(name, value)`（`A_SET_PROP` / `V_SET_PROP` 的白名单写入，从视图原样搬来）。
+
+**新增写面**：`set_fuse_bys` / `set_dismiss_time` / `set_dropping` / `set_shaking` /
+`set_motionless` / `set_catcher` / `set_velocity_x` / `set_facing`。
+
+**加 `virtual`（零调用点改动）**：写面 `set_resting` / `set_fall_value` / `set_defend_value` /
+`set_arest` / `set_catch_time` / `set_catching` / `set_invisible` / `set_invulnerable` /
+`enter_frame` / `set_fuse_bys` / `set_dismiss_data` / `set_dismiss_time` / `set_prop` /
+`leave_ground`；读面 `resting` / `fall_value` / `fall_value_max` / `defend_value` /
+`defend_value_max` / `defend_ratio` / `toughness` / `toughness_max` / `catch_time_max` / `hp_max` /
+`arest` / `weight` / `base_type` / `ground_y` / `group` / `spark_point`（`const` 虚）。
+
+为什么要虚：差分台面的假实体从「实现窄接口」改成「派生真 `Entity`」（见 141.4），
+台面要**逐字复刻** TS 侧的 setter 日志与「没设过 ⇒ `u`」的读法，就得能拦这几条。
+这个口径与 4BY 给 `buffs_set` 加的注释是同一句：*台面假实体要观测这几条调用*。
+
+### 141.4 差分台面的形状
+
+台面假实体不再实现接口，而是派生真 `Entity`（`struct Fake : lfw::Entity`，构造用
+`Entity(fx::shared_host(), Value())` 再把 `this->id` 钉上），按 TS 台面的 `get/set` 对覆写实体面。
+`env <side> <field>` 的走法与 TS 的 `walkSide` 一致：**直接写后备字段**（因此不产生日志，
+与 TS 侧绕开自有 setter 的行为逐字对应），库里的写入则落在被覆写的 setter 上打日志。
+`u`（TS 的 `undefined`）用「设过没有」的小标记表示（同 `buff_healing.cpp` 的 `Stat`）。
+
+### 141.5 偏差
+
+1. `is_bot_ctrl` 由「视图方法」改成自由函数 `entity::is_bot_ctrl(const controller::BaseController*)`
+   —— TS 的 `type_check.ts` 本来就是自由函数（读 `ctrl.__is_bot_ctrl__`），接线一起改成
+   `entity::is_bot_ctrl(e.ctrl())`。
+2. `facing` / `shaking` / `motionless` / `catching` / `catcher` 在 `Entity` 上仍是**字段**（TS 也是
+   字段），不做成虚方法：字段写在状态层/实体层有几十处，只在碰撞层换成方法会留下两套写法。
+   碰撞层这一侧统一走 `set_shaking` / `set_motionless` / `set_catcher` / `set_facing`（为了台面
+   能观测），实体内部继续直写字段。
+3. `Entity::spark_point` 走 `host().mt()`（`World::mt()` → `LFW::_mt`，永远非空），
+   与原视图的 `mt_range` / `mt_mark` 缝等价；缝随之删除。
+
+### 141.6 实测与回归
+
+```
+node native/tools/native.mjs build      # rm -rf build/msvc-x64 后的全量干净重编（全部目标 + host）
+node native/tools/native.mjs test       # differential: 254/254 passed
+node native/tools/native.mjs lint       # 840 clean / 0 failed / 9 warnings + 9772 ok / 0 bad anchors
+node native/tools/native.mjs coverage   # coverage: OK（`suffix_map` 仍是既有待定项）
+```
+
+宿主端到端（`lfw_run`，与 §139 / §140 记录**逐位**一致）：
+
+```
+lfw_run --root dist --zip native\build\host-data\prel --frames 300 --every 100
+  → done: frames=300 digest=d9b00db799724a2b            （§139 同值）
+lfw_run --root dist --zip …\prel --zip …\data --fighter 1 --fighter 4 --stage 1 --frames 900 --every 300
+  → done: frames=900 digest=eeecc812075e8b74            （§140 同值；warns=1 仍是既有的 id duplicated）
+```
+
+即这一刀是**纯结构**改动：差分逐字不变、宿主摘要逐位不变、lint 计数只少了随代码消失的锚点。
+
+⚠ 构建陷阱（本刀每次改 `Entity` 虚表都复现）：`build.ninja` 没有 `deps = msvc`，头文件改动
+**不触发重编** ⇒ 改虚表后必须 `rm -rf native/build/msvc-x64` 全量重编（退一步：删
+`lfw/CMakeFiles/lfw_core.dir` + `lfw_core.lib` 并逐个碰 subject `.cpp`），否则会同时出现
+`LNK2001`（新旧名字对不上）与「旧 vtable 的 exe 静默跑错」两种假象。
+
+### 141.7 白名单补漏与台面适配的已知缺口
+
+1. `set_prop` 的白名单本刀补上 `team`：TS 侧 `A_SET_PROP`/`V_SET_PROP` 是
+   `entity[name] = value`，`collision_action_handlers` 的 case 里就有 `name "team"`，
+   原来的白名单没有这一支 ⇒ 库里是 no-op（DESIGN §78 记的白名单偏差中的一个真漏）。
+   现在走 `set_team(to_string(v))`，与 TS 的动态写入对齐（顺带让台面能观测到 `set_team`）。
+2. `Entity::set_team(std::u16string)` 抹掉了值的类型：TS 的 `team` 可以是 number（case 里有
+   `team n 3`）⇒ 台面从「来源实体的镜像」把 number 还原回来，日志文本才对得上。
+3. `Entity::spawn(opoint, offset_velocity, facing)` 保持非虚（TS 的 `spawn` 本体也是走
+   `lfw.factory.create_entity_with_bot`）⇒ 台面经宿主缝观测它；`collision_ball_frozen` 的
+   「spawn 失败」分支因此依赖上一个成功 spawn 记下的 opoint（当前 case 满足）。

@@ -8,10 +8,19 @@
 
 #include "lfw/base/expression.h"
 #include "lfw/buff/buff.h"
+#include "lfw/collision/action_handlers.h"
+#include "lfw/collision/ball_frozen.h"
 #include "lfw/collision/collision.h"
+#include "lfw/collision/fall.h"
+#include "lfw/collision/handlers2.h"
+#include "lfw/collision/handlers3.h"
+#include "lfw/collision/handlers4.h"
+#include "lfw/collision/healing.h"
 #include "lfw/collision/keeper.h"
+#include "lfw/collision/n_bdy_defend.h"
+#include "lfw/collision/n_bdy_normal.h"
+#include "lfw/collision/weapon_is_hit.h"
 #include "lfw/core/value.h"
-#include "lfw/entity/entity_collision_view.h"
 
 namespace lfw {
 
@@ -20,18 +29,20 @@ class World;
 
 // `src/LFW` 的 `collision/*` 直接引用 `world.*` / `lfw.*` / 实体属性；端口的
 // `collision/` 层把这些都留成了 Env 缝（82 条）。本类是**唯一**的接线点：把 82 条缝接到
-// 真实的 `World` / `Entity` / 宿主 `lfw` 面上，并给 `collision/` 层提供 `Entity` 视图
-// （`EntityCollisionView`：一个实体只有一份，三个访问器返回同一个对象）。
+// 真实的 `World` / `Entity` / 宿主 `lfw` 面上。
 //
 // 保真要点：
-// 1. `CollisionActor` 是**快照**（`collision/` 层看不见 `Entity`）⇒ 宿主负责 `Entity` →
-//    `CollisionActor` 的投影，字段对应见 `actor_of` 上的注释（TS 是直接读活实体）。
+// 1. `CollisionActor` 是**快照**（`collision/` 层看不见 `Entity` 的活体）⇒ 宿主负责
+//    `Entity` → `CollisionActor` 的投影，字段对应见 `actor_of` 上的注释（TS 是直接读活实体）。
 // 2. 两条缝（`victim_get_v_rest` / `attacker_is_ally`）签名里没有对方实体，TS 那边是
 //    `victim.get_v_rest(c.aid)` / `attacker.is_ally(victim)` ⇒ 宿主要知道「当前判定的那一对」。
 //    它由本类的 `collision_get` / `collision_test` 包装器登记（`collision/` 层的入口只有这两个）。
 // 3. 需要「活实体」的缝（`find_entity` / `get_bounding` / `victim_add_v_rest` …）一律按 id 现查
 //    `world.find_entity`，不缓存实体指针。
-class WorldCollisionHost : public ICollisionViewHost {
+//
+// 切片 4CE：碰撞族的 `I*Entity` 窄接口退役 ⇒ 缝里交出去的就是 `Entity*` 本身，本类不再是
+// 什么「视图宿主」（原 `ICollisionViewHost` 与 `EntityCollisionView` 一并删除）。
+class WorldCollisionHost {
  public:
   explicit WorldCollisionHost(World& world);
   ~WorldCollisionHost();
@@ -55,19 +66,6 @@ class WorldCollisionHost : public ICollisionViewHost {
   // `Entity` → `CollisionActor` 快照（TS 侧是那个活实体本身）。
   collision::CollisionActor actor_of(Entity& e) const;
   collision::CollisionActor actor_of_id(const std::u16string& id) const;
-
-  // `ICollisionViewHost`：三个访问器都返回同一个对象的**同一个**缓存实例。
-  EntityCollisionView* handler_view(Entity* e) override;
-  EntityCollisionView* weapon_view(Entity* e) override;
-  EntityCollisionView* action_view(Entity* e) override;
-  Entity* buff_view(Entity* e) override;
-  // 三个访问器（及台面探针）的公共实现：同一个实体只建一份视图（指针稳定，
-  // `catcher` / `bearer` 靠它）。
-  EntityCollisionView* collision_view(Entity* e);
-  Entity* entity_by_id(const std::u16string& id) override;
-  Entity* entity_of_handler(const collision::IHandlerEntity* v) override;
-  double mt_range(double min, double max) override;
-  void mt_mark(const std::u16string& mark) override;
 
  private:
   // 把 11 个 Env 发布到 `collision/` 的模块级槽上；`ensure_published()` 只在「当前发布者不是
@@ -105,6 +103,9 @@ class WorldCollisionHost : public ICollisionViewHost {
   bool tester_run(const Value& tester, collision::Collision& c);
   Value tester_debug(const Value& tester);
 
+  // `lfw.mt.mark = mark`（`action.mt_set_mark` / `weapon_is_hit.mt_mark` 两条缝的公共实现）。
+  void mt_mark(const std::u16string& mark);
+
   collision::Collision& acquire_collision();
   buff::Buff* find_buff(const std::u16string& id) const;
   buff::Buff* create_buff(const std::u16string& kind, const std::u16string& id);
@@ -128,12 +129,6 @@ class WorldCollisionHost : public ICollisionViewHost {
   collision::BallFrozenEnv _ball_frozen;
   collision::HealingEnv _healing;
   buff::BuffEnv _buff_env;
-
-  // 三个访问器共用的一张缓存表（一个实体一份 `EntityCollisionView`）。
-  std::map<Entity*, std::unique_ptr<EntityCollisionView>> _collision_views;
-  // `IHandlerEntity` 是虚基类 ⇒ 不能从它 static_cast 回视图（`C2635`）⇒ 建视图时登记
-  // 「虚基子对象地址 → 该实体」（`find_entity` 交出去的正是这个地址）。
-  std::map<const collision::IHandlerEntity*, Entity*> _entity_of_handler;
 
   // `lfw.acquire_collision()`：TS 的对象池 `Graves`（`LFW.ts:891`）**没有任何**
   // `recycle_collision` 调用者 ⇒ 池永远是空的 ⇒ 每次都是新对象。端口按同样的行为给「每次
