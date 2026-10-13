@@ -16,6 +16,8 @@
 #include <utility>
 #include <vector>
 
+#include "host/headless_host.h"
+
 #include "lfw/camera.h"
 #include "lfw/cmds/cmds.h"
 #include "lfw/core/value.h"
@@ -496,6 +498,39 @@ class TestWorld : public World {
 // 进程内共享的台面世界（Meyers 单例）。名字与 `lfw::Entity::world()` 不撞。
 inline TestWorld& shared_world() {
   static TestWorld w;
+  return w;
+}
+
+// ---- 真 `LFW` 的台面通路（切片 4CL）----
+//
+// 为什么要有：`ui::UILayers` / `DatMgr` / 整个 `IWorldLfw` 的真实现都以**具体 `LFW&`** 为入参，
+// 台面造不出 `LFW` 就退不掉那些缝（4CK-2 就是这么被卡住的）。这里复用 headless 宿主
+// （`lfw::host::HeadlessHost`，本就是 `ILfwHost` 的最小可用实现），只把它的打印静音 ——
+// case 的输出是差分的比较对象，不能被宿主日志污染。
+class StubHost : public lfw::host::HeadlessHost {
+ public:
+  StubHost() : lfw::host::HeadlessHost({}, false) {}
+
+  void warn(const std::vector<Value>&) override {}
+  void error(const std::vector<Value>&) override {}
+  void log(const std::vector<Value>&) override {}
+  void debug_msg(const std::vector<Value>&) override {}
+};
+
+inline StubHost& shared_stub_host() {
+  static StubHost h;
+  return h;
+}
+
+// 进程内共享的真 `LFW`（首次用到才构造，`HeadlessHost({}, false)` 不读盘）。
+inline lfw::LFW& shared_real_lfw() {
+  static lfw::LFW l(shared_stub_host());
+  return l;
+}
+
+// 挂在真 `LFW` 上的台面世界：那些「真实现需要 `LFW&`」的缝，台面改用这条通路。
+inline TestWorld& shared_real_lfw_world() {
+  static TestWorld w(shared_real_lfw(), g_renderer, &g_states);
   return w;
 }
 

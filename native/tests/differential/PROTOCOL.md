@@ -5583,3 +5583,20 @@ harness op：
 - ⚠ 改过 `world.h` / `camera.h` 这类被广泛 include 的头之后，**必须整树清 obj 再编**：
   `build.ninja` 没有头依赖，只清 `lfw_core.dir` 会留下陈旧的台面 obj，症状是链接期
   「找不到 `Camera::Camera(ICameraWorld*)`」或「找不到 `World::~World`」。
+
+### 6.9.189 台面构造真 `LFW` 的通路（4CL）
+
+- `world_fixture.h` 新增：`fx::shared_real_lfw()`（进程内共享的真 `lfw::LFW`，宿主是
+  `fx::shared_stub_host()`）与 `fx::shared_real_lfw_world()`（挂在其上的 `TestWorld`）。
+  老的假 `lfw` 通路（`fx::shared_world()` / `FakeLfw`）**保持不变** —— 用不用真 `LFW` 由每个
+  台面自己选。
+- `fx::StubHost : lfw::host::HeadlessHost`：**只**静音 `warn/error/log/debug_msg`。原因：case 的
+  stdout 就是差分的比较对象，宿主日志会污染它。别把静音去掉。
+- 测试目标现在链接 `lfw_headless_host`（`host/headless_host.cpp` 的静态库）。它的编译标志必须与
+  `lfw_core` 一致（`/GR-` + `_HAS_EXCEPTIONS=0`）：开关不一致会让两边各自实例化 `std::variant`
+  之类同名模板，两边对 `std::` 内部布局的理解必须一致。
+- `shared_real_lfw()` 是 Meyers 单例、**首次用到才构造**：不用它的台面完全不受影响（不读盘、
+  无副作用），这正是本刀能做成「纯增量」的原因。
+- 什么时候该用真 `LFW`：当被测的真实现（`ui::UILayers` / `DatMgr` / `LFW` 自身）以**具体
+  `LFW&`** 为入参、假件没法替它时。能用「派生真类 + 覆写原假件那几个面」复现台面脚本行为的，
+  照旧用 `TestWorld` 钩子（见 6.9.187）。

@@ -11281,3 +11281,73 @@ fighter `101` 血量 500 → 339 → 288 说明**阶段模式也在真打**。`w
 只删 `lfw_core.dir` 的 obj 不够 —— **台面目录的 obj 也会陈旧**，表现是链接期「找不到
 `Camera::Camera(ICameraWorld*)`」或「找不到 `World::~World`」，看着像真 bug。可靠姿势：
 `Get-ChildItem -Recurse -File <build> -Include *.obj,*.lib,*.exe | Remove-Item`（**保留目录**）再编。
+
+---
+
+## 148. 解锁性先决条件：台面能构造真 `LFW`（切片 4CL）
+
+### 148.1 为什么需要
+
+`IEntityHost`（§146）与 `ICameraWorld`（§147）退得掉，是因为它们的**真实现是 `World`**，而 `World`
+在台面里造得出来（它的入参 `IWorldLfw` / `IWorldRenderer` / `States` 都是可以假的东西）。剩下的
+家族成员不满足这一点：
+
+| 缝 | 真实现 | 真实现要什么 | 台面能造吗 |
+| --- | --- | --- | --- |
+| `IWorldUi` / `IUiLayers` | `ui::UILayers` | 具体 `LFW&` | ✗ |
+| `IDatMgrHost` | `LFW`（`DatMgr` 是它的一部分） | 具体 `LFW&` | ✗ |
+| `IWorldLfw` / `IStageLfw` / `IHelperLfw` / `IUiHelperLfw` | `LFW` | 具体 `LFW&` | ✗（且它本身就是台面当前假 `LFW` 的手段） |
+
+⇒ 全部卡在同一件事上：**台面造不出真 `LFW`**。而 `LFW` 只要一个 `ILfwHost`（53 条纯虚）——
+这正是 §147 判据里「台面替代成本可接受吗」那条的实质。
+
+4CK-2（`IWorldUi` + `IUiLayers`）的实际尝试就停在这里：真 `ui::UILayers::UILayers(LFW&)` 要具体
+`LFW&`，`UILayer`/`UINode` 同理；port 侧改完了也编不过台面，于是**整刀回滚**（没有留下半成品）。
+
+### 148.2 做法：复用 headless 宿主，别新写桩件
+
+端口里**本来就有**一个 `ILfwHost` 的最小可用实现：`native/host/headless_host.h/.cpp` 的
+`lfw::host::HeadlessHost`（手推时钟 `ManualClock` + 空 renderer `NullWorldRenderer` + 内存存档 +
+不读盘）。所以这一刀不写新桩件，只做三件事：
+
+1. **测试目标链接 `headless_host.cpp`**（`tests/differential/CMakeLists.txt` 新增静态库
+   `lfw_headless_host`，编译标志与 `lfw_core` / `lfw_run` 一致：`/GR-` + `_HAS_EXCEPTIONS=0` ——
+   开关不一致会让两边各自实例化 `std::variant` 同名模板）。
+2. **台面通路**（`subjects/world_fixture.h`）：
+   - `fx::StubHost : lfw::host::HeadlessHost` —— 只把 `warn/error/log/debug_msg` **静音**
+     （case 的输出是差分比较对象，不能被宿主日志污染），其它一字不改；
+   - `fx::shared_real_lfw()` —— 进程内共享的真 `LFW`（Meyers 单例，首次用到才构造，不读盘）；
+   - `fx::shared_real_lfw_world()` —— 挂在真 `LFW` 上的 `TestWorld`（用它的三参构造）。
+3. ⚠ **纯增量**：老的假 `lfw` 通路（`fx::shared_world()` + `FakeLfw`）一字未动 —— 25 个用例的行为
+   因此完全不变（摘要逐字节不变就是证据）。
+
+### 148.3 证据（一次性探针，跑完删除）
+
+写了个临时 `subjects/zz_spike_real_lfw.cpp` 实测（不进提交）：
+
+```
+P1 lfw/world constructed
+P2 ui_layers dynamic type == ui::UILayers: yes, length=1.0, top=y
+P3 after push_layer: all=2 bottom=y
+P4 update_ui over real layers ok
+P5 layer ui=n
+P6 new_id=(set) new_team=(set)
+```
+
+即：台面能构造真 `LFW` + 真 `World`；`LFW::ui_layers()`（静态类型还是 `IUiLayers*`）的**动态类型
+就是 `ui::UILayers`**；`World::update_ui` 能走真层；真 `new_id` / `new_team` 可用。
+
+### 148.4 实测（本刀是纯增量 ⇒ 一切照旧）
+
+差分 **255/255**；锚点 **9764 ok / 0 bad**；include **836 clean / 0 failed / 9 warnings**；
+coverage OK；宿主 prel 300 = `7335aa25f4e1ce86`、`--vs` 600 = `f29d3bb1ea330c32`（**逐字节不变**）。
+
+### 148.5 解锁了什么
+
+- **ck2**：`IUiLayers` / `IWorldUi` 可退 —— `IUiLayers::layer_uis()`（以及 `IWorldLfw` 上那条同名面）
+  改成给真 `ui::UILayers*`，`UILayers::UiAdapter` 删除，`World::update_ui` 直接倒序遍历真层。
+- **ck5**：`IDatMgrHost` 可退（`DatMgr` 直读真 `LFW`）。
+- **ck6（B 组）**：`IWorldLfw` / `IStageLfw` / `IHelperLfw` / `IUiHelperLfw` 可退 —— 台面那些假
+  `lfw` 改成**派生真 `LFW`**（用「覆写原假件那几个面、对它们不调真基类」的复现法，同 §147.2 的
+  相机台面）。这也是 `player_info.cpp` 用 `IPlayerInfoHost` 桩住平台边界那套范式的同一招。
+- 仍然独立的一条：**`IKeysLfw` 没有真实现**（`LFW` 没接 keys 面）⇒ 它是「待移植」，不是退役。
