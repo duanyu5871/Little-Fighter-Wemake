@@ -611,7 +611,7 @@ void LFW::goto_next_stage() {
   }
   if (next_stage != nullptr && truthy(field_or(*next_stage, u"is_starting"))) {
     for (Entity* const e : world_->entities) {
-      if (entity::is_fighter(e->ref()) && e->ctrl() != nullptr &&
+      if (entity::is_fighter(ref_of(*e)) && e->ctrl() != nullptr &&
           players_has(Value(e->ctrl()->player_id))) {
         continue;
       }
@@ -1104,7 +1104,7 @@ void LFW::ctrl_stay(controller::BaseController& ctrl) {
 
 void LFW::ctrl_follow(controller::BaseController& ctrl, Entity& target) {
   if (ctrl.creator() == controller::bot_controller_creator()) {
-    static_cast<bot::BotController*>(&ctrl)->follow(target.ref());
+    static_cast<bot::BotController*>(&ctrl)->follow(ref_of(target));
   }
 }
 

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "lfw/entity/entity.h"
+#include "lfw/entity/entity_ref.h"
 #include "lfw/stage/item.h"
 
 namespace lfw {
@@ -14,7 +15,10 @@ class EntityItem : public IItemEntity {
  public:
   explicit EntityItem(Entity& e) : _e(e) {}
 
-  Value ref() const override { return _e.ref(); }
+  // ⚠ `IItemEntity::ref()` 的语义是「喂给 `is_fighter/is_weapon/is_ball` 的实体视图」
+  // （`item.cpp` 里就是这么用的，`Stage.ts`/`Item.ts` 那边吃的是活实体）⇒ 必须是
+  // `ref_of()` 的完整视图，**不是** `Entity::ref()` 那个薄 `{id}`。混用会让这些判断恒假。
+  Value ref() const override { return ref_of(_e); }
   const Value& data() const override { return _e.data(); }
   Value team() const override { return Value(_e.team()); }
   Callbacks& callbacks() override { return _e.callbacks; }

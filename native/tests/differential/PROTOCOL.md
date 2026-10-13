@@ -5540,3 +5540,15 @@ harness op：
 - 判定器的「有没有」等于「是否登记过」——**不要**再用「有没有 `expression` 字符串」去猜，
   那比 TS 宽（TS 只在 `preprocess_frame` / `preprocess_action` / `preprocess_entity_data` /
   `preprocess_itr` 那些调用点挂），实测会撞出加载期偶发内存破坏。
+
+### 6.9.186 `Entity::ref()`（薄）vs `ref_of()`（控制器视图）—— 视图产出点不要再混（4CI）
+
+- 端口有**两个**「实体视图」产出点，是同一 bug 家族（4CH + 4CI）的根因：
+  - `Entity::ref()` = 薄引用 `{id}`，与 TS 的 `ref` 逐字对应（台面 `run get ref` 依赖它，别改）。
+  - `lfw::ref_of(const Entity&)`（`entity_ref.h`）= **唯一**合法的控制器/碰撞视图（25 字段）。
+- 给 `IStageEntity` / `IItemEntity` 写适配器时，`ref()` 必须返回 **`ref_of(_e)`**：
+  这两个接口的 `ref()` 契约就是「喂 `is_fighter/is_weapon/is_ball` 的实体视图」
+  （`Stage.ts` / `Item.ts` 那边吃的是活实体）。返回 `_e.ref()` 会让这一族判断**静默恒假**。
+- 台面若自己实现 `IStageEntity` / `IItemEntity`（假实体），`ref()` 也按同一口径返回完整视图，
+  否则孪生吃活实体、台面吃薄引用 ⇒ 差分看不出（双方都「一致地」走错分支）而宿主行为不对。
+- 直调 `Entity*`/`Entity&` 时不要写 `e->ref()`，写 `lfw::ref_of(*e)`。

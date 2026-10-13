@@ -11086,8 +11086,8 @@ VS 模式（TS 口径场景）下两个互为敌人的 bot 跑到同一位置后
 | 变异锚点 | 9764 ok / 0 bad | **9764 ok / 0 bad** |
 | include / coverage | 836 clean / 0 failed / 9 warnings；OK | 同 |
 | 宿主 `lfw_run` prel 300 帧 | `d9b00db799724a2b` | **`7335aa25f4e1ce86`** |
-| 宿主 `lfw_run` prel+data fighter 1+4 stage 1 900 帧 | `eeecc812075e8b74` | **`0f07fb23756600f2`** |
-| 宿主 `--vs --stage 0 --fighter 1 --fighter 4` 600 帧 | 总血量恒 1100（零掉血） | **1100 → 976（掉血）**，`n_chase=1`，状态进入 3/5/7/8/15 攻击/受击态，`renderer(+-)=13/9` |
+| 宿主 `lfw_run` prel+data fighter 1+4 stage 1 900 帧 | `eeecc812075e8b74` | **`0f07fb23756600f2`**（⇒ 再被 §145.7 更新） |
+| 宿主 `--vs --stage 0 --fighter 1 --fighter 4` 600 帧 | 总血量恒 1100（零掉血） | **1100 → 976（掉血）**，`n_chase=1`，状态进入 3/5/7/8/15 攻击/受击态，`renderer(+-)=13/9`（⇒ 摘要再被 §145.7 更新） |
 
 **「两个 bot 走到一起却不攻击」到此闭环。**
 
@@ -11098,4 +11098,36 @@ VS 模式（TS 口径场景）下两个互为敌人的 bot 跑到同一位置后
   `x=80/120/160`（`> w_atk_f_x=50`）**，贴脸路径 0 覆盖 —— 这是差分没抓到这个 bug 的原因。
 - 遗留（同源但未动）：`item.cpp` / `stage.cpp` / `lfw.cpp` 里那批 `entity::is_fighter(e->ref())`
   在 TS 里吃的是活实体 ⇒ 同样应该走 `ref_of`。它们现在恒假（静默失效），改动会影响关卡/道具行为，
-  单独一刀评估。
+  单独一刀评估 ⇒ **见 §145.6（已偿还）**。
+
+
+### 145.6 遗留偿还：`IItemEntity::ref()` 与 `LFW` 直调点
+
+穷举同源点后只有 **三处**（比预估少）：`stage.cpp` / `item.cpp` 读的都不是 `Entity*`，而是两个桥接
+适配器，只有一个薄：
+
+| 位置 | 语义 | 处理 |
+| --- | --- | --- |
+| `world.cpp:107`（`IStageEntity` 适配器，`world.entities()`/`puppets()` 供的视图） | 已经是 `ref_of(_e)` | **本就正确** ⇒ `stage.cpp` 那一批 `is_fighter(e->ref())` 从未失效 |
+| `entity_item.h`（`IItemEntity` 适配器，`item.cpp` 走这条） | 原来是 `_e.ref()` ⇒ 薄 ⇒ `item.cpp` 的 `is_fighter`/`is_weapon` 恒假 | **`ref_of(_e)`** + 注释写明语义（`IItemEntity::ref()` 的契约就是「喂 `is_fighter/is_weapon/is_ball` 的实体视图」） |
+| `lfw.cpp:614` / `lfw.cpp:1107`（直接持 `Entity*`/`Entity&`） | 薄 `e->ref()` / `target.ref()` | **`ref_of(*e)` / `ref_of(target)`** |
+
+⚠ 端口里「实体视图」有**两个**产出点（适配器两处 + `Entity::ref()` 薄），这类 bug 的根因是**同一个
+函数名承载两种语义**；注释已把契约钉在声明处（`entity_item.h`、`entity_ref.h`）。
+
+### 145.7 实测（第二次保真度修复 ⇒ 摘要再次变化）
+
+差分 **255/255**；锚点 9764/0；include 836 clean/0/9；coverage OK。宿主摘要：
+
+| 项 | `145.4` 之后 | 本刀之后 |
+| --- | --- | --- |
+| `lfw_run` prel 300 帧 | `7335aa25f4e1ce86` | **`7335aa25f4e1ce86`**（未变：prel 无道具路径） |
+| `lfw_run` prel+data fighter 1+4 stage 1 900 帧 | `0f07fb23756600f2` | **`e4a9437292047044`** |
+| `lfw_run --vs --stage 0 --fighter 1 --fighter 4` 600 帧 | `074c5b15e7d1c963`（1100 → 976） | **`f29d3bb1ea330c32`**（1100 → 930） |
+
+变化原因（逐帧核对，非回归）：道具/武器分支转活 ⇒ `Item.ts` 里按 `is_weapon(e)` 决定 `y_default`
+（300 vs 0）与按 `is_fighter(e)` 决定 `outline_color`/`stat_bar`/`name`/初始帧的分支开始生效；900 帧里
+出现 `state=1000/1002`、`hp=1000`、`y≠0` 的**投掷物**（id `201→234`，旧的那只死亡后新生成），
+fighter `101` 血量 500 → 339 → 288 说明**阶段模式也在真打**。`warns=1` 是同时挂 `prel.zip`+`data.zip`
+时 `DatMgr::_add_obj id duplicated`（加载期、与本次改动无关；只挂 prel 时 `warns=0`）。
+
