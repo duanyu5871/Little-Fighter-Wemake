@@ -17,14 +17,18 @@
 #include "host/fs_zip.h"
 #include "host/headless_host.h"
 #include "lfw/bg/background.h"
+#include "lfw/bot/bot_controller.h"
 #include "lfw/core/state_hash.h"
 #include "lfw/core/json5.h"
 #include "lfw/core/value.h"
 #include "lfw/defines/defines_data.h"
 #include "lfw/defines/facing_flag.h"
+#include "lfw/entity/entity_ref.h"
 #include "lfw/lfw.h"
 #include "lfw/stage/stage.h"
 #include "lfw/utils/container_help/field_or.h"
+#include "lfw/utils/cross_bounding.h"
+#include "lfw/utils/type_check.h"
 #include "lfw/utils/utf8.h"
 
 namespace {
@@ -426,14 +430,48 @@ int main(int argc, char** argv) {
       std::printf("[  state]");
       for (Entity* const e : world.entities) {
         if (e == nullptr) continue;
-        std::printf(" %s{state=%s frame=%s x=%.1f y=%.1f hp=%.0f bot=%d}", to_utf8(e->id).c_str(),
+        std::printf(" %s{state=%s frame=%s x=%.1f y=%.1f hp=%.0f bot=%d m=%d g=%d}",
+                    to_utf8(e->id).c_str(),
                     to_utf8(lfw::to_string(e->state())).c_str(),
                     to_utf8(lfw::to_string(e->frame_id())).c_str(), e->position.x, e->position.y,
-                    e->hp(), e->ctrl_is_bot() ? 1 : 0);
+                    e->hp(), e->ctrl_is_bot() ? 1 : 0, lfw::truthy(Value(e->mounted())) ? 1 : 0,
+                    lfw::truthy(Value(e->ghosted())) ? 1 : 0);
       }
       if (const lfw::Background* const bg = world.bg()) {
         std::printf(" | bg{update_times=%.1f layer_data_index=%.1f left=%.1f right=%.1f}",
                     bg->update_times(), bg->layer_data_index(), bg->left(), bg->right());
+      }
+      std::printf("\n");
+      // 诊断行：bot 决策（目标表 / 行为 / 对每个其它实体的 `should_chase`）
+      std::printf("[   bots]");
+      for (Entity* const e : world.entities) {
+        if (e == nullptr || !e->ctrl_is_bot()) continue;
+        lfw::bot::BotController* const bc = static_cast<lfw::bot::BotController*>(e->ctrl());
+        if (bc == nullptr) continue;
+        const lfw::bot::BotTarget* const ch = bc->chasings.get();
+        const lfw::bot::BotTarget* const av = bc->avoidings.get();
+        std::printf(" %s{behavior=%s dummy=%s has_bot=%d n_chase=%zu n_avoid=%zu n_defend=%zu",
+                    to_utf8(e->id).c_str(),
+                    to_utf8(lfw::bot::bot_behavior_name(bc->behavior)).c_str(),
+                    to_utf8(lfw::to_string(bc->dummy)).c_str(),
+                    lfw::truthy(bc->bot) ? 1 : 0, bc->chasings.targets().size(),
+                    bc->avoidings.targets().size(), bc->defends.targets().size());
+        if (ch != nullptr) {
+          std::printf(" chase=%s@%.1f", to_utf8(lfw::to_string(field_or(ch->entity, u"id"))).c_str(),
+                      ch->distance);
+        }
+        if (av != nullptr) {
+          std::printf(" avoid=%s@%.1f", to_utf8(lfw::to_string(field_or(av->entity, u"id"))).c_str(),
+                      av->distance);
+        }
+        for (Entity* const o : world.entities) {
+          if (o == nullptr || o == e) continue;
+          const Value o_ref = lfw::ref_of(*o);
+          std::printf(" |chase?(%s)=%d,leave=%d,back_off=%d,cornered=%d", to_utf8(o->id).c_str(),
+                      bc->should_chase(o_ref) ? 1 : 0, bc->is_leave_chase_range(o_ref) ? 1 : 0,
+                      bc->can_back_off(o_ref) ? 1 : 0, bc->cornered(o_ref) ? 1 : 0);
+        }
+        std::printf("}");
       }
       std::printf("\n");
     }

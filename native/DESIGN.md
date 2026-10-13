@@ -11036,3 +11036,66 @@ nf.__judger = new Expression(nf.expression, get_val_getter_from_entity);
 （作用域过宽导致的偶发内存破坏、登记表陈旧项导致的判定器静默丢失）。
 「不攻击」还差哪一步，需要新的证据：下一步建议给宿主加**帧链跟踪**（每帧打印 `enter_frame` /
 `get_next_frame` 的结果与来源），先在真数据里看清战士卡在哪一帧、`next` 被怎么解析。
+
+## 145. 切片 4CH：bot 目标喂养断裂 —— 「两个 bot 贴身却不攻击」的真正根因
+
+### 145.1 现象与定位过程
+
+VS 模式（TS 口径场景）下两个互为敌人的 bot 跑到同一位置后站定，900 帧零掉血、从不进入攻击状态。
+按顺序排除掉了：
+
+1. **状态机**（`bot/state/**`）：逐函数与 TS 一致（35 个 dataset 键名/默认值全同，键序/`click`/`hold_*`
+   序列逐行对齐，连 TS 的两处小 bug 都忠实照抄）—— 且贴脸时 `x_ok`/`z_ok`/`desire < r_atk_desire`
+   恒真 ⇒ 状态机**必然**会 `click(a)`，不可能是它。
+2. **控制器**（`BotController`）：成员逐一对照同样一致；`should_chase` 对同点敌人恒真。
+3. **场景构造**：补上 `--vs`（见 §146）按 TS 的 `GamePrepareMode` 分支构造后，症状**照样复现** ⇒
+   不是宿主手搓场景的问题。
+4. **`mounted`/`ghosted` 守卫**：运行时打印 `m=1 g=0`，排除。
+5. **决定性观测**（宿主的 `[   bots]` 决策转储）：所有 bot 每帧都是
+   `n_chase=0 n_avoid=0 n_defend=0`，**目标名单永远是空的** —— 而同一帧 `should_chase(102)=1`。
+   即：`should_chase` 说「该追」，`chasings` 却是空的 ⇒ 问题在 `lookup()` 没把目标加进去。
+
+### 145.2 根因：两种「实体引用」被搞混了
+
+| 生成处 | 内容 | 谁在用 |
+| --- | --- | --- |
+| `Entity::ref()` | **只有 `{id}`** | TS 的 `ref` 就是这个薄东西（台面 `run get ref` 一字不差地对它）；`get_val_from_entity` 的 `ref` 读点也用它 |
+| `lfw::ref_of(const Entity&)`（`entity_ref.h`） | 完整视图：`id/position/velocity/frame/team/hp/type/ghosted/data/facing/mounted/invisible/invulnerable/toughness/arest/wakeup_invuln/resting/ground_y/is_on_ground` + 四个关系浅引用 | 「控制器/碰撞/机器人看到的实体」—— `entity_ref.h` 明写**唯一生成处**、别处不许手搭 |
+
+而 `LFW::ctrl_update_lookup`（`lfw.cpp`）给 `BotController::update_lookup` 喂的是 **`e->ref()`（薄）** ✗。
+于是 `BotController::lookup(other_ref)` 里的 `entity::is_fighter/is_weapon/is_ball(other_ref)`（都读
+`data`）**全部恒假** ⇒ 三条分支一个都不进 ⇒ `chasings/avoidings/defends` 永远是空 ⇒
+`BotState_Chasing` 一进来 `if (!en) return Idle` ⇒ **永不攻击**。
+
+这也解释了同时观察到的其它怪事：`should_chase` 用缺失的 `position` 当 0 算距离（所以同点敌人返回真，
+而 102→101 因 `cornered` 判成 1）、`item.cpp`/`stage.cpp` 里那一片 `is_fighter(e->ref())` 同样恒假。
+
+### 145.3 修法与口径
+
+- **`Entity::ref()` 保持薄引用**（先改成 `ref_of` 是错的：台面 `entity/main` 立刻漂移
+  —— TS 那行就是 `{"id":s"e15"}`，把它改胖等于改数据口径）。
+- **调用点改成 `ref_of`**：`LFW::ctrl_update_lookup` 里 `e->ref()` → `lfw::ref_of(*e)`
+  （TS 的 `update_lookup(me, entities)` 收的是**活实体**，`ref_of` 才是它在端口的对应物）。
+- 两处都加了注释，写明「薄引用 vs 控制器视图」别混。
+
+### 145.4 实测（保真度修复 ⇒ 摘要**必然变化**，记为新基线）
+
+| 项 | 修复前 | 修复后 |
+| --- | --- | --- |
+| 全量差分 | 254/254 | **255/255**（多的一条是新增 `cases/bot/attack_window.txt`） |
+| 变异锚点 | 9764 ok / 0 bad | **9764 ok / 0 bad** |
+| include / coverage | 836 clean / 0 failed / 9 warnings；OK | 同 |
+| 宿主 `lfw_run` prel 300 帧 | `d9b00db799724a2b` | **`7335aa25f4e1ce86`** |
+| 宿主 `lfw_run` prel+data fighter 1+4 stage 1 900 帧 | `eeecc812075e8b74` | **`0f07fb23756600f2`** |
+| 宿主 `--vs --stage 0 --fighter 1 --fighter 4` 600 帧 | 总血量恒 1100（零掉血） | **1100 → 976（掉血）**，`n_chase=1`，状态进入 3/5/7/8/15 攻击/受击态，`renderer(+-)=13/9` |
+
+**「两个 bot 走到一起却不攻击」到此闭环。**
+
+### 145.5 台面补强与遗留
+
+- 新增 `cases/bot/attack_window.txt`：把敌人放进攻击窗口（`rx∈[-8,50]`、`rz∈[-15,15]`）覆盖
+  Standing/Walking/Running 三条 `click(a)` 路径 + 窗口外反例。**此前所有 bot 用例的敌人都在
+  `x=80/120/160`（`> w_atk_f_x=50`）**，贴脸路径 0 覆盖 —— 这是差分没抓到这个 bug 的原因。
+- 遗留（同源但未动）：`item.cpp` / `stage.cpp` / `lfw.cpp` 里那批 `entity::is_fighter(e->ref())`
+  在 TS 里吃的是活实体 ⇒ 同样应该走 `ref_of`。它们现在恒假（静默失效），改动会影响关卡/道具行为，
+  单独一刀评估。

@@ -19,6 +19,7 @@
 #include "lfw/defines/defines_data.h"
 #include "lfw/defines/game_key.h"
 #include "lfw/entity/entity.h"
+#include "lfw/entity/entity_ref.h"
 #include "lfw/entity/entity_type_check.h"
 #include "lfw/loader/stage_val_getters.h"
 #include "lfw/stage/entity_item.h"
@@ -1062,8 +1063,12 @@ controller::BaseController* LFW::create_ctrl(const std::u16string& data_id,
 
 void LFW::ctrl_update_lookup(controller::BaseController& ctrl, double index,
                              std::vector<Entity*>& entities) {
+  // ⚠ 这里要的是「控制器看的实体视图」= `ref_of()`（含 `data`/`position`/`team`…），**不是**
+  // `Entity::ref()` 那个薄引用（TS 的 `ref` 只有 `{id}`）。喂薄引用会让 `BotController::lookup`
+  // 的 `is_fighter/is_weapon/is_ball(other)` 全恒假 ⇒ chasings/avoidings/defends 永远空
+  // ⇒ bot 有目标也不追不打（DESIGN §145）。
   std::vector<Value> vals;
-  for (Entity* const e : entities) vals.push_back(e->ref());
+  for (Entity* const e : entities) vals.push_back(ref_of(*e));
   if (ctrl.creator() == controller::bot_controller_creator()) {
     static_cast<bot::BotController*>(&ctrl)->update_lookup(static_cast<int>(index), vals);
   } else if (ctrl.creator() == controller::ball_controller_creator()) {
