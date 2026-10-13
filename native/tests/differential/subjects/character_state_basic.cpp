@@ -55,7 +55,7 @@ Value marker_frame() {
   return Value(std::make_shared<lfw::Object>(o));
 }
 
-// 切片 4CF：状态族窄接口退役 ⇒ 台面假实体派生真 `lfw::Entity`（`fx::shared_host()`），
+// 切片 4CF：状态族窄接口退役 ⇒ 台面假实体派生真 `lfw::Entity`（`fx::shared_world()`），
 // 只覆写状态层要观测的实体面；`env …` 配置直写后备字段/成员 ⇒ 不产生日志。
 //
 // 台账（4CF 时点）：
@@ -83,7 +83,7 @@ struct FakeEnt : lfw::Entity {
   double _py = 0;
   double _pz = 0;
 
-  explicit FakeEnt(std::u16string eid) : lfw::Entity(fx::shared_host(), Value()) {
+  explicit FakeEnt(std::u16string eid) : lfw::Entity(fx::shared_world(), Value()) {
     this->id = std::move(eid);
   }
 

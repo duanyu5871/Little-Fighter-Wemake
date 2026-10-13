@@ -16,6 +16,7 @@
 #include "lfw/defines/itr_kind.h"
 #include "lfw/defines/weapon_type.h"
 #include "lfw/entity/entity_type_check.h"
+#include "lfw/world.h"
 #include "lfw/loader/get_val_from_world.h"
 #include "lfw/utils/container_help/field_or.h"
 #include "lfw/utils/math/base.h"
@@ -101,15 +102,15 @@ Value hp_p(const Entity& e, const std::u16string&, BinOp) {
 }
 
 Value lf2_net_on(const Entity& e, const std::u16string&, BinOp) {
-  return flag_of(e.host().is_cheat(cheat_enum::kLF2_NET));
+  return flag_of(e.lfw().is_cheat(cheat_enum::kLF2_NET));
 }
 
 Value hero_ft_on(const Entity& e, const std::u16string&, BinOp) {
-  return flag_of(e.host().is_cheat(cheat_enum::kHERO_FT));
+  return flag_of(e.lfw().is_cheat(cheat_enum::kHERO_FT));
 }
 
 Value gim_ink_on(const Entity& e, const std::u16string&, BinOp) {
-  return flag_of(e.host().is_cheat(cheat_enum::kGIM_INK));
+  return flag_of(e.lfw().is_cheat(cheat_enum::kGIM_INK));
 }
 
 Value has_transform_data(const Entity& e, const std::u16string&, BinOp) {
@@ -252,7 +253,7 @@ Value transform_index(const Entity& e, const std::u16string&, BinOp) {
 }
 
 Value is_survial_rank_mode(const Entity& e, const std::u16string&, BinOp) {
-  return flag_of(e.host().survival_rank_available());
+  return flag_of(e.lfw().survival_rank_available());
 }
 
 }

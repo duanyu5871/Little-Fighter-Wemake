@@ -59,7 +59,7 @@ struct FakeEnt : lfw::Entity {
   Stat _mp_max;
   std::vector<std::pair<std::u16string, std::u16string>> _marks;
 
-  explicit FakeEnt(std::u16string id) : Entity(fx::shared_host(), Value()) { this->id = std::move(id); }
+  explicit FakeEnt(std::u16string id) : Entity(fx::shared_world(), Value()) { this->id = std::move(id); }
 
   Value dataset(const std::u16string& key) const override { return lfw::field_or(_dataset, key.c_str()); }
   double hp() const override { return _hp.set ? _hp.v : to_number(Value()); }

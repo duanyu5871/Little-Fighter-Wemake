@@ -11,6 +11,7 @@
 #include "lfw/state/character_state_falling.h"
 #include "lfw/utils/container_help/field_or.h"
 
+#include "entity_fixture.h"
 #include "trace_util.h"
 
 namespace {
@@ -55,16 +56,6 @@ std::string fighter_text(const Value& who) {
   return render(Value(std::make_shared<Object>(o)));
 }
 
-// `world.dataset[key]`：TS 侧读的是 `this.world.dataset`（假实体在 Proxy 的 get 上打日志）；
-// 端口侧的缝是 `Entity::world_dataset` → `IEntityHost::world_dataset`（那一条是虚的），
-// 所以这里用本地假宿主把读导向用例的 `dvals` 镜并打同一行日志。
-class FakeHost : public lfw::IEntityHost {
- public:
-  Value world_dataset(const std::u16string& key) const override;
-};
-
-FakeHost g_host;
-
 // 切片 4CF：`state::IStateEntity` 退役 ⇒ 假实体改成**真 `lfw::Entity`**，只覆写虚成员。
 // 凡是库要读的字段，能走虚读面的（`hp` / `frame_on_landing` / `jumping_*` …）由覆写给镜像，
 // 没有虚读面的（`data_id` / `frame_id` / `facing` / `wait` / `bounced` / `lying_*` …）在
@@ -99,10 +90,17 @@ struct FakeEnt : lfw::Entity {
   std::vector<std::unique_ptr<Entity>> _fuse_owned;
   std::vector<Entity*> _fuse;
 
-  explicit FakeEnt(std::u16string id) : lfw::Entity(g_host, Value()), _id(std::move(id)) {
+  explicit FakeEnt(std::u16string id) : lfw::Entity(fx::shared_world(), Value()), _id(std::move(id)) {
     this->id = _id;
     rebuild_data();
     rebuild_frame();
+  }
+
+  // `world.dataset[key]`：TS 台面在 `get world()` 的 Proxy 上打这行日志，端口这面就是
+  // `Entity::world_dataset`（切片 4CJ 起是 `virtual`）。
+  Value world_dataset(const std::u16string& key) const override {
+    g_log.push_back(s_of(_id) + ":world_dataset:" + s_of(key));
+    return lfw::field_or(_dvals, key.c_str());
   }
 
   void rebuild_data() {
@@ -186,7 +184,7 @@ struct FakeEnt : lfw::Entity {
       return;
     }
     for (size_t i = 0; i < arr->size(); ++i) {
-      auto e = std::make_unique<Entity>(g_host, Value());
+      auto e = std::make_unique<Entity>(fx::shared_world(), Value());
       e->id = lfw::to_string(arr->at(i));
       _fuse_owned.push_back(std::move(e));
     }
@@ -209,13 +207,6 @@ FakeEnt* g_ent = nullptr;
 Value g_state;
 Value g_velocity;
 CharacterState_Falling* g_obj = nullptr;
-
-Value FakeHost::world_dataset(const std::u16string& key) const {
-  // `Entity` 的构造函数会读一次 `world.dataset.atom_time`（那时台面还没有实体）⇒ 直接给空。
-  if (g_ent == nullptr) return Value();
-  g_log.push_back(s_of(g_ent->_id) + ":world_dataset:" + s_of(key));
-  return lfw::field_or(g_ent->_dvals, key.c_str());
-}
 
 std::string state_text() {
   const FakeEnt& e = *g_ent;

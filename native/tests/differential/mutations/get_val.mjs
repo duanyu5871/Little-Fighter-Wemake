@@ -120,20 +120,20 @@ export default {
     {
       note: "lf2_net_on 查 HERO_FT",
       file: "native/lfw/loader/get_val_from_entity.cpp",
-      from: `  return flag_of(e.host().is_cheat(cheat_enum::kLF2_NET));`,
-      to: `  return flag_of(e.host().is_cheat(cheat_enum::kHERO_FT));`,
+      from: `  return flag_of(e.lfw().is_cheat(cheat_enum::kLF2_NET));`,
+      to: `  return flag_of(e.lfw().is_cheat(cheat_enum::kHERO_FT));`,
     },
     {
       note: "hero_ft_on 查 GIM_INK",
       file: "native/lfw/loader/get_val_from_entity.cpp",
-      from: `  return flag_of(e.host().is_cheat(cheat_enum::kHERO_FT));`,
-      to: `  return flag_of(e.host().is_cheat(cheat_enum::kGIM_INK));`,
+      from: `  return flag_of(e.lfw().is_cheat(cheat_enum::kHERO_FT));`,
+      to: `  return flag_of(e.lfw().is_cheat(cheat_enum::kGIM_INK));`,
     },
     {
       note: "gim_ink_on 查 LF2_NET",
       file: "native/lfw/loader/get_val_from_entity.cpp",
-      from: `  return flag_of(e.host().is_cheat(cheat_enum::kGIM_INK));`,
-      to: `  return flag_of(e.host().is_cheat(cheat_enum::kLF2_NET));`,
+      from: `  return flag_of(e.lfw().is_cheat(cheat_enum::kGIM_INK));`,
+      to: `  return flag_of(e.lfw().is_cheat(cheat_enum::kLF2_NET));`,
     },
     {
       note: "has_transform_data 的零长度判反了",
@@ -343,8 +343,8 @@ export default {
     {
       note: "IsSurvialRankMode 读 survival_rank_mode",
       file: "native/lfw/loader/get_val_from_entity.cpp",
-      from: `  return flag_of(e.host().survival_rank_available());`,
-      to: `  return flag_of(e.host().survival_rank_mode());`,
+      from: `  return flag_of(e.lfw().survival_rank_available());`,
+      to: `  return flag_of(e.lfw().survival_rank_mode());`,
     },
     {
       note: "表里 trend_x 指向 press_lr",

@@ -1,8 +1,8 @@
 // `Factory`（`src/LFW/Factory.ts`）的 C++ 侧台面，op 与 `subjects/factory.ts` 一一对应。
 //
-// `IEntityHost` / `BuffEnv` / `CtrlEnv` 全都带默认实现 ⇒ 这里的假宿主只补真正用到的部分。
-// 实体 / buff / 控制器都用端口的真类（TS 侧是 duck-typed 的假对象），两边只比较**日志**：
-// 谁被造出来、复用了几次、`reset` / `init` 调了几次。
+// 切片 4CJ：`IEntityHost` 退役 ⇒ 实体的宿主就是真 `lfw::World`（共享的 `fx::shared_world()`，
+// 没人脚本化它的面）。实体 / buff / 控制器都用端口的真类（TS 侧是 duck-typed 的假对象），
+// 两边只比较**日志**：谁被造出来、复用了几次、`reset` / `init` 调了几次。
 #include <cstdio>
 #include <fstream>
 #include <map>
@@ -16,6 +16,7 @@
 #include "lfw/entity/entity.h"
 #include "lfw/factory.h"
 
+#include "entity_fixture.h"
 #include "trace_util.h"
 
 namespace {
@@ -30,10 +31,6 @@ using trace::to_u16;
 std::vector<std::string> g_log;
 
 void push(const std::string& line) { g_log.push_back(line); }
-
-class FakeEntityHost : public lfw::IEntityHost {};
-
-FakeEntityHost g_entity_host;
 
 // 假 buff：`kind` 由 creator 给；`init` 是虚函数（`reset` 不是 ⇒ 端口这边看不到 reset 次数，
 // 台面只统计 init，TS 侧同样只统计 init）。
@@ -116,7 +113,7 @@ std::vector<std::unique_ptr<BuffCreator>> g_buff_creators;
 lfw::Factory g_factory;
 
 lfw::Entity* make_entity(const std::string& label, const lfw::Value& data) {
-  g_entity_storage.push_back(std::make_unique<lfw::Entity>(g_entity_host, data));
+  g_entity_storage.push_back(std::make_unique<lfw::Entity>(fx::shared_world(), data));
   lfw::Entity* const e = g_entity_storage.back().get();
   g_entities[label].push_back(e);
   push("e:" + label);

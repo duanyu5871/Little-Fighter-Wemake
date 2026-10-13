@@ -69,7 +69,7 @@ struct FakeEnt : lfw::Entity {
   Value _holding_team;
   bool _has_holding = false;
 
-  explicit FakeEnt(std::u16string id) : lfw::Entity(fx::shared_host(), Value()) {
+  explicit FakeEnt(std::u16string id) : lfw::Entity(fx::shared_world(), Value()) {
     this->id = id;
     _id = std::move(id);
   }

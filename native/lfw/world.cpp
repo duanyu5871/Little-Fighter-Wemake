@@ -197,135 +197,71 @@ class WorldStageView : public stage::IStageWorld {
   std::vector<stage::IStageEntity*> puppet_view_;
 };
 
-// `entity::IEntityHost`：TS 里 `Entity` 直接读 `this.world.*` / `this.world.lfw.*`。
-class WorldEntityHost : public IEntityHost {
- public:
-  explicit WorldEntityHost(World& world) : _world(world) {}
 
-  // `world.dataset[key]`
-  Value world_dataset(const std::u16string& key) const override {
-    return _world.dataset.get(key);
-  }
-  // `world.bg.data.dataset?.[key]`
-  Value bg_dataset(const std::u16string& key) const override {
-    const Background* const bg = _world.bg();
-    if (bg == nullptr) return Value();
-    return field_or(field_or(bg->data(), u"dataset"), key.c_str());
-  }
-  // `world.lfw.new_team` / `world.lfw.new_id`
-  std::u16string new_team() const override { return _world.lfw().new_team(); }
-  std::u16string new_id() override { return _world.lfw().new_id(); }
-  // `world.lfw.factory.acquire_ctrl(InvalidController, "", this)`
-  controller::BaseController* acquire_ctrl() override {
-    return _world.lfw().acquire_invalid_ctrl(_world);
-  }
-  // `world.lfw.factory.release_ctrl(ctrl)`
-  void release_ctrl(controller::BaseController* ctrl) override {
-    _world.lfw().release_ctrl(ctrl);
-  }
-  // `world.mark_players_alive(this, alive)`
-  void mark_players_alive(Entity& e, bool alive) override {
-    _world.mark_players_alive(e, alive);
-  }
-  // `world.lfw.datas.find(id)`
-  Value find_data(const std::u16string& id) const override {
-    return _world.lfw().datas_find(Value(std::u16string(id)));
-  }
-  // `world.list_entities(key, predicate)`
-  std::vector<Entity*> list_entities(const std::u16string& key,
-                                     const std::function<bool(Entity&)>& predicate) override {
-    const std::vector<Entity*>& cached = _world.list_entities(key, predicate);
-    return std::vector<Entity*>(cached.begin(), cached.end());
-  }
-  // `world.entity_map.get(id)`
-  Entity* find_entity(const std::u16string& id) const override {
-    return _world.find_entity(id);
-  }
-  // `world.puppets.values()`
-  std::vector<Entity*> puppets() override {
-    std::vector<Entity*> out;
-    out.reserve(_world.puppets.size());
-    for (const std::pair<std::u16string, Entity*>& kv : _world.puppets) out.push_back(kv.second);
-    return out;
-  }
-  // `world.stage.*`（`player_l` / `player_r` / `near` / `far` 是重生点的随机范围；
-  // `id` / `team` / `is_stage_finish` / `is_chapter_finish` 是 `bot/*` 读的）
-  Value stage_value(const std::u16string& key) const override {
-    const Stage* const s = _world.stage();
-    if (s == nullptr) return Value();
-    if (key == u"player_l") return Value(s->player_l);
-    if (key == u"player_r") return Value(s->player_r);
-    if (key == u"far") return Value(s->far_plane());
-    if (key == u"near") return Value(s->near_plane());
-    if (key == u"id") return Value(s->id());
-    if (key == u"team") return s->team();
-    if (key == u"is_stage_finish") return Value(s->is_stage_finish());
-    if (key == u"is_chapter_finish") return Value(s->is_chapter_finish());
-    return Value();
-  }
-  // `world.get_bound(this)`
-  std::vector<double> get_bound(Entity& e) override { return _world.get_bound(e); }
-  // `world.has_players_alive`
-  bool has_players_alive() const override { return _world.has_players_alive; }
-  // `world.bg.width` / `.near` / `.far`
-  Value bg_value(const std::u16string& key) const override {
-    const Background* const bg = _world.bg();
-    if (bg == nullptr) return Value();
-    if (key == u"width") return Value(bg->width());
-    if (key == u"near") return Value(bg->near_plane());
-    if (key == u"far") return Value(bg->far_plane());
-    return Value();
-  }
-  // `lfw.datas.find_bot(bot_id)`（`DatMgr` 未移植 ⇒ 默认找不到）
-  Value find_bot(const std::u16string& bot_id) const override {
-    return _world.lfw().find_bot(bot_id);
-  }
-  // `world.ground.step`（TS 的 `Ground.step` 是 `readonly step = 10`）
-  double ground_step() const override { return _world.ground.step(); }
-  // `lfw.survival_rank_mode` / `lfw.survival_rank_available`
-  bool survival_rank_mode() const override { return _world.lfw().survival_rank_mode(); }
-  bool survival_rank_available() const override {
-    return _world.lfw().survival_rank_available();
-  }
-  // `lfw.is_cheat(name)`
-  bool is_cheat(const std::u16string& name) const override {
-    return _world.lfw().is_cheat(name);
-  }
-  // `world.entities.length + world.ghosts.length`
-  double entity_count() const override {
-    return static_cast<double>(_world.entities.size() + _world.ghosts.size());
-  }
-  // `world.add_entities(this)`
-  void add_entities(Entity& e) override { _world.add_entities(e); }
-  // `world.del_entity(this)`（`Entity::release`）
-  void del_entity(Entity& e) override { _world.del_entity(e); }
-  // `world.game_time`
-  double game_time() const override { return _world.game_time(); }
-  // `world.lfw.factory.create_entity_with_bot("", this.world, data)`
-  Entity* create_entity_with_bot(const Value& data) override {
-    return _world.lfw().create_entity(_world, data);
-  }
-  // `world.restrict(this)`
-  Vector3 world_restrict(Entity& e) override { return _world.restrict(e); }
-  // `lfw.mt`
-  MersenneTwister& mt() override { return *_world.lfw().mt(); }
-  // `lfw.broadcast(m)`
-  void broadcast(const Value& m) override { _world.lfw().broadcast(m); }
-  // `lfw.factory.create_ctrl(data.id, this.ctrl.player_id, this)`
-  controller::BaseController* create_ctrl(const std::u16string& data_id,
-                                          const std::u16string& player_id) override {
-    return _world.lfw().create_ctrl(data_id, player_id);
-  }
+}
 
- private:
-  World& _world;
-};
+// TS 里 `Entity` 直接读的 `this.world.*` 面（切片 4CJ：`IEntityHost` 退役后并入 `World`）。
+Value World::bg_dataset(const std::u16string& key) const {
+  const Background* const bg = this->bg();
+  if (bg == nullptr) return Value();
+  return field_or(field_or(bg->data(), u"dataset"), key.c_str());
+}
 
+Value World::stage_value(const std::u16string& key) const {
+  const Stage* const s = this->stage();
+  if (s == nullptr) return Value();
+  if (key == u"player_l") return Value(s->player_l);
+  if (key == u"player_r") return Value(s->player_r);
+  if (key == u"far") return Value(s->far_plane());
+  if (key == u"near") return Value(s->near_plane());
+  if (key == u"id") return Value(s->id());
+  if (key == u"team") return s->team();
+  if (key == u"is_stage_finish") return Value(s->is_stage_finish());
+  if (key == u"is_chapter_finish") return Value(s->is_chapter_finish());
+  return Value();
+}
+
+Value World::bg_value(const std::u16string& key) const {
+  const Background* const bg = this->bg();
+  if (bg == nullptr) return Value();
+  if (key == u"width") return Value(bg->width());
+  if (key == u"near") return Value(bg->near_plane());
+  if (key == u"far") return Value(bg->far_plane());
+  return Value();
+}
+
+double World::entity_count() const {
+  return static_cast<double>(entities.size() + ghosts.size());
+}
+
+std::vector<Entity*> World::puppets_values() {
+  std::vector<Entity*> out;
+  out.reserve(puppets.size());
+  for (const std::pair<std::u16string, Entity*>& kv : puppets) out.push_back(kv.second);
+  return out;
+}
+
+Value World::player_value(const std::u16string& player_id) const {
+  (void)player_id;
+  // 玩家表（`lfw.players`）还没移植 ⇒ 与旧宿主缝同口径：空 `Value`。
+  return Value();
+}
+
+std::optional<Value> World::gen_field(const Value& holder, const std::u16string& kind,
+                                      Entity& emitter) {
+  (void)holder;
+  (void)kind;
+  (void)emitter;
+  return std::nullopt;
+}
+
+void World::play_sound(const Value& sounds, const Value& pos) {
+  (void)sounds;
+  (void)pos;
 }
 
 World::World(IWorldLfw& lfw, IWorldRenderer& renderer, state::States* states)
     : lfw_(&lfw), renderer_(&renderer), states_(states) {
-  host_ = std::make_unique<WorldEntityHost>(*this);
   stage_view_ = std::make_unique<WorldStageView>(*this);
   // `this._bg = new Background(this, Defines.VOID_BG)`
   bg_ = std::make_unique<Background>(this, defines_value(u"Defines.VOID_BG"));

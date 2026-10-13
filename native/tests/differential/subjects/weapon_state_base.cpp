@@ -68,7 +68,7 @@ struct FakeEnt : Entity {
   double _hpr = 0;
   Value _align;
 
-  explicit FakeEnt(std::u16string id) : Entity(fx::shared_host(), Value()) {
+  explicit FakeEnt(std::u16string id) : Entity(fx::shared_world(), Value()) {
     _id = std::move(id);
     this->id = _id;
   }

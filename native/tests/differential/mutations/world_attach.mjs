@@ -5,7 +5,7 @@ export default {
   //   - 视图层已随 4CE/4CF 退役（`EntityCollisionView` / `EntityStateView` / `EntityViewBase`
   //     整文件删除）：帧几何三缝现在就是 `Entity::frame_centery` / `frame_height` /
   //     `frame_pic_h`（`entity/entity.cpp`），`attach` 的转发只剩实体侧那句
-  //     `host_->add_entities(*this)` 与世界侧幽灵路由（`world.cpp` 的 `add_entities`）。
+  //     `world().add_entities(*this)` 与世界侧幽灵路由（`world.cpp` 的 `add_entities`）。
   //   - `attach` 的「ghost 标记取反」原锚在 `EntityViewBase::attach` 的转发行上，该行随视图层
   //     消失；同一语义（`_ghosted = truthy(ghost) ? 0 : 1`）已由 `entity.mjs` 的
   //     「attach：ghost 标记取反」锁定 ⇒ 本档删除该条，不重复。
@@ -40,8 +40,8 @@ export default {
       from: `  const Value v = field_or(field_or(frame, u"pic"), u"h");`,
       to: `  const Value v = field_or(field_or(frame, u"pic"), u"w");` },
     { note: "attach 不转发", file: "native/lfw/entity/entity.cpp",
-      from: `  host_->add_entities(*this);`,
-      to: `  (void)host_;` },
+      from: `  world().add_entities(*this);`,
+      to: `  (void)0;` },
     { note: "attach ghost 丢", file: "native/lfw/world.cpp",
       from: `  if (truthy(Value(e.ghosted()))) {`,
       to: `  if (truthy(Value())) {` },

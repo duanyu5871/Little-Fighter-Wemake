@@ -142,14 +142,14 @@ Value position_value(const Vector3& p);
 
 }
 
-Entity::Entity(IEntityHost& host, Value data)
-    : Entity(host, std::move(data), &state::entity_states()) {}
+Entity::Entity(World& world, Value data)
+    : Entity(world, std::move(data), &state::entity_states()) {}
 
-Entity::Entity(IEntityHost& host, Value data, state::States* states) {
-  host_ = &host;
+Entity::Entity(World& world, Value data, state::States* states) {
+  world_ = &world;
   _data = std::move(data);
   states_ = states;
-  _atom_time = num_of(host.world_dataset(u"atom_time"));
+  _atom_time = num_of(world.dataset.get(u"atom_time"));
   terrain = Ground::horizon();
   {
     Object nf;
@@ -159,11 +159,10 @@ Entity::Entity(IEntityHost& host, Value data, state::States* states) {
   reset(_data, states);
 }
 
-Entity::~Entity() = default;
+// `this.lfw`（TS 的字段读；`World` 的完整定义在 world.h，这里才 include 得进来）。
+IWorldLfw& Entity::lfw() const { return world_->lfw(); }
 
-// The `world.restrict` default: no host, no restriction (the real `World.restrict`
-// clamps against the stage bounds and owns the weapon/ball out-of-bounds requests).
-Vector3 IEntityHost::world_restrict(Entity& e) { return e.position; }
+Entity::~Entity() = default;
 
 void Entity::reset(Value data) { reset(std::move(data), &state::entity_states()); }
 
@@ -178,7 +177,7 @@ void Entity::reset(Value data, state::States* states) {
   _data = std::move(data);
   const Value data_now = _data;
   _origin_data_id = to_string(field_or(data_now, u"id"));
-  id = host_->new_id();
+  id = world().lfw().new_id();
   wait = 0;
   _motionless_ticks = 0;
   _lifetime = 0;
@@ -224,7 +223,7 @@ void Entity::reset(Value data, state::States* states) {
   prev_velocity.set(0, 0, 0);
   callbacks.clear();
   _name = Value(NullTag{});
-  _team = host_->new_team();
+  _team = world().lfw().new_team();
   _landing_frame = Value(NullTag{});
   bearer = nullptr;
   holding = nullptr;
@@ -261,8 +260,8 @@ void Entity::reset(Value data, state::States* states) {
   jumping.y = 0;
   jumping.z = 0;
   jumping.t = 0;
-  if (ctrl_ != nullptr) host_->release_ctrl(ctrl_);
-  ctrl_ = host_->acquire_ctrl();
+  if (ctrl_ != nullptr) world().lfw().release_ctrl(ctrl_);
+  ctrl_ = world().lfw().acquire_invalid_ctrl(world());
   reset_armor();
   set_fall_value(fall_value_max());
   set_defend_value(defend_value_max());
@@ -385,7 +384,7 @@ Value Entity::bdy() const { return field_or(frame, u"bdy"); }
 void Entity::set_toughness_resting_max(double v) { _toughness_resting_max = round_float(v); }
 
 double Entity::resting_max() const {
-  return _resting_max.has_value() ? *_resting_max : num_of(host_->world_dataset(u"resting_max"));
+  return _resting_max.has_value() ? *_resting_max : num_of(world().dataset.get(u"resting_max"));
 }
 
 void Entity::set_resting_max(double v) { _resting_max = round_float(v); }
@@ -422,14 +421,14 @@ void Entity::set_toughness_resting(double v) {
 
 double Entity::catch_time_max() const {
   return _catch_time_max.has_value() ? *_catch_time_max
-                                     : num_of(host_->world_dataset(u"catch_time_max"));
+                                     : num_of(world().dataset.get(u"catch_time_max"));
 }
 
 void Entity::set_catch_time_max(double v) { _catch_time_max = round_float(v); }
 
 double Entity::fall_value_max() const {
   return _fall_value_max.has_value() ? *_fall_value_max
-                                     : num_of(host_->world_dataset(u"fall_value_max"));
+                                     : num_of(world().dataset.get(u"fall_value_max"));
 }
 
 void Entity::set_fall_value_max(double v) { _fall_value_max = round_float(v); }
@@ -446,14 +445,14 @@ void Entity::set_defend_value(double v) {
 
 double Entity::defend_value_max() const {
   return _defend_value_max.has_value() ? *_defend_value_max
-                                       : num_of(host_->world_dataset(u"defend_value_max"));
+                                       : num_of(world().dataset.get(u"defend_value_max"));
 }
 
 void Entity::set_defend_value_max(double v) { _defend_value_max = round_float(v); }
 
 double Entity::defend_ratio() const {
   return _defend_ratio.has_value() ? *_defend_ratio
-                                   : num_of(host_->world_dataset(u"defend_ratio"));
+                                   : num_of(world().dataset.get(u"defend_ratio"));
 }
 
 void Entity::set_defend_ratio(double v) { _defend_ratio = round_float(v); }
@@ -517,7 +516,7 @@ void Entity::set_hp(double v) {
   }
   callbacks.call(u"on_hp_changed", {ref(), Value(v), Value(o)});
   if (ctrl_ != nullptr && ctrl_->is_human() && ((o > 0) != (v > 0))) {
-    host_->mark_players_alive(*this, v > 0);
+    world().mark_players_alive(*this, v > 0);
   }
   if (o > 0 && v <= 0) {
     callbacks.call(u"on_dead", {ref()});
@@ -527,7 +526,7 @@ void Entity::set_hp(double v) {
         frame_id_of(*this) != std::u16string(frame_id::kGone) &&
         array_length(brokens) > 0) {
       apply_opoints(brokens);
-      host_->play_sound(field_or(base_of(_data), u"dead_sounds"), position_value(position));
+      world().play_sound(field_or(base_of(_data), u"dead_sounds"), position_value(position));
     }
     const Value nf = next_frame_of(field_or(frame, u"on_dead"), field_or(_data, u"on_dead"));
     if (truthy(nf)) enter_frame(nf);
@@ -536,13 +535,13 @@ void Entity::set_hp(double v) {
 }
 
 double Entity::mp_max() const {
-  return _mp_max.has_value() ? *_mp_max : num_of(host_->world_dataset(u"mp_max"));
+  return _mp_max.has_value() ? *_mp_max : num_of(world().dataset.get(u"mp_max"));
 }
 
 void Entity::set_mp_max(double v) { _mp_max = round_float(max(0.0, v)); }
 
 double Entity::hp_max() const {
-  return _hp_max.has_value() ? *_hp_max : num_of(host_->world_dataset(u"hp_max"));
+  return _hp_max.has_value() ? *_hp_max : num_of(world().dataset.get(u"hp_max"));
 }
 
 void Entity::set_hp_max(double v) { _hp_max = round_float(max(0.0, v)); }
@@ -581,8 +580,8 @@ void Entity::set_ctrl(controller::BaseController* v) {
   controller::BaseController* prev = ctrl_;
   ctrl_ = v;
   callbacks.call(u"on_ctrl_changed", {ctrl_ref(v), ctrl_ref(prev), ref()});
-  host_->mark_players_alive(*this, ctrl_->is_human() && hp() > 0);
-  if (prev != nullptr) host_->release_ctrl(prev);
+  world().mark_players_alive(*this, ctrl_->is_human() && hp() > 0);
+  if (prev != nullptr) world().lfw().release_ctrl(prev);
   // TS 的控制器在构造/reset 里就持有 `entity`（`BotController` 的 `fsm.reset(Idle)` 会
   // 当场读 `stage.*` 并向 `mt` 抽签）⇒ 挂上控制器的那一刻把 env 先刷出来，让端口里
   // 「等 env 就绪」的初始化落在与 TS 相同的时刻（见 `BotController::set_env`）。
@@ -774,7 +773,7 @@ double Entity::handle_wait_flag(const Value& wait_value,
 
 double Entity::get_frame_wait(const Value& frame_value) const {
   const double d = to_number(field_or(frame_value, u"wait")) +
-                   to_number(host_->world_dataset(u"wait_offset"));
+                   to_number(world().dataset.get(u"wait_offset"));
   return _from_wait_block ? d - _atom_time : d;
 }
 
@@ -829,7 +828,7 @@ void Entity::handle_ground_velocity_decay(double factor) {
 
 void Entity::handle_velocity_decay(const Value& accx, std::optional<Value> accz,
                                    double factor) {
-  const double atom_time = to_number(host_->world_dataset(u"atom_time"));
+  const double atom_time = to_number(world().dataset.get(u"atom_time"));
   Value x(round_float(to_number(velocity.x) * std::pow(factor, atom_time)));
   Value z(round_float(to_number(velocity.z) * std::pow(factor, atom_time)));
   const Value accz_value = accz.has_value() ? *accz : accx;
@@ -1036,8 +1035,8 @@ Entity& Entity::set_catch_time(double value) {
 Value Entity::dataset(const std::u16string& name) const {
   Value v = field_or(field_or(frame, u"dataset"), name.c_str());
   if (nullish(v)) v = field_or(base_of(_data), name.c_str());
-  if (nullish(v)) v = host_->bg_dataset(name);
-  if (nullish(v)) v = host_->world_dataset(name);
+  if (nullish(v)) v = world().bg_dataset(name);
+  if (nullish(v)) v = world().dataset.get(name);
   return v;
 }
 
@@ -1122,9 +1121,11 @@ void Entity::set_bearer_motionless(const Value& v) {
   if (bearer != nullptr) bearer->motionless = to_number(v);
 }
 
-Value Entity::lfw_new_team() const { return Value(host().new_team()); }
+Value Entity::lfw_new_team() const { return Value(world().lfw().new_team()); }
 
-Value Entity::datas_find(const std::u16string& oid) { return host().find_data(oid); }
+Value Entity::datas_find(const std::u16string& oid) {
+  return world().lfw().datas_find(Value(std::u16string(oid)));
+}
 
 Value Entity::frame_id() const { return field_or(frame, u"id"); }
 
@@ -1162,7 +1163,7 @@ void Entity::set_fuse_bys(const Value& v) {
     return;
   }
   for (size_t i = 0; i < arr->size(); ++i) {
-    Entity* e = host_->find_entity(to_string(arr->at(i)));
+    Entity* e = world().find_entity(to_string(arr->at(i)));
     if (e != nullptr) fuse_bys.push_back(e);
   }
   has_fuse_bys = !fuse_bys.empty();
@@ -1177,7 +1178,7 @@ void Entity::set_dismiss_time(const Value& v) {
 }
 
 void Entity::play_sound(const Value& sounds, const Value& pos) {
-  host_->play_sound(sounds, pos);
+  world().play_sound(sounds, pos);
 }
 
 void Entity::play_sound(const Value& sounds) {
@@ -1201,8 +1202,8 @@ void Entity::spark_point(const collision::Cube& a, const collision::Cube& b, dou
   rc.near = b.near;
   rc.far = b.far;
   const Bounding cross = cross_bounding(rb, rc);
-  host_->mt().mark = u"sp_1";
-  x = host_->mt().range(cross.left, cross.right);
+  (*world().lfw().mt()).mark = u"sp_1";
+  x = (*world().lfw().mt()).range(cross.left, cross.right);
   y = 2 + round_float((cross.bottom + cross.top) / 2);
   z = max(cross.far, cross.near) + 3;
 }
@@ -1263,7 +1264,7 @@ Entity& Entity::set_catcher(Entity* v) {
 }
 
 Value Entity::world_dataset(const std::u16string& name) const {
-  return host_->world_dataset(name);
+  return world().dataset.get(name);
 }
 
 Value Entity::itr_fall(const Value& itr) const {
@@ -1390,7 +1391,7 @@ Entity* Entity::get_emitter(double idx) const {
   if (i >= emitters.size()) return nullptr;
   // `if (!emittier_id) return;` — an empty id is falsy, so it never resolves.
   if (emitters[i].empty()) return nullptr;
-  return host_->find_entity(emitters[i]);
+  return world().find_entity(emitters[i]);
 }
 
 // --- v_rest / relation cleanup / blink arming ---------------------------------
@@ -1456,7 +1457,7 @@ void Entity::release() {
   callbacks.call(u"on_disposed", {ref()});
   callbacks.clear();
   reset(_data, states_);
-  host_->del_entity(*this);
+  world().del_entity(*this);
 }
 
 void Entity::blink_and_gone(double duration) {
@@ -1523,7 +1524,7 @@ void Entity::set_position(const Value& x, const Value& y, const Value& z) {
   if (!nullish(y)) position.y = round_float(to_number(y));
   if (!nullish(z)) position.z = round_float(to_number(z));
   if (prev_position.x == kMinSafeInteger) prev_position = position;
-  const Vector3 r = host_->world_restrict(*this);
+  const Vector3 r = world().restrict(*this);
   const Value on_x = field_or(frame, u"on_x_restrict");
   if (position.x != r.x && truthy(on_x)) enter_frame(on_x);
   const Value on_z = field_or(frame, u"on_z_restrict");
@@ -1620,7 +1621,7 @@ void Entity::set_frame(const Value& v) {
   }
   const Array* broadcasts = as_array(field_or(v, u"broadcasts"));
   if (broadcasts != nullptr && !broadcasts->empty()) {
-    for (std::size_t i = 0; i < broadcasts->size(); ++i) host_->broadcast(broadcasts->at(i));
+    for (std::size_t i = 0; i < broadcasts->size(); ++i) world().lfw().broadcast(broadcasts->at(i));
   }
   if (holding != nullptr) holding->follow_bearer();
   if (catching != nullptr) catching->follow_catcher();
@@ -1652,14 +1653,14 @@ EnterFrameResult Entity::enter_frame_by_id(const Value& id_value, bool fallback)
 EnterFrameResult Entity::handle_next_frame_result(const Value& result, bool fallback) {
   const Value frame_v = field_or(result, u"frame");
   const Value flags = field_or(result, u"which");
-  if (!truthy(host_->world_dataset(u"infinity_mp"))) {
+  if (!truthy(world().dataset.get(u"infinity_mp"))) {
     const Value mp = field_or(flags, u"mp");
     const Value hp = field_or(flags, u"hp");
     if (truthy(mp)) set_mp(_mp - to_number(mp));
     if (truthy(hp)) set_hp(_hp - to_number(hp));
   }
   if (truthy(frame_v)) {
-    host_->play_sound(field_or(frame_v, u"sound"), position_value(position));
+    world().play_sound(field_or(frame_v, u"sound"), position_value(position));
     set_frame(frame_v);
   } else {
     const Value* empty_frame = defines::find(u"EMPTY_FRAME_INFO");
@@ -1671,7 +1672,7 @@ EnterFrameResult Entity::handle_next_frame_result(const Value& result, bool fall
     facing = handle_facing_flag(facing_flag);
   if (truthy(frame_v)) wait = handle_wait_flag(field_or(flags, u"wait"), frame_v);
   const Value sound = field_or(flags, u"sound");
-  if (as_array(sound) != nullptr) host_->play_sound(sound, position_value(position));
+  if (as_array(sound) != nullptr) world().play_sound(sound, position_value(position));
   const Value blink_time = field_or(flags, u"blink_time");
   if (truthy(blink_time)) set_blinking(to_number(blink_time));
   // `this.ctrl.reset_key_list()` has no optional chain in TS (a missing controller
@@ -1710,8 +1711,8 @@ Value Entity::get_next_frame(const Value& which) {
       if (!nullish(f)) return f;
     }
     Array remains_arr(remains);
-    host_->mt().mark = u"gnf_0";
-    const Value next = host_->mt().pick_value(Value(std::make_shared<Array>(remains_arr)));
+    (*world().lfw().mt()).mark = u"gnf_0";
+    const Value next = (*world().lfw().mt()).pick_value(Value(std::make_shared<Array>(remains_arr)));
     if (nullish(next)) return Value();
     return get_next_frame(next);
   }
@@ -1722,11 +1723,11 @@ Value Entity::get_next_frame(const Value& which) {
   if (has_next_frame_judge(which) && !truthy(next_frame_judge(which))) return Value();
   Value found_frame;
   if (truthy(id_value)) {
-    host_->mt().mark = u"gnf_1";
-    found_frame = find_frame_by_id(host_->mt().pick_value(id_value));
+    (*world().lfw().mt()).mark = u"gnf_1";
+    found_frame = find_frame_by_id((*world().lfw().mt()).pick_value(id_value));
     if (nullish(found_frame)) return Value();
   }
-  if (!truthy(host_->world_dataset(u"infinity_mp")) && truthy(found_frame)) {
+  if (!truthy(world().dataset.get(u"infinity_mp")) && truthy(found_frame)) {
     // `this.frame.next === which` compares against the entity's **current** frame, not
     // the frame the lookup just found.
     const Value frame_next = field_or(frame, u"next");
@@ -1775,9 +1776,9 @@ void Entity::follow_bearer() {
   const double cy_a = to_number(field_or(bearer_src->frame, u"centery"));
   if (equals(field_or(wp_a, u"kind"), Value(static_cast<double>(WpointKind::Drop)))) {
     bearer_src->drop_holding();
-    host_->mt().mark = u"dh_v";
+    (*world().lfw().mt()).mark = u"dh_v";
     const double vy = 3;
-    MersenneTwister& mt = host_->mt();
+    MersenneTwister& mt = (*world().lfw().mt());
     const double vx = mt.range(-10, 10) / 10;
     const double vz = mt.range(-10, 10) / 20;
     set_velocity(Value(vx), Value(vy), Value(vz));
@@ -1883,7 +1884,7 @@ void Entity::follow_catcher() {
 
 void Entity::drop_holding() {
   if (holding == nullptr) return;
-  host_->mt().mark = u"dh_1";
+  (*world().lfw().mt()).mark = u"dh_1";
   Entity* held = holding;
   held->bearer = nullptr;
   holding = nullptr;
@@ -1927,9 +1928,7 @@ void Entity::pick(Entity& weapon) {
 
 void Entity::transform(const Value& data) {
   if (ctrl_ == nullptr || !ctrl_->is_human()) {
-    controller::BaseController* c = host_->create_ctrl(
-        to_string(field_or(data, u"id")),
-        ctrl_ != nullptr ? ctrl_->player_id : std::u16string());
+    controller::BaseController* c = world().lfw().create_ctrl(to_string(field_or(data, u"id")), ctrl_ != nullptr ? ctrl_->player_id : std::u16string());
     set_ctrl(c);
   }
   const Value prev = _data;
@@ -1959,7 +1958,7 @@ bool Entity::transfrom_to_another(const std::optional<Value>& data) {
   if (!copies.empty()) {
     std::vector<std::u16string> gones;
     for (const std::u16string& cid : copies) {
-      Entity* copy = host_->find_entity(cid);
+      Entity* copy = world().find_entity(cid);
       if (copy == nullptr || !truthy(Value(copy->mounted()))) {
         gones.push_back(cid);
       } else {
@@ -2230,7 +2229,7 @@ void Entity::read_snapshot(const std::vector<Value>& nums,
   ctrl_visible = to_number(N(NSlot::CTRL_VISIBLE));
 
   id = S(SSlot::ID);
-  const Value data = host_->find_data(S(SSlot::DATA_ID));
+  const Value data = world().lfw().datas_find(Value(std::u16string(S(SSlot::DATA_ID))));
   if (truthy(data)) _data = data;
   const Value next_frame = find_frame_by_id(Value(S(SSlot::FRAME_ID)));
   if (!nullish(next_frame)) frame = next_frame;
@@ -2242,17 +2241,17 @@ void Entity::read_snapshot(const std::vector<Value>& nums,
     const Value landing = find_frame_by_id(Value(S(SSlot::LANDING_FRAME_ID)));
     _landing_frame = nullish(landing) ? Value(NullTag{}) : landing;
   }
-  catching = host_->find_entity(S(SSlot::CATCHING_ID));
-  catcher = host_->find_entity(S(SSlot::CATCHER_ID));
-  bearer = host_->find_entity(S(SSlot::BEARER_ID));
-  holding = host_->find_entity(S(SSlot::HOLDING_ID));
+  catching = world().find_entity(S(SSlot::CATCHING_ID));
+  catcher = world().find_entity(S(SSlot::CATCHER_ID));
+  bearer = world().find_entity(S(SSlot::BEARER_ID));
+  holding = world().find_entity(S(SSlot::HOLDING_ID));
   _team = S(SSlot::TEAM);
   _name = S(SSlot::NAME).empty() ? Value(NullTag{}) : Value(S(SSlot::NAME));
   _after_blink = S(SSlot::AFTER_BLINK).empty()
                      ? std::nullopt
                      : std::optional<std::u16string>(S(SSlot::AFTER_BLINK));
   if (!S(SSlot::DISMISS_DATA_ID).empty()) {
-    const Value found = host_->find_data(S(SSlot::DISMISS_DATA_ID));
+    const Value found = world().lfw().datas_find(Value(std::u16string(S(SSlot::DISMISS_DATA_ID))));
     dismiss_data = nullish(found) ? Value(NullTag{}) : found;
   } else {
     dismiss_data = Value(NullTag{});
@@ -2261,8 +2260,8 @@ void Entity::read_snapshot(const std::vector<Value>& nums,
   const std::u16string& t0 = S(SSlot::TRANSFORM_0_ID);
   const std::u16string& t1 = S(SSlot::TRANSFORM_1_ID);
   if (!t0.empty() && !t1.empty()) {
-    const Value d0 = host_->find_data(t0);
-    const Value d1 = host_->find_data(t1);
+    const Value d0 = world().lfw().datas_find(Value(std::u16string(t0)));
+    const Value d1 = world().lfw().datas_find(Value(std::u16string(t1)));
     if (truthy(d0) && truthy(d1)) {
       auto arr = std::make_shared<Array>();
       arr->push_back(d0);
@@ -2310,7 +2309,7 @@ bool Entity::add_copy(const std::u16string& copy_id) {
 // `(holder.__gen_x ? holder.__gen_x.get(emitter) : holder.x)`
 Value Entity::gen_or(const Value& holder, const std::u16string& kind,
                      const Value& fallback) const {
-  const std::optional<Value> gen = host_->gen_field(holder, kind, const_cast<Entity&>(*this));
+  const std::optional<Value> gen = world().gen_field(holder, kind, const_cast<Entity&>(*this));
   return gen.has_value() ? *gen : fallback;
 }
 
@@ -2327,13 +2326,13 @@ Entity* Entity::spawn(const Value& opoint) {
 }
 
 Entity* Entity::spawn(const Value& opoint, const Vector3& offset_velocity, double facing_value) {
-  if (truthy(field_or(opoint, u"unimportant")) && host_->entity_count() > 355) return nullptr;
-  host_->mt().mark = u"se_1";
-  const Value oid = host_->mt().pick_value(field_or(opoint, u"oid"));
+  if (truthy(field_or(opoint, u"unimportant")) && world().entity_count() > 355) return nullptr;
+  (*world().lfw().mt()).mark = u"se_1";
+  const Value oid = (*world().lfw().mt()).pick_value(field_or(opoint, u"oid"));
   if (!truthy(oid)) return nullptr;
-  const Value data = host_->find_data(to_string(oid));
+  const Value data = world().lfw().datas_find(Value(std::u16string(to_string(oid))));
   if (std::holds_alternative<std::monostate>(data)) return nullptr;
-  Entity* entity = host_->create_entity_with_bot(data);
+  Entity* entity = world().lfw().create_entity(world(), data);
   if (entity == nullptr) return nullptr;
   entity->on_spawn(*this, opoint, offset_velocity, facing_value).attach(field_or(opoint, u"ghost"));
   if (strict_equals(field_or(entity->data(), u"id"), field_or(_data, u"id"))) {
@@ -2480,14 +2479,14 @@ Entity& Entity::on_spawn(Entity& emitter, const Value& opoint, const Vector3& of
 
 Entity& Entity::attach(const Value& ghost) {
   if (truthy(Value(_mounted))) return *this;
-  _spawn_time = host_->game_time();
+  _spawn_time = world().game_time();
   _mounted = 1;
   _ghosted = truthy(ghost) ? 1 : 0;
   if (truthy(Value(_ghosted))) {
     motionless = 0;
     shaking = 0;
   }
-  host_->add_entities(*this);
+  world().add_entities(*this);
 
   set_state(field_or(frame, u"state"));
 
@@ -2563,7 +2562,7 @@ void Entity::apply_opoints(const Value& opoints_value) {
       const Value skip_zero = field_or(multi, u"skip_zero");
       multi_type = type;
       if (strict_equals(type, Value(static_cast<double>(OpointMultiEnum::AccordingEnemies)))) {
-        enemies = host_->list_entities(u"ef_" + team(), [this](Entity& o) {
+        enemies = world().list_entities(u"ef_" + team(), [this](Entity& o) {
           return entity::is_fighter_data(o.data()) && team() != o.team() && o.hp() > 0;
         });
         // TS 的 `if (skip_zero && !enemies.length) break;` 只跳出 switch ⇒ `count` 保持
@@ -2573,7 +2572,7 @@ void Entity::apply_opoints(const Value& opoints_value) {
         }
       } else if (strict_equals(type,
                                Value(static_cast<double>(OpointMultiEnum::AccordingAllies)))) {
-        allies = host_->list_entities(u"af_" + team(), [this](Entity& o) {
+        allies = world().list_entities(u"af_" + team(), [this](Entity& o) {
           if (!entity::is_fighter_data(o.data())) return false;
           if (team() != o.team()) return false;
           if (!(o.hp() > 0)) return false;
@@ -2589,7 +2588,7 @@ void Entity::apply_opoints(const Value& opoints_value) {
         const std::u16string* emitter_id = emitter();
         // `if (!emitter) break;` —— 空串也算「没有」（JS 真值）。
         if (emitter_id != nullptr && !emitter_id->empty()) {
-          Entity* target = host_->find_entity(*emitter_id);
+          Entity* target = world().find_entity(*emitter_id);
           if (target != nullptr) {
             allies.push_back(target);
             count = 1;
@@ -2675,8 +2674,8 @@ void Entity::apply_opoints(const Value& opoints_value) {
 // `lfw.survival_rank_mode`.
 // ---------------------------------------------------------------------------
 void Entity::update() {
-  if (host_->mt().debugging) {
-    host_->mt().log_case({Value(u"e_" + id + u"_" + to_string(name()) + u"_start")});
+  if ((*world().lfw().mt()).debugging) {
+    (*world().lfw().mt()).log_case({Value(u"e_" + id + u"_" + to_string(name()) + u"_start")});
   }
   _atom_time = num_of(dataset(u"atom_time"));
   _lifetime += _atom_time;
@@ -2743,7 +2742,7 @@ void Entity::update() {
         set_hp_r(hp_max());
         double max_distance = kMaxSafeInteger;
         Entity* friend_entity = nullptr;
-        for (Entity* e : host_->puppets()) {
+        for (Entity* e : world().puppets_values()) {
           if (e == nullptr || !(e->hp() > 0)) continue;
           const double d = abs(round(e->position.x - position.x)) +
                            abs(round(e->position.z - position.z));
@@ -2752,20 +2751,20 @@ void Entity::update() {
           friend_entity = e;
         }
         if (friend_entity != nullptr) {
-          host_->mt().mark = u"u_1";
+          (*world().lfw().mt()).mark = u"u_1";
           // 舞台值缺键时 TS 读到 `undefined` ⇒ 参与 `Math.max/min` 得 `NaN`（`to_number`
           // 就是这么映射的）；显式的 `null` 则是 0。
-          const double x = host_->mt().range(
+          const double x = (*world().lfw().mt()).range(
               max(round(friend_entity->position.x - 100),
-                  to_number(host_->stage_value(u"player_l"))),
+                  to_number(world().stage_value(u"player_l"))),
               min(round(friend_entity->position.x + 100),
-                  to_number(host_->stage_value(u"player_r"))));
-          host_->mt().mark = u"u_2";
-          const double z = host_->mt().range(
+                  to_number(world().stage_value(u"player_r"))));
+          (*world().lfw().mt()).mark = u"u_2";
+          const double z = (*world().lfw().mt()).range(
               min(round(friend_entity->position.z - 100),
-                  to_number(host_->stage_value(u"far"))),
+                  to_number(world().stage_value(u"far"))),
               max(round(friend_entity->position.z + 100),
-                  to_number(host_->stage_value(u"near"))));
+                  to_number(world().stage_value(u"near"))));
           set_position(Value(x), Value(300.0), Value(z));
         } else {
           set_position(Value(NullTag{}), Value(300.0), Value());
@@ -2860,8 +2859,8 @@ void Entity::update() {
   collided_list.clear();
   prev_position = position;
   update_aabb();
-  if (host_->mt().debugging) {
-    host_->mt().log_case({Value(u"e_" + id + u"_" + to_string(name()) + u"_end")});
+  if ((*world().lfw().mt()).debugging) {
+    (*world().lfw().mt()).log_case({Value(u"e_" + id + u"_" + to_string(name()) + u"_end")});
   }
 }
 
@@ -3012,7 +3011,7 @@ void Entity::update_landable() {
     if (_state != nullptr && _state->on_landing) {
       _state->on_landing(*this, position_value(_temp_v));
     }
-    host_->play_sound(field_or(base_of(_data), u"drop_sounds"), position_value(position));
+    world().play_sound(field_or(base_of(_data), u"drop_sounds"), position_value(position));
     if (truthy(Value(throwinjury))) {
       set_hp(hp() - throwinjury);
       set_hp_r(hp_r() - round(throwinjury * (1 - num_of(dataset(u"hp_recoverability")))));
@@ -3025,7 +3024,7 @@ void Entity::update_landable() {
     }
     _landing_frame = frame;
   } else if (was_on_ground) {
-    if (position.y - ground > host_->ground_step()) {
+    if (position.y - ground > world().ground.step()) {
       leave_ground();
       if (_state != nullptr && _state->on_leave_ground) _state->on_leave_ground(*this);
     } else {
@@ -3068,7 +3067,7 @@ bool Entity::update_catching() {
     return true;
   }
   if (cp_throwinjury == -1 &&
-      (!host_->survival_rank_mode() || !entity::is_boss(caught->entity_view()))) {
+      (!world().lfw().survival_rank_mode() || !entity::is_boss(caught->entity_view()))) {
     transfrom_to_another(caught->_data);
     drop_catching();
     caught->catcher = nullptr;
@@ -3158,7 +3157,7 @@ Value Entity::world_puppets() const {
   // `world.puppets.values()`：状态层只需要 `team`（`csl_on_dead`），`id` / `hp` /
   // `position` 一起给出去，省得后面每个消费者再补一次缝。
   std::vector<Value> out;
-  for (Entity* e : host_->puppets()) {
+  for (Entity* e : world().puppets_values()) {
     if (e == nullptr) continue;
     Object rec;
     rec.set(u"id", Value(std::u16string(e->id)));
@@ -3226,37 +3225,37 @@ void Entity::refresh_ctrl_env() {
     env.holding = holding != nullptr ? ref_of(*holding) : Value(NullTag{});
     env.catching = catching != nullptr ? ref_of(*catching) : Value(NullTag{});
     env.blockers_count = static_cast<double>(blockers.size());
-    env.mt = &host_->mt();
+    env.mt = &(*world().lfw().mt());
     // `BotController.difficulty` 是 getter：这里做成闭包，读的时刻才求值（同 TS）。
     env.bot_difficulty = [this]() -> double {
       const Value* const void_stage = defines::find(u"Defines.VOID_STAGE");
       const Value void_id = void_stage != nullptr ? field_or(*void_stage, u"id") : Value();
-      if (!strict_equals(host_->stage_value(u"id"), void_id)) {
+      if (!strict_equals(world().stage_value(u"id"), void_id)) {
         const std::u16string& my_team = team();
-        for (Entity* const f : host_->puppets()) {
+        for (Entity* const f : world().puppets_values()) {
           if (f == this) continue;
           if (f->team() != my_team) continue;
           controller::BaseController* const c = f->ctrl();
           if (c != nullptr && c->is_human()) return static_cast<double>(Difficulty::Difficult);
         }
       }
-      return to_number(host_->world_dataset(u"difficulty"));
+      return to_number(world().dataset.get(u"difficulty"));
     };
-    env.get_bound = [this]() { return host_->get_bound(*this); };
-    env.has_players_alive = [this]() { return host_->has_players_alive(); };
-    env.stage_value = [this](const std::u16string& key) { return host_->stage_value(key); };
-    env.find_bot = [this](const std::u16string& bot_id) { return host_->find_bot(bot_id); };
+    env.get_bound = [this]() { return world().get_bound(*this); };
+    env.has_players_alive = [this]() { return world().has_players_alive; };
+    env.stage_value = [this](const std::u16string& key) { return world().stage_value(key); };
+    env.find_bot = [this](const std::u16string& bot_id) { return world().lfw().find_bot(bot_id); };
     env.entity_val = [this](const std::u16string& word, BinOp op) -> Value {
       const ValGetter<Entity> g = loader::get_val_getter_from_entity(word);
       return g != nullptr ? g(*this, word, op) : Value(word);
     };
-    env.lfw_player = [this](const std::u16string& player_id) { return host_->player_value(player_id); };
+    env.lfw_player = [this](const std::u16string& player_id) { return world().player_value(player_id); };
     env.set_position = [this](const Value& x, const Value& y, const Value& z) {
       set_position(x, y, z);
     };
-    env.bg_width = to_number(host_->bg_value(u"width"));
-    env.bg_near = to_number(host_->bg_value(u"near"));
-    env.bg_far = to_number(host_->bg_value(u"far"));
+    env.bg_width = to_number(world().bg_value(u"width"));
+    env.bg_near = to_number(world().bg_value(u"near"));
+    env.bg_far = to_number(world().bg_value(u"far"));
     ctrl_->set_env(&_ctrl_env);
     // TS 的 `ControllerResult.fire` 会调 `this.owner.entity.get_next_frame(nf)`；端口把
     // 它做成一个回调，控制器自己看不到实体 ⇒ 由实体在刷环境时绑上。不绑的话 `fire`
@@ -3303,7 +3302,7 @@ namespace {
 // 与 TS 的 GC 语义对齐 —— 因此不 `delete`（池子会复用；进程退出时随进程回收）。
 Entity* common_creator(World* world, const Value& data, state::States* states) {
   Entity* ret = world->lfw().acquire_entity(field_or(data, u"type"));
-  if (ret == nullptr) return new Entity(world->host(), data, states);
+  if (ret == nullptr) return new Entity(*world, data, states);
   ret->reset(data, states);
   return ret;
 }

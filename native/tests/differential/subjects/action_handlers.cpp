@@ -71,14 +71,9 @@ struct Fake;
 // 台面全体（`bind()` 里填）：`find_entity` 的解析范围。
 std::vector<Fake*> g_all;
 
-// 台面宿主：实体面把 `set_fuse_bys` 的 id 解析交给宿主（`host().find_entity`），台面因此
-// 要认得自己的三个假实体（`fx::Host` 的默认实现给 nullptr）。
-class FixtureHost : public fx::Host {
- public:
-  lfw::Entity* find_entity(const std::u16string& id) const override;
-};
-
-FixtureHost g_host;
+// 实体面把 `set_fuse_bys` 的 id 解析交给世界（`world().find_entity`），台面因此要认得自己的
+// 三个假实体（切片 4CJ 后这面挂在 `TestWorld::on_find_entity` 上，见 `bind`；缺省的真
+// `World::find_entity` 只查自己的实体表 ⇒ 一个也找不着）。
 
 struct Fake : lfw::Entity {
   // --- 台面配置面（与 TS 台面同名；直接写，不打日志）---------------------------------
@@ -105,7 +100,7 @@ struct Fake : lfw::Entity {
   // 控制器，`env a bot 0/1` 只翻它的标记（`is_bot()` 为假时与 TS 的 `ctrl: undefined` 同义）。
   lfw::controller::BaseController ctrl_stub;
 
-  explicit Fake(std::u16string id_value) : Entity(g_host, Value()) {
+  explicit Fake(std::u16string id_value) : Entity(fx::shared_world(), Value()) {
     this->id = std::move(id_value);
     velocity.x = 3;  // TS 台面 `_velocity = {x: 3, y: 0, z: 0}`
     facing = 1;
@@ -207,7 +202,7 @@ Fake g_a(u"A");
 Fake g_v(u"V");
 Fake g_other(u"E2");
 
-lfw::Entity* FixtureHost::find_entity(const std::u16string& id) const {
+lfw::Entity* find_fixture_entity(const std::u16string& id) {
   for (Fake* const f : g_all) {
     if (f != nullptr && f->id == id) return f;
   }
@@ -236,6 +231,8 @@ void sync_emitters(Fake& f) {
 
 void bind() {
   g_all = {&g_a, &g_v, &g_other};
+  // `world.find_entity(id)`：TS 台面上就是 `worldStub.entity_map.get(id)` 那一层。
+  fx::shared_world().on_find_entity = [](const std::u16string& id) { return find_fixture_entity(id); };
   g_env.mt_int = []() { return 1.0; };
   g_env.mt_set_mark = [](const std::u16string& m) { g_log.push_back("mt_mark:" + s_of(m)); };
   g_env.find_data = [](const std::u16string& oid, Value& out) {

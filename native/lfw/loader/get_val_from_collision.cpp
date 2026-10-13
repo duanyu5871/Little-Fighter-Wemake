@@ -15,6 +15,7 @@
 #include "lfw/defines/hit_flag.h"
 #include "lfw/defines/state_enum.h"
 #include "lfw/entity/entity_type_check.h"
+#include "lfw/world.h"
 #include "lfw/utils/container_help/field_or.h"
 #include "lfw/utils/math/base.h"
 
@@ -274,7 +275,7 @@ Value v_hp_p(const Ctx& c, const std::u16string&, BinOp) {
 
 Value lf2_net_on(const Ctx& c, const std::u16string&, BinOp) {
   return with_attacker(
-      c, [](const Entity& e) { return num_of(e.host().is_cheat(cheat_enum::kLF2_NET)); });
+      c, [](const Entity& e) { return num_of(e.lfw().is_cheat(cheat_enum::kLF2_NET)); });
 }
 
 Value a_emitter(const Ctx& c, const std::u16string&, BinOp) {

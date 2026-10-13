@@ -32,7 +32,7 @@ std::string u8(const std::u16string& s) { return to_ascii(s); }
 // `enter_frame_by_id` / `attach`），日志逐字照抄 TS 侧假件。
 class FakeEntity : public lfw::Entity {
  public:
-  explicit FakeEntity(const std::u16string& id) : Entity(fx::shared_host(), lfw::Value()) {
+  explicit FakeEntity(const std::u16string& id) : Entity(fx::shared_world(), lfw::Value()) {
     this->id = id;
   }
 

@@ -5552,3 +5552,22 @@ harness op：
 - 台面若自己实现 `IStageEntity` / `IItemEntity`（假实体），`ref()` 也按同一口径返回完整视图，
   否则孪生吃活实体、台面吃薄引用 ⇒ 差分看不出（双方都「一致地」走错分支）而宿主行为不对。
 - 直调 `Entity*`/`Entity&` 时不要写 `e->ref()`，写 `lfw::ref_of(*e)`。
+
+### 6.9.187 `IEntityHost` 退役 ⇒ 台面改挂真 `World`（4CJ）
+
+- **`Entity` 的构造签名变了**：`Entity(World& world, Value data)`（以及三参版）。台面要给实体
+  一个**真 `lfw::World`**：`fx::TestWorld`（`tests/differential/subjects/world_fixture.h`）已经
+  用假 `IWorldLfw` + 假 renderer 供好一个，`fx::shared_world()` 拿共享实例。
+- **假宿主类写不了了**：`IEntityHost` 已删除。原先覆写 `world_dataset` / `puppets` /
+  `find_entity` / `add_entities` / `play_sound` / `gen_field` 的地方，改成：
+  - 固定值 → 直接喂 `world.dataset.set(key, value)`（`World::dataset` 是公开成员，等价于
+    TS 的 `world.dataset[key] = …`）；
+  - 要计算/记忆 → 挂 `TestWorld` 的钩子：`on_bg_dataset` / `on_stage_value` / `on_bg_value` /
+    `on_find_entity` / `on_puppets_values` / `on_add_entities` / `on_get_bound` / `on_play_sound` /
+    `on_gen_field` / `on_broadcast` / `on_create_entity_with_bot` / `on_acquire_ctrl` /
+    `on_create_ctrl` / `on_list_entities`。钩子未设时走 `World` 的真实现。
+- **`Entity::host()` 没了**：实体内外要 `lfw.*` 的面改读 `entity.lfw()`（`IWorldLfw&`），
+  要 `world.*` 的读 `entity.world()`。
+- 台面的 `new_id` 脚本化仍在假 `lfw` 侧（`fx::g_id_counter` / `FakeLfw::new_id`），不在实体上。
+- ⚠ 这一刀是**纯重构**：孪生与端口的行为必须逐字节一致 ⇒ 台面里任何「顺手修正」的冲动都要按住；
+  语义要对齐旧假宿主（例如玩家表仍给空 `Value`）。

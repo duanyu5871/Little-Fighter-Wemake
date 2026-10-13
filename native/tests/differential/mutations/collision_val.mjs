@@ -450,14 +450,14 @@ export default {
     {
       note: "lf2_net_on 判反",
       file: "native/lfw/loader/get_val_from_collision.cpp",
-      from: `      c, [](const Entity& e) { return num_of(e.host().is_cheat(cheat_enum::kLF2_NET)); });`,
-      to: `      c, [](const Entity& e) { return num_of(!e.host().is_cheat(cheat_enum::kLF2_NET)); });`,
+      from: `      c, [](const Entity& e) { return num_of(e.lfw().is_cheat(cheat_enum::kLF2_NET)); });`,
+      to: `      c, [](const Entity& e) { return num_of(!e.lfw().is_cheat(cheat_enum::kLF2_NET)); });`,
     },
     {
       note: "lf2_net_on 查 HERO_FT",
       file: "native/lfw/loader/get_val_from_collision.cpp",
-      from: `      c, [](const Entity& e) { return num_of(e.host().is_cheat(cheat_enum::kLF2_NET)); });`,
-      to: `      c, [](const Entity& e) { return num_of(e.host().is_cheat(cheat_enum::kHERO_FT)); });`,
+      from: `      c, [](const Entity& e) { return num_of(e.lfw().is_cheat(cheat_enum::kLF2_NET)); });`,
+      to: `      c, [](const Entity& e) { return num_of(e.lfw().is_cheat(cheat_enum::kHERO_FT)); });`,
     },
     {
       note: "a_emitter 读 victim",

@@ -1,8 +1,8 @@
 // `World`（`native/lfw/world.h`）的 C++ 侧台面。TS 侧是 `subjects/world.ts`，op 一一对应。
 //
 // 用例：`cases/world/*.txt`。假件：`IWorldLfw`（`LFW` 未移植的那一面）、`IWorldRenderer`、
-// `IWorldUi`、`IClock`（`Ditto.Clock` / `Ditto.Render`）。实体是真的 `Entity`（通过
-// `world.host()` 接上），`step` 那一半（实体推进 / 碰撞配对 / 相机目标）在下一刀。
+// `IWorldUi`、`IClock`（`Ditto.Clock` / `Ditto.Render`）。实体是真的 `Entity`（切片 4CJ 后
+// 直接持有真 `lfw::World`），`step` 那一半（实体推进 / 碰撞配对 / 相机目标）在下一刀。
 #include <cmath>
 #include <cstdio>
 #include <fstream>
@@ -415,7 +415,7 @@ class FakeLfw : public lfw::IWorldLfw {
   }
 
   lfw::Entity* create_entity(World& world, const Value& data) override {
-    auto e = std::make_unique<lfw::Entity>(world.host(), data, &g_states);
+    auto e = std::make_unique<lfw::Entity>(world, data, &g_states);
     lfw::Entity* raw = e.get();
     g_created.push_back(std::move(e));
     push("h:create=" + to_ascii(raw->id));
@@ -759,14 +759,14 @@ int main(int argc, char** argv) {
       g_world->change_stage(parse_value(t, i));
     } else if (op == "wmk") {
       const std::string label = t[i++];
-      auto e = std::make_unique<lfw::Entity>(g_world->host(), parse_value(t, i), &g_states);
+      auto e = std::make_unique<lfw::Entity>(*g_world, parse_value(t, i), &g_states);
       lfw::Entity* const raw_e = e.get();
       g_entities.push_back(std::move(e));
       g_labels.push_back(label);
       push("mk|" + label + "|id=" + to_ascii(raw_e->id));
     } else if (op == "wadd") {
       const std::string label = t[i++];
-      auto e = std::make_unique<lfw::Entity>(g_world->host(), parse_value(t, i), &g_states);
+      auto e = std::make_unique<lfw::Entity>(*g_world, parse_value(t, i), &g_states);
       lfw::Entity* const raw_e = e.get();
       g_entities.push_back(std::move(e));
       g_labels.push_back(label);
@@ -1113,7 +1113,7 @@ int main(int argc, char** argv) {
       // 只为把 `entities` 撑过 `MAX_DEBUG_ENTITIES`（356）⇒ 造 n 个同数据的真实体，不记日志。
       const double n = number_arg(t, i, op, lineno);
       for (double k = 0; k < n; k += 1.0) {
-        auto e = std::make_unique<lfw::Entity>(g_world->host(), bulk_data(), &g_states);
+        auto e = std::make_unique<lfw::Entity>(*g_world, bulk_data(), &g_states);
         lfw::Entity* const raw = e.get();
         g_entities.push_back(std::move(e));
         g_labels.push_back(std::string("bulk"));

@@ -209,8 +209,8 @@ export default {
         {
       "note": "reset keeps the old id",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "  id = host_->new_id();",
-      "to": "  (void)host_->new_id();"
+      "from": "  id = world().lfw().new_id();",
+      "to": "  (void)world().lfw().new_id();"
     },
         {
       "note": "reset faces the other way",
@@ -221,7 +221,7 @@ export default {
         {
       "note": "reset ignores the host team",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "  _team = host_->new_team();",
+      "from": "  _team = world().lfw().new_team();",
       "to": "  _team = u\"9\";"
     },
         {
@@ -347,7 +347,7 @@ export default {
         {
       "note": "resting_max ignores its dataset fallback",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "double Entity::resting_max() const {\n  return _resting_max.has_value() ? *_resting_max : num_of(host_->world_dataset(u\"resting_max\"));",
+      "from": "double Entity::resting_max() const {\n  return _resting_max.has_value() ? *_resting_max : num_of(world().dataset.get(u\"resting_max\"));",
       "to": "double Entity::resting_max() const {\n  return _resting_max.value_or(0.0);"
     },
         {
@@ -401,14 +401,14 @@ export default {
         {
       "note": "the hp cap is read straight from the dataset",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "double Entity::hp_max() const {\n  return _hp_max.has_value() ? *_hp_max : num_of(host_->world_dataset(u\"hp_max\"));",
-      "to": "double Entity::hp_max() const {\n  return num_of(host_->world_dataset(u\"hp_max\"));"
+      "from": "double Entity::hp_max() const {\n  return _hp_max.has_value() ? *_hp_max : num_of(world().dataset.get(u\"hp_max\"));",
+      "to": "double Entity::hp_max() const {\n  return num_of(world().dataset.get(u\"hp_max\"));"
     },
         {
       "note": "the mp cap is read straight from the dataset",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "double Entity::mp_max() const {\n  return _mp_max.has_value() ? *_mp_max : num_of(host_->world_dataset(u\"mp_max\"));",
-      "to": "double Entity::mp_max() const {\n  return num_of(host_->world_dataset(u\"mp_max\"));"
+      "from": "double Entity::mp_max() const {\n  return _mp_max.has_value() ? *_mp_max : num_of(world().dataset.get(u\"mp_max\"));",
+      "to": "double Entity::mp_max() const {\n  return num_of(world().dataset.get(u\"mp_max\"));"
     },
         {
       "note": "hp is not clamped at zero",
@@ -449,8 +449,8 @@ export default {
         {
       "note": "the alive notification always reports alive",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "    host_->mark_players_alive(*this, v > 0);",
-      "to": "    host_->mark_players_alive(*this, true);"
+      "from": "    world().mark_players_alive(*this, v > 0);",
+      "to": "    world().mark_players_alive(*this, true);"
     },
         {
       "note": "the death branch also treats a zero hp write as death",
@@ -641,13 +641,13 @@ export default {
         {
       "note": "the alive notification ignores the hp",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "  host_->mark_players_alive(*this, ctrl_->is_human() && hp() > 0);",
-      "to": "  host_->mark_players_alive(*this, ctrl_->is_human());"
+      "from": "  world().mark_players_alive(*this, ctrl_->is_human() && hp() > 0);",
+      "to": "  world().mark_players_alive(*this, ctrl_->is_human());"
     },
         {
       "note": "the previous controller is never released",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "  if (prev != nullptr) host_->release_ctrl(prev);",
+      "from": "  if (prev != nullptr) world().lfw().release_ctrl(prev);",
       "to": "  (void)prev;"
     },
         {
@@ -719,8 +719,8 @@ export default {
         {
       "note": "the background dataset layer is dropped",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "  if (nullish(v)) v = host_->bg_dataset(name);",
-      "to": "  (void)host_;"
+      "from": "  if (nullish(v)) v = world().bg_dataset(name);",
+      "to": "  (void)0;"
     },
         {
       "note": "the frame and base dataset layers are swapped",
@@ -1661,7 +1661,7 @@ export default {
         {
       "note": "frame wait drops the world offset",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "  const double d = to_number(field_or(frame_value, u\"wait\")) +\n                   to_number(host_->world_dataset(u\"wait_offset\"));",
+      "from": "  const double d = to_number(field_or(frame_value, u\"wait\")) +\n                   to_number(world().dataset.get(u\"wait_offset\"));",
       "to": "  const double d = to_number(field_or(frame_value, u\"wait\"));"
     },
         {
@@ -2447,25 +2447,25 @@ export default {
         {
       "note": "the catching entity resolves through the catcher id",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "  catching = host_->find_entity(S(SSlot::CATCHING_ID));",
-      "to": "  catching = host_->find_entity(S(SSlot::CATCHER_ID));"
+      "from": "  catching = world().find_entity(S(SSlot::CATCHING_ID));",
+      "to": "  catching = world().find_entity(S(SSlot::CATCHER_ID));"
     },
         {
       "note": "the catcher entity resolves through the bearer id",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "  catcher = host_->find_entity(S(SSlot::CATCHER_ID));",
-      "to": "  catcher = host_->find_entity(S(SSlot::BEARER_ID));"
+      "from": "  catcher = world().find_entity(S(SSlot::CATCHER_ID));",
+      "to": "  catcher = world().find_entity(S(SSlot::BEARER_ID));"
     },
         {
       "note": "the bearer entity resolves through the holding id",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "  bearer = host_->find_entity(S(SSlot::BEARER_ID));",
-      "to": "  bearer = host_->find_entity(S(SSlot::HOLDING_ID));"
+      "from": "  bearer = world().find_entity(S(SSlot::BEARER_ID));",
+      "to": "  bearer = world().find_entity(S(SSlot::HOLDING_ID));"
     },
         {
       "note": "holding keeps the previous entity",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "  holding = host_->find_entity(S(SSlot::HOLDING_ID));",
+      "from": "  holding = world().find_entity(S(SSlot::HOLDING_ID));",
       "to": "  holding = catcher;"
     },
         {
@@ -2981,8 +2981,8 @@ export default {
         {
       "note": "get_emitter always looks up the first slot",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "  return host_->find_entity(emitters[i]);",
-      "to": "  return host_->find_entity(emitters[0]);"
+      "from": "  return world().find_entity(emitters[i]);",
+      "to": "  return world().find_entity(emitters[0]);"
     },
         {
       "note": "get_emitter resolves an empty id",
@@ -3113,8 +3113,8 @@ export default {
         {
       "note": "the view hp_max reads mp_max",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "double Entity::hp_max() const {\n  return _hp_max.has_value() ? *_hp_max : num_of(host_->world_dataset(u\"hp_max\"));\n}",
-      "to": "double Entity::hp_max() const {\n  return _mp_max.has_value() ? *_mp_max : num_of(host_->world_dataset(u\"mp_max\"));\n}"
+      "from": "double Entity::hp_max() const {\n  return _hp_max.has_value() ? *_hp_max : num_of(world().dataset.get(u\"hp_max\"));\n}",
+      "to": "double Entity::hp_max() const {\n  return _mp_max.has_value() ? *_mp_max : num_of(world().dataset.get(u\"mp_max\"));\n}"
     },
         {
       "note": "the view mp reads hp",
@@ -3752,14 +3752,14 @@ export default {
         {
       "note": "set_frame skips the broadcasts",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "    for (std::size_t i = 0; i < broadcasts->size(); ++i) host_->broadcast(broadcasts->at(i));",
+      "from": "    for (std::size_t i = 0; i < broadcasts->size(); ++i) world().lfw().broadcast(broadcasts->at(i));",
       "to": "    (void)broadcasts;"
     },
         {
       "note": "set_frame drops the last broadcast",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "    for (std::size_t i = 0; i < broadcasts->size(); ++i) host_->broadcast(broadcasts->at(i));",
-      "to": "    for (std::size_t i = 0; i + 1 < broadcasts->size(); ++i) host_->broadcast(broadcasts->at(i));"
+      "from": "    for (std::size_t i = 0; i < broadcasts->size(); ++i) world().lfw().broadcast(broadcasts->at(i));",
+      "to": "    for (std::size_t i = 0; i + 1 < broadcasts->size(); ++i) world().lfw().broadcast(broadcasts->at(i));"
     },
         {
       "note": "set_frame lets the held weapon catch instead of following",
@@ -3836,8 +3836,8 @@ export default {
         {
       "note": "handle_next_frame_result drains while infinity_mp is on",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "  if (!truthy(host_->world_dataset(u\"infinity_mp\"))) {\n    const Value mp = field_or(flags, u\"mp\");",
-      "to": "  if (truthy(host_->world_dataset(u\"infinity_mp\"))) {\n    const Value mp = field_or(flags, u\"mp\");"
+      "from": "  if (!truthy(world().dataset.get(u\"infinity_mp\"))) {\n    const Value mp = field_or(flags, u\"mp\");",
+      "to": "  if (truthy(world().dataset.get(u\"infinity_mp\"))) {\n    const Value mp = field_or(flags, u\"mp\");"
     },
         {
       "note": "handle_next_frame_result reads mp off the hp key",
@@ -3872,8 +3872,8 @@ export default {
         {
       "note": "handle_next_frame_result takes the else branch with a frame",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "  if (truthy(frame_v)) {\n    host_->play_sound(field_or(frame_v, u\"sound\"), position_value(position));",
-      "to": "  if (!truthy(frame_v)) {\n    host_->play_sound(field_or(frame_v, u\"sound\"), position_value(position));"
+      "from": "  if (truthy(frame_v)) {\n    world().play_sound(field_or(frame_v, u\"sound\"), position_value(position));",
+      "to": "  if (!truthy(frame_v)) {\n    world().play_sound(field_or(frame_v, u\"sound\"), position_value(position));"
     },
         {
       "note": "handle_next_frame_result skips the frame swap",
@@ -3920,8 +3920,8 @@ export default {
         {
       "note": "handle_next_frame_result plays any truthy sound",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "  if (as_array(sound) != nullptr) host_->play_sound(sound, position_value(position));",
-      "to": "  if (truthy(sound)) host_->play_sound(sound, position_value(position));"
+      "from": "  if (as_array(sound) != nullptr) world().play_sound(sound, position_value(position));",
+      "to": "  if (truthy(sound)) world().play_sound(sound, position_value(position));"
     },
         {
       "note": "handle_next_frame_result drops the blink truthy gate",
@@ -3962,8 +3962,8 @@ export default {
         {
       "note": "get_next_frame picks from an empty list",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "    const Value next = host_->mt().pick_value(Value(std::make_shared<Array>(remains_arr)));",
-      "to": "    const Value next = host_->mt().pick_value(Value(std::make_shared<Array>(Array{})));"
+      "from": "    const Value next = (*world().lfw().mt()).pick_value(Value(std::make_shared<Array>(remains_arr)));",
+      "to": "    const Value next = (*world().lfw().mt()).pick_value(Value(std::make_shared<Array>(Array{})));"
     },
         {
       "note": "get_next_frame judges a frame without a judge",
@@ -3986,8 +3986,8 @@ export default {
         {
       "note": "get_next_frame drains while infinity_mp is on",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "  if (!truthy(host_->world_dataset(u\"infinity_mp\")) && truthy(found_frame)) {",
-      "to": "  if (truthy(host_->world_dataset(u\"infinity_mp\")) && truthy(found_frame)) {"
+      "from": "  if (!truthy(world().dataset.get(u\"infinity_mp\")) && truthy(found_frame)) {",
+      "to": "  if (truthy(world().dataset.get(u\"infinity_mp\")) && truthy(found_frame)) {"
     },
         {
       "note": "get_next_frame compares the next frame with the found one",
@@ -4406,14 +4406,14 @@ export default {
         {
       "note": "transform reads the data id off the name",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "        to_string(field_or(data, u\"id\")),",
-      "to": "        to_string(field_or(data, u\"name\")),"
+      "from": "world().lfw().create_ctrl(to_string(field_or(data, u\"id\")),",
+      "to": "world().lfw().create_ctrl(to_string(field_or(data, u\"name\")),"
     },
         {
       "note": "transform keeps the old controller",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "    controller::BaseController* c = host_->create_ctrl(\n        to_string(field_or(data, u\"id\")),\n        ctrl_ != nullptr ? ctrl_->player_id : std::u16string());\n    set_ctrl(c);",
-      "to": "    controller::BaseController* c = host_->create_ctrl(\n        to_string(field_or(data, u\"id\")),\n        ctrl_ != nullptr ? ctrl_->player_id : std::u16string());\n    (void)c;"
+      "from": "    controller::BaseController* c = world().lfw().create_ctrl(to_string(field_or(data, u\"id\")), ctrl_ != nullptr ? ctrl_->player_id : std::u16string());\n    set_ctrl(c);",
+      "to": "    controller::BaseController* c = world().lfw().create_ctrl(to_string(field_or(data, u\"id\")), ctrl_ != nullptr ? ctrl_->player_id : std::u16string());\n    (void)c;"
     },
         {
       "note": "transform keeps the previous data",
@@ -4442,7 +4442,7 @@ export default {
         {
       "note": "the view's set_position bypasses the restrict chain",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "  const Vector3 r = host_->world_restrict(*this);",
+      "from": "  const Vector3 r = world().restrict(*this);",
       "to": "  const Vector3 r = position;"
     },
         {
@@ -4532,56 +4532,56 @@ export default {
     {
       note: "follow_bearer：投掷分支的 mark 写成 dh_vx",
       file: "native/lfw/entity/entity.cpp",
-      from: `    host_->mt().mark = u\"dh_v\";`,
-      to: `    host_->mt().mark = u\"dh_vx\";`,
+      from: `    (*world().lfw().mt()).mark = u\"dh_v\";`,
+      to: `    (*world().lfw().mt()).mark = u\"dh_vx\";`,
     },
     {
       note: "follow_bearer：不写 dh_v",
       file: "native/lfw/entity/entity.cpp",
-      from: `    bearer_src->drop_holding();\n    host_->mt().mark = u\"dh_v\";\n    const double vy = 3;`,
+      from: `    bearer_src->drop_holding();\n    (*world().lfw().mt()).mark = u\"dh_v\";\n    const double vy = 3;`,
       to: `    bearer_src->drop_holding();\n    (void)0;\n    const double vy = 3;`,
     },
     {
       note: "follow_bearer：dh_v 写在两次抽取之后",
       file: "native/lfw/entity/entity.cpp",
-      from: `    host_->mt().mark = u\"dh_v\";\n    const double vy = 3;\n    MersenneTwister& mt = host_->mt();\n    const double vx = mt.range(-10, 10) / 10;`,
-      to: `    const double vy = 3;\n    MersenneTwister& mt = host_->mt();\n    const double vx = mt.range(-10, 10) / 10;\n    host_->mt().mark = u\"dh_v\";`,
+      from: `    (*world().lfw().mt()).mark = u\"dh_v\";\n    const double vy = 3;\n    MersenneTwister& mt = (*world().lfw().mt());\n    const double vx = mt.range(-10, 10) / 10;`,
+      to: `    const double vy = 3;\n    MersenneTwister& mt = (*world().lfw().mt());\n    const double vx = mt.range(-10, 10) / 10;\n    (*world().lfw().mt()).mark = u\"dh_v\";`,
     },
     {
       note: "get_next_frame：数组分支的 mark 写成 gnf_0x",
       file: "native/lfw/entity/entity.cpp",
-      from: `    host_->mt().mark = u\"gnf_0\";`,
-      to: `    host_->mt().mark = u\"gnf_0x\";`,
+      from: `    (*world().lfw().mt()).mark = u\"gnf_0\";`,
+      to: `    (*world().lfw().mt()).mark = u\"gnf_0x\";`,
     },
     {
       note: "get_next_frame：数组分支与 id 分支的 mark 写反",
       file: "native/lfw/entity/entity.cpp",
-      from: `    host_->mt().mark = u\"gnf_0\";`,
-      to: `    host_->mt().mark = u\"gnf_1\";`,
+      from: `    (*world().lfw().mt()).mark = u\"gnf_0\";`,
+      to: `    (*world().lfw().mt()).mark = u\"gnf_1\";`,
     },
     {
       note: "get_next_frame：数组分支不写 mark",
       file: "native/lfw/entity/entity.cpp",
-      from: `    Array remains_arr(remains);\n    host_->mt().mark = u\"gnf_0\";\n    const Value next`,
+      from: `    Array remains_arr(remains);\n    (*world().lfw().mt()).mark = u\"gnf_0\";\n    const Value next`,
       to: `    Array remains_arr(remains);\n    (void)0;\n    const Value next`,
     },
     {
       note: "get_next_frame：id 分支的 mark 写成 gnf_1x",
       file: "native/lfw/entity/entity.cpp",
-      from: `    host_->mt().mark = u\"gnf_1\";`,
-      to: `    host_->mt().mark = u\"gnf_1x\";`,
+      from: `    (*world().lfw().mt()).mark = u\"gnf_1\";`,
+      to: `    (*world().lfw().mt()).mark = u\"gnf_1x\";`,
     },
     {
       note: "get_next_frame：id 分支不写 mark",
       file: "native/lfw/entity/entity.cpp",
-      from: `    host_->mt().mark = u\"gnf_1\";\n    found_frame`,
+      from: `    (*world().lfw().mt()).mark = u\"gnf_1\";\n    found_frame`,
       to: `    (void)0;\n    found_frame`,
     },
     {
       note: "get_next_frame：id 分支的 mark 写在 pick 之后",
       file: "native/lfw/entity/entity.cpp",
-      from: `    host_->mt().mark = u\"gnf_1\";\n    found_frame = find_frame_by_id(host_->mt().pick_value(id_value));`,
-      to: `    found_frame = find_frame_by_id(host_->mt().pick_value(id_value));\n    host_->mt().mark = u\"gnf_1\";`,
+      from: `    (*world().lfw().mt()).mark = u\"gnf_1\";\n    found_frame = find_frame_by_id((*world().lfw().mt()).pick_value(id_value));`,
+      to: `    found_frame = find_frame_by_id((*world().lfw().mt()).pick_value(id_value));\n    (*world().lfw().mt()).mark = u\"gnf_1\";`,
     },
 
     {
@@ -4593,31 +4593,31 @@ export default {
     {
       note: "spawn：unimportant 门整条去掉",
       file: "native/lfw/entity/entity.cpp",
-      from: `  if (truthy(field_or(opoint, u"unimportant")) && host_->entity_count() > 355) return nullptr;`,
+      from: `  if (truthy(field_or(opoint, u"unimportant")) && world().entity_count() > 355) return nullptr;`,
       to: `  if (false) return nullptr;`,
     },
     {
       note: "spawn：实体数门限写成 >= 355",
       file: "native/lfw/entity/entity.cpp",
-      from: `host_->entity_count() > 355) return nullptr;`,
-      to: `host_->entity_count() >= 355) return nullptr;`,
+      from: `world().entity_count() > 355) return nullptr;`,
+      to: `world().entity_count() >= 355) return nullptr;`,
     },
     {
       note: "spawn：unimportant 判定取反",
       file: "native/lfw/entity/entity.cpp",
-      from: `  if (truthy(field_or(opoint, u"unimportant")) && host_->entity_count() > 355) return nullptr;`,
-      to: `  if (!truthy(field_or(opoint, u"unimportant")) && host_->entity_count() > 355) return nullptr;`,
+      from: `  if (truthy(field_or(opoint, u"unimportant")) && world().entity_count() > 355) return nullptr;`,
+      to: `  if (!truthy(field_or(opoint, u"unimportant")) && world().entity_count() > 355) return nullptr;`,
     },
     {
       note: "spawn：mark 写成 se_x",
       file: "native/lfw/entity/entity.cpp",
-      from: `  host_->mt().mark = u"se_1";`,
-      to: `  host_->mt().mark = u"se_x";`,
+      from: `  (*world().lfw().mt()).mark = u"se_1";`,
+      to: `  (*world().lfw().mt()).mark = u"se_x";`,
     },
     {
       note: "spawn：oid 不做 pick，直接用数组",
       file: "native/lfw/entity/entity.cpp",
-      from: `  const Value oid = host_->mt().pick_value(field_or(opoint, u"oid"));`,
+      from: `  const Value oid = (*world().lfw().mt()).pick_value(field_or(opoint, u"oid"));`,
       to: `  const Value oid = field_or(opoint, u"oid");`,
     },
     {
@@ -4961,7 +4961,7 @@ export default {
     {
       note: "attach：spawn_time 不取 game_time",
       file: "native/lfw/entity/entity.cpp",
-      from: `  _spawn_time = host_->game_time();`,
+      from: `  _spawn_time = world().game_time();`,
       to: `  _spawn_time = 0;`,
     },
     {
@@ -5477,16 +5477,16 @@ export default {
     {
       note: "update：Respawn 的 x 夹紧 max/min 传反",
       file: "native/lfw/entity/entity.cpp",
-      from: `          const double x = host_->mt().range(
+      from: `          const double x = (*world().lfw().mt()).range(
               max(round(friend_entity->position.x - 100),
-                  to_number(host_->stage_value(u"player_l"))),
+                  to_number(world().stage_value(u"player_l"))),
               min(round(friend_entity->position.x + 100),
-                  to_number(host_->stage_value(u"player_r"))));`,
-      to: `          const double x = host_->mt().range(
+                  to_number(world().stage_value(u"player_r"))));`,
+      to: `          const double x = (*world().lfw().mt()).range(
               min(round(friend_entity->position.x - 100),
-                  to_number(host_->stage_value(u"player_l"))),
+                  to_number(world().stage_value(u"player_l"))),
               max(round(friend_entity->position.x + 100),
-                  to_number(host_->stage_value(u"player_r"))));`,
+                  to_number(world().stage_value(u"player_r"))));`,
     },
     {
       note: "update：Respawn 的位置 y 写成 0",
@@ -5746,25 +5746,25 @@ export default {
       file: "native/lfw/entity/entity.cpp",
       from: `  prev_position = position;
   update_aabb();
-  if (host_->mt().debugging) {
-    host_->mt().log_case({Value(u"e_" + id + u"_" + to_string(name()) + u"_end")});`,
+  if ((*world().lfw().mt()).debugging) {
+    (*world().lfw().mt()).log_case({Value(u"e_" + id + u"_" + to_string(name()) + u"_end")});`,
       to: `  update_aabb();
-  if (host_->mt().debugging) {
-    host_->mt().log_case({Value(u"e_" + id + u"_" + to_string(name()) + u"_end")});`,
+  if ((*world().lfw().mt()).debugging) {
+    (*world().lfw().mt()).log_case({Value(u"e_" + id + u"_" + to_string(name()) + u"_end")});`,
     },
     {
       note: "update：不刷新 AABB",
       file: "native/lfw/entity/entity.cpp",
       from: `  prev_position = position;
   update_aabb();
-  if (host_->mt().debugging) {`,
+  if ((*world().lfw().mt()).debugging) {`,
       to: `  prev_position = position;
-  if (host_->mt().debugging) {`,
+  if ((*world().lfw().mt()).debugging) {`,
     },
     {
       note: "update：mt.case end 标记不写",
       file: "native/lfw/entity/entity.cpp",
-      from: `    host_->mt().log_case({Value(u"e_" + id + u"_" + to_string(name()) + u"_end")});`,
+      from: `    (*world().lfw().mt()).log_case({Value(u"e_" + id + u"_" + to_string(name()) + u"_end")});`,
       to: `    (void)0;`,
     },
     {
@@ -5964,8 +5964,8 @@ export default {
     {
       note: "update_landable：离地判定用 >=",
       file: "native/lfw/entity/entity.cpp",
-      from: `    if (position.y - ground > host_->ground_step()) {`,
-      to: `    if (position.y - ground >= host_->ground_step()) {`,
+      from: `    if (position.y - ground > world().ground.step()) {`,
+      to: `    if (position.y - ground >= world().ground.step()) {`,
     },
     {
       note: "update_landable：离地钩子不调",
@@ -5992,9 +5992,9 @@ export default {
       note: "update_catching：survival_rank_mode 判定取反",
       file: "native/lfw/entity/entity.cpp",
       from: `  if (cp_throwinjury == -1 &&
-      (!host_->survival_rank_mode() || !entity::is_boss(caught->entity_view()))) {`,
+      (!world().lfw().survival_rank_mode() || !entity::is_boss(caught->entity_view()))) {`,
       to: `  if (cp_throwinjury == -1 &&
-      (host_->survival_rank_mode() || !entity::is_boss(caught->entity_view()))) {`,
+      (world().lfw().survival_rank_mode() || !entity::is_boss(caught->entity_view()))) {`,
     },
     {
       note: "update_catching：decrease 不乘 atom_time",
@@ -6069,14 +6069,14 @@ export default {
     {
       note: "view base：dataset 转发到 world_dataset",
       file: "native/lfw/entity/entity.cpp",
-      from: `  if (nullish(v)) v = host_->world_dataset(name);`,
-      to: `  v = host_->world_dataset(name);`,
+      from: `  if (nullish(v)) v = world().dataset.get(name);`,
+      to: `  v = world().dataset.get(name);`,
     },
     {
       note: "state view：world_dataset 转发到 dataset",
       file: "native/lfw/entity/entity.cpp",
       from: `Value Entity::world_dataset(const std::u16string& name) const {
-  return host_->world_dataset(name);
+  return world().dataset.get(name);
 }`,
       to: `Value Entity::world_dataset(const std::u16string& name) const {
   return dataset(name);

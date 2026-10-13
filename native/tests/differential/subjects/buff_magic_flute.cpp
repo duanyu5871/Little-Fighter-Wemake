@@ -63,7 +63,7 @@ struct FakeEnt : lfw::Entity {
   std::u16string _team;
   bool _team_set = false;
 
-  explicit FakeEnt(std::u16string id) : Entity(fx::shared_host(), Value()) { this->id = std::move(id); }
+  explicit FakeEnt(std::u16string id) : Entity(fx::shared_world(), Value()) { this->id = std::move(id); }
 
   // TS 的 `get data()`：`this._indexes === undefined ? this._data : {...this._data, indexes}`。
   void rebuild_data() {

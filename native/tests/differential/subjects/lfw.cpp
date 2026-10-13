@@ -2690,7 +2690,7 @@ bool run_comp_ops(lfw::LFW& lfw, FakeHost& host, const std::vector<std::string>&
       data.set(u"id", lfw::Value(u"fx"));
       data.set(u"base", lfw::Value(std::make_shared<lfw::Object>(base)));
       g_fakes.push_back(std::make_unique<lfw::Entity>(
-          lfw.world().host(), lfw::Value(std::make_shared<lfw::Object>(data))));
+          lfw.world(), lfw::Value(std::make_shared<lfw::Object>(data))));
       e = g_fakes.back().get();
     }
     if (op == "fhset") {
@@ -3366,14 +3366,14 @@ int main(int argc, char** argv) {
       lfw::Value(8.0),
       [](lfw::World* w, const lfw::Value& data, lfw::state::States* states) -> lfw::Entity* {
         push("entadd:create|" + s_of(lfw::field_or(data, u"id")));
-        return new lfw::Entity(w->host(), data, states);
+        return new lfw::Entity(*w, data, states);
       });
   // 4BP：非战士实体（`is_fighter` 筛选用）。
   lfw::Factory::register_entity(
       lfw::Value(4.0),
       [](lfw::World* w, const lfw::Value& data, lfw::state::States* states) -> lfw::Entity* {
         push("entadd:create|" + s_of(lfw::field_or(data, u"id")));
-        return new lfw::Entity(w->host(), data, states);
+        return new lfw::Entity(*w, data, states);
       });
   lfw::ui::regist_ui_class(bench::fake_comp_tag(), u"FakeComp");
   static const bench::FakeCompCreator s_fake_comp_creator;
@@ -3840,7 +3840,7 @@ int main(int argc, char** argv) {
            "|modded=" + (lfw.survival_rank_modded() ? "1" : "0") + "|invalid=" +
            (lfw.survival_rank_invalid() ? "1" : "0"));
     } else if (op == "randinfo") {
-      lfw::Entity e(lfw.world().host(), lfw::Value(std::make_shared<lfw::Object>([] {
+      lfw::Entity e(lfw.world(), lfw::Value(std::make_shared<lfw::Object>([] {
                       lfw::Object o;
                       o.set(u"type", lfw::Value(8.0));
                       o.set(u"id", lfw::Value(std::u16string(u"rx")));

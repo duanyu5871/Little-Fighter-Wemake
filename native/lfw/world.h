@@ -143,7 +143,7 @@ class IWorldLfw : public stage::IStageLfw {
   // `Ditto.DEV` / `Ditto.debug(msg)`（`step` 里那个实体数超限的调试打印）
   virtual bool dev() const = 0;
   virtual void debug(const std::u16string& msg) = 0;
-  // `lfw.survival_rank_mode` / `lfw.survival_rank_available`（`IEntityHost` 转发）
+  // `lfw.survival_rank_mode` / `lfw.survival_rank_available`（切片 4CJ 起由 `Entity` 直读 `lfw()`）
   virtual bool survival_rank_mode() const = 0;
   virtual bool survival_rank_available() const = 0;
   // `CMDS.handle(this, cmds)`
@@ -171,7 +171,7 @@ class IWorldRenderer {
 
 // TS `World.ts`：世界（实体表 / 边界 / 相机 / 场景 / 计分）。
 //
-// 两类宿主面各有一个视图实现（定义在 `world.cpp` 里）：`entity::IEntityHost`（`Entity` 要的
+// 两类宿主面各有一个视图实现（定义在 `world.cpp` 里）：`stage::IStageWorld`（`Stage` 要的）；`Entity` 侧
 // `world.*` / `lfw.*`）与 `stage::IStageWorld`（`Stage` 要的）。`ICameraWorld` 由本类直接实现
 // —— 那三个方法名（`world_stage` / `world_bg` / `world_dataset`）与 TS 的字段名不撞。
 class World : public ICameraWorld {
@@ -209,9 +209,29 @@ class World : public ICameraWorld {
   IWorldLfw& lfw() const { return *lfw_; }
   IWorldRenderer& renderer() const { return *renderer_; }
   Camera& camera() const { return *camera_; }
-  // `Entity` / `Stage` 拿的宿主面（视图）。
-  IEntityHost& host() const { return *host_; }
   stage::IStageWorld& stage_world() const { return *stage_view_; }
+
+  // ---- TS 里 `Entity` 直接读的 `this.world.*` 面（切片 4CJ：`IEntityHost` 退役后并入本类）----
+  // 这七条都是「台面脚本化」的面（旧缝时代的假宿主逐条覆写）⇒ 保持 `virtual` 供台面挂钩。
+  // `world.bg.data.dataset?.[key]`
+  virtual Value bg_dataset(const std::u16string& key) const;
+  // `world.stage.player_l` / `player_r` / `far` / `near` / `id` / `team` /
+  // `is_stage_finish` / `is_chapter_finish`
+  virtual Value stage_value(const std::u16string& key) const;
+  // `world.bg.width` / `.near` / `.far`
+  virtual Value bg_value(const std::u16string& key) const;
+  // `world.entities.length + world.ghosts.length`
+  virtual double entity_count() const;
+  // `world.puppets.values()`
+  virtual std::vector<Entity*> puppets_values();
+  // `lfw.players.get(player_id)`：玩家表还没接，按旧缝口径给空 `Value`（TS 的 `undefined`）。
+  virtual Value player_value(const std::u16string& player_id) const;
+  // `opoint.__gen_x?.get(emitter)` 这类表达式字段：函数对象不移植（DESIGN §4.57），
+  // 宿主按 `(holder, kind, emitter)` 回答；`nullopt` 表示没有该字段 ⇒ 调用方回落。
+  virtual std::optional<Value> gen_field(const Value& holder, const std::u16string& kind,
+                                        Entity& emitter);
+  // `this.play_sound(...)`：`lfw.sounds.play` 属音频切片，宿主只拿 `(sounds, pos)`。
+  virtual void play_sound(const Value& sounds, const Value& pos);
   state::States* states() const { return states_; }
   // 碰撞那一刀的宿主（`World::step` 的配对 / `collisions_keeper.handle` 都要它）。
   // 首次用到时才建：它会把 12 个 Env 装到 `collision/` 层的全局缝上（同一时刻只应有一个
@@ -243,7 +263,8 @@ class World : public ICameraWorld {
   void set_fn_locked(bool v);
   void set_fn_locked_value(double v);
   const std::vector<std::pair<std::u16string, double>>& counts() const { return counts_; }
-  double game_time() const { return game_time_.value(); }
+  // `world.game_time`（`attach` 写 `_spawn_time`）：台面会脚本化它 ⇒ `virtual`。
+  virtual double game_time() const { return game_time_.value(); }
   double lifetime() const { return lifetime_; }
   // 差分台面用的只读探针（TS 里是私有字段）。
   double paused_value() const { return paused_; }
@@ -278,8 +299,8 @@ class World : public ICameraWorld {
   void team_stay(const std::u16string& team);
   void team_follow(Entity& target);
   // `add_entities(...entities)`：TS 是变参，端口给单个（调用点都是单个）。
-  void add_entities(Entity& e);
-  const std::vector<Entity*>& list_entities(const std::u16string& name,
+  virtual void add_entities(Entity& e);
+  virtual const std::vector<Entity*>& list_entities(const std::u16string& name,
                                             const std::function<bool(Entity&)>& predicate);
   void del_entity(Entity& e);
   void del_entities(const std::vector<Entity*>& list);
@@ -300,13 +321,14 @@ class World : public ICameraWorld {
   // TS 的公开钩子字段（`this.before_update?.()` / `this.after_update?.()`）。
   std::function<void()> before_update;
   std::function<void()> after_update;
-  std::vector<double> get_bound(Entity& e);
-  const Vector3& restrict(Entity& e);
+  // 这三条（含上面的 `add_entities` / `list_entities`）都是实体的宿主面 ⇒ 台面脚本化用 `virtual`。
+  virtual std::vector<double> get_bound(Entity& e);
+  virtual const Vector3& restrict(Entity& e);
   void update_ui();
   void change_bg(const Value& bg_id);
   void change_stage(const Value& stage_id);
   void handle_cmds();
-  void mark_players_alive(Entity& e, bool is_alive);
+  virtual void mark_players_alive(Entity& e, bool is_alive);
   void collect_dead_buff(buff::Buff& b);
   void add_collision(const collision::Collision& c);
   void render_once(double dt);
@@ -318,7 +340,7 @@ class World : public ICameraWorld {
   void add_count(const std::u16string& key, double o);
   void clear();
   void reset_game_time();
-  Entity* find_entity(const std::u16string& id) const;
+  virtual Entity* find_entity(const std::u16string& id) const;
   std::optional<collision::Collision> get_collision(const std::u16string& aid,
                                                    const std::u16string& vid) const;
   bool has_collision(const std::u16string& aid, const std::u16string& vid) const;
@@ -354,7 +376,6 @@ class World : public ICameraWorld {
   IWorldLfw* lfw_ = nullptr;
   IWorldRenderer* renderer_ = nullptr;
   state::States* states_ = nullptr;
-  std::unique_ptr<IEntityHost> host_;
   std::unique_ptr<stage::IStageWorld> stage_view_;
   std::unique_ptr<Background> bg_;
   std::unique_ptr<Stage> stage_;

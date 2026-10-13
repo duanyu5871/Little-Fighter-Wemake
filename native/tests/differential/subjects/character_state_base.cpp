@@ -48,7 +48,7 @@ Value field_by(const Value& holder, const std::u16string& key) {
 }
 
 // 切片 4CF：状态族窄接口退役 ⇒ 台面假实体派生真 `lfw::Entity`（`entity_fixture.h` 的
-// `fx::shared_host()`），只覆写状态层要观测的实体面；`env …` 配置直写后备字段/成员
+// `fx::shared_world()`），只覆写状态层要观测的实体面；`env …` 配置直写后备字段/成员
 // ⇒ 不产生日志（与 TS 孪生直写 `_*` 一致）。
 //
 // 台账（4CF 时点）：
@@ -68,7 +68,7 @@ struct FakeEnt : lfw::Entity {
   Value _vx;
   Value _vz;
 
-  explicit FakeEnt(std::u16string eid) : lfw::Entity(fx::shared_host(), Value()) {
+  explicit FakeEnt(std::u16string eid) : lfw::Entity(fx::shared_world(), Value()) {
     this->id = std::move(eid);
     this->facing = std::numeric_limits<double>::quiet_NaN();
   }

@@ -36,156 +36,11 @@ struct IEntityRenderer {
   virtual void render(double dt, double dfactor) = 0;
 };
 
-// Host services the entity needs.  In TS these are `this.world` / `this.lfw` reads
-// (`world.dataset`, `world.mark_players_alive`, `lfw.new_id`, `lfw.factory`, …); the
-// real `World` / `LFW` classes do not exist yet, so the port takes them from a host
-// object.  Every method mirrors one TS expression, quoted in the comment.
+// `this.world` / `this.lfw` 的落地类型（完整定义在 `world.h`；entity.h 不 include 它，
+// 免得和 world.h → entity.h 形成环）。
+class World;
+class IWorldLfw;
 class Entity;
-
-class IEntityHost {
- public:
-  virtual ~IEntityHost() = default;
-
-  // `world.dataset[key]`
-  virtual Value world_dataset(const std::u16string& key) const {
-    (void)key;
-    return Value();
-  }
-  // `world.bg.data.dataset?.[key]`
-  virtual Value bg_dataset(const std::u16string& key) const {
-    (void)key;
-    return Value();
-  }
-  // `world.lfw.new_team`
-  virtual std::u16string new_team() const { return u"1"; }
-  // `world.lfw.new_id`
-  virtual std::u16string new_id() { return u""; }
-  // `world.lfw.factory.acquire_ctrl(InvalidController, "", this)`
-  virtual controller::BaseController* acquire_ctrl() { return nullptr; }
-  // `world.lfw.factory.release_ctrl(ctrl)`
-  virtual void release_ctrl(controller::BaseController* ctrl) { (void)ctrl; }
-  // `world.mark_players_alive(this, alive)`
-  virtual void mark_players_alive(Entity& e, bool alive) {
-    (void)e;
-    (void)alive;
-  }
-  // `world.lfw.datas.find(id)`
-  virtual Value find_data(const std::u16string& id) const {
-    (void)id;
-    return Value();
-  }
-  // `world.list_entities(key, predicate)`（`apply_opoints` 的 multi 计数）。返回的实体是
-  // 借用；TS 的 `World` 会按 key 缓存一份数组（同名第二次调用不再过谓词），那层在宿主侧。
-  virtual std::vector<Entity*> list_entities(const std::u16string& key,
-                                            const std::function<bool(Entity&)>& predicate) {
-    (void)key;
-    (void)predicate;
-    return {};
-  }
-  // `world.entity_map.get(id)` — the TS side writes `?? null`, so a miss is `nullptr`.
-  virtual Entity* find_entity(const std::u16string& id) const {
-    (void)id;
-    return nullptr;
-  }
-  // `world.puppets.values()` — the `_blinking === Respawn` branch scans them for the
-  // nearest living friend (and `world_puppets()` builds the state-layer view of the
-  // same list).  Borrowed pointers; the host keeps the storage.
-  virtual std::vector<Entity*> puppets() { return {}; }
-  // `world.stage.player_l` / `player_r` / `far` / `near`（重生点的随机范围）。
-  virtual Value stage_value(const std::u16string& key) const {
-    (void)key;
-    return Value();
-  }
-  // `world.get_bound(this)` — `[l, r, near, far]` 四元组（`BotController.can_back_off` /
-  // `cornered` / `should_chase` 读前两位）。
-  virtual std::vector<double> get_bound(Entity& e) {
-    (void)e;
-    return {0.0, 0.0, 0.0, 0.0};
-  }
-  // `world.has_players_alive`
-  virtual bool has_players_alive() const { return false; }
-  // `world.bg.width` / `.near` / `.far`（`BotController.lock_when_stand_and_rest`）。
-  virtual Value bg_value(const std::u16string& key) const {
-    (void)key;
-    return Value();
-  }
-  // `lfw.datas.find_bot(bot_id)`（`BotController.check_bot`）；没移植 ⇒ 找不到。
-  virtual Value find_bot(const std::u16string& bot_id) const {
-    (void)bot_id;
-    return Value();
-  }
-  // `lfw.players.get(player_id)`（`BaseController` 的 `this.player` 绑定）；宿主给
-  // 玩家对象的 `Value` 视图，没移植玩家表 ⇒ 给空 `Value`（TS 的 `undefined`）。
-  virtual Value player_value(const std::u16string& player_id) const {
-    (void)player_id;
-    return Value();
-  }
-  // `world.ground.step`（TS 的 `Ground.step` 是 `readonly step = 10`）。
-  virtual double ground_step() const { return 10.0; }
-  // `lfw.survival_rank_mode`（`update_catching` 的 `throwinjury === -1` 分支）。
-  virtual bool survival_rank_mode() const { return false; }
-  // `lfw.is_cheat(name)` —— `LF2_NET_ON` / `HERO_FT_ON` / `GIM_INK_ON` 三个 getter 用。
-  // TS 的 `is_cheat` 先过 `is_cheat_type(name)` 再查 `world.dataset[name]`，那两步都属于
-  // `LFW`（未移植），所以整件事交给宿主回答。
-  virtual bool is_cheat(const std::u16string& name) const {
-    (void)name;
-    return false;
-  }
-  // `world.lfw.survival_rank_available`（`survial_rank_mode` getter 用；和上面的
-  // `survival_rank_mode` 是两个字段）。
-  virtual bool survival_rank_available() const { return false; }
-  // `world.entities.length + world.ghosts.length`（`spawn` 的 unimportant 门）。
-  virtual double entity_count() const { return 0.0; }
-  // `world.add_entities(this)`（`attach`）。
-  virtual void add_entities(Entity& e) { (void)e; }
-  // `world.del_entity(this)`（`release`）。
-  virtual void del_entity(Entity& e) { (void)e; }
-  // `world.game_time`（`attach` 写 `_spawn_time`）。
-  virtual double game_time() const { return 0.0; }
-  // `world.lfw.factory.create_entity_with_bot("", this.world, data)`（`spawn`）。
-  // 所有权留在宿主（端口侧由宿主持有 `unique_ptr`），这里是借用；失败返回 `nullptr`
-  // （对应 TS 的 `undefined`，`spawn` 随之早退）。
-  virtual Entity* create_entity_with_bot(const Value& data) {
-    (void)data;
-    return nullptr;
-  }
-  // `opoint.__gen_x?.get(emitter)` / `nf.__gen_facing?.get(emitter)` 这类表达式字段：
-  // 函数对象按既有约定不移植（DESIGN §4.57），宿主按 `(holder, kind, emitter)` 回答；
-  // `nullopt` 表示没有该字段 ⇒ 调用方回落到 `holder.<kind 去掉 __gen_ 前缀>`。
-  virtual std::optional<Value> gen_field(const Value& holder, const std::u16string& kind,
-                                        Entity& emitter) {
-    (void)holder;
-    (void)kind;
-    (void)emitter;
-    return std::nullopt;
-  }
-  // `this.play_sound(this._data.base.dead_sounds)` 等：真实实现（Message 状态的相机
-  // 钳制、`lfw.sounds.play`）属于音频/相机切片，宿主只拿到 `(sounds, pos)`。
-  virtual void play_sound(const Value& sounds, const Value& pos) {
-    (void)sounds;
-    (void)pos;
-  }
-  // `world.restrict(this)` — 返回（可能被夹紧的）坐标点；`terrain` 赋值与越界时
-  // `enter_frame(NEXT_FRAME_GONE)` 这些副作用都在 `World` 里，留在宿主侧。
-  // （默认实现写在 `entity.cpp`：这里 `Entity` 还是不完整类型。）
-  virtual Vector3 world_restrict(Entity& e);
-  // `lfw.mt` — 共享的梅森旋转（`mt.pick` / `mt.range`）。
-  virtual MersenneTwister& mt() {
-    static MersenneTwister fallback(0.0);
-    return fallback;
-  }
-  // `for (const m of v.broadcasts) this.lfw.broadcast(m)`
-  virtual void broadcast(const Value& m) { (void)m; }
-  // `lfw.factory.create_ctrl(data.id, this.ctrl.player_id, this)`（`transform`）。
-  virtual controller::BaseController* create_ctrl(const std::u16string& data_id,
-                                                 const std::u16string& player_id) {
-    (void)data_id;
-    (void)player_id;
-    return nullptr;
-  }
-  // `nf.__judger`：切片 4CG-2 起由 `Entity` 自己真跑（加载期由 `preprocess_next_frame` 登记，
-  // 见 `Entity::has_next_frame_judge` / `Entity::next_frame_judge`），这两条宿主缝随之删除。
-};
 
 // The inline `jumping` record TS keeps on every entity.
 struct Jumping {
@@ -206,8 +61,10 @@ class Entity {
   static constexpr const char* TAG = "Entity";
   static constexpr double kMotionlessWaitTicks = 16;
 
-  Entity(IEntityHost& host, Value data);
-  Entity(IEntityHost& host, Value data, state::States* states);
+  // TS 的 `constructor(world: World, ...)`：直接持真 `World`（`IEntityHost` 那层已退役，
+  // 见 DESIGN §146）。
+  Entity(World& world, Value data);
+  Entity(World& world, Value data, state::States* states);
   // Out of line: `state::State_Base` is incomplete here.
   virtual ~Entity();
 
@@ -371,9 +228,11 @@ class Entity {
   Value bot_ignore() const;
   controller::BaseController* ctrl() const { return ctrl_; }
   void set_ctrl(controller::BaseController* v);
-  // 宿主服务（TS 里的 `this.world` / `this.lfw` 读）：`loader/get_val_from_entity`
-  // 这类自由函数需要向宿主问 `lfw.is_cheat` / `world.lfw.survival_rank_available`。
-  IEntityHost& host() const { return *host_; }
+  // `this.world` / `this.lfw` 的取用口：`loader/get_val_from_entity` 这类自由函数要问
+  // `lfw.is_cheat` / `world.lfw.survival_rank_available`。
+  // TS 的 `this.world` / `this.lfw`（`lfw` 的定义在 entity.cpp：`World` 在此不完整）。
+  World& world() const { return *world_; }
+  IWorldLfw& lfw() const;
   void as_key_role(const Value& v);
   void auto_key_role();
   double gravity() const;
@@ -584,7 +443,7 @@ class Entity {
     (void)z;
   }
   // `e.lfw.datas.find_fighter("50")`（`state/CharacterState_TransformToLouisEX.ts:9`）：
-  // `IEntityHost` 只有 `find_data`，没有只查战士表的那条缝。
+  // 只查战士表的那条面还没接（`LFW::datas_fighters_find` 已在，留给后续刀）。
   virtual Value datas_find_fighter(const std::u16string& oid) {
     (void)oid;
     return Value();
@@ -758,7 +617,9 @@ class Entity {
   virtual Value dataset(const std::u16string& name) const;
   // 只读世界那一层（TS 的状态代码写 `this.world.dataset.X`，端口的状态缝是
   // `e.world_dataset("X")`）。
-  Value world_dataset(const std::u16string& name) const;
+  // 切片 4CJ：`IEntityHost::world_dataset` 退役后改成直接读 `world().dataset`；台面假实体要观测
+  // 「哪一行读了哪个键」（TS 的 `get world()` 是每实例一个打日志的 Proxy）⇒ 加 `virtual`。
+  virtual Value world_dataset(const std::u16string& name) const;
   Value itr_fall(const Value& itr) const;
 
   // --- per-tick recovery (`update()` calls these) ------------------------------
@@ -939,7 +800,7 @@ class Entity {
   controller::BaseController* ctrl_ = nullptr;
   // `ctrl.update()` 的环境（见 `refresh_ctrl_env`）。
   controller::CtrlEnv _ctrl_env;
-  IEntityHost* host_ = nullptr;
+  World* world_ = nullptr;
 
   Value ctrl_ref(controller::BaseController* ctrl) const;
 };

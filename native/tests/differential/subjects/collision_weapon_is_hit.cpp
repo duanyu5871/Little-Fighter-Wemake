@@ -108,7 +108,7 @@ struct Fake : lfw::Entity {
   std::shared_ptr<lfw::Object> _data_indexes_obj;
 
   explicit Fake(std::u16string id)
-      : Entity(fx::shared_host(), Value(std::make_shared<lfw::Object>())) {
+      : Entity(fx::shared_world(), Value(std::make_shared<lfw::Object>())) {
     this->id = std::move(id);
     // 基类 `_data` 就是我们传进去的那个对象 ⇒ 非虚的 `data_id()` / `data_base_hit_sounds()`
     // 也能跟着台面对镜像的改动走。

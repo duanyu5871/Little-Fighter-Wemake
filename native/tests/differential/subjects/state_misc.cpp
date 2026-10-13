@@ -50,7 +50,7 @@ Value marker_frame() {
   return Value(std::make_shared<lfw::Object>(o));
 }
 
-// 切片 4CF：状态族窄接口退役 ⇒ 假实体派生真 `lfw::Entity`（构造用 `fx::shared_host()` 再钉
+// 切片 4CF：状态族窄接口退役 ⇒ 假实体派生真 `lfw::Entity`（构造用 `fx::shared_world()` 再钉
 // `this->id`），只覆写实体面上确实存在的那几条虚方法（`transform` / `transfrom_to_another`
 // 现在是虚的，直接覆写）。
 struct FakeEnt : lfw::Entity {
@@ -65,7 +65,7 @@ struct FakeEnt : lfw::Entity {
   Value _vy;
   Value _vz;
 
-  explicit FakeEnt(std::u16string id) : lfw::Entity(fx::shared_host(), Value()) {
+  explicit FakeEnt(std::u16string id) : lfw::Entity(fx::shared_world(), Value()) {
     this->id = std::move(id);
   }
 

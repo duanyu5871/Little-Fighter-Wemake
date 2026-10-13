@@ -28,12 +28,13 @@ using trace::split_ws;
 using trace::to_ascii;
 
 std::vector<std::string> g_log;
-// `create_entity_with_bot` 造出来的实体由台面持有（与 TS 的 GC 对齐：进程退出时回收）。
+// `create_entity` 造出来的实体由台面持有（与 TS 的 GC 对齐：进程退出时回收）。
 std::vector<std::unique_ptr<lfw::Entity>> g_spawns;
-// 切片 4CE：`Entity::spawn` 不是虚函数 ⇒ 台面只能用宿主缝（`find_data` /
-// `create_entity_with_bot` / `gen_field`）观测它。opoint 是处理器里的**函数静态对象**
-// （每次原地改写 x/y/z），所以从 `gen_field` 抓到的那份引用之后每次读到的都是本次坐标；
-// 「生成失败」那条路径（`create_entity_with_bot` 返回 nullptr）就靠它补日志。
+// 切片 4CE：`Entity::spawn` 不是虚函数 ⇒ 台面只能借 `spawn` 一定会问的世界面观测它
+//（切片 4CJ 后是 `lfw().datas_find` / `lfw().create_entity` / `world().gen_field`）。
+// opoint 是处理器里的**函数静态对象**（每次原地改写 x/y/z），所以从 `gen_field` 抓到的
+// 那份引用之后每次读到的都是本次坐标；「生成失败」那条路径（`create_entity` 返回
+// nullptr）就靠它补日志。
 Value g_opoint;
 
 std::string render(const Value& v) { return to_ascii(render_value(v)); }
@@ -58,46 +59,52 @@ Value make_frame(double cx, double cy, double w, double h) {
 }
 
 struct Fake;
+struct Side;
 
-// 每个假实体配一个宿主：`create_entity_with_bot` / `gen_field` / `has_next_frame_judge`
-// 都发生在**发起方**的宿主上，所以 `owner` 就是这一次调用的实体，`victim` 是另一方
-//（处理器传给 `spawn` 的第三个实参是 `turn_face(v.facing)`，取自受害者）。
-struct Host : fx::Host {
+// 切片 4CJ 后实体手里是真 `lfw::World` ⇒ 「每实体一个宿主」变成「每实体一个世界 + 一份假 `lfw`」：
+//   * `create_entity_with_bot` 旧缝 = `IWorldLfw::create_entity`（处理器 `spawn` 走真实现），
+//     它拿到的那只 `World&` 就是发起方的世界 ⇒ 台面按世界认边；
+//   * `gen_field` 旧缝 = `TestWorld::on_gen_field`，`Entity::on_spawn` 用
+//     `emitter.gen_or(...)` 触发它 ⇒ 钩子拿到的 `emitter` 就是这次 `spawn` 的发起方。
+// `owner` 是发起方实体，`victim` 是另一方（处理器传给 `spawn` 的第三个实参取自受害者）。
+struct Side {
   Fake* owner = nullptr;
   Fake* victim = nullptr;
   bool pending_spawn_log = false;
 
-  // `world.lfw.datas.find(oid)`：opoint 的 oid 在端口里写死为 `209`；返回非空即让
-  // 真 `spawn` 继续走到 `create_entity_with_bot`。
-  Value find_data(const std::u16string& id) const override {
-    if (id != u"209") return Value();
-    lfw::Object o;
-    o.set(u"id", Value(std::u16string(u"209")));
-    return Value(std::make_shared<lfw::Object>(o));
+  // 假 `lfw`：`world.lfw.datas.find(oid)` 的 oid 在端口里写死为 `209`；返回非空即让真
+  // `spawn` 继续走到 `create_entity`。
+  struct Lfw : fx::FakeLfw {
+    Side* side = nullptr;
+    Value datas_find(const Value& oid) override;
+    lfw::Entity* create_entity(lfw::World& world, const Value& data) override;
+  };
+
+  Lfw lfw;
+  std::unique_ptr<fx::TestWorld> world;
+
+  Side() {
+    lfw.side = this;
+    world = std::make_unique<fx::TestWorld>(lfw, fx::g_renderer, &fx::g_states);
+    // `on_spawn` 里每一条 `opoint.__gen_*` 都会问一次世界；第一次拿到的 `holder` 就是
+    // opoint 本体 ⇒ 在那儿补 `A:spawn:...` 那一行（与 TS 假实体的 `spawn` 同时刻）。
+    world->on_gen_field = [this](const Value& holder, const std::u16string& kind,
+                                 lfw::Entity& emitter) -> std::optional<Value> {
+      (void)kind;
+      (void)emitter;
+      if (!pending_spawn_log) return std::nullopt;
+      pending_spawn_log = false;
+      g_opoint = holder;
+      log_spawn();
+      return std::nullopt;
+    };
   }
 
-  lfw::Entity* create_entity_with_bot(const Value& data) override;
-
-  // `on_spawn` 里每一条 `opoint.__gen_*` 都会问一次宿主；第一次拿到的 `holder` 就是
-  // opoint 本体 ⇒ 在那儿补 `A:spawn:...` 那一行（与 TS 假实体的 `spawn` 同时刻）。
-  std::optional<Value> gen_field(const Value& holder, const std::u16string& kind,
-                                 lfw::Entity& emitter) override {
-    (void)kind;
-    (void)emitter;
-    if (!pending_spawn_log) return std::nullopt;
-    pending_spawn_log = false;
-    g_opoint = holder;
-    log_spawn();
-    return std::nullopt;
-  }
-
-  // `Entity::enter_frame` 不是虚函数时，台面只能借 `get_next_frame` 一定先问一次的
-  // `__judger` 缝观测它；现在它是虚的（父级已改 `entity.h`），直接覆写即可 —— 见 `Fake`。
   void log_spawn() const;
 };
 
-Host g_host_a;
-Host g_host_v;
+Side g_side_a;
+Side g_side_v;
 
 // 切片 4CE：碰撞族窄接口退役 ⇒ 台面假实体就是真 `lfw::Entity`（TS 台面同样只给
 // `group` / `state` / `data` / `frame` / `facing` / `position` / `spawn` 这几条读面）。
@@ -110,9 +117,9 @@ struct Fake : lfw::Entity {
   // `Entity::data()` 返回 `const Value&` ⇒ 镜像必须是成员（不能返回临时量）。
   mutable Value _data_mirror;
 
-  Fake(std::u16string id, Host& h) : Entity(h, Value()) {
+  Fake(std::u16string id, Side& s) : Entity(*s.world, Value()) {
     this->id = std::move(id);
-    h.owner = this;
+    s.owner = this;
     // TS 假实体的字段初值：`_frame = {centerx:0,centery:0,width:0,height:0}`、`_face = 1`。
     frame = make_frame(0, 0, 0, 0);
     facing = 1;
@@ -136,10 +143,10 @@ struct Fake : lfw::Entity {
   }
 };
 
-Fake g_att(u"A", g_host_a);
-Fake g_vic(u"V", g_host_v);
+Fake g_att(u"A", g_side_a);
+Fake g_vic(u"V", g_side_v);
 
-void Host::log_spawn() const {
+void Side::log_spawn() const {
   const Value action = lfw::field_or(g_opoint, u"action");
   // TS 假实体拿到的第三个实参是 `turn_face(v.facing)`；端口把它收成了 `double`
   //（`to_number(...)`），台面按镜像的 `Value` 形态渲染，才保得住 `face` 为 `undefined`
@@ -153,17 +160,26 @@ void Host::log_spawn() const {
                   render(lfw::field_or(action, u"id")) + ":" + render(face));
 }
 
-lfw::Entity* Host::create_entity_with_bot(const Value& data) {
-  if (owner == nullptr || !owner->_spawn_ok) {
+Value Side::Lfw::datas_find(const Value& oid) {
+  if (!lfw::strict_equals(oid, Value(std::u16string(u"209")))) return Value();
+  lfw::Object o;
+  o.set(u"id", Value(std::u16string(u"209")));
+  return Value(std::make_shared<lfw::Object>(o));
+}
+
+lfw::Entity* Side::Lfw::create_entity(lfw::World& world, const Value& data) {
+  (void)world;
+  Side& s = *side;
+  if (s.owner == nullptr || !s.owner->_spawn_ok) {
     // 生成失败：真 `spawn` 在这儿就早退，之后没有别的缝可打那一行 ⇒ 当场补上。
-    pending_spawn_log = false;
-    if (owner != nullptr) log_spawn();
+    s.pending_spawn_log = false;
+    if (s.owner != nullptr) s.log_spawn();
     return nullptr;
   }
-  pending_spawn_log = true;
-  // 生成物挂到**无日志**的最小宿主上：它内部的 `on_spawn`（`__judge` / `__gen_*`）
-  // 属于生成物的实现细节，不是台面的观测点。
-  auto e = std::make_unique<lfw::Entity>(fx::shared_host(), data);
+  s.pending_spawn_log = true;
+  // 生成物挂到**无日志**的世界（共享台面世界，没挂钩子）上：它内部的 `on_spawn`
+  //（`__judge` / `__gen_*`）属于生成物的实现细节，不是台面的观测点。
+  auto e = std::make_unique<lfw::Entity>(fx::shared_world(), data);
   lfw::Entity* raw = e.get();
   g_spawns.push_back(std::move(e));
   return raw;
@@ -172,8 +188,8 @@ lfw::Entity* Host::create_entity_with_bot(const Value& data) {
 Value g_itr;
 
 void bind() {
-  g_host_a.victim = &g_vic;
-  g_host_v.victim = &g_att;
+  g_side_a.victim = &g_vic;
+  g_side_v.victim = &g_att;
   BallFrozenEnv env;
   env.is_ball = [](const lfw::Entity& e) { return lfw::entity::is_ball_data(e.data()); };
   env.is_fighter = [](const lfw::Entity& e) { return lfw::entity::is_fighter_data(e.data()); };

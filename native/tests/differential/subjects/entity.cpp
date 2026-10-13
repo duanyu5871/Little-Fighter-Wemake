@@ -28,6 +28,7 @@
 #include "lfw/utils/container_help/field_or.h"
 #include "lfw/world_dataset.h"
 
+#include "entity_fixture.h"
 #include "trace_util.h"
 
 namespace {
@@ -78,7 +79,6 @@ Value parse_value(const std::vector<std::string>& t, std::size_t& i) {
 }
 
 std::vector<std::string> g_log;
-std::unique_ptr<lfw::WorldDataset> g_dataset;
 Value g_bg_dataset;
 // `env data` fills the `lfw.datas.find` table (`read_snapshot` looks a data id up).
 Value g_datas = Value(std::make_shared<lfw::Object>());
@@ -91,9 +91,10 @@ std::unique_ptr<Entity> g_buddy;
 Value g_restrict_result;
 // The harness MT: `run mtseed` reseeds it (both sides draw from the same stream).
 lfw::MersenneTwister g_mt(0.0);
-// `spawn` / `attach` host seams: `world.entities.length + world.ghosts.length`,
-// `world.game_time`, `world.add_entities`, `lfw.factory.create_entity_with_bot` and
-// the `__gen_*` expression-field stand-ins (`env ecount|gtime|gen`).
+// `spawn` / `attach` 的世界面：`world.entities.length + world.ghosts.length`、
+// `world.game_time`、`world.add_entities`、`lfw.factory.create_entity_with_bot`，以及
+// `__gen_*` 表达式字段的替身（`env ecount|gtime|gen` —— 切片 4CJ 后分别落在
+// `TestWorld::on_entity_count` / `on_game_time` / `on_add_entities` 与假 `lfw` 上）。
 double g_ecount = 0;
 double g_gtime = 0;
 std::vector<std::pair<std::u16string, Value>> g_gen;
@@ -274,7 +275,7 @@ std::string ball_state(lfw::controller::BallController* b) {
          " jd=" + render(Value(static_cast<double>(b->jd()))) + " hit=" + hit +
          " hold=" + hold;
 }
-// Defined with the `run` vocabulary further down; the `Host` seams above need it too.
+// Defined with the `run` vocabulary further down; the `world` hooks above need it too.
 std::string join(const std::vector<std::string>& xs);
 
 // --- state registry + the fake state (the 9g wiring) -------------------------
@@ -582,22 +583,55 @@ std::string who(const Entity& e, const std::vector<Value>& args, std::size_t idx
   return id == e.id ? "self" : "?";
 }
 
-class Host : public lfw::IEntityHost {
- public:
-  Value world_dataset(const std::u16string& key) const override { return g_dataset->get(key); }
-
-  Value bg_dataset(const std::u16string& key) const override {
-    return field_of(g_bg_dataset, key);
+// kind: 0 = base (the factory's `InvalidController`), 1 = human (`LocalController`),
+// 2 = bot (`BotController`), 3 = human without a player name; the flags/`set_kind`
+// pair is what `is_*_ctrl` reads. The pids mirror the TS harness: `reset()` acquires
+// its `InvalidController` with `""` (`Entity.ts:692`), humans/bots carry "7".
+lfw::controller::BaseController* make_ctrl(int kind) {
+  auto c = std::make_unique<lfw::controller::BaseController>();
+  c->set_kind(kind == 1 || kind == 3, kind == 2);
+  c->player_id = kind == 3 ? u"9" : (kind == 0 ? std::u16string() : u"7");
+  if (kind == 1) {
+    lfw::Object player;
+    player.set(u"id", Value(7.0));
+    player.set(u"name", Value(std::u16string(u"P7")));
+    c->player = Value(std::make_shared<lfw::Object>(player));
+  } else if (kind == 3) {
+    lfw::Object player;
+    player.set(u"id", Value(9.0));
+    c->player = Value(std::make_shared<lfw::Object>(player));
   }
+  lfw::controller::BaseController* raw = c.get();
+  g_ctrls.push_back(std::move(c));
+  return raw;
+}
 
-  std::u16string new_team() const override { return g_team; }
+// `world.entity_map.get(id) ?? null` — answered from the live harness entities so a
+// `reset` (new id) never leaves a stale lookup behind.
+Entity* fixture_find_entity(const std::u16string& id) {
+  if (g_entity != nullptr && g_entity->id == id) return g_entity.get();
+  if (g_buddy != nullptr && g_buddy->id == id) return g_buddy.get();
+  return nullptr;
+}
+
+// 切片 4CJ：`IEntityHost` 退役 ⇒ 旧假宿主那 30 条缝按新家拆成两半：
+//   * 实体读 `this.world.*` 的一批 → `TestWorld` 的脚本钩子（`bind_world()`，与 TS 的
+//     `worldStub` 一一对应）；
+//   * 实体读 `this.lfw.*` 的一批 → 自带一份假 `lfw`（`EntityLfw`，对应 TS 的 `lfwStub`）。
+// 世界是真 `lfw::World`（喂假 `lfw` + 假 renderer）。`this.world.dataset` 也是真的
+//（TS 台面同样用真 `WorldDataset`）⇒ `env dataset` 直接写世界的 `dataset`。
+std::function<Entity*(const Value&)> g_make_entity;
+
+struct EntityLfw : fx::FakeLfw {
+  std::u16string new_team() override { return g_team; }
 
   std::u16string new_id() override {
     ++g_id_counter;
     return u"e" + lfw::number_to_string(static_cast<double>(g_id_counter));
   }
 
-  lfw::controller::BaseController* acquire_ctrl() override {
+  lfw::controller::BaseController* acquire_invalid_ctrl(lfw::World& world) override {
+    (void)world;
     g_log.push_back("acquire_ctrl");
     lfw::controller::BaseController* c = make_ctrl(0);
     if (g_ball_ctrl) c->set_ball(true);
@@ -608,14 +642,127 @@ class Host : public lfw::IEntityHost {
     g_log.push_back("release_ctrl:" + s_of(ctrl_mark(c)));
   }
 
-  void mark_players_alive(Entity& e, bool alive) override {
-    (void)e;
-    g_log.push_back("mark_players_alive:" + render(Value(alive)));
+  lfw::controller::BaseController* create_ctrl(const std::u16string& data_id,
+                                              const std::u16string& player_id) override {
+    g_log.push_back("create_ctrl:" + render(Value(data_id)) + ":" + render(Value(player_id)));
+    return make_ctrl(0);
   }
 
+  lfw::MersenneTwister* mt() override { return &g_mt; }
+
+  void broadcast(const Value& m) override { g_log.push_back("broadcast:" + render(m)); }
+
+  // `lfw.datas.find(id)`
+  Value datas_find(const Value& oid) override {
+    return field_of(g_datas, lfw::to_string(oid));
+  }
+
+  bool survival_rank_mode() const override { return g_rank_mode; }
+  bool survival_rank_available() const override { return g_rank_avail; }
+
+  // `lfw.is_cheat(name)`：TS 是 `is_cheat_type(name) && !!world.dataset[name]`，
+  // 名字只可能是 `LF2_NET` / `HERO_FT` / `GIM_INK`（表里写死的），所以这里只查开关。
+  bool is_cheat(const std::u16string& name) override {
+    for (const std::u16string& n : g_cheats) {
+      if (n == name) return true;
+    }
+    return false;
+  }
+
+  // `lfw.factory.create_entity_with_bot("", this.world, data)`（端口收成
+  // `IWorldLfw::create_entity`）：新实体的 id 来自 `new_id()`（与 TS 的 `lfw.new_id`
+  // 同一个计数器）。真正的构造挂在 `g_make_entity` 上（空间上它后面才定义）。
+  Entity* create_entity(lfw::World& world, const Value& data) override {
+    (void)world;
+    g_log.push_back("create_entity_with_bot:" + render(data));
+    return g_make_entity != nullptr ? g_make_entity(data) : nullptr;
+  }
+};
+
+EntityLfw g_lfw;
+
+// 台面世界（Meyers 单例）。名字带 `test_` 前缀是刻意的：`lfw::Entity` 自己有 `world()`
+// 成员，派生类的构造初始化列表里写裸 `world()` 会解析到那个成员。
+fx::TestWorld& test_world() {
+  static fx::TestWorld w(g_lfw, fx::g_renderer, &g_states);
+  return w;
+}
+
+// `this.world.*` 那批旧缝（逐条与 `Host` 的覆写对应）。
+void bind_world() {
+  fx::TestWorld& w = test_world();
+  // `world.bg.data.dataset?.[key]`
+  w.on_bg_dataset = [](const std::u16string& key) { return field_of(g_bg_dataset, key); };
+  // `world.stage.player_l` / `player_r` / `far` / `near`（`env stage <key> <值>`；没设过
+  // 就是 `undefined`，与 TS 里缺字段同形）。
+  w.on_stage_value = [](const std::u16string& key) -> Value {
+    for (const auto& kv : g_stage) {
+      if (kv.first == key) return kv.second;
+    }
+    return Value();
+  };
+  // `world.bg.width` / `.near` / `.far`：TS 台面的 `worldStub.bg` 没有这三条 ⇒ 恒 `undefined`。
+  w.on_bg_value = [](const std::u16string& key) -> Value {
+    (void)key;
+    return Value();
+  };
+  // `world.entities.length + world.ghosts.length`（`spawn` 的 unimportant 门）
+  w.on_entity_count = []() { return g_ecount; };
+  // `world.puppets.values()`：`env puppets …` 指的名单（`self` / `buddy` / `sp<N>`）。
+  w.on_puppets_values = []() {
+    std::vector<Entity*> out;
+    for (const std::string& tok : g_puppet_tokens) {
+      Entity* e = candidate_of(tok);
+      if (e != nullptr) out.push_back(e);
+    }
+    g_log.push_back("puppets:" + join(g_puppet_tokens));
+    return out;
+  };
+  w.on_find_entity = [](const std::u16string& id) { return fixture_find_entity(id); };
+  // `world.add_entities(this)`（`attach`）——把实体挂进世界的那一刻，`_spawn_time`
+  // 已经写好，所以日志里带上它。
+  w.on_add_entities = [](Entity& e) {
+    g_log.push_back("add_entities:" + s_of(e.id) + ":" + render(Value(e.spawn_time())));
+  };
+  // `world.get_bound(this)`：TS 台面没这条面 ⇒ 旧的宿主缝默认值 `[0,0,0,0]`。
+  w.on_get_bound = [](Entity& e) -> std::vector<double> {
+    (void)e;
+    return {0.0, 0.0, 0.0, 0.0};
+  };
+  w.on_play_sound = [](const Value& sounds, const Value& pos) {
+    g_log.push_back("play_sound:" + render(sounds) + "@" + render(pos));
+  };
+  // `opoint.__gen_x?.get(emitter)` 这类表达式字段：TS 里是编译出来的函数对象，
+  // 端口按既有约定不移植（DESIGN §4.57）⇒ 场景用 `env gen` 注册一个常量生成器。
+  w.on_gen_field = [](const Value& holder, const std::u16string& kind,
+                      Entity& emitter) -> std::optional<Value> {
+    (void)holder;
+    (void)emitter;
+    for (const auto& kv : g_gen) {
+      if (kv.first == kind) return kv.second;
+    }
+    return std::nullopt;
+  };
+  // `world.list_entities(key, predicate)`（`apply_opoints` 的 multi 计数）：候选实体由
+  // `env ents …`（`self` / `buddy` / `sp<N>`）指定，谓词由端口提供；`World` 那层按 key
+  // 缓存一份数组的行为属于 World 切片，这里每次真筛（两侧一致即可）。
+  w.on_list_entities = [](const std::u16string& key,
+                          const std::function<bool(Entity&)>& predicate) {
+    std::vector<Entity*> out;
+    for (const std::string& tok : g_candidate_tokens) {
+      Entity* e = candidate_of(tok);
+      if (e != nullptr && predicate(*e)) out.push_back(e);
+    }
+    g_log.push_back("list_entities:" + s_of(key) + ":" + std::to_string(out.size()));
+    return out;
+  };
+  w.on_mark_players_alive = [](Entity& e, bool alive) {
+    (void)e;
+    g_log.push_back("mark_players_alive:" + render(Value(alive)));
+  };
   // `world.restrict(this)`: the scene programs the answer, or `run restrict none`
   // leaves the position untouched (the real clamp lives in World).
-  lfw::Vector3 world_restrict(Entity& e) override {
+  w.on_restrict = [](Entity& e) -> lfw::Vector3 {
     if (std::holds_alternative<std::monostate>(g_restrict_result) ||
         std::holds_alternative<lfw::NullTag>(g_restrict_result)) {
       return e.position;
@@ -625,156 +772,14 @@ class Host : public lfw::IEntityHost {
     r.y = lfw::to_number(lfw::field_or(g_restrict_result, u"y"));
     r.z = lfw::to_number(lfw::field_or(g_restrict_result, u"z"));
     return r;
-  }
+  };
+  w.on_game_time = []() { return g_gtime; };
+}
 
-  lfw::MersenneTwister& mt() override { return g_mt; }
-
-  // `nf.__judger` 已不再是宿主缝（切片 4CG-2：`lfw::IEntityHost` 删掉了
-  // `has_next_frame_judge` / `next_frame_judge`，改由 `Entity` 自己查
-  // `preprocess_next_frame` 登记的真判定器），所以这里没有对应覆写。
-
-  void broadcast(const Value& m) override { g_log.push_back("broadcast:" + render(m)); }
-
-  lfw::controller::BaseController* create_ctrl(const std::u16string& data_id,
-                                              const std::u16string& player_id) override {
-    g_log.push_back("create_ctrl:" + render(Value(data_id)) + ":" + render(Value(player_id)));
-    return make_ctrl(0);
-  }
-
-  // `world.list_entities(key, predicate)`（`apply_opoints` 的 multi 计数）：候选实体由
-  // `env ents …`（`self` / `buddy` / `sp<N>`）指定，谓词由端口提供；`World` 那层按 key
-  // 缓存一份数组的行为属于 World 切片，这里每次真筛（两侧一致即可）。
-  std::vector<Entity*> list_entities(const std::u16string& key,
-                                     const std::function<bool(Entity&)>& predicate) override {
-    std::vector<Entity*> out;
-    for (const std::string& tok : g_candidate_tokens) {
-      Entity* e = candidate_of(tok);
-      if (e != nullptr && predicate(*e)) out.push_back(e);
-    }
-    g_log.push_back("list_entities:" + s_of(key) + ":" + std::to_string(out.size()));
-    return out;
-  }
-
-  // `world.entities.length + world.ghosts.length`（`spawn` 的 unimportant 门）
-  double entity_count() const override { return g_ecount; }
-
-  // `world.puppets.values()`：`env puppets …` 指的名单（`self` / `buddy` / `sp<N>`）。
-  std::vector<Entity*> puppets() override {
-    std::vector<Entity*> out;
-    for (const std::string& tok : g_puppet_tokens) {
-      Entity* e = candidate_of(tok);
-      if (e != nullptr) out.push_back(e);
-    }
-    g_log.push_back("puppets:" + join(g_puppet_tokens));
-    return out;
-  }
-
-  // `world.stage.player_l` / `player_r` / `far` / `near`（`env stage <key> <值>`；没设过
-  // 就是 `undefined`，与 TS 里缺字段同形）。
-  Value stage_value(const std::u16string& key) const override {
-    for (const auto& kv : g_stage) {
-      if (kv.first == key) return kv.second;
-    }
-    return Value();
-  }
-
-  // `world.ground.step`（TS 的 `Ground.step` 是 `readonly = 10`）
-  double ground_step() const override { return g_ground_step; }
-
-  // `lfw.survival_rank_mode`
-  bool survival_rank_mode() const override { return g_rank_mode; }
-
-  // `lfw.is_cheat(name)`：TS 是 `is_cheat_type(name) && !!world.dataset[name]`，
-  // 名字只可能是 `LF2_NET` / `HERO_FT` / `GIM_INK`（表里写死的），所以这里只查开关。
-  bool is_cheat(const std::u16string& name) const override {
-    for (const std::u16string& n : g_cheats) {
-      if (n == name) return true;
-    }
-    return false;
-  }
-
-  // `world.lfw.survival_rank_available`
-  bool survival_rank_available() const override { return g_rank_avail; }
-
-  // `world.add_entities(this)`（`attach`）——把实体挂进世界的那一刻，`_spawn_time`
-  // 已经写好，所以日志里带上它。
-  void add_entities(Entity& e) override {
-    g_log.push_back("add_entities:" + s_of(e.id) + ":" +
-                    render(Value(e.spawn_time())));
-  }
-
-  // `world.game_time`
-  double game_time() const override { return g_gtime; }
-
-  // `lfw.factory.create_entity_with_bot("", this.world, data)`：新实体的 id 来自
-  // `new_id()`（与 TS 的 `lfw.new_id` 同一个计数器）。真正的构造挂在 `make_entity`
-  // 上（`Host` 定义时 `g_host` 还不存在）。
-  std::function<Entity*(const Value&)> make_entity;
-
-  Entity* create_entity_with_bot(const Value& data) override {
-    g_log.push_back("create_entity_with_bot:" + render(data));
-    return make_entity != nullptr ? make_entity(data) : nullptr;
-  }
-
-  // `opoint.__gen_x?.get(emitter)` 这类表达式字段：TS 里是编译出来的函数对象，
-  // 端口按既有约定不移植（DESIGN §4.57）⇒ 场景用 `env gen` 注册一个常量生成器。
-  std::optional<Value> gen_field(const Value& holder, const std::u16string& kind,
-                                 Entity& emitter) override {
-    (void)holder;
-    (void)emitter;
-    for (const auto& kv : g_gen) {
-      if (kv.first == kind) return kv.second;
-    }
-    return std::nullopt;
-  }
-
-  void play_sound(const Value& sounds, const Value& pos) override {
-    g_log.push_back("play_sound:" + render(sounds) + "@" + render(pos));
-  }
-
-  // `world.lfw.datas.find(id)`
-  Value find_data(const std::u16string& id) const override {
-    return field_of(g_datas, id);
-  }
-
-  // `world.entity_map.get(id) ?? null` — answered from the live harness entities so a
-  // `reset` (new id) never leaves a stale lookup behind.
-  Entity* find_entity(const std::u16string& id) const override {
-    if (g_entity != nullptr && g_entity->id == id) return g_entity.get();
-    if (g_buddy != nullptr && g_buddy->id == id) return g_buddy.get();
-    return nullptr;
-  }
-
-  // kind: 0 = base (the factory's `InvalidController`), 1 = human (`LocalController`),
-  // 2 = bot (`BotController`), 3 = human without a player name; the flags/`set_kind`
-  // pair is what `is_*_ctrl` reads. The pids mirror the TS harness: `reset()` acquires
-  // its `InvalidController` with `""` (`Entity.ts:692`), humans/bots carry "7".
-  lfw::controller::BaseController* make_ctrl(int kind) {
-    auto c = std::make_unique<lfw::controller::BaseController>();
-    c->set_kind(kind == 1 || kind == 3, kind == 2);
-    c->player_id = kind == 3 ? u"9" : (kind == 0 ? std::u16string() : u"7");
-    if (kind == 1) {
-      lfw::Object player;
-      player.set(u"id", Value(7.0));
-      player.set(u"name", Value(std::u16string(u"P7")));
-      c->player = Value(std::make_shared<lfw::Object>(player));
-    } else if (kind == 3) {
-      lfw::Object player;
-      player.set(u"id", Value(9.0));
-      c->player = Value(std::make_shared<lfw::Object>(player));
-    }
-    lfw::controller::BaseController* raw = c.get();
-    g_ctrls.push_back(std::move(c));
-    return raw;
-  }
-};
-
-std::unique_ptr<Host> g_host;
-
-// `Host::create_entity_with_bot` 的实体：id 走 `new_id()`，与 TS 的 `lfw.new_id` 同一个计数器。
+// `EntityLfw::create_entity` 的实体：id 走 `new_id()`，与 TS 的 `lfw.new_id` 同一个计数器。
 void bind_entity_factory() {
-  g_host->make_entity = [](const Value& data) -> Entity* {
-    auto e = std::make_unique<Entity>(*g_host, data, &g_states);
+  g_make_entity = [](const Value& data) -> Entity* {
+    auto e = std::make_unique<Entity>(test_world(), data, &g_states);
     Entity* raw = e.get();
     g_spawns.push_back(std::move(e));
     g_last_spawn = raw;
@@ -1211,16 +1216,16 @@ int main(int argc, char** argv) {
     return 2;
   }
 
-  g_dataset = std::make_unique<lfw::WorldDataset>();
-  g_host = std::make_unique<Host>();
+  // 世界（真 `lfw::World`）与它的脚本钩子先立起来：实体构造时就要问它。
+  bind_world();
   bind_entity_factory();
   cv_reset();
   {
     // `loader/get_val_from_collision` 的活实体缝：TS 的 `Collision.attacker` / `.victim`
-    // 是那两个实体本身，端口只有快照 ⇒ 按 `id` 现查（就是宿主那个
+    // 是那两个实体本身，端口只有快照 ⇒ 按 `id` 现查（就是世界那个
     // `world.entity_map.get(id) ?? null`）。
     lfw::loader::CollisionValEnv env;
-    env.find_entity = [](const std::u16string& id) { return g_host->find_entity(id); };
+    env.find_entity = [](const std::u16string& id) { return fixture_find_entity(id); };
     lfw::loader::set_collision_val_env(env);
   }
   {
@@ -1241,7 +1246,7 @@ int main(int argc, char** argv) {
       const std::string& sub = t[i++];
       if (sub == "dataset") {
         const std::u16string key = text_of(parse_value(t, i));
-        g_dataset->set(key, parse_value(t, i));
+        test_world().dataset.set(key, parse_value(t, i));
       } else if (sub == "bg") {
         const std::u16string key = text_of(parse_value(t, i));
         lfw::Object* o = lfw::as_object(g_bg_dataset);
@@ -1296,7 +1301,9 @@ int main(int argc, char** argv) {
         }
         if (!replaced) g_stage.emplace_back(key, v);
       } else if (sub == "groundstep") {
+        // `world.ground.step`（TS 台面用 `defineProperty` 换掉那个只读字段）。
         g_ground_step = to_number(parse_value(t, i));
+        test_world().ground.set_step(g_ground_step);
       } else if (sub == "rankmode") {
         const std::string& flag = t[i++];
         const std::string& v = t[i++];
@@ -1329,7 +1336,7 @@ int main(int argc, char** argv) {
     if (op == "run") {
       const std::string& what = t[i++];
       if (what == "make") {
-        g_entity = std::make_unique<Entity>(*g_host, parse_value(t, i), &g_states);
+        g_entity = std::make_unique<Entity>(test_world(), parse_value(t, i), &g_states);
         bind_callbacks(*g_entity);
         std::printf("run make || id=%s | %s\n", s_of(g_entity->id).c_str(),
                     join(g_log).c_str());
@@ -1407,14 +1414,14 @@ int main(int argc, char** argv) {
       } else if (what == "ctrl") {
         const std::string& kind = t[i++];
         if (kind == "none") g_entity->set_ctrl(nullptr);
-        else if (kind == "base") g_entity->set_ctrl(g_host->make_ctrl(0));
+        else if (kind == "base") g_entity->set_ctrl(make_ctrl(0));
         else if (kind == "base_released") {
-          lfw::controller::BaseController* c = g_host->make_ctrl(0);
+          lfw::controller::BaseController* c = make_ctrl(0);
           c->keys.d.hit(Value(1.0), 0.0);
           g_entity->set_ctrl(c);
-        } else if (kind == "human") g_entity->set_ctrl(g_host->make_ctrl(1));
-        else if (kind == "human_bare") g_entity->set_ctrl(g_host->make_ctrl(3));
-        else if (kind == "bot") g_entity->set_ctrl(g_host->make_ctrl(2));
+        } else if (kind == "human") g_entity->set_ctrl(make_ctrl(1));
+        else if (kind == "human_bare") g_entity->set_ctrl(make_ctrl(3));
+        else if (kind == "bot") g_entity->set_ctrl(make_ctrl(2));
         else if (kind == "ball") {
           // 真控制器（TS 那边同样是 `new BallController(...)`）。
           g_balls.push_back(std::make_unique<lfw::controller::BallController>());
@@ -1777,7 +1784,7 @@ int main(int argc, char** argv) {
         const double lr = trace::to_double(t[i++]);
         const double ud = trace::to_double(t[i++]);
         const double jd = trace::to_double(t[i++]);
-        lfw::controller::BaseController* c = g_host->make_ctrl(0);
+        lfw::controller::BaseController* c = make_ctrl(0);
         if (lr > 0) c->keys.R.hit(Value(1.0), 0.0);
         else if (lr < 0) c->keys.L.hit(Value(1.0), 0.0);
         if (ud > 0) c->keys.D.hit(Value(1.0), 0.0);
@@ -1796,7 +1803,7 @@ int main(int argc, char** argv) {
         const double lr = trace::to_double(t[i++]);
         const double ud = trace::to_double(t[i++]);
         const double jd = trace::to_double(t[i++]);
-        lfw::controller::BaseController* c = g_host->make_ctrl(0);
+        lfw::controller::BaseController* c = make_ctrl(0);
         if (lr > 0) c->keys.R.hit(Value(1.0), 0.0);
         else if (lr < 0) c->keys.L.hit(Value(1.0), 0.0);
         if (ud > 0) c->keys.D.hit(Value(1.0), 0.0);
@@ -1820,7 +1827,7 @@ int main(int argc, char** argv) {
           if (g_entity->bearer == g_buddy.get()) g_entity->bearer = nullptr;
           if (g_entity->catcher == g_buddy.get()) g_entity->catcher = nullptr;
         }
-        g_buddy = std::make_unique<Entity>(*g_host, parse_value(t, i), &g_states);
+        g_buddy = std::make_unique<Entity>(test_world(), parse_value(t, i), &g_states);
         std::printf("run buddy || id=%s | %s\n", s_of(g_buddy->id).c_str(),
                     join(g_log).c_str());
       } else if (what == "buddyset") {

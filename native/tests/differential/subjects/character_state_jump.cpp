@@ -11,6 +11,7 @@
 #include "lfw/state/character_state_jump.h"
 #include "lfw/utils/container_help/field_or.h"
 
+#include "entity_fixture.h"
 #include "trace_util.h"
 
 namespace {
@@ -47,16 +48,6 @@ std::u16string value_text(const Value& v) {
   return s != nullptr ? *s : std::u16string();
 }
 
-// `world.dataset[key]`：TS 侧读 `this.world.dataset`（假实体在 Proxy 的 get 上打日志）；
-// 端口侧的缝是 `Entity::world_dataset` → `IEntityHost::world_dataset`（那条是虚的），
-// 这里用本地假宿主把读导向用例的 `dvals` 镜并打同一行日志。
-class FakeHost : public lfw::IEntityHost {
- public:
-  Value world_dataset(const std::u16string& key) const override;
-};
-
-FakeHost g_host;
-
 // 切片 4CF：`state::IStateEntity` 退役 ⇒ 假实体改成**真 `lfw::Entity`**，只覆写虚成员；
 // 库要读、但没有虚读面的那几条（位置 / `ground_y` 以外的面）在台面配置时顺带写进真字段
 // （配置写入不产生日志，与 TS 侧直写 `f._x` 同款）。`data()` 返回引用 ⇒ 镜必须是成员。
@@ -77,9 +68,16 @@ struct FakeEnt : lfw::Entity {
   Value _landing1;
   Value _data;
 
-  explicit FakeEnt(std::u16string id) : lfw::Entity(g_host, Value()), _id(std::move(id)) {
+  explicit FakeEnt(std::u16string id) : lfw::Entity(fx::shared_world(), Value()), _id(std::move(id)) {
     this->id = _id;
     rebuild_data();
+  }
+
+  // `world.dataset[key]`：TS 台面在 `get world()` 的 Proxy 上打这行日志，端口这面就是
+  // `Entity::world_dataset`（切片 4CJ 起是 `virtual`）。
+  Value world_dataset(const std::u16string& key) const override {
+    g_log.push_back(s_of(_id) + ":world_dataset:" + s_of(key));
+    return lfw::field_or(_dvals, key.c_str());
   }
 
   void rebuild_data() {
@@ -151,13 +149,6 @@ FakeEnt* g_ent = nullptr;
 Value g_state;
 Value g_velocity;
 CharacterState_Jump* g_obj = nullptr;
-
-Value FakeHost::world_dataset(const std::u16string& key) const {
-  // `Entity` 的构造函数会读一次 `world.dataset.atom_time`（那时台面还没有实体）⇒ 直接给空。
-  if (g_ent == nullptr) return Value();
-  g_log.push_back(s_of(g_ent->_id) + ":world_dataset:" + s_of(key));
-  return lfw::field_or(g_ent->_dvals, key.c_str());
-}
 
 std::string state_text() {
   const FakeEnt& e = *g_ent;

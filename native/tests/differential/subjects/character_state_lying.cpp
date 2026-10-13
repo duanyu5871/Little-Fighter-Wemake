@@ -11,6 +11,7 @@
 #include "lfw/state/character_state_lying.h"
 #include "lfw/utils/container_help/field_or.h"
 
+#include "entity_fixture.h"
 #include "trace_util.h"
 
 namespace {
@@ -48,21 +49,13 @@ std::u16string value_text(const Value& v) {
 }
 
 // `world.dataset[key]` / `world.puppets.values()`：TS 侧读假实体的 `world`（Proxy 打日志，
-// `puppets` 由 `_puppets` 现搭）；端口侧这两条都挂在宿主上 —— `Entity::world_dataset` 与
-// `Entity::world_puppets()` 都不是虚的，而它们读的 `IEntityHost::world_dataset` / `puppets()`
-// 是虚的 ⇒ 台面用本地假宿主接住。
-class FakeHost : public lfw::IEntityHost {
- public:
-  Value world_dataset(const std::u16string& key) const override;
-  std::vector<Entity*> puppets() override;
-};
-
-FakeHost g_host;
+// `puppets` 由 `_puppets` 现搭）。切片 4CJ 后 `Entity::world_dataset` 是虚的（台面像 TS 那样每实例
+// 覆写它打日志），`world.puppets.values()` 则在 `TestWorld::on_puppets_values` 上接。
 
 // `world.puppets` 的一员：状态层只读 `team`（`csl_on_dead`），拿只回答 `team` 的小实体顶着。
 struct PuppetEnt : lfw::Entity {
   std::u16string _team;
-  PuppetEnt() : lfw::Entity(g_host, Value()) { id = u"P"; }
+  PuppetEnt() : lfw::Entity(fx::shared_world(), Value()) { id = u"P"; }
   const std::u16string& team() const override { return _team; }
 };
 
@@ -90,9 +83,17 @@ struct FakeEnt : lfw::Entity {
   std::vector<std::unique_ptr<PuppetEnt>> _puppet_owned;
   std::vector<Entity*> _puppet_view;
 
-  explicit FakeEnt(std::u16string id) : lfw::Entity(g_host, Value()), _id(std::move(id)) {
+  explicit FakeEnt(std::u16string id) : lfw::Entity(fx::shared_world(), Value()), _id(std::move(id)) {
     this->id = _id;
     rebuild_frame();
+  }
+
+  // `world.dataset[key]` / `world.puppets.values()`：TS 台面在 `get world()` 上打日志并现搭
+  // `puppets`，端口这面分别是 `Entity::world_dataset`（切片 4CJ 起 `virtual`）与
+  // `TestWorld::on_puppets_values`（见 `main` 里的绑定）。
+  Value world_dataset(const std::u16string& key) const override {
+    g_log.push_back(s_of(_id) + ":world_dataset:" + s_of(key));
+    return lfw::field_or(_dvals, key.c_str());
   }
 
   void rebuild_frame() {
@@ -161,17 +162,6 @@ FakeEnt* g_ent = nullptr;
 Value g_state;
 CharacterState_Lying* g_obj = nullptr;
 
-Value FakeHost::world_dataset(const std::u16string& key) const {
-  // `Entity` 的构造函数会读一次 `world.dataset.atom_time`（那时台面还没有实体）⇒ 直接给空。
-  if (g_ent == nullptr) return Value();
-  g_log.push_back(s_of(g_ent->_id) + ":world_dataset:" + s_of(key));
-  return lfw::field_or(g_ent->_dvals, key.c_str());
-}
-
-std::vector<Entity*> FakeHost::puppets() {
-  return g_ent == nullptr ? std::vector<Entity*>() : g_ent->_puppet_view;
-}
-
 std::string state_text() {
   const FakeEnt& e = *g_ent;
   return "pos=[" + num(e.position.x) + "," + num(e.position.y) + "," + num(e.position.z) +
@@ -209,6 +199,10 @@ int main(int argc, char** argv) {
     return 2;
   }
   bind();
+  // `world.puppets.values()` 现搭（TS 台面的 `get puppets()` 同款：每次调用才按名单取实体）。
+  fx::shared_world().on_puppets_values = []() {
+    return g_ent == nullptr ? std::vector<Entity*>() : g_ent->_puppet_view;
+  };
   g_ent = new FakeEnt(u"E1");
   g_state = Value(0.0);
 

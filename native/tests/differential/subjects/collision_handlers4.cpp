@@ -66,7 +66,7 @@ struct Fake : lfw::Entity {
   Value _hit_sounds;
   Value _type = Value(8.0);
 
-  explicit Fake(std::u16string id) : lfw::Entity(fx::shared_host(), Value()) {
+  explicit Fake(std::u16string id) : lfw::Entity(fx::shared_world(), Value()) {
     _id = std::move(id);
     this->id = _id;
   }

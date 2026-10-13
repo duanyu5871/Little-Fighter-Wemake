@@ -12,6 +12,7 @@
 #include "lfw/state/state_base_proxy.h"
 #include "lfw/utils/container_help/field_or.h"
 
+#include "entity_fixture.h"
 #include "trace_util.h"
 
 namespace {
@@ -48,14 +49,17 @@ std::string join(const std::vector<std::string>& xs) {
 struct FakeEnt;
 FakeEnt* g_ent = nullptr;
 
-lfw::IEntityHost& probe_host();
+// 台面自己的世界（自带假 `lfw`，见下面的定义）。
+// 名字不能叫 `world`：`lfw::Entity` 自己有 `world()` 成员，在派生类的构造初始化列表里
+// 写裸 `world()` 会解析到那个成员（同 `entity_fixture.h` 里 `shared_world` 那条注释）。
+fx::TestWorld& test_world();
 
-// 切片 4CF 后 `Entity` 上仍非虚的两条调用（`world_dataset` / `apply_opoints`）由宿主缝观测 ——
-// 与 4CE 的 `collision_fall`（`drop_holding`）、DESIGN §141.7#3（`spawn`）同款口径：
-//   * `Entity::world_dataset(x)` 本体就是 `host_->world_dataset(x)`（TS 的 `this.world.dataset`
-//     也是宿主读）⇒ TS 台面那个记录日志的 Proxy 落在宿主上；
-//   * `Entity::apply_opoints(opoints)` 非虚，但它逐个 `spawn`，第一个 `spawn` 就问宿主要
-//     `lfw.datas.find(oid)` ⇒ 台面借这条缝观测「状态交下一批 opoint」。
+// 切片 4CJ 后 `Entity` 手里是真 `lfw::World` ⇒ 这一刀剩两条观测点各有新家：
+//   * `Entity::world_dataset(x)` 已是 `virtual`，台面假实体直接覆写它（TS 的
+//     `this.world.dataset` 也是实体面读）；
+//   * `Entity::apply_opoints(opoints)` 非虚，但它逐个 `spawn`，第一个 `spawn` 就问
+//     `lfw.datas.find(oid)` ⇒ 台面在假 `lfw` 上接住这次读（`g_lfw.datas_find`），
+//     记「状态交下一批 opoint」那行。
 
 // 切片 4CF：状态族窄接口退役 ⇒ 假实体派生真 `lfw::Entity`。形状与 TS 台面一致：`data` getter
 // 把 `_data` 摊开再盖上 `indexes` / `frames`，库读的几条（`hp` / `data_frames` / `state` …）
@@ -76,9 +80,16 @@ struct FakeEnt : lfw::Entity {
   Value _vz;
   mutable Value _data_cache;
 
-  explicit FakeEnt(std::u16string id) : lfw::Entity(probe_host(), Value()) {
+  explicit FakeEnt(std::u16string id) : lfw::Entity(test_world(), Value()) {
     this->id = std::move(id);
     this->facing = std::numeric_limits<double>::quiet_NaN();
+  }
+
+  // `this.world.dataset`（TS 台面在 Proxy 的 get 上打日志）：切片 4CJ 后 `Entity::world_dataset`
+  // 是 `virtual` ⇒ 台面每实例覆写它。
+  Value world_dataset(const std::u16string& key) const override {
+    g_log.push_back(s_of(id) + ":world_dataset:" + s_of(key));
+    return lfw::field_or(_wdata, key.c_str());
   }
 
   const Value& data() const override {
@@ -153,17 +164,11 @@ struct FakeEnt : lfw::Entity {
   }
 };
 
-class Host : public lfw::IEntityHost {
- public:
-  Value world_dataset(const std::u16string& key) const override {
-    // `Entity` 的构造（`reset` → …）也会问一次世界数据，那时 `g_ent` 还没落地 ⇒ 静默给空
-    // （TS 侧构造期读的是真 world，不是台面假件，场景面看不到）。
-    if (g_ent == nullptr) return Value();
-    g_log.push_back(s_of(g_ent->id) + ":world_dataset:" + s_of(key));
-    return lfw::field_or(g_ent->_wdata, key.c_str());
-  }
-  Value find_data(const std::u16string& id) const override {
-    (void)id;
+// 假 `lfw`：只把 `datas.find` 换成「记一次 `apply_opoints`」。`play_sound` / `create_entity`
+// 之类由实体面的覆写接住，不走这儿。
+struct FakeLfw : fx::FakeLfw {
+  Value datas_find(const Value& oid) override {
+    (void)oid;
     if (g_ent == nullptr) return Value();
     // 这一幕里 `datas.find` 只有 `spawn` 一个调用者（`spawn` 只有 `apply_opoints` 一个），
     // 而 `apply_opoints` 首个 opoint 拿不到数据就把剩下的都收手 ⇒ 落一次。
@@ -173,9 +178,11 @@ class Host : public lfw::IEntityHost {
   }
 };
 
-lfw::IEntityHost& probe_host() {
-  static Host h;
-  return h;
+FakeLfw g_lfw;
+
+fx::TestWorld& test_world() {
+  static fx::TestWorld w(g_lfw, fx::g_renderer, &fx::g_states);
+  return w;
 }
 
 Value g_state;

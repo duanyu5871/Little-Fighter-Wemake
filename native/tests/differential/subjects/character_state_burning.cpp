@@ -11,6 +11,7 @@
 #include "lfw/state/character_state_burning.h"
 #include "lfw/utils/container_help/field_or.h"
 
+#include "entity_fixture.h"
 #include "trace_util.h"
 
 namespace {
@@ -48,16 +49,9 @@ Value field_by(const Value& holder, const std::u16string& key) {
 }
 
 // 切片 4CF：`state::IStateEntity` 退役 ⇒ 台面假实体就是真 `lfw::Entity`，只覆写实体面的虚成员。
-// 端口把 `this.world.dataset.X` 这条读面收在宿主上（`Entity::world_dataset` → `host_->world_dataset`）
-// ⇒ 台面要观测它（TS 台面用 Proxy 打日志）就得自带一个会打日志的最小宿主。
-struct FakeEnt;
-
-struct FakeHost : lfw::IEntityHost {
-  FakeEnt* owner = nullptr;
-  Value world_dataset(const std::u16string& key) const override;
-};
-
-struct FakeEnt : FakeHost, lfw::Entity {
+// 切片 4CJ：`this.world.dataset.X` 读面（`Entity::world_dataset`）已是 `virtual` ⇒ 台面像 TS 那面
+// 「每实例一个打日志的 Proxy」一样直接覆写它（不用再挂假宿主）。
+struct FakeEnt : lfw::Entity {
   std::u16string _id;
   Value _indexes;
   // `Entity::data()` 返回 `const Value&` ⇒ `{indexes}` 的镜像必须是成员（不能返回临时量）。
@@ -71,10 +65,14 @@ struct FakeEnt : FakeHost, lfw::Entity {
   Value _onlanding;
   bool _catcher = false;
 
-  explicit FakeEnt(std::u16string id) : FakeHost(), lfw::Entity(*this, Value()) {
-    owner = this;
+  explicit FakeEnt(std::u16string id) : lfw::Entity(fx::shared_world(), Value()) {
     this->id = id;
     _id = std::move(id);
+  }
+
+  Value world_dataset(const std::u16string& key) const override {
+    g_log.push_back(s_of(_id) + ":world_dataset:" + s_of(key));
+    return field_by(_wdata, key);
   }
 
   const Value& data() const override { return _data; }
@@ -134,12 +132,6 @@ struct FakeEnt : FakeHost, lfw::Entity {
     g_log.push_back(s_of(_id) + ":handle_ground_velocity_decay");
   }
 };
-
-inline Value FakeHost::world_dataset(const std::u16string& key) const {
-  if (owner == nullptr) return Value();
-  g_log.push_back(s_of(owner->_id) + ":world_dataset:" + s_of(key));
-  return field_by(owner->_wdata, key);
-}
 
 std::vector<FakeEnt*> g_ents;
 FakeEnt* g_victim = nullptr;

@@ -364,7 +364,7 @@ bool preprocess_frame(Value& ctx, std::u16string& error) {
     f->set(u"opoint", next);
   }
   // `frame.opoint?.forEach(preprocess_opoint)`：编译结果（`__gen_*`）装不进 `Value`
-  // （同 `__tester` / `__judger`），端口不落地 —— 宿主按 `IEntityHost::gen_or` 现解析。
+  // （同 `__tester` / `__judger`），端口不落地 —— 宿主按 `World::gen_field` 现解析。
   // 但 `speedz ??=` 的默认是**真落值**的，必须镜像：TS 的 ctx.frame 是**原始帧**，
   // 所以状态也读原始帧（与 prefab 合并后的 `frame` 无关）。
   const Value opoints = field_or(frame, u"opoint");

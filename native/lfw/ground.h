@@ -26,6 +26,8 @@ class Ground {
   void set_terrain(const std::vector<ITerrainInfo>* terrain) { _terrain = terrain; }
 
   double step() const { return _step; }
+  // 差分台面要脚本化 `world.ground.step`（TS 台面用 `defineProperty` 换掉只读字段）⇒ 给个写口。
+  void set_step(double v) { _step = v; }
   const ITerrainInfo& base() const { return horizon(); }
 
   const ITerrainInfo& segment(double x, double z) const;

@@ -80,7 +80,7 @@ struct Fake : lfw::Entity {
   double _vel[3] = {0, 0, 0};
   mutable Value _data_cache;
 
-  explicit Fake(std::u16string id) : lfw::Entity(fx::shared_host(), Value()) {
+  explicit Fake(std::u16string id) : lfw::Entity(fx::shared_world(), Value()) {
     this->id = std::move(id);
   }
 
@@ -173,7 +173,7 @@ struct HeldFake : lfw::Entity {
   double _base_type = 0;
   mutable Value _data_empty;
 
-  HeldFake() : lfw::Entity(fx::shared_host(), Value()) {
+  HeldFake() : lfw::Entity(fx::shared_world(), Value()) {
     this->id = u"H";
     // TS 台面的假件没有帧表（它的 `frame` 是 `undefined`）：这里也让真 `enter_frame` 拿不到
     // 帧，免得它顺手改 `arest` / `state` / `facing` 这些 TS 台面并没有的东西。

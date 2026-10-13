@@ -48,7 +48,7 @@ struct FakeEnt : lfw::Entity {
   double _pic_h = 0;
   std::vector<std::pair<std::u16string, std::u16string>> _marks;
 
-  explicit FakeEnt(std::u16string id) : Entity(fx::shared_host(), Value()) { this->id = std::move(id); }
+  explicit FakeEnt(std::u16string id) : Entity(fx::shared_world(), Value()) { this->id = std::move(id); }
 
   void set_position(const Value& x, const Value& y, const Value& z) override {
     position.set(lfw::to_number(x), lfw::to_number(y), lfw::to_number(z));

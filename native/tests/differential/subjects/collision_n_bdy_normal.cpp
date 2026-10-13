@@ -59,7 +59,7 @@ Value g_collision_dataset;
 // 窄接口退役后 `buff_entity()` 这条读面已不在实体面上：TS 台面对应的是个没人读的
 // `buff_entity = { id: "buff" }` 字段 ⇒ 台面照旧留一个同形的空壳，观测点不在这里。
 struct FakeBuff : lfw::Entity {
-  explicit FakeBuff(std::u16string id) : Entity(fx::shared_host(), Value()) {
+  explicit FakeBuff(std::u16string id) : Entity(fx::shared_world(), Value()) {
     this->id = std::move(id);
   }
 };
@@ -108,7 +108,7 @@ struct Fake : lfw::Entity {
   // `Entity::data()` 返回 `const Value&` ⇒ 镜像必须是成员（不能返回临时量）。
   mutable Value _data_out;
 
-  explicit Fake(std::u16string id) : Entity(fx::shared_host(), Value()), _buff(id) {
+  explicit Fake(std::u16string id) : Entity(fx::shared_world(), Value()), _buff(id) {
     this->id = std::move(id);
     _id = this->id;
     // TS 台面的 `_armor = undefined`：实体面的 `armor` 也要是「没设过」（结构体默认 `NullTag`）。

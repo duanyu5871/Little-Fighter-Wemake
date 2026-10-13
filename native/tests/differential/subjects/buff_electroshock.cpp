@@ -51,7 +51,7 @@ struct FakeEnt : lfw::Entity {
   double _height = 0;
   double _pic_h = 0;
 
-  explicit FakeEnt(std::u16string id) : Entity(fx::shared_host(), Value()) { this->id = std::move(id); }
+  explicit FakeEnt(std::u16string id) : Entity(fx::shared_world(), Value()) { this->id = std::move(id); }
 
   const Value& data() const override { return _data; }
   Value state() const override { return _state; }

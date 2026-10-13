@@ -11131,3 +11131,104 @@ VS 模式（TS 口径场景）下两个互为敌人的 bot 跑到同一位置后
 fighter `101` 血量 500 → 339 → 288 说明**阶段模式也在真打**。`warns=1` 是同时挂 `prel.zip`+`data.zip`
 时 `DatMgr::_add_obj id duplicated`（加载期、与本次改动无关；只挂 prel 时 `warns=0`）。
 
+
+---
+
+## 146. `IEntityHost` 退役：`Entity` 直接持 `World`（切片 4CJ）
+
+### 146.1 问题
+
+`IEntityHost` 是「World/LFW 还没移植」年代的脚手架：`Entity` 通过 30 条缝向一个**假宿主**问
+`world.dataset[key]` / `world.lfw.new_id` / `world.restrict(this)` / `lfw.mt` 这些事。真
+`World`/`LFW` 落地后，`world.cpp` 里就一直挂着一个 `WorldEntityHost` 纯转发类（123 行），
+把每条缝原样转给 `_world.X()`——一层只为历史存在的间接。TS 里没有这层：`Entity` 就是
+`this.world.*` / `this.lfw.*` 直读。
+
+### 146.2 改法（逐条映射，不改行为）
+
+- `Entity` 的成员 `IEntityHost* host_` → `World* world_`；ctor `Entity(World&, Value[, States*])`
+  （与 TS 的 `constructor(world, …)` 同形）；访问口 `world()` 与 `lfw()`。
+  `entity.h` 只前置声明 `World`/`IWorldLfw`（`world.h` 要 include `entity.h`，反过来会成环）。
+- 30 条缝里**绝大多数退化成直调**（同名方法早就在 `World`/`LFW` 上）：
+  `find_entity` / `add_entities` / `del_entity` / `game_time` / `restrict` / `get_bound` /
+  `list_entities` / `mark_players_alive` / `has_players_alive`（成员）/ `ground.step` 走 `World`；
+  `new_id` / `new_team` / `mt` / `is_cheat` / `survival_rank_mode` / `survival_rank_available` /
+  `broadcast` / `create_ctrl` / `create_entity` / `acquire_invalid_ctrl` / `release_ctrl` /
+  `find_bot` / `datas_find` 走 `lfw()`；`world.dataset[key]` 直接读 `World::dataset` 成员。
+- 只有 8 条不属于「已有方法的直调」，落到 `World` 上（语义与旧缝逐字一致）：
+  `bg_dataset` / `stage_value` / `bg_value` / `entity_count` / `puppets_values` /
+  `player_value`（玩家表仍未移植 ⇒ 空 `Value`，与旧缝同口径）/ `gen_field` / `play_sound`。
+  其中 `gen_field` / `play_sound` 是**宿主回答型**（表达式字段、音频），保持 `virtual` 供台面挂钩。
+- `WorldEntityHost` 整个删除；`World::host()` / `host_` 删除；`Entity` 里
+  `IEntityHost::world_restrict` 的「无宿主就不夹紧」默认实现随之消失（真 `World` 恒在）。
+- 台面影响：凡是实现假宿主的用例，改成**构造真 `World`**（喂假 `lfw` + 假 renderer）并挂
+  `TestWorld` 上的脚本钩子（`native/tests/differential/subjects/world_fixture.h`）。共享假件
+  （假 `IWorldLfw` / 假 renderer / 假玩家宿主）从 `cmds.cpp` 提到该头文件，25 个用
+  `fx::shared_host()` 的用例机械换成 `fx::shared_world()`。
+
+### 146.3 为什么值得
+
+- **少一层假抽象**：89 处 `host_->X()` 变成 `world().X()` / `world().lfw().X()`，调用点读起来就是
+  TS 那一行；`WorldEntityHost` 那 123 行转发消失。
+- **假宿主曾经掩盖真 bug**：实体侧「视图/服务」来源从此只有一个（真 `World`），4CH/4CI 那类
+  「薄引用 vs 完整视图」的分裂不再有第二处可藏。
+- **顺带解锁**：`Entity::refresh_ctrl_env` 里 `env.world_etc` / `team_come|stay|move|follow`
+  五条一直是 `nullptr`（注释写着「上游其实已经搬好」），现在 `Entity` 手里就有 `World*`，
+  接下这五条只需一行 lambda —— 留在后续刀（会改行为，需实测）。
+
+### 146.4 保真度约束
+
+这是**纯重构**：差分必须仍 **255/255**、宿主摘要必须**逐字节不变**。任何漂移都按 bug 处理
+（改的是「谁回答」，不是「回答什么」）。台面里那些脚本化假宿主的行为逐条搬成
+`dataset.set` / `TestWorld` 钩子，语义一一对应。
+
+### 146.5 台面落位（把 §146.2 的「假宿主」拆干净）
+
+旧假宿主是**每实体一个**（`Collision_ball_frozen` / `entity` 等用例甚至每边一个）⇒ 拆的时候
+分两类落：
+
+- **真 `World` + `TestWorld` 钩子**（`entity/*` / `world/*` / `cmds/*` / `state_*` / `buff_*` /
+  `collision_*` / `helpers` / `factory` / `action_handlers`）：假实体一律 `fx::shared_world()`
+  或自建 `fx::TestWorld`，脚本化的面挂 `on_*` 钩子。为了挂钩子，`bg_dataset` / `stage_value` /
+  `bg_value` / `entity_count` / `puppets_values` / `player_value` / `find_entity` /
+  `add_entities` / `get_bound` / `mark_players_alive` / `restrict` / `game_time` 都加了
+  `virtual`（纯 vtable 变化，不改行为）；`add_entities` 的钩子由「真实现 + 回调」改成
+  「钩子整条接管」，因为 TS 台面同样把 `world.add_entities` 换成只打日志的桩件。
+- **每实例一个假 `lfw`**（`entity` / `state_base_proxy` / `collision_ball_frozen`）：旧宿主上那批
+  `lfw.*` 面（`new_id` / `new_team` / `mt` / `datas.find` / `create_ctrl` / `create_entity` /
+  `broadcast` / `is_cheat`）现在从 `world().lfw()` 走，台面各自派生 `fx::FakeLfw` 接住；
+  `TestWorld` 因此多了一个「自带 `lfw` / renderer / states」的构造函数。
+- `world.ground.step` 是 TS 台面唯一用 `defineProperty` 换掉的只读字段 ⇒ `Ground` 加了个
+  `set_step`（纯写口，不改逻辑）。
+- 两处台面**没在** §146.2 清单里、但同样写了 `world.host()`：`subjects/lfw.cpp`（4 处）与
+  `subjects/world.cpp`（5 处，含 `world.cpp` 头注释），一并按「实体直接收 `World&`」改掉。
+- 变异档（`tests/differential/mutations/*.mjs`）有 56 条锚点仍写着 `host_->X()` /
+  `e.host().X()`；逐条按新拼写重指（`entity.mjs` 50 条、`get_val.mjs` 4 条、
+  `collision_val.mjs` 2 条、`world_attach.mjs` 1 条），另 2 条因 `Entity::transform` 的
+  `create_ctrl(...)` 从三行折成一行而重取锚文本。锚点总数不变：**9764 ok / 0 bad**。
+
+### 146.6 实测（本刀是纯重构 ⇒ 摘要必须逐字节不变）
+
+| 项 | 值 | 与 4CI 相比 |
+| --- | --- | --- |
+| 全量差分 | **255/255 passed** | 不变 |
+| 变异锚点 | **9764 ok / 0 bad**（166 档） | 不变（56 条锚点按新拼写重指） |
+| include lint | **836 clean / 0 failed / 9 warnings** | 不变 |
+| coverage | **OK** | 不变 |
+| 宿主 prel 300 帧 | `7335aa25f4e1ce86` | **逐字节不变** |
+| 宿主 stage 1 900 帧 | `e4a9437292047044` | **逐字节不变** |
+| 宿主 `--vs` 600 帧 | `f29d3bb1ea330c32` | **逐字节不变** |
+
+三条宿主摘要是本刀最硬的证据：换掉「谁回答」之后，900/600 帧的实体表哈希一字不差 ⇒
+30 条缝的直调映射与原转发语义等价。
+
+### 146.7 遗留
+
+- `Entity::spawn` 里仍写 `lfw().create_entity(world(), data)`（原 `WorldEntityHost::create_entity_with_bot`
+  的简化）；TS 那边走 `factory.create_entity_with_bot("", this.world, data)`。属**既有**偏差，
+  不在本刀范围（台面现在把它记为 `create_entity_with_bot:…` 以便后续对齐）。
+- `Entity::refresh_ctrl_env` 的 `env.world_etc` / `team_come|stay|move|follow` 五条仍是
+  `nullptr`（见 §146.3）：现在 `Entity` 手里就有 `World*`，一行 lambda 即可接上，但会改行为 ⇒ 独立刀。
+- 同类「上游已存在、缝还没接」的面：`holding_mt_mark` / `mt_range`（要 `MersenneTwister::mark/range`）、
+  `datas_find_fighter`（`LFW::datas_fighters_find`）、`env.lfw_player`（`LFW::players_get`）、
+  玩家表（`World::player_value` 仍是空值）。

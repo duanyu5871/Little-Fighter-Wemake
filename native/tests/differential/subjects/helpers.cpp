@@ -1,8 +1,8 @@
 // `helper/` 家族 + `Keys` + `JoinQueue` 的 C++ 侧台面，op 与 `subjects/helpers.ts` 一一对应。
 //
-// 实体是真的 `Entity`（挂假 `IEntityHost`：`add_entities` 出 `attach|<id>|<team>` 日志，
-// 对应 TS 侧假件 `attach()` 的日志）；`IHelperLfw` / `IKeysLfw` / `IUiHelperLfw` 三个缝全是
-// 脚本化假件。`mt` 固定种子 12345。
+// 实体是真的 `Entity`（挂 `fx::shared_world()`：`on_add_entities` 钩子出 `attach|<id>|<team>`
+// 日志，对应 TS 侧假件 `attach()` 的日志）；`IHelperLfw` / `IKeysLfw` / `IUiHelperLfw` 三个缝
+// 全是脚本化假件。`mt` 固定种子 12345。
 //
 // op 一览：
 //   mk <id> <type> <e|g>           预置实体进 entities/ghosts
@@ -42,6 +42,7 @@
 #include "lfw/utils/container_help/field_or.h"
 #include "lfw/utils/math/mersenne_twister.h"
 
+#include "entity_fixture.h"
 #include "trace_util.h"
 
 namespace {
@@ -69,7 +70,6 @@ std::vector<lfw::Entity*> g_ghosts;
 std::vector<std::unique_ptr<lfw::Entity>> g_owned;
 std::vector<lfw::Value> g_fdatas;
 std::vector<lfw::Value> g_wdatas;
-double g_id_counter = 0;
 double g_team_counter = 8;
 double g_cfail_left = 0;
 
@@ -84,21 +84,15 @@ std::string fmt_team(const std::u16string& s) { return s.empty() ? "u" : to_asci
 
 std::string num(double d) { return to_ascii(lfw::number_to_string(d)); }
 
-// `attach` 的观测点：TS 侧在假实体的 `attach()` 里打这行日志。
-class EntHost : public lfw::IEntityHost {
- public:
-  double game_time() const override { return 0.0; }
-  std::u16string new_id() override {
-    ++g_id_counter;
-    return u"e" + lfw::number_to_string(g_id_counter);
-  }
-  void add_entities(lfw::Entity& e) override {
+// `attach` 的观测点：TS 侧在假实体的 `attach()` 里打这行日志；端口这面就是
+// `TestWorld::add_entities` 的钩子。`new_id` 走共享假 `lfw`（`e<N>` 计数，与原先同一个口径），
+// `world.game_time` 是新世界（`_value = 0`）⇒ 与旧宿主的 `0.0` 一致。
+void bind_ent_attach() {
+  fx::shared_world().on_add_entities = [](lfw::Entity& e) {
     push("attach|" + fmt_id(e.id) + "|" + fmt_team(e.team()));
     g_ents.push_back(&e);
-  }
-};
-
-EntHost g_ent_host;
+  };
+}
 
 lfw::Value make_data(double type, const std::u16string& id) {
   lfw::Object o;
@@ -153,7 +147,7 @@ class FakeLfw : public lfw::helper::IHelperLfw {
       return nullptr;
     }
     push("create|" + fmt_id(lfw::field_or(data, u"id")));
-    auto e = std::make_unique<lfw::Entity>(g_ent_host, data);
+    auto e = std::make_unique<lfw::Entity>(fx::shared_world(), data);
     lfw::Entity* const p = e.get();
     g_owned.push_back(std::move(e));
     return p;
@@ -232,7 +226,7 @@ std::string dump_created(const std::vector<lfw::Entity*>& list) {
 }
 
 void mk_entity(const std::u16string& id, const std::u16string& type, const std::string& target) {
-  auto e = std::make_unique<lfw::Entity>(g_ent_host, make_data(type_num(type), id));
+  auto e = std::make_unique<lfw::Entity>(fx::shared_world(), make_data(type_num(type), id));
   e->id = id;
   lfw::Entity* const p = e.get();
   g_owned.push_back(std::move(e));
@@ -296,6 +290,7 @@ int main(int argc, char** argv) {
     return 2;
   }
 
+  bind_ent_attach();
   g_ob = std::make_unique<lfw::helper::ObjectsHelper>(g_fake_lfw);
   g_ba = std::make_unique<lfw::helper::BallsHelper>(g_fake_lfw);
   g_ch = std::make_unique<lfw::helper::CharactersHelper>(g_fake_lfw);

@@ -130,7 +130,7 @@ struct Fake : FakeData, Entity {
   Value _tough_max = Value(9.0);
   mutable std::u16string _team_out;
 
-  explicit Fake(std::u16string id) : Entity(fx::shared_host(), Value(root)) {
+  explicit Fake(std::u16string id) : Entity(fx::shared_world(), Value(root)) {
     this->id = std::move(id);
   }
 

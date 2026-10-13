@@ -82,7 +82,7 @@ struct Fake : DataSlot, Entity {
 
   explicit Fake(std::u16string id)
       : DataSlot{std::make_shared<lfw::Object>()},
-        Entity(fx::shared_host(), Value(DataSlot::obj)) {
+        Entity(fx::shared_world(), Value(DataSlot::obj)) {
     this->id = std::move(id);
     rebuild_data();
   }

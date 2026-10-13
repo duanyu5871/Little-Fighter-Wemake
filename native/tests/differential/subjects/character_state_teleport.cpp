@@ -62,7 +62,7 @@ struct FakeEnt : lfw::Entity {
   double _gy = 0;
   std::vector<Ref> _refs;
 
-  explicit FakeEnt(std::u16string id) : lfw::Entity(fx::shared_host(), Value()) {
+  explicit FakeEnt(std::u16string id) : lfw::Entity(fx::shared_world(), Value()) {
     this->id = id;
     _id = std::move(id);
   }
