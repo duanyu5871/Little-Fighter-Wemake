@@ -5625,3 +5625,17 @@ harness op：
   相关计数复位（`subjects/stage.cpp` 的 `team_counter = 0`）。
 - ⚠ 类内构造函数体若引用**在其后声明**的全局假 `lfw`（`g_slfw`）会 C2065 ⇒ 构造函数体写到类外。
 - `subjects/lfw.cpp` 的 `wstage` op 用 `Stage(&lfw.world(), &lfw, data)`（不再有 `stage_world()`）。
+
+### 6.9.192 `IItemHost` 退役 ⇒ 台面 `Item` 挂真 `Stage`（4CS）
+
+- `IItemHost`(9 面) 已删除；`Item` 直接持 `Stage*`（`item.h` 只前置声明 `Stage`，`item.cpp` include
+  `stage.h` —— 反向 `stage.h` include `item.h`，所以不能在这边 include）。想脚本化 `Item` 看出去的
+  宿主面，就**派生真 `lfw::stage::Stage`**（见 `subjects/stage.cpp` 的 `FakeItemHost`）。
+- ⚠ **静态初始化顺序**：派生 `Stage` 的全局必须定义在它 ctor 要用的 `lfw` / `World` 全局**之后**，
+  否则 ctor 拿到的是没构造的对象。台面把 `FakeItemHost g_host;` 挪到 `g_slfw` / `g_sworld` 之后，
+  构造函数体也写在那儿。
+- ⚠ 若某处在本文件里**先**用到 `g_host`（例如 stage 侧的假 `lfw` 把 `datas_find` /
+  `datas_randoming_by_group` / `create_entity_with_bot` 转发给它），补一条 `extern FakeItemHost g_host;`
+  声明即可，定义仍在后面。
+- `Stage` 的 ctor 有构造期副作用（`change_bg` ⇒ `world.bg()`/`set_bg`/`datas_backgrounds_find`，
+  以及 `new_team()`）⇒ 日志由 `main` 开头的 `g_log.clear()` 清掉、`team_counter` 复位（见 6.9.191）。

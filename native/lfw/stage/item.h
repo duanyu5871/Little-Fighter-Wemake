@@ -16,7 +16,7 @@ class MersenneTwister;
 
 namespace stage {
 
-// TS 里 `Item` 直接吃 `Entity`；端口沿用既有的窄缝写法（同 `IItemHost` / `IStageWorld`）：
+// TS 里 `Item` 直接吃 `Entity`；端口沿用既有的窄缝写法（同 `IStageEntity`）：
 // 把 `Item` 真正用到的成员收成接口，宿主（`World` 那一刀）再实现它。
 class IItemEntity {
  public:
@@ -46,37 +46,23 @@ class IItemEntity {
   virtual void enter_frame(const Value&) = 0;
 };
 
-// `Item` 用到的宿主面：`Stage`（`far` / `near` / `team` / `all_boss_dead`）、
-// `World.dataset.difficulty`、`LFW`（`mt` / `datas` / `factory`）。
-class IItemHost {
- public:
-  virtual ~IItemHost() = default;
-
-  virtual double far_plane() const = 0;   // `stage.far`
-  virtual double near_plane() const = 0;  // `stage.near`
-  virtual Value team() const = 0;         // `stage.team`
-  virtual bool all_boss_dead() = 0;       // `stage.all_boss_dead()`
-  // `world.dataset.difficulty`：TS 每次读都重新取字段 ⇒ 端口每次问宿主一遍。
-  virtual Value difficulty() const = 0;
-
-  virtual MersenneTwister* mt() = 0;  // `lfw.mt`
-  virtual Value datas_find(const Value& oid) = 0;
-  virtual std::shared_ptr<Randoming> datas_randoming_by_group(const Value& oid) = 0;
-  // `lfw.factory.create_entity_with_bot('', world, data)`
-  virtual IItemEntity* create_entity_with_bot(const Value& data) = 0;
-};
+// `Item` 用到的宿主面：`Stage`（`far` / `near` / `team` / `all_boss_dead` /
+// `world.dataset.difficulty` / `lfw.mt` / `lfw.datas` / `lfw.factory`）。
+// 切片 4CS（ck4）：`IItemHost` 退役 ⇒ `Item` 直接持真 `Stage*`（这里只前置声明，
+// `item.cpp` include `stage.h`；反过来 `stage.h` include 本头，所以不能在这边 include）。
+class Stage;
 
 // TS `stage/Item.ts`：舞台物件（按 `times` / `end_delay` 刷怪，死亡或换队就出列）。
 class Item {
  public:
   using RandomingOfItems = RandomingT<std::shared_ptr<Randoming>>;
 
-  Item(IItemHost* stage, Value phase, Value info);
+  Item(Stage* stage, Value phase, Value info);
   // TS 里回调会一直挂在实体上（JS 对象不会被析构，实体还强引用着那个 `Item`）；
   // 端口必须在析构时摘掉，否则实体会拿着**悬空的 `this`**（本刀踩过）。
   ~Item();
 
-  IItemHost* stage() const { return _stage; }
+  Stage* stage() const { return _stage; }
   const Value& phase() const { return _phase; }
   const Value& info() const { return _info; }
   const std::vector<IItemEntity*>& objects() const { return _objects; }
@@ -103,7 +89,7 @@ class Item {
   };
   void forget(IItemEntity* e);
 
-  IItemHost* _stage = nullptr;
+  Stage* _stage = nullptr;
   Value _phase;
   Value _info;
   std::vector<IItemEntity*> _objects;

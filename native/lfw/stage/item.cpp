@@ -8,6 +8,7 @@
 #include "lfw/defines/difficulty.h"
 #include "lfw/defines/team_enum.h"
 #include "lfw/entity/entity_type_check.h"
+#include "lfw/stage/stage.h"
 #include "lfw/utils/container_help/field_or.h"
 #include "lfw/utils/js_add.h"
 #include "lfw/utils/math/base.h"
@@ -40,7 +41,7 @@ Value or_undefined(const Value& v, const Value& fallback) {
 
 }
 
-Item::Item(IItemHost* stage, Value phase, Value info)
+Item::Item(Stage* stage, Value phase, Value info)
     : _stage(stage), _phase(std::move(phase)), _info(std::move(info)), _end_delay(0.0, 120.0) {
   const Value times_v = field_or(_info, u"times");
   times = truthy(times_v) ? std::optional<double>(round(to_number(times_v))) : std::nullopt;

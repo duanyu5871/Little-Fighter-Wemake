@@ -616,10 +616,10 @@ void Stage::clear_dialogs() {`,
     {
       note: "spawn：不调 item->spawn()",
       file: "native/lfw/stage/stage.cpp",
-      from: `    std::unique_ptr<Item> item = std::make_unique<Item>(static_cast<IItemHost*>(this), phase, obj);
+      from: `    std::unique_ptr<Item> item = std::make_unique<Item>(this, phase, obj);
     item->spawn();
     items.push_back(std::move(item));`,
-      to: `    std::unique_ptr<Item> item = std::make_unique<Item>(static_cast<IItemHost*>(this), phase, obj);
+      to: `    std::unique_ptr<Item> item = std::make_unique<Item>(this, phase, obj);
     items.push_back(std::move(item));`,
     },
     // ---------------------------------------------------------------- kill_*
@@ -883,18 +883,18 @@ void Stage::kill_soliders() {`,
     },
     // ---------------------------------------------------------------- 宿主转发
     {
-      note: "IItemHost 转发：far/near 互换",
+      note: "Item 宿主转发：far/near 互换",
       file: "native/lfw/stage/stage.h",
-      from: `  double far_plane() const override { return _far; }
-  double near_plane() const override { return _near; }`,
-      to: `  double far_plane() const override { return _near; }
-  double near_plane() const override { return _far; }`,
+      from: `  virtual double far_plane() const { return _far; }
+  virtual double near_plane() const { return _near; }`,
+      to: `  virtual double far_plane() const { return _near; }
+  virtual double near_plane() const { return _far; }`,
     },
     {
-      note: "IItemHost 转发：team 返回空",
+      note: "Item 宿主转发：team 返回空",
       file: "native/lfw/stage/stage.h",
-      from: `  Value team() const override { return Value(_team); }`,
-      to: `  Value team() const override { return Value(std::u16string()); }`,
+      from: `  virtual Value team() const { return Value(_team); }`,
+      to: `  virtual Value team() const { return Value(std::u16string()); }`,
     },
     // ---------------------------------------------------------------- 顶层 getter
     {

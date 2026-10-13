@@ -62,7 +62,7 @@ struct StageCallbackArgs {
 using StageCallbacks = CallbacksT<StageCallbackArgs>;
 
 // TS `stage/Stage.ts`：一节的舞台（边界 / 阶段 / 物件 / 对话 / 收场）。
-class Stage : public IItemHost {
+class Stage {
  public:
   static constexpr const char* TAG = "Stage";
   using Warn = std::function<void(const std::u16string&, const std::u16string&)>;
@@ -80,16 +80,17 @@ class Stage : public IItemHost {
   StageCallbacks& callbacks() { return _callbacks; }
   FSM& fsm() { return _fsm; }
 
-  // ---- `IItemHost`（`stage/Item` 的宿主面）----
-  double far_plane() const override { return _far; }
-  double near_plane() const override { return _near; }
-  Value team() const override { return Value(_team); }
-  bool all_boss_dead() override;
-  Value difficulty() const override;
-  MersenneTwister* mt() override;
-  Value datas_find(const Value& oid) override;
-  std::shared_ptr<Randoming> datas_randoming_by_group(const Value& oid) override;
-  IItemEntity* create_entity_with_bot(const Value& data) override;
+  // ---- `stage/Item` 的宿主面（切片 4CS / ck4：`IItemHost` 退役 ⇒ 由本类直接承担；
+  // `virtual` 只为台面脚本化，语义与原来一样）----
+  virtual double far_plane() const { return _far; }
+  virtual double near_plane() const { return _near; }
+  virtual Value team() const { return Value(_team); }
+  virtual bool all_boss_dead();
+  virtual Value difficulty() const;
+  virtual MersenneTwister* mt();
+  virtual Value datas_find(const Value& oid);
+  virtual std::shared_ptr<Randoming> datas_randoming_by_group(const Value& oid);
+  virtual IItemEntity* create_entity_with_bot(const Value& data);
 
   Value title() const;
   bool is_stage_finish() const { return _is_stage_finish; }

@@ -199,8 +199,14 @@ class FakeItemEntity : public lfw::stage::IItemEntity {
   lfw::Callbacks _callbacks;
 };
 
-class FakeItemHost : public lfw::stage::IItemHost {
+// 切片 4CS（ck4）：`IItemHost` 退役 ⇒ 这个假件改成**派生真 `lfw::stage::Stage`**（`Stage` 的
+// ctor 要真 `World*` / `LFW*` ⇒ 用本台面的 `g_sworld` / `g_slfw`）。覆写面一字不改、一律不调
+// 真基类 ⇒ 语义等价。⚠ `g_host` 的**定义**与构造函数体都放在 `g_slfw` / `g_sworld` 之后
+// （文件下方）：否则静态初始化期会用到还没构造的那两个全局。
+class FakeItemHost : public lfw::stage::Stage {
  public:
+  FakeItemHost();
+
   double far_value = 0.0;
   double near_value = 0.0;
   lfw::Value team_value = lfw::Value(std::u16string());
@@ -271,7 +277,9 @@ class FakeItemHost : public lfw::stage::IItemHost {
   }
 };
 
-FakeItemHost g_host;
+// 定义在文件下方（`g_slfw` / `g_sworld` 之后）；这里先声明，因为 stage 侧的假 `lfw`
+// （`FakeStageLfw::datas_find` 等）也要转发到它。
+extern FakeItemHost g_host;
 std::unique_ptr<lfw::stage::Item> g_item;
 lfw::Value g_phase;
 lfw::Value g_info;
@@ -589,6 +597,11 @@ class FakeStageWorld : public lfw::World {
 FakeStageLfw g_slfw;
 FakeStageWorld g_sworld;
 FakeStageWorld::FakeStageWorld() : lfw::World(g_slfw, fx::g_renderer, &fx::g_states) {}
+// `g_host` 必须排在 `g_slfw` / `g_sworld` 之后（`FakeItemHost` 是 `Stage` 的派生类，构造时要那
+// 两个全局）。`Stage` 的 ctor 会走 `change_bg` ⇒ 触发 `g_sworld` 的 `h:bg` / `h:setbg=` 与
+// `g_slfw` 的 `h:bgfind=` / `h:newteam=` 挂钩 ⇒ 用例开跑前由 `main` 清日志 + 复位 `team_counter`。
+FakeItemHost g_host;
+FakeItemHost::FakeItemHost() : lfw::stage::Stage(&g_sworld, &g_slfw, lfw::Value()) {}
 lfw::Value g_stage_data;
 std::unique_ptr<lfw::stage::Stage> g_stage;
 std::vector<std::unique_ptr<FakeStageEntity>> g_sentities;

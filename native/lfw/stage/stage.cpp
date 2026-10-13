@@ -140,8 +140,8 @@ void Stage::warn(const std::u16string& where, const std::u16string& text) {
   if (stage_warn_sink()) stage_warn_sink()(where, text);
 }
 
-// `IItemHost` 的转发（4CO：`IStageLfw` 退役 ⇒ `stage.h` 里只剩 `LFW` 的前置声明，
-// 这几个 inline 体搬到实现文件）。
+// `stage/Item` 的宿主转发（切片 4CS / ck4：`IItemHost` 退役 ⇒ `Item` 直接调本类的这几条；
+// 4CO 起 `stage.h` 里只剩 `LFW` 的前置声明，所以这几个体一直留在实现文件）。
 // `IStageWorld` 退役后 `stage.h` 只前置声明 `World` ⇒ 这两个 inline 体搬到这里。
 Background* Stage::bg() const { return _world->bg(); }
 Value Stage::difficulty() const { return _world->difficulty(); }
@@ -508,7 +508,7 @@ void Stage::spawn(const Value& phase, const Value& obj, double count) {
 
   while (spawn_count > 0.0) {
     // TS 是先 `item.spawn()` 再 `items.add(item)` ⇒ 端口也先 spawn 再入列。
-    std::unique_ptr<Item> item = std::make_unique<Item>(static_cast<IItemHost*>(this), phase, obj);
+    std::unique_ptr<Item> item = std::make_unique<Item>(this, phase, obj);
     item->spawn();
     items.push_back(std::move(item));
     --spawn_count;

@@ -11518,9 +11518,33 @@ coverage OK；宿主 prel 300 = `7335aa25f4e1ce86`、`--vs` 600 = `f29d3bb1ea330
 coverage OK；宿主 prel 300 = `7335aa25f4e1ce86`、stage 1 900 = `e4a9437292047044`、`--vs` 600 =
 `f29d3bb1ea330c32` —— 三条**逐字节不变**。
 
-### 149.7 剩下的同类缝
+### 149.7 缝家族退役（6/6）：`IItemHost`（切片 4CS / ck4）
+
+`IItemHost`(9 面：`far_plane` / `near_plane` / `team` / `all_boss_dead` / `difficulty` / `mt` /
+`datas_find` / `datas_randoming_by_group` / `create_entity_with_bot`) 的真实现就是 `Stage` 自己
+（`class Stage : public IItemHost` 即证据）。这一族是「A 组」里最后一条：假件在端口里当 no-op 兜底，
+真实现本来就在 ⇒ 没有先决障碍。
+
+- 删掉 `IItemHost`；`Item` 改持 **`Stage*`**。⚠ `stage.h` **include** `item.h`（`Stage` 要
+  `std::unique_ptr<Item>`）⇒ 反向不能成环 ⇒ `item.h` 只前置声明 `class Stage;`，`item.cpp` include
+  `stage.h`；`Item` 用到 `Stage` 的地方都在 `.cpp` 里。
+- `Stage` 的 9 条 `override` 改成 `virtual`（台面假件仍要覆写；只去 `override` 会变非虚 ⇒ 覆写全废）。
+- 台面 `subjects/stage.cpp` 的 `FakeItemHost` 从「实现窄缝」改成**派生真 `lfw::stage::Stage`**
+  （`&g_sworld` / `&g_slfw`），覆写面一字不改。两个顺序坑：① `g_host` 的定义必须排在
+  `g_slfw` / `g_sworld` 之后（静态初始化顺序，否则 `Stage` 的 ctor 拿到没构造的 `LFW`/`World`）；
+  ② `FakeStageLfw::datas_find` / `datas_randoming_by_group` / `create_entity_with_bot` 三个方法
+  **转发到 `g_host`**，所以在 `FakeItemHost` 类后面补一条 `extern FakeItemHost g_host;` 声明。
+- `Stage` 的 ctor 在静态初始化期会走 `change_bg`（⇒ `world.bg()` / `world.set_bg` / `bgfind`）与
+  `new_team()` ⇒ 日志由 `main` 开头的 `g_log.clear()` 清掉、`team_counter` 复位（4CR 已在做）。
+
+实测（纯重构）：差分 **255/255**；锚点 **9764 ok / 0 bad**；include 836 clean / 0 failed / 9 warnings；
+coverage OK；宿主 prel 300 = `7335aa25f4e1ce86`、stage 1 900 = `e4a9437292047044`、`--vs` 600 =
+`f29d3bb1ea330c32` —— 三条**逐字节不变**。
+
+### 149.8 剩下的同类缝
 
 `IUiLayers`(6) / `IWorldUi`(2)（ck2：真实现 `ui::UILayers`，卡在 `world` subject 的 `h:ui=` 覆盖
-口径，要用户定夺）；`IItemHost`(9)（ck4，同 4CR 的配方）；`IStageEntity`(18) / `IItemEntity`(22)
-（仿实体，真实现就是 `Entity`，适配器同 4CR 的 `StageEntityView` / `EntityItem`）；`IKeysLfw`(3)
-**没有真实现** ⇒ 属待移植而不是退役。
+口径，要用户定夺）；`IStageEntity`(18) / `IItemEntity`(22)（仿实体，真实现就是 `Entity`，适配器同
+4CR 的 `StageEntityView` / `EntityItem`）；`IKeysLfw`(3) **没有真实现** ⇒ 属待移植而不是退役。
+A 组（`ICameraWorld` / `IWorldUi` / `IStageWorld` / `IItemHost` / `IDatMgrHost`）到此全部退完。
+
