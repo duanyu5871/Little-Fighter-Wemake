@@ -16,10 +16,14 @@
 
 #include "host/fs_zip.h"
 #include "host/headless_host.h"
+#include "lfw/bg/background.h"
 #include "lfw/core/state_hash.h"
 #include "lfw/core/json5.h"
 #include "lfw/core/value.h"
+#include "lfw/defines/defines_data.h"
+#include "lfw/defines/facing_flag.h"
 #include "lfw/lfw.h"
+#include "lfw/stage/stage.h"
 #include "lfw/utils/container_help/field_or.h"
 #include "lfw/utils/utf8.h"
 
@@ -41,6 +45,9 @@ struct Args {
   double time = 0;
   bool dev = false;
   bool dump = false;
+  // `--vs`：按 TS 的「对战模式」构造场景（`GamePrepareLogic.start_game` 的 VS 分支 +
+  // `VsModeLogic.on_start`），而不是宿主原来的闯关模式口径。
+  bool vs = false;
 };
 
 std::string to_utf8(const std::u16string& s) {
@@ -110,6 +117,8 @@ bool parse_args(int argc, char** argv, Args& out) {
       out.dev = true;
     } else if (a == "--dump") {
       out.dump = true;
+    } else if (a == "--vs") {
+      out.vs = true;
     } else if (a == "--help" || a == "-h") {
       usage();
       std::exit(0);
@@ -301,28 +310,68 @@ int main(int argc, char** argv) {
       std::fprintf(stderr, "[lfw_run] create fighter failed: %s\n", to_utf8(fid).c_str());
       continue;
     }
-    fighter->set_team(lfw::number_to_string(i + 1));
-    fighter->stat_bar = 0;
-    fighter->facing = (i % 2 == 0) ? 1 : -1;
-    fighter->name_visible = 1;
-    fighter->as_key_role(Value(true));
-    fighter->set_hp(500);
-    fighter->set_hp_max(500);
-    fighter->set_mp(500);
-    fighter->set_mp_max(500);
-    const double x = -80.0 + 160.0 * i;
-    const double z = 0.0;
-    const lfw::ITerrainInfo& seg = world.ground.segment(x, z);
-    const double y = lfw::Ground::y(seg, x, z);
-    fighter->set_position(Value(x), Value(y), Value(z));
-    fighter->set_blinking(begin_blink);
-    fighter->set_invulnerable(begin_blink);
-    fighter->attach();
-    std::printf("[lfw_run] spawn p%s %s @(%.1f, %.1f, %.1f) team=%s\n", to_utf8(player_id).c_str(),
-                to_utf8(fid).c_str(), x, y, z, to_utf8(fighter->team()).c_str());
+    if (args.vs) {
+      // TS `GamePrepareLogic.start_game` 的**对战模式**分支（`is_stage_mode === false`）。
+      // 队伍走 `lfw.new_team`（自增 `team_N`）；朝向是 `mt.pick([Left, Right])`；
+      // 站位 `x = mt.range(screen_w/3, 2*screen_w/3) + cam_x`（宿主没有准备页相机 ⇒ `cam_x = 0`）、
+      // `z = mt.range(far, near)`；hp/mp **不覆盖**（保持 fighter 数据里的值），
+      // 只把 `mp` 收到 `mp_max * 2 / 5`（TS 的 `if (is_vs_mode)` 那一行）。
+      fighter->set_team(lfw.new_team());
+      fighter->stat_bar = 0;
+      const std::vector<Value> facing_options{
+          Value(static_cast<double>(lfw::FacingFlag::Left)),
+          Value(static_cast<double>(lfw::FacingFlag::Right))};
+      const Value facing_pick =
+          lfw.mt()->pick_value(Value(std::make_shared<Array>(Array(facing_options))));
+      fighter->facing = num_field(facing_pick, 1.0);
+      fighter->name_visible = 1;
+      fighter->as_key_role(Value(true));
+      lfw.mt()->mark = u"gpl_fighter_x";
+      const double screen_w = lfw::defines::num(u"Defines.MODERN_SCREEN_WIDTH");
+      const double x = lfw.mt()->range(screen_w / 3.0, 2.0 * screen_w / 3.0);
+      lfw.mt()->mark = u"gpl_fighter_z";
+      const lfw::Background* const bg = world.bg();
+      const double z = bg != nullptr ? lfw.mt()->range(bg->far_plane(), bg->near_plane()) : 0.0;
+      const lfw::ITerrainInfo& seg = world.ground.segment(x, z);
+      const double y = lfw::Ground::y(seg, x, z);
+      fighter->set_position(Value(x), Value(y), Value(z));
+      fighter->set_blinking(begin_blink);
+      fighter->set_invulnerable(begin_blink);
+      fighter->set_mp(fighter->mp_max() * 2.0 / 5.0);
+      fighter->attach();
+      std::printf("[lfw_run] spawn p%s %s @(%.1f, %.1f, %.1f) team=%s (vs)\n",
+                  to_utf8(player_id).c_str(), to_utf8(fid).c_str(), x, y, z, to_utf8(fighter->team()).c_str());
+    } else {
+      fighter->set_team(lfw::number_to_string(i + 1));
+      fighter->stat_bar = 0;
+      fighter->facing = (i % 2 == 0) ? 1 : -1;
+      fighter->name_visible = 1;
+      fighter->as_key_role(Value(true));
+      fighter->set_hp(500);
+      fighter->set_hp_max(500);
+      fighter->set_mp(500);
+      fighter->set_mp_max(500);
+      const double x = -80.0 + 160.0 * i;
+      const double z = 0.0;
+      const lfw::ITerrainInfo& seg = world.ground.segment(x, z);
+      const double y = lfw::Ground::y(seg, x, z);
+      fighter->set_position(Value(x), Value(y), Value(z));
+      fighter->set_blinking(begin_blink);
+      fighter->set_invulnerable(begin_blink);
+      fighter->attach();
+      std::printf("[lfw_run] spawn p%s %s @(%.1f, %.1f, %.1f) team=%s\n", to_utf8(player_id).c_str(),
+                  to_utf8(fid).c_str(), x, y, z, to_utf8(fighter->team()).c_str());
+    }
   }
 
   if (!stage_id.empty()) lfw.change_stage(stage_id);
+  if (args.vs) {
+    // TS `VsModeLogic.on_start`：`world.paused = false`、`dataset.playrate = 1`、
+    // `dataset.infinity_mp = 0`（对战模式没有闯关的阶段/难度那套）。
+    world.set_paused(false);
+    world.dataset.set(u"playrate", Value(1.0));
+    world.dataset.set(u"infinity_mp", Value(0.0));
+  }
   std::printf("[lfw_run] stage=%s bg=%s entities=%zu\n", to_utf8(stage_id).c_str(),
               to_utf8(bg_id).c_str(), world.entities.size());
 

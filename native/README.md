@@ -682,3 +682,26 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
 `--every` 帧一行，含每个实体的 `state` / `frame.id` / 位置 / 血量 / 是否 bot 控制，以及 bg 的
 `update_times` 与 `layer_data_index`（看帧链与背景有没有在推进）。这些只影响 stdout，不影响
 `digest`。
+
+### `--vs`：按 TS 的对战模式构造场景
+
+`lfw_run --vs` 走的是 TS `GamePrepareLogic.start_game` 的**对战模式分支**（`is_stage_mode === false`）
+加 `VsModeLogic.on_start`，与默认的闯关口径区分开：
+
+| 项 | 闯关（默认） | `--vs` |
+| --- | --- | --- |
+| 队伍 | 宿主硬编 `"1"` / `"2"` | `lfw.new_team()`（自增 `team_N`） |
+| 朝向 | 按序号 `i%2` | `mt.pick([Left, Right])` |
+| 站位 | `x = -80 + 160*i`、`z = 0` | `x = mt.range(screen_w/3, 2*screen_w/3)`、`z = mt.range(bg.far, bg.near)`（`cam_x` 宿主恒 0：没有准备页相机） |
+| hp/mp | 覆盖成 500/500 | **不覆盖**（保持 fighter 数据）＋ `mp = mp_max * 2 / 5` |
+| 世界开关 | —— | `paused = false`、`dataset.playrate = 1`、`dataset.infinity_mp = 0` |
+
+```
+native\build\msvc-x64\bin\lfw_run.exe --root dist ^
+  --zip native\build\host-data\prel --zip native\build\host-data\data ^
+  --vs --stage 0 --fighter 1 --fighter 4 --frames 900 --every 300
+```
+
+⚠️ 闯关模式的**站位/朝向/队伍**仍是宿主自己的口径（TS 是 `mt.range(40, 80) + cam_x`、
+`FacingFlag.Right`、`slot_info.team || new_team`），没有改 —— 一是保持 §139/§140 那两条摘要基线
+可比（`d9b00db799724a2b` / `eeecc812075e8b74`），二是这块要按 TS 补齐属于独立的切片。
