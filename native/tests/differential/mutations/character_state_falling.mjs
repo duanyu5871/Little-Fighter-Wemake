@@ -39,8 +39,8 @@ export default {
     {
       note: "the constructor never installs enter",
       file: "native/lfw/state/character_state_falling.cpp",
-      from: "  enter = [this](IStateEntity& e, const Value& prev_frame) {",
-      to: "  auto unused_enter = [this](IStateEntity& e, const Value& prev_frame) {",
+      from: "  enter = [this](Entity& e, const Value& prev_frame) {",
+      to: "  auto unused_enter = [this](Entity& e, const Value& prev_frame) {",
     },
     {
       note: "the constructor never installs on_landing",
@@ -153,14 +153,14 @@ export default {
     {
       note: "the held object is never dropped",
       file: "native/lfw/state/character_state_falling.cpp",
-      from: "    e.drop_holding();\n\n    if (to_number(e.hp()) <= 0) {",
-      to: "\n    if (to_number(e.hp()) <= 0) {",
+      from: "    e.drop_holding();\n\n    if (e.hp() <= 0) {",
+      to: "\n    if (e.hp() <= 0) {",
     },
     {
       note: "the fusion gate ignores hp zero",
       file: "native/lfw/state/character_state_falling.cpp",
-      from: "    if (to_number(e.hp()) <= 0) {",
-      to: "    if (to_number(e.hp()) < 0) {",
+      from: "    if (e.hp() <= 0) {",
+      to: "    if (e.hp() < 0) {",
     },
     {
       note: "an empty fusion still dismisses",
@@ -195,13 +195,13 @@ export default {
     {
       note: "the fusion is dismissed with a constant frame",
       file: "native/lfw/state/character_state_falling.cpp",
-      from: "        e.dismiss_fusion(e.frame_id());",
-      to: "        e.dismiss_fusion(Value(u\"\"));",
+      from: "        e.dismiss_fusion(to_string(e.frame_id()));",
+      to: "        e.dismiss_fusion(std::u16string());",
     },
     {
       note: "the fusion is never dismissed",
       file: "native/lfw/state/character_state_falling.cpp",
-      from: "        e.dismiss_fusion(e.frame_id());\n      }\n    }\n    e.leave_ground();",
+      from: "        e.dismiss_fusion(to_string(e.frame_id()));\n      }\n    }\n    e.leave_ground();",
       to: "      }\n    }\n    e.leave_ground();",
     },
     {
@@ -213,14 +213,14 @@ export default {
     {
       note: "shaking no longer stops the update",
       file: "native/lfw/state/character_state_falling.cpp",
-      from: "  if (to_number(e.shaking()) > 0) return;",
-      to: "  if (to_number(e.shaking()) > 1) return;",
+      from: "  if (to_number(e.shaking) > 0) return;",
+      to: "  if (to_number(e.shaking) > 1) return;",
     },
     {
       note: "a non positive shake value stops the update",
       file: "native/lfw/state/character_state_falling.cpp",
-      from: "  if (to_number(e.shaking()) > 0) return;",
-      to: "  if (to_number(e.shaking()) >= 0) return;",
+      from: "  if (to_number(e.shaking) > 0) return;",
+      to: "  if (to_number(e.shaking) >= 0) return;",
     },
     {
       note: "the bouncing and falling branches are swapped",
@@ -237,8 +237,8 @@ export default {
     {
       note: "the falling frame is chosen even when wait is positive",
       file: "native/lfw/state/character_state_falling.cpp",
-      from: "  if (to_number(e.wait()) <= 0) {",
-      to: "  if (to_number(e.wait()) < 0) {",
+      from: "  if (to_number(e.wait) <= 0) {",
+      to: "  if (to_number(e.wait) < 0) {",
     },
     {
       note: "the vy window starts on the first frame",
@@ -273,38 +273,38 @@ export default {
     {
       note: "the direction ignores the facing",
       file: "native/lfw/state/character_state_falling.cpp",
-      from: "    const double direction = vx / to_number(e.facing()) > 0 ? 1 : -1;",
+      from: "    const double direction = vx / to_number(e.facing) > 0 ? 1 : -1;",
       to: "    const double direction = vx > 0 ? 1 : -1;",
     },
     {
       note: "a zero speed counts as positive",
       file: "native/lfw/state/character_state_falling.cpp",
-      from: "    const double direction = vx / to_number(e.facing()) > 0 ? 1 : -1;",
-      to: "    const double direction = vx / to_number(e.facing()) >= 0 ? 1 : -1;",
+      from: "    const double direction = vx / to_number(e.facing) > 0 ? 1 : -1;",
+      to: "    const double direction = vx / to_number(e.facing) >= 0 ? 1 : -1;",
     },
     {
       note: "the direction branches are swapped",
       file: "native/lfw/state/character_state_falling.cpp",
-      from: "    const double direction = vx / to_number(e.facing()) > 0 ? 1 : -1;",
-      to: "    const double direction = vx / to_number(e.facing()) > 0 ? -1 : 1;",
+      from: "    const double direction = vx / to_number(e.facing) > 0 ? 1 : -1;",
+      to: "    const double direction = vx / to_number(e.facing) > 0 ? -1 : 1;",
     },
     {
       note: "the direction subtracts instead of dividing",
       file: "native/lfw/state/character_state_falling.cpp",
-      from: "    const double direction = vx / to_number(e.facing()) > 0 ? 1 : -1;",
-      to: "    const double direction = vx - to_number(e.facing()) > 0 ? 1 : -1;",
+      from: "    const double direction = vx / to_number(e.facing) > 0 ? 1 : -1;",
+      to: "    const double direction = vx - to_number(e.facing) > 0 ? 1 : -1;",
     },
     {
       note: "the falling pair ignores the direction",
       file: "native/lfw/state/character_state_falling.cpp",
-      from: "              js_at_index(js_at(e.data_indexes_falling(), Value(direction)), falling_frame_idx));",
-      to: "              js_at_index(js_at(e.data_indexes_falling(), Value(1.0)), falling_frame_idx));",
+      from: "              js_at_index(js_at(e.data_indexes_of(u\"falling\"), Value(direction)), falling_frame_idx));",
+      to: "              js_at_index(js_at(e.data_indexes_of(u\"falling\"), Value(1.0)), falling_frame_idx));",
     },
     {
       note: "the falling frame index is a constant",
       file: "native/lfw/state/character_state_falling.cpp",
-      from: "              js_at_index(js_at(e.data_indexes_falling(), Value(direction)), falling_frame_idx));",
-      to: "              js_at_index(js_at(e.data_indexes_falling(), Value(direction)), 1.0));",
+      from: "              js_at_index(js_at(e.data_indexes_of(u\"falling\"), Value(direction)), falling_frame_idx));",
+      to: "              js_at_index(js_at(e.data_indexes_of(u\"falling\"), Value(direction)), 1.0));",
     },
     {
       note: "the falling frame is built from the wrong key",
@@ -339,20 +339,20 @@ export default {
     {
       note: "the bouncing pair is read from the lying pair",
       file: "native/lfw/state/character_state_falling.cpp",
-      from: "  double d = entity::find_direction(frame, e.data_indexes_bouncing());",
-      to: "  double d = entity::find_direction(frame, e.data_indexes_lying());",
+      from: "  double d = entity::find_direction(frame, e.data_indexes_of(u\"bouncing\"));",
+      to: "  double d = entity::find_direction(frame, e.data_indexes_of(u\"lying\"));",
     },
     {
       note: "the falling pair is never consulted",
       file: "native/lfw/state/character_state_falling.cpp",
-      from: "  if (!d) d = entity::find_direction(frame, e.data_indexes_falling());",
-      to: "  if (false) d = entity::find_direction(frame, e.data_indexes_falling());",
+      from: "  if (!d) d = entity::find_direction(frame, e.data_indexes_of(u\"falling\"));",
+      to: "  if (false) d = entity::find_direction(frame, e.data_indexes_of(u\"falling\"));",
     },
     {
       note: "the critical pair is never consulted",
       file: "native/lfw/state/character_state_falling.cpp",
-      from: "  if (!d) d = entity::find_direction(frame, e.data_indexes_critical_hit());",
-      to: "  if (false) d = entity::find_direction(frame, e.data_indexes_critical_hit());",
+      from: "  if (!d) d = entity::find_direction(frame, e.data_indexes_of(u\"critical_hit\"));",
+      to: "  if (false) d = entity::find_direction(frame, e.data_indexes_of(u\"critical_hit\"));",
     },
     {
       note: "the facing is never used as the last fallback",
@@ -363,8 +363,8 @@ export default {
     {
       note: "a found direction is overwritten by the next pair",
       file: "native/lfw/state/character_state_falling.cpp",
-      from: "  if (!d) d = entity::find_direction(frame, e.data_indexes_falling());",
-      to: "  if (d) d = entity::find_direction(frame, e.data_indexes_falling());",
+      from: "  if (!d) d = entity::find_direction(frame, e.data_indexes_of(u\"falling\"));",
+      to: "  if (d) d = entity::find_direction(frame, e.data_indexes_of(u\"falling\"));",
     },
     {
       note: "the landing speeds are read swapped",
@@ -393,8 +393,8 @@ export default {
     {
       note: "an already bounced entity bounces again",
       file: "native/lfw/state/character_state_falling.cpp",
-      from: "  if (!truthy(e.bounced()) &&",
-      to: "  if (truthy(e.bounced()) &&",
+      from: "  if (!truthy(e.bounced) &&",
+      to: "  if (truthy(e.bounced) &&",
     },
     {
       note: "the bouncing frame reads the wrong pair slot",
@@ -429,8 +429,8 @@ export default {
     {
       note: "the lying frame is read from the bouncing pair",
       file: "native/lfw/state/character_state_falling.cpp",
-      from: "    const Value lying = e.data_indexes_lying();",
-      to: "    const Value lying = e.data_indexes_bouncing();",
+      from: "    const Value lying = e.data_indexes_of(u\"lying\");",
+      to: "    const Value lying = e.data_indexes_of(u\"bouncing\");",
     },
     {
       note: "the lying frame reads the opposite direction",
@@ -447,32 +447,32 @@ export default {
     {
       note: "leave does not clear the bounced flag",
       file: "native/lfw/state/character_state_falling.cpp",
-      from: "  e.set_bounced(Value(false));\n  e.set_fall_value(e.fall_value_max());",
-      to: "  e.set_bounced(Value(true));\n  e.set_fall_value(e.fall_value_max());",
+      from: "  e.set_bounced(Value(false));\n  e.set_fall_value(to_number(e.fall_value_max()));",
+      to: "  e.set_bounced(Value(true));\n  e.set_fall_value(to_number(e.fall_value_max()));",
     },
     {
       note: "leave does not restore the fall value",
       file: "native/lfw/state/character_state_falling.cpp",
-      from: "  e.set_fall_value(e.fall_value_max());",
-      to: "  e.set_fall_value(e.defend_value_max());",
+      from: "  e.set_fall_value(to_number(e.fall_value_max()));",
+      to: "  e.set_fall_value(to_number(e.defend_value_max()));",
     },
     {
       note: "leave restores the fall value from the defend maximum",
       file: "native/lfw/state/character_state_falling.cpp",
-      from: "  e.set_fall_value(e.fall_value_max());\n  e.set_defend_value(e.defend_value_max());",
-      to: "  e.set_defend_value(e.fall_value_max());\n  e.set_fall_value(e.defend_value_max());",
+      from: "  e.set_fall_value(to_number(e.fall_value_max()));\n  e.set_defend_value(to_number(e.defend_value_max()));",
+      to: "  e.set_defend_value(to_number(e.fall_value_max()));\n  e.set_fall_value(to_number(e.defend_value_max()));",
     },
     {
       note: "leave zeroes the defend value",
       file: "native/lfw/state/character_state_falling.cpp",
-      from: "  e.set_defend_value(e.defend_value_max());",
-      to: "  e.set_defend_value(Value(0.0));",
+      from: "  e.set_defend_value(to_number(e.defend_value_max()));",
+      to: "  e.set_defend_value(0.0);",
     },
     {
       note: "leave zeroes the resting value",
       file: "native/lfw/state/character_state_falling.cpp",
-      from: "  e.set_resting(e.resting_max());",
-      to: "  e.set_resting(Value(0.0));",
+      from: "  e.set_resting(to_number(e.resting_max()));",
+      to: "  e.set_resting(0.0);",
     },
     {
       note: "leave does not clear the fall injury",
@@ -483,8 +483,8 @@ export default {
     {
       note: "leave does not clear the throw injury",
       file: "native/lfw/state/character_state_falling.cpp",
-      from: "  e.set_throwinjury(Value(0.0));",
-      to: "  e.set_throwinjury(Value(1.0));",
+      from: "  e.set_throwinjury(to_number(Value(0.0)));",
+      to: "  e.set_throwinjury(to_number(Value(1.0)));",
     },
   ],
 };

@@ -177,14 +177,14 @@ export default {
     {
       note: "a running entity ignores its facing",
       file: "native/lfw/state/character_state_dash.cpp",
-      from: "    next_vx = Value(to_number(e.facing()) * dx);\n  } else if (truthy(Value(lr))) {",
+      from: "    next_vx = Value(to_number(e.facing) * dx);\n  } else if (truthy(Value(lr))) {",
       to: "    next_vx = Value(dx);\n  } else if (truthy(Value(lr))) {",
     },
     {
       note: "a running entity adds its facing",
       file: "native/lfw/state/character_state_dash.cpp",
-      from: "    next_vx = Value(to_number(e.facing()) * dx);\n  } else if (truthy(Value(lr))) {",
-      to: "    next_vx = Value(to_number(e.facing()) + dx);\n  } else if (truthy(Value(lr))) {",
+      from: "    next_vx = Value(to_number(e.facing) * dx);\n  } else if (truthy(Value(lr))) {",
+      to: "    next_vx = Value(to_number(e.facing) + dx);\n  } else if (truthy(Value(lr))) {",
     },
     {
       note: "the left/right distance ignores its sign",
@@ -243,14 +243,14 @@ export default {
     {
       note: "the fallback ignores the facing",
       file: "native/lfw/state/character_state_dash.cpp",
-      from: "    next_vx = Value(to_number(e.facing()) * dx);\n  }\n  e.set_velocity",
+      from: "    next_vx = Value(to_number(e.facing) * dx);\n  }\n  e.set_velocity",
       to: "    next_vx = Value(dx);\n  }\n  e.set_velocity",
     },
     {
       note: "the fallback adds the facing",
       file: "native/lfw/state/character_state_dash.cpp",
-      from: "    next_vx = Value(to_number(e.facing()) * dx);\n  }\n  e.set_velocity",
-      to: "    next_vx = Value(to_number(e.facing()) + dx);\n  }\n  e.set_velocity",
+      from: "    next_vx = Value(to_number(e.facing) * dx);\n  }\n  e.set_velocity",
+      to: "    next_vx = Value(to_number(e.facing) + dx);\n  }\n  e.set_velocity",
     },
     {
       note: "the dash velocity is never written",

@@ -1,5 +1,6 @@
 #include <cstdio>
 #include <fstream>
+#include <limits>
 #include <memory>
 #include <string>
 #include <variant>
@@ -10,6 +11,7 @@
 #include "lfw/state/character_state_base.h"
 #include "lfw/utils/container_help/field_or.h"
 
+#include "entity_fixture.h"
 #include "trace_util.h"
 
 namespace {
@@ -18,7 +20,6 @@ using lfw::Value;
 using lfw::buff::Buff;
 using lfw::buff::BuffEnv;
 using lfw::state::CharacterState_Base;
-using lfw::state::IStateEntity;
 using trace::parse_value;
 using trace::render_value;
 using trace::split_ws;
@@ -46,77 +47,54 @@ Value field_by(const Value& holder, const std::u16string& key) {
   return p != nullptr ? *p : Value();
 }
 
-struct FakeEnt : IStateEntity {
-  std::u16string _id;
+// 切片 4CF：状态族窄接口退役 ⇒ 台面假实体派生真 `lfw::Entity`（`entity_fixture.h` 的
+// `fx::shared_host()`），只覆写状态层要观测的实体面；`env …` 配置直写后备字段/成员
+// ⇒ 不产生日志（与 TS 孪生直写 `_*` 一致）。
+//
+// 台账（4CF 时点）：
+//   * `is_on_ground` / `facing` / `position` 现在是 `Entity` 的**普通数据成员**（库直读字段）
+//     ⇒ 台面把 `env …` 写进字段；`facing` 另留一枚镜像，保住 TS 的 `undefined` 打印。
+//   * `data_indexes_X()` 没了 ⇒ 覆写 `data()` 给 `{indexes, frames}` 镜像即可（非虚的
+//     `data_indexes_of(u"X")` 就喂它）；`data_frames()` / `frame_on_landing()` 仍是虚的。
+struct FakeEnt : lfw::Entity {
   Value _state;
   Value _hp;
   Value _facing;
-  Value _holding;
+  Value _holding_base;
   Value _dataset;
   Value _indexes;
   Value _frames;
   Value _onlanding;
   Value _vx;
   Value _vz;
-  bool _on_ground = false;
 
-  explicit FakeEnt(std::u16string id) : _id(std::move(id)) {}
+  explicit FakeEnt(std::u16string eid) : lfw::Entity(fx::shared_host(), Value()) {
+    this->id = std::move(eid);
+    this->facing = std::numeric_limits<double>::quiet_NaN();
+  }
 
-  void position(double& x, double& y, double& z) const override {
-    x = 0;
-    y = 0;
-    z = 0;
-  }
-  void set_position(double x, double y, double z) override {
-    (void)x;
-    (void)y;
-    (void)z;
-  }
-  void set_outline_color(const std::u16string& v) override {
-    g_log.push_back(s_of(_id) + ":outline_color:" + render(Value(v)));
-  }
-  void enter_frame_by_id(const std::u16string& id) override {
-    g_log.push_back(s_of(_id) + ":enter_frame_by_id:" + render(Value(id)));
-  }
-  Value state() const override { return _state; }
-  Value hp() const override { return _hp; }
-  Value facing() const override { return _facing; }
-  Value holding_base_type() const override {
-    return lfw::field_or(_holding, u"base_type");
-  }
-  bool is_on_ground() const override { return _on_ground; }
-  Value frame_on_landing() const override { return _onlanding; }
-  void enter_frame(const Value& frame) override {
-    g_log.push_back(s_of(_id) + ":enter_frame:" + render(frame));
-  }
-  void drop_holding() override { g_log.push_back(s_of(_id) + ":drop_holding"); }
-  void handle_ground_velocity_decay() override {
-    g_log.push_back(s_of(_id) + ":handle_ground_velocity_decay");
-  }
-  Value data_indexes_default() const override {
-    return lfw::field_or(_indexes, u"default");
-  }
-  Value data_indexes_landing_2() const override {
-    return lfw::field_or(_indexes, u"landing_2");
-  }
-  Value data_indexes_heavy_obj_walk() const override {
-    return lfw::field_or(_indexes, u"heavy_obj_walk");
-  }
-  Value data_indexes_in_the_skys() const override {
-    return lfw::field_or(_indexes, u"in_the_skys");
-  }
-  Value data_indexes_falling() const override {
-    return lfw::field_or(_indexes, u"falling");
+  // `get data()` = `{indexes, frames}`（`data_indexes_of` 喂它；`data()` 返回引用 ⇒ 必须落成员）。
+  const Value& data() const override {
+    lfw::Object o;
+    o.set(u"indexes", _indexes);
+    o.set(u"frames", _frames);
+    _data_mirror = Value(std::make_shared<lfw::Object>(o));
+    return _data_mirror;
   }
   Value data_frames() const override { return _frames; }
+  Value frame_on_landing() const override { return _onlanding; }
+  Value state() const override { return _state; }
+  double hp() const override { return lfw::to_number(_hp); }
+  // `this.holding?.base_type`：台面 holding 就是 `env holding` 的裸值。
+  Value holding_base_type() const override { return _holding_base; }
   Value dataset(const std::u16string& key) const override {
-    g_log.push_back(s_of(_id) + ":dataset:" + s_of(key));
+    g_log.push_back(s_of(id) + ":dataset:" + s_of(key));
     return field_by(_dataset, key);
   }
   double velocity_x() const override { return lfw::to_number(_vx); }
-  Value velocity_z() const override { return _vz; }
+  double velocity_z() const override { return lfw::to_number(_vz); }
   void set_velocity(const Value& x, const Value& y, const Value& z) override {
-    g_log.push_back(s_of(_id) + ":set_velocity:" + render(x) + ":" + render(y) + ":" + render(z));
+    g_log.push_back(s_of(id) + ":set_velocity:" + render(x) + ":" + render(y) + ":" + render(z));
     if (!std::holds_alternative<std::monostate>(x) && !std::holds_alternative<lfw::NullTag>(x)) {
       _vx = x;
     }
@@ -124,6 +102,32 @@ struct FakeEnt : IStateEntity {
       _vz = z;
     }
   }
+  lfw::EnterFrameResult enter_frame(const Value& nf, bool fallback = false) override {
+    (void)fallback;
+    g_log.push_back(s_of(id) + ":enter_frame:" + render(nf));
+    return lfw::EnterFrameResult::NotFound;
+  }
+  lfw::EnterFrameResult enter_frame_by_id(const Value& fid, bool fallback = false) override {
+    (void)fallback;
+    g_log.push_back(s_of(id) + ":enter_frame_by_id:" + render(fid));
+    return lfw::EnterFrameResult::NotFound;
+  }
+  void set_position(const Value& x, const Value& y, const Value& z) override {
+    (void)x;
+    (void)y;
+    (void)z;
+  }
+  void set_outline_color(std::u16string v) override {
+    g_log.push_back(s_of(id) + ":outline_color:" + render(Value(std::move(v))));
+  }
+  void drop_holding() override { g_log.push_back(s_of(id) + ":drop_holding"); }
+  void handle_ground_velocity_decay(double factor = 1) override {
+    (void)factor;
+    g_log.push_back(s_of(id) + ":handle_ground_velocity_decay");
+  }
+
+ private:
+  mutable Value _data_mirror;
 };
 
 std::vector<FakeEnt*> g_ents;
@@ -133,7 +137,7 @@ CharacterState_Base* g_state_obj = nullptr;
 
 FakeEnt* find_ent(const std::u16string& id) {
   for (size_t i = 0; i < g_ents.size(); ++i) {
-    if (g_ents[i]->_id == id) return g_ents[i];
+    if (g_ents[i]->id == id) return g_ents[i];
   }
   return nullptr;
 }
@@ -152,7 +156,7 @@ std::string state_text() {
   return "state=" + render(g_state) + " estate=" + render(g_victim->_state) +
          " hp=" + render(g_victim->_hp) +
          " face=" + render(g_victim->_facing) + " onground=" +
-         std::string(g_victim->_on_ground ? "1" : "0") + " holding=" +
+         std::string(g_victim->is_on_ground ? "1" : "0") + " holding=" +
          render(g_victim->holding_base_type()) + " vel=" + vel;
 }
 
@@ -218,16 +222,16 @@ int main(int argc, char** argv) {
       } else if (sub == "hp") {
         if (g_victim != nullptr) g_victim->_hp = parse_value(t, i);
       } else if (sub == "facing") {
-        if (g_victim != nullptr) g_victim->_facing = parse_value(t, i);
-      } else if (sub == "onground") {
-        if (g_victim != nullptr) g_victim->_on_ground = trace::to_double(t[i++]) != 0;
-      } else if (sub == "holding") {
-        const Value v = parse_value(t, i);
         if (g_victim != nullptr) {
-          lfw::Object o;
-          o.set(u"base_type", v);
-          g_victim->_holding = Value(std::make_shared<lfw::Object>(o));
+          g_victim->_facing = parse_value(t, i);
+          // `facing` 现在是普通数据成员（库读 `e.facing`）；镜像只作打印。
+          g_victim->facing = lfw::to_number(g_victim->_facing);
         }
+      } else if (sub == "onground") {
+        if (g_victim != nullptr) g_victim->is_on_ground = trace::to_double(t[i++]) != 0;
+      } else if (sub == "holding") {
+        // TS 的 `holding` 是 `{base_type: _holdingBase}` ⇒ 端口就是那枚裸值。
+        if (g_victim != nullptr) g_victim->_holding_base = parse_value(t, i);
       } else if (sub == "onlanding") {
         if (g_victim != nullptr) g_victim->_onlanding = parse_value(t, i);
       } else if (sub == "dataset") {

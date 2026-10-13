@@ -7,6 +7,7 @@
 
 #include "lfw/buff/buff.h"
 #include "lfw/core/value.h"
+#include "lfw/entity/entity.h"
 #include "lfw/state/character_state_lying.h"
 #include "lfw/utils/container_help/field_or.h"
 
@@ -15,12 +16,12 @@
 namespace {
 
 using lfw::Array;
+using lfw::Entity;
 using lfw::Object;
 using lfw::Value;
 using lfw::buff::Buff;
 using lfw::buff::BuffEnv;
 using lfw::state::CharacterState_Lying;
-using lfw::state::IStateEntity;
 using trace::parse_value;
 using trace::render_value;
 using trace::split_ws;
@@ -46,75 +47,81 @@ std::u16string value_text(const Value& v) {
   return s != nullptr ? *s : std::u16string();
 }
 
-struct FakeEnt : IStateEntity {
+// `world.dataset[key]` / `world.puppets.values()`：TS 侧读假实体的 `world`（Proxy 打日志，
+// `puppets` 由 `_puppets` 现搭）；端口侧这两条都挂在宿主上 —— `Entity::world_dataset` 与
+// `Entity::world_puppets()` 都不是虚的，而它们读的 `IEntityHost::world_dataset` / `puppets()`
+// 是虚的 ⇒ 台面用本地假宿主接住。
+class FakeHost : public lfw::IEntityHost {
+ public:
+  Value world_dataset(const std::u16string& key) const override;
+  std::vector<Entity*> puppets() override;
+};
+
+FakeHost g_host;
+
+// `world.puppets` 的一员：状态层只读 `team`（`csl_on_dead`），拿只回答 `team` 的小实体顶着。
+struct PuppetEnt : lfw::Entity {
+  std::u16string _team;
+  PuppetEnt() : lfw::Entity(g_host, Value()) { id = u"P"; }
+  const std::u16string& team() const override { return _team; }
+};
+
+// 切片 4CF：`state::IStateEntity` 退役 ⇒ 假实体改成**真 `lfw::Entity`**，只覆写虚成员；
+// 库读、但没有虚读面的那几条（`lying_*_count` / `reserve` / `dead_gone` / `wakeup_invuln` /
+// `motionless` / `blinking` / `invulnerable` / `hp_max` / `toughness_resting`）在台面配置时
+// 顺带写进真字段（配置写入不产生日志，与 TS 侧直写 `f._x` 同款）。
+struct FakeEnt : lfw::Entity {
   std::u16string _id;
-  double _px = 0;
-  double _py = 0;
-  double _pz = 0;
   Value _gy;
   Value _frameid;
   Value _hp;
   Value _hpr;
-  Value _hpmax;
   bool _holding = false;
   Value _holdtype;
   Value _holdteam;
-  Value _team;
+  std::u16string _team;
   Value _tough;
   Value _tmax;
-  Value _trest;
-  Value _la;
-  Value _ld;
-  Value _lc;
   Value _wait;
   std::u16string _held;
   Value _dvals;
-  Value _deadjoin;
-  Value _deadgone;
-  Value _reserve;
-  Value _wakeup;
-  Value _motionless;
-  Value _invul;
-  Value _blink;
-  std::u16string _outline;
-  Value _puppets;
   Value _state;
+  std::u16string _outline;
+  std::vector<std::unique_ptr<PuppetEnt>> _puppet_owned;
+  std::vector<Entity*> _puppet_view;
 
-  explicit FakeEnt(std::u16string id) : _id(std::move(id)) {}
+  explicit FakeEnt(std::u16string id) : lfw::Entity(g_host, Value()), _id(std::move(id)) {
+    this->id = _id;
+    rebuild_frame();
+  }
 
-  void position(double& x, double& y, double& z) const override {
-    x = _px;
-    y = _py;
-    z = _pz;
+  void rebuild_frame() {
+    Object f;
+    f.set(u"id", _frameid);
+    frame = Value(std::make_shared<Object>(f));
   }
-  void set_position(double x, double y, double z) override {
-    _px = x;
-    _py = y;
-    _pz = z;
+
+  void set_puppets(const Value& v) {
+    _puppet_view.clear();
+    _puppet_owned.clear();
+    const Array* arr = as_array(v);
+    if (arr == nullptr) return;
+    for (size_t i = 0; i < arr->size(); ++i) {
+      auto p = std::make_unique<PuppetEnt>();
+      p->_team = lfw::to_string(arr->at(i));
+      _puppet_view.push_back(p.get());
+      _puppet_owned.push_back(std::move(p));
+    }
   }
-  void set_outline_color(const std::u16string& v) override { _outline = v; }
-  void enter_frame_by_id(const std::u16string& id) override {
-    g_log.push_back(s_of(_id) + ":enter_frame_by_id:" + render(Value(id)));
-  }
-  double velocity_x() const override { return lfw::to_number(Value()); }
-  Value velocity_z() const override { return Value(); }
+
   double ground_y() const override { return lfw::to_number(_gy); }
-  Value frame_info() const override {
-    Object o;
-    o.set(u"id", _frameid);
-    return Value(std::make_shared<Object>(o));
-  }
-  Value hp() const override { return _hp; }
-  Value hp_r() const override { return _hpr; }
-  Value hp_max() const override { return _hpmax; }
-  void set_hp(const Value& v) override { _hp = v; }
-  void set_hp_r(const Value& v) override { _hpr = v; }
-  void set_hp_max(const Value& v) override { _hpmax = v; }
-  Value team() const override { return _team; }
-  void set_team(const Value& v) override { _team = v; }
   Value state() const override { return _state; }
-  Value wait() const override { return _wait; }
-  void set_wait(const Value& v) override { _wait = v; }
+  double hp() const override { return lfw::to_number(_hp); }
+  double hp_r() const override { return lfw::to_number(_hpr); }
+  void set_hp(double v) override { _hp = Value(v); }
+  void set_hp_r(double v) override { _hpr = Value(v); }
+  const std::u16string& team() const override { return _team; }
+  void set_team(std::u16string v) override { _team = std::move(v); }
   bool has_holding() const override { return _holding; }
   Value holding_base_type() const override { return _holdtype; }
   void holding_set_team(const Value& v) override {
@@ -122,60 +129,31 @@ struct FakeEnt : IStateEntity {
     _holdteam = v;
   }
   void drop_holding() override { g_log.push_back(s_of(_id) + ":drop_holding"); }
-  Value toughness_max() const override { return _tmax; }
-  void set_toughness(const Value& v) override { _tough = v; }
-  void set_toughness_resting(const Value& v) override { _trest = v; }
-  Value lying_a_count() const override { return _la; }
-  void set_lying_a_count(const Value& v) override { _la = v; }
-  Value lying_d_count() const override { return _ld; }
-  void set_lying_d_count(const Value& v) override { _ld = v; }
-  Value lying_c_count() const override { return _lc; }
-  void set_lying_c_count(const Value& v) override { _lc = v; }
+  double toughness() const override { return lfw::to_number(_tough); }
+  double toughness_max() const override { return lfw::to_number(_tmax); }
+  void set_toughness(double v) override { _tough = Value(v); }
+  void set_wait(const Value& v) override {
+    _wait = v;
+    wait = lfw::to_number(v);
+  }
   void ctrl_reset_key_list() override { g_log.push_back(s_of(_id) + ":ctrl_reset_key_list"); }
   bool ctrl_is_end(const std::u16string& key) const override {
     g_log.push_back(s_of(_id) + ":ctrl_is_end:" + s_of(key));
     return _held.find(key[0]) == std::u16string::npos;
   }
-  Value dead_join() const override { return _deadjoin; }
-  void set_dead_join(const Value& v) override { _deadjoin = v; }
-  Value dead_gone() const override { return _deadgone; }
-  Value reserve() const override { return _reserve; }
-  void set_reserve(const Value& v) override { _reserve = v; }
-  Value wakeup_invuln() const override { return _wakeup; }
-  void set_wakeup_invuln(const Value& v) override { _wakeup = v; }
-  void set_invulnerable(const Value& v) override { _invul = v; }
-  void set_blinking(const Value& v) override { _blink = v; }
-  void set_motionless(const Value& v) override { _motionless = v; }
-  void blink_and_respawn(const Value& duration) override {
-    g_log.push_back(s_of(_id) + ":blink_and_respawn:" + render(duration));
-  }
-  void blink_and_gone(const Value& duration) override {
-    g_log.push_back(s_of(_id) + ":blink_and_gone:" + render(duration));
-  }
-  Value world_puppets() const override {
-    const Array* arr = as_array(_puppets);
-    if (arr == nullptr) return Value();
-    Array out;
-    for (size_t i = 0; i < arr->size(); ++i) {
-      Object entry;
-      entry.set(u"team", arr->at(i));
-      out.push_back(Value(std::make_shared<Object>(entry)));
-    }
-    return Value(std::make_shared<Array>(std::move(out)));
-  }
+  void set_outline_color(std::u16string v) override { _outline = std::move(v); }
   void world_etc(double x, double y, double z, const std::u16string& kind) override {
     g_log.push_back(s_of(_id) + ":world_etc:" + num(x) + ":" + num(y) + ":" + num(z) + ":" +
                     render(Value(kind)));
   }
-  Value world_dataset(const std::u16string& key) const override {
-    g_log.push_back(s_of(_id) + ":world_dataset:" + s_of(key));
-    return lfw::field_or(_dvals, key.c_str());
-  }
-  void handle_ground_velocity_decay() override {
-    g_log.push_back(s_of(_id) + ":handle_ground_velocity_decay:" + num(1.0));
-  }
-  void handle_ground_velocity_decay(double factor) override {
+  void handle_ground_velocity_decay(double factor = 1) override {
     g_log.push_back(s_of(_id) + ":handle_ground_velocity_decay:" + num(factor));
+  }
+  void blink_and_respawn(double duration) override {
+    g_log.push_back(s_of(_id) + ":blink_and_respawn:" + num(duration));
+  }
+  void blink_and_gone(double duration) override {
+    g_log.push_back(s_of(_id) + ":blink_and_gone:" + num(duration));
   }
 };
 
@@ -183,19 +161,31 @@ FakeEnt* g_ent = nullptr;
 Value g_state;
 CharacterState_Lying* g_obj = nullptr;
 
+Value FakeHost::world_dataset(const std::u16string& key) const {
+  // `Entity` 的构造函数会读一次 `world.dataset.atom_time`（那时台面还没有实体）⇒ 直接给空。
+  if (g_ent == nullptr) return Value();
+  g_log.push_back(s_of(g_ent->_id) + ":world_dataset:" + s_of(key));
+  return lfw::field_or(g_ent->_dvals, key.c_str());
+}
+
+std::vector<Entity*> FakeHost::puppets() {
+  return g_ent == nullptr ? std::vector<Entity*>() : g_ent->_puppet_view;
+}
+
 std::string state_text() {
   const FakeEnt& e = *g_ent;
-  return "pos=[" + num(e._px) + "," + num(e._py) + "," + num(e._pz) + "] hp=" + render(e._hp) +
-         "/" + render(e._hpr) + "/" + render(e._hpmax) + " team=" + render(e._team) +
-         " tough=" + render(e._tough) + "/" + render(e._tmax) + " trest=" + render(e._trest) +
-         " la=" + render(e._la) + " ld=" + render(e._ld) + " lc=" + render(e._lc) +
-         " wait=" + render(e._wait) + " holding=" + render(Value(e._holding)) +
-         " holdteam=" + render(e._holdteam) + " deadjoin=" + render(e._deadjoin) +
-         " deadgone=" + render(e._deadgone) + " reserve=" + render(e._reserve) +
-         " wakeup=" + render(e._wakeup) + " motionless=" + render(e._motionless) +
-         " invul=" + render(e._invul) + " blink=" + render(e._blink) +
-         " outline=" + render(Value(e._outline)) + " frameid=" + render(e._frameid) +
-         " gy=" + render(e._gy);
+  return "pos=[" + num(e.position.x) + "," + num(e.position.y) + "," + num(e.position.z) +
+         "] hp=" + render(e._hp) + "/" + render(e._hpr) + "/" + num(e.hp_max()) +
+         " team=" + render(Value(e._team)) + " tough=" + render(e._tough) + "/" +
+         render(e._tmax) + " trest=" + num(e.toughness_resting()) + " la=" +
+         render(e.lying_a_count) + " ld=" + render(e.lying_d_count) + " lc=" +
+         render(e.lying_c_count) + " wait=" + render(e._wait) + " holding=" +
+         render(Value(e._holding)) + " holdteam=" + render(e._holdteam) + " deadjoin=" +
+         render(e.dead_join) + " deadgone=" + num(e.dead_gone) + " reserve=" +
+         num(e.reserve()) + " wakeup=" + num(e.wakeup_invuln) + " motionless=" +
+         num(e.motionless) + " invul=" + num(e.invulnerable()) + " blink=" +
+         num(e.blinking()) + " outline=" + render(Value(e._outline)) + " frameid=" +
+         render(e._frameid) + " gy=" + render(e._gy);
 }
 
 void bind() {
@@ -245,19 +235,20 @@ int main(int argc, char** argv) {
         g_ent->_state = parse_value(t, i);
       } else if (sub == "pos") {
         const Value v = parse_value(t, i);
-        g_ent->_px = lfw::to_number(lfw::field_or(v, u"x"));
-        g_ent->_py = lfw::to_number(lfw::field_or(v, u"y"));
-        g_ent->_pz = lfw::to_number(lfw::field_or(v, u"z"));
+        g_ent->position.set(lfw::to_number(lfw::field_or(v, u"x")),
+                            lfw::to_number(lfw::field_or(v, u"y")),
+                            lfw::to_number(lfw::field_or(v, u"z")));
       } else if (sub == "gy") {
         g_ent->_gy = parse_value(t, i);
       } else if (sub == "frameid") {
         g_ent->_frameid = parse_value(t, i);
+        g_ent->rebuild_frame();
       } else if (sub == "hp") {
         g_ent->_hp = parse_value(t, i);
       } else if (sub == "hpr") {
         g_ent->_hpr = parse_value(t, i);
       } else if (sub == "hpmax") {
-        g_ent->_hpmax = parse_value(t, i);
+        g_ent->set_hp_max(lfw::to_number(parse_value(t, i)));
       } else if (sub == "holding") {
         g_ent->_holding = lfw::truthy(parse_value(t, i));
       } else if (sub == "holdtype") {
@@ -265,43 +256,44 @@ int main(int argc, char** argv) {
       } else if (sub == "holdteam") {
         g_ent->_holdteam = parse_value(t, i);
       } else if (sub == "team") {
-        g_ent->_team = parse_value(t, i);
+        g_ent->_team = value_text(parse_value(t, i));
       } else if (sub == "tough") {
         g_ent->_tough = parse_value(t, i);
       } else if (sub == "tmax") {
         g_ent->_tmax = parse_value(t, i);
       } else if (sub == "trest") {
-        g_ent->_trest = parse_value(t, i);
+        g_ent->set_toughness_resting(lfw::to_number(parse_value(t, i)));
       } else if (sub == "la") {
-        g_ent->_la = parse_value(t, i);
+        g_ent->lying_a_count = parse_value(t, i);
       } else if (sub == "ld") {
-        g_ent->_ld = parse_value(t, i);
+        g_ent->lying_d_count = parse_value(t, i);
       } else if (sub == "lc") {
-        g_ent->_lc = parse_value(t, i);
+        g_ent->lying_c_count = parse_value(t, i);
       } else if (sub == "wait") {
         g_ent->_wait = parse_value(t, i);
+        g_ent->wait = lfw::to_number(g_ent->_wait);
       } else if (sub == "held") {
         g_ent->_held = value_text(parse_value(t, i));
       } else if (sub == "dvals") {
         g_ent->_dvals = parse_value(t, i);
       } else if (sub == "deadjoin") {
-        g_ent->_deadjoin = parse_value(t, i);
+        g_ent->dead_join = parse_value(t, i);
       } else if (sub == "deadgone") {
-        g_ent->_deadgone = parse_value(t, i);
+        g_ent->dead_gone = lfw::to_number(parse_value(t, i));
       } else if (sub == "reserve") {
-        g_ent->_reserve = parse_value(t, i);
+        g_ent->set_reserve(lfw::to_number(parse_value(t, i)));
       } else if (sub == "wakeup") {
-        g_ent->_wakeup = parse_value(t, i);
+        g_ent->wakeup_invuln = lfw::to_number(parse_value(t, i));
       } else if (sub == "motionless") {
-        g_ent->_motionless = parse_value(t, i);
+        g_ent->set_motionless(lfw::to_number(parse_value(t, i)));
       } else if (sub == "invul") {
-        g_ent->_invul = parse_value(t, i);
+        g_ent->set_invulnerable(lfw::to_number(parse_value(t, i)));
       } else if (sub == "blink") {
-        g_ent->_blink = parse_value(t, i);
+        g_ent->set_blinking(lfw::to_number(parse_value(t, i)));
       } else if (sub == "outline") {
         g_ent->_outline = value_text(parse_value(t, i));
       } else if (sub == "puppets") {
-        g_ent->_puppets = parse_value(t, i);
+        g_ent->set_puppets(parse_value(t, i));
       } else {
         std::fprintf(stderr, "unknown env '%s' at line %d\n", sub.c_str(), lineno);
         return 2;

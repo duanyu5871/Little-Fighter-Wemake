@@ -31,7 +31,6 @@
 #include "lfw/entity/calc_v.h"
 #include "lfw/entity/entity_type_check.h"
 #include "lfw/entity/entity_snapshot.h"
-#include "lfw/entity/entity_state_view.h"
 #include "lfw/entity/face_helper.h"
 #include "lfw/entity/summary_mgr.h"
 #include "lfw/factory.h"
@@ -149,7 +148,6 @@ Entity::Entity(IEntityHost& host, Value data, state::States* states) {
   host_ = &host;
   _data = std::move(data);
   states_ = states;
-  state_view_ = std::make_unique<EntityStateView>(*this);
   _atom_time = num_of(host.world_dataset(u"atom_time"));
   terrain = Ground::horizon();
   {
@@ -237,9 +235,9 @@ void Entity::reset(Value data, state::States* states) {
   motionless = 0;
   shaking = 0;
   bounced = false;
-  lying_a_count = 0;
-  lying_d_count = 0;
-  lying_c_count = 0;
+  lying_a_count = Value(0.0);
+  lying_d_count = Value(0.0);
+  lying_c_count = Value(0.0);
   drop_hurted = false;
   dropping = false;
   // `this._states = states` — mirror TS's position (right after `dropping`).
@@ -310,9 +308,9 @@ void Entity::set_state(const Value& state_code) {
   state::State_Base* v = states_->get(state_code);
   if (v == nullptr) v = &states_->fallback(field_or(_data, u"type"), state_code);
   if (_state == v) return;
-  if (_state != nullptr) _state->leave(*state_view_, frame);
+  if (_state != nullptr) _state->leave(*this, frame);
   _state = v;
-  if (_state != nullptr && _state->enter) _state->enter(*state_view_, get_prev_frame());
+  if (_state != nullptr && _state->enter) _state->enter(*this, get_prev_frame());
 }
 
 std::u16string Entity::outline_color() const {
@@ -522,7 +520,7 @@ void Entity::set_hp(double v) {
   }
   if (o > 0 && v <= 0) {
     callbacks.call(u"on_dead", {ref()});
-    if (_state != nullptr && _state->on_dead) _state->on_dead(*state_view_);
+    if (_state != nullptr && _state->on_dead) _state->on_dead(*this);
     const Value brokens = field_or(base_of(_data), u"brokens");
     if (!strict_equals(state(), Value(static_cast<double>(StateEnum::Gone))) &&
         frame_id_of(*this) != std::u16string(frame_id::kGone) &&
@@ -613,7 +611,7 @@ void Entity::auto_key_role() {
 }
 
 double Entity::gravity() const {
-  const Value g1 = _state != nullptr && _state->get_gravity ? _state->get_gravity(*state_view_)
+  const Value g1 = _state != nullptr && _state->get_gravity ? _state->get_gravity(mutable_self())
                                                             : Value();
   const Value g2 = ctrl_ != nullptr && ctrl_->is_end(gk::kDefend) ? dataset(u"gravity")
                                                                   : dataset(u"gravity_d");
@@ -634,7 +632,7 @@ double Entity::itr_motionless() const {
 // branch also calls `Ditto.warn(...)`, a console warning with no trace effect.
 Value Entity::find_frame_by_id(const Value& id_value) const {
   if (_state != nullptr && _state->find_frame_by_id) {
-    const Value r = _state->find_frame_by_id(*state_view_, id_value);
+    const Value r = _state->find_frame_by_id(mutable_self(), id_value);
     if (truthy(r)) return r;
   }
   // `switch (id)` is strict, so only `undefined` hits `case void 0:` — a `null` id
@@ -658,7 +656,7 @@ Value Entity::find_frame_by_id(const Value& id_value) const {
 // `this._state?.get_auto_frame?.(this) ?? this._data.frames["0"] ?? this.frame`
 Value Entity::find_auto_frame() const {
   if (_state != nullptr && _state->get_auto_frame) {
-    const Value f = _state->get_auto_frame(*state_view_);
+    const Value f = _state->get_auto_frame(mutable_self());
     if (!nullish(f)) return f;
   }
   const Value f0 = field_or(field_or(_data, u"frames"), u"0");
@@ -699,7 +697,7 @@ Value Entity::find_align_frame(const std::u16string& frame_id, const Value& src,
 // fallback is truthiness-based, so a falsy state answer also falls through.
 Value Entity::get_sudden_death_frame() const {
   if (_state != nullptr && _state->get_sudden_death_frame) {
-    const Value v = _state->get_sudden_death_frame(*state_view_);
+    const Value v = _state->get_sudden_death_frame(mutable_self());
     if (truthy(v)) return v;
   }
   const Value* auto_frame = defines::find(u"Defines.NEXT_FRAME_AUTO");
@@ -709,7 +707,7 @@ Value Entity::get_sudden_death_frame() const {
 Value Entity::get_caught_end_frame() {
   if (position.y < _ground_y) position.y = _ground_y + 1;
   if (_state != nullptr && _state->get_caught_end_frame) {
-    const Value v = _state->get_caught_end_frame(*state_view_);
+    const Value v = _state->get_caught_end_frame(mutable_self());
     if (truthy(v)) return v;
   }
   const Value* auto_frame = defines::find(u"Defines.NEXT_FRAME_AUTO");
@@ -1048,7 +1046,8 @@ Value Entity::data_base_hit_sounds() const {
   return field_or(field_or(_data, u"base"), u"hit_sounds");
 }
 
-Value Entity::data_id() const { return field_or(_data, u"id"); }
+// `this.data.id`：必须走虚的 `data()`（台面会替换 `data`），而不是私有的 `_data`。
+Value Entity::data_id() const { return field_or(data(), u"id"); }
 
 Value Entity::frame_id() const { return field_or(frame, u"id"); }
 
@@ -1452,7 +1451,7 @@ void Entity::set_position(const Value& x, const Value& y, const Value& z) {
   if (position.x != r.x || position.y != r.y || position.z != r.z) {
     const Value on_restrict = field_or(frame, u"on_restrict");
     if (truthy(on_restrict)) enter_frame(on_restrict);
-    if (_state != nullptr) _state->on_restrict(*state_view_, r.x, r.y, r.z);
+    if (_state != nullptr) _state->on_restrict(*this, r.x, r.y, r.z);
   }
   _ground_y = Ground::y(terrain, position.x, position.z);
 }
@@ -1988,9 +1987,10 @@ void Entity::to_snapshot(std::vector<Value>& nums, std::vector<std::u16string>& 
   write_tick(_defend_r_tick, nums, NSlot::DEFEND_R_TICK_VALUE);
 
   N(NSlot::BOUNCED) = Value(bounced ? 1.0 : 0.0);
-  N(NSlot::LYING_A_COUNT) = Value(lying_a_count);
-  N(NSlot::LYING_D_COUNT) = Value(lying_d_count);
-  N(NSlot::LYING_C_COUNT) = Value(lying_c_count);
+  // TS 直接赋值（`nums[...] = this.lying_a_count`），不走 `to_number`——它可能是字符串。
+  N(NSlot::LYING_A_COUNT) = lying_a_count;
+  N(NSlot::LYING_D_COUNT) = lying_d_count;
+  N(NSlot::LYING_C_COUNT) = lying_c_count;
   N(NSlot::DROP_HURTED) = Value(drop_hurted ? 1.0 : 0.0);
   N(NSlot::DROPPING) = Value(dropping ? 1.0 : 0.0);
   N(NSlot::IS_ON_GROUND) = Value(is_on_ground ? 1.0 : 0.0);
@@ -2000,7 +2000,7 @@ void Entity::to_snapshot(std::vector<Value>& nums, std::vector<std::u16string>& 
   N(NSlot::CTRL_VISIBLE) = Value(ctrl_visible);
 
   S(SSlot::ID) = id;
-  S(SSlot::DATA_ID) = to_string(field_or(_data, u"id"));
+  S(SSlot::DATA_ID) = to_string(field_or(data(), u"id"));
   S(SSlot::FRAME_ID) = frame_id_of(*this);
   S(SSlot::PREV_FRAME_ID) = frame_id_value(_prev_frame);
   S(SSlot::LANDING_FRAME_ID) =
@@ -2124,9 +2124,9 @@ void Entity::read_snapshot(const std::vector<Value>& nums,
   read_tick(_defend_r_tick, nums, NSlot::DEFEND_R_TICK_VALUE);
 
   bounced = not_zero(N(NSlot::BOUNCED));
-  lying_a_count = to_number(N(NSlot::LYING_A_COUNT));
-  lying_d_count = to_number(N(NSlot::LYING_D_COUNT));
-  lying_c_count = to_number(N(NSlot::LYING_C_COUNT));
+  lying_a_count = N(NSlot::LYING_A_COUNT);
+  lying_d_count = N(NSlot::LYING_D_COUNT);
+  lying_c_count = N(NSlot::LYING_C_COUNT);
   drop_hurted = not_zero(N(NSlot::DROP_HURTED));
   dropping = not_zero(N(NSlot::DROPPING));
   is_on_ground = not_zero(N(NSlot::IS_ON_GROUND));
@@ -2414,9 +2414,17 @@ Entity& Entity::attach(const Value& ghost) {
 // `spreading` offset, one `spawn` per count, then the ball-controller `chasing` target
 // and the `inherit_speed_*` velocity write.
 // ---------------------------------------------------------------------------
+// 状态面（切片 4CF）：`apply_opoints(opoints: Value[])` —— `state_base_proxy.cpp` 的
+// `ice_piece_opoints()` 给的是一组 opoint，包成 `Value` 数组后走下面那条。
+void Entity::apply_opoints(const std::vector<Value>& opoints) {
+  std::vector<Value> copy = opoints;
+  apply_opoints(Value(std::make_shared<Array>(std::move(copy))));
+}
+
 void Entity::apply_opoints(const Value& opoints_value) {
   const Array* list = as_array(opoints_value);
   if (list == nullptr) return;
+
   for (std::size_t k = 0; k < list->size(); ++k) {
     const Value opoint = list->at(k);
     // `const { interval = 0, interval_id, interval_mode } = opoint` — the default only
@@ -2689,7 +2697,7 @@ void Entity::update() {
   stat_recovering();
   toughness_recovering();
 
-  if (_state != nullptr && _state->pre_update) _state->pre_update(*state_view_);
+  if (_state != nullptr && _state->pre_update) _state->pre_update(*this);
   _from_wait_block = true;
   if (wait > 0) {
     if (!(motionless > 0) && !(shaking > 0) && catcher == nullptr && bearer == nullptr) {
@@ -2719,7 +2727,7 @@ void Entity::update() {
   for (double i = 0; i < sub_steps; ++i) {
     handle_gravity();
     update_velocity(frame);
-    if (i == 0 && _state != nullptr) _state->update(*state_view_);
+    if (i == 0 && _state != nullptr) _state->update(*this);
     update_position();
   }
   _atom_time = tick_atom_time;
@@ -2781,7 +2789,7 @@ void Entity::update_ghost() {
     if (_blinking <= 0) _blinking = 0;
   }
 
-  if (_state != nullptr && _state->pre_update) _state->pre_update(*state_view_);
+  if (_state != nullptr && _state->pre_update) _state->pre_update(*this);
   _from_wait_block = true;
   if (wait > 0) {
     wait = round_float(wait - _atom_time);
@@ -2801,7 +2809,7 @@ void Entity::update_ghost() {
   for (double i = 0; i < sub_steps; ++i) {
     handle_gravity();
     update_velocity(frame);
-    if (i == 0 && _state != nullptr) _state->update(*state_view_);
+    if (i == 0 && _state != nullptr) _state->update(*this);
     update_position();
   }
   _atom_time = tick_atom_time;
@@ -2908,7 +2916,7 @@ void Entity::update_landable() {
     velocity.y = 0;
     prev_velocity.y = 0;
     if (_state != nullptr && _state->on_landing) {
-      _state->on_landing(*state_view_, position_value(_temp_v));
+      _state->on_landing(*this, position_value(_temp_v));
     }
     host_->play_sound(field_or(base_of(_data), u"drop_sounds"), position_value(position));
     if (truthy(Value(throwinjury))) {
@@ -2925,7 +2933,7 @@ void Entity::update_landable() {
   } else if (was_on_ground) {
     if (position.y - ground > host_->ground_step()) {
       leave_ground();
-      if (_state != nullptr && _state->on_leave_ground) _state->on_leave_ground(*state_view_);
+      if (_state != nullptr && _state->on_leave_ground) _state->on_leave_ground(*this);
     } else {
       // 视为斜坡 / 楼梯
       position.y = ground;

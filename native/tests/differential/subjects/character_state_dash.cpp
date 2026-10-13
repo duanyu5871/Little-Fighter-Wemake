@@ -10,6 +10,7 @@
 #include "lfw/state/character_state_dash.h"
 #include "lfw/utils/container_help/field_or.h"
 
+#include "entity_fixture.h"
 #include "trace_util.h"
 
 namespace {
@@ -18,7 +19,6 @@ using lfw::Value;
 using lfw::buff::Buff;
 using lfw::buff::BuffEnv;
 using lfw::state::CharacterState_Dash;
-using lfw::state::IStateEntity;
 using trace::parse_value;
 using trace::render_value;
 using trace::split_ws;
@@ -46,8 +46,10 @@ Value field_by(const Value& holder, const std::u16string& key) {
   return p != nullptr ? *p : Value();
 }
 
-struct FakeEnt : IStateEntity {
-  std::u16string _id;
+// 切片 4CF：状态族窄接口退役 ⇒ 台面假实体派生真 `lfw::Entity`（`fx::shared_host()` 是
+// `entity_fixture.h` 里进程内共享的最小宿主），只覆写状态层要观测的实体面；台面的配置
+// （`env …`）直写后备字段/成员 ⇒ 不产生日志（与 TS 孪生直写 `_*` 一致）。
+struct FakeEnt : lfw::Entity {
   Value _dataset;
   Value _facing;
   Value _vx;
@@ -60,37 +62,22 @@ struct FakeEnt : IStateEntity {
   double _ctrl_ud = 0;
   double _ctrl_lr = 0;
 
-  explicit FakeEnt(std::u16string id) : _id(std::move(id)) {}
+  explicit FakeEnt(std::u16string eid) : lfw::Entity(fx::shared_host(), Value()) {
+    this->id = std::move(eid);
+  }
 
-  void position(double& x, double& y, double& z) const override {
-    x = _px;
-    y = _py;
-    z = _pz;
-  }
-  void set_position(double x, double y, double z) override {
-    _px = x;
-    _py = y;
-    _pz = z;
-  }
-  void set_outline_color(const std::u16string& v) override {
-    g_log.push_back(s_of(_id) + ":outline_color:" + render(Value(v)));
-  }
-  void enter_frame_by_id(const std::u16string& id) override {
-    g_log.push_back(s_of(_id) + ":enter_frame_by_id:" + render(Value(id)));
-  }
   double ground_y() const override { return lfw::to_number(_ground_y); }
-  Value facing() const override { return _facing; }
   double ctrl_ud() const override { return _ctrl_ud; }
   double ctrl_lr() const override { return _ctrl_lr; }
+  double velocity_x() const override { return lfw::to_number(_vx); }
+  double velocity_y() const override { return lfw::to_number(_vy); }
+  double velocity_z() const override { return lfw::to_number(_vz); }
   Value dataset(const std::u16string& key) const override {
-    g_log.push_back(s_of(_id) + ":dataset:" + s_of(key));
+    g_log.push_back(s_of(id) + ":dataset:" + s_of(key));
     return field_by(_dataset, key);
   }
-  double velocity_x() const override { return lfw::to_number(_vx); }
-  Value velocity_z() const override { return _vz; }
-  double velocity_y() const override { return lfw::to_number(_vy); }
   void set_velocity(const Value& x, const Value& y, const Value& z) override {
-    g_log.push_back(s_of(_id) + ":set_velocity:" + render(x) + ":" + render(y) + ":" + render(z));
+    g_log.push_back(s_of(id) + ":set_velocity:" + render(x) + ":" + render(y) + ":" + render(z));
     if (!std::holds_alternative<std::monostate>(x) && !std::holds_alternative<lfw::NullTag>(x)) {
       _vx = x;
     }
@@ -101,8 +88,23 @@ struct FakeEnt : IStateEntity {
       _vz = z;
     }
   }
-  void enter_frame(const Value& frame) override {
-    g_log.push_back(s_of(_id) + ":enter_frame:" + render(frame));
+  lfw::EnterFrameResult enter_frame(const Value& nf, bool fallback = false) override {
+    (void)fallback;
+    g_log.push_back(s_of(id) + ":enter_frame:" + render(nf));
+    return lfw::EnterFrameResult::NotFound;
+  }
+  lfw::EnterFrameResult enter_frame_by_id(const Value& fid, bool fallback = false) override {
+    (void)fallback;
+    g_log.push_back(s_of(id) + ":enter_frame_by_id:" + render(fid));
+    return lfw::EnterFrameResult::NotFound;
+  }
+  void set_position(const Value& x, const Value& y, const Value& z) override {
+    _px = lfw::to_number(x);
+    _py = lfw::to_number(y);
+    _pz = lfw::to_number(z);
+  }
+  void set_outline_color(std::u16string v) override {
+    g_log.push_back(s_of(id) + ":outline_color:" + render(Value(std::move(v))));
   }
 };
 
@@ -114,7 +116,7 @@ CharacterState_Dash* g_state_obj = nullptr;
 
 FakeEnt* find_ent(const std::u16string& id) {
   for (size_t i = 0; i < g_ents.size(); ++i) {
-    if (g_ents[i]->_id == id) return g_ents[i];
+    if (g_ents[i]->id == id) return g_ents[i];
   }
   return nullptr;
 }
@@ -191,6 +193,11 @@ int main(int argc, char** argv) {
           g_victim->_px = lfw::to_number(lfw::field_or(v, u"x"));
           g_victim->_py = lfw::to_number(lfw::field_or(v, u"y"));
           g_victim->_pz = lfw::to_number(lfw::field_or(v, u"z"));
+          // `position` 现在是实体的普通数据成员：库直接读它（`e.position.x`），
+          // 台面的 `_px` 三个只是打印镜像。
+          g_victim->position.x = g_victim->_px;
+          g_victim->position.y = g_victim->_py;
+          g_victim->position.z = g_victim->_pz;
         }
       } else if (sub == "ground_y") {
         if (g_victim != nullptr) g_victim->_ground_y = parse_value(t, i);
@@ -201,7 +208,11 @@ int main(int argc, char** argv) {
       } else if (sub == "velz") {
         if (g_victim != nullptr) g_victim->_vz = parse_value(t, i);
       } else if (sub == "facing") {
-        if (g_victim != nullptr) g_victim->_facing = parse_value(t, i);
+        if (g_victim != nullptr) {
+          g_victim->_facing = parse_value(t, i);
+          // `facing` 也是普通数据成员（库读 `e.facing`）；镜像供打印。
+          g_victim->facing = lfw::to_number(g_victim->_facing);
+        }
       } else if (sub == "ctrlud") {
         if (g_victim != nullptr) g_victim->_ctrl_ud = trace::to_double(t[i++]);
       } else if (sub == "ctrllr") {

@@ -461,13 +461,13 @@ export default {
         {
       "note": "the death notification is dropped",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "    callbacks.call(u\"on_dead\", {ref()});\n    if (_state != nullptr && _state->on_dead) _state->on_dead(*state_view_);",
-      "to": "    if (_state != nullptr && _state->on_dead) _state->on_dead(*state_view_);"
+      "from": "    callbacks.call(u\"on_dead\", {ref()});\n    if (_state != nullptr && _state->on_dead) _state->on_dead(*this);",
+      "to": "    if (_state != nullptr && _state->on_dead) _state->on_dead(*this);"
     },
         {
       "note": "the state death hook is not called",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "    if (_state != nullptr && _state->on_dead) _state->on_dead(*state_view_);",
+      "from": "    if (_state != nullptr && _state->on_dead) _state->on_dead(*this);",
       "to": "    (void)_state;"
     },
         {
@@ -1331,14 +1331,14 @@ export default {
         {
       "note": "find_frame_by_id ignores the state hook",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "    const Value r = _state->find_frame_by_id(*state_view_, id_value);",
+      "from": "    const Value r = _state->find_frame_by_id(mutable_self(), id_value);",
       "to": "    const Value r = Value();"
     },
         {
       "note": "find_frame_by_id passes the entity id instead of the lookup id",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "    const Value r = _state->find_frame_by_id(*state_view_, id_value);",
-      "to": "    const Value r = _state->find_frame_by_id(*state_view_, Value(id));"
+      "from": "    const Value r = _state->find_frame_by_id(mutable_self(), id_value);",
+      "to": "    const Value r = _state->find_frame_by_id(mutable_self(), Value(id));"
     },
         {
       "note": "find_frame_by_id trusts a falsy state answer",
@@ -1397,14 +1397,14 @@ export default {
         {
       "note": "find_auto_frame ignores the state hook",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "    const Value f = _state->get_auto_frame(*state_view_);",
+      "from": "    const Value f = _state->get_auto_frame(mutable_self());",
       "to": "    const Value f;"
     },
         {
       "note": "find_auto_frame treats a falsy hook answer as missing",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "    const Value f = _state->get_auto_frame(*state_view_);\n    if (!nullish(f)) return f;",
-      "to": "    const Value f = _state->get_auto_frame(*state_view_);\n    if (truthy(f)) return f;"
+      "from": "    const Value f = _state->get_auto_frame(mutable_self());\n    if (!nullish(f)) return f;",
+      "to": "    const Value f = _state->get_auto_frame(mutable_self());\n    if (truthy(f)) return f;"
     },
         {
       "note": "find_auto_frame reads frame 3 instead of frame 0",
@@ -1469,26 +1469,26 @@ export default {
         {
       "note": "sudden death ignores the state hook",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "    const Value v = _state->get_sudden_death_frame(*state_view_);",
+      "from": "    const Value v = _state->get_sudden_death_frame(mutable_self());",
       "to": "    const Value v;"
     },
         {
       "note": "sudden death accepts a falsy state answer",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "    const Value v = _state->get_sudden_death_frame(*state_view_);\n    if (truthy(v)) return v;",
-      "to": "    const Value v = _state->get_sudden_death_frame(*state_view_);\n    if (!nullish(v)) return v;"
+      "from": "    const Value v = _state->get_sudden_death_frame(mutable_self());\n    if (truthy(v)) return v;",
+      "to": "    const Value v = _state->get_sudden_death_frame(mutable_self());\n    if (!nullish(v)) return v;"
     },
         {
       "note": "caught end ignores the state hook",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "    const Value v = _state->get_caught_end_frame(*state_view_);",
+      "from": "    const Value v = _state->get_caught_end_frame(mutable_self());",
       "to": "    const Value v;"
     },
         {
       "note": "caught end accepts a falsy state answer",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "    const Value v = _state->get_caught_end_frame(*state_view_);\n    if (truthy(v)) return v;",
-      "to": "    const Value v = _state->get_caught_end_frame(*state_view_);\n    if (!nullish(v)) return v;"
+      "from": "    const Value v = _state->get_caught_end_frame(mutable_self());\n    if (truthy(v)) return v;",
+      "to": "    const Value v = _state->get_caught_end_frame(mutable_self());\n    if (!nullish(v)) return v;"
     },
         {
       "note": "caught end never lifts the entity",
@@ -1961,20 +1961,20 @@ export default {
         {
       "note": "lying a reads lying d",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "  N(NSlot::LYING_A_COUNT) = Value(lying_a_count);",
-      "to": "  N(NSlot::LYING_A_COUNT) = Value(lying_d_count);"
+      "from": "  N(NSlot::LYING_A_COUNT) = lying_a_count;",
+      "to": "  N(NSlot::LYING_A_COUNT) = lying_d_count;"
     },
         {
       "note": "lying d reads lying c",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "  N(NSlot::LYING_D_COUNT) = Value(lying_d_count);",
-      "to": "  N(NSlot::LYING_D_COUNT) = Value(lying_c_count);"
+      "from": "  N(NSlot::LYING_D_COUNT) = lying_d_count;",
+      "to": "  N(NSlot::LYING_D_COUNT) = lying_c_count;"
     },
         {
       "note": "lying c reads lying a",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "  N(NSlot::LYING_C_COUNT) = Value(lying_c_count);",
-      "to": "  N(NSlot::LYING_C_COUNT) = Value(lying_a_count);"
+      "from": "  N(NSlot::LYING_C_COUNT) = lying_c_count;",
+      "to": "  N(NSlot::LYING_C_COUNT) = lying_a_count;"
     },
         {
       "note": "name visible reads wakeup invuln",
@@ -2009,7 +2009,7 @@ export default {
         {
       "note": "the data id reads the entity id",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "  S(SSlot::DATA_ID) = to_string(field_or(_data, u\"id\"));",
+      "from": "  S(SSlot::DATA_ID) = to_string(field_or(data(), u\"id\"));",
       "to": "  S(SSlot::DATA_ID) = id;"
     },
         {
@@ -2405,8 +2405,8 @@ export default {
         {
       "note": "lying a reads lying d on read",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "  lying_a_count = to_number(N(NSlot::LYING_A_COUNT));",
-      "to": "  lying_a_count = to_number(N(NSlot::LYING_D_COUNT));"
+      "from": "  lying_a_count = N(NSlot::LYING_A_COUNT);",
+      "to": "  lying_a_count = N(NSlot::LYING_D_COUNT);"
     },
         {
       "note": "name visible reads wakeup invuln on read",
@@ -3041,26 +3041,26 @@ export default {
         {
       "note": "leave sees the previous frame instead of the current one",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "  if (_state != nullptr) _state->leave(*state_view_, frame);",
-      "to": "  if (_state != nullptr) _state->leave(*state_view_, get_prev_frame());"
+      "from": "  if (_state != nullptr) _state->leave(*this, frame);",
+      "to": "  if (_state != nullptr) _state->leave(*this, get_prev_frame());"
     },
         {
       "note": "set_state never leaves the old state",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "  if (_state != nullptr) _state->leave(*state_view_, frame);",
-      "to": "  if (false) _state->leave(*state_view_, frame);"
+      "from": "  if (_state != nullptr) _state->leave(*this, frame);",
+      "to": "  if (false) _state->leave(*this, frame);"
     },
         {
       "note": "enter sees the current frame instead of the previous one",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "  if (_state != nullptr && _state->enter) _state->enter(*state_view_, get_prev_frame());",
-      "to": "  if (_state != nullptr && _state->enter) _state->enter(*state_view_, frame);"
+      "from": "  if (_state != nullptr && _state->enter) _state->enter(*this, get_prev_frame());",
+      "to": "  if (_state != nullptr && _state->enter) _state->enter(*this, frame);"
     },
         {
       "note": "set_state never enters the new state",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "  if (_state != nullptr && _state->enter) _state->enter(*state_view_, get_prev_frame());",
-      "to": "  if (_state != nullptr && !_state->enter) _state->enter(*state_view_, get_prev_frame());"
+      "from": "  if (_state != nullptr && _state->enter) _state->enter(*this, get_prev_frame());",
+      "to": "  if (_state != nullptr && !_state->enter) _state->enter(*this, get_prev_frame());"
     },
         {
       "note": "reset keeps the active state",
@@ -3075,124 +3075,97 @@ export default {
       "to": "  // `this._states = states` — the registry the entity looks state codes up in.\n  states_ = &state::entity_states();"
     },
         {
-      "note": "the view id is the data id",
-      "file": "native/lfw/entity/entity_view_base.cpp",
-      "from": "const std::u16string& EntityViewBase::id() const { return _e.id; }",
-      "to": "const std::u16string& EntityViewBase::id() const { return _e.origin_data_id(); }"
-    },
-        {
-      "note": "the view position swaps x and y",
-      "file": "native/lfw/entity/entity_view_base.cpp",
-      "from": "  x = _e.position.x;\n  y = _e.position.y;\n  z = _e.position.z;",
-      "to": "  x = _e.position.y;\n  y = _e.position.x;\n  z = _e.position.z;"
-    },
-        {
       "note": "the view velocity x reads z",
-      "file": "native/lfw/entity/entity_state_view.cpp",
-      "from": "double EntityStateView::velocity_x() const { return _e.velocity.x; }",
-      "to": "double EntityStateView::velocity_x() const { return _e.velocity.z; }"
+      "file": "native/lfw/entity/entity.h",
+      "from": "  virtual double velocity_x() const { return velocity.x; }",
+      "to": "  virtual double velocity_x() const { return velocity.z; }"
     },
         {
       "note": "the view velocity y reads x",
-      "file": "native/lfw/entity/entity_view_base.cpp",
-      "from": "double EntityViewBase::velocity_y() const { return _e.velocity.y; }",
-      "to": "double EntityViewBase::velocity_y() const { return _e.velocity.x; }"
+      "file": "native/lfw/entity/entity.h",
+      "from": "  virtual double velocity_y() const { return velocity.y; }",
+      "to": "  virtual double velocity_y() const { return velocity.x; }"
     },
         {
       "note": "the view velocity z reads x",
-      "file": "native/lfw/entity/entity_state_view.cpp",
-      "from": "Value EntityStateView::velocity_z() const { return Value(_e.velocity.z); }",
-      "to": "Value EntityStateView::velocity_z() const { return Value(_e.velocity.x); }"
+      "file": "native/lfw/entity/entity.h",
+      "from": "  virtual double velocity_z() const { return velocity.z; }",
+      "to": "  virtual double velocity_z() const { return velocity.x; }"
     },
         {
       "note": "the view hp reads mp",
-      "file": "native/lfw/entity/entity_view_base.cpp",
-      "from": "Value EntityViewBase::hp() const { return Value(_e.hp()); }",
-      "to": "Value EntityViewBase::hp() const { return Value(_e.mp()); }"
+      "file": "native/lfw/entity/entity.h",
+      "from": "  virtual double hp() const { return _hp; }",
+      "to": "  virtual double hp() const { return _mp; }"
     },
         {
       "note": "the view hp_r reads hp",
-      "file": "native/lfw/entity/entity_view_base.cpp",
-      "from": "Value EntityViewBase::hp_r() const { return Value(_e.hp_r()); }",
-      "to": "Value EntityViewBase::hp_r() const { return Value(_e.hp()); }"
+      "file": "native/lfw/entity/entity.h",
+      "from": "  virtual double hp_r() const { return _hp_r; }",
+      "to": "  virtual double hp_r() const { return _hp; }"
     },
         {
       "note": "the view hp_r setter adds one",
-      "file": "native/lfw/entity/entity_view_base.cpp",
-      "from": "void EntityViewBase::set_hp_r(const Value& v) { _e.set_hp_r(to_number(v)); }",
-      "to": "void EntityViewBase::set_hp_r(const Value& v) { _e.set_hp_r(to_number(v) + 1); }"
+      "file": "native/lfw/entity/entity.cpp",
+      "from": "void Entity::set_hp_r(double v) { _hp_r = round_float(max(0.0, v)); }",
+      "to": "void Entity::set_hp_r(double v) { _hp_r = round_float(max(0.0, v) + 1); }"
     },
         {
       "note": "the view hp_max reads mp_max",
-      "file": "native/lfw/entity/entity_state_view.cpp",
-      "from": "Value EntityStateView::hp_max() const { return Value(_e.hp_max()); }",
-      "to": "Value EntityStateView::hp_max() const { return Value(_e.mp_max()); }"
+      "file": "native/lfw/entity/entity.cpp",
+      "from": "double Entity::hp_max() const {\n  return _hp_max.has_value() ? *_hp_max : num_of(host_->world_dataset(u\"hp_max\"));\n}",
+      "to": "double Entity::hp_max() const {\n  return _mp_max.has_value() ? *_mp_max : num_of(host_->world_dataset(u\"mp_max\"));\n}"
     },
         {
       "note": "the view mp reads hp",
-      "file": "native/lfw/entity/entity_view_base.cpp",
-      "from": "Value EntityViewBase::mp() const { return Value(_e.mp()); }",
-      "to": "Value EntityViewBase::mp() const { return Value(_e.hp()); }"
+      "file": "native/lfw/entity/entity.h",
+      "from": "  virtual double mp() const { return _mp; }",
+      "to": "  virtual double mp() const { return _hp; }"
     },
-        {
-      "note": "the view motionless reads shaking",
-      "file": "native/lfw/entity/entity_state_view.cpp",
-      "from": "Value EntityStateView::motionless() const { return Value(_e.motionless); }",
-      "to": "Value EntityStateView::motionless() const { return Value(_e.shaking); }"
-    },
+
         {
       "note": "the view motionless setter writes shaking",
-      "file": "native/lfw/entity/entity_state_view.cpp",
-      "from": "void EntityStateView::set_motionless(const Value& v) { _e.motionless = to_number(v); }",
-      "to": "void EntityStateView::set_motionless(const Value& v) { _e.shaking = to_number(v); }"
+      "file": "native/lfw/entity/entity.cpp",
+      "from": "Entity& Entity::set_motionless(double v) {\n  motionless = v;\n  return *this;\n}",
+      "to": "Entity& Entity::set_motionless(double v) {\n  shaking = v;\n  return *this;\n}"
     },
-        {
-      "note": "the view shaking reads motionless",
-      "file": "native/lfw/entity/entity_state_view.cpp",
-      "from": "Value EntityStateView::shaking() const { return Value(_e.shaking); }",
-      "to": "Value EntityStateView::shaking() const { return Value(_e.motionless); }"
-    },
+
         {
       "note": "the view state reads variant",
-      "file": "native/lfw/entity/entity_view_base.cpp",
-      "from": "Value EntityViewBase::state() const { return _e.state(); }",
-      "to": "Value EntityViewBase::state() const { return Value(_e.variant); }"
+      "file": "native/lfw/entity/entity.cpp",
+      "from": "Value Entity::state() const { return field_or(frame, u\"state\"); }",
+      "to": "Value Entity::state() const { return Value(variant); }"
     },
         {
       "note": "the view frame_info reads the previous frame",
-      "file": "native/lfw/entity/entity_state_view.cpp",
-      "from": "Value EntityStateView::frame_info() const { return _e.frame; }",
-      "to": "Value EntityStateView::frame_info() const { return _e.get_prev_frame(); }"
+      "file": "native/lfw/entity/entity.h",
+      "from": "  virtual Value frame_info() const { return frame; }",
+      "to": "  virtual Value frame_info() const { return get_prev_frame(); }"
     },
         {
       "note": "the view prev_frame reads the current frame",
-      "file": "native/lfw/entity/entity_state_view.cpp",
-      "from": "Value EntityStateView::prev_frame() const { return _e.get_prev_frame(); }",
-      "to": "Value EntityStateView::prev_frame() const { return _e.frame; }"
+      "file": "native/lfw/entity/entity.h",
+      "from": "  virtual Value get_prev_frame() const { return _prev_frame; }",
+      "to": "  virtual Value get_prev_frame() const { return frame; }"
     },
-        {
-      "note": "the view is_on_ground is inverted",
-      "file": "native/lfw/entity/entity_state_view.cpp",
-      "from": "bool EntityStateView::is_on_ground() const { return _e.is_on_ground; }",
-      "to": "bool EntityStateView::is_on_ground() const { return !_e.is_on_ground; }"
-    },
+
         {
       "note": "the view team is a constant",
-      "file": "native/lfw/entity/entity_view_base.cpp",
-      "from": "Value EntityViewBase::team() const { return Value(_e.team()); }",
-      "to": "Value EntityViewBase::team() const { return Value(std::u16string(u\"x\")); }"
+      "file": "native/lfw/entity/entity.h",
+      "from": "  virtual const std::u16string& team() const { return _team; }",
+      "to": "  virtual const std::u16string& team() const {\n    static const std::u16string k_constant(u\"x\");\n    return k_constant;\n  }"
     },
         {
       "note": "the view data_type reads the data id",
-      "file": "native/lfw/entity/entity_view_base.cpp",
-      "from": "Value EntityViewBase::data_type() const { return field_or(_e.data(), u\"type\"); }",
-      "to": "Value EntityViewBase::data_type() const { return field_or(_e.data(), u\"id\"); }"
+      "file": "native/lfw/entity/entity.cpp",
+      "from": "Value Entity::data_type() const { return field_or(data(), u\"type\"); }",
+      "to": "Value Entity::data_type() const { return field_or(data(), u\"id\"); }"
     },
         {
       "note": "the view jumping_x reads y",
-      "file": "native/lfw/entity/entity_state_view.cpp",
-      "from": "Value EntityStateView::jumping_x() const { return Value(_e.jumping.x); }",
-      "to": "Value EntityStateView::jumping_x() const { return Value(_e.jumping.y); }"
+      "file": "native/lfw/entity/entity.h",
+      "from": "  virtual Value jumping_x() const { return Value(jumping.x); }",
+      "to": "  virtual Value jumping_x() const { return Value(jumping.y); }"
     },
         {
       "note": "the fallback key uses the wrong separator",
@@ -3563,14 +3536,14 @@ export default {
         {
       "note": "set_position never runs the state hook",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "    if (_state != nullptr) _state->on_restrict(*state_view_, r.x, r.y, r.z);",
-      "to": "    (void)state_view_;"
+      "from": "    if (_state != nullptr) _state->on_restrict(*this, r.x, r.y, r.z);",
+      "to": "    (void)r;"
     },
         {
       "note": "set_position feeds the state hook the restricted y twice",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "_state->on_restrict(*state_view_, r.x, r.y, r.z);",
-      "to": "_state->on_restrict(*state_view_, r.x, r.z, r.z);"
+      "from": "_state->on_restrict(*this, r.x, r.y, r.z);",
+      "to": "_state->on_restrict(*this, r.x, r.z, r.z);"
     },
         {
       "note": "set_position swaps the ground segment arguments",
@@ -4468,38 +4441,38 @@ export default {
     },
         {
       "note": "the view's set_position bypasses the restrict chain",
-      "file": "native/lfw/entity/entity_view_base.cpp",
-      "from": "void EntityViewBase::set_position(double x, double y, double z) {\n  _e.set_position(Value(x), Value(y), Value(z));\n}",
-      "to": "void EntityViewBase::set_position(double x, double y, double z) {\n  _e.position.x = x;\n  _e.position.y = y;\n  _e.position.z = z;\n}"
+      "file": "native/lfw/entity/entity.cpp",
+      "from": "  const Vector3 r = host_->world_restrict(*this);",
+      "to": "  const Vector3 r = position;"
     },
         {
       "note": "the view's assign_position writes a single axis",
-      "file": "native/lfw/entity/entity_state_view.cpp",
-      "from": "void EntityStateView::assign_position(double x, double y, double z) {\n  _e.position.x = x;\n  _e.position.y = y;\n  _e.position.z = z;\n}",
-      "to": "void EntityStateView::assign_position(double x, double y, double z) {\n  _e.position.x = x;\n}"
+      "file": "native/lfw/entity/entity.h",
+      "from": "  void assign_position(double x, double y, double z) {\n    position.x = x;\n    position.y = y;\n    position.z = z;\n  }",
+      "to": "  void assign_position(double x, double y, double z) {\n    position.x = x;\n  }"
     },
         {
       "note": "the view's set_frame drops the frame swap",
-      "file": "native/lfw/entity/entity_view_base.cpp",
-      "from": "void EntityViewBase::set_frame(const Value& info) { _e.set_frame(info); }",
-      "to": "void EntityViewBase::set_frame(const Value& info) { (void)info; }"
+      "file": "native/lfw/entity/entity.cpp",
+      "from": "  _prev_frame = frame;\n  _landing_frame = Value(NullTag{});\n  frame = v;",
+      "to": "  _prev_frame = frame;\n  _landing_frame = Value(NullTag{});"
     },
         {
       "note": "the view's enter_frame_by_id never enters",
-      "file": "native/lfw/entity/entity_view_base.cpp",
-      "from": "void EntityViewBase::enter_frame_by_id(const std::u16string& id) {\n  _e.enter_frame_by_id(Value(id));\n}",
-      "to": "void EntityViewBase::enter_frame_by_id(const std::u16string& id) {\n  (void)id;\n}"
+      "file": "native/lfw/entity/entity.cpp",
+      "from": "  Object* nf = as_object(_next_frame_by_id);\n  if (nf != nullptr) nf->set(u\"id\", use_id);\n  return enter_frame(_next_frame_by_id, fallback);",
+      "to": "  Object* nf = as_object(_next_frame_by_id);\n  if (nf != nullptr) nf->set(u\"id\", use_id);\n  return EnterFrameResult::NotFound;"
     },
         {
       "note": "the view's set_velocity drops the write",
-      "file": "native/lfw/entity/entity_view_base.cpp",
-      "from": "void EntityViewBase::set_velocity(const Value& x, const Value& y, const Value& z) {\n  _e.set_velocity(x, y, z);\n}",
-      "to": "void EntityViewBase::set_velocity(const Value& x, const Value& y, const Value& z) {\n  (void)x;\n  (void)y;\n  (void)z;\n}"
+      "file": "native/lfw/entity/entity.cpp",
+      "from": "  if (!nullish(x)) prev_velocity.x = velocity.x = round_float(to_number(x));\n  if (!nullish(y)) prev_velocity.y = velocity.y = round_float(to_number(y));\n  if (!nullish(z)) prev_velocity.z = velocity.z = round_float(to_number(z));",
+      "to": "  (void)x;\n  (void)y;\n  (void)z;"
     },
         {
       "note": "on_restrict drops the z clamp for a restricted y",
       "file": "native/lfw/state/state_base.cpp",
-      "from": "    vx = nan_to_null(clamp_velocity(e.velocity_x()));\n    vz = clamp_velocity(e.velocity_z());",
+      "from": "    vx = nan_to_null(clamp_velocity(e.velocity_x()));\n    vz = nan_to_null(clamp_velocity(e.velocity_z()));",
       "to": "    vx = nan_to_null(clamp_velocity(e.velocity_x()));"
     },
         {
@@ -5568,7 +5541,7 @@ export default {
     {
       note: "update：state.pre_update 不调",
       file: "native/lfw/entity/entity.cpp",
-      from: `  if (_state != nullptr && _state->pre_update) _state->pre_update(*state_view_);
+      from: `  if (_state != nullptr && _state->pre_update) _state->pre_update(*this);
   _from_wait_block = true;
   if (wait > 0) {
     if (!(motionless > 0) && !(shaking > 0) && catcher == nullptr && bearer == nullptr) {`,
@@ -5646,7 +5619,7 @@ export default {
   for (double i = 0; i < sub_steps; ++i) {
     handle_gravity();
     update_velocity(frame);
-    if (i == 0 && _state != nullptr) _state->update(*state_view_);
+    if (i == 0 && _state != nullptr) _state->update(*this);
     update_position();
   }
   _atom_time = tick_atom_time;
@@ -5658,7 +5631,7 @@ export default {
   for (double i = 0; i < sub_steps; ++i) {
     handle_gravity();
     update_velocity(frame);
-    if (i == 0 && _state != nullptr) _state->update(*state_view_);
+    if (i == 0 && _state != nullptr) _state->update(*this);
     update_position();
   }
   _atom_time = tick_atom_time;
@@ -5676,13 +5649,13 @@ export default {
     {
       note: "update：state.update 每个子步都调",
       file: "native/lfw/entity/entity.cpp",
-      from: `    if (i == 0 && _state != nullptr) _state->update(*state_view_);
+      from: `    if (i == 0 && _state != nullptr) _state->update(*this);
     update_position();
   }
   _atom_time = tick_atom_time;
 
   if (motionless > 0) {`,
-      to: `    if (_state != nullptr) _state->update(*state_view_);
+      to: `    if (_state != nullptr) _state->update(*this);
     update_position();
   }
   _atom_time = tick_atom_time;
@@ -5814,7 +5787,7 @@ export default {
   for (double i = 0; i < sub_steps; ++i) {
     handle_gravity();
     update_velocity(frame);
-    if (i == 0 && _state != nullptr) _state->update(*state_view_);
+    if (i == 0 && _state != nullptr) _state->update(*this);
     update_position();
   }
   _atom_time = tick_atom_time;
@@ -5824,7 +5797,7 @@ export default {
   for (double i = 0; i < sub_steps; ++i) {
     handle_gravity();
     update_velocity(frame);
-    if (i == 0 && _state != nullptr) _state->update(*state_view_);
+    if (i == 0 && _state != nullptr) _state->update(*this);
     update_position();
   }
   _atom_time = tick_atom_time;
@@ -5998,7 +5971,7 @@ export default {
       note: "update_landable：离地钩子不调",
       file: "native/lfw/entity/entity.cpp",
       from: `      leave_ground();
-      if (_state != nullptr && _state->on_leave_ground) _state->on_leave_ground(*state_view_);`,
+      if (_state != nullptr && _state->on_leave_ground) _state->on_leave_ground(*this);`,
       to: `      leave_ground();`,
     },
     {
@@ -6092,29 +6065,23 @@ export default {
       from: `    return static_cast<int>(enter_frame(vaction)) >= static_cast<int>(EnterFrameResult::Entered);`,
       to: `    return false;`,
     },
-    {
-      note: "state view：dismiss_fusion 的帧 id 写死",
-      file: "native/lfw/entity/entity_state_view.cpp",
-      from: `  _e.dismiss_fusion(to_string(frame_id));`,
-      to: `  _e.dismiss_fusion(u"0");`,
-    },
+
     {
       note: "view base：dataset 转发到 world_dataset",
-      file: "native/lfw/entity/entity_view_base.cpp",
-      from: `Value EntityViewBase::dataset(const std::u16string& key) const { return _e.dataset(key); }`,
-      to: `Value EntityViewBase::dataset(const std::u16string& key) const { return _e.world_dataset(key); }`,
+      file: "native/lfw/entity/entity.cpp",
+      from: `  if (nullish(v)) v = host_->world_dataset(name);`,
+      to: `  v = host_->world_dataset(name);`,
     },
     {
       note: "state view：world_dataset 转发到 dataset",
-      file: "native/lfw/entity/entity_state_view.cpp",
-      from: `  return _e.world_dataset(key);`,
-      to: `  return _e.dataset(key);`,
+      file: "native/lfw/entity/entity.cpp",
+      from: `Value Entity::world_dataset(const std::u16string& name) const {
+  return host_->world_dataset(name);
+}`,
+      to: `Value Entity::world_dataset(const std::u16string& name) const {
+  return dataset(name);
+}`,
     },
-    {
-      note: "state view：facing 取反",
-      file: "native/lfw/entity/entity_state_view.cpp",
-      from: `Value EntityStateView::facing() const { return Value(_e.facing); }`,
-      to: `Value EntityStateView::facing() const { return Value(-_e.facing); }`,
-    },
+
   ],
 };

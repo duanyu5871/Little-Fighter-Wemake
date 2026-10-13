@@ -6,6 +6,7 @@
 #include "lfw/defines/frame_id.h"
 #include "lfw/defines/state_enum.h"
 #include "lfw/defines/weapon_type.h"
+#include "lfw/entity/entity.h"
 
 namespace lfw {
 namespace state {
@@ -46,46 +47,46 @@ Value next_frame(const Value& id) {
   return Value(std::make_shared<Object>(o));
 }
 
-void csb_on_landing(IStateEntity& e, const Value& velocity) {
+void csb_on_landing(Entity& e, const Value& velocity) {
   (void)velocity;
   const Value landing = e.frame_on_landing();
   if (truthy(landing)) {
     e.enter_frame(landing);
     return;
   }
-  e.enter_frame_by_id(to_string(e.data_indexes_landing_2()));
+  e.enter_frame_by_id(to_string(e.data_indexes_of(u"landing_2")));
 }
 
-Value csb_get_auto_frame(IStateEntity& e) {
+Value csb_get_auto_frame(Entity& e) {
   Value fid;
   if (strict_equals(e.holding_base_type(), Value(static_cast<double>(WeaponEnum::Heavy)))) {
-    fid = e.data_indexes_heavy_obj_walk();
-  } else if (e.is_on_ground()) {
-    fid = e.data_indexes_default();
-  } else if (to_number(e.hp()) > 0) {
-    fid = index_0(e.data_indexes_in_the_skys());
+    fid = e.data_indexes_of(u"heavy_obj_walk");
+  } else if (e.is_on_ground) {
+    fid = e.data_indexes_of(u"default");
+  } else if (e.hp() > 0) {
+    fid = index_0(e.data_indexes_of(u"in_the_skys"));
   }
   if (!truthy(fid)) return Value();
   return index_by(e.data_frames(), to_string(fid));
 }
 
-Value csb_get_sudden_death_frame(IStateEntity& e) {
-  e.set_velocity(Value(2 * to_number(e.facing())), Value(2.0), Value());
-  const Value falling = e.data_indexes_falling();
+Value csb_get_sudden_death_frame(Entity& e) {
+  e.set_velocity(Value(2 * to_number(e.facing)), Value(2.0), Value());
+  const Value falling = e.data_indexes_of(u"falling");
   if (truthy(falling)) return next_frame(index_by(index_by(falling, u"1"), u"1"));
   return Value();
 }
 
-Value csb_get_caught_end_frame(IStateEntity& e) {
+Value csb_get_caught_end_frame(Entity& e) {
   const Value cvx = e.dataset(u"cvx_d");
   const Value cvy = e.dataset(u"cvy_d");
-  e.set_velocity(Value(-1 * to_number(cvx) * to_number(e.facing())), cvy, Value());
-  const Value falling = e.data_indexes_falling();
+  e.set_velocity(Value(-1 * to_number(cvx) * to_number(e.facing)), cvy, Value());
+  const Value falling = e.data_indexes_of(u"falling");
   if (truthy(falling)) return next_frame(index_by(index_by(falling, u"-1"), u"1"));
   return Value();
 }
 
-void csb_on_leave_ground(IStateEntity& e) {
+void csb_on_leave_ground(Entity& e) {
   const Value st = e.state();
   if (!strict_equals(st, Value(static_cast<double>(StateEnum::Running))) &&
       !strict_equals(st, Value(static_cast<double>(StateEnum::Walking))) &&
@@ -109,7 +110,7 @@ CharacterState_Base::CharacterState_Base(Value state) : State_Base(std::move(sta
   on_leave_ground = &csb_on_leave_ground;
 }
 
-void CharacterState_Base::update(IStateEntity& e) {
+void CharacterState_Base::update(Entity& e) {
   State_Base::update(e);
   e.handle_ground_velocity_decay();
 }

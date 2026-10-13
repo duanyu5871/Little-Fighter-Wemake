@@ -10779,3 +10779,125 @@ lfw_run --root dist --zip …\prel --zip …\data --fighter 1 --fighter 4 --stag
 3. `Entity::spawn(opoint, offset_velocity, facing)` 保持非虚（TS 的 `spawn` 本体也是走
    `lfw.factory.create_entity_with_bot`）⇒ 台面经宿主缝观测它；`collision_ball_frozen` 的
    「spawn 失败」分支因此依赖上一个成功 spawn 记下的 opoint（当前 case 满足）。
+
+## 142. 切片 4CF：状态族窄接口退役（`IStateEntity` → `Entity`）
+
+### 142.1 为什么
+
+TS 的状态钩子收的就是实体本身（`this._state?.on_dead?.(this)` / `update(e: Entity)`），端口却把
+实体的读面重新拼了一遍成 `state::IStateEntity`（155 个成员，其中 ~100 条是 `return Value();`
+的占位），再让 `EntityStateView` 把真实体转发上去、让 `EntityViewBase` 给状态/碰撞两条链共用。
+4CE 把碰撞族那套退役之后，这层就是**最后一个「窄接口 + 视图」**。本刀按同一口径清掉：
+**实体面只写一遍，谁要就用 `lfw::Entity`**。
+
+### 142.2 删掉的
+
+| 东西 | 位置 |
+| --- | --- |
+| `IStateEntity`（155 成员） | `state/state_base.h` |
+| `EntityStateView` | `entity/entity_state_view.{h,cpp}`（整文件删除） |
+| `EntityViewBase`（状态/碰撞两视图共用的实体面转发） | `entity/entity_view_base.{h,cpp}`（整文件删除） |
+| `Entity::state_view_` 成员与 `EntityStateView` 前向声明 | `entity/entity.{h,cpp}`（钩子改成把 `*this` 递出去） |
+| 状态层签名与调用点 | `state/*`（41 文件 2479 行）：126 处 `IStateEntity&` → `Entity&`；~180 处调用点按原生口径改（`to_number(e.hp())` → `e.hp()`、`e.facing()` → `e.facing`、`data_indexes_X()` → `data_indexes_of(u"X")`、`e.position(x,y,z)` → 三个字段读、`set_X(Value)` → 原生参/`to_string`） |
+
+### 142.3 收进 `Entity` 的
+
+**新增**（签名与默认体照搬接口）：`velocity_x` / `velocity_z`（原生 `double`）、
+`frame_on_landing` / `frame_behavior` / `data_base` / `data_frames` / `has_data_indexes`、
+`frame_info`、`jumping_x/y/z/t` 与对应写入、`set_bounced` / `set_throwinjury` /
+`set_drop_hurted` / `set_dead_join` / `set_wakeup_invuln` / `set_lying_a|d|c_count`、
+`assign_position`、holding 一族（`has_holding` / `holding_drink` / `holding_set_hp` /
+`holding_set_hp_r` / `holding_set_velocity` / `holding_set_team` / `holding_mt_mark` /
+`holding_mt_range` / `holding_is_weapon`）、`has_catcher` / `catcher_drop_catching` /
+`has_bearer` / `bearer_motionless` / `set_bearer_motionless`、`world_entities` / `world_etc` /
+`world_callbacks_call`、`ground_segment` / `ground_y(segment, x, z)`、`ref_*`
+（`is_fighter_ref` / `is_self_ref` / `is_ally_ref` / `ref_hp` / `ref_position_x` /
+`ref_position_z` / `ref_set_velocity`）、`lfw_new_team`、`ctrl_*`（`ud` / `lr` / `is_bot` /
+`is_end` / `reset_key_list`）、`datas_find` / `datas_find_fighter`，以及
+`apply_opoints(const std::vector<Value>&)` 重载。
+
+**转虚**（台面假实体要覆写）：`find_auto_frame` / `get_sudden_death_frame` /
+`get_caught_end_frame`，以及上面新增的那些（与 4BY/4CE 同款理由）。
+
+### 142.4 仍然是占位的（本刀只搬不改语义）
+
+`frame_on_landing` / `frame_behavior` / `data_base` / `data_frames` / `has_data_indexes`、
+holding 一族、`world_*` / `ref_*` / `ctrl_*` / `datas_find*`、`ground_segment` /
+`ground_y(segment, …)`、`catcher_drop_catching`、`bearer_motionless` / `set_bearer_motionless`
+—— 默认体**逐字照搬**接口（TS 那边是实体字段/世界查询，端口还没接线；台面上由假实体覆写，
+差分背书）。落实它们属于**功能**、不属于本重构 ⇒ 留作下一刀（`状态面占位落实`）。
+
+### 142.5 口径与偏差
+
+1. `velocity_x` / `velocity_z` 由 `Value` 统一成 `double`（4BX 已给 `velocity_x` 定调，
+   `velocity_z` 跟上）。
+2. 与 `Entity` **字段同名**的读面（`facing` / `wait` / `motionless` / `shaking` / `bounced` /
+   `is_on_ground` / `position` / `dead_join` / `dead_gone` / `wakeup_invuln` / `drop_hurted` /
+   `lying_*_count`）在状态层改成**直接用字段**（方法不能与同名字段共存）；写入仍走虚 setter
+   （台面要观测）。
+3. `set_position(double, double, double)` 的调用点改成三参 `Value(...)`（实体面的位置写入本来
+   就是「按轴可选」语义）。
+4. `entity_self()` 消失（钩子拿到的就是实体自己）；`enter_frame_by_id_fallback(id, fb)` 消失
+   （用 `enter_frame_by_id(Value(id), fb)`）。
+5. 钩子里的 `Entity::mutable_self()`（内部 `const_cast`）：`get_gravity()` / `get_auto_frame()`
+   这些读点本身是 `const` 成员，而钩子体会改实体 —— 旧实现经 `state_view_`（非 const 引用）
+   达到同样效果，口径不变。
+6. `lying_a_count` / `lying_d_count` / `lying_c_count`：`double` → **`Value`**。TS 声明成
+   `number`，但状态层是 `js_add(this.lying_a_count, 1)`，`"3" + 1 === "31"` 是能出现的
+   （`character_state_lying` 的用例就故意喂了字符串）。同款 `set_lying_*_count` 改成**原样存**
+   （去 `to_number`），快照的写/读也照 TS 改成直接赋值（TS：`nums[NSlot.LYING_A_COUNT] =
+   this.lying_a_count`）。这是台面翻出来的**真差异**，不是为了让测试变绿而改口径。
+7. `data_id()`：默认体从读私有 `_data` 改成读**虚的** `data()`（TS 里所有调用点都是
+   `this.data.id`）。台面会替换 `data`；不这样改，`CharacterState_Falling` 的弹跳帧缓存会
+   按 `"undefined"` 做键，永远缓存不上。同一处 `Entity::snapshot` 的 `SSlot::DATA_ID` 一并跟上。
+8. `drop_holding` / `transform` / `transfrom_to_another` / `handle_wait_flag` /
+   `handle_ground_velocity_decay` / `update_velocity` / `dismiss_fusion` / `blink_and_gone` /
+   `blink_and_respawn` / `get_prev_frame` / `holding_base_type` / `set_hp_max` / `set_mp_max` /
+   `set_reserve`：**加 `virtual`**（默认体一字未改）。它们在 `IStateEntity` 上本来就是虚的，
+   状态台面的假实体按旧签名覆写；不加虚，这些覆写要么编不过、要么观测不到。
+   `get_prev_frame()` 只是为了让台面能在读点上打日志（行为仍由 `set_prev_frame` 决定）。
+9. `State_Base::on_restrict`：`velocity_z()` 变 `double` 之后丢了「未设置」信号
+   （TS `clamp(undefined)` 返回 `undefined`）。X 分支早已用 `nan_to_null(...)` 还原，Z 分支
+   漏了 —— 本刀补齐（`V1:set_velocity:u:z:u` ↔ `vel=[u:u]` 这条就是它）。
+
+### 142.6 实测与回归
+
+差分台面：本刀动了 17 个状态 subject 的假实体与 9 个变异 spec 的锚点。
+
+| 项 | 结果 |
+| --- | --- |
+| 全量差分 | **254/254**（一次干净重编后跑整套；状态族 17 个 subject 逐行 byte-exact） |
+| include 分层 lint | `check_lfw_cpp_includes.mjs`：**836 clean / 0 failed / 9 warnings**（9 条是既有告警） |
+| 变异锚点 lint | `check_mutation_anchors.mjs`：**9764 ok / 0 bad anchors（0 unrunnable spec）** |
+| defines 覆盖 | `check_defines_coverage.mjs`：**OK**（schemas 11/11、enum 组 52 条对上） |
+| 宿主行为 | `lfw_run --root dist --zip native\build\host-data\prel --frames 300 --every 100` → **`d9b00db799724a2b`**（与 §139/§140/§141 逐位一致）；`… --zip prel --zip data --fighter 1 --fighter 4 --stage 1 --frames 900 --every 300` → **`eeecc812075e8b74`**（warns=1，同既有） |
+
+台面侧的收尾（两把工具、四个坑）：
+
+1. **老对象是这刀最大的噪声源**：`build.ninja` 没有 `deps = msvc`，改头文件不会触发重编
+   ⇒ 链上的旧 `.obj` 会拿着旧 vtable/旧符号去连新库：轻则 `LNK2019`/`LNK1120`
+   （`QEAA…` 非虚 vs `UEAA…` 虚），重则静默跑着**旧 vtable**（`0xC0000005` 或错行）。
+   可靠做法：删 `native/build/msvc-x64/lfw/CMakeFiles/lfw_core.dir/**/*.obj`
+   （**目录要留着**，删掉会 `C1083`）+ `lfw\lfw_core.lib`，再重编；
+   **别忘了 subject/host 自己的 `.obj`**（`bin\lfw_run.exe` 就因为 `set_hp_max`/`set_mp_max`
+   转虚后没重编而 `LNK2019` 过）。
+2. 并发构建会撞上共享 ninja 目录：`opening deps log/build log: Permission denied` /
+   `LNK1104` / `LNK1181` ⇒ `Start-Sleep 45` 重试即可（不是代码问题）。
+3. `host-data` 目录要**重新解包**：`dist\data.zip` 里没有 `data/spark.obj.json5`（那是
+   `prel.zip` 的条目），两个包都要 `Expand-Archive` 到 `native\build\host-data\{prel,data}`；
+   解包残留会让 `lfw_run` 报 `import_as_json not found: data/spark.obj.json5`。
+4. 我这刀的**自伤**：两次用 PowerShell 的 `@{ k = @(@('a','b')) }` 做批量替换，PS 把内层数组
+   摊平 ⇒ `$pair[0]` 索引的是字符串首字符，`.Replace('e','l')` 一次性毁掉 9–11 个状态文件。
+   后来改成 `git show HEAD:<path>` 逐文件还原 + Node 重放变换。**教训：多文件文本替换一律用
+   Node，别用 PowerShell 的哈希表套数组。**
+
+### 142.7 留给下一刀（不是缺口，是待落实的功能）
+
+`Entity` 上这些状态面成员**默认体仍逐字照搬 `IStateEntity` 的占位**（台面覆写、差分背书，
+宿主数据跑不到那些分支）：`frame_on_landing` / `frame_behavior` / `data_base` / `data_frames` /
+`has_data_indexes`、holding 一族、`world_entities` / `world_etc` / `world_callbacks_call`、
+`ground_segment` / `ground_y(segment, x, z)`、`catcher_drop_catching`、`bearer_motionless` /
+`set_bearer_motionless`、`ref_*`、`lfw_new_team`、`ctrl_*`、`datas_find*`。
+落实它们属**功能**（`状态面占位落实`），与本次纯重构分开。
+另外两条「非虚但台面靠别的缝观测」的现状（如需统一：`frame_id()` 读字段、`world_dataset`
+走宿主缝）已在 PROTOCOL §6.9.183 记明。

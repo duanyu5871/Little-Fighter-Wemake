@@ -11,7 +11,7 @@ namespace state {
 class WeaponState_OnGround : public WeaponState_Base {
  public:
   explicit WeaponState_OnGround(Value state);
-  void update(IStateEntity& e) override;
+  void update(Entity& e) override;
 };
 
 class WeaponState_OnHand : public WeaponState_Base {
@@ -22,13 +22,13 @@ class WeaponState_OnHand : public WeaponState_Base {
 class WeaponState_Throwing : public WeaponState_Base {
  public:
   explicit WeaponState_Throwing(Value state);
-  void update(IStateEntity& e) override;
+  void update(Entity& e) override;
 };
 
 class WeaponState_InTheSky : public WeaponState_Base {
  public:
   explicit WeaponState_InTheSky(Value state);
-  void update(IStateEntity& e) override;
+  void update(Entity& e) override;
 };
 
 }

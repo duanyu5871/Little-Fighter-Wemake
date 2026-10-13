@@ -7,20 +7,22 @@
 
 #include "lfw/buff/buff.h"
 #include "lfw/core/value.h"
+#include "lfw/entity/entity.h"
 #include "lfw/state/character_state_teleport.h"
 #include "lfw/utils/container_help/field_or.h"
 
+#include "entity_fixture.h"
 #include "trace_util.h"
 
 namespace {
 
+using lfw::EnterFrameResult;
 using lfw::Value;
 using lfw::buff::Buff;
 using lfw::buff::BuffEnv;
 using lfw::state::CharacterState_Base;
 using lfw::state::CharacterState_Teleport2FarthestAlly;
 using lfw::state::CharacterState_Teleport2NearestEnemy;
-using lfw::state::IStateEntity;
 using trace::parse_value;
 using trace::render_value;
 using trace::split_ws;
@@ -50,45 +52,47 @@ struct Ref {
   double z = 0;
 };
 
-struct FakeEnt : IStateEntity {
+// 切片 4CF：`state::IStateEntity` 退役 ⇒ 台面假实体就是真 `lfw::Entity`（TS 台面同形），
+// 观测点只剩实体面那几条虚方法；位置读面收成了 `Entity::position` 直写字段（TS 台面的
+// `_px/_py/_pz` 换成实体自己的 `position`）。
+struct FakeEnt : lfw::Entity {
   std::u16string _id;
   Value _facing;
-  double _px = 0;
-  double _py = 0;
-  double _pz = 0;
   Value _segment;
   double _gy = 0;
   std::vector<Ref> _refs;
 
-  explicit FakeEnt(std::u16string id) : _id(std::move(id)) {}
+  explicit FakeEnt(std::u16string id) : lfw::Entity(fx::shared_host(), Value()) {
+    this->id = id;
+    _id = std::move(id);
+  }
 
-  void position(double& x, double& y, double& z) const override {
-    x = _px;
-    y = _py;
-    z = _pz;
+  void set_position(const Value& x, const Value& y, const Value& z) override {
+    assign_position(lfw::to_number(x), lfw::to_number(y), lfw::to_number(z));
   }
-  void set_position(double x, double y, double z) override {
-    _px = x;
-    _py = y;
-    _pz = z;
-  }
-  void set_outline_color(const std::u16string& v) override {
+  void set_outline_color(std::u16string v) override {
     g_log.push_back(s_of(_id) + ":outline_color:" + render(Value(v)));
   }
-  void enter_frame_by_id(const std::u16string& id) override {
-    g_log.push_back(s_of(_id) + ":enter_frame_by_id:" + render(Value(id)));
+  EnterFrameResult enter_frame_by_id(const Value& frame_id, bool fallback = false) override {
+    (void)fallback;
+    g_log.push_back(s_of(_id) + ":enter_frame_by_id:" + render(frame_id));
+    return EnterFrameResult::Entered;
   }
-  Value facing() const override { return _facing; }
+  EnterFrameResult enter_frame(const Value& nf, bool fallback = false) override {
+    (void)fallback;
+    g_log.push_back(s_of(_id) + ":enter_frame:" + render(nf));
+    return EnterFrameResult::Entered;
+  }
   Value world_entities() const override {
     auto arr = std::make_shared<lfw::Array>();
     for (const Ref& r : _refs) arr->push_back(Value(r.id));
     return Value(arr);
   }
   const Ref* find_ref(const Value& o) const {
-    const std::u16string* id = std::get_if<std::u16string>(&o);
-    if (id == nullptr) return nullptr;
+    const std::u16string* oid = std::get_if<std::u16string>(&o);
+    if (oid == nullptr) return nullptr;
     for (const Ref& r : _refs) {
-      if (r.id == *id) return &r;
+      if (r.id == *oid) return &r;
     }
     return nullptr;
   }
@@ -97,8 +101,8 @@ struct FakeEnt : IStateEntity {
     return r != nullptr && r->fighter;
   }
   bool is_self_ref(const Value& o) const override {
-    const std::u16string* id = std::get_if<std::u16string>(&o);
-    return id != nullptr && *id == _id;
+    const std::u16string* oid = std::get_if<std::u16string>(&o);
+    return oid != nullptr && *oid == _id;
   }
   bool is_ally_ref(const Value& o) const override {
     const Ref* r = find_ref(o);
@@ -124,16 +128,6 @@ struct FakeEnt : IStateEntity {
     g_log.push_back(s_of(_id) + ":ground_y:" + render(segment) + ":" + num(x) + ":" + num(z));
     return _gy;
   }
-  double velocity_x() const override { return lfw::to_number(Value()); }
-  Value velocity_z() const override { return Value(); }
-  void set_velocity(const Value& x, const Value& y, const Value& z) override {
-    (void)x;
-    (void)y;
-    (void)z;
-  }
-  void enter_frame(const Value& frame) override {
-    g_log.push_back(s_of(_id) + ":enter_frame:" + render(frame));
-  }
 };
 
 std::vector<FakeEnt*> g_ents;
@@ -158,8 +152,9 @@ FakeEnt& ent(const std::u16string& id) {
 
 std::string state_text() {
   const FakeEnt& v = *g_victim;
-  return "id=" + s_of(v._id) + " pos=[" + num(v._px) + ":" + num(v._py) + ":" + num(v._pz) + "]" +
-         " face=" + render(v._facing) + " seg=" + render(v._segment) + " gy=" + num(v._gy);
+  return "id=" + s_of(v._id) + " pos=[" + num(v.position.x) + ":" + num(v.position.y) + ":" +
+         num(v.position.z) + "]" + " face=" + render(v._facing) + " seg=" +
+         render(v._segment) + " gy=" + num(v._gy);
 }
 
 void bind() {
@@ -214,7 +209,11 @@ int main(int argc, char** argv) {
       } else if (sub == "victim") {
         g_victim = &ent(value_text(parse_value(t, i)));
       } else if (sub == "facing") {
-        if (g_victim != nullptr) g_victim->_facing = parse_value(t, i);
+        if (g_victim != nullptr) {
+          g_victim->_facing = parse_value(t, i);
+          // TS 台面的 `facing` 是个裸 getter；实体面上 `facing` 是 `double` 字段 ⇒ 直写。
+          g_victim->facing = lfw::to_number(g_victim->_facing);
+        }
       } else if (sub == "seg") {
         if (g_victim != nullptr) g_victim->_segment = parse_value(t, i);
       } else if (sub == "gy") {
@@ -222,9 +221,9 @@ int main(int argc, char** argv) {
       } else if (sub == "pos") {
         const Value v = parse_value(t, i);
         if (g_victim != nullptr) {
-          g_victim->_px = lfw::to_number(lfw::field_or(v, u"x"));
-          g_victim->_py = lfw::to_number(lfw::field_or(v, u"y"));
-          g_victim->_pz = lfw::to_number(lfw::field_or(v, u"z"));
+          g_victim->position.x = lfw::to_number(lfw::field_or(v, u"x"));
+          g_victim->position.y = lfw::to_number(lfw::field_or(v, u"y"));
+          g_victim->position.z = lfw::to_number(lfw::field_or(v, u"z"));
         }
       } else if (sub == "ent") {
         const Value v = parse_value(t, i);

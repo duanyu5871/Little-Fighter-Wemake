@@ -9,6 +9,7 @@
 #include "lfw/cases.h"
 #include "lfw/core/value.h"
 #include "lfw/entity/drink_info.h"
+#include "lfw/entity/entity.h"
 #include "lfw/state/character_state_drink.h"
 #include "lfw/state/state_burning.h"
 #include "lfw/utils/container_help/field_or.h"
@@ -19,13 +20,13 @@
 namespace {
 
 using lfw::Array;
+using lfw::EnterFrameResult;
 using lfw::Object;
 using lfw::Value;
 using lfw::DrinkInfo;
 using lfw::buff::Buff;
 using lfw::buff::BuffEnv;
 using lfw::state::CharacterState_Drink;
-using lfw::state::IStateEntity;
 using lfw::state::State_Base;
 using lfw::state::State_Burning;
 using trace::parse_value;
@@ -49,25 +50,33 @@ std::string join(const std::vector<std::string>& xs) {
   return out;
 }
 
-struct FakeEnt : IStateEntity {
+// 切片 4CF：`state::IStateEntity` 退役 ⇒ 台面假实体就是真 `lfw::Entity`，只覆写实体面的虚成员。
+// 端口把 `this.world.dataset.X` 这条读面收在宿主上（`Entity::world_dataset` → `host_->world_dataset`）
+// ⇒ 台面要观测它（TS 台面用 Proxy 打日志）就得自带一个会打日志的最小宿主。
+struct FakeEnt;
+
+struct FakeHost : lfw::IEntityHost {
+  FakeEnt* owner = nullptr;
+  Value world_dataset(const std::u16string& key) const override;
+};
+
+struct FakeEnt : FakeHost, lfw::Entity {
   std::u16string _id;
-  Value _data;
+  Value _data_raw;
   Value _indexes;
   Value _frames;
+  // `Entity::data()` 返回 `const Value&` ⇒ `{..._data, indexes, frames}` 的合并镜像是成员。
+  mutable Value _data;
   Value _onlanding;
   Value _wdata;
   Value _state;
   Value _hbtype;
   bool _catcher = false;
-  bool _on_ground = false;
   double _hp = 50;
   double _hpr = 0;
   Value _hp_max = Value(50.0);
   Value _mp = Value(0.0);
   Value _mp_max = Value(0.0);
-  double _px = 0;
-  double _py = 0;
-  double _pz = 0;
   Value _vx;
   Value _vy;
   Value _vz;
@@ -79,51 +88,71 @@ struct FakeEnt : IStateEntity {
   std::shared_ptr<DrinkInfo> _drink;
   Value _mtrange;
 
-  explicit FakeEnt(std::u16string id) : _id(std::move(id)) {}
+  explicit FakeEnt(std::u16string id) : FakeHost(), lfw::Entity(*this, Value()) {
+    owner = this;
+    this->id = id;
+    _id = std::move(id);
+  }
 
-  Value data() const override { return _data; }
+  const Value& data() const override { return _data; }
+  // TS：`{...this._data, indexes: this._indexes, frames: this._frames}`
+  void sync_data() {
+    Object o;
+    if (const Object* src = lfw::as_object(_data_raw)) {
+      for (const std::u16string& k : src->keys()) {
+        const Value* v = src->get(k);
+        if (v != nullptr) o.set(k, *v);
+      }
+    }
+    o.set(u"indexes", _indexes);
+    o.set(u"frames", _frames);
+    _data = Value(std::make_shared<Object>(o));
+  }
+
   Value state() const override { return _state; }
-  void position(double& x, double& y, double& z) const override {
-    x = _px;
-    y = _py;
-    z = _pz;
+  void set_position(const Value& x, const Value& y, const Value& z) override {
+    assign_position(lfw::to_number(x), lfw::to_number(y), lfw::to_number(z));
   }
-  void set_position(double x, double y, double z) override {
-    _px = x;
-    _py = y;
-    _pz = z;
-  }
-  void set_outline_color(const std::u16string& v) override {
+  void set_outline_color(std::u16string v) override {
     g_log.push_back(s_of(_id) + ":outline_color:" + render(Value(v)));
   }
-  void enter_frame_by_id(const std::u16string& id) override {
-    g_log.push_back(s_of(_id) + ":enter_frame_by_id:" + render(Value(id)));
+  EnterFrameResult enter_frame_by_id(const Value& frame_id, bool fallback = false) override {
+    (void)fallback;
+    g_log.push_back(s_of(_id) + ":enter_frame_by_id:" + render(frame_id));
+    return EnterFrameResult::Entered;
+  }
+  EnterFrameResult enter_frame(const Value& nf, bool fallback = false) override {
+    (void)fallback;
+    g_log.push_back(s_of(_id) + ":enter_frame:" + render(nf));
+    return EnterFrameResult::Entered;
   }
   double velocity_x() const override { return lfw::to_number(_vx); }
   double velocity_y() const override { return lfw::to_number(_vy); }
-  Value velocity_z() const override { return _vz; }
-  Value hp() const override { return Value(_hp); }
-  void set_hp(const Value& v) override { _hp = lfw::to_number(v); }
-  Value hp_r() const override { return Value(_hpr); }
-  void set_hp_r(const Value& v) override { _hpr = lfw::to_number(v); }
-  Value hp_max() const override { return _hp_max; }
-  Value mp() const override { return _mp; }
-  void set_mp(const Value& v) override { _mp = v; }
-  Value mp_max() const override { return _mp_max; }
-  Value facing() const override { return _facing; }
-  void set_facing(const Value& v) override { _facing = v; }
-  Value bounced() const override { return _bounced; }
-  void set_bounced(const Value& v) override { _bounced = v; }
+  double velocity_z() const override { return lfw::to_number(_vz); }
+  double hp() const override { return _hp; }
+  void set_hp(double v) override { _hp = v; }
+  double hp_r() const override { return _hpr; }
+  void set_hp_r(double v) override { _hpr = v; }
+  double hp_max() const override { return lfw::to_number(_hp_max); }
+  double mp() const override { return lfw::to_number(_mp); }
+  void set_mp(double v) override { _mp = Value(v); }
+  double mp_max() const override { return lfw::to_number(_mp_max); }
+  void set_facing(const Value& v) override {
+    _facing = v;
+    Entity::set_facing(v);
+  }
+  void set_bounced(const Value& v) override {
+    _bounced = v;
+    Entity::set_bounced(v);
+  }
   Value data_frames() const override { return _frames; }
   Value frame_on_landing() const override { return _onlanding; }
-  bool is_on_ground() const override { return _on_ground; }
   bool has_catcher() const override { return _catcher; }
   void catcher_drop_catching() override {
     g_log.push_back(s_of(_id) + ":catcher_drop_catching");
   }
   void drop_holding() override { g_log.push_back(s_of(_id) + ":drop_holding"); }
   bool has_holding() const override { return _has_holding; }
-  Value holding_base_type() const override { return _hbtype; }
   DrinkInfo* holding_drink() const override { return _drink.get(); }
   void holding_set_hp(const Value& v) override { _hold_hp = v; }
   void holding_set_hp_r(const Value& v) override { _hold_hp_r = v; }
@@ -139,68 +168,38 @@ struct FakeEnt : IStateEntity {
     g_mt.mark = mark;
     g_log.push_back(s_of(_id) + ":holding_mt_mark:" + render(Value(mark)));
   }
-  Value world_dataset(const std::u16string& key) const override {
-    g_log.push_back(s_of(_id) + ":world_dataset:" + s_of(key));
-    return lfw::field_or(_wdata, key.c_str());
-  }
   bool has_data_indexes() const override { return lfw::truthy(_indexes); }
-  Value data_indexes_on_ground() const override {
-    return lfw::field_or(_indexes, u"on_ground");
-  }
-  Value data_indexes_throwings() const override {
-    return lfw::field_or(_indexes, u"throwings");
-  }
-  Value data_indexes_in_the_skys() const override {
-    return lfw::field_or(_indexes, u"in_the_skys");
-  }
-  Value data_indexes_default() const override {
-    return lfw::field_or(_indexes, u"default");
-  }
-  Value data_indexes_heavy_obj_walk() const override {
-    return lfw::field_or(_indexes, u"heavy_obj_walk");
-  }
-  Value data_indexes_landing_1() const override {
-    return lfw::field_or(_indexes, u"landing_1");
-  }
-  Value data_indexes_landing_2() const override {
-    return lfw::field_or(_indexes, u"landing_2");
-  }
-  Value data_indexes_bouncing() const override {
-    return lfw::field_or(_indexes, u"bouncing");
-  }
-  Value data_indexes_lying() const override {
-    return lfw::field_or(_indexes, u"lying");
-  }
-  Value data_indexes_falling() const override {
-    return lfw::field_or(_indexes, u"falling");
-  }
   Value dataset(const std::u16string& key) const override {
     g_log.push_back(s_of(_id) + ":dataset:" + s_of(key));
     return Value();
-  }
-  void enter_frame(const Value& frame) override {
-    g_log.push_back(s_of(_id) + ":enter_frame:" + render(frame));
   }
   void set_velocity(const Value& x, const Value& y, const Value& z) override {
     g_log.push_back(s_of(_id) + ":set_velocity:" + render(x) + ":" + render(y) + ":" +
                     render(z));
   }
-  void handle_ground_velocity_decay() override {
+  void handle_ground_velocity_decay(double factor = 1) override {
+    (void)factor;
     g_log.push_back(s_of(_id) + ":handle_ground_velocity_decay");
   }
-  void set_shaking(const Value& v) override {
-    g_log.push_back(s_of(_id) + ":set_shaking:" + render(v));
+  // TS 台面的 `set shaking` / `set motionless` 只打日志（不回写字段）⇒ 这里同形。
+  Entity& set_shaking(double v) override {
+    g_log.push_back(s_of(_id) + ":set_shaking:" + num(v));
+    return *this;
   }
-  void set_motionless(const Value& v) override {
-    g_log.push_back(s_of(_id) + ":set_motionless:" + render(v));
+  Entity& set_motionless(double v) override {
+    g_log.push_back(s_of(_id) + ":set_motionless:" + num(v));
+    return *this;
   }
   void play_sound(const Value& sounds) override {
     g_log.push_back(s_of(_id) + ":play_sound:" + render(sounds));
   }
-  void apply_opoints(const std::vector<Value>& opoints) override {
-    g_log.push_back(s_of(_id) + ":apply_opoints:" + std::to_string(opoints.size()));
-  }
 };
+
+inline Value FakeHost::world_dataset(const std::u16string& key) const {
+  if (owner == nullptr) return Value();
+  g_log.push_back(s_of(owner->_id) + ":world_dataset:" + s_of(key));
+  return lfw::field_or(owner->_wdata, key.c_str());
+}
 
 FakeEnt* g_ent = nullptr;
 Value g_state;
@@ -216,8 +215,8 @@ std::string state_text() {
          render(g_obj != nullptr ? g_obj->state() : Value()) + " bounced=" +
          render(e._bounced) + " facing=" + render(e._facing) + " holding=" +
          (e._has_holding ? "1" : "0") + " hhp=" + render(e._hold_hp) +
-         " hhpr=" + render(e._hold_hp_r) + " drink=" + render(drink) + " pos=[" + num(e._px) +
-         ":" + num(e._py) + ":" + num(e._pz) + "]";
+         " hhpr=" + render(e._hold_hp_r) + " drink=" + render(drink) + " pos=[" +
+         num(e.position.x) + ":" + num(e.position.y) + ":" + num(e.position.z) + "]";
 }
 
 void bind() {
@@ -272,11 +271,14 @@ int main(int argc, char** argv) {
       } else if (sub == "state") {
         g_state = parse_value(t, i);
       } else if (sub == "data") {
-        g_ent->_data = parse_value(t, i);
+        g_ent->_data_raw = parse_value(t, i);
+        g_ent->sync_data();
       } else if (sub == "indexes") {
         g_ent->_indexes = parse_value(t, i);
+        g_ent->sync_data();
       } else if (sub == "frames") {
         g_ent->_frames = parse_value(t, i);
+        g_ent->sync_data();
       } else if (sub == "onlanding") {
         g_ent->_onlanding = parse_value(t, i);
       } else if (sub == "wdata") {
@@ -288,7 +290,8 @@ int main(int argc, char** argv) {
       } else if (sub == "catcher") {
         g_ent->_catcher = lfw::truthy(parse_value(t, i));
       } else if (sub == "onground") {
-        g_ent->_on_ground = lfw::truthy(parse_value(t, i));
+        // TS 台面的 `is_on_ground` 是个裸 getter；实体面上它是 `bool` 字段 ⇒ 直写。
+        g_ent->is_on_ground = lfw::truthy(parse_value(t, i));
       } else if (sub == "hp") {
         g_ent->_hp = trace::to_double(t[i++]);
       } else if (sub == "hpr") {
@@ -301,9 +304,9 @@ int main(int argc, char** argv) {
         g_ent->_mp_max = parse_value(t, i);
       } else if (sub == "pos") {
         const Value v = parse_value(t, i);
-        g_ent->_px = lfw::to_number(lfw::field_or(v, u"x"));
-        g_ent->_py = lfw::to_number(lfw::field_or(v, u"y"));
-        g_ent->_pz = lfw::to_number(lfw::field_or(v, u"z"));
+        g_ent->position.x = lfw::to_number(lfw::field_or(v, u"x"));
+        g_ent->position.y = lfw::to_number(lfw::field_or(v, u"y"));
+        g_ent->position.z = lfw::to_number(lfw::field_or(v, u"z"));
       } else if (sub == "vx") {
         g_ent->_vx = parse_value(t, i);
       } else if (sub == "vy") {
@@ -312,8 +315,11 @@ int main(int argc, char** argv) {
         g_ent->_vz = parse_value(t, i);
       } else if (sub == "facing") {
         g_ent->_facing = parse_value(t, i);
+        // 台面配置直写实体字段（不产生日志，与 TS 台面 `ent._facing = v` 一致）。
+        g_ent->facing = lfw::to_number(g_ent->_facing);
       } else if (sub == "bounced") {
         g_ent->_bounced = parse_value(t, i);
+        g_ent->bounced = lfw::truthy(g_ent->_bounced);
       } else if (sub == "holding") {
         g_ent->_has_holding = lfw::truthy(parse_value(t, i));
       } else if (sub == "holdhp") {

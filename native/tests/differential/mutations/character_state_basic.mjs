@@ -78,7 +78,7 @@ export default {
       note: "the holding adopts the facing as team",
       file: "native/lfw/state/character_state_basic.cpp",
       from: "  e.holding_set_team(e.team());",
-      to: "  e.holding_set_team(e.facing());",
+      to: "  e.holding_set_team(Value(e.facing));",
     },
     {
       note: "the holding keeps its old team",
@@ -95,20 +95,20 @@ export default {
     {
       note: "standing does not decay the ground velocity",
       file: "native/lfw/state/character_state_basic.cpp",
-      from: "void CharacterState_Standing::update(IStateEntity& e) {\n  CharacterState_Base::update(e);",
-      to: "void CharacterState_Standing::update(IStateEntity& e) {",
+      from: "void CharacterState_Standing::update(Entity& e) {\n  CharacterState_Base::update(e);",
+      to: "void CharacterState_Standing::update(Entity& e) {",
     },
     {
       note: "standing ignores a zero hp",
       file: "native/lfw/state/character_state_basic.cpp",
-      from: "  if (to_number(e.hp()) <= 0) {\n    e.enter_frame(e.get_sudden_death_frame());\n    return;\n  }",
-      to: "  if (to_number(e.hp()) < 0) {\n    e.enter_frame(e.get_sudden_death_frame());\n    return;\n  }",
+      from: "  if (e.hp() <= 0) {\n    e.enter_frame(e.get_sudden_death_frame());\n    return;\n  }",
+      to: "  if (e.hp() < 0) {\n    e.enter_frame(e.get_sudden_death_frame());\n    return;\n  }",
     },
     {
       note: "standing treats a positive hp as dead",
       file: "native/lfw/state/character_state_basic.cpp",
-      from: "  if (to_number(e.hp()) <= 0) {\n    e.enter_frame(e.get_sudden_death_frame());\n    return;\n  }",
-      to: "  if (to_number(e.hp()) > 0) {\n    e.enter_frame(e.get_sudden_death_frame());\n    return;\n  }",
+      from: "  if (e.hp() <= 0) {\n    e.enter_frame(e.get_sudden_death_frame());\n    return;\n  }",
+      to: "  if (e.hp() > 0) {\n    e.enter_frame(e.get_sudden_death_frame());\n    return;\n  }",
     },
     {
       note: "standing falls through the sudden death frame",
@@ -149,20 +149,20 @@ export default {
     {
       note: "standing uses the default frame instead of the sky frame",
       file: "native/lfw/state/character_state_basic.cpp",
-      from: "    e.enter_frame_by_id(to_string(index_0(e.data_indexes_in_the_skys())));",
-      to: "    e.enter_frame_by_id(to_string(e.data_indexes_default()));",
+      from: "    e.enter_frame_by_id(to_string(index_0(e.data_indexes_of(u\"in_the_skys\"))));",
+      to: "    e.enter_frame_by_id(to_string(e.data_indexes_of(u\"default\")));",
     },
     {
       note: "standing never enters the sky frame",
       file: "native/lfw/state/character_state_basic.cpp",
-      from: "    e.enter_frame_by_id(to_string(index_0(e.data_indexes_in_the_skys())));\n",
+      from: "    e.enter_frame_by_id(to_string(index_0(e.data_indexes_of(u\"in_the_skys\"))));\n",
       to: "",
     },
     {
       note: "running does not decay the ground velocity",
       file: "native/lfw/state/character_state_basic.cpp",
-      from: "void CharacterState_Running::update(IStateEntity& e) {\n  CharacterState_Base::update(e);",
-      to: "void CharacterState_Running::update(IStateEntity& e) {",
+      from: "void CharacterState_Running::update(Entity& e) {\n  CharacterState_Base::update(e);",
+      to: "void CharacterState_Running::update(Entity& e) {",
     },
     {
       note: "running drags with another divisor",
@@ -227,20 +227,20 @@ export default {
     {
       note: "running ignores a zero hp",
       file: "native/lfw/state/character_state_basic.cpp",
-      from: "  if (to_number(e.hp()) <= 0) e.enter_frame(e.get_sudden_death_frame());",
-      to: "  if (to_number(e.hp()) < 0) e.enter_frame(e.get_sudden_death_frame());",
+      from: "  if (e.hp() <= 0) e.enter_frame(e.get_sudden_death_frame());",
+      to: "  if (e.hp() < 0) e.enter_frame(e.get_sudden_death_frame());",
     },
     {
       note: "running never enters the sudden death frame",
       file: "native/lfw/state/character_state_basic.cpp",
-      from: "  if (to_number(e.hp()) <= 0) e.enter_frame(e.get_sudden_death_frame());\n",
+      from: "  if (e.hp() <= 0) e.enter_frame(e.get_sudden_death_frame());\n",
       to: "",
     },
     {
       note: "running enters an empty sudden death frame",
       file: "native/lfw/state/character_state_basic.cpp",
-      from: "  if (to_number(e.hp()) <= 0) e.enter_frame(e.get_sudden_death_frame());",
-      to: "  if (to_number(e.hp()) <= 0) e.enter_frame(Value());",
+      from: "  if (e.hp() <= 0) e.enter_frame(e.get_sudden_death_frame());",
+      to: "  if (e.hp() <= 0) e.enter_frame(Value());",
     },
     {
       note: "the injured enter hook is not installed",

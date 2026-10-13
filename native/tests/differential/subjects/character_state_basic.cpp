@@ -10,6 +10,7 @@
 #include "lfw/state/character_state_basic.h"
 #include "lfw/utils/container_help/field_or.h"
 
+#include "entity_fixture.h"
 #include "trace_util.h"
 
 namespace {
@@ -21,7 +22,6 @@ using lfw::state::CharacterState_Base;
 using lfw::state::CharacterState_Injured;
 using lfw::state::CharacterState_Running;
 using lfw::state::CharacterState_Standing;
-using lfw::state::IStateEntity;
 using trace::parse_value;
 using trace::render_value;
 using trace::split_ws;
@@ -55,12 +55,22 @@ Value marker_frame() {
   return Value(std::make_shared<lfw::Object>(o));
 }
 
-struct FakeEnt : IStateEntity {
-  std::u16string _id;
+// 切片 4CF：状态族窄接口退役 ⇒ 台面假实体派生真 `lfw::Entity`（`fx::shared_host()`），
+// 只覆写状态层要观测的实体面；`env …` 配置直写后备字段/成员 ⇒ 不产生日志。
+//
+// 台账（4CF 时点）：
+//   * `is_on_ground` / `facing` / `position` 现在是普通数据成员 ⇒ 库直读字段，台面写字段。
+//   * `data_indexes_X()` 没了 ⇒ 覆写 `data()` 给 `{indexes, frames}` 镜像。
+//   * `team()`：端口的 `Entity::team()` 是 `const std::u16string&`（旧接口是 `Value`），
+//     而 TS 台面的 `_team` 可以是数字（`env vteam n 3`）⇒ 数值穿不过 `team()`。库把
+//     `e.team()` 递给 `holding_set_team`（TS: `e.holding.team = e.team`，即把实体自己的
+//     team 写进持有物）；台面在那条虚 setter 里落自己的 `_team` 镜像，逐字复刻 `n3`。
+struct FakeEnt : lfw::Entity {
   Value _state;
   Value _hp;
   Value _facing;
-  Value _holding;
+  Value _holding_base;
+  Value _holding_team;
   Value _dataset;
   Value _indexes;
   Value _frames;
@@ -68,74 +78,45 @@ struct FakeEnt : IStateEntity {
   Value _vx;
   Value _vz;
   Value _team;
-  Value _holding_team;
   Value _ground_y;
   double _px = 0;
   double _py = 0;
   double _pz = 0;
-  bool _on_ground = false;
 
-  explicit FakeEnt(std::u16string id) : _id(std::move(id)) {}
+  explicit FakeEnt(std::u16string eid) : lfw::Entity(fx::shared_host(), Value()) {
+    this->id = std::move(eid);
+  }
 
-  void position(double& x, double& y, double& z) const override {
-    x = _px;
-    y = _py;
-    z = _pz;
+  const Value& data() const override {
+    lfw::Object o;
+    o.set(u"indexes", _indexes);
+    o.set(u"frames", _frames);
+    _data_mirror = Value(std::make_shared<lfw::Object>(o));
+    return _data_mirror;
   }
-  void set_position(double x, double y, double z) override {
-    _px = x;
-    _py = y;
-    _pz = z;
-  }
-  void set_outline_color(const std::u16string& v) override {
-    g_log.push_back(s_of(_id) + ":outline_color:" + render(Value(v)));
-  }
-  void enter_frame_by_id(const std::u16string& id) override {
-    g_log.push_back(s_of(_id) + ":enter_frame_by_id:" + render(Value(id)));
-  }
-  Value state() const override { return _state; }
-  Value hp() const override { return _hp; }
-  Value facing() const override { return _facing; }
-  Value team() const override { return _team; }
-  Value holding_base_type() const override { return lfw::field_or(_holding, u"base_type"); }
-  void holding_set_team(const Value& v) override {
-    _holding_team = v;
-    g_log.push_back(s_of(_id) + ":holding_set_team:" + render(v));
-  }
-  bool is_on_ground() const override { return _on_ground; }
-  double ground_y() const override { return lfw::to_number(_ground_y); }
-  Value get_sudden_death_frame() override {
-    g_log.push_back(s_of(_id) + ":get_sudden_death_frame");
-    return marker_frame();
-  }
-  Value frame_on_landing() const override { return _onlanding; }
-  void enter_frame(const Value& frame) override {
-    g_log.push_back(s_of(_id) + ":enter_frame:" + render(frame));
-  }
-  void drop_holding() override { g_log.push_back(s_of(_id) + ":drop_holding"); }
-  void handle_ground_velocity_decay() override {
-    g_log.push_back(s_of(_id) + ":handle_ground_velocity_decay");
-  }
-  Value data_indexes_default() const override { return lfw::field_or(_indexes, u"default"); }
-  Value data_indexes_landing_2() const override {
-    return lfw::field_or(_indexes, u"landing_2");
-  }
-  Value data_indexes_heavy_obj_walk() const override {
-    return lfw::field_or(_indexes, u"heavy_obj_walk");
-  }
-  Value data_indexes_in_the_skys() const override {
-    return lfw::field_or(_indexes, u"in_the_skys");
-  }
-  Value data_indexes_falling() const override { return lfw::field_or(_indexes, u"falling"); }
   Value data_frames() const override { return _frames; }
+  Value frame_on_landing() const override { return _onlanding; }
+  Value state() const override { return _state; }
+  double hp() const override { return lfw::to_number(_hp); }
+  double ground_y() const override { return lfw::to_number(_ground_y); }
+  Value holding_base_type() const override { return _holding_base; }
+  void holding_set_team(const Value& v) override {
+    (void)v;  // 端口 `team()` 是字符串 ⇒ 用台面自己的 `_team` 镜像（TS 的 `e.team`）。
+    _holding_team = _team;
+    g_log.push_back(s_of(id) + ":holding_set_team:" + render(_team));
+  }
   Value dataset(const std::u16string& key) const override {
-    g_log.push_back(s_of(_id) + ":dataset:" + s_of(key));
+    g_log.push_back(s_of(id) + ":dataset:" + s_of(key));
     return field_by(_dataset, key);
   }
+  Value get_sudden_death_frame() const override {
+    g_log.push_back(s_of(id) + ":get_sudden_death_frame");
+    return marker_frame();
+  }
   double velocity_x() const override { return lfw::to_number(_vx); }
-  Value velocity_z() const override { return _vz; }
+  double velocity_z() const override { return lfw::to_number(_vz); }
   void set_velocity(const Value& x, const Value& y, const Value& z) override {
-    g_log.push_back(s_of(_id) + ":set_velocity:" + render(x) + ":" + render(y) + ":" + render(z));
+    g_log.push_back(s_of(id) + ":set_velocity:" + render(x) + ":" + render(y) + ":" + render(z));
     if (!std::holds_alternative<std::monostate>(x) && !std::holds_alternative<lfw::NullTag>(x)) {
       _vx = x;
     }
@@ -143,6 +124,32 @@ struct FakeEnt : IStateEntity {
       _vz = z;
     }
   }
+  lfw::EnterFrameResult enter_frame(const Value& nf, bool fallback = false) override {
+    (void)fallback;
+    g_log.push_back(s_of(id) + ":enter_frame:" + render(nf));
+    return lfw::EnterFrameResult::NotFound;
+  }
+  lfw::EnterFrameResult enter_frame_by_id(const Value& fid, bool fallback = false) override {
+    (void)fallback;
+    g_log.push_back(s_of(id) + ":enter_frame_by_id:" + render(fid));
+    return lfw::EnterFrameResult::NotFound;
+  }
+  void set_position(const Value& x, const Value& y, const Value& z) override {
+    _px = lfw::to_number(x);
+    _py = lfw::to_number(y);
+    _pz = lfw::to_number(z);
+  }
+  void set_outline_color(std::u16string v) override {
+    g_log.push_back(s_of(id) + ":outline_color:" + render(Value(std::move(v))));
+  }
+  void drop_holding() override { g_log.push_back(s_of(id) + ":drop_holding"); }
+  void handle_ground_velocity_decay(double factor = 1) override {
+    (void)factor;
+    g_log.push_back(s_of(id) + ":handle_ground_velocity_decay");
+  }
+
+ private:
+  mutable Value _data_mirror;
 };
 
 std::vector<FakeEnt*> g_ents;
@@ -154,7 +161,7 @@ CharacterState_Base* g_state_obj = nullptr;
 
 FakeEnt* find_ent(const std::u16string& id) {
   for (size_t i = 0; i < g_ents.size(); ++i) {
-    if (g_ents[i]->_id == id) return g_ents[i];
+    if (g_ents[i]->id == id) return g_ents[i];
   }
   return nullptr;
 }
@@ -171,7 +178,7 @@ std::string state_text() {
   return "state=" + render(v._state) + " hp=" + render(v._hp) +
          " ground=" + render(v._ground_y) + " pos=[" + num(v._px) + ":" + num(v._py) + ":" +
          num(v._pz) + "]" + " vel=[" + render(v._vx) + ":" + render(v._vz) + "]" +
-         " holding=" + render(v.holding_base_type()) + " holding_team=" + render(v._holding_team) +
+         " holding=" + render(v._holding_base) + " holding_team=" + render(v._holding_team) +
          " team=" + render(v._team);
 }
 
@@ -246,19 +253,19 @@ int main(int argc, char** argv) {
       } else if (sub == "vstate") {
         if (g_victim != nullptr) g_victim->_state = parse_value(t, i);
       } else if (sub == "facing") {
-        if (g_victim != nullptr) g_victim->_facing = parse_value(t, i);
+        if (g_victim != nullptr) {
+          g_victim->_facing = parse_value(t, i);
+          g_victim->facing = lfw::to_number(g_victim->_facing);
+        }
       } else if (sub == "vteam") {
         if (g_victim != nullptr) g_victim->_team = parse_value(t, i);
       } else if (sub == "onground") {
-        if (g_victim != nullptr) g_victim->_on_ground = trace::to_double(t[i++]) != 0;
+        if (g_victim != nullptr) g_victim->is_on_ground = trace::to_double(t[i++]) != 0;
       } else if (sub == "ground_y") {
         if (g_victim != nullptr) g_victim->_ground_y = parse_value(t, i);
       } else if (sub == "holding") {
-        const Value v = parse_value(t, i);
         if (g_victim != nullptr) {
-          lfw::Object o;
-          o.set(u"base_type", v);
-          g_victim->_holding = Value(std::make_shared<lfw::Object>(o));
+          g_victim->_holding_base = parse_value(t, i);
           g_victim->_holding_team = Value();
         }
       } else if (sub == "onlanding") {
@@ -275,6 +282,10 @@ int main(int argc, char** argv) {
           g_victim->_px = lfw::to_number(lfw::field_or(v, u"x"));
           g_victim->_py = lfw::to_number(lfw::field_or(v, u"y"));
           g_victim->_pz = lfw::to_number(lfw::field_or(v, u"z"));
+          // `position` 是普通数据成员，库直读（`e.position.y`）。
+          g_victim->position.x = g_victim->_px;
+          g_victim->position.y = g_victim->_py;
+          g_victim->position.z = g_victim->_pz;
         }
       } else if (sub == "velx") {
         if (g_victim != nullptr) g_victim->_vx = parse_value(t, i);

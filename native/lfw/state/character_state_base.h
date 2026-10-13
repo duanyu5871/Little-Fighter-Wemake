@@ -12,7 +12,7 @@ class CharacterState_Base : public State_Base {
  public:
   explicit CharacterState_Base(Value state);
 
-  void update(IStateEntity& e) override;
+  void update(Entity& e) override;
 };
 
 }

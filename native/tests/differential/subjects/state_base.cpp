@@ -18,7 +18,6 @@ namespace {
 using lfw::Value;
 using lfw::buff::Buff;
 using lfw::buff::BuffEnv;
-using lfw::state::IStateEntity;
 using lfw::state::State_Base;
 using lfw::state::StateEnv;
 using trace::parse_value;
@@ -43,19 +42,43 @@ std::string join(const std::vector<std::string>& xs) {
   return out;
 }
 
-struct FakeEnt;
+// 切片 4CF：状态族窄接口（`state::IStateEntity`）退役 ⇒ 台面假实体就是真 `lfw::Entity`：
+// `State_Base::leave` 的 HealSelf 分支直接在收进来的那个实体上 grant buff（老代码为了给
+// `buff` 一个真 `Entity` 才拆出来的 `BuffStub` 随之消失 —— TS 台面的 `world.find_entity`
+// 交回的本来就是同一个假件）。观测面（`buffs_set` / `set_mark` / `dataset` / marks 表）
+// 与孪生 `state_base.ts` 逐字对应。
+struct FakeEnt : lfw::Entity {
+  Value _dataset;
+  // 缺省 `u`（TS 的 `_vx` / `_vz` 初值是 `undefined`）；库读走 `velocity_x()` /
+  // `velocity_z()`（切片 4CF 起收 `double`，`undefined` 只能由 `NaN` 承载）。
+  Value _vx;
+  Value _vz;
 
-// 切片 4BY：`buff` 以 `lfw::Entity` 为准入 ⇒ `entity_self()` 要交出一个真 `Entity`
-// （`State_Base::leave` 的 HealSelf 分支会 grant 一个 `Buff_Healing`，它会在受害者
-// 身上落 `buffs_set` / `set_mark` / `dataset`）。这就是那个实体：同样是台面假件，
-// 只是观测点从窄接口换到实体面。
-struct BuffStub : lfw::Entity {
-  FakeEnt* _owner = nullptr;
-  std::vector<std::pair<std::u16string, std::u16string>> _marks;
+  explicit FakeEnt(std::u16string id) : lfw::Entity(fx::shared_host(), Value()) {
+    this->id = std::move(id);
+  }
 
-  explicit BuffStub(std::u16string id) : Entity(fx::shared_host(), Value()) { this->id = std::move(id); }
-
-  Value dataset(const std::u16string& key) const override;
+  Value dataset(const std::u16string& key) const override {
+    g_log.push_back(s_of(id) + ":dataset:" + s_of(key));
+    return lfw::field_or(_dataset, key.c_str());
+  }
+  void set_velocity(const Value& x, const Value& y, const Value& z) override {
+    g_log.push_back(s_of(id) + ":set_velocity:" + render(x) + ":" + render(y) + ":" + render(z));
+    if (!std::holds_alternative<std::monostate>(x) && !std::holds_alternative<lfw::NullTag>(x)) {
+      _vx = x;
+    }
+    if (!std::holds_alternative<std::monostate>(z) && !std::holds_alternative<lfw::NullTag>(z)) {
+      _vz = z;
+    }
+  }
+  void set_position(const Value& x, const Value& y, const Value& z) override {
+    g_log.push_back(s_of(id) + ":set_position:" + render(x) + ":" + render(y) + ":" + render(z));
+    position.x = lfw::to_number(x);
+    position.y = lfw::to_number(y);
+    position.z = lfw::to_number(z);
+  }
+  double velocity_x() const override { return lfw::to_number(_vx); }
+  double velocity_z() const override { return lfw::to_number(_vz); }
   void buffs_set(const std::u16string& key, Buff* b) override {
     g_log.push_back(s_of(id) + ":buffs_set:" + s_of(key));
     Entity::buffs_set(key, b);
@@ -64,90 +87,16 @@ struct BuffStub : lfw::Entity {
     g_log.push_back(s_of(id) + ":buffs_delete:" + s_of(key));
     Entity::buffs_delete(key);
   }
-  Value marks_get(const std::u16string& key) const override {
-    for (size_t i = 0; i < _marks.size(); ++i) {
-      if (_marks[i].first == key) return Value(std::u16string(_marks[i].second));
-    }
-    return Value();
-  }
   void marks_set(const std::u16string& key, const std::u16string& value) override {
     g_log.push_back(s_of(id) + ":set_mark:" + s_of(key) + ":" + render(Value(value)));
-    for (size_t i = 0; i < _marks.size(); ++i) {
-      if (_marks[i].first == key) {
-        _marks[i].second = value;
-        return;
-      }
-    }
-    _marks.emplace_back(key, value);
+    Entity::marks_set(key, value);
   }
   bool marks_delete(const std::u16string& key) override {
-    for (size_t i = 0; i < _marks.size(); ++i) {
-      if (_marks[i].first != key) continue;
-      _marks.erase(_marks.begin() + static_cast<std::ptrdiff_t>(i));
-      g_log.push_back(s_of(id) + ":del_mark:" + s_of(key));
-      return true;
-    }
-    g_log.push_back(s_of(id) + ":del_mark_miss:" + s_of(key));
-    return false;
+    const bool had = Entity::marks_delete(key);
+    g_log.push_back(s_of(id) + (had ? ":del_mark:" : ":del_mark_miss:") + s_of(key));
+    return had;
   }
 };
-
-struct FakeEnt : IStateEntity {
-  std::u16string _id;
-  Value _dataset;
-  Value _vx;
-  Value _vz;
-  double _px = 0;
-  double _py = 0;
-  double _pz = 0;
-  BuffStub _stub;
-
-  explicit FakeEnt(std::u16string id) : _id(id), _stub(id) { _stub._owner = this; }
-
-  void position(double& x, double& y, double& z) const override {
-    x = _px;
-    y = _py;
-    z = _pz;
-  }
-  void set_position(double x, double y, double z) override {
-    _px = x;
-    _py = y;
-    _pz = z;
-  }
-  void set_outline_color(const std::u16string& v) override {
-    g_log.push_back(s_of(_id) + ":outline_color:" + render(Value(v)));
-  }
-  void enter_frame_by_id(const std::u16string& id) override {
-    g_log.push_back(s_of(_id) + ":enter_frame_by_id:" + render(Value(id)));
-  }
-  double velocity_x() const override { return lfw::to_number(_vx); }
-  Value velocity_z() const override { return _vz; }
-  void set_velocity(const Value& x, const Value& y, const Value& z) override {
-    g_log.push_back(s_of(_id) + ":set_velocity:" + render(x) + ":" + render(y) + ":" + render(z));
-    if (!std::holds_alternative<std::monostate>(x) && !std::holds_alternative<lfw::NullTag>(x)) {
-      _vx = x;
-    }
-    if (!std::holds_alternative<std::monostate>(z) && !std::holds_alternative<lfw::NullTag>(z)) {
-      _vz = z;
-    }
-  }
-  Value dataset(const std::u16string& key) const override {
-    g_log.push_back(s_of(_id) + ":dataset:" + s_of(key));
-    const lfw::Object* o = lfw::as_object(_dataset);
-    if (o == nullptr) return Value();
-    const Value* p = o->get(key);
-    return p != nullptr ? *p : Value();
-  }
-  lfw::Entity* entity_self() override { return &_stub; }
-};
-
-Value BuffStub::dataset(const std::u16string& key) const {
-  g_log.push_back(s_of(id) + ":dataset:" + s_of(key));
-  const lfw::Object* o = _owner == nullptr ? nullptr : lfw::as_object(_owner->_dataset);
-  if (o == nullptr) return Value();
-  const Value* p = o->get(key);
-  return p != nullptr ? *p : Value();
-}
 
 std::vector<FakeEnt*> g_ents;
 FakeEnt* g_victim = nullptr;
@@ -156,7 +105,7 @@ State_Base* g_state_obj = nullptr;
 
 FakeEnt* find_ent(const std::u16string& id) {
   for (size_t i = 0; i < g_ents.size(); ++i) {
-    if (g_ents[i]->_id == id) return g_ents[i];
+    if (g_ents[i]->id == id) return g_ents[i];
   }
   return nullptr;
 }
@@ -175,17 +124,19 @@ std::string state_text() {
   }
   std::string marks = "[";
   if (g_victim != nullptr) {
-    for (size_t i = 0; i < g_victim->_stub._marks.size(); ++i) {
-      if (i) marks += ",";
-      marks += s_of(g_victim->_stub._marks[i].first) + "=" +
-               render(Value(g_victim->_stub._marks[i].second));
+    bool first = true;
+    for (const auto& kv : g_victim->marks) {
+      if (!first) marks += ",";
+      first = false;
+      marks += s_of(kv.first) + "=" + render(Value(kv.second));
     }
   }
   marks += "]";
   const std::string pos =
       g_victim == nullptr
           ? std::string("-")
-          : "[" + num(g_victim->_px) + ":" + num(g_victim->_py) + ":" + num(g_victim->_pz) + "]";
+          : "[" + num(g_victim->position.x) + ":" + num(g_victim->position.y) + ":" +
+                num(g_victim->position.z) + "]";
   const std::string vel = g_victim == nullptr
                               ? std::string("-")
                               : "[" + render(g_victim->_vx) + ":" + render(g_victim->_vz) + "]";
@@ -196,7 +147,7 @@ std::string state_text() {
 void bind() {
   g_benv.find_entity = [](const std::u16string& id) -> lfw::Entity* {
     FakeEnt* e = find_ent(id);
-    return e == nullptr ? nullptr : &e->_stub;
+    return e == nullptr ? nullptr : e;
   };
   g_benv.create_entity = [](const Value&) -> lfw::Entity* { return nullptr; };
   g_benv.find_data = [](const std::u16string&) -> Value { return Value(); };
@@ -255,9 +206,9 @@ int main(int argc, char** argv) {
       } else if (sub == "pos") {
         const Value v = parse_value(t, i);
         if (g_victim != nullptr) {
-          g_victim->_px = lfw::to_number(lfw::field_or(v, u"x"));
-          g_victim->_py = lfw::to_number(lfw::field_or(v, u"y"));
-          g_victim->_pz = lfw::to_number(lfw::field_or(v, u"z"));
+          g_victim->position.x = lfw::to_number(lfw::field_or(v, u"x"));
+          g_victim->position.y = lfw::to_number(lfw::field_or(v, u"y"));
+          g_victim->position.z = lfw::to_number(lfw::field_or(v, u"z"));
         }
       } else if (sub == "velx") {
         if (g_victim != nullptr) g_victim->_vx = parse_value(t, i);

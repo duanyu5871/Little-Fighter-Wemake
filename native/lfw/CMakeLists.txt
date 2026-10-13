@@ -95,8 +95,6 @@ add_library(lfw_core STATIC
   entity/find_frame_direction.cpp
   entity/entity_dataset.cpp
   entity/entity.cpp
-  entity/entity_state_view.cpp
-  entity/entity_view_base.cpp
   entity/summary.cpp
   entity/entity_ref.cpp
   entity/summary_mgr.cpp

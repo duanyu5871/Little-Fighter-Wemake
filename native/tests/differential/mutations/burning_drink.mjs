@@ -66,26 +66,26 @@ export default {
     {
       note: "the hp recovery is clamped with max",
       file: "native/lfw/state/character_state_drink.cpp",
-      from: "    e.set_hp(Value(min(to_number(e.hp_max()),",
-      to: "    e.set_hp(Value(max(to_number(e.hp_max()),",
+      from: "    e.set_hp(min(e.hp_max(),",
+      to: "    e.set_hp(max(e.hp_max(),",
     },
     {
       note: "the hp recovery clamps against hp instead of hp_max",
       file: "native/lfw/state/character_state_drink.cpp",
-      from: "    e.set_hp(Value(min(to_number(e.hp_max()),\n                       to_number(e.hp()) + to_number(drink->hp_h_value()))));",
-      to: "    e.set_hp(Value(min(to_number(e.hp()),\n                       to_number(e.hp()) + to_number(drink->hp_h_value()))));",
+      from: "    e.set_hp(min(e.hp_max(),\n                       e.hp() + to_number(drink->hp_h_value())));",
+      to: "    e.set_hp(min(e.hp(),\n                       e.hp() + to_number(drink->hp_h_value())));",
     },
     {
       note: "the hp value is not added",
       file: "native/lfw/state/character_state_drink.cpp",
-      from: "    e.set_hp(Value(min(to_number(e.hp_max()),\n                       to_number(e.hp()) + to_number(drink->hp_h_value()))));",
-      to: "    e.set_hp(Value(min(to_number(e.hp_max()),\n                       to_number(e.hp()))));",
+      from: "    e.set_hp(min(e.hp_max(),\n                       e.hp() + to_number(drink->hp_h_value())));",
+      to: "    e.set_hp(min(e.hp_max(),\n                       e.hp())));",
     },
     {
       note: "the hp value is subtracted",
       file: "native/lfw/state/character_state_drink.cpp",
-      from: "                       to_number(e.hp()) + to_number(drink->hp_h_value()))));",
-      to: "                       to_number(e.hp()) - to_number(drink->hp_h_value()))));",
+      from: "                       e.hp() + to_number(drink->hp_h_value())));",
+      to: "                       e.hp() - to_number(drink->hp_h_value())));",
     },
     {
       note: "the consumed amount is not accumulated",
@@ -108,14 +108,14 @@ export default {
     {
       note: "the hp_r recovery clamps against hp instead of hp_max",
       file: "native/lfw/state/character_state_drink.cpp",
-      from: "    e.set_hp_r(Value(min(to_number(e.hp_max()),\n                         to_number(e.hp_r()) + to_number(drink->hp_r_value()))));",
-      to: "    e.set_hp_r(Value(min(to_number(e.hp()),\n                         to_number(e.hp_r()) + to_number(drink->hp_r_value()))));",
+      from: "    e.set_hp_r(min(e.hp_max(),\n                         e.hp_r() + to_number(drink->hp_r_value())));",
+      to: "    e.set_hp_r(min(e.hp(),\n                         e.hp_r() + to_number(drink->hp_r_value())));",
     },
     {
       note: "the hp_r value is not added",
       file: "native/lfw/state/character_state_drink.cpp",
-      from: "                         to_number(e.hp_r()) + to_number(drink->hp_r_value()))));",
-      to: "                         to_number(e.hp_r()))));",
+      from: "                         e.hp_r() + to_number(drink->hp_r_value())));",
+      to: "                         e.hp_r())));",
     },
     {
       note: "the consumed hp_r is not accumulated",
@@ -138,14 +138,14 @@ export default {
     {
       note: "the mp recovery clamps against hp_max",
       file: "native/lfw/state/character_state_drink.cpp",
-      from: "    e.set_mp(Value(min(to_number(e.mp_max()),",
-      to: "    e.set_mp(Value(min(to_number(e.hp_max()),",
+      from: "    e.set_mp(min(e.mp_max(),",
+      to: "    e.set_mp(min(e.hp_max(),",
     },
     {
       note: "the mp value is not added",
       file: "native/lfw/state/character_state_drink.cpp",
-      from: "                       to_number(e.mp()) + to_number(drink->mp_h_value()))));",
-      to: "                       to_number(e.mp()))));",
+      from: "                       e.mp() + to_number(drink->mp_h_value())));",
+      to: "                       e.mp())));",
     },
     {
       note: "the consumed mp is not accumulated",

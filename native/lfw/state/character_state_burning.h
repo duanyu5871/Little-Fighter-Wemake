@@ -12,8 +12,8 @@ namespace state {
 class CharacterState_Burning : public CharacterState_Base {
  public:
   CharacterState_Burning();
-  void update(IStateEntity& e) override;
-  void leave(IStateEntity& e, const Value& next_frame) override;
+  void update(Entity& e) override;
+  void leave(Entity& e, const Value& next_frame) override;
 };
 
 }

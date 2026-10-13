@@ -7,6 +7,7 @@
 
 #include "lfw/buff/buff.h"
 #include "lfw/core/value.h"
+#include "lfw/entity/entity.h"
 #include "lfw/state/character_state_falling.h"
 #include "lfw/utils/container_help/field_or.h"
 
@@ -15,12 +16,12 @@
 namespace {
 
 using lfw::Array;
+using lfw::EnterFrameResult;
 using lfw::Object;
 using lfw::Value;
 using lfw::buff::Buff;
 using lfw::buff::BuffEnv;
 using lfw::state::CharacterState_Falling;
-using lfw::state::IStateEntity;
 using trace::parse_value;
 using trace::render_value;
 using trace::split_ws;
@@ -54,11 +55,24 @@ std::string fighter_text(const Value& who) {
   return render(Value(std::make_shared<Object>(o)));
 }
 
-struct FakeEnt : IStateEntity {
+// `world.dataset[key]`：TS 侧读的是 `this.world.dataset`（假实体在 Proxy 的 get 上打日志）；
+// 端口侧的缝是 `Entity::world_dataset` → `IEntityHost::world_dataset`（那一条是虚的），
+// 所以这里用本地假宿主把读导向用例的 `dvals` 镜并打同一行日志。
+class FakeHost : public lfw::IEntityHost {
+ public:
+  Value world_dataset(const std::u16string& key) const override;
+};
+
+FakeHost g_host;
+
+// 切片 4CF：`state::IStateEntity` 退役 ⇒ 假实体改成**真 `lfw::Entity`**，只覆写虚成员。
+// 凡是库要读的字段，能走虚读面的（`hp` / `frame_on_landing` / `jumping_*` …）由覆写给镜像，
+// 没有虚读面的（`data_id` / `frame_id` / `facing` / `wait` / `bounced` / `lying_*` …）在
+// 台面配置时**顺带写进真字段**（配置写入本来就不产生日志，与 TS 侧直写 `f._x` 同款）。
+//
+// `data()` 返回 `const Value&` ⇒ 镜像必须是成员，配置改动后由 `rebuild_data()` 重搭。
+struct FakeEnt : lfw::Entity {
   std::u16string _id;
-  double _px = 0;
-  double _py = 0;
-  double _pz = 0;
   Value _dataid;
   Value _frameid;
   Value _onlanding;
@@ -69,13 +83,8 @@ struct FakeEnt : IStateEntity {
   Value _shaking;
   Value _wait;
   Value _hp;
-  Value _facing;
-  Value _vx;
-  double _vy = 0;
-  Value _vz;
   Value _bounced;
   bool _catcher = false;
-  Value _fuse;
   Value _fall;
   Value _fallmax;
   Value _defend;
@@ -85,84 +94,110 @@ struct FakeEnt : IStateEntity {
   Value _finj;
   Value _tinj;
   Value _dvals;
-  Value _state;
+  Value _data;
+  // `fuse_bys` / `fuse_bys_of` 读的是实体面那份 `std::vector<Entity*>` ⇒ 台面造真实体喂它。
+  std::vector<std::unique_ptr<Entity>> _fuse_owned;
+  std::vector<Entity*> _fuse;
 
-  explicit FakeEnt(std::u16string id) : _id(std::move(id)) {}
+  explicit FakeEnt(std::u16string id) : lfw::Entity(g_host, Value()), _id(std::move(id)) {
+    this->id = _id;
+    rebuild_data();
+    rebuild_frame();
+  }
 
-  void position(double& x, double& y, double& z) const override {
-    x = _px;
-    y = _py;
-    z = _pz;
+  void rebuild_data() {
+    Object indexes;
+    indexes.set(u"bouncing", _idxbounce);
+    indexes.set(u"falling", _idxfalling);
+    indexes.set(u"critical_hit", _idxcritical);
+    indexes.set(u"lying", _idxlying);
+    Object d;
+    d.set(u"id", _dataid);
+    d.set(u"indexes", Value(std::make_shared<Object>(indexes)));
+    _data = Value(std::make_shared<Object>(d));
   }
-  void set_position(double x, double y, double z) override {
-    _px = x;
-    _py = y;
-    _pz = z;
+  const Value& data() const override { return _data; }
+
+  // `frame` 是普通数据成员，`frame_id()` 与 `find_direction(e.frame, …)` 都读它。
+  void rebuild_frame() {
+    Object f;
+    f.set(u"id", _frameid);
+    f.set(u"on_landing", _onlanding);
+    frame = Value(std::make_shared<Object>(f));
   }
-  void set_outline_color(const std::u16string& v) override {
+
+  // 状态面那几条（`data_id` / `drop_holding` / `dismiss_fusion` / `handle_ground_velocity_decay`）
+  // 现在都是虚的：`data_id` 用库里的新实现（读虚 `data()` ⇒ 拿上面的镜像即可），其余三条覆写。
+  void drop_holding() override { g_log.push_back(s_of(_id) + ":drop_holding"); }
+  void dismiss_fusion(const std::u16string& frame_id) override {
+    g_log.push_back(s_of(_id) + ":dismiss_fusion:" + render(Value(frame_id)));
+  }
+  void handle_ground_velocity_decay(double factor) override {
+    g_log.push_back(s_of(_id) + ":handle_ground_velocity_decay:" + num(factor));
+  }
+
+  void set_outline_color(std::u16string v) override {
     g_log.push_back(s_of(_id) + ":outline_color:" + render(Value(v)));
   }
-  void enter_frame_by_id(const std::u16string& id) override {
-    g_log.push_back(s_of(_id) + ":enter_frame_by_id:" + render(Value(id)));
+  EnterFrameResult enter_frame(const Value& nf, bool fallback = false) override {
+    (void)fallback;
+    g_log.push_back(s_of(_id) + ":enter_frame:" + render(nf));
+    return EnterFrameResult::Entered;
   }
-  double velocity_x() const override { return lfw::to_number(_vx); }
-  Value velocity_z() const override { return _vz; }
-  double velocity_y() const override { return _vy; }
-  Value hp() const override { return _hp; }
-  Value facing() const override { return _facing; }
-  Value wait() const override { return _wait; }
-  Value shaking() const override { return _shaking; }
-  Value bounced() const override { return _bounced; }
-  void set_bounced(const Value& v) override { _bounced = v; }
-  Value fall_value() const override { return _fall; }
-  void set_fall_value(const Value& v) override { _fall = v; }
-  Value fall_value_max() const override { return _fallmax; }
-  Value defend_value_max() const override { return _defendmax; }
-  void set_defend_value(const Value& v) override { _defend = v; }
-  Value resting_max() const override { return _restmax; }
-  void set_resting(const Value& v) override { _rest = v; }
+  EnterFrameResult enter_frame_by_id(const Value& fid, bool fallback = false) override {
+    (void)fallback;
+    g_log.push_back(s_of(_id) + ":enter_frame_by_id:" + render(fid));
+    return EnterFrameResult::Entered;
+  }
+  double velocity_y() const override { return velocity.y; }
+  double hp() const override { return lfw::to_number(_hp); }
+  void set_bounced(const Value& v) override {
+    _bounced = v;
+    bounced = lfw::truthy(v);
+  }
+  double fall_value() const override { return lfw::to_number(_fall); }
+  void set_fall_value(double v) override { _fall = Value(v); }
+  double fall_value_max() const override { return lfw::to_number(_fallmax); }
+  double defend_value() const override { return lfw::to_number(_defend); }
+  double defend_value_max() const override { return lfw::to_number(_defendmax); }
+  void set_defend_value(double v) override { _defend = Value(v); }
+  double resting() const override { return lfw::to_number(_rest); }
+  void set_resting(double v) override { _rest = Value(v); }
   void set_fallinjury(const Value& v) override { _finj = v; }
-  void set_throwinjury(const Value& v) override { _tinj = v; }
-  Value data_id() const override { return _dataid; }
-  Value frame_id() const override { return _frameid; }
+  void set_throwinjury(const Value& v) override { _tinj = Value(lfw::to_number(v)); }
+  Value frame_on_landing() const override { return _onlanding; }
   Value frame_info() const override {
     Object o;
     o.set(u"id", _frameid);
     return Value(std::make_shared<Object>(o));
   }
-  Value frame_on_landing() const override { return _onlanding; }
-  Value data_indexes_bouncing() const override { return _idxbounce; }
-  Value data_indexes_falling() const override { return _idxfalling; }
-  Value data_indexes_critical_hit() const override { return _idxcritical; }
-  Value data_indexes_lying() const override { return _idxlying; }
   void ctrl_reset_key_list() override { g_log.push_back(s_of(_id) + ":ctrl_reset_key_list"); }
   bool has_catcher() const override { return _catcher; }
   void catcher_drop_catching() override {
     g_log.push_back(s_of(_id) + ":catcher_drop_catching");
   }
-  void drop_holding() override { g_log.push_back(s_of(_id) + ":drop_holding"); }
   void leave_ground() override { g_log.push_back(s_of(_id) + ":leave_ground"); }
-  void dismiss_fusion(const Value& frame_id) override {
-    g_log.push_back(s_of(_id) + ":dismiss_fusion:" + render(frame_id));
+  void set_fuse(const Value& v) {
+    _fuse.clear();
+    _fuse_owned.clear();
+    const Array* arr = as_array(v);
+    if (arr == nullptr) {
+      has_fuse_bys = false;
+      return;
+    }
+    for (size_t i = 0; i < arr->size(); ++i) {
+      auto e = std::make_unique<Entity>(g_host, Value());
+      e->id = lfw::to_string(arr->at(i));
+      _fuse_owned.push_back(std::move(e));
+    }
+    for (const auto& e : _fuse_owned) _fuse.push_back(e.get());
+    fuse_bys = _fuse;
+    has_fuse_bys = !_fuse.empty();
   }
-  Value fuse_bys() const override { return _fuse; }
   void ref_set_velocity(const Value& who, const Value& x, const Value& y,
                         const Value& z) override {
     g_log.push_back(s_of(_id) + ":ref_set_velocity:" + fighter_text(who) + ":" + render(x) +
                     ":" + render(y) + ":" + render(z));
-  }
-  void handle_ground_velocity_decay() override {
-    g_log.push_back(s_of(_id) + ":handle_ground_velocity_decay:" + num(1.0));
-  }
-  void handle_ground_velocity_decay(double factor) override {
-    g_log.push_back(s_of(_id) + ":handle_ground_velocity_decay:" + num(factor));
-  }
-  Value world_dataset(const std::u16string& key) const override {
-    g_log.push_back(s_of(_id) + ":world_dataset:" + s_of(key));
-    return lfw::field_or(_dvals, key.c_str());
-  }
-  void enter_frame(const Value& frame) override {
-    g_log.push_back(s_of(_id) + ":enter_frame:" + render(frame));
   }
   void set_velocity(const Value& x, const Value& y, const Value& z) override {
     g_log.push_back(s_of(_id) + ":set_velocity:" + render(x) + ":" + render(y) + ":" +
@@ -175,15 +210,22 @@ Value g_state;
 Value g_velocity;
 CharacterState_Falling* g_obj = nullptr;
 
+Value FakeHost::world_dataset(const std::u16string& key) const {
+  // `Entity` 的构造函数会读一次 `world.dataset.atom_time`（那时台面还没有实体）⇒ 直接给空。
+  if (g_ent == nullptr) return Value();
+  g_log.push_back(s_of(g_ent->_id) + ":world_dataset:" + s_of(key));
+  return lfw::field_or(g_ent->_dvals, key.c_str());
+}
+
 std::string state_text() {
   const FakeEnt& e = *g_ent;
-  return "pos=[" + num(e._px) + "," + num(e._py) + "," + num(e._pz) + "] vel=[" +
-         render(e._vx) + "," + num(e._vy) + "," + render(e._vz) + "] dataid=" +
-         render(e._dataid) + " frameid=" + render(e._frameid) + " hp=" + render(e._hp) +
-         " facing=" + render(e._facing) + " bounced=" + render(e._bounced) + " fall=" +
-         render(e._fall) + "/" + render(e._fallmax) + " defend=" + render(e._defend) + "/" +
-         render(e._defendmax) + " rest=" + render(e._rest) + "/" + render(e._restmax) +
-         " finj=" + render(e._finj) + " tinj=" + render(e._tinj);
+  return "pos=[" + num(e.position.x) + "," + num(e.position.y) + "," + num(e.position.z) +
+         "] vel=[" + num(e.velocity.x) + "," + num(e.velocity.y) + "," + num(e.velocity.z) +
+         "] dataid=" + render(e._dataid) + " frameid=" + render(e._frameid) + " hp=" +
+         render(e._hp) + " facing=" + num(e.facing) + " bounced=" + render(e._bounced) +
+         " fall=" + render(e._fall) + "/" + render(e._fallmax) + " defend=" +
+         render(e._defend) + "/" + render(e._defendmax) + " rest=" + render(e._rest) + "/" +
+         render(e._restmax) + " finj=" + render(e._finj) + " tinj=" + render(e._tinj);
 }
 
 void bind() {
@@ -231,43 +273,53 @@ int main(int argc, char** argv) {
         g_state = parse_value(t, i);
       } else if (sub == "pos") {
         const Value v = parse_value(t, i);
-        g_ent->_px = lfw::to_number(lfw::field_or(v, u"x"));
-        g_ent->_py = lfw::to_number(lfw::field_or(v, u"y"));
-        g_ent->_pz = lfw::to_number(lfw::field_or(v, u"z"));
+        g_ent->position.set(lfw::to_number(lfw::field_or(v, u"x")),
+                            lfw::to_number(lfw::field_or(v, u"y")),
+                            lfw::to_number(lfw::field_or(v, u"z")));
       } else if (sub == "dataid") {
         g_ent->_dataid = parse_value(t, i);
+        g_ent->rebuild_data();
       } else if (sub == "frameid") {
         g_ent->_frameid = parse_value(t, i);
+        g_ent->rebuild_frame();
       } else if (sub == "onlanding") {
         g_ent->_onlanding = parse_value(t, i);
+        g_ent->rebuild_frame();
       } else if (sub == "idxbounce") {
         g_ent->_idxbounce = parse_value(t, i);
+        g_ent->rebuild_data();
       } else if (sub == "idxfalling") {
         g_ent->_idxfalling = parse_value(t, i);
+        g_ent->rebuild_data();
       } else if (sub == "idxcritical") {
         g_ent->_idxcritical = parse_value(t, i);
+        g_ent->rebuild_data();
       } else if (sub == "idxlying") {
         g_ent->_idxlying = parse_value(t, i);
+        g_ent->rebuild_data();
       } else if (sub == "shaking") {
         g_ent->_shaking = parse_value(t, i);
+        g_ent->shaking = lfw::to_number(g_ent->_shaking);
       } else if (sub == "wait") {
         g_ent->_wait = parse_value(t, i);
+        g_ent->wait = lfw::to_number(g_ent->_wait);
       } else if (sub == "hp") {
         g_ent->_hp = parse_value(t, i);
       } else if (sub == "facing") {
-        g_ent->_facing = parse_value(t, i);
+        g_ent->facing = lfw::to_number(parse_value(t, i));
       } else if (sub == "vx") {
-        g_ent->_vx = parse_value(t, i);
+        g_ent->velocity.x = lfw::to_number(parse_value(t, i));
       } else if (sub == "vy") {
-        g_ent->_vy = trace::to_double(t[i++]);
+        g_ent->velocity.y = trace::to_double(t[i++]);
       } else if (sub == "vz") {
-        g_ent->_vz = parse_value(t, i);
+        g_ent->velocity.z = lfw::to_number(parse_value(t, i));
       } else if (sub == "bounced") {
         g_ent->_bounced = parse_value(t, i);
+        g_ent->bounced = lfw::truthy(g_ent->_bounced);
       } else if (sub == "catcher") {
         g_ent->_catcher = lfw::truthy(parse_value(t, i));
       } else if (sub == "fuse") {
-        g_ent->_fuse = parse_value(t, i);
+        g_ent->set_fuse(parse_value(t, i));
       } else if (sub == "fall") {
         g_ent->_fall = parse_value(t, i);
       } else if (sub == "fallmax") {
@@ -280,6 +332,7 @@ int main(int argc, char** argv) {
         g_ent->_rest = parse_value(t, i);
       } else if (sub == "restmax") {
         g_ent->_restmax = parse_value(t, i);
+        g_ent->set_resting_max(lfw::to_number(g_ent->_restmax));
       } else if (sub == "finj") {
         g_ent->_finj = parse_value(t, i);
       } else if (sub == "tinj") {

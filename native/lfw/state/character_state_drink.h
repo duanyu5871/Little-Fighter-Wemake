@@ -12,7 +12,7 @@ namespace state {
 class CharacterState_Drink : public CharacterState_Base {
  public:
   explicit CharacterState_Drink(Value state = Value(static_cast<double>(StateEnum::Drink)));
-  void update(IStateEntity& e) override;
+  void update(Entity& e) override;
 };
 
 }

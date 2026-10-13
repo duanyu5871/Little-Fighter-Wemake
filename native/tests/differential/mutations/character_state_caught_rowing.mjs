@@ -30,19 +30,19 @@ export default {
     {
       note: "caught does not reset the fall value",
       file: "native/lfw/state/character_state_caught_rowing.cpp",
-      from: "  e.set_fall_value(e.fall_value_max());",
-      to: "  e.set_fall_value(Value());",
+      from: "  e.set_fall_value(to_number(e.fall_value_max()));",
+      to: "  e.set_fall_value(to_number(Value()));",
     },
     {
       note: "caught never writes the fall value",
       file: "native/lfw/state/character_state_caught_rowing.cpp",
-      from: "  e.set_fall_value(e.fall_value_max());\n",
+      from: "  e.set_fall_value(to_number(e.fall_value_max()));\n",
       to: "",
     },
     {
       note: "caught reads the current fall value as the cap",
       file: "native/lfw/state/character_state_caught_rowing.cpp",
-      from: "  e.set_fall_value(e.fall_value_max());",
+      from: "  e.set_fall_value(to_number(e.fall_value_max()));",
       to: "  e.set_fall_value(e.fall_value());",
     },
     {
@@ -102,14 +102,14 @@ export default {
     {
       note: "caught update enters with a non zero velocity",
       file: "native/lfw/state/character_state_caught_rowing.cpp",
-      from: "void CharacterState_Caught::update(IStateEntity& e) {\n  e.set_velocity(Value(0.0), Value(0.0), Value(0.0));\n}",
-      to: "void CharacterState_Caught::update(IStateEntity& e) {\n  e.set_velocity(Value(0.0), Value(1.0), Value(0.0));\n}",
+      from: "void CharacterState_Caught::update(Entity& e) {\n  e.set_velocity(Value(0.0), Value(0.0), Value(0.0));\n}",
+      to: "void CharacterState_Caught::update(Entity& e) {\n  e.set_velocity(Value(0.0), Value(1.0), Value(0.0));\n}",
     },
     {
       note: "caught update does nothing",
       file: "native/lfw/state/character_state_caught_rowing.cpp",
-      from: "void CharacterState_Caught::update(IStateEntity& e) {\n  e.set_velocity(Value(0.0), Value(0.0), Value(0.0));\n}",
-      to: "void CharacterState_Caught::update(IStateEntity& e) {\n  (void)e;\n}",
+      from: "void CharacterState_Caught::update(Entity& e) {\n  e.set_velocity(Value(0.0), Value(0.0), Value(0.0));\n}",
+      to: "void CharacterState_Caught::update(Entity& e) {\n  (void)e;\n}",
     },
     {
       note: "rowing landing ignores the frame on_landing",
@@ -126,13 +126,13 @@ export default {
     {
       note: "rowing landing falls back to the default frame",
       file: "native/lfw/state/character_state_caught_rowing.cpp",
-      from: "  e.enter_frame_by_id(to_string(e.data_indexes_landing_1()));",
-      to: "  e.enter_frame_by_id(to_string(e.data_indexes_default()));",
+      from: "  e.enter_frame_by_id(to_string(e.data_indexes_of(u\"landing_1\")));",
+      to: "  e.enter_frame_by_id(to_string(e.data_indexes_of(u\"default\")));",
     },
     {
       note: "rowing landing never enters a frame",
       file: "native/lfw/state/character_state_caught_rowing.cpp",
-      from: "  e.enter_frame_by_id(to_string(e.data_indexes_landing_1()));\n",
+      from: "  e.enter_frame_by_id(to_string(e.data_indexes_of(u\"landing_1\")));\n",
       to: "",
     },
     {

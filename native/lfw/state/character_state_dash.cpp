@@ -1,16 +1,17 @@
 #include "lfw/state/character_state_dash.h"
 
 #include "lfw/utils/container_help/field_or.h"
+#include "lfw/entity/entity.h"
 
 namespace lfw {
 namespace state {
 namespace {
 
-void csd_enter(IStateEntity& e, const Value& prev_frame) {
+void csd_enter(Entity& e, const Value& prev_frame) {
   double px = 0;
   double py = 0;
   double pz = 0;
-  e.position(px, py, pz);
+  px = e.position.x; py = e.position.y; pz = e.position.z;
   if (py > e.ground_y() && e.velocity_y() != 0) return;
   const double vx = e.velocity_x();
   const Value vz = e.velocity_z();
@@ -30,7 +31,7 @@ void csd_enter(IStateEntity& e, const Value& prev_frame) {
   if (truthy(Value(ud))) next_vz = Value(ud * dz);
   if (strict_equals(lfw::field_or(prev_frame, u"state"),
                     Value(static_cast<double>(StateEnum::Running)))) {
-    next_vx = Value(to_number(e.facing()) * dx);
+    next_vx = Value(to_number(e.facing) * dx);
   } else if (truthy(Value(lr))) {
     next_vx = Value(lr * dx);
   } else if (vx > 0) {
@@ -38,7 +39,7 @@ void csd_enter(IStateEntity& e, const Value& prev_frame) {
   } else if (vx < 0) {
     next_vx = Value(-dx);
   } else {
-    next_vx = Value(to_number(e.facing()) * dx);
+    next_vx = Value(to_number(e.facing) * dx);
   }
   e.set_velocity(next_vx, Value(vy), next_vz);
 }

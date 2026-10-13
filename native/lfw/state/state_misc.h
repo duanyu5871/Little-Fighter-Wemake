@@ -18,7 +18,7 @@ class State_TransformToCatching : public State_Base {
  public:
   explicit State_TransformToCatching(
       Value state = Value(static_cast<double>(StateEnum::TransformToCatching_End)));
-  void update(IStateEntity& e) override;
+  void update(Entity& e) override;
 };
 
 class CharacterState_TransformToLouisEX : public State_Base {
@@ -30,7 +30,7 @@ class CharacterState_TransformToLouisEX : public State_Base {
 class State_TransformTo8XXX : public State_Base {
  public:
   using State_Base::State_Base;
-  void leave(IStateEntity& e, const Value& next_frame) override;
+  void leave(Entity& e, const Value& next_frame) override;
 };
 
 class BallState_Base : public State_Base {

@@ -2,6 +2,7 @@
 
 #include "lfw/utils/container_help/field_or.h"
 #include "lfw/utils/math/base.h"
+#include "lfw/entity/entity.h"
 
 namespace lfw {
 namespace state {
@@ -22,28 +23,28 @@ Value index_by(const Value& holder, const std::u16string& k) {
   return Value();
 }
 
-void csb_on_landing(IStateEntity& e, const Value& velocity) {
+void csb_on_landing(Entity& e, const Value& velocity) {
   const Value landing = e.frame_on_landing();
   if (truthy(landing)) {
     e.enter_frame(landing);
     return;
   }
-  if (!truthy(e.bounced())) {
+  if (!truthy(e.bounced)) {
     const Value vy = lfw::field_or(velocity, u"y");
     if (to_number(vy) <= to_number(e.world_dataset(u"cha_bc_tst_spd_y")) ||
         abs(to_number(lfw::field_or(velocity, u"x"))) >
             to_number(e.world_dataset(u"cha_bc_tst_spd_x"))) {
       e.enter_frame_by_id(
-          to_string(index_by(index_by(e.data_indexes_bouncing(), u"-1"), u"1")));
+          to_string(index_by(index_by(e.data_indexes_of(u"bouncing"), u"-1"), u"1")));
       e.set_velocity(Value(NullTag{}), e.world_dataset(u"cha_bc_spd"), Value());
       e.set_bounced(Value(true));
       return;
     }
   }
-  e.enter_frame_by_id(to_string(index_by(e.data_indexes_lying(), u"-1")));
+  e.enter_frame_by_id(to_string(index_by(e.data_indexes_of(u"lying"), u"-1")));
 }
 
-void csb_enter_body(IStateEntity& e) {
+void csb_enter_body(Entity& e) {
   e.set_bounced(Value(false));
   if (e.has_catcher()) e.catcher_drop_catching();
 }
@@ -52,7 +53,7 @@ void csb_enter_body(IStateEntity& e) {
 
 CharacterState_Burning::CharacterState_Burning() : CharacterState_Base(Value(static_cast<double>(
                                                            StateEnum::Burning))) {
-  enter = [this](IStateEntity& e, const Value& prev_frame) {
+  enter = [this](Entity& e, const Value& prev_frame) {
     (void)prev_frame;
     this->CharacterState_Base::update(e);
     csb_enter_body(e);
@@ -60,13 +61,13 @@ CharacterState_Burning::CharacterState_Burning() : CharacterState_Base(Value(sta
   on_landing = &csb_on_landing;
 }
 
-void CharacterState_Burning::update(IStateEntity& e) {
+void CharacterState_Burning::update(Entity& e) {
   CharacterState_Base::update(e);
   const double vx = e.velocity_x();
   if (truthy(Value(vx))) e.set_facing(Value(vx > 0 ? -1.0 : 1.0));
 }
 
-void CharacterState_Burning::leave(IStateEntity& e, const Value& next_frame) {
+void CharacterState_Burning::leave(Entity& e, const Value& next_frame) {
   CharacterState_Base::leave(e, next_frame);
   e.set_bounced(Value(false));
 }

@@ -16,7 +16,7 @@
  * 4. When `falling` is present but lacks the requested key, the TS original throws
  *    (`falling["1"]` is `undefined`, then `undefined[1]` is a TypeError); the port
  *    returns an empty frame instead. The case always supplies both keys.
- * 5. `e.enter_frame_by_id(to_string(e.data_indexes_landing_2()))` hands `""` to
+ * 5. `e.enter_frame_by_id(to_string(e.data_indexes_of(u"landing_2")))` hands `""` to
  *    `enter_frame_by_id` where the TS original hands `undefined`; the case always
  *    supplies `landing_2`.
  * 6. The `on_landing` velocity parameter is unused by the TS original.
@@ -73,13 +73,13 @@ export default {
     {
       note: "landing falls back to the default frame",
       file: "native/lfw/state/character_state_base.cpp",
-      from: "  e.enter_frame_by_id(to_string(e.data_indexes_landing_2()));",
-      to: "  e.enter_frame_by_id(to_string(e.data_indexes_default()));",
+      from: "  e.enter_frame_by_id(to_string(e.data_indexes_of(u\"landing_2\")));",
+      to: "  e.enter_frame_by_id(to_string(e.data_indexes_of(u\"default\")));",
     },
     {
       note: "landing never enters a frame",
       file: "native/lfw/state/character_state_base.cpp",
-      from: "  e.enter_frame_by_id(to_string(e.data_indexes_landing_2()));\n",
+      from: "  e.enter_frame_by_id(to_string(e.data_indexes_of(u\"landing_2\")));\n",
       to: "",
     },
     {
@@ -91,8 +91,8 @@ export default {
     {
       note: "the heavy walk frame is read from another index",
       file: "native/lfw/state/character_state_base.cpp",
-      from: "    fid = e.data_indexes_heavy_obj_walk();",
-      to: "    fid = e.data_indexes_default();",
+      from: "    fid = e.data_indexes_of(u\"heavy_obj_walk\");",
+      to: "    fid = e.data_indexes_of(u\"default\");",
     },
     {
       note: "the holding test is loose",
@@ -103,38 +103,38 @@ export default {
     {
       note: "being on the ground is not checked",
       file: "native/lfw/state/character_state_base.cpp",
-      from: "  } else if (e.is_on_ground()) {",
-      to: "  } else if (!e.is_on_ground()) {",
+      from: "  } else if (e.is_on_ground) {",
+      to: "  } else if (!e.is_on_ground) {",
     },
     {
       note: "a dying entity still uses the sky frame",
       file: "native/lfw/state/character_state_base.cpp",
-      from: "  } else if (to_number(e.hp()) > 0) {",
-      to: "  } else if (to_number(e.hp()) >= 0) {",
+      from: "  } else if (e.hp() > 0) {",
+      to: "  } else if (e.hp() >= 0) {",
     },
     {
       note: "a dying airborne entity yields nothing",
       file: "native/lfw/state/character_state_base.cpp",
-      from: "  } else if (to_number(e.hp()) > 0) {\n    fid = index_0(e.data_indexes_in_the_skys());\n  }",
+      from: "  } else if (e.hp() > 0) {\n    fid = index_0(e.data_indexes_of(u\"in_the_skys\"));\n  }",
       to: "  }",
     },
     {
       note: "the sky frame is not indexed",
       file: "native/lfw/state/character_state_base.cpp",
-      from: "    fid = index_0(e.data_indexes_in_the_skys());",
-      to: "    fid = e.data_indexes_default();",
+      from: "    fid = index_0(e.data_indexes_of(u\"in_the_skys\"));",
+      to: "    fid = e.data_indexes_of(u\"default\");",
     },
     {
       note: "the frame is looked up with the default id",
       file: "native/lfw/state/character_state_base.cpp",
       from: "  return index_by(e.data_frames(), to_string(fid));",
-      to: "  return index_by(e.data_frames(), to_string(e.data_indexes_default()));",
+      to: "  return index_by(e.data_frames(), to_string(e.data_indexes_of(u\"default\")));",
     },
     {
       note: "the frame map is replaced by an index",
       file: "native/lfw/state/character_state_base.cpp",
       from: "  return index_by(e.data_frames(), to_string(fid));",
-      to: "  return index_by(e.data_indexes_default(), to_string(fid));",
+      to: "  return index_by(e.data_indexes_of(u\"default\"), to_string(fid));",
     },
     {
       note: "a false frame id still yields a frame",
@@ -145,14 +145,14 @@ export default {
     {
       note: "the sudden death velocity uses another factor",
       file: "native/lfw/state/character_state_base.cpp",
-      from: "  e.set_velocity(Value(2 * to_number(e.facing())), Value(2.0), Value());",
-      to: "  e.set_velocity(Value(3 * to_number(e.facing())), Value(2.0), Value());",
+      from: "  e.set_velocity(Value(2 * to_number(e.facing)), Value(2.0), Value());",
+      to: "  e.set_velocity(Value(3 * to_number(e.facing)), Value(2.0), Value());",
     },
     {
       note: "the sudden death y velocity is another value",
       file: "native/lfw/state/character_state_base.cpp",
-      from: "  e.set_velocity(Value(2 * to_number(e.facing())), Value(2.0), Value());",
-      to: "  e.set_velocity(Value(2 * to_number(e.facing())), Value(3.0), Value());",
+      from: "  e.set_velocity(Value(2 * to_number(e.facing)), Value(2.0), Value());",
+      to: "  e.set_velocity(Value(2 * to_number(e.facing)), Value(3.0), Value());",
     },
     {
       note: "the sudden death frame is read from the up facing",
@@ -169,8 +169,8 @@ export default {
     {
       note: "the sudden death frame ignores the falling list",
       file: "native/lfw/state/character_state_base.cpp",
-      from: "  const Value falling = e.data_indexes_falling();\n  if (truthy(falling)) return next_frame(index_by(index_by(falling, u\"1\"), u\"1\"));",
-      to: "  const Value falling = e.data_indexes_falling();\n  return next_frame(index_by(index_by(falling, u\"1\"), u\"1\"));",
+      from: "  const Value falling = e.data_indexes_of(u\"falling\");\n  if (truthy(falling)) return next_frame(index_by(index_by(falling, u\"1\"), u\"1\"));",
+      to: "  const Value falling = e.data_indexes_of(u\"falling\");\n  return next_frame(index_by(index_by(falling, u\"1\"), u\"1\"));",
     },
     {
       note: "a missing falling list still yields a frame",
@@ -187,8 +187,8 @@ export default {
     {
       note: "the caught end x velocity uses another factor",
       file: "native/lfw/state/character_state_base.cpp",
-      from: "  e.set_velocity(Value(-1 * to_number(cvx) * to_number(e.facing())), cvy, Value());",
-      to: "  e.set_velocity(Value(1 * to_number(cvx) * to_number(e.facing())), cvy, Value());",
+      from: "  e.set_velocity(Value(-1 * to_number(cvx) * to_number(e.facing)), cvy, Value());",
+      to: "  e.set_velocity(Value(1 * to_number(cvx) * to_number(e.facing)), cvy, Value());",
     },
     {
       note: "the caught end y velocity takes the x dataset",
@@ -205,8 +205,8 @@ export default {
     {
       note: "the caught end velocity arguments are swapped",
       file: "native/lfw/state/character_state_base.cpp",
-      from: "  e.set_velocity(Value(-1 * to_number(cvx) * to_number(e.facing())), cvy, Value());",
-      to: "  e.set_velocity(Value(-1 * to_number(cvx) * to_number(e.facing())), Value(), cvy);",
+      from: "  e.set_velocity(Value(-1 * to_number(cvx) * to_number(e.facing)), cvy, Value());",
+      to: "  e.set_velocity(Value(-1 * to_number(cvx) * to_number(e.facing)), Value(), cvy);",
     },
     {
       note: "the caught end frame is read from the down facing",
@@ -223,8 +223,8 @@ export default {
     {
       note: "the caught end frame ignores the falling list",
       file: "native/lfw/state/character_state_base.cpp",
-      from: "  const Value falling = e.data_indexes_falling();\n  if (truthy(falling)) return next_frame(index_by(index_by(falling, u\"-1\"), u\"1\"));",
-      to: "  const Value falling = e.data_indexes_falling();\n  return next_frame(index_by(index_by(falling, u\"-1\"), u\"1\"));",
+      from: "  const Value falling = e.data_indexes_of(u\"falling\");\n  if (truthy(falling)) return next_frame(index_by(index_by(falling, u\"-1\"), u\"1\"));",
+      to: "  const Value falling = e.data_indexes_of(u\"falling\");\n  return next_frame(index_by(index_by(falling, u\"-1\"), u\"1\"));",
     },
     {
       note: "the caught end frame is never produced",

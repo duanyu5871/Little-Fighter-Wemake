@@ -252,108 +252,103 @@ HookConfig g_hooks;
 
 std::string fid(const Value& frame) { return render(lfw::field_or(frame, u"id")); }
 
-std::string pos_of(lfw::state::IStateEntity& e) {
-  double x = 0;
-  double y = 0;
-  double z = 0;
-  e.position(x, y, z);
-  return render(Value(x)) + "/" + render(Value(y)) + "/" + render(Value(z));
+std::string pos_of(const Entity& e) {
+  return render(Value(e.position.x)) + "/" + render(Value(e.position.y)) + "/" +
+         render(Value(e.position.z));
 }
 
-// 切片 4BY：`IStateEntity` 不再带实体面（`id` / `set_frame` …）——台面发到钩子上的
-// 就是实体自己的视图，`entity_self()` 回到 `Entity`（这台面里必非空）。
-lfw::Entity& self_of(lfw::state::IStateEntity& e) { return *e.entity_self(); }
-
+// 切片 4CF：`state::IStateEntity` 退役 —— 台面发到钩子上的就是实体自己（`lfw::Entity&`），
+// 原来那层视图（`entity_self()` / `position(x,y,z)` / `frame_info()`）没有了，直接读实体的
+// 公开面（`id` / `position` / `frame`）。
 struct HarnessState : lfw::state::State_Base {
   explicit HarnessState(Value key) : State_Base(std::move(key)) {
-    enter = [this](lfw::state::IStateEntity& e, const Value& prev) {
-      g_log.push_back(render(state()) + ">enter:" + s_of(self_of(e).id) + ":" + fid(e.frame_info()) +
-                      ":" + fid(prev) + ":hp=" + render(e.hp()) +
-                      ":hmax=" + render(e.hp_max()) + ":mp=" + render(e.mp()) +
-                      ":ml=" + render(e.motionless()) + ":sh=" + render(e.shaking()) +
-                      ":st=" + render(e.state()) + ":og=" + render(Value(e.is_on_ground())) +
-                      ":team=" + render(e.team()) + ":dt=" + render(e.data_type()) +
-                      ":jx=" + render(e.jumping_x()) + ":vx=" + render(e.velocity_x()) +
-                      ":vy=" + render(Value(e.velocity_y())) + ":vz=" + render(e.velocity_z()) +
-                      ":pos=" + pos_of(e) + ":pf=" + fid(e.prev_frame()));
+    enter = [this](Entity& e, const Value& prev) {
+      g_log.push_back(render(state()) + ">enter:" + s_of(e.id) + ":" + fid(e.frame) +
+                      ":" + fid(prev) + ":hp=" + render(Value(e.hp())) +
+                      ":hmax=" + render(Value(e.hp_max())) + ":mp=" + render(Value(e.mp())) +
+                      ":ml=" + render(Value(e.motionless)) + ":sh=" + render(Value(e.shaking)) +
+                      ":st=" + render(e.state()) + ":og=" + render(Value(e.is_on_ground)) +
+                      ":team=" + render(Value(e.team())) + ":dt=" + render(e.data_type()) +
+                      ":jx=" + render(e.jumping_x()) + ":vx=" + render(Value(e.velocity_x())) +
+                      ":vy=" + render(Value(e.velocity_y())) + ":vz=" + render(Value(e.velocity_z())) +
+                      ":pos=" + pos_of(e) + ":pf=" + fid(e.get_prev_frame()));
       // The state touches the entity on entry so the setters stay observable.
-      e.set_motionless(e.motionless());
+      e.set_motionless(e.motionless);
       e.set_hp_r(e.hp_r());
       if (!g_hooks.view_busy) {
         g_hooks.view_busy = true;
-        if (g_hooks.view_position) e.set_position(1, 2, 3);
+        if (g_hooks.view_position) e.set_position(Value(1.0), Value(2.0), Value(3.0));
         if (g_hooks.view_frame) {
           // a *different* frame object, so the swap is visible (TS `set_frame` reads
           // `v.id`, so passing `undefined` would throw there)
-          Value f = e.frame_info();
-          const lfw::Object* src = lfw::as_object(f);
+          const lfw::Object* src = lfw::as_object(e.frame);
           lfw::Object copy = src != nullptr ? *src : lfw::Object();
           copy.set(u"id", Value(std::u16string(u"w2")));
-          self_of(e).set_frame(Value(std::make_shared<lfw::Object>(copy)));
+          e.set_frame(Value(std::make_shared<lfw::Object>(copy)));
         }
-        if (g_hooks.view_enter) e.enter_frame_by_id(u"auto");
+        if (g_hooks.view_enter) e.enter_frame_by_id(Value(std::u16string(u"auto")));
         if (g_hooks.view_data) {
           g_log.push_back("state_view_dataset:" + render(e.dataset(u"probe_key")) +
                           ":world=" + render(e.world_dataset(u"probe_key")));
         }
         if (g_hooks.view_dismiss) {
-          e.dismiss_fusion(Value(std::u16string(u"112")));
-          g_log.push_back("state_view_dismiss:" + fid(e.frame_info()));
+          e.dismiss_fusion(std::u16string(u"112"));
+          g_log.push_back("state_view_dismiss:" + fid(e.frame));
         }
         g_hooks.view_busy = false;
       }
     };
-    on_dead = [](lfw::state::IStateEntity& e) {
+    on_dead = [](Entity& e) {
       if (!g_hooks.dead) return;
-      g_log.push_back("state_on_dead:" + s_of(self_of(e).id) + ":" + render(e.hp_r()));
+      g_log.push_back("state_on_dead:" + s_of(e.id) + ":" + render(Value(e.hp_r())));
     };
-    get_gravity = [](lfw::state::IStateEntity&) -> Value {
+    get_gravity = [](Entity&) -> Value {
       if (!g_hooks.gravity) return Value();
       return g_hooks.gravity_value;
     };
-    find_frame_by_id = [](lfw::state::IStateEntity&, const Value& id) -> Value {
+    find_frame_by_id = [](Entity&, const Value& id) -> Value {
       if (!g_hooks.find) return Value();
       if (g_hooks.find_echo) return id;
       return g_hooks.find_value;
     };
-    get_auto_frame = [](lfw::state::IStateEntity&) -> Value {
+    get_auto_frame = [](Entity&) -> Value {
       if (!g_hooks.auto_frame) return Value();
       return g_hooks.auto_frame_value;
     };
-    get_sudden_death_frame = [](lfw::state::IStateEntity&) -> Value {
+    get_sudden_death_frame = [](Entity&) -> Value {
       if (!g_hooks.sudden) return Value();
       return g_hooks.sudden_value;
     };
-    get_caught_end_frame = [](lfw::state::IStateEntity&) -> Value {
+    get_caught_end_frame = [](Entity&) -> Value {
       if (!g_hooks.caught) return Value();
       return g_hooks.caught_value;
     };
-    pre_update = [](lfw::state::IStateEntity& e) {
+    pre_update = [](Entity& e) {
       if (!g_hooks.pre_update) return;
-      g_log.push_back("state_pre_update:" + s_of(self_of(e).id) + ":" + render(e.hp()));
+      g_log.push_back("state_pre_update:" + s_of(e.id) + ":" + render(Value(e.hp())));
     };
-    on_landing = [](lfw::state::IStateEntity& e, const Value& v) {
+    on_landing = [](Entity& e, const Value& v) {
       if (!g_hooks.landing) return;
-      g_log.push_back("state_on_landing:" + s_of(self_of(e).id) + ":" + render(v));
+      g_log.push_back("state_on_landing:" + s_of(e.id) + ":" + render(v));
     };
-    on_leave_ground = [](lfw::state::IStateEntity& e) {
+    on_leave_ground = [](Entity& e) {
       if (!g_hooks.leave_ground) return;
-      g_log.push_back("state_on_leave_ground:" + s_of(self_of(e).id));
+      g_log.push_back("state_on_leave_ground:" + s_of(e.id));
     };
   }
 
-  void update(lfw::state::IStateEntity& e) override {
+  void update(Entity& e) override {
     if (!g_hooks.state_update) return;
-    g_log.push_back("state_update:" + s_of(self_of(e).id) + ":" + render(e.hp()));
+    g_log.push_back("state_update:" + s_of(e.id) + ":" + render(Value(e.hp())));
   }
 
-  void on_restrict(lfw::state::IStateEntity& e, double x, double y, double z) override {
-    g_log.push_back("state_on_restrict:" + s_of(self_of(e).id) + ":" + render(Value(x)) + ":" +
+  void on_restrict(Entity& e, double x, double y, double z) override {
+    g_log.push_back("state_on_restrict:" + s_of(e.id) + ":" + render(Value(x)) + ":" +
                     render(Value(y)) + ":" + render(Value(z)));
   }
 
-  void leave(lfw::state::IStateEntity& e, const Value& next) override {
-    g_log.push_back(render(state()) + ">leave:" + s_of(self_of(e).id) + ":" + fid(next));
+  void leave(Entity& e, const Value& next) override {
+    g_log.push_back(render(state()) + ">leave:" + s_of(e.id) + ":" + fid(next));
   }
 };
 

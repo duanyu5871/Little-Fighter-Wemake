@@ -135,25 +135,25 @@ export default {
     {
       note: "the shaking is set to one",
       file: "native/lfw/state/state_misc.cpp",
-      from: "  e.set_shaking(Value(0.0));",
-      to: "  e.set_shaking(Value(1.0));",
+      from: "  e.set_shaking(to_number(Value(0.0)));",
+      to: "  e.set_shaking(to_number(Value(1.0)));",
     },
     {
       note: "the shaking is never cleared",
       file: "native/lfw/state/state_misc.cpp",
-      from: "  e.set_shaking(Value(0.0));\n",
+      from: "  e.set_shaking(to_number(Value(0.0)));\n",
       to: "",
     },
     {
       note: "the motionless flag is set to one",
       file: "native/lfw/state/state_misc.cpp",
-      from: "  e.set_motionless(Value(0.0));",
-      to: "  e.set_motionless(Value(1.0));",
+      from: "  e.set_motionless(to_number(Value(0.0)));",
+      to: "  e.set_motionless(to_number(Value(1.0)));",
     },
     {
       note: "the motionless flag is never cleared",
       file: "native/lfw/state/state_misc.cpp",
-      from: "  e.set_motionless(Value(0.0));\n",
+      from: "  e.set_motionless(to_number(Value(0.0)));\n",
       to: "",
     },
     {

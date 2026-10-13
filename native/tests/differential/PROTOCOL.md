@@ -5482,3 +5482,37 @@ harness op：
   `frame_centery()/frame_height()/frame_pic_h()` 与 `attach(Value(on))`；输出逐字不变。
 - 变异锚点：窄接口类型名与 `Value` 包装消失 ⇒ 198 条锚点按新源文重指，3 条指向
   `entity_collision_view.cpp` 的锚点随文件删除（`world_collision.mjs`）。
+
+### 6.9.183 状态族窄接口退役（4CF）对台面的影响（无新 op）
+
+- 状态钩子（`pre_update` / `enter` / `on_dead` / `on_landing` / `get_gravity` /
+  `get_sudden_death_frame` / `get_caught_end_frame` / `get_auto_frame` / `find_frame_by_id` /
+  `on_leave_ground`，以及 `State_Base::update/leave/on_restrict`）现在收 `lfw::Entity&`；
+  台面里的假状态对象（`State_Base` / `CharacterState_*` / `WeaponState_*` 的子类）签名跟着改。
+- 台面假实体不再实现 `state::IStateEntity`，改为派生真 `lfw::Entity`（同 4CE 的口径：
+  `Entity(fx::shared_host(), Value())` 后钉 `id`），`entity_self()` 这个桥没了（钩子里就是实体自己）。
+- 实体面的类型口径（写台面时按这个改）：
+  * 原生 `double`：`hp hp_r mp mp_max hp_max toughness toughness_max fall_value fall_value_max
+    defend_value defend_value_max resting resting_max arest defend_ratio velocity_x velocity_y
+    velocity_z ground_y`；
+  * **字段**（用例配置直写、不产日志）：`facing wait motionless shaking bounced(bool)
+    is_on_ground(bool) position(Vector3) frame(Value) dead_join(Value) dead_gone wakeup_invuln
+    drop_hurted(bool) jumping{x,y,z,t} armor(Value) marks`；
+  * `lying_a_count` / `lying_d_count` / `lying_c_count` 也是字段，但类型是 **`Value`**：TS 声明
+    成 `number`，状态层却是 `js_add(this.lying_a_count, 1)`，`"3" + 1 === "31"`
+    （`character_state_lying` 的用例专门喂了字符串），所以快照与状态层都按 TS 原样直存直取。
+  * 改名：`data_indexes_X()` → `data_indexes_of(u"X")`（非虚，喂 `data()`）、`frame_info()` →
+    `frame`、`prev_frame()` → `get_prev_frame()`、`fuse_bys()` → `fuse_bys_of()`；
+  * 消失：`entity_self()`、`enter_frame_by_id_fallback(id, fb)`（用
+    `enter_frame_by_id(Value(id), fb)`）；
+  * `set_position(double,double,double)` 的调用点改三参 `Value(...)`。
+- 4CF 之后**额外虚化**的一批（默认体一字未改；它们本来就是 `IStateEntity` 的虚函数，台面按旧
+  签名覆写，不虚就编不过/观测不到）：`holding_base_type` / `set_hp_max` / `set_mp_max` /
+  `set_reserve` / `handle_wait_flag` / `handle_ground_velocity_decay` / `update_velocity` /
+  `drop_holding` / `transform` / `transfrom_to_another` / `dismiss_fusion` / `blink_and_gone` /
+  `blink_and_respawn` / `get_prev_frame`（只用于在读点打日志）/ `data_id`。
+  顺带修了 `data_id()`：默认体改读**虚的** `data()`（TS 的调用点都是 `this.data.id`），否则
+  `CharacterState_Falling` 的弹跳帧缓存会按 `"undefined"` 做键永远缓存不上；`snapshot` 的
+  `SSlot::DATA_ID` 一并跟上。
+- 4CE 立的三条台面口径照旧：配置直写后备字段（不产日志）、库内写入落**虚 setter**（日志文本与
+  孪生逐字一致）、「没设过」用 (值, 设过没有) 两件套承载 `u`。

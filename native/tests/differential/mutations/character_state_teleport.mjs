@@ -5,11 +5,11 @@
 // Notes recorded up front (unobservable-by-design items, not silently skipped):
 //  * `(void)prev_frame;` -- the TS `enter(m)` ignores the previous frame; a
 //    mutation dropping the cast is a no-op.
-//  * a mutation of the *second* out parameter of `e.position(mx, my, mz)`
-//    (swapping `my`/`mz`, filling `my` instead of `mx`, ...) is unobservable:
-//    the entity side position reader is silent on both harnesses and only `mx`
-//    is consumed by the distance formula. The `mx` slot itself IS observable,
-//    hence the `e.position(mx, my, mz);` -> `mx = 0;` mutation below.
+//  * a mutation of the *second* own-position component (`e.position.y`, read
+//    into `my`) is unobservable: the entity side position reader is silent on
+//    both harnesses and only `mx` is consumed by the distance formula. The `mx`
+//    slot itself IS observable, hence the `mx = e.position.x;` -> `mx = 0;`
+//    mutation below.
 //  * the deliberate `abs(o.position.z - o.position.z)` bug of the original TS
 //    is reproduced verbatim; the mutations below prove that the case file can
 //    see the second operand (Z1/Z2 scenario).
@@ -132,8 +132,8 @@ export default {
     {
       note: "the own position is never read for the distance",
       file: "native/lfw/state/character_state_teleport.cpp",
-      from: "      e.position(mx, my, mz);",
-      to: "      mx = 0;",
+      from: "      mx = e.position.x; my = e.position.y; mz = e.position.z;",
+      to: "      mx = 0; my = e.position.y; mz = e.position.z;",
     },
     {
       note: "the x term uses the own y",
@@ -252,32 +252,32 @@ export default {
     {
       note: "the x offset loses its rounding",
       file: "native/lfw/state/character_state_teleport.cpp",
-      from: "    x = round(e.ref_position_x(tar) - to_number(e.facing()) * 120);",
-      to: "    x = e.ref_position_x(tar) - to_number(e.facing()) * 120;",
+      from: "    x = round(e.ref_position_x(tar) - to_number(e.facing) * 120);",
+      to: "    x = e.ref_position_x(tar) - to_number(e.facing) * 120;",
     },
     {
       note: "the x offset magnitude is wrong",
       file: "native/lfw/state/character_state_teleport.cpp",
-      from: "    x = round(e.ref_position_x(tar) - to_number(e.facing()) * 120);",
-      to: "    x = round(e.ref_position_x(tar) - to_number(e.facing()) * 100);",
+      from: "    x = round(e.ref_position_x(tar) - to_number(e.facing) * 120);",
+      to: "    x = round(e.ref_position_x(tar) - to_number(e.facing) * 100);",
     },
     {
       note: "the x offset sign is wrong",
       file: "native/lfw/state/character_state_teleport.cpp",
-      from: "    x = round(e.ref_position_x(tar) - to_number(e.facing()) * 120);",
-      to: "    x = round(e.ref_position_x(tar) + to_number(e.facing()) * 120);",
+      from: "    x = round(e.ref_position_x(tar) - to_number(e.facing) * 120);",
+      to: "    x = round(e.ref_position_x(tar) + to_number(e.facing) * 120);",
     },
     {
       note: "the x offset ignores the facing",
       file: "native/lfw/state/character_state_teleport.cpp",
-      from: "    x = round(e.ref_position_x(tar) - to_number(e.facing()) * 120);",
+      from: "    x = round(e.ref_position_x(tar) - to_number(e.facing) * 120);",
       to: "    x = round(e.ref_position_x(tar) - 120);",
     },
     {
       note: "the x offset uses the target z",
       file: "native/lfw/state/character_state_teleport.cpp",
-      from: "    x = round(e.ref_position_x(tar) - to_number(e.facing()) * 120);",
-      to: "    x = round(e.ref_position_z(tar) - to_number(e.facing()) * 120);",
+      from: "    x = round(e.ref_position_x(tar) - to_number(e.facing) * 120);",
+      to: "    x = round(e.ref_position_z(tar) - to_number(e.facing) * 120);",
     },
     {
       note: "the z coordinate loses its rounding",
@@ -295,7 +295,7 @@ export default {
       note: "the z coordinate wrongly gets the x offset",
       file: "native/lfw/state/character_state_teleport.cpp",
       from: "    z = round(e.ref_position_z(tar));",
-      to: "    z = round(e.ref_position_z(tar) - to_number(e.facing()) * 120);",
+      to: "    z = round(e.ref_position_z(tar) - to_number(e.facing) * 120);",
     },
     {
       note: "the ground segment is queried with swapped arguments",
@@ -312,20 +312,20 @@ export default {
     {
       note: "the ground y is ignored",
       file: "native/lfw/state/character_state_teleport.cpp",
-      from: "  e.set_position(x, gy, z);",
-      to: "  e.set_position(x, y, z);",
+      from: "  e.set_position(Value(x), Value(gy), Value(z));",
+      to: "  e.set_position(Value(x), Value(y), Value(z));",
     },
     {
       note: "the teleport z is dropped",
       file: "native/lfw/state/character_state_teleport.cpp",
-      from: "  e.set_position(x, gy, z);",
-      to: "  e.set_position(x, gy, 0);",
+      from: "  e.set_position(Value(x), Value(gy), Value(z));",
+      to: "  e.set_position(Value(x), Value(gy), Value(0));",
     },
     {
       note: "the teleport x is dropped",
       file: "native/lfw/state/character_state_teleport.cpp",
-      from: "  e.set_position(x, gy, z);",
-      to: "  e.set_position(0, gy, z);",
+      from: "  e.set_position(Value(x), Value(gy), Value(z));",
+      to: "  e.set_position(Value(0), Value(gy), Value(z));",
     },
     {
       note: "the nearest class searches for the farthest",

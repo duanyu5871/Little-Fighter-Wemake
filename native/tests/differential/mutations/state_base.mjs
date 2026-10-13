@@ -83,7 +83,7 @@ export default {
     {
       note: "the z axis is ignored",
       file: "native/lfw/state/state_base.cpp",
-      from: "  if (!float_equal(z, pz)) vz = clamp_velocity(e.velocity_z());\n",
+      from: "  if (!float_equal(z, pz)) vz = nan_to_null(clamp_velocity(e.velocity_z()));\n",
       to: "",
     },
     {
@@ -95,8 +95,8 @@ export default {
     {
       note: "a moved z is not detected",
       file: "native/lfw/state/state_base.cpp",
-      from: "  if (!float_equal(z, pz)) vz = clamp_velocity(e.velocity_z());",
-      to: "  if (float_equal(z, pz)) vz = clamp_velocity(e.velocity_z());",
+      from: "  if (!float_equal(z, pz)) vz = nan_to_null(clamp_velocity(e.velocity_z()));",
+      to: "  if (float_equal(z, pz)) vz = nan_to_null(clamp_velocity(e.velocity_z()));",
     },
     {
       note: "the x test uses the z position",
@@ -107,14 +107,14 @@ export default {
     {
       note: "the z test uses the x position",
       file: "native/lfw/state/state_base.cpp",
-      from: "  if (!float_equal(z, pz)) vz = clamp_velocity(e.velocity_z());",
-      to: "  if (!float_equal(z, px)) vz = clamp_velocity(e.velocity_z());",
+      from: "  if (!float_equal(z, pz)) vz = nan_to_null(clamp_velocity(e.velocity_z()));",
+      to: "  if (!float_equal(z, px)) vz = nan_to_null(clamp_velocity(e.velocity_z()));",
     },
     {
       note: "the x velocity is used for the z axis",
       file: "native/lfw/state/state_base.cpp",
-      from: "  if (!float_equal(z, pz)) vz = clamp_velocity(e.velocity_z());",
-      to: "  if (!float_equal(z, pz)) vz = clamp_velocity(e.velocity_x());",
+      from: "  if (!float_equal(z, pz)) vz = nan_to_null(clamp_velocity(e.velocity_z()));",
+      to: "  if (!float_equal(z, pz)) vz = nan_to_null(clamp_velocity(e.velocity_x()));",
     },
     {
       note: "the y test is never taken",
@@ -131,7 +131,7 @@ export default {
     {
       note: "a moved y does not clamp the x axis",
       file: "native/lfw/state/state_base.cpp",
-      from: "  if (!float_equal(y, py)) {\n    vx = nan_to_null(clamp_velocity(e.velocity_x()));\n    vz = clamp_velocity(e.velocity_z());\n  }\n",
+      from: "  if (!float_equal(y, py)) {\n    vx = nan_to_null(clamp_velocity(e.velocity_x()));\n    vz = nan_to_null(clamp_velocity(e.velocity_z()));\n  }\n",
       to: "",
     },
     {
@@ -143,19 +143,19 @@ export default {
     {
       note: "a moved y clamps the z axis from the x velocity",
       file: "native/lfw/state/state_base.cpp",
-      from: "    vz = clamp_velocity(e.velocity_z());\n  }",
-      to: "    vz = clamp_velocity(e.velocity_x());\n  }",
+      from: "    vz = nan_to_null(clamp_velocity(e.velocity_z()));\n  }",
+      to: "    vz = nan_to_null(clamp_velocity(e.velocity_x()));\n  }",
     },
     {
       note: "the position is read into the wrong locals",
       file: "native/lfw/state/state_base.cpp",
-      from: "  e.position(px, py, pz);",
-      to: "  e.position(pz, py, px);",
+      from: "  px = e.position.x; py = e.position.y; pz = e.position.z;",
+      to: "  px = e.position.z; py = e.position.y; pz = e.position.x;",
     },
     {
       note: "the entity position is not read",
       file: "native/lfw/state/state_base.cpp",
-      from: "  e.position(px, py, pz);\n",
+      from: "  px = e.position.x; py = e.position.y; pz = e.position.z;\n",
       to: "",
     },
     {

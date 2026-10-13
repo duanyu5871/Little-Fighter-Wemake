@@ -6,6 +6,7 @@
 #include "lfw/entity/find_frame_direction.h"
 #include "lfw/utils/container_help/field_or.h"
 #include "lfw/utils/math/base.h"
+#include "lfw/entity/entity.h"
 
 namespace lfw {
 namespace state {
@@ -44,29 +45,29 @@ const std::u16string* as_text(const Value& v) {
   return std::get_if<std::u16string>(&v);
 }
 
-void csf_on_landing(IStateEntity& e, const Value& velocity) {
+void csf_on_landing(Entity& e, const Value& velocity) {
   const Value landing = e.frame_on_landing();
   if (truthy(landing)) {
     e.enter_frame(landing);
     return;
   }
-  const Value facing = e.facing();
-  const Value frame = e.frame_info();
-  double d = entity::find_direction(frame, e.data_indexes_bouncing());
-  if (!d) d = entity::find_direction(frame, e.data_indexes_falling());
-  if (!d) d = entity::find_direction(frame, e.data_indexes_critical_hit());
+  const Value facing = e.facing;
+  const Value frame = e.frame;
+  double d = entity::find_direction(frame, e.data_indexes_of(u"bouncing"));
+  if (!d) d = entity::find_direction(frame, e.data_indexes_of(u"falling"));
+  if (!d) d = entity::find_direction(frame, e.data_indexes_of(u"critical_hit"));
   if (!d) d = to_number(facing);
   const Value vy = lfw::field_or(velocity, u"y");
   const Value vx = lfw::field_or(velocity, u"x");
-  if (!truthy(e.bounced()) &&
+  if (!truthy(e.bounced) &&
       (to_number(vy) <= to_number(e.world_dataset(u"cha_bc_tst_spd_y")) ||
        abs(to_number(vx)) > to_number(e.world_dataset(u"cha_bc_tst_spd_x")))) {
-    const Value bouncing = e.data_indexes_bouncing();
+    const Value bouncing = e.data_indexes_of(u"bouncing");
     e.enter_frame_by_id(to_string(js_at_index(js_at(bouncing, Value(d)), 1)));
     e.set_velocity(Value(NullTag{}), e.world_dataset(u"cha_bc_spd"), Value());
     e.set_bounced(Value(true));
   } else {
-    const Value lying = e.data_indexes_lying();
+    const Value lying = e.data_indexes_of(u"lying");
     e.enter_frame_by_id(to_string(js_at(lying, Value(d))));
   }
 }
@@ -75,14 +76,14 @@ void csf_on_landing(IStateEntity& e, const Value& velocity) {
 
 CharacterState_Falling::CharacterState_Falling(Value state)
     : CharacterState_Base(std::move(state)) {
-  enter = [this](IStateEntity& e, const Value& prev_frame) {
+  enter = [this](Entity& e, const Value& prev_frame) {
     (void)prev_frame;
     e.set_bounced(Value(false));
     e.ctrl_reset_key_list();
     const std::u16string id = to_string(e.data_id());
     bool need_cache = _bouncing_frames_map.find(id) == _bouncing_frames_map.end();
     if (need_cache) {
-      const Value bouncing = e.data_indexes_bouncing();
+      const Value bouncing = e.data_indexes_of(u"bouncing");
       need_cache = truthy(bouncing);
       if (need_cache) {
         std::set<std::u16string> frames;
@@ -102,8 +103,8 @@ CharacterState_Falling::CharacterState_Falling(Value state)
     if (e.has_catcher()) e.catcher_drop_catching();
     e.drop_holding();
 
-    if (to_number(e.hp()) <= 0) {
-      const Value fuse_bys = e.fuse_bys();
+    if (e.hp() <= 0) {
+      const Value fuse_bys = e.fuse_bys_of();
       if (value_length(fuse_bys) > 0) {
         const double vx = e.velocity_x();
         const double vy = e.velocity_y();
@@ -114,7 +115,7 @@ CharacterState_Falling::CharacterState_Falling(Value state)
           next_vx = next_vx * -1.0;
           e.ref_set_velocity(arr->at(i), Value(next_vx), Value(vy), Value(vz));
         }
-        e.dismiss_fusion(e.frame_id());
+        e.dismiss_fusion(to_string(e.frame_id()));
       }
     }
     e.leave_ground();
@@ -122,7 +123,7 @@ CharacterState_Falling::CharacterState_Falling(Value state)
   on_landing = &csf_on_landing;
 }
 
-bool CharacterState_Falling::is_bouncing_frame(IStateEntity& e) {
+bool CharacterState_Falling::is_bouncing_frame(Entity& e) {
   const auto it = _bouncing_frames_map.find(to_string(e.data_id()));
   if (it == _bouncing_frames_map.end()) return false;
   const Value fid = e.frame_id();
@@ -131,8 +132,8 @@ bool CharacterState_Falling::is_bouncing_frame(IStateEntity& e) {
   return it->second.find(*text) != it->second.end();
 }
 
-void CharacterState_Falling::update(IStateEntity& e) {
-  if (to_number(e.shaking()) > 0) return;
+void CharacterState_Falling::update(Entity& e) {
+  if (to_number(e.shaking) > 0) return;
   if (is_bouncing_frame(e)) {
     update_bouncing(e);
   } else {
@@ -140,33 +141,33 @@ void CharacterState_Falling::update(IStateEntity& e) {
   }
 }
 
-void CharacterState_Falling::update_bouncing(IStateEntity& e) {
+void CharacterState_Falling::update_bouncing(Entity& e) {
   e.handle_ground_velocity_decay(0.7);
 }
 
-void CharacterState_Falling::update_falling(IStateEntity& e) {
-  if (to_number(e.wait()) <= 0) {
+void CharacterState_Falling::update_falling(Entity& e) {
+  if (to_number(e.wait) <= 0) {
     const double vx = e.velocity_x();
     const double vy = e.velocity_y();
     double falling_frame_idx = 1;
     if (vy > 3) falling_frame_idx = 0;
     if (vy < -3) falling_frame_idx = 2;
-    const double direction = vx / to_number(e.facing()) > 0 ? 1 : -1;
+    const double direction = vx / to_number(e.facing) > 0 ? 1 : -1;
     Object frame;
     frame.set(u"id",
-              js_at_index(js_at(e.data_indexes_falling(), Value(direction)), falling_frame_idx));
+              js_at_index(js_at(e.data_indexes_of(u"falling"), Value(direction)), falling_frame_idx));
     e.enter_frame(Value(std::make_shared<Object>(frame)));
   }
 }
 
-void CharacterState_Falling::leave(IStateEntity& e, const Value& next_frame) {
+void CharacterState_Falling::leave(Entity& e, const Value& next_frame) {
   State_Base::leave(e, next_frame);
   e.set_bounced(Value(false));
-  e.set_fall_value(e.fall_value_max());
-  e.set_defend_value(e.defend_value_max());
-  e.set_resting(e.resting_max());
+  e.set_fall_value(to_number(e.fall_value_max()));
+  e.set_defend_value(to_number(e.defend_value_max()));
+  e.set_resting(to_number(e.resting_max()));
   e.set_fallinjury(Value(0.0));
-  e.set_throwinjury(Value(0.0));
+  e.set_throwinjury(to_number(Value(0.0)));
 }
 
 }

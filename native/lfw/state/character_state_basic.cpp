@@ -2,6 +2,7 @@
 
 #include "lfw/defines/weapon_type.h"
 #include "lfw/utils/math/base.h"
+#include "lfw/entity/entity.h"
 
 namespace lfw {
 namespace state {
@@ -21,7 +22,7 @@ Value index_0(const Value& holder) {
   return Value();
 }
 
-void csi_enter(IStateEntity& e, const Value& prev_frame) {
+void csi_enter(Entity& e, const Value& prev_frame) {
   (void)prev_frame;
   if (!strict_equals(e.holding_base_type(), Value(static_cast<double>(WeaponEnum::Heavy)))) return;
   e.drop_holding();
@@ -32,22 +33,22 @@ Value nan_to_null(double v) { return std::isnan(v) ? Value() : Value(v); }
 
 }
 
-void CharacterState_Standing::update(IStateEntity& e) {
+void CharacterState_Standing::update(Entity& e) {
   CharacterState_Base::update(e);
-  if (to_number(e.hp()) <= 0) {
+  if (e.hp() <= 0) {
     e.enter_frame(e.get_sudden_death_frame());
     return;
   }
   double px = 0;
   double py = 0;
   double pz = 0;
-  e.position(px, py, pz);
+  px = e.position.x; py = e.position.y; pz = e.position.z;
   if (py > e.ground_y()) {
-    e.enter_frame_by_id(to_string(index_0(e.data_indexes_in_the_skys())));
+    e.enter_frame_by_id(to_string(index_0(e.data_indexes_of(u"in_the_skys"))));
   }
 }
 
-void CharacterState_Running::update(IStateEntity& e) {
+void CharacterState_Running::update(Entity& e) {
   CharacterState_Base::update(e);
   const Value vz = e.velocity_z();
   double vx = e.velocity_x();
@@ -57,7 +58,7 @@ void CharacterState_Running::update(IStateEntity& e) {
     if (vx < -dz) vx = vx + dz;
     e.set_velocity(nan_to_null(vx), Value(), Value());
   }
-  if (to_number(e.hp()) <= 0) e.enter_frame(e.get_sudden_death_frame());
+  if (e.hp() <= 0) e.enter_frame(e.get_sudden_death_frame());
 }
 
 CharacterState_Injured::CharacterState_Injured(Value state) : CharacterState_Base(std::move(state)) {

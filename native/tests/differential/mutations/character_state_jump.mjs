@@ -88,7 +88,7 @@ export default {
     {
       note: "the prev frame is not read",
       file: "native/lfw/state/character_state_jump.cpp",
-      from: "  const Value prev = e.prev_frame();\n  const Value jump_flag = field_or(prev, u\"jump_flag\");",
+      from: "  const Value prev = e.get_prev_frame();\n  const Value jump_flag = field_or(prev, u\"jump_flag\");",
       to: "  const Value prev = Value();\n  const Value jump_flag = field_or(prev, u\"jump_flag\");",
     },
     {
@@ -280,8 +280,8 @@ export default {
     {
       note: "the landing fallback reads the second landing index",
       file: "native/lfw/state/character_state_jump.cpp",
-      from: "  e.enter_frame_by_id(to_string(e.data_indexes_landing_1()));",
-      to: "  e.enter_frame_by_id(to_string(e.data_indexes_landing_2()));",
+      from: "  e.enter_frame_by_id(to_string(e.data_indexes_of(u\"landing_1\")));",
+      to: "  e.enter_frame_by_id(to_string(e.data_indexes_of(u\"landing_2\")));",
     },
     {
       note: "the landing velocity is undefined",

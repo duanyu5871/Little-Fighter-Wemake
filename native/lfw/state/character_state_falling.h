@@ -17,12 +17,12 @@ class CharacterState_Falling : public CharacterState_Base {
   explicit CharacterState_Falling(
       Value state = Value(static_cast<double>(StateEnum::Falling)));
 
-  void update(IStateEntity& e) override;
-  void leave(IStateEntity& e, const Value& next_frame) override;
+  void update(Entity& e) override;
+  void leave(Entity& e, const Value& next_frame) override;
 
-  bool is_bouncing_frame(IStateEntity& e);
-  void update_bouncing(IStateEntity& e);
-  void update_falling(IStateEntity& e);
+  bool is_bouncing_frame(Entity& e);
+  void update_bouncing(Entity& e);
+  void update_falling(Entity& e);
 
  private:
   std::map<std::u16string, std::set<std::u16string>> _bouncing_frames_map;

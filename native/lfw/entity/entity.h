@@ -30,8 +30,6 @@ class States;
 class State_Base;
 }
 
-class EntityStateView;
-
 // The renderer slot TS keeps in `Entity.renderer`.
 struct IEntityRenderer {
   virtual ~IEntityRenderer() = default;
@@ -221,7 +219,7 @@ class Entity {
 
   Entity(IEntityHost& host, Value data);
   Entity(IEntityHost& host, Value data, state::States* states);
-  // Out of line because `state_view_` holds an incomplete type here.
+  // Out of line: `state::State_Base` is incomplete here.
   virtual ~Entity();
 
   Entity(const Entity&) = delete;
@@ -263,9 +261,11 @@ class Entity {
   double motionless = 0;
   double shaking = 0;
   bool bounced = false;
-  double lying_a_count = 0;
-  double lying_d_count = 0;
-  double lying_c_count = 0;
+  // TS 里这三条声明成 `number`，但状态层用 `js_add` 累加（`"3" + 1 === "31"`），
+  // 所以和 `hp`/`position` 一样保留 JS 的动态值——切片 4CF 的台面把这条差异翻了出来。
+  Value lying_a_count = Value(0.0);
+  Value lying_d_count = Value(0.0);
+  Value lying_c_count = Value(0.0);
   bool drop_hurted = false;
   bool dropping = false;
   double name_visible = 0;
@@ -326,7 +326,8 @@ class Entity {
   double ghosted() const { return _ghosted; }
   void set_ghosted(double v) { _ghosted = v; }
   double reserve() const { return _reserve; }
-  void set_reserve(double v);
+  // 切片 4CF：`set_reserve` 在 `IStateEntity` 上本来是虚的，状态台面的假实体会覆写它。
+  virtual void set_reserve(double v);
   double type() const;
   Value itr() const;
   Value bdy() const;
@@ -365,9 +366,9 @@ class Entity {
   virtual double hp() const { return _hp; }
   virtual void set_hp(double v);
   virtual double mp_max() const;
-  void set_mp_max(double v);
+  virtual void set_mp_max(double v);
   virtual double hp_max() const;
-  void set_hp_max(double v);
+  virtual void set_hp_max(double v);
   virtual const std::u16string& team() const { return _team; }
   virtual void set_team(std::u16string v);
   const std::u16string* src_emitter() const;
@@ -426,14 +427,16 @@ class Entity {
     return marks.find(kind) != marks.end();
   }
   Value data_base_hit_sounds() const;
-  Value data_id() const;
+  // `this.data.id`——**必须**走虚的 `data()`，台面会替换 `data`（切片 4CF）。
+  virtual Value data_id() const;
   Value frame_id() const;
   Value cpoint_backhurtact() const;
   Value cpoint_fronthurtact() const;
   // `this._data.indexes?.in_the_skys` 的第一项（数组取 `[0]`，记录取 `.0`）。
   Value data_in_the_skys_first() const;
   // `this.holding?.base_type()`（没拿武器给 `undefined`）。
-  Value holding_base_type() const;
+  // 切片 4CF：加 `virtual` —— 状态台面的假实体要覆写它（`CharacterState_Base.get_auto_frame` 读它）。
+  virtual Value holding_base_type() const;
   // `this.fuse_bys`：TS 是实体数组，实体面把它投影成 id 数组（对称的写入见 `set_fuse_bys`，
   // 与其它台面要观测的写面一样是虚的）。
   Value fuse_bys_of() const;
@@ -457,20 +460,155 @@ class Entity {
   virtual Entity& set_motionless(double v);
   virtual Entity& set_catcher(Entity* v);
 
+  // --- 切片 4CF：状态族窄接口退役 ⇒ 原 `state::IStateEntity` 的实体面收进实体 ---
+  // 命名与签名跟那个接口逐字对齐（`Entity` 自己已有原生类型的几条除外：那几条由状态层直接
+  // 用字段/原生方法，见 DESIGN §142）。**默认体照搬接口**：`IStateEntity` 里成片的
+  // `return Value();` 是「宿主/后面的切片回答」的占位，本刀只搬不改语义（占位清单见 §142.4）。
+  // `velocity_x` / `velocity_z` 用原生 `double`（与 `velocity_y` 同款；4BX 已把这两条统一成
+  // `double`）；`frame_on_landing` / `frame_behavior` / `data_base` / `data_frames` /
+  // `has_data_indexes` 也照搬占位体。
+  virtual double velocity_x() const { return velocity.x; }
+  virtual double velocity_z() const { return velocity.z; }
+  virtual Value frame_on_landing() const { return Value(); }
+  virtual Value frame_behavior() const { return Value(); }
+  virtual Value data_base() const { return Value(); }
+  virtual Value data_frames() const { return Value(); }
+  virtual bool has_data_indexes() const { return false; }
+  virtual Value frame_info() const { return frame; }
+  virtual Value jumping_x() const { return Value(jumping.x); }
+  virtual void set_jumping_x(const Value& v) { jumping.x = to_number(v); }
+  virtual Value jumping_y() const { return Value(jumping.y); }
+  virtual void set_jumping_y(const Value& v) { jumping.y = to_number(v); }
+  virtual Value jumping_z() const { return Value(jumping.z); }
+  virtual void set_jumping_z(const Value& v) { jumping.z = to_number(v); }
+  virtual Value jumping_t() const { return Value(jumping.t); }
+  virtual void set_jumping_t(const Value& v) { jumping.t = to_number(v); }
+  virtual void set_bounced(const Value& v) { bounced = truthy(v); }
+  virtual void set_throwinjury(const Value& v) { throwinjury = to_number(v); }
+  virtual void set_drop_hurted(const Value& v) { drop_hurted = truthy(v); }
+  virtual void set_dead_join(const Value& v) { dead_join = v; }
+  virtual void set_wakeup_invuln(const Value& v) { wakeup_invuln = to_number(v); }
+  virtual void set_lying_a_count(const Value& v) { lying_a_count = v; }
+  virtual void set_lying_d_count(const Value& v) { lying_d_count = v; }
+  virtual void set_lying_c_count(const Value& v) { lying_c_count = v; }
+  // `e.position.x = x` 这类**直写**：TS 的 `State_Base.on_restrict` 直接改位置三个字段，
+  // 不经过 `set_position`（那里会再触发状态钩子）。
+  void assign_position(double x, double y, double z) {
+    position.x = x;
+    position.y = y;
+    position.z = z;
+  }
+  // 持有物（`this.holding`）与「宿主回答」的那几面：占位体逐字照搬 `IStateEntity`。
+  virtual bool has_holding() const { return holding != nullptr; }
+  virtual DrinkInfo* holding_drink() const { return nullptr; }
+  virtual void holding_set_hp(const Value& v) { (void)v; }
+  virtual void holding_set_hp_r(const Value& v) { (void)v; }
+  virtual void holding_set_velocity(const Value& x, const Value& y, const Value& z) {
+    (void)x;
+    (void)y;
+    (void)z;
+  }
+  virtual void holding_set_team(const Value& v) { (void)v; }
+  virtual void holding_mt_mark(const std::u16string& mark) { (void)mark; }
+  virtual Value holding_mt_range(double lo, double hi) {
+    (void)lo;
+    (void)hi;
+    return Value();
+  }
+  virtual bool holding_is_weapon() const { return false; }
+  virtual bool has_catcher() const { return catcher != nullptr; }
+  virtual void catcher_drop_catching() {}
+  virtual bool has_bearer() const { return bearer != nullptr; }
+  virtual Value bearer_motionless() const { return Value(); }
+  virtual void set_bearer_motionless(const Value& v) { (void)v; }
+  virtual Value world_entities() const { return Value(); }
+  virtual void world_etc(double x, double y, double z, const std::u16string& kind) {
+    (void)x;
+    (void)y;
+    (void)z;
+    (void)kind;
+  }
+  virtual void world_callbacks_call(const std::u16string& name) { (void)name; }
+  virtual Value ground_segment(double x, double z) {
+    (void)x;
+    (void)z;
+    return Value();
+  }
+  virtual double ground_y(const Value& segment, double x, double z) {
+    (void)segment;
+    (void)x;
+    (void)z;
+    return 0;
+  }
+  virtual bool is_fighter_ref(const Value& o) const {
+    (void)o;
+    return false;
+  }
+  virtual bool is_self_ref(const Value& o) const {
+    (void)o;
+    return false;
+  }
+  virtual bool is_ally_ref(const Value& o) const {
+    (void)o;
+    return false;
+  }
+  virtual Value ref_hp(const Value& o) const {
+    (void)o;
+    return Value();
+  }
+  virtual double ref_position_x(const Value& o) const {
+    (void)o;
+    return 0;
+  }
+  virtual double ref_position_z(const Value& o) const {
+    (void)o;
+    return 0;
+  }
+  virtual void ref_set_velocity(const Value& who, const Value& x, const Value& y,
+                                const Value& z) {
+    (void)who;
+    (void)x;
+    (void)y;
+    (void)z;
+  }
+  virtual Value lfw_new_team() const { return Value(); }
+  virtual double ctrl_ud() const { return 0; }
+  virtual double ctrl_lr() const { return 0; }
+  virtual bool ctrl_is_bot() const { return false; }
+  virtual bool ctrl_is_end(const std::u16string& key) const {
+    (void)key;
+    return true;
+  }
+  virtual void ctrl_reset_key_list() {}
+  virtual Value datas_find(const std::u16string& oid) {
+    (void)oid;
+    return Value();
+  }
+  virtual Value datas_find_fighter(const std::u16string& oid) {
+    (void)oid;
+    return Value();
+  }
+
   // --- frame lookup / flags ---------------------------------------------------
   // `find_frame_by_id` falls back to `find_auto_frame()` when the id is unknown;
   // `handle_facing_flag` / `handle_wait_flag` / `get_frame_wait` are the pure flag
   // resolvers `handle_next_frame_result` will use.
   Value find_frame_by_id(const Value& id) const;
-  Value find_auto_frame() const;
-  Value find_align_frame(const std::u16string& frame_id, const Value& src,
-                         const Value& dst) const;
-  Value get_prev_frame() const { return _prev_frame; }
-  Value get_sudden_death_frame() const;
-  Value get_caught_end_frame();
+  // 切片 4CF：状态台面要覆写这三条（TS 的同名钩子由状态对象提供）。
+  virtual Value find_auto_frame() const;
+  // 切片 4CF：加 `virtual` —— 武器状态（`WeaponState_Base::hit_ground_rebouncing` /
+  // `WeaponState_InTheSky::update`）直接调它，台面要观测这条调用并替换对齐帧。
+  virtual Value find_align_frame(const std::u16string& frame_id, const Value& src,
+                                 const Value& dst) const;
+  // 切片 4CF：加 `virtual` —— 台面只在 `get_prev_frame` 上打日志（行为已由 `set_prev_frame` 定死）。
+  virtual Value get_prev_frame() const { return _prev_frame; }
+  virtual Value get_sudden_death_frame() const;
+  virtual Value get_caught_end_frame();
   double handle_facing_flag(const Value& facing) const;
-  double handle_wait_flag(const Value& wait,
-                          const std::optional<Value>& frame = std::nullopt) const;
+  // 切片 4CF：`handle_wait_flag` 在 `IStateEntity` 上是虚的，状态台面假实体会覆写它
+  // （TS 台面在 `handle_wait_flag` 上打日志，并把等待帧直接判成「不入帧」）。
+  virtual double handle_wait_flag(const Value& wait,
+                                  const std::optional<Value>& frame = std::nullopt) const;
   double get_frame_wait(const Value& frame) const;
 
   // --- physics: velocity / friction / gravity --------------------------------
@@ -484,12 +622,15 @@ class Entity {
   // 切片 4CE：加 `virtual` —— `handle_weapon_is_hit` 直接调它，台面要观测这条调用
   // （`collision_weapon_is_hit.ts` 在 `leave_ground` 上打日志）。
   virtual void leave_ground();
-  void handle_ground_velocity_decay(double factor = 1);
+  // 切片 4CF：`handle_ground_velocity_decay` 加 `virtual` —— 状态台面假实体会覆写它
+  // （TS 台面用「最后一步」口径替掉真实的摩擦衰减）。
+  virtual void handle_ground_velocity_decay(double factor = 1);
   virtual void handle_velocity_decay(const Value& accx,
                              std::optional<Value> accz = std::nullopt,
                              double factor = 1);
   void handle_gravity();
-  void update_velocity(const Value& vinfo);
+  // 切片 4CF：`update_velocity` 加 `virtual` —— 台面假实体会覆写它（TS 台面同口径替换）。
+  virtual void update_velocity(const Value& vinfo);
   // `set_position(x?, y?, z?)`: the three axes, then `world.restrict`, the four
   // `on_*_restrict` frame requests plus the `_state.on_restrict` hook (all of them
   // are host/frame requests here), and finally `_ground_y` through `Ground::y`.
@@ -514,11 +655,13 @@ class Entity {
   // `set_frame`; `drop_holding` / `pick` are the two ends of the same relation.
   void follow_bearer();
   void follow_catcher();
-  void drop_holding();
+  // 切片 4CF：`drop_holding` / `transform` / `transfrom_to_another` 加 `virtual` ——
+  // 这三条在 `IStateEntity` 上本来就是虚的，状态台面假实体会覆写它们。
+  virtual void drop_holding();
   void pick(Entity& weapon);
   // `transform(data)` / `transfrom_to_another(data?)` (TS keeps the typo).
-  void transform(const Value& data);
-  bool transfrom_to_another(const std::optional<Value>& data = std::nullopt);
+  virtual void transform(const Value& data);
+  virtual bool transfrom_to_another(const std::optional<Value>& data = std::nullopt);
 
   // --- opoint spawning (`spawn` / `on_spawn` / `attach`) ---------------------------
   // `spawn(opoint, offset_velocity = vec3(0,0,0), facing = this.facing)`：返回 `nullptr`
@@ -537,6 +680,9 @@ class Entity {
   // `spreading` offsets, one `spawn` per count, then the ball-controller `chasing` and
   // the `inherit_speed_*` velocity write.
   void apply_opoints(const Value& opoints);
+  // 状态面（切片 4CF）：状态层给的是一组 opoint（`std::vector<Value>`），照原接口收下再转
+  // `Value` 数组（`state_base_proxy.cpp` 的 `ice_piece_opoints()` 一处调用）。
+  void apply_opoints(const std::vector<Value>& opoints);
 
   // --- the tick (`update` / `update_ghost`) ------------------------------------
   // `update()`: `mt.case` markers, the recovery decays (v_rest / arest / invisible /
@@ -551,7 +697,8 @@ class Entity {
   // `check_fusion_dismissing()` / `dismiss_fusion(frame_id)`: the fused members follow
   // the lead, and a split shares the hp / mp over every member and re-faces them.
   bool check_fusion_dismissing();
-  void dismiss_fusion(const std::u16string& frame_id);
+  // 切片 4CF：`dismiss_fusion` 加 `virtual` —— 台面假实体会覆写它（`CharacterState_Falling` 调它）。
+  virtual void dismiss_fusion(const std::u16string& frame_id);
   // `update_aabb()`: the frame's `__aabb_*` box plus the `l_len` / `r_len` reach
   // (both flip with `facing`).
   void update_aabb();
@@ -630,8 +777,10 @@ class Entity {
   // `blink_and_gone` / `blink_and_respawn` write `_blinking` **directly** (no
   // `round_float` / `max(0, …)`; those live in the `blinking` setter) and arm
   // `_after_blink` with the private `FrameId` literal.
-  void blink_and_gone(double duration);
-  void blink_and_respawn(double duration);
+  // 切片 4CF：`blink_and_gone` / `blink_and_respawn` 加 `virtual`（`CharacterState_Lying` 调它们，
+  // 台面假实体会覆写：TS 台面只记日志，不真的闪）。
+  virtual void blink_and_gone(double duration);
+  virtual void blink_and_respawn(double duration);
   // `update_itr_bdy_hit_ground(itrs)`: asks the host to enter `itr.on_hit_ground`
   // for every itr whose box has reached the ground line.
   void update_itr_bdy_hit_ground(const Value& itrs);
@@ -756,11 +905,14 @@ class Entity {
   std::u16string _team;
   state::States* states_ = nullptr;
   // `this._state?.on_dead?.(this)` / `this._state?.get_gravity?.(this)` / … — the hooks
-  // live on the active state object and receive `state_view_`, the adapter that makes
-  // them see "the entity".  A missing hook and a state without that optional callback
-  // are the same thing in TS.
+  // live on the active state object and now receive the entity itself (切片 4CF：
+  // `EntityStateView` 退役，不再需要那层适配).  A missing hook and a state without that
+  // optional callback are the same thing in TS.
   state::State_Base* _state = nullptr;
-  std::unique_ptr<EntityStateView> state_view_;
+  // 状态钩子要的是**可变**实体：`get_gravity()` / `get_auto_frame()` 这些读点本身是
+  // `const` 成员，而钩子体（TS 侧）会改实体。旧实现在同样的位置经 `state_view_` 拿到
+  // 非 const 引用 ⇒ 这里用同一个口径（`const_cast`）把可变引用递出去。
+  Entity& mutable_self() const { return const_cast<Entity&>(*this); }
   controller::BaseController* ctrl_ = nullptr;
   // `ctrl.update()` 的环境（见 `refresh_ctrl_env`）。
   controller::CtrlEnv _ctrl_env;

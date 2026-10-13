@@ -11,6 +11,7 @@
 #include "lfw/utils/container_help/field_or.h"
 #include "lfw/utils/js_add.h"
 #include "lfw/utils/math/round_float.h"
+#include "lfw/entity/entity.h"
 
 namespace lfw {
 namespace state {
@@ -28,20 +29,20 @@ bool set_has(const std::vector<Value>& xs, const Value& needle) {
   return false;
 }
 
-void csl_on_dead(IStateEntity& e) {
+void csl_on_dead(Entity& e) {
   std::vector<Value> player_teams;
   const Value puppets = e.world_puppets();
   const Array* arr = as_array(puppets);
   for (size_t i = 0; arr != nullptr && i < arr->size(); ++i) {
     player_teams.push_back(lfw::field_or(arr->at(i), u"team"));
   }
-  if (truthy(e.reserve())) e.set_reserve(Value(to_number(e.reserve()) - 1.0));
-  if (truthy(e.reserve()) && set_has(player_teams, e.team())) {
-    e.blink_and_respawn(e.world_dataset(u"gone_blink_time"));
-  } else if (truthy(e.dead_join())) {
+  if (truthy(Value(e.reserve()))) e.set_reserve(e.reserve() - 1.0);
+  if (truthy(Value(e.reserve())) && set_has(player_teams, e.team())) {
+    e.blink_and_respawn(to_number(e.world_dataset(u"gone_blink_time")));
+  } else if (truthy(e.dead_join)) {
     // 死亡后加入
-  } else if (truthy(e.dead_gone())) {
-    e.blink_and_gone(e.world_dataset(u"gone_blink_time"));
+  } else if (truthy(e.dead_gone)) {
+    e.blink_and_gone(to_number(e.world_dataset(u"gone_blink_time")));
   }
 }
 
@@ -49,7 +50,7 @@ void csl_on_dead(IStateEntity& e) {
 
 CharacterState_Lying::CharacterState_Lying(Value state)
     : CharacterState_Base(std::move(state)) {
-  enter = [this](IStateEntity& e, const Value& prev_frame) {
+  enter = [this](Entity& e, const Value& prev_frame) {
     (void)prev_frame;
     e.set_lying_a_count(Value(0.0));
     e.set_lying_d_count(Value(0.0));
@@ -61,77 +62,77 @@ CharacterState_Lying::CharacterState_Lying(Value state)
         strict_equals(e.holding_base_type(), Value(static_cast<double>(WeaponEnum::Heavy)))) {
       e.holding_set_team(e.team());
     }
-    e.set_toughness(e.toughness_max());
-    e.set_toughness_resting(Value(0.0));
-    if (to_number(e.hp()) <= 0 && on_dead) on_dead(e);
+    e.set_toughness(to_number(e.toughness_max()));
+    e.set_toughness_resting(to_number(Value(0.0)));
+    if (e.hp() <= 0 && on_dead) on_dead(e);
   };
   on_dead = &csl_on_dead;
-  find_frame_by_id = [](IStateEntity& e, const Value& id) -> Value {
+  find_frame_by_id = [](Entity& e, const Value& id) -> Value {
     (void)id;
     double px = 0;
     double py = 0;
     double pz = 0;
-    e.position(px, py, pz);
-    if (to_number(e.hp()) <= 0 &&
+    px = e.position.x; py = e.position.y; pz = e.position.z;
+    if (e.hp() <= 0 &&
         py <= e.ground_y() &&
         strict_equals(e.state(), Value(static_cast<double>(StateEnum::Lying))) &&
-        !truthy(e.dead_join())) {
-      return e.frame_info();
+        !truthy(e.dead_join)) {
+      return e.frame;
     }
     return Value();
   };
 }
 
-void CharacterState_Lying::update(IStateEntity& e) {
+void CharacterState_Lying::update(Entity& e) {
   CharacterState_Base::update(e);
-  const Value count_c = e.lying_c_count();
-  const Value count_a = e.lying_a_count();
+  const Value count_c = e.lying_c_count;
+  const Value count_a = e.lying_a_count;
   const bool pressing_a = !e.ctrl_is_end(std::u16string(gk::ka));
   e.set_lying_a_count(js_add(count_a, Value(1.0)));
   if (truthy(count_a) && truthy(Value(std::fmod(to_number(count_a), 2.0))) && pressing_a &&
-      to_number(e.wait()) > 0) {
+      to_number(e.wait) > 0) {
     e.set_lying_c_count(js_add(count_c, Value(1.0)));
     e.set_wait(Value(
-        round_float(to_number(e.wait()) - to_number(e.world_dataset(u"atom_time")))));
+        round_float(to_number(e.wait) - to_number(e.world_dataset(u"atom_time")))));
     return;
   }
-  const Value count_d = e.lying_d_count();
+  const Value count_d = e.lying_d_count;
   const bool pressing_d = !e.ctrl_is_end(std::u16string(gk::kd));
   e.set_lying_d_count(js_add(count_d, Value(1.0)));
   if (truthy(count_d) && truthy(Value(std::fmod(to_number(count_d), 2.0))) && pressing_d) {
     e.set_lying_c_count(js_add(count_c, Value(1.0)));
     e.set_wait(Value(
-        round_float(to_number(e.wait()) + to_number(e.world_dataset(u"atom_time")))));
+        round_float(to_number(e.wait) + to_number(e.world_dataset(u"atom_time")))));
   }
 }
 
-void CharacterState_Lying::leave(IStateEntity& e, const Value& next_frame) {
+void CharacterState_Lying::leave(Entity& e, const Value& next_frame) {
   (void)next_frame;
-  if (truthy(e.dead_join()) && to_number(e.hp()) <= 0) {
-    const Value dead_join = e.dead_join();
-    e.set_motionless(Value(30.0));
-    e.set_invulnerable(Value(30.0));
+  if (truthy(e.dead_join) && e.hp() <= 0) {
+    const Value dead_join = e.dead_join;
+    e.set_motionless(to_number(Value(30.0)));
+    e.set_invulnerable(to_number(Value(30.0)));
     const Value join_hp = lfw::field_or(dead_join, u"hp");
     const Value next_hp = is_nullish(join_hp) ? e.hp_max() : join_hp;
-    e.set_hp_max(next_hp);
-    e.set_hp_r(next_hp);
-    e.set_hp(next_hp);
+    e.set_hp_max(to_number(next_hp));
+    e.set_hp_r(to_number(next_hp));
+    e.set_hp(to_number(next_hp));
     const Value join_team = lfw::field_or(dead_join, u"team");
-    e.set_team(is_nullish(join_team) ? Value(std::u16string(team_enum::kTeam_1)) : join_team);
+    e.set_team(to_string(is_nullish(join_team) ? Value(std::u16string(team_enum::kTeam_1)) : join_team));
     const Value join_reserve = lfw::field_or(dead_join, u"reserve");
-    e.set_reserve(is_nullish(join_reserve) ? Value(0.0) : join_reserve);
+    e.set_reserve(to_number(is_nullish(join_reserve) ? Value(0.0) : join_reserve));
     double px = 0;
     double py = 0;
     double pz = 0;
-    e.position(px, py, pz);
+    px = e.position.x; py = e.position.y; pz = e.position.z;
     e.world_etc(px, py, pz, u"6");
     e.set_outline_color(std::u16string());
     e.set_dead_join(Value(NullTag{}));
     e.set_wakeup_invuln(Value(1.0));
   }
-  if (truthy(e.wakeup_invuln())) {
-    e.set_blinking(e.world_dataset(u"lying_blink_time"));
-    e.set_invulnerable(e.world_dataset(u"lying_blink_time"));
+  if (truthy(Value(e.wakeup_invuln))) {
+    e.set_blinking(to_number(e.world_dataset(u"lying_blink_time")));
+    e.set_invulnerable(to_number(e.world_dataset(u"lying_blink_time")));
   }
 }
 

@@ -5,17 +5,18 @@
 #include "lfw/defines/entity_enum.h"
 #include "lfw/defines/gone_frame_info.h"
 #include "lfw/utils/container_help/field_or.h"
+#include "lfw/entity/entity.h"
 
 namespace lfw {
 namespace state {
 namespace {
 
-void swb_on_landing(IStateEntity& e, const Value& velocity) {
+void swb_on_landing(Entity& e, const Value& velocity) {
   (void)velocity;
   e.enter_frame(gone_frame_info());
 }
 
-void cs2_enter(IStateEntity& e, const Value& prev_frame) {
+void cs2_enter(Entity& e, const Value& prev_frame) {
   (void)prev_frame;
   const Value d = e.datas_find_fighter(u"50");
   if (!truthy(d)) return;
@@ -23,7 +24,7 @@ void cs2_enter(IStateEntity& e, const Value& prev_frame) {
   e.enter_frame(e.find_auto_frame());
 }
 
-void bsb_enter(IStateEntity& e, const Value& prev_frame) {
+void bsb_enter(Entity& e, const Value& prev_frame) {
   (void)prev_frame;
   const Value st = e.state();
   if (!strict_equals(st, Value(static_cast<double>(StateEnum::Ball_Hitting))) &&
@@ -32,8 +33,8 @@ void bsb_enter(IStateEntity& e, const Value& prev_frame) {
       !strict_equals(st, Value(static_cast<double>(StateEnum::Ball_Disappear)))) {
     return;
   }
-  e.set_shaking(Value(0.0));
-  e.set_motionless(Value(0.0));
+  e.set_shaking(to_number(Value(0.0)));
+  e.set_motionless(to_number(Value(0.0)));
   e.set_velocity(Value(0.0), Value(0.0), Value(0.0));
 }
 
@@ -54,12 +55,12 @@ BallState_Base::BallState_Base(Value state) : State_Base(std::move(state)) {
   enter = &bsb_enter;
 }
 
-void State_TransformToCatching::update(IStateEntity& e) {
+void State_TransformToCatching::update(Entity& e) {
   e.transfrom_to_another();
   e.enter_frame(e.find_auto_frame());
 }
 
-void State_TransformTo8XXX::leave(IStateEntity& e, const Value& next_frame) {
+void State_TransformTo8XXX::leave(Entity& e, const Value& next_frame) {
   (void)next_frame;
   if (!std::holds_alternative<double>(state())) return;
   const std::u16string oid = to_string(Value(to_number(state()) - 8000));

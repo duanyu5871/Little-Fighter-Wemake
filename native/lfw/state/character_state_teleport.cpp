@@ -1,12 +1,13 @@
 #include "lfw/state/character_state_teleport.h"
 
 #include "lfw/utils/math/base.h"
+#include "lfw/entity/entity.h"
 
 namespace lfw {
 namespace state {
 namespace {
 
-Value pick_target(IStateEntity& e, bool nearest_enemy) {
+Value pick_target(Entity& e, bool nearest_enemy) {
   double best = -1;
   Value tar;
   const Value list = e.world_entities();
@@ -20,7 +21,7 @@ Value pick_target(IStateEntity& e, bool nearest_enemy) {
       double mx = 0;
       double my = 0;
       double mz = 0;
-      e.position(mx, my, mz);
+      mx = e.position.x; my = e.position.y; mz = e.position.z;
       const double dis = abs(e.ref_position_x(o) - mx) +
                          abs(e.ref_position_z(o) - e.ref_position_z(o));
       const bool better = nearest_enemy ? (best < 0 || dis < best) : (dis > best);
@@ -33,26 +34,26 @@ Value pick_target(IStateEntity& e, bool nearest_enemy) {
   return tar;
 }
 
-void teleport_to(IStateEntity& e, const Value& tar) {
+void teleport_to(Entity& e, const Value& tar) {
   double x = 0;
   double y = 0;
   double z = 0;
-  e.position(x, y, z);
+  x = e.position.x; y = e.position.y; z = e.position.z;
   if (truthy(tar)) {
-    x = round(e.ref_position_x(tar) - to_number(e.facing()) * 120);
+    x = round(e.ref_position_x(tar) - to_number(e.facing) * 120);
     z = round(e.ref_position_z(tar));
   }
   const Value segment = e.ground_segment(x, z);
   const double gy = e.ground_y(segment, x, z);
-  e.set_position(x, gy, z);
+  e.set_position(Value(x), Value(gy), Value(z));
 }
 
-void cst_nearest_enter(IStateEntity& e, const Value& prev_frame) {
+void cst_nearest_enter(Entity& e, const Value& prev_frame) {
   (void)prev_frame;
   teleport_to(e, pick_target(e, true));
 }
 
-void cst_farthest_enter(IStateEntity& e, const Value& prev_frame) {
+void cst_farthest_enter(Entity& e, const Value& prev_frame) {
   (void)prev_frame;
   teleport_to(e, pick_target(e, false));
 }

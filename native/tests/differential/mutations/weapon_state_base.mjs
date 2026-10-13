@@ -100,26 +100,26 @@ export default {
     {
       note: "the on ground test is inverted",
       file: "native/lfw/state/weapon_state_base.cpp",
-      from: "  if (e.is_on_ground()) return index_by(e.data_frames(), to_string(e.data_indexes_on_ground()));",
-      to: "  if (!e.is_on_ground()) return index_by(e.data_frames(), to_string(e.data_indexes_on_ground()));",
+      from: "  if (e.is_on_ground) return index_by(e.data_frames(), to_string(e.data_indexes_of(u\"on_ground\")));",
+      to: "  if (!e.is_on_ground) return index_by(e.data_frames(), to_string(e.data_indexes_of(u\"on_ground\")));",
     },
     {
       note: "the ground frame key is the sky one",
       file: "native/lfw/state/weapon_state_base.cpp",
-      from: "  if (e.is_on_ground()) return index_by(e.data_frames(), to_string(e.data_indexes_on_ground()));",
-      to: "  if (e.is_on_ground()) return index_by(e.data_frames(), to_string(e.data_indexes_throwings()));",
+      from: "  if (e.is_on_ground) return index_by(e.data_frames(), to_string(e.data_indexes_of(u\"on_ground\")));",
+      to: "  if (e.is_on_ground) return index_by(e.data_frames(), to_string(e.data_indexes_of(u\"in_the_skys\")));",
     },
     {
       note: "the sky frame key is not taken from the list",
       file: "native/lfw/state/weapon_state_base.cpp",
-      from: "  return index_by(e.data_frames(), to_string(index_0(e.data_indexes_in_the_skys())));",
-      to: "  return index_by(e.data_frames(), to_string(e.data_indexes_on_ground()));",
+      from: "  return index_by(e.data_frames(), to_string(index_0(e.data_indexes_of(u\"in_the_skys\"))));",
+      to: "  return index_by(e.data_frames(), to_string(e.data_indexes_of(u\"on_ground\")));",
     },
     {
       note: "the frame table is not consulted for the sky frame",
       file: "native/lfw/state/weapon_state_base.cpp",
-      from: "  return index_by(e.data_frames(), to_string(index_0(e.data_indexes_in_the_skys())));",
-      to: "  return Value(to_string(index_0(e.data_indexes_in_the_skys())));",
+      from: "  return index_by(e.data_frames(), to_string(index_0(e.data_indexes_of(u\"in_the_skys\"))));",
+      to: "  return Value(to_string(index_0(e.data_indexes_of(u\"in_the_skys\"))));",
     },
     {
       note: "the landing frame is ignored",
@@ -142,8 +142,8 @@ export default {
     {
       note: "the landing fallback uses the wrong index",
       file: "native/lfw/state/weapon_state_base.cpp",
-      from: "  e.enter_frame_by_id(to_string(e.data_indexes_on_ground()));",
-      to: "  e.enter_frame_by_id(to_string(e.data_indexes_throwings()));",
+      from: "  e.enter_frame_by_id(to_string(e.data_indexes_of(u\"on_ground\")));",
+      to: "  e.enter_frame_by_id(to_string(e.data_indexes_of(u\"throwings\")));",
     },
     {
       note: "leaving the ground enters the wrong frame",
@@ -160,8 +160,8 @@ export default {
     {
       note: "the ground velocity decay is skipped",
       file: "native/lfw/state/weapon_state_base.cpp",
-      from: "void WeaponState_Base::update(IStateEntity& e) {\n  e.handle_ground_velocity_decay();\n}",
-      to: "void WeaponState_Base::update(IStateEntity& e) {\n  (void)e;\n}",
+      from: "void WeaponState_Base::update(Entity& e) {\n  e.handle_ground_velocity_decay();\n}",
+      to: "void WeaponState_Base::update(Entity& e) {\n  (void)e;\n}",
     },
     {
       note: "the velocity y is read from x",
@@ -282,13 +282,13 @@ export default {
     {
       note: "the drop hurt block always runs",
       file: "native/lfw/state/weapon_state_base.cpp",
-      from: "  if (!truthy(e.drop_hurted())) {",
+      from: "  if (!e.drop_hurted) {",
       to: "  if (true) {",
     },
     {
       note: "the drop hurt block never runs",
       file: "native/lfw/state/weapon_state_base.cpp",
-      from: "  if (!truthy(e.drop_hurted())) {",
+      from: "  if (!e.drop_hurted) {",
       to: "  if (false) {",
     },
     {
@@ -306,20 +306,20 @@ export default {
     {
       note: "the drop hurt heals instead of hurting",
       file: "native/lfw/state/weapon_state_base.cpp",
-      from: "      e.set_hp(Value(to_number(e.hp()) - to_number(hurt)));",
-      to: "      e.set_hp(Value(to_number(e.hp()) + to_number(hurt)));",
+      from: "      e.set_hp(e.hp() - to_number(hurt));",
+      to: "      e.set_hp(e.hp() + to_number(hurt));",
     },
     {
       note: "the recoverable hp is reduced by the wrong field",
       file: "native/lfw/state/weapon_state_base.cpp",
-      from: "      e.set_hp_r(Value(to_number(e.hp_r()) - to_number(hurt)));",
-      to: "      e.set_hp_r(Value(to_number(e.hp()) - to_number(hurt)));",
+      from: "      e.set_hp_r(e.hp_r() - to_number(hurt));",
+      to: "      e.set_hp_r(e.hp() - to_number(hurt));",
     },
     {
       note: "the recoverable hp is not reduced",
       file: "native/lfw/state/weapon_state_base.cpp",
-      from: "      e.set_hp_r(Value(to_number(e.hp_r()) - to_number(hurt)));",
-      to: "      e.set_hp_r(Value(to_number(e.hp_r())));",
+      from: "      e.set_hp_r(e.hp_r() - to_number(hurt));",
+      to: "      e.set_hp_r(e.hp_r());",
     },
     {
       note: "the ground bounce gate is strictly greater",
@@ -438,20 +438,20 @@ export default {
     {
       note: "the align source frame is not the current one",
       file: "native/lfw/state/weapon_state_base.cpp",
-      from: "    const Value align = e.find_align_frame(e.frame_id(), e.data_indexes_throwings(),",
-      to: "    const Value align = e.find_align_frame(Value(), e.data_indexes_throwings(),",
+      from: "    const Value align = e.find_align_frame(to_string(e.frame_id()), e.data_indexes_of(u\"throwings\"),",
+      to: "    const Value align = e.find_align_frame(std::u16string(), e.data_indexes_of(u\"throwings\"),",
     },
     {
       note: "the throwing and sky index arguments are swapped",
       file: "native/lfw/state/weapon_state_base.cpp",
-      from: "    const Value align = e.find_align_frame(e.frame_id(), e.data_indexes_throwings(),\n                                          e.data_indexes_in_the_skys());",
-      to: "    const Value align = e.find_align_frame(e.frame_id(), e.data_indexes_in_the_skys(),\n                                          e.data_indexes_throwings());",
+      from: "    const Value align = e.find_align_frame(to_string(e.frame_id()), e.data_indexes_of(u\"throwings\"),\n                                          e.data_indexes_of(u\"in_the_skys\"));",
+      to: "    const Value align = e.find_align_frame(to_string(e.frame_id()), e.data_indexes_of(u\"in_the_skys\"),\n                                          e.data_indexes_of(u\"throwings\"));",
     },
     {
       note: "the align search reads the ground index",
       file: "native/lfw/state/weapon_state_base.cpp",
-      from: "    const Value align = e.find_align_frame(e.frame_id(), e.data_indexes_throwings(),",
-      to: "    const Value align = e.find_align_frame(e.frame_id(), e.data_indexes_on_ground(),",
+      from: "    const Value align = e.find_align_frame(to_string(e.frame_id()), e.data_indexes_of(u\"throwings\"),",
+      to: "    const Value align = e.find_align_frame(to_string(e.frame_id()), e.data_indexes_of(u\"on_ground\"),",
     },
     {
       note: "the align frame is entered unconditionally",

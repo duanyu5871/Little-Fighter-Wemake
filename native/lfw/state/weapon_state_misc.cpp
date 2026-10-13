@@ -8,6 +8,7 @@
 #include "lfw/utils/container_help/field_or.h"
 #include "lfw/utils/math/base.h"
 #include "lfw/utils/math/round_float.h"
+#include "lfw/entity/entity.h"
 
 namespace lfw {
 namespace state {
@@ -23,29 +24,29 @@ Value coalesce2(const Value& a, const Value& b, const Value& fallback) {
   return fallback;
 }
 
-bool is_boomerang(IStateEntity& e) {
+bool is_boomerang(Entity& e) {
   return equals(e.frame_behavior(), Value(static_cast<double>(FrameBehavior::Boomerang)));
 }
 
-void wsog_enter(IStateEntity& e, const Value& prev_frame) {
+void wsog_enter(Entity& e, const Value& prev_frame) {
   (void)prev_frame;
-  e.set_team(e.lfw_new_team());
+  e.set_team(to_string(e.lfw_new_team()));
 }
 
-void wsoh_pre_update(IStateEntity& e) {
-  const Value motionless = e.motionless();
+void wsoh_pre_update(Entity& e) {
+  const Value motionless = e.motionless;
   if (!truthy(motionless) || !e.has_bearer()) return;
   e.set_bearer_motionless(Value(max(to_number(motionless), to_number(e.bearer_motionless()))));
 }
 
-Value wst_get_gravity(IStateEntity& e) {
+Value wst_get_gravity(Entity& e) {
   if (is_boomerang(e)) {
     return Value(round_float(to_number(e.dataset(u"weapon_throwing_gravity")) / 4.0));
   }
   return e.dataset(u"weapon_throwing_gravity");
 }
 
-void wst_enter(IStateEntity& e, const Value& prev_frame) {
+void wst_enter(Entity& e, const Value& prev_frame) {
   (void)prev_frame;
   e.leave_ground();
   e.set_drop_hurted(Value(false));
@@ -54,31 +55,31 @@ void wst_enter(IStateEntity& e, const Value& prev_frame) {
   }
 }
 
-void wst_on_landing(WeaponState_Base& self, IStateEntity& e, const Value& velocity) {
+void wst_on_landing(WeaponState_Base& self, Entity& e, const Value& velocity) {
   const Value landing = e.frame_on_landing();
   if (truthy(landing)) {
     e.enter_frame(landing);
     return;
   }
   // TS: indexes?.throw_on_ground || indexes?.just_on_ground
-  const Value throw_on_ground = e.data_indexes_throw_on_ground();
-  const Value just_on_ground = e.data_indexes_just_on_ground();
+  const Value throw_on_ground = e.data_indexes_of(u"throw_on_ground");
+  const Value just_on_ground = e.data_indexes_of(u"just_on_ground");
   self.hit_ground_rebouncing(e, truthy(throw_on_ground) ? throw_on_ground : just_on_ground,
                              velocity);
 }
 
-void wsis_enter(IStateEntity& e, const Value& prev_frame) {
+void wsis_enter(Entity& e, const Value& prev_frame) {
   (void)prev_frame;
   e.set_drop_hurted(Value(false));
 }
 
-void wsis_on_landing(WeaponState_Base& self, IStateEntity& e, const Value& velocity) {
+void wsis_on_landing(WeaponState_Base& self, Entity& e, const Value& velocity) {
   const Value landing = e.frame_on_landing();
   if (truthy(landing)) {
     e.enter_frame(landing);
     return;
   }
-  self.hit_ground_rebouncing(e, e.data_indexes_just_on_ground(), velocity);
+  self.hit_ground_rebouncing(e, e.data_indexes_of(u"just_on_ground"), velocity);
 }
 
 }
@@ -87,7 +88,7 @@ WeaponState_OnGround::WeaponState_OnGround(Value state) : WeaponState_Base(std::
   enter = &wsog_enter;
 }
 
-void WeaponState_OnGround::update(IStateEntity& e) { e.handle_ground_velocity_decay(); }
+void WeaponState_OnGround::update(Entity& e) { e.handle_ground_velocity_decay(); }
 
 WeaponState_OnHand::WeaponState_OnHand(Value state) : WeaponState_Base(std::move(state)) {
   pre_update = &wsoh_pre_update;
@@ -96,21 +97,21 @@ WeaponState_OnHand::WeaponState_OnHand(Value state) : WeaponState_Base(std::move
 WeaponState_Throwing::WeaponState_Throwing(Value state) : WeaponState_Base(std::move(state)) {
   get_gravity = &wst_get_gravity;
   enter = &wst_enter;
-  on_landing = [this](IStateEntity& e, const Value& velocity) {
+  on_landing = [this](Entity& e, const Value& velocity) {
     wst_on_landing(*this, e, velocity);
   };
 }
 
-void WeaponState_Throwing::update(IStateEntity& e) { e.handle_ground_velocity_decay(); }
+void WeaponState_Throwing::update(Entity& e) { e.handle_ground_velocity_decay(); }
 
 WeaponState_InTheSky::WeaponState_InTheSky(Value state) : WeaponState_Base(std::move(state)) {
   enter = &wsis_enter;
-  on_landing = [this](IStateEntity& e, const Value& velocity) {
+  on_landing = [this](Entity& e, const Value& velocity) {
     wsis_on_landing(*this, e, velocity);
   };
 }
 
-void WeaponState_InTheSky::update(IStateEntity& e) {
+void WeaponState_InTheSky::update(Entity& e) {
   e.handle_ground_velocity_decay();
 
   const double vy = e.velocity_y();
@@ -127,8 +128,8 @@ void WeaponState_InTheSky::update(IStateEntity& e) {
       (vy < -to_number(fast_y) || vy > to_number(fast_y) ||
        vx < -to_number(fast_x) || vx > to_number(fast_x) ||
        vz < -to_number(fast_z) || vz > to_number(fast_z))) {
-    const Value nf = e.find_align_frame(e.frame_id(), e.data_indexes_in_the_skys(),
-                                        e.data_indexes_throwings());
+    const Value nf = e.find_align_frame(to_string(e.frame_id()), e.data_indexes_of(u"in_the_skys"),
+                                        e.data_indexes_of(u"throwings"));
     if (truthy(nf)) {
       e.set_dropping(false);
       e.enter_frame(nf);

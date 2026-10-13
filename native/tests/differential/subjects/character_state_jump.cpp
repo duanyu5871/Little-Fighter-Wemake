@@ -7,6 +7,7 @@
 
 #include "lfw/buff/buff.h"
 #include "lfw/core/value.h"
+#include "lfw/entity/entity.h"
 #include "lfw/state/character_state_jump.h"
 #include "lfw/utils/container_help/field_or.h"
 
@@ -14,12 +15,13 @@
 
 namespace {
 
+using lfw::Array;
+using lfw::EnterFrameResult;
 using lfw::Object;
 using lfw::Value;
 using lfw::buff::Buff;
 using lfw::buff::BuffEnv;
 using lfw::state::CharacterState_Jump;
-using lfw::state::IStateEntity;
 using trace::parse_value;
 using trace::render_value;
 using trace::split_ws;
@@ -45,11 +47,21 @@ std::u16string value_text(const Value& v) {
   return s != nullptr ? *s : std::u16string();
 }
 
-struct FakeEnt : IStateEntity {
+// `world.dataset[key]`：TS 侧读 `this.world.dataset`（假实体在 Proxy 的 get 上打日志）；
+// 端口侧的缝是 `Entity::world_dataset` → `IEntityHost::world_dataset`（那条是虚的），
+// 这里用本地假宿主把读导向用例的 `dvals` 镜并打同一行日志。
+class FakeHost : public lfw::IEntityHost {
+ public:
+  Value world_dataset(const std::u16string& key) const override;
+};
+
+FakeHost g_host;
+
+// 切片 4CF：`state::IStateEntity` 退役 ⇒ 假实体改成**真 `lfw::Entity`**，只覆写虚成员；
+// 库要读、但没有虚读面的那几条（位置 / `ground_y` 以外的面）在台面配置时顺带写进真字段
+// （配置写入不产生日志，与 TS 侧直写 `f._x` 同款）。`data()` 返回引用 ⇒ 镜必须是成员。
+struct FakeEnt : lfw::Entity {
   std::u16string _id;
-  double _px = 0;
-  double _py = 0;
-  double _pz = 0;
   Value _gy;
   Value _jx;
   Value _jy;
@@ -63,28 +75,41 @@ struct FakeEnt : IStateEntity {
   Value _dvals;
   Value _onlanding;
   Value _landing1;
-  Value _state;
+  Value _data;
 
-  explicit FakeEnt(std::u16string id) : _id(std::move(id)) {}
+  explicit FakeEnt(std::u16string id) : lfw::Entity(g_host, Value()), _id(std::move(id)) {
+    this->id = _id;
+    rebuild_data();
+  }
 
-  void position(double& x, double& y, double& z) const override {
-    x = _px;
-    y = _py;
-    z = _pz;
+  void rebuild_data() {
+    Object indexes;
+    indexes.set(u"landing_1", _landing1);
+    Object d;
+    d.set(u"indexes", Value(std::make_shared<Object>(indexes)));
+    _data = Value(std::make_shared<Object>(d));
   }
-  void set_position(double x, double y, double z) override {
-    _px = x;
-    _py = y;
-    _pz = z;
+  const Value& data() const override { return _data; }
+
+  Value prev_frame_value() const {
+    Object o;
+    o.set(u"jump_flag", _jumpflag);
+    return Value(std::make_shared<Object>(o));
   }
-  void set_outline_color(const std::u16string& v) override {
-    g_log.push_back(s_of(_id) + ":outline_color:" + render(Value(v)));
+  // 状态面：`get_prev_frame()` / `update_velocity()` / `handle_ground_velocity_decay()` 都是虚的 ⇒
+  // 覆写即可（`prev_frame` 的返回值也由覆写给，不再需要 `set_prev_frame` 兜底）。
+  Value get_prev_frame() const override {
+    g_log.push_back(s_of(_id) + ":prev_frame");
+    return prev_frame_value();
   }
-  void enter_frame_by_id(const std::u16string& id) override {
-    g_log.push_back(s_of(_id) + ":enter_frame_by_id:" + render(Value(id)));
+  void update_velocity(const Value& v) override {
+    g_log.push_back(s_of(_id) + ":update_velocity:" + render(v));
   }
-  double velocity_x() const override { return lfw::to_number(Value()); }
-  Value velocity_z() const override { return Value(); }
+  void handle_ground_velocity_decay(double factor = 1) override {
+    (void)factor;
+    g_log.push_back(s_of(_id) + ":handle_ground_velocity_decay");
+  }
+
   double ground_y() const override { return lfw::to_number(_gy); }
   bool ctrl_is_bot() const override { return _bot; }
   bool ctrl_is_end(const std::u16string& key) const override {
@@ -101,34 +126,24 @@ struct FakeEnt : IStateEntity {
   void set_jumping_z(const Value& v) override { _jz = v; }
   Value jumping_t() const override { return _jt; }
   void set_jumping_t(const Value& v) override { _jt = v; }
-  Value prev_frame() const override {
-    g_log.push_back(s_of(_id) + ":prev_frame");
-    Object o;
-    o.set(u"jump_flag", _jumpflag);
-    return Value(std::make_shared<Object>(o));
-  }
   Value dataset(const std::u16string& key) const override {
     g_log.push_back(s_of(_id) + ":dataset:" + s_of(key));
     return lfw::field_or(_dvals, key.c_str());
   }
-  Value world_dataset(const std::u16string& key) const override {
-    g_log.push_back(s_of(_id) + ":world_dataset:" + s_of(key));
-    return lfw::field_or(_dvals, key.c_str());
-  }
   Value frame_on_landing() const override { return _onlanding; }
-  Value data_indexes_landing_1() const override { return _landing1; }
-  void enter_frame(const Value& frame) override {
-    g_log.push_back(s_of(_id) + ":enter_frame:" + render(frame));
+  EnterFrameResult enter_frame(const Value& nf, bool fallback = false) override {
+    (void)fallback;
+    g_log.push_back(s_of(_id) + ":enter_frame:" + render(nf));
+    return EnterFrameResult::Entered;
   }
-  void update_velocity(const Value& v) override {
-    g_log.push_back(s_of(_id) + ":update_velocity:" + render(v));
+  EnterFrameResult enter_frame_by_id(const Value& fid, bool fallback = false) override {
+    (void)fallback;
+    g_log.push_back(s_of(_id) + ":enter_frame_by_id:" + render(fid));
+    return EnterFrameResult::Entered;
   }
   void set_velocity(const Value& x, const Value& y, const Value& z) override {
     g_log.push_back(s_of(_id) + ":set_velocity:" + render(x) + ":" + render(y) + ":" +
                     render(z));
-  }
-  void handle_ground_velocity_decay() override {
-    g_log.push_back(s_of(_id) + ":handle_ground_velocity_decay");
   }
 };
 
@@ -137,10 +152,17 @@ Value g_state;
 Value g_velocity;
 CharacterState_Jump* g_obj = nullptr;
 
+Value FakeHost::world_dataset(const std::u16string& key) const {
+  // `Entity` 的构造函数会读一次 `world.dataset.atom_time`（那时台面还没有实体）⇒ 直接给空。
+  if (g_ent == nullptr) return Value();
+  g_log.push_back(s_of(g_ent->_id) + ":world_dataset:" + s_of(key));
+  return lfw::field_or(g_ent->_dvals, key.c_str());
+}
+
 std::string state_text() {
   const FakeEnt& e = *g_ent;
-  return "pos=[" + num(e._px) + ":" + num(e._py) + ":" + num(e._pz) + "] gy=" +
-         render(e._gy) + " jx=" + render(e._jx) + " jy=" + render(e._jy) +
+  return "pos=[" + num(e.position.x) + ":" + num(e.position.y) + ":" + num(e.position.z) +
+         "] gy=" + render(e._gy) + " jx=" + render(e._jx) + " jy=" + render(e._jy) +
          " jz=" + render(e._jz) + " jt=" + render(e._jt);
 }
 
@@ -189,9 +211,9 @@ int main(int argc, char** argv) {
         g_state = parse_value(t, i);
       } else if (sub == "pos") {
         const Value v = parse_value(t, i);
-        g_ent->_px = lfw::to_number(lfw::field_or(v, u"x"));
-        g_ent->_py = lfw::to_number(lfw::field_or(v, u"y"));
-        g_ent->_pz = lfw::to_number(lfw::field_or(v, u"z"));
+        g_ent->position.set(lfw::to_number(lfw::field_or(v, u"x")),
+                            lfw::to_number(lfw::field_or(v, u"y")),
+                            lfw::to_number(lfw::field_or(v, u"z")));
       } else if (sub == "gy") {
         g_ent->_gy = parse_value(t, i);
       } else if (sub == "jx") {
@@ -218,6 +240,7 @@ int main(int argc, char** argv) {
         g_ent->_onlanding = parse_value(t, i);
       } else if (sub == "landing1") {
         g_ent->_landing1 = parse_value(t, i);
+        g_ent->rebuild_data();
       } else if (sub == "vel") {
         g_velocity = parse_value(t, i);
       } else {

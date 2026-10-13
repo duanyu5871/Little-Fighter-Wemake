@@ -1,25 +1,31 @@
+#include <cmath>
 #include <cstdio>
 #include <fstream>
+#include <limits>
 #include <memory>
+#include <optional>
 #include <string>
 #include <variant>
 #include <vector>
 
 #include "lfw/buff/buff.h"
 #include "lfw/core/value.h"
+#include "lfw/entity/entity.h"
 #include "lfw/state/weapon_state_misc.h"
 #include "lfw/utils/container_help/field_or.h"
 
+#include "entity_fixture.h"
 #include "trace_util.h"
 
 namespace {
 
 using lfw::Array;
 using lfw::Object;
+using lfw::Entity;
+using lfw::EnterFrameResult;
 using lfw::Value;
 using lfw::buff::Buff;
 using lfw::buff::BuffEnv;
-using lfw::state::IStateEntity;
 using lfw::state::WeaponState_Base;
 using lfw::state::WeaponState_InTheSky;
 using lfw::state::WeaponState_OnGround;
@@ -45,11 +51,28 @@ std::string join(const std::vector<std::string>& xs) {
   return out;
 }
 
-struct FakeEnt : IStateEntity {
+// 切片 4CF：状态族窄接口退役 ⇒ 台面假实体派生真 `lfw::Entity`（见 DESIGN §142），只覆写
+// 实体面上确实存在的那几条读/写（TS 台面同样只给这几条，见 `weapon_state_misc.ts`）。
+//
+// 两条实体面口径偏差（与 TS 的任意值语义对不上的地方，台面自己补）：
+//   * `motionless` 在实体面是 `double` 字段（TS 是任意值）⇒「真值但数值化是 NaN」这一档
+//     （用例里的 `s "abc"`）只能记成占位 `1`：`wsoh_pre_update` 的 `if (!motionless)` 与 TS
+//     一致地过，要复刻的 `max("abc", …) === NaN` 由 `bearer_motionless()` 侧给 `NaN`。
+//   * `set_team` 收 `std::u16string`（库里 `to_string(e.lfw_new_team())`）⇒ TS 的 `undefined`
+//     到这儿成了字面量 `"undefined"`，台面映回 `undefined`（状态行打 `u`）。
+//   * `Entity::handle_ground_velocity_decay` 虽已随状态面虚化（切片 4CF 收尾），本台面仍走旧路子：
+//     真实现要读六个 friction `dataset` 键（TS 假件把整条换掉、不读），所以那六个键在这里被吞掉，
+//     日志由虚方法 `handle_velocity_decay` 补（见下面 `dataset` / `handle_velocity_decay` 的注释）。
+//   * `frame_id()` 是非虚读面（读实体自己的 `frame`）⇒ 由 `set_fid` 把镜像灌进实体。
+struct FakeEnt : Entity {
+  // 台面镜像：与 TS 台面的后备字段一一对应（`undefined` 记为默认 `Value()`）。
   std::u16string _id;
   Value _team;
   Value _new_team;
   Value _motionless;
+  bool _motionless_nan = false;
+  double _motionless_field = 0;
+  mutable bool _in_ground_decay = false;
   bool _has_bearer = false;
   Value _bmotion;
   Value _dh;
@@ -73,28 +96,18 @@ struct FakeEnt : IStateEntity {
   Value _ithrow;
   Value _gval;
 
-  explicit FakeEnt(std::u16string id) : _id(std::move(id)) {}
+  explicit FakeEnt(std::u16string id) : Entity(fx::shared_host(), Value()) {
+    _id = std::move(id);
+    this->id = _id;
+  }
 
-  void position(double& x, double& y, double& z) const override {
-    x = 0;
-    y = 0;
-    z = 0;
-  }
-  void set_position(double x, double y, double z) override {
-    (void)x;
-    (void)y;
-    (void)z;
-  }
-  void set_outline_color(const std::u16string& v) override {
-    g_log.push_back(s_of(_id) + ":outline_color:" + render(Value(v)));
-  }
-  void enter_frame_by_id(const std::u16string& id) override {
-    g_log.push_back(s_of(_id) + ":enter_frame_by_id:" + render(Value(id)));
-  }
-  Value data() const override {
+  // --- 实体面：库读的那几条 -------------------------------------------------
+  // TS 的 `get data`：`_indexes_flag` 假值 ⇒ `indexes` 是 `undefined`（表的四项一起没）。
+  // `data()` 收 `const Value&` ⇒ 镜像必须是成员，不能返回临时量。
+  const Value& data() const override {
     Object o;
-    Object indexes;
     if (lfw::truthy(_indexes_flag)) {
+      Object indexes;
       indexes.set(u"throw_on_ground", _throw_on_ground);
       indexes.set(u"just_on_ground", _just_on_ground);
       indexes.set(u"in_the_skys", _isky);
@@ -102,65 +115,123 @@ struct FakeEnt : IStateEntity {
       o.set(u"indexes", Value(std::make_shared<Object>(indexes)));
     }
     o.set(u"base", _base);
-    return Value(std::make_shared<Object>(o));
+    _data_mirror = Value(std::make_shared<Object>(o));
+    return _data_mirror;
   }
   Value state() const override { return _vstate; }
+  // TS 的 `dataset(key)` 只把 `weapon_throwing_gravity` 答成 `_gval`，其余 `undefined`。
+  // 六个 friction 键是 `Entity::handle_ground_velocity_decay()` 的头三读（本台面没把它改名覆写，
+  // 真实现还在跑）：让真实现读空值并记账，日志由虚方法 `handle_velocity_decay` 补
+  // （同 `state_base_proxy.cpp` 的口径）。
   Value dataset(const std::u16string& key) const override {
+    if (key == u"friction_factor" || key == u"land_friction_factor" || key == u"friction_x" ||
+        key == u"land_friction_x" || key == u"friction_z" || key == u"land_friction_z") {
+      if (key == u"friction_factor" || key == u"land_friction_factor") _in_ground_decay = true;
+      return Value();
+    }
     g_log.push_back(s_of(_id) + ":dataset:" + s_of(key));
     if (key == std::u16string(u"weapon_throwing_gravity")) return _gval;
     return Value();
   }
-  Value hp() const override { return Value(_hp); }
-  void set_hp(const Value& v) override { _hp = lfw::to_number(v); }
-  Value hp_r() const override { return Value(_hpr); }
-  void set_hp_r(const Value& v) override { _hpr = lfw::to_number(v); }
-  Value team() const override { return _team; }
-  void set_team(const Value& v) override { _team = v; }
+  double hp() const override { return _hp; }
+  double hp_r() const override { return _hpr; }
   Value lfw_new_team() const override { return _new_team; }
   double velocity_y() const override { return lfw::to_number(_vely); }
   double velocity_x() const override { return lfw::to_number(_velx); }
-  Value velocity_z() const override { return _velz; }
+  double velocity_z() const override { return lfw::to_number(_velz); }
+  bool has_bearer() const override { return _has_bearer; }
+  // 见上面「`motionless` 口径偏差」：非数字真值那一档的 `max` 结果由这儿给 `NaN`。
+  Value bearer_motionless() const override {
+    if (_motionless_nan) return Value(std::numeric_limits<double>::quiet_NaN());
+    return _bmotion;
+  }
+  Value frame_on_landing() const override { return _onlanding; }
+  Value frame_behavior() const override { return _behavior; }
+  Value data_base() const override { return _base; }
+  // `base_type` 在实体面是原生 `double`（TS 台面的后备字段是任意值）⇒ 过 `to_number`
+  // （`undefined` 记成 `NaN`，与 TS 的「表里没有这个键」同义）。
+  double base_type() const override { return lfw::to_number(_wt); }
+
+  // --- 实体面：库写的那几条（TS 台面的同名 setter 也是「只记下来」）------------
+  void set_hp(double v) override { _hp = v; }
+  void set_hp_r(double v) override { _hpr = v; }
+  void set_team(std::u16string v) override {
+    _team = (v == u"undefined") ? Value() : Value(std::move(v));
+  }
   void set_velocity(const Value& x, const Value& y, const Value& z) override {
     g_log.push_back(s_of(_id) + ":set_velocity:" + render(x) + ":" + render(y) + ":" +
                     render(z));
   }
-  Value motionless() const override { return _motionless; }
-  bool has_bearer() const override { return _has_bearer; }
-  Value bearer_motionless() const override { return _bmotion; }
   void set_bearer_motionless(const Value& v) override { _bmotion = v; }
-  Value drop_hurted() const override { return _dh; }
-  void set_drop_hurted(const Value& v) override { _dh = v; }
-  void set_dropping(bool v) override { _dropping = Value(v); }
+  // `drop_hurted` / `dropping` 在实体面是字段（库直接读）⇒ 后备镜像与字段一起写。
+  void set_drop_hurted(const Value& v) override { set_dh(v); }
+  void set_dropping(bool v) override {
+    dropping = v;
+    _dropping = Value(v);
+  }
   void leave_ground() override { g_log.push_back(s_of(_id) + ":leave_ground"); }
-  Value frame_on_landing() const override { return _onlanding; }
-  Value frame_behavior() const override { return _behavior; }
-  Value frame_id() const override { return _fid; }
-  Value data_base() const override { return _base; }
-  Value base_type() const override { return _wt; }
-  Value data_indexes_throw_on_ground() const override {
-    return lfw::truthy(_indexes_flag) ? _throw_on_ground : Value();
-  }
-  Value data_indexes_just_on_ground() const override {
-    return lfw::truthy(_indexes_flag) ? _just_on_ground : Value();
-  }
-  Value data_indexes_in_the_skys() const override {
-    return lfw::truthy(_indexes_flag) ? _isky : Value();
-  }
-  Value data_indexes_throwings() const override {
-    return lfw::truthy(_indexes_flag) ? _ithrow : Value();
-  }
-  void enter_frame(const Value& frame) override {
+  EnterFrameResult enter_frame(const Value& frame, bool fallback = false) override {
+    (void)fallback;
     g_log.push_back(s_of(_id) + ":enter_frame:" + render(frame));
+    return EnterFrameResult::NotFound;
   }
-  Value find_align_frame(const Value& fid, const Value& throwings,
-                         const Value& in_the_skys) override {
-    g_log.push_back(s_of(_id) + ":find_align_frame:" + render(fid) + ":" + render(throwings) +
-                    ":" + render(in_the_skys));
+  EnterFrameResult enter_frame_by_id(const Value& id, bool fallback = false) override {
+    (void)fallback;
+    g_log.push_back(s_of(_id) + ":enter_frame_by_id:" + render(id));
+    return EnterFrameResult::NotFound;
+  }
+  // 库的两处调用点实参顺序不同（`hit_ground_rebouncing` 是 (fid, throwings, in_the_skys)、
+  // `InTheSky::update` 是 (fid, in_the_skys, throwings)），所以日志按**收到的顺序**打，
+  // 与 TS 台面一致。
+  Value find_align_frame(const std::u16string& fid, const Value& second,
+                         const Value& third) const override {
+    g_log.push_back(s_of(_id) + ":find_align_frame:" + render(Value(fid)) + ":" +
+                    render(second) + ":" + render(third));
     return _align;
   }
-  void handle_ground_velocity_decay() override {
+  // 同 `state_base_proxy.cpp` 的口径：`Entity::handle_ground_velocity_decay` 现在虽是虚的，本台面
+  // 仍不改名成同名覆写——真实现那六个 friction `dataset` 读已经被 `dataset` 覆写吞掉了，日志就从
+  // 它的最后一步（**虚**方法 `handle_velocity_decay`）取，并跳过真实衰减（TS 假件把整条换掉）。
+  void handle_velocity_decay(const Value& accx, std::optional<Value> accz,
+                             double factor) override {
+    (void)accx;
+    (void)accz;
+    (void)factor;
+    if (!_in_ground_decay) return;
+    _in_ground_decay = false;
     g_log.push_back(s_of(_id) + ":handle_ground_velocity_decay");
   }
+  // --- 用例面：后备字段 → 实体面（库直接读字段/非虚读面的那几条）---------------
+  void set_dh(const Value& v) {
+    _dh = v;
+    drop_hurted = lfw::truthy(v);
+  }
+  void set_dropping_env(bool v) {
+    dropping = v;
+    _dropping = Value(v);
+  }
+  // 见上面「`motionless` 口径偏差」：非数字真值记占位 `1`，`NaN` 由 bearer 侧给。
+  void set_motionless_env(const Value& v) {
+    _motionless = v;
+    const double d = lfw::to_number(v);
+    _motionless_nan = std::isnan(d) && lfw::truthy(v);
+    _motionless_field = _motionless_nan ? 1.0 : d;
+  }
+  // `wsoh_pre_update` 直接读实体的 `motionless` 字段 ⇒ 只在 `pre_update` 期间把它摆上去：
+  // `Entity::handle_ground_velocity_decay()` 的早退守卫（`shaking` / `motionless` 非零即退）
+  // 读同一个字段，而那条守卫在 TS 假件上不存在（整条换掉了），驱动完就放掉。
+  void apply_motionless() { motionless = _motionless_field; }
+  void clear_motionless() { motionless = 0; }
+  // `frame_id()` 是实体上的非虚读面（读实体自己的 `frame`）⇒ 把镜像灌进实体。
+  void set_fid(const Value& v) {
+    _fid = v;
+    Object o;
+    o.set(u"id", _fid);
+    frame = Value(std::make_shared<Object>(o));
+  }
+
+ private:
+  mutable Value _data_mirror;
 };
 
 FakeEnt* g_ent = nullptr;
@@ -231,15 +302,15 @@ int main(int argc, char** argv) {
       } else if (sub == "team") {
         g_ent->_team = parse_value(t, i);
       } else if (sub == "motionless") {
-        g_ent->_motionless = parse_value(t, i);
+        g_ent->set_motionless_env(parse_value(t, i));
       } else if (sub == "bearer") {
         g_ent->_has_bearer = lfw::truthy(parse_value(t, i));
       } else if (sub == "bmotion") {
         g_ent->_bmotion = parse_value(t, i);
       } else if (sub == "dh") {
-        g_ent->_dh = parse_value(t, i);
+        g_ent->set_dh(parse_value(t, i));
       } else if (sub == "dropping") {
-        g_ent->_dropping = Value(lfw::truthy(parse_value(t, i)));
+        g_ent->set_dropping_env(lfw::truthy(parse_value(t, i)));
       } else if (sub == "hp") {
         g_ent->_hp = trace::to_double(t[i++]);
       } else if (sub == "hpr") {
@@ -251,7 +322,7 @@ int main(int argc, char** argv) {
       } else if (sub == "behavior") {
         g_ent->_behavior = parse_value(t, i);
       } else if (sub == "fid") {
-        g_ent->_fid = parse_value(t, i);
+        g_ent->set_fid(parse_value(t, i));
       } else if (sub == "onlanding") {
         g_ent->_onlanding = parse_value(t, i);
       } else if (sub == "vstate") {
@@ -310,7 +381,10 @@ int main(int argc, char** argv) {
         if (g_obj->on_landing) g_obj->on_landing(*g_ent, g_velocity);
         std::printf("run landing || %s | %s\n", join(g_log).c_str(), state_text().c_str());
       } else if (what == "preupdate") {
+        // `motionless` 只在这次调用期间按 TS 的值摆上实体字段（见 `apply_motionless` 的注释）。
+        g_ent->apply_motionless();
         if (g_obj->pre_update) g_obj->pre_update(*g_ent);
+        g_ent->clear_motionless();
         std::printf("run preupdate || %s | %s\n", join(g_log).c_str(), state_text().c_str());
       } else if (what == "gravity") {
         const Value r = g_obj->get_gravity ? g_obj->get_gravity(*g_ent) : Value();

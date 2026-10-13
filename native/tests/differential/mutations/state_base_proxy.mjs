@@ -166,14 +166,14 @@ export default {
     {
       note: "update is not dispatched",
       file: "native/lfw/state/state_base_proxy.cpp",
-      from: "void StateBase_Proxy::update(IStateEntity& e) { get_proxy(e).update(e); }",
-      to: "void StateBase_Proxy::update(IStateEntity& e) { (void)e; }",
+      from: "void StateBase_Proxy::update(Entity& e) { get_proxy(e).update(e); }",
+      to: "void StateBase_Proxy::update(Entity& e) { (void)e; }",
     },
     {
       note: "update is dispatched to the plain state",
       file: "native/lfw/state/state_base_proxy.cpp",
-      from: "void StateBase_Proxy::update(IStateEntity& e) { get_proxy(e).update(e); }",
-      to: "void StateBase_Proxy::update(IStateEntity& e) { _proxy.update(e); }",
+      from: "void StateBase_Proxy::update(Entity& e) { get_proxy(e).update(e); }",
+      to: "void StateBase_Proxy::update(Entity& e) { _proxy.update(e); }",
     },
     {
       note: "State_15 does not use the Normal state",
@@ -227,7 +227,7 @@ export default {
       note: "frozen enter never installs the wrapper",
       file: "native/lfw/state/state_base_proxy.cpp",
       from: "  const auto super_enter = enter;",
-      to: "  const std::function<void(IStateEntity&, const Value&)> super_enter = nullptr;",
+      to: "  const std::function<void(Entity&, const Value&)> super_enter = nullptr;",
     },
     {
       note: "frozen leave skips the parent",
@@ -256,8 +256,8 @@ export default {
     {
       note: "frozen leave does not call the parent at all",
       file: "native/lfw/state/state_base_proxy.cpp",
-      from: "void State_Frozen::leave(IStateEntity& e, const Value& next_frame) {\n  StateBase_Proxy::leave(e, next_frame);",
-      to: "void State_Frozen::leave(IStateEntity& e, const Value& next_frame) {\n  (void)next_frame;",
+      from: "void State_Frozen::leave(Entity& e, const Value& next_frame) {\n  StateBase_Proxy::leave(e, next_frame);",
+      to: "void State_Frozen::leave(Entity& e, const Value& next_frame) {\n  (void)next_frame;",
     },
     {
       note: "frozen landing ignores the frame",
@@ -304,14 +304,14 @@ export default {
     {
       note: "the bouncing index key is wrong",
       file: "native/lfw/state/state_base_proxy.cpp",
-      from: "    e.enter_frame_by_id(to_string(index_0(index_by(e.data_indexes_bouncing(), u\"-1\"))));",
-      to: "    e.enter_frame_by_id(to_string(index_0(index_by(e.data_indexes_bouncing(), u\"1\"))));",
+      from: "    e.enter_frame_by_id(to_string(index_0(index_by(e.data_indexes_of(u\"bouncing\"), u\"-1\"))));",
+      to: "    e.enter_frame_by_id(to_string(index_0(index_by(e.data_indexes_of(u\"bouncing\"), u\"1\"))));",
     },
     {
       note: "the bouncing index is not taken from the list",
       file: "native/lfw/state/state_base_proxy.cpp",
-      from: "    e.enter_frame_by_id(to_string(index_0(index_by(e.data_indexes_bouncing(), u\"-1\"))));",
-      to: "    e.enter_frame_by_id(to_string(index_by(e.data_indexes_bouncing(), u\"-1\")));",
+      from: "    e.enter_frame_by_id(to_string(index_0(index_by(e.data_indexes_of(u\"bouncing\"), u\"-1\"))));",
+      to: "    e.enter_frame_by_id(to_string(index_by(e.data_indexes_of(u\"bouncing\"), u\"-1\")));",
     },
     {
       note: "the frozen bounce does not reset the velocity",
@@ -328,14 +328,14 @@ export default {
     {
       note: "the frozen bounce does not hurt",
       file: "native/lfw/state/state_base_proxy.cpp",
-      from: "    e.set_hp(Value(to_number(e.hp()) - 10));",
-      to: "    e.set_hp(Value(to_number(e.hp())));",
+      from: "    e.set_hp(e.hp() - 10);",
+      to: "    e.set_hp(e.hp());",
     },
     {
       note: "the frozen bounce hurts by the wrong amount",
       file: "native/lfw/state/state_base_proxy.cpp",
-      from: "    e.set_hp(Value(to_number(e.hp()) - 10));",
-      to: "    e.set_hp(Value(to_number(e.hp()) - 1));",
+      from: "    e.set_hp(e.hp() - 10);",
+      to: "    e.set_hp(e.hp() - 1);",
     },
     {
       note: "the state frozen default argument is wrong",

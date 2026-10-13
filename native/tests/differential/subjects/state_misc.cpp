@@ -10,6 +10,7 @@
 #include "lfw/state/state_misc.h"
 #include "lfw/utils/container_help/field_or.h"
 
+#include "entity_fixture.h"
 #include "trace_util.h"
 
 namespace {
@@ -19,7 +20,6 @@ using lfw::buff::Buff;
 using lfw::buff::BuffEnv;
 using lfw::state::BallState_Base;
 using lfw::state::CharacterState_TransformToLouisEX;
-using lfw::state::IStateEntity;
 using lfw::state::State_Base;
 using lfw::state::State_TransformTo8XXX;
 using lfw::state::State_TransformToCatching;
@@ -50,8 +50,10 @@ Value marker_frame() {
   return Value(std::make_shared<lfw::Object>(o));
 }
 
-struct FakeEnt : IStateEntity {
-  std::u16string _id;
+// 切片 4CF：状态族窄接口退役 ⇒ 假实体派生真 `lfw::Entity`（构造用 `fx::shared_host()` 再钉
+// `this->id`），只覆写实体面上确实存在的那几条虚方法（`transform` / `transfrom_to_another`
+// 现在是虚的，直接覆写）。
+struct FakeEnt : lfw::Entity {
   Value _state;
   Value _data;
   Value _find_data;
@@ -63,66 +65,64 @@ struct FakeEnt : IStateEntity {
   Value _vy;
   Value _vz;
 
-  explicit FakeEnt(std::u16string id) : _id(std::move(id)) {}
+  explicit FakeEnt(std::u16string id) : lfw::Entity(fx::shared_host(), Value()) {
+    this->id = std::move(id);
+  }
 
-  void position(double& x, double& y, double& z) const override {
-    x = 0;
-    y = 0;
-    z = 0;
-  }
-  void set_position(double x, double y, double z) override {
-    (void)x;
-    (void)y;
-    (void)z;
-  }
-  void set_outline_color(const std::u16string& v) override {
-    g_log.push_back(s_of(_id) + ":outline_color:" + render(Value(v)));
-  }
-  void enter_frame_by_id(const std::u16string& id) override {
-    g_log.push_back(s_of(_id) + ":enter_frame_by_id:" + render(Value(id)));
-  }
+  const Value& data() const override { return _data; }
   Value state() const override { return _state; }
-  Value data() const override { return _data; }
-  Value data_type() const override { return lfw::field_or(_data, u"type"); }
   Value datas_find(const std::u16string& oid) override {
-    g_log.push_back(s_of(_id) + ":datas_find:" + s_of(oid));
+    g_log.push_back(s_of(id) + ":datas_find:" + s_of(oid));
     return _find_data;
   }
   Value datas_find_fighter(const std::u16string& oid) override {
-    g_log.push_back(s_of(_id) + ":datas_find_fighter:" + s_of(oid));
+    g_log.push_back(s_of(id) + ":datas_find_fighter:" + s_of(oid));
     return _find_fighter;
   }
   void transform(const Value& data) override {
-    g_log.push_back(s_of(_id) + ":transform:" + render(data));
+    g_log.push_back(s_of(id) + ":transform:" + render(data));
     lfw::Object o;
     o.set(u"type", _transform_type);
-    _data = Value(std::make_shared<lfw::Object>(o));
+    _data = Value(std::make_shared<lfw::Object>(std::move(o)));
   }
-  Value find_auto_frame() override {
-    g_log.push_back(s_of(_id) + ":find_auto_frame");
+  bool transfrom_to_another(const std::optional<Value>& data = std::nullopt) override {
+    (void)data;
+    g_log.push_back(s_of(id) + ":transfrom_to_another");
+    return false;
+  }
+  Value find_auto_frame() const override {
+    g_log.push_back(s_of(id) + ":find_auto_frame");
     return marker_frame();
   }
-  void transfrom_to_another() override {
-    g_log.push_back(s_of(_id) + ":transfrom_to_another");
-  }
-  void set_shaking(const Value& v) override {
-    _shaking = v;
-    g_log.push_back(s_of(_id) + ":set_shaking:" + render(v));
-  }
-  void set_motionless(const Value& v) override {
-    _motionless = v;
-    g_log.push_back(s_of(_id) + ":set_motionless:" + render(v));
-  }
   void world_callbacks_call(const std::u16string& name) override {
-    g_log.push_back(s_of(_id) + ":world_callbacks_call:" + s_of(name));
+    g_log.push_back(s_of(id) + ":world_callbacks_call:" + s_of(name));
   }
-  void enter_frame(const Value& frame) override {
-    g_log.push_back(s_of(_id) + ":enter_frame:" + render(frame));
+  lfw::EnterFrameResult enter_frame(const Value& frame_value,
+                                    bool fallback = false) override {
+    (void)fallback;
+    g_log.push_back(s_of(id) + ":enter_frame:" + render(frame_value));
+    return lfw::EnterFrameResult::NotFound;
+  }
+  lfw::EnterFrameResult enter_frame_by_id(const Value& id_value,
+                                          bool fallback = false) override {
+    (void)fallback;
+    g_log.push_back(s_of(id) + ":enter_frame_by_id:" + render(id_value));
+    return lfw::EnterFrameResult::NotFound;
+  }
+  Entity& set_shaking(double v) override {
+    _shaking = Value(v);
+    g_log.push_back(s_of(id) + ":set_shaking:" + render(Value(v)));
+    return *this;
+  }
+  Entity& set_motionless(double v) override {
+    _motionless = Value(v);
+    g_log.push_back(s_of(id) + ":set_motionless:" + render(Value(v)));
+    return *this;
   }
   double velocity_x() const override { return lfw::to_number(_vx); }
-  Value velocity_z() const override { return _vz; }
+  double velocity_z() const override { return lfw::to_number(_vz); }
   void set_velocity(const Value& x, const Value& y, const Value& z) override {
-    g_log.push_back(s_of(_id) + ":set_velocity:" + render(x) + ":" + render(y) + ":" + render(z));
+    g_log.push_back(s_of(id) + ":set_velocity:" + render(x) + ":" + render(y) + ":" + render(z));
     if (!std::holds_alternative<std::monostate>(x) && !std::holds_alternative<lfw::NullTag>(x)) {
       _vx = x;
     }
@@ -143,7 +143,7 @@ State_Base* g_state_obj = nullptr;
 
 FakeEnt* find_ent(const std::u16string& id) {
   for (size_t i = 0; i < g_ents.size(); ++i) {
-    if (g_ents[i]->_id == id) return g_ents[i];
+    if (g_ents[i]->id == id) return g_ents[i];
   }
   return nullptr;
 }

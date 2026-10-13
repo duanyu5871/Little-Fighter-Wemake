@@ -45,20 +45,20 @@ export default {
     {
       note: "the ground state enter keeps the old team",
       file: "native/lfw/state/weapon_state_misc.cpp",
-      from: "  e.set_team(e.lfw_new_team());",
+      from: "  e.set_team(to_string(e.lfw_new_team()));",
       to: "  e.set_team(e.team());",
     },
     {
       note: "the new team is not read",
       file: "native/lfw/state/weapon_state_misc.cpp",
-      from: "  e.set_team(e.lfw_new_team());",
-      to: "  e.set_team(Value());",
+      from: "  e.set_team(to_string(e.lfw_new_team()));",
+      to: "  e.set_team(std::u16string());",
     },
     {
       note: "the ground state update skips the decay",
       file: "native/lfw/state/weapon_state_misc.cpp",
-      from: "void WeaponState_OnGround::update(IStateEntity& e) { e.handle_ground_velocity_decay(); }",
-      to: "void WeaponState_OnGround::update(IStateEntity& e) { (void)e; }",
+      from: "void WeaponState_OnGround::update(Entity& e) { e.handle_ground_velocity_decay(); }",
+      to: "void WeaponState_OnGround::update(Entity& e) { (void)e; }",
     },
     // ---- WeaponState_OnHand ----
     {
@@ -119,8 +119,8 @@ export default {
     {
       note: "the boomerang test is inverted in get_gravity",
       file: "native/lfw/state/weapon_state_misc.cpp",
-      from: "Value wst_get_gravity(IStateEntity& e) {\n  if (is_boomerang(e)) {",
-      to: "Value wst_get_gravity(IStateEntity& e) {\n  if (!is_boomerang(e)) {",
+      from: "Value wst_get_gravity(Entity& e) {\n  if (is_boomerang(e)) {",
+      to: "Value wst_get_gravity(Entity& e) {\n  if (!is_boomerang(e)) {",
     },
     {
       note: "the boomerang test is strict",
@@ -185,8 +185,8 @@ export default {
     {
       note: "the throwing update skips the decay",
       file: "native/lfw/state/weapon_state_misc.cpp",
-      from: "void WeaponState_Throwing::update(IStateEntity& e) { e.handle_ground_velocity_decay(); }",
-      to: "void WeaponState_Throwing::update(IStateEntity& e) { (void)e; }",
+      from: "void WeaponState_Throwing::update(Entity& e) { e.handle_ground_velocity_decay(); }",
+      to: "void WeaponState_Throwing::update(Entity& e) { (void)e; }",
     },
     {
       note: "the throwing landing drops the velocity argument",
@@ -234,20 +234,20 @@ export default {
     {
       note: "enter sets drop_hurted instead of clearing it",
       file: "native/lfw/state/weapon_state_misc.cpp",
-      from: "void wsis_enter(IStateEntity& e, const Value& prev_frame) {\n  (void)prev_frame;\n  e.set_drop_hurted(Value(false));\n}",
-      to: "void wsis_enter(IStateEntity& e, const Value& prev_frame) {\n  (void)prev_frame;\n  e.set_drop_hurted(Value(true));\n}",
+      from: "void wsis_enter(Entity& e, const Value& prev_frame) {\n  (void)prev_frame;\n  e.set_drop_hurted(Value(false));\n}",
+      to: "void wsis_enter(Entity& e, const Value& prev_frame) {\n  (void)prev_frame;\n  e.set_drop_hurted(Value(true));\n}",
     },
     {
       note: "enter does not reset drop_hurted",
       file: "native/lfw/state/weapon_state_misc.cpp",
-      from: "void wsis_enter(IStateEntity& e, const Value& prev_frame) {\n  (void)prev_frame;\n  e.set_drop_hurted(Value(false));\n}",
-      to: "void wsis_enter(IStateEntity& e, const Value& prev_frame) {\n  (void)prev_frame;\n}",
+      from: "void wsis_enter(Entity& e, const Value& prev_frame) {\n  (void)prev_frame;\n  e.set_drop_hurted(Value(false));\n}",
+      to: "void wsis_enter(Entity& e, const Value& prev_frame) {\n  (void)prev_frame;\n}",
     },
     {
       note: "the sky landing uses throw_on_ground",
       file: "native/lfw/state/weapon_state_misc.cpp",
-      from: "  self.hit_ground_rebouncing(e, e.data_indexes_just_on_ground(), velocity);",
-      to: "  self.hit_ground_rebouncing(e, e.data_indexes_throw_on_ground(), velocity);",
+      from: "  self.hit_ground_rebouncing(e, e.data_indexes_of(u\"just_on_ground\"), velocity);",
+      to: "  self.hit_ground_rebouncing(e, e.data_indexes_of(u\"throw_on_ground\"), velocity);",
     },
     {
       note: "the sky landing drops the velocity argument",
@@ -258,8 +258,8 @@ export default {
     {
       note: "the sky update skips the decay",
       file: "native/lfw/state/weapon_state_misc.cpp",
-      from: "void WeaponState_InTheSky::update(IStateEntity& e) {\n  e.handle_ground_velocity_decay();\n\n  const double vy = e.velocity_y();",
-      to: "void WeaponState_InTheSky::update(IStateEntity& e) {\n\n  const double vy = e.velocity_y();",
+      from: "void WeaponState_InTheSky::update(Entity& e) {\n  e.handle_ground_velocity_decay();\n\n  const double vy = e.velocity_y();",
+      to: "void WeaponState_InTheSky::update(Entity& e) {\n\n  const double vy = e.velocity_y();",
     },
     {
       note: "the heavy guard is dropped",
@@ -372,14 +372,14 @@ export default {
     {
       note: "the align source frame is not the current one",
       file: "native/lfw/state/weapon_state_misc.cpp",
-      from: "    const Value nf = e.find_align_frame(e.frame_id(), e.data_indexes_in_the_skys(),",
-      to: "    const Value nf = e.find_align_frame(Value(), e.data_indexes_in_the_skys(),",
+      from: "    const Value nf = e.find_align_frame(to_string(e.frame_id()), e.data_indexes_of(u\"in_the_skys\"),",
+      to: "    const Value nf = e.find_align_frame(std::u16string(), e.data_indexes_of(u\"in_the_skys\"),",
     },
     {
       note: "the throwing and sky index arguments are swapped",
       file: "native/lfw/state/weapon_state_misc.cpp",
-      from: "    const Value nf = e.find_align_frame(e.frame_id(), e.data_indexes_in_the_skys(),\n                                        e.data_indexes_throwings());",
-      to: "    const Value nf = e.find_align_frame(e.frame_id(), e.data_indexes_throwings(),\n                                        e.data_indexes_in_the_skys());",
+      from: "    const Value nf = e.find_align_frame(to_string(e.frame_id()), e.data_indexes_of(u\"in_the_skys\"),\n                                        e.data_indexes_of(u\"throwings\"));",
+      to: "    const Value nf = e.find_align_frame(to_string(e.frame_id()), e.data_indexes_of(u\"throwings\"),\n                                        e.data_indexes_of(u\"in_the_skys\"));",
     },
     {
       note: "the align frame is entered unconditionally",

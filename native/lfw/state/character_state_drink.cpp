@@ -6,6 +6,7 @@
 #include "lfw/defines/frame_id.h"
 #include "lfw/entity/drink_info.h"
 #include "lfw/utils/math/base.h"
+#include "lfw/entity/entity.h"
 
 namespace lfw {
 namespace state {
@@ -21,7 +22,7 @@ Value next_frame(const Value& id) {
 
 CharacterState_Drink::CharacterState_Drink(Value state) : CharacterState_Base(std::move(state)) {}
 
-void CharacterState_Drink::update(IStateEntity& e) {
+void CharacterState_Drink::update(Entity& e) {
   CharacterState_Base::update(e);
   if (!e.has_holding()) return;
   DrinkInfo* drink = e.holding_drink();
@@ -31,18 +32,18 @@ void CharacterState_Drink::update(IStateEntity& e) {
   const bool hp_r_empty = drink->hp_r_empty();
   const bool mp_h_empty = drink->mp_h_empty();
   if (!hp_h_empty && drink->hp_h_ticks().add()) {
-    e.set_hp(Value(min(to_number(e.hp_max()),
-                       to_number(e.hp()) + to_number(drink->hp_h_value()))));
+    e.set_hp(min(e.hp_max(),
+                       e.hp() + to_number(drink->hp_h_value())));
     drink->set_hp_h(Value(to_number(drink->hp_h()) + to_number(drink->hp_h_value())));
   }
   if (!hp_r_empty && drink->hp_r_ticks().add()) {
-    e.set_hp_r(Value(min(to_number(e.hp_max()),
-                         to_number(e.hp_r()) + to_number(drink->hp_r_value()))));
+    e.set_hp_r(min(e.hp_max(),
+                         e.hp_r() + to_number(drink->hp_r_value())));
     drink->set_hp_r(Value(to_number(drink->hp_r()) + to_number(drink->hp_r_value())));
   }
   if (!mp_h_empty && drink->mp_h_ticks().add()) {
-    e.set_mp(Value(min(to_number(e.mp_max()),
-                       to_number(e.mp()) + to_number(drink->mp_h_value()))));
+    e.set_mp(min(e.mp_max(),
+                       e.mp() + to_number(drink->mp_h_value())));
     drink->set_mp_h(Value(to_number(drink->mp_h()) + to_number(drink->mp_h_value())));
   }
   if (hp_h_empty && hp_r_empty && mp_h_empty) {

@@ -7,6 +7,7 @@
 #include "lfw/entity/entity_type_check.h"
 #include "lfw/state/spawn_ice_piece.h"
 #include "lfw/utils/container_help/field_or.h"
+#include "lfw/entity/entity.h"
 
 namespace lfw {
 namespace state {
@@ -47,7 +48,7 @@ Value sound_list(const char16_t* path) {
   return Value(arr);
 }
 
-void sf_on_landing(IStateEntity& e, const Value& velocity) {
+void sf_on_landing(Entity& e, const Value& velocity) {
   const Value landing = e.frame_on_landing();
   if (truthy(landing)) {
     e.enter_frame(landing);
@@ -55,9 +56,9 @@ void sf_on_landing(IStateEntity& e, const Value& velocity) {
   }
   const Value vy = field_or(velocity, u"y");
   if (to_number(vy) <= to_number(e.world_dataset(u"cha_bc_tst_spd_y")) * 2) {
-    e.enter_frame_by_id(to_string(index_0(index_by(e.data_indexes_bouncing(), u"-1"))));
+    e.enter_frame_by_id(to_string(index_0(index_by(e.data_indexes_of(u"bouncing"), u"-1"))));
     e.set_velocity(Value(NullTag{}), e.world_dataset(u"cha_bc_spd"), Value());
-    e.set_hp(Value(to_number(e.hp()) - 10));
+    e.set_hp(e.hp() - 10);
   }
 }
 
@@ -74,54 +75,54 @@ StateBase_Proxy::StateBase_Proxy(Value state,
       _weapon_proxy(state),
       _ball_proxy(state),
       _proxy(state) {
-  pre_update = [this](IStateEntity& e) {
+  pre_update = [this](Entity& e) {
     State_Base& p = get_proxy(e);
     if (p.pre_update) p.pre_update(e);
   };
-  enter = [this](IStateEntity& e, const Value& prev_frame) {
+  enter = [this](Entity& e, const Value& prev_frame) {
     State_Base& p = get_proxy(e);
     if (p.enter) p.enter(e, prev_frame);
   };
-  on_dead = [this](IStateEntity& e) {
+  on_dead = [this](Entity& e) {
     State_Base& p = get_proxy(e);
     if (p.on_dead) p.on_dead(e);
   };
-  on_landing = [this](IStateEntity& e, const Value& velocity) {
+  on_landing = [this](Entity& e, const Value& velocity) {
     State_Base& p = get_proxy(e);
     if (p.on_landing) p.on_landing(e, velocity);
   };
-  get_gravity = [this](IStateEntity& e) {
+  get_gravity = [this](Entity& e) {
     State_Base& p = get_proxy(e);
     if (p.get_gravity) return p.get_gravity(e);
     return Value();
   };
-  get_sudden_death_frame = [this](IStateEntity& e) {
+  get_sudden_death_frame = [this](Entity& e) {
     State_Base& p = get_proxy(e);
     if (p.get_sudden_death_frame) return p.get_sudden_death_frame(e);
     return Value();
   };
-  get_caught_end_frame = [this](IStateEntity& e) {
+  get_caught_end_frame = [this](Entity& e) {
     State_Base& p = get_proxy(e);
     if (p.get_caught_end_frame) return p.get_caught_end_frame(e);
     return Value();
   };
-  get_auto_frame = [this](IStateEntity& e) {
+  get_auto_frame = [this](Entity& e) {
     State_Base& p = get_proxy(e);
     if (p.get_auto_frame) return p.get_auto_frame(e);
     return Value();
   };
-  find_frame_by_id = [this](IStateEntity& e, const Value& id) {
+  find_frame_by_id = [this](Entity& e, const Value& id) {
     State_Base& p = get_proxy(e);
     if (p.find_frame_by_id) return p.find_frame_by_id(e, id);
     return Value();
   };
-  on_leave_ground = [this](IStateEntity& e) {
+  on_leave_ground = [this](Entity& e) {
     State_Base& p = get_proxy(e);
     if (p.on_leave_ground) p.on_leave_ground(e);
   };
 }
 
-State_Base& StateBase_Proxy::get_proxy(IStateEntity& e) {
+State_Base& StateBase_Proxy::get_proxy(Entity& e) {
   const Value data = e.data();
   if (entity::is_fighter_data(data)) return *_character_proxy;
   if (entity::is_weapon_data(data)) return _weapon_proxy;
@@ -129,13 +130,13 @@ State_Base& StateBase_Proxy::get_proxy(IStateEntity& e) {
   return _proxy;
 }
 
-void StateBase_Proxy::update(IStateEntity& e) { get_proxy(e).update(e); }
+void StateBase_Proxy::update(Entity& e) { get_proxy(e).update(e); }
 
-void StateBase_Proxy::leave(IStateEntity& e, const Value& next_frame) {
+void StateBase_Proxy::leave(Entity& e, const Value& next_frame) {
   get_proxy(e).leave(e, next_frame);
 }
 
-void StateBase_Proxy::on_restrict(IStateEntity& e, double x, double y, double z) {
+void StateBase_Proxy::on_restrict(Entity& e, double x, double y, double z) {
   get_proxy(e).on_restrict(e, x, y, z);
 }
 
@@ -143,7 +144,7 @@ State_15::State_15() : StateBase_Proxy(Value(static_cast<double>(StateEnum::Norm
 
 State_Frozen::State_Frozen(Value state) : StateBase_Proxy(state) {
   const auto super_enter = enter;
-  enter = [super_enter](IStateEntity& e, const Value& prev_frame) {
+  enter = [super_enter](Entity& e, const Value& prev_frame) {
     if (super_enter) super_enter(e, prev_frame);
     if (e.has_catcher()) e.catcher_drop_catching();
     if (equals(e.holding_base_type(), Value(static_cast<double>(WeaponEnum::Heavy)))) {
@@ -154,7 +155,7 @@ State_Frozen::State_Frozen(Value state) : StateBase_Proxy(state) {
   on_landing = &sf_on_landing;
 }
 
-void State_Frozen::leave(IStateEntity& e, const Value& next_frame) {
+void State_Frozen::leave(Entity& e, const Value& next_frame) {
   StateBase_Proxy::leave(e, next_frame);
   e.play_sound(sound_list(u"data/066.wav.mp3"));
   e.apply_opoints(ice_piece_opoints());

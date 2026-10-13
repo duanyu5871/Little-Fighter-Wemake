@@ -13,14 +13,14 @@ class CharacterState_Standing : public CharacterState_Base {
  public:
   explicit CharacterState_Standing(Value state = Value(static_cast<double>(StateEnum::Standing)))
       : CharacterState_Base(std::move(state)) {}
-  void update(IStateEntity& e) override;
+  void update(Entity& e) override;
 };
 
 class CharacterState_Running : public CharacterState_Base {
  public:
   explicit CharacterState_Running(Value state = Value(static_cast<double>(StateEnum::Running)))
       : CharacterState_Base(std::move(state)) {}
-  void update(IStateEntity& e) override;
+  void update(Entity& e) override;
 };
 
 class CharacterState_Injured : public CharacterState_Base {

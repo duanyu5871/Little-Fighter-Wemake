@@ -13,7 +13,7 @@ class CharacterState_Walking : public CharacterState_Base {
  public:
   explicit CharacterState_Walking(Value state = Value(static_cast<double>(StateEnum::Walking)))
       : CharacterState_Base(std::move(state)) {}
-  void update(IStateEntity& e) override;
+  void update(Entity& e) override;
 };
 
 }

@@ -12,7 +12,7 @@ namespace state {
 class CharacterState_Jump : public CharacterState_Base {
  public:
   explicit CharacterState_Jump(Value state = Value(static_cast<double>(StateEnum::Jump)));
-  void update(IStateEntity& e) override;
+  void update(Entity& e) override;
 };
 
 }

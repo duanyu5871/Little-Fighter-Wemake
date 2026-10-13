@@ -10,6 +10,7 @@
 #include "lfw/utils/container_help/field_or.h"
 #include "lfw/utils/math/base.h"
 #include "lfw/utils/math/round_float.h"
+#include "lfw/entity/entity.h"
 
 namespace lfw {
 namespace state {
@@ -60,23 +61,23 @@ Value next_frame(const Value& id) {
   return Value(std::make_shared<Object>(o));
 }
 
-Value wsb_get_auto_frame(IStateEntity& e) {
+Value wsb_get_auto_frame(Entity& e) {
   if (!e.has_data_indexes()) return Value();
-  if (e.is_on_ground()) return index_by(e.data_frames(), to_string(e.data_indexes_on_ground()));
-  return index_by(e.data_frames(), to_string(index_0(e.data_indexes_in_the_skys())));
+  if (e.is_on_ground) return index_by(e.data_frames(), to_string(e.data_indexes_of(u"on_ground")));
+  return index_by(e.data_frames(), to_string(index_0(e.data_indexes_of(u"in_the_skys"))));
 }
 
-void wsb_on_landing(IStateEntity& e, const Value& velocity) {
+void wsb_on_landing(Entity& e, const Value& velocity) {
   (void)velocity;
   const Value landing = e.frame_on_landing();
   if (truthy(landing)) {
     e.enter_frame(landing);
     return;
   }
-  e.enter_frame_by_id(to_string(e.data_indexes_on_ground()));
+  e.enter_frame_by_id(to_string(e.data_indexes_of(u"on_ground")));
 }
 
-void wsb_on_leave_ground(IStateEntity& e) {
+void wsb_on_leave_ground(Entity& e) {
   e.enter_frame(next_frame(Value(std::u16string(frame_id::kAuto))));
 }
 
@@ -88,11 +89,11 @@ WeaponState_Base::WeaponState_Base(Value state) : State_Base(std::move(state)) {
   on_leave_ground = &wsb_on_leave_ground;
 }
 
-void WeaponState_Base::update(IStateEntity& e) {
+void WeaponState_Base::update(Entity& e) {
   e.handle_ground_velocity_decay();
 }
 
-void WeaponState_Base::hit_ground_rebouncing(IStateEntity& e, const Value& nf,
+void WeaponState_Base::hit_ground_rebouncing(Entity& e, const Value& nf,
                                              const Value& velocity) {
   const double vy = to_number(field_or(velocity, u"y"));
   const double vx = to_number(field_or(velocity, u"x"));
@@ -122,12 +123,12 @@ void WeaponState_Base::hit_ground_rebouncing(IStateEntity& e, const Value& nf,
   const double dvx = round_float(vx * to_number(bounce_x));
   const double dvz = round_float(vz * to_number(bounce_z));
 
-  if (!truthy(e.drop_hurted())) {
+  if (!e.drop_hurted) {
     e.set_drop_hurted(Value(true));
     if (truthy(field_or(base, u"drop_hurt"))) {
       const Value hurt = field_or(base, u"drop_hurt");
-      e.set_hp(Value(to_number(e.hp()) - to_number(hurt)));
-      e.set_hp_r(Value(to_number(e.hp_r()) - to_number(hurt)));
+      e.set_hp(e.hp() - to_number(hurt));
+      e.set_hp_r(e.hp_r() - to_number(hurt));
     }
   }
   const bool is_bounce =
@@ -146,8 +147,8 @@ void WeaponState_Base::hit_ground_rebouncing(IStateEntity& e, const Value& nf,
       dvy > -to_number(fast_y) && dvy < to_number(fast_y) &&
       dvx > -to_number(fast_x) && dvx < to_number(fast_x) &&
       dvz > -to_number(fast_z) && dvz < to_number(fast_z)) {
-    const Value align = e.find_align_frame(e.frame_id(), e.data_indexes_throwings(),
-                                          e.data_indexes_in_the_skys());
+    const Value align = e.find_align_frame(to_string(e.frame_id()), e.data_indexes_of(u"throwings"),
+                                          e.data_indexes_of(u"in_the_skys"));
     if (truthy(align)) e.enter_frame(align);
   }
 }
