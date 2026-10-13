@@ -326,6 +326,41 @@ int main(int argc, char** argv) {
   std::printf("[lfw_run] stage=%s bg=%s entities=%zu\n", to_utf8(stage_id).c_str(),
               to_utf8(bg_id).c_str(), world.entities.size());
 
+  // ---- 诊断：bg / stage / 每个实体的 bound -------------------------------------------
+  // bot 的 `get_bound()`（`can_back_off` / `cornered` / `should_chase`）与
+  // `lock_when_stand_and_rest`（bg 的 width/near/far）都吃这些值，所以先打出来。
+  if (const lfw::Background* const bg = world.bg()) {
+    std::printf(
+        "[bg] id=%s name=%s size=(%.1f, %.1f, %.1f) planes=(near=%.1f far=%.1f) "
+        "left/right=(%.1f, %.1f) zoom=(%.2f, %.2f, %.2f) layers=%zu update_times=%.1f "
+        "layer_data_index=%.1f\n",
+        to_utf8(lfw::to_string(bg->id())).c_str(), to_utf8(lfw::to_string(bg->name())).c_str(),
+        bg->width(), bg->height(), bg->depth(), bg->near_plane(), bg->far_plane(), bg->left(),
+        bg->right(), bg->zoom_x(), bg->zoom_y(), bg->zoom_z(), bg->layers().size(),
+        bg->update_times(), bg->layer_data_index());
+  } else {
+    std::printf("[bg] none\n");
+  }
+  if (const lfw::Stage* const stage = world.stage()) {
+    std::printf(
+        "[stage] team=%s player=(%.1f, %.1f) enemy=(%.1f, %.1f) drink=(%.1f, %.1f) "
+        "planes=(near=%.1f far=%.1f)\n",
+        to_utf8(lfw::to_string(stage->team())).c_str(), stage->player_l, stage->player_r,
+        stage->enemy_l, stage->enemy_r, stage->drink_l, stage->drink_r, stage->near_plane(),
+        stage->far_plane());
+  } else {
+    std::printf("[stage] none\n");
+  }
+  for (Entity* const e : world.entities) {
+    if (e == nullptr) continue;
+    const std::vector<double> b = world.get_bound(*e);
+    std::printf("[bound] %s team=%s type=%s bot=%d l=%.1f r=%.1f near=%.1f far=%.1f\n",
+                to_utf8(e->id).c_str(), to_utf8(e->team()).c_str(),
+                to_utf8(lfw::to_string(e->data_type())).c_str(), e->ctrl_is_bot() ? 1 : 0,
+                b.size() > 0 ? b[0] : 0.0, b.size() > 1 ? b[1] : 0.0, b.size() > 2 ? b[2] : 0.0,
+                b.size() > 3 ? b[3] : 0.0);
+  }
+
   // ---- 推帧 ----
   const double ups = num_field(world.dataset.get(u"UPS"), 60.0);
   const double dt = 1000.0 / (ups > 0 ? ups : 60.0);
@@ -338,6 +373,20 @@ int main(int argc, char** argv) {
       digest = frame_digest(world, frame);
       std::printf("[frame %6d] entities=%zu ghosts=%zu hp=%.1f digest=%s\n", frame,
                   world.entities.size(), world.ghosts.size(), total_hp(world), digest.c_str());
+      // 诊断行：各实体的 state / frame.id / 位置 + bg 运动（看帧链有没有在推进）
+      std::printf("[  state]");
+      for (Entity* const e : world.entities) {
+        if (e == nullptr) continue;
+        std::printf(" %s{state=%s frame=%s x=%.1f y=%.1f hp=%.0f bot=%d}", to_utf8(e->id).c_str(),
+                    to_utf8(lfw::to_string(e->state())).c_str(),
+                    to_utf8(lfw::to_string(e->frame_id())).c_str(), e->position.x, e->position.y,
+                    e->hp(), e->ctrl_is_bot() ? 1 : 0);
+      }
+      if (const lfw::Background* const bg = world.bg()) {
+        std::printf(" | bg{update_times=%.1f layer_data_index=%.1f left=%.1f right=%.1f}",
+                    bg->update_times(), bg->layer_data_index(), bg->left(), bg->right());
+      }
+      std::printf("\n");
     }
   }
 
