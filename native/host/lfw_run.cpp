@@ -203,10 +203,12 @@ int main(int argc, char** argv) {
     }
     return 2;
   }
-  std::printf("[lfw_run] loaded: fighters=%zu weapons=%zu balls=%zu entities=%zu stages=%zu bg=%zu\n",
-              lfw.datas().fighters().size(), lfw.datas().weapons().size(), lfw.datas().balls().size(),
-              lfw.datas().entities().size(), lfw.datas().stages().size(),
-              lfw.datas().backgrounds().size());
+  std::printf(
+      "[lfw_run] loaded: fighters=%zu weapons=%zu balls=%zu entities=%zu stages=%zu bg=%zu bots=%zu "
+      "moves=%zu\n",
+      lfw.datas().fighters().size(), lfw.datas().weapons().size(), lfw.datas().balls().size(),
+      lfw.datas().entities().size(), lfw.datas().stages().size(),
+      lfw.datas().backgrounds().size(), lfw.datas().bots().size(), lfw.datas().moves().size());
   if (args.dump) {
     const auto dump = [](const char* tag, const std::vector<Value>& list) {
       for (size_t i = 0; i < list.size() && i < 2; ++i) {
@@ -219,6 +221,19 @@ int main(int argc, char** argv) {
     dump("stage", lfw.datas().stages());
     dump("fighter", lfw.datas().fighters());
     dump("bg", lfw.datas().backgrounds());
+    // 所有 id 一行一个：挑 `--fighter` / `--stage` 时用。
+    const auto ids = [](const char* tag, const std::vector<Value>& list) {
+      std::printf("[ids] %s (%zu):", tag, list.size());
+      for (const Value& v : list) {
+        const Value id_v = lfw::field_or(v, u"id");
+        const std::u16string* const id = as_str(id_v);
+        std::printf(" %s", id != nullptr ? to_utf8(*id).c_str() : "?");
+      }
+      std::printf("\n");
+    };
+    ids("stage", lfw.datas().stages());
+    ids("fighter", lfw.datas().fighters());
+    ids("bg", lfw.datas().backgrounds());
   }
 
   lfw::World& world = lfw.world();

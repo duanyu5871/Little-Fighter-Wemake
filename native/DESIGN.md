@@ -10578,15 +10578,103 @@ lfw_run --root dist --zip build/host-data/prel --frames 300 --every 100
 1. 宿主不渲染 / 不出声 / 不解图 / 不接指针：`ui_image_load` 给零尺寸占位并计数，`md5` 是
    占位哈希，`Ditto.Cache` 只在内存里，`zip_*`（下载 / 读 blob / 缓存）一律「没有」——
    所以只走 `ZipItem{path, IZip*}` 这条**对象**加载路，不走 `load_zip_from_url`。
-2. `ToolXML::parse` 未搬 ⇒ `xml_parse` 恒失败；`DatMgr` 对失败是**致命**的（照抄 TS 的
-   `throw`）⇒ 带 `.xml` 的完整数据包加载不了。
+2. ~~`ToolXML::parse` 未搬 ⇒ `xml_parse` 恒失败~~ **已由 §140 补上**（本刀当时因此装不了带
+   `.xml` 的完整数据包）。
 3. `--zip` 必须给**已解包**目录（README 里给了 `Expand-Archive` 两行），压缩包本体留到
    后面那刀。
 
 ### 139.5 下一刀
 
-**`ToolXML::parse`（XML 文本 → `IXMLElement` 树）**：完整数据包里有 12 个 `.xml`（7 个 bg：
-football_field / moon / move_table / nekketsu_f_01 / octagon / pixel_ruler / sys/bc；5 把武器：
-basketball / book_*），`DatMgr` 读到第一个就整包失败。搬完它就能 `--zip data` 起完整数据包
-（100+ 角色、真 bot、真舞台），而 `lfw_run` 一行都不用改——它已经走
-`host.xml_parse → ToolXML::parse`。
+**`ToolXML::parse`（XML 文本 → `IXMLElement` 树）** —— **已做，见 §140**：完整数据包现在能装
+（26 fighters / 28 stages / 16 bg），`lfw_run` 一行都没改（它走的就是
+`host.xml_parse → ToolXML::parse`）。再往下的入口见 §140.6：给 `parse` 加一条专门的对拍
+用例、或走「喂输入」把真对打跑起来。
+
+## 140. 切片 4XML：`ToolXML::parse`（XML 文本 → `IXMLElement`）
+
+**背景**：`I.Ditto.XML.parse` 是**宿主服务**（浏览器 `DOMParser` / Node 侧 fast-xml-parser），
+端口早先只搬了「用 `create` / `from_*` 搭树」那条路，`ToolXML::parse` 一直是 `nullptr`
+（`i_xml.h` 记着「读真实文件的那条路等 parse 的刀」）。§139 的 headless 入口一装完整
+`data.zip` 就撞上它：包里有 12 个 `.xml`（7 个 bg、5 把武器），`DatMgr` 对加载失败是**致命**的
+（照抄 TS 的 `throw`）⇒ 读到第一个 `basketball.obj.xml` 整包失败。本刀把 parse 搬掉。
+
+### 140.1 口径从哪来
+
+TS 侧是 `tool/src/xml/ToolXML.ts`：
+
+```ts
+new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_', ignoreDeclaration: true,
+                removeNSPrefix: true, allowBooleanAttributes: true,
+                parseTagValue: false, trimValues: false })
+parse(text) { const data = parser.parse(text.replace(/<!--[\s\S]*?-->/g, ''))
+              const rootKey = Object.keys(data)[0]
+              if (!rootKey) throw new Error('No root element found in XML')
+              return this._convert(data[rootKey], rootKey) }
+```
+
+`_convert` 的语义（端口照抄）：**属性 → 文本 → 子元素**；`@_x` 去前缀当属性名（值
+`String(value)`）、`#text` 当直接文本、其余键当子元素（数组则按序展开）。所以「XML 文本 →
+元素树」这个映射的全部巧妙处都在 fast-xml-parser 的**形状**里：元素只有直接文本时它是**裸
+字符串**、有属性时才出现 `#text`、空白**保留**、`ns:` 前缀去掉、无值属性是布尔 `true`。
+
+### 140.2 形状口径（在真机上用 fast-xml-parser 探针测出来的）
+
+| 输入 | fxp 输出 | 端口对应 |
+|---|---|---|
+| `<a>hello</a>` | `{"a":"hello"}` | 文本 = `hello` |
+| `<a/>` / `<a></a>` | `{"a":""}` | 文本 = `""` |
+| `<a x='1'>hello</a>` | `{"a":{"#text":"hello","@_x":"1"}}` | 属性 + 文本 |
+| `<a>\n  <b>1</b>\n  <b>2</b>\n</a>` | `{"a":{"b":["1","2"],"#text":"\n  \n  \n"}}` | 子元素按序 + **空白保留** |
+| `<a>x<b/>y</a>` | `{"a":{"b":"","#text":"xy"}}` | 直接文本**拼接**（子元素内部文本不并进来） |
+| `<a>&amp;&lt;&#65;&#x42;</a>` | `{"a":"&<&#65;&#x42;"}` | 只解五个命名实体；**数字引用照抄** |
+| `<a><![CDATA[<b>raw</b>]]></a>` | `{"a":"<b>raw</b>"}` | CDATA 内容原样当文本 |
+| `<a flag>t</a>` | `{"a":{"#text":"t","@_flag":true}}` | 无值属性 ⇒ `String(true)` = `"true"` |
+| `<ns:a ns:x='1'>t</ns:a>` | `{"a":{"#text":"t","@_x":"1"}}` | 标签/属性都去 `ns:` 前缀 |
+| `<?xml …?><root><c/></root>` | `{"root":{"c":""}}` | 声明整段丢，取第一个顶层元素 |
+
+端口直接建 `ToolXMLElement` 树（不再中转 JSON）：`XmlReader` 逐字符扫（注释/CDATA/声明/
+DOCTYPE/闭合/开标签），属性值解命名实体，`convert()` 按 `_convert` 的顺序铺（属性 → 文本 →
+子元素）。一个顶层元素都没有 ⇒ `nullptr`（TS 是 `throw`），宿主把它转成失败。
+
+### 140.3 宿主侧
+
+`HeadlessHost::xml_parse` 原来在 `root == nullptr` 时报「parse 没搬」；现在改成
+`ToolXML::_xml.parse()` + `marker = Value(true)`（`Resources::import_xml` 判的就是这个真值，
+等价 TS 的 `if (!root) throw ...`）。台面（差分 subject）本来就把 `xml_parse` 脚本化成
+「按文本查 `xtree`」，不受影响。
+
+### 140.4 实测
+
+```
+lfw_run --root dist --zip build/host-data/prel --zip build/host-data/data \
+        --fighter 1 --fighter 4 --stage 1 --frames 900 --every 300
+  loaded: fighters=26 weapons=19 balls=24 entities=5 stages=28 bg=16
+  spawn p1 1 @(-80,0,0) team=1；spawn p2 4 @(80,0,0) team=2
+  stage=1 bg=bg_2 entities=6
+  [frame 899] entities=6 hp=1200.0 digest=eeecc812075e8b74
+```
+
+* **完整数据包能装了**：26 个 fighters、19 weapons、24 balls、5 entities、28 stages、16 bg，
+  12 个 `.xml`（含 `basketball.obj.xml` 这种带 `dataset/value` 嵌套的）全部过。
+* 舞台实体也起来了：`stage=1` 时 `entities=6`（2 个玩家 + 4 个 `team_13` 的关卡兵）。
+* 逐位可复现：同参数连跑三次「表数量 + 摘要」一致。
+* 回归：差分 **254/254**、lint **9776 ok / 0 bad anchors**。
+
+### 140.5 偏差
+
+1. 只解五个命名实体（见 140.2 的表）——数字引用照抄，与 fast-xml-parser 相同。
+2. 命名空间只做「去 `ns:` 前缀」，没有 `xmlns` 语义（真实数据不用命名空间）。
+3. 宽容度：闭合标签与栈顶不同名 ⇒ 忽略这次闭合（fxp 本身宽容）；`<!DOCTYPE …>` 跳到下一个
+   `>`（数据里没有）。畸形输入下的行为可能与 fxp 不同，格式良好的输入一致。
+
+### 140.6 还没验的
+
+* 现在没有**专门**对拍 `parse` 的差分用例（现有 `xml` 相关 subject 都把 `xml_parse` 脚本化成
+  「按文本查 `xtree`」）。本刀的对齐证据是「12 个真实 `.xml` 全部解析成功、且下游
+  `xml_2_bg_data` / `xml_2_entity_data` 产出的数据能驱动世界跑 900 帧」。要把它钉死的话，
+  下一刀可以加一个 `xml_parse` subject：喂同一份 XML，两侧打印树。**要不要加，按当前
+  「少测试、多实现」的口径由作者定。**
+* 真对打（掉血）还没看到：数据其实是齐的（`bots=22`、`moves=24` 都装进来了，`stage=1` 也起来了
+  4 个 `team_13` 的关卡兵），但两个 bot 战士只是**走到敌人旁边站着**（`state` 停在 0/2、双方
+  血量不动）。下一步要么顺着 `BotController` 查「为什么不出招」，要么改走「喂键盘输入」那条
+  路（`LocalController` + `Keys`）——后者还能顺手把「可复现的对打录像」立起来。

@@ -10,9 +10,9 @@ namespace lfw {
 
 // Mirrors `src/LFW/ditto/xml/IXML.ts`（宿主服务接口，同 `IXMLElement`）。
 //
-// 端口偏差：`parse(text)` 的语义来自 fast-xml-parser（tool 实现）／浏览器 `DOMParser`，
-// 两边的细节都不小 ⇒ 本刀**还没搬**（`ToolXML::parse` 给 `nullptr`，见其注释）；用例按
-// 「用 `create` / `from_*` 搭树」的口径走，读真实文件的那条路等 parse 的刀。
+// `parse(text)` 的语义来自 fast-xml-parser（tool 实现）／浏览器 `DOMParser`，两边的细节都不小
+// ⇒ 端口把 **tool 那份**（`ToolXML::parse`）搬成默认实现，形状口径（空白、实体、CDATA、
+// 命名空间前缀、无值属性）见 `tool_xml.h`。浏览器版的差异（真实 DOM 语义）不在端口范围内。
 class IXML {
  public:
   virtual ~IXML() = default;

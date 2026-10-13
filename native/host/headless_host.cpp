@@ -333,11 +333,12 @@ bool HeadlessHost::xml_parse(const Value& text, Value& marker, std::shared_ptr<I
   }
   root = _xml.parse(*s);
   if (root == nullptr) {
-    // `ToolXML::parse` 还没搬（见 `i_xml.h`）⇒ `.xml` 形式的资源（少数 bg / obj / ui 页）读不了。
-    error = u"[host] xml_parse: ToolXML::parse is not ported yet (XML resources unavailable)";
+    // TS：`const root = I.Ditto.XML.parse(text); if (!root) throw ...`。
+    error = u"failed to parse xml text (no root element)";
     return false;
   }
-  marker = Value();
+  // `marker` 顶 TS 的 `root` 真值：`Resources::import_xml` 判它假值就报「failed to parse」。
+  marker = Value(true);
   return true;
 }
 

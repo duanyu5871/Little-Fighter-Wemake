@@ -255,9 +255,17 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
 （`--time` 给时钟初值 = `MersenneTwister` 的种子）。渲染 / 音频 / 指针 / UI 图片在
 headless 宿主里是空实现（会计数并在结尾报一行）。
 
-⚠️ `--zip ...\data`（完整数据包）目前**加载不了**：包里有 12 个 `.xml`（7 个 bg、5 把武器），
-而 `ToolXML::parse` 还没搬（见 `i_xml.h`）⇒ 读到第一个 `.obj.xml` 就整包失败。
-`prel` 包里没有 xml（除 `ui/entry_page.ui.xml`，不在 load 路径上），所以能跑通。
+⚠️ 完整数据包（`--zip ...\data`）现在**能加载**了：包里的 12 个 `.xml`（7 个 bg、5 把武器）走
+`host.xml_parse → ToolXML::parse`（已搬，见 DESIGN §140）。两个包一起装：
+
+```
+native\build\msvc-x64\bin\lfw_run.exe --root dist ^
+  --zip native\build\host-data\prel --zip native\build\host-data\data ^
+  --fighter 1 --fighter 4 --stage 1 --frames 900 --every 300
+# loaded: fighters=26 weapons=19 balls=24 entities=5 stages=28 bg=16
+```
+
+（`--dump` 会打印各表前两条与全部 id，挑 `--fighter` / `--stage` 用。）
 
 ---
 
@@ -299,7 +307,8 @@ headless 宿主里是空实现（会计数并在结尾报一行）。
 | 3 | `loader/get_val_*` 余下部分（`get_val_from_bot_ctrl` / `get_val_getter_from_stage` 要等 `BotController` / `Stage`） | 待做 |
 | 4r | `controller/BallController` + `helper/closer_one` | ✅ 通过（`entity/ball_ctrl` 174 行；49 条变异全杀） |
 | 4 | `entity` + `collision` + `buff` + `state` + `controller` + `bot` + `World` | 待做（**必须整块搬**，见下） |
-| 4宿主 | 步骤 4 **宿主接入（M1：headless 可运行）**：`host/` 的 `FsZip`（目录当 zip）+ `HeadlessHost`（`ILfwHost` 最小实现：读盘 import / `ToolXML` / 手动时钟 / 空渲染）+ `lfw_run`（装包 → 起世界 → 手动推帧 → 摘要） | ✅ 通过（`prel` 包：2 个 gim 起 `tutorial` 舞台，300 帧逐位可复现；差分 **254/254**；lint 9776/0）。顺带补上两处**只在真跑时才现形**的移植缺口：`Entity.ts` 底部那四句模块级 `Factory.register_entity` 与 `IWorldLfw::acquire_entity` 缝。完整数据包卡在 `ToolXML::parse`（未搬）⇒ 下一刀 |
+| 4宿主 | 步骤 4 **宿主接入（M1：headless 可运行）**：`host/` 的 `FsZip`（目录当 zip）+ `HeadlessHost`（`ILfwHost` 最小实现：读盘 import / `ToolXML` / 手动时钟 / 空渲染）+ `lfw_run`（装包 → 起世界 → 手动推帧 → 摘要） | ✅ 通过（`prel` 包：2 个 gim 起 `tutorial` 舞台，300 帧逐位可复现；差分 **254/254**；lint 9776/0）。顺带补上两处**只在真跑时才现形**的移植缺口：`Entity.ts` 底部那四句模块级 `Factory.register_entity` 与 `IWorldLfw::acquire_entity` 缝 |
+| 4XML | 步骤 4 **`ToolXML::parse`（XML 文本 → `IXMLElement`）**：fast-xml-parser 那套选项的形状口径（直接文本保留空白并按序拼、属性走 `String(value)`、无值属性 `"true"`、`ns:` 前缀去掉、CDATA 原样、只解五个命名实体），注释先剥、声明/PI/DOCTYPE 跳过 | ✅ 通过（完整 `data.zip` 现在能装：`fighters=26 weapons=19 balls=24 entities=5 stages=28 bg=16`；`--fighter 1 --fighter 4 --stage 1` 900 帧逐位可复现；差分 **254/254**；lint 9776/0）。细节见 DESIGN §140 |
 | 4主干 | 步骤 4 **主干**（宿主层：`stage/` 与 `World` / `LFW` / `Factory` / `Resources` / `Camera` / `Keys` **之前**能单独搬的部分，按依赖序：`I18N` → `loader/get_import_fallbacks` → `PlayerInfo` → `Camera` → `ZipMgr` → `Resources` → `Factory` → `stage/*` → `World` → `LFW`） | 进行中（`I18N` + `loader/get_import_fallbacks` ✅ 262 行 / 67 全杀；`PlayerInfo` ✅ 270 行 / 76 全杀；`ZipMgr` ✅ 114 行 / 33 全杀；`Camera` ✅ 369 行 / 93 全杀；`Resources` ✅ 136 行 / 44 全杀；`Factory` ✅ 92 行 / 35 全杀；`stage/Expressions` + `stage/Status` + `bg/{Background,Layer}` ✅ 70 + 83 行 / 46 全杀；`stage/Item` ✅ 622 行 / 93 全杀；`stage/Stage` ✅ 1045 行 / 108 全杀；`World`（状态与查询那半）✅ 638 行 / 133 全杀；`World::step` + `update_once` + `catch_up` + `start_update` + `Entity::release`（**非碰撞配对**那半；配对与 `collision_get` / `collisions_keeper.handle` 留给 4L）✅ 用例 315 行 / 95 全杀） |
 
 **步骤 2–4 是修正过的。** 把 `import type` 排除后算运行时依赖图，得到两个关键事实：
@@ -354,7 +363,9 @@ headless 宿主里是空实现（会计数并在结尾报一行）。
 | `host/FsZip` | 只吃「已解包」的目录；压缩包本体（中央目录 / DEFLATE / md5 校验）未做 | M1 先用 `Expand-Archive` 出来的目录跑通（DESIGN §139.4） |
 | `host/` 的 `zip_*` | 下载 / 读 blob / zip 缓存一律「没有」⇒ 只走 `ZipItem{path, IZip*}` 这条**对象**加载路 | 宿主没有 blob / 下载层（DESIGN §139.4）；`load_zip_from_url` 那条路等 zip 那刀 |
 | `Entity.ts` 底部的模块级 `Factory.register_entity` | 端口用 `entity.cpp` 里一次**静态初始化**顶「模块副作用」 | C++ 没有模块初始化；时间点必须早于任何用户代码，差分台面靠「后注册覆盖」与 TS 对齐（DESIGN §139.2） |
-| `host/ToolXML::parse` | 未搬 ⇒ 宿主 `xml_parse` 恒失败，带 `.xml` 的数据包（完整 `data.zip`）加载不了 | `DatMgr` 对失败是致命的（照抄 TS 的 `throw`）；下一刀就是它（DESIGN §139.5） |
+| `ToolXML::parse` 的实体解码 | 只解 `&amp; &lt; &gt; &quot; &apos;`；十进制/十六进制引用（`&#65;` / `&#x42;`）**照抄** | 实测 fast-xml-parser 在这套选项下就不解数字引用（DESIGN §140.2 的探针表） |
+| `ToolXML::parse` 的命名空间 | 只去 `ns:` 前缀，没有额外的 `xmlns` 处理 | 真实数据里 12 个 `.xml` 都不用命名空间（DESIGN §140.2） |
+| `ToolXML::parse` 的宽容度 | 闭合标签与栈顶不同名时「忽略这次闭合」；`<!DOCTYPE …>` 跳到下一个 `>` | fast-xml-parser 本身很宽容；真实数据格式良好，这条只影响畸形输入（DESIGN §140.2） |
 | `base/Ticker` / `base/FPS` 的三处省略 | ① `Ticker.TAG`（`static readonly`）不移植；② `ITimeout.add` 的 `...args` 不移植；③ `Ticker._tick` 的 `try { this._step_once() } finally { this._schedule() }` 写成顺序两句 | ① 全仓库没有读取点（同其它槽的约定）；② TS 源码里自己注明「无用的预留参数」；③ lint 禁 `try`/`catch`，且端口的 `on_step` 不抛 ⇒ 「抛异常也重排」这条路径不可表示（见 DESIGN §59.4） |
 | `Number.prototype.toFixed` 只移植了 **f = 1** | 端口叫 `number_to_fixed_1`（`core/js_string.h`） | 唯一的调用点是 `get_short_file_size_txt`；一般化要 `10^f·m` 的大整数尾数（f ≤ 22 才进得了 128 位）。**别拿 `dat_translator/fixed_float` 顶替**：它返回数值、走浮点路径，只在 `\|x\|·10^f < 2^53` 时与 JS 等价（DESIGN §60.4 第 1 条） |
 | `base/clock.h` 的空槽回落 | TS 里 `Ditto.Clock` / `Ditto.Timeout` 永远装着宿主；端口的 `clock()` / `timeout()` 可能是空槽 ⇒ `clock_now()` 回 `0.0`、`clock_hidden()` 回 `false`、`clock_add`/`timeout_add` 回 `0`（=「没有句柄」）、`clock_del`/`timeout_del` 变 no-op | 不是防御性编程：`Randoming::default_mt()` 在**静态初始化期**取时钟取种子，那时宿主还没装槽（与 `callbacks_warn()` 的 `if (warn)` 同款约定） |
