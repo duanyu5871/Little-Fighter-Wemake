@@ -2348,12 +2348,14 @@ run frame o 2 id s "f2" next o 1 id s "k2"
 run enternext
 run enter s "a1"
 run mtseed n 1
-run enter a 3 o 3 id s "h1" hp n 5 __judge n 1 o 2 id s "a1" __judge n 0 o 2 id s "k2" __judge n 1
+# `__judge` 是台面标记（`entity.ts::attachJudgers` 照它挂判定器），`expression` 是端口侧真加载器
+# `preprocess_next_frame` 用来登记判定器的那道门；两条必须同真假（1 ⇔ "1==1"、0 ⇔ "0==1"）。
+run enter a 3 o 4 id s "h1" hp n 5 __judge n 1 expression s "1==1" o 3 id s "a1" __judge n 0 expression s "0==1" o 3 id s "k2" __judge n 1 expression s "1==1"
 run mtseed n 2
 run enter a 2 o 1 id s "a1" o 1 id s "k2"
 run mtseed n 3
 run enter a 0
-run enter a 2 o 2 id s "a1" __judge n 0 o 1 id s "k2"
+run enter a 2 o 3 id s "a1" __judge n 0 expression s "0==1" o 1 id s "k2"
 run mtseed n 1
 run enter a 3 o 1 id s "k1" o 1 id s "k2" o 1 id s "k3"
 run mtseed n 1

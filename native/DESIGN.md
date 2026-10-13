@@ -10977,3 +10977,62 @@ holding 一族、`world_*` / `ref_*` / `ctrl_*` / `datas_find*`、`ground_segmen
 3. `ref_*`（含写面 `ref_set_velocity`）：引用现在是 `Value` 浅拷贝，写面要身份 ⇒ 引用得带可查的 `id`。
 4. `datas_find_fighter`：`IEntityHost` 只有 `find_data`，没有只查战士表的那条缝。
 5. `holding_mt_mark` / `holding_mt_range`：`mt` 缝有了，缺 `MersenneTwister::mark` / `range` 那一层。
+
+## 144. 切片 4CG 第二段：判帧器（`__judger`）按 TS 接线
+
+### 144.1 为什么 / 之前错在哪
+
+「两个 bot 走近却不攻击」有两条闸门。第一段（§143）补了状态面；这一段处理第二条：
+**带 `expression` 的下帧从未被判定过**。
+
+TS 的做法（`loader/preprocess_next_frame.ts:9-16`）是**加载期**挂载：
+
+```ts
+if (typeof nf.expression !== "string") return nf;
+nf.__judger = new Expression(nf.expression, get_val_getter_from_entity);
+```
+
+而它只在这些地方被调用（就是「挂载作用域」）：`preprocess_frame.ts` 的
+`next` / `on_dead` / `on_exhaustion` / `on_landing` / `on_restrict` / `on_x|y|z_restrict` 以及
+`hit` / `hold` / `key_down` / `key_up` 的每一项、`preprocess_action.ts:28`（`action.data`）、
+`preprocess_entity_data.ts` 的 `on_dead` / `on_exhaustion` 等、`preprocess_itr.ts:29-30`
+（`catchingact` / `caughtact`）。运行时只有两句（`Entity.ts:2185/2198`）：
+数组分支 `if (!nf.__judger) { remains.push(nf); continue; }`、单项
+`const judger = which.__judger; if (judger && !judger.run(this)) return void 0;`。
+
+端口原来把这一层**整个外包**给了宿主缝 `IEntityHost::has_next_frame_judge` /
+`next_frame_judge`，而 `native/host` 两条都没实现 ⇒ 判定器永不生效。
+第一版改动（已回退）把「有没有判定器」实现成「**任何**带字符串 `expression` 的对象」——
+比 TS 宽得多（TS 只在上面那些调用点挂），真数据下撞出**间歇性**内存破坏
+（一次 `--fighter 1 --fighter 4` 加载失败并打出乱码 prefab 名，同命令另一次又正常）。
+
+### 144.2 现在的做法（照 TS 的门）
+
+| 环节 | TS | 端口 |
+| --- | --- | --- |
+| 挂载 | `preprocess_next_frame` 里 `nf.__judger = new Expression(nf.expression, get_val_getter_from_entity)` | `loader::preprocess_next_frame(Value&)` 在**同一个门**（`expression` 是字符串）里登记：`Expression<Entity>` 存进「对象身份 → 判定器」表（`Value` 的对象是 `shared_ptr`，身份跨拷贝稳定；端口不往 `Value` 里塞函数对象，§4.40） |
+| 作用域 | 只有 TS 调用 `preprocess_next_frame` 的位置 | 完全相同：端口的 `preprocess_frame` / `preprocess_action` / `preprocess_entity_data` / `preprocess_itr` 一一对应那些调用点 |
+| 运行时 | `!!nf.__judger` / `nf.__judger?.run(this)` | `Entity::has_next_frame_judge` = `loader::judger_of(nf) != nullptr`；`Entity::next_frame_judge` = `judger->run(*this)` |
+| 宿主缝 | —— | 两条宿主缝**删除**（`IEntityHost` 不再有 `has_/next_frame_judge`），`Entity::get_next_frame` 直接调自己 |
+
+查表用「对象指针 + 源串也相同」双重确认：指针被释放后复用也不会认错；登记用
+`insert_or_assign`（复用地址的新对象会**覆盖**旧登记 —— 这条是被台面翻出来的真缺陷：
+原来 `emplace` 不覆盖 ⇒ 新对象的判定器会被旧登记顶掉、静默丢失，`entity` subject 的一个用例
+（30 个判定器对象分配/释放后再来一个不同源串的）复现了它）。
+
+### 144.3 实测
+
+| 项 | 结果 |
+| --- | --- |
+| 库编译 | 通过（`Expression<Entity>` 需要 `Entity` 完整类型 ⇒ `preprocess_next_frame.cpp` include `entity.h`；`judger_of` 返回非 const 指针（`Expression::run` 写自己的 `result`，与 TS 每次 `run` 同一实例一致）） |
+| 全量差分 | **254/254**（`entity` subject 8/8：假宿主的旧缝覆写消失，改为在 `parseValue` 处调 `loader::preprocess_next_frame`，与孪生挂载点对称；用例补了 `expression s "1==1"` / `s "0==1"` 让真引擎有源串可编） |
+| 变异锚点 | **9764 ok / 0 bad**（`entity.mjs` ×2 与 `loader_actions.mjs` ×1 按新源文重指） |
+| include 分层 / defines 覆盖 | 836 clean / 0 failed / 9 warnings；OK |
+| 宿主摘要 | **与 4CF/4CG 第一段逐位一致**：`d9b00db799724a2b`（prel 300）、`eeecc812075e8b74`（prel+data 900，warns=1 既有）；`--fighter 1 --fighter 4 --stage 1` 连跑 3 次全部通过（此前启用旧版判定器时有过一次加载期乱码失败） |
+
+⚠ **诚实说明**：这一刀**仍然没有修好「bot 不攻击」**。摘要逐位不差说明：在这局里判定器要么没被
+走到、要么它的判定结果与「本来就没有判定器」同解。它的价值是**把 TS 的那层逻辑真正接上**
+（真数据加载期会登记、运行时可判定、台面有孪生对照的用例），并且**修掉了两个真缺陷**
+（作用域过宽导致的偶发内存破坏、登记表陈旧项导致的判定器静默丢失）。
+「不攻击」还差哪一步，需要新的证据：下一步建议给宿主加**帧链跟踪**（每帧打印 `enter_frame` /
+`get_next_frame` 的结果与来源），先在真数据里看清战士卡在哪一帧、`next` 被怎么解析。

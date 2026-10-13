@@ -249,10 +249,8 @@ bool is_high_surrogate`,
       note: "pnf 不再判 nullish",
       file: "native/lfw/loader/preprocess_next_frame.cpp",
       from: `  if (is_nullish(nf)) return false;
-  return true;
-}`,
-      to: `  return true;
-}`,
+`,
+      to: ``,
     },
     {
       note: "pnf 的 nullish 只认 undefined",

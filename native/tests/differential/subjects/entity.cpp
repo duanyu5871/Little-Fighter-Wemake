@@ -13,6 +13,7 @@
 #include "lfw/controller/base_controller.h"
 #include "lfw/core/js_num.h"
 #include "lfw/core/value.h"
+#include "lfw/defines/frame_id.h"
 #include "lfw/entity/entity.h"
 #include "lfw/controller/ball_controller.h"
 #include "lfw/helper/closer_one.h"
@@ -21,6 +22,7 @@
 #include "lfw/entity/summary_mgr.h"
 #include "lfw/loader/get_val_from_collision.h"
 #include "lfw/loader/get_val_from_entity.h"
+#include "lfw/loader/preprocess_next_frame.h"
 #include "lfw/state/state_base.h"
 #include "lfw/state/states.h"
 #include "lfw/utils/container_help/field_or.h"
@@ -32,11 +34,48 @@ namespace {
 
 using lfw::Entity;
 using lfw::Value;
-using trace::parse_value;
 using trace::render_value;
 using trace::split_ws;
 using trace::to_ascii;
 using trace::to_u16;
+
+// 台面解析出来的值留一份：真登记表（`loader/preprocess_next_frame.cpp` 的 `judger_registry()`）
+// 按**对象地址**索引、且用 `emplace` 登记（同一个键不覆盖），而命中时还会拿「源串相同」再确认
+// 一次。TS 侧不担心这个 —— `__judger` 就挂在对象自己身上、随对象一起析构；端口这边登记表**不
+// 随对象释放**，所以台面一条命令用完就析构的入参，其地址被下一条命令的新对象复用时，登记表里
+// 那条旧记录会让 `judger_of` 判成「源串对不上 ⇒ 没有判定器」，判定器就这样丢了（差分表现为
+// 少一条 `judge:`、该条目退回成普通下帧）。真加载器登记的帧都是实体数据里的长命对象，撞不上；
+// 台面把解析出来的值留一份，登记过的地址就不会被复用。
+std::vector<Value> g_kept;
+
+// `entity.ts::parseValue` 末尾那句 `attachJudgers(v)`：TS 台面在**解析点**就把 `__judge`
+// 变成能跑的判定器（挂成 `__judger`）。端口不往 `Value` 里塞函数对象（§4.40，也没有
+// `__judger` 这个键），改用真加载器的同一条门 —— `lfw::loader::preprocess_next_frame` 把
+// 「`expression` 是字符串」的下帧登记进「对象身份 → 判定器」表，运行时由
+// `Entity::has_next_frame_judge` / `Entity::next_frame_judge` 查它（等价 TS 的 `!!nf.__judger`
+// 与 `nf.__judger?.run(this)`）。登记点因此与 TS 的挂载点一一对应：这里照 `attachJudgers` 的
+// 递归形状（数组逐项、对象逐字段）走一遍，然后包住台面自己的 `parse_value`。
+void preprocess_deep(const Value& v) {
+  Value item = v;  // 登记按对象身份（`Value` 的对象是 `shared_ptr`），拷一份也一样登记到本尊。
+  lfw::loader::preprocess_next_frame(item);
+  if (const lfw::Array* arr = lfw::as_array(v)) {
+    for (std::size_t k = 0; k < arr->size(); ++k) preprocess_deep(arr->at(k));
+    return;
+  }
+  const lfw::Object* obj = lfw::as_object(v);
+  if (obj == nullptr) return;
+  for (const std::u16string& key : obj->keys()) {
+    const Value* child = obj->get(key);
+    if (child != nullptr) preprocess_deep(*child);
+  }
+}
+
+Value parse_value(const std::vector<std::string>& t, std::size_t& i) {
+  Value v = trace::parse_value(t, i);
+  preprocess_deep(v);
+  g_kept.push_back(v);
+  return v;
+}
 
 std::vector<std::string> g_log;
 std::unique_ptr<lfw::WorldDataset> g_dataset;
@@ -99,6 +138,39 @@ Entity* candidate_of(const std::string& tok) {
 
 std::string render(const Value& v) { return to_ascii(render_value(v)); }
 std::string s_of(const std::u16string& s) { return to_ascii(s); }
+
+// `entity.ts` 那张台面判定器（`attachJudgers`）的 `run` 里有一句
+// `log.push("judge:" + r(marker))`，且它返回的就是那个标记。端口这边跑的是**真**登记表里的
+// `Expression<Entity>`（`Entity::next_frame_judge` → `Expression::run`，返回 `bool`），`run`
+// 不可钩，所以台面只能按真 `get_next_frame` 的同一次序把「会被跑到判定器」的条目先打出来：
+//   * 有没有判定器 —— 问真登记表（`has_next_frame_judge`，就是 TS 的 `!!nf.__judger`）；
+//   * 停机 —— 照 TS 判定器的语义（判定器返回标记本身 ⇒ 标记为真即命中，数组分支当场返回，
+//     其后的条目不再判定）；
+//   * 内容 —— `__judge` 标记本身（TS 的 `marker`）。
+// 判定本身不在这里跑：真链（`get_next_frame`）会跑一次，次数与 TS 相同。
+void log_next_frame_judgers(const Value& nfs) {
+  if (g_entity == nullptr) return;
+  // `Entity::enter_frame` 的第一句：`gone` 帧直接返回，判定器一次都不跑。
+  if (lfw::strict_equals(lfw::field_or(g_entity->frame, u"id"),
+                         Value(std::u16string(lfw::frame_id::kGone))))
+    return;
+  const lfw::Array* arr = lfw::as_array(nfs);
+  if (arr == nullptr) {
+    // TS 的对象分支：判定器存在就先 `run` 一次（`judger && !judger.run(this)`）。
+    if (g_entity->has_next_frame_judge(nfs))
+      g_log.push_back("judge:" + render(lfw::field_or(nfs, u"__judge")));
+    return;
+  }
+  // TS 的数组分支：逐项 —— `!nf` 跳过、无判定器进 `remains`，有判定器的跑一次判定
+  //（判定为假继续、为真立刻返回）。
+  for (std::size_t k = 0; k < arr->size(); ++k) {
+    const Value nf = arr->at(k);
+    if (!lfw::truthy(nf) || !g_entity->has_next_frame_judge(nf)) continue;
+    const Value marker = lfw::field_or(nf, u"__judge");
+    g_log.push_back("judge:" + render(marker));
+    if (lfw::truthy(marker)) break;
+  }
+}
 
 // `idRef(x)` 的端口版：`x` 是实体引用（`entity/entity_ref.h`）⇒ 打它里面的 `id`，
 // 空值（`undefined` / `null` / `nullptr`）就给 `null`（TS 的 `idRef` 对空值也返回 `null`）。
@@ -557,17 +629,9 @@ class Host : public lfw::IEntityHost {
 
   lfw::MersenneTwister& mt() override { return g_mt; }
 
-  // `nf.__judger`: the loader attaches a compiled Expression in TS, so the scene carries
-  // the marker in `__judge` and the host answers both halves of the seam.
-  bool has_next_frame_judge(const Value& nf) const override {
-    const lfw::Object* o = lfw::as_object(nf);
-    return o != nullptr && o->has(u"__judge");
-  }
-  Value next_frame_judge(const Value& nf) override {
-    const Value judge = lfw::field_or(nf, u"__judge");
-    g_log.push_back("judge:" + render(judge));
-    return judge;
-  }
+  // `nf.__judger` 已不再是宿主缝（切片 4CG-2：`lfw::IEntityHost` 删掉了
+  // `has_next_frame_judge` / `next_frame_judge`，改由 `Entity` 自己查
+  // `preprocess_next_frame` 登记的真判定器），所以这里没有对应覆写。
 
   void broadcast(const Value& m) override { g_log.push_back("broadcast:" + render(m)); }
 
@@ -2297,6 +2361,9 @@ int main(int argc, char** argv) {
         if (i < t.size() && t[i] == "b") {
           fallback = lfw::truthy(parse_value(t, i));
         }
+        // `enterid` 走的是 `Entity::_next_frame_by_id`（内部物件，没登记判定器），只有
+        // `enter` / `enternext` 的入参会进真 `get_next_frame`（见 `log_next_frame_judgers`）。
+        if (what != "enterid") log_next_frame_judgers(arg);
         const lfw::EnterFrameResult r = what == "enternext" ? g_entity->enter_frame(arg, fallback)
                                           : what == "enterid"
                                               ? g_entity->enter_frame_by_id(arg, fallback)

@@ -3968,14 +3968,14 @@ export default {
         {
       "note": "get_next_frame judges a frame without a judge",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "  if (host_->has_next_frame_judge(which) && !truthy(host_->next_frame_judge(which)))\n    return Value();",
-      "to": "  if (!truthy(host_->next_frame_judge(which)))\n    return Value();"
+      "from": "  if (has_next_frame_judge(which) && !truthy(next_frame_judge(which))) return Value();",
+      "to": "  if (!truthy(next_frame_judge(which))) return Value();"
     },
         {
       "note": "get_next_frame keeps a judged-out frame",
       "file": "native/lfw/entity/entity.cpp",
-      "from": "  if (host_->has_next_frame_judge(which) && !truthy(host_->next_frame_judge(which)))\n    return Value();",
-      "to": "  if (host_->has_next_frame_judge(which) && truthy(host_->next_frame_judge(which)))\n    return Value();"
+      "from": "  if (has_next_frame_judge(which) && !truthy(next_frame_judge(which))) return Value();",
+      "to": "  if (has_next_frame_judge(which) && truthy(next_frame_judge(which))) return Value();"
     },
         {
       "note": "get_next_frame reads the id off the mp key",

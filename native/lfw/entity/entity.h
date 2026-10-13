@@ -183,19 +183,8 @@ class IEntityHost {
     (void)player_id;
     return nullptr;
   }
-  // `nf.__judger`：是否存在判定器。TS 的数组分支只**探测**判定器、把运行留给递归调用，
-  // 所以「有没有」和「判什么」是两个问题。
-  virtual bool has_next_frame_judge(const Value& nf) const {
-    (void)nf;
-    return false;
-  }
-  // `nf.__judger?.run(this)`：TS 的 `preprocess_next_frame` 会给带 `expression` 的下帧
-  // 挂一个编译好的 `Expression`；端口还没搬那一层（DESIGN §52.4），所以判定结果由宿主
-  // 回答 —— 只有 `has_next_frame_judge` 认可的条目才会被问，返回假值即判定失败。
-  virtual Value next_frame_judge(const Value& nf) {
-    (void)nf;
-    return Value();
-  }
+  // `nf.__judger`：切片 4CG-2 起由 `Entity` 自己真跑（加载期由 `preprocess_next_frame` 登记，
+  // 见 `Entity::has_next_frame_judge` / `Entity::next_frame_judge`），这两条宿主缝随之删除。
 };
 
 // The inline `jumping` record TS keeps on every entity.
@@ -615,6 +604,13 @@ class Entity {
   virtual Value lfw_new_team() const;
   // `this.lfw.datas.find(oid)`（`buff/Buff.ts:109`）。
   virtual Value datas_find(const std::u16string& oid);
+
+  // 切片 4CG-2：`nf.__judger` 真接线，完全照 TS：加载期 `preprocess_next_frame` 给「`expression`
+  // 是字符串」的下帧登记一个编译好的 `Expression<Entity>`（端口不往 `Value` 里塞函数对象，改用
+  // 「对象身份 → 判定器」表，见 `loader/preprocess_next_frame.{h,cpp}`），运行时这两条就是
+  // TS 的 `!!nf.__judger` 与 `nf.__judger?.run(this)`。
+  bool has_next_frame_judge(const Value& nf) const;
+  Value next_frame_judge(const Value& nf);
 
   // --- frame lookup / flags ---------------------------------------------------
   // `find_frame_by_id` falls back to `find_auto_frame()` when the id is unknown;

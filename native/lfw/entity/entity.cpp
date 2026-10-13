@@ -36,6 +36,7 @@
 #include "lfw/factory.h"
 #include "lfw/ground.h"
 #include "lfw/loader/get_val_from_entity.h"
+#include "lfw/loader/preprocess_next_frame.h"
 #include "lfw/state/entity_states.h"
 #include "lfw/state/state_base.h"
 #include "lfw/world.h"
@@ -1675,6 +1676,19 @@ EnterFrameResult Entity::handle_next_frame_result(const Value& result, bool fall
   return truthy(frame_v) ? EnterFrameResult::Entered : EnterFrameResult::Fallback;
 }
 
+// TS: `if (!nf.__judger) { remains.push(nf); continue; }` —— 判定器由加载期的
+// `preprocess_next_frame` 登记（照 TS 的挂载点），这里只是问「有没有」。
+bool Entity::has_next_frame_judge(const Value& nf) const {
+  return loader::judger_of(nf) != nullptr;
+}
+
+// TS: `const judger = which.__judger; if (judger && !judger.run(this)) return void 0;`
+Value Entity::next_frame_judge(const Value& nf) {
+  Expression<Entity>* const judger = loader::judger_of(nf);
+  if (judger == nullptr) return Value();
+  return Value(judger->run(*this));
+}
+
 Value Entity::get_next_frame(const Value& which) {
   const Array* arr = as_array(which);
   if (arr != nullptr) {
@@ -1683,7 +1697,7 @@ Value Entity::get_next_frame(const Value& which) {
     for (std::size_t i = 0; i < l; ++i) {
       const Value nf = arr->at(i);
       if (!truthy(nf)) continue;
-      if (!host_->has_next_frame_judge(nf)) {
+      if (!has_next_frame_judge(nf)) {
         remains.push_back(nf);
         continue;
       }
@@ -1700,8 +1714,7 @@ Value Entity::get_next_frame(const Value& which) {
   const Value use_hp = field_or(which, u"hp");
   const Value use_mp = field_or(which, u"mp");
   const Value mp_mode = field_or(which, u"mp_mode");
-  if (host_->has_next_frame_judge(which) && !truthy(host_->next_frame_judge(which)))
-    return Value();
+  if (has_next_frame_judge(which) && !truthy(next_frame_judge(which))) return Value();
   Value found_frame;
   if (truthy(id_value)) {
     host_->mt().mark = u"gnf_1";

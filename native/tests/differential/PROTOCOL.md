@@ -5529,3 +5529,14 @@ harness op：
   么覆写、么把用例里的实体字段喂成与孪生一致（`data()` 镜像 / `ctrl` 缝 / `holding` 指针）。
 - `ctrl_*` 一族在 `ctrl_ == nullptr`（TS 里「没有控制器」，会抛）时给中性值：`0` / `true`
   （与旧占位同口径），台面可以直接依赖。
+
+### 6.9.185 判帧器（`__judger`）接线（4CG 第二段）对台面的影响
+
+- `IEntityHost` 的 `has_next_frame_judge` / `next_frame_judge` **两条宿主缝删除**：台面的假宿主
+  若覆写过它们，会直接编不过（C3668）。判定器现在是库的一部分。
+- 台面要判帧时，按 TS 的挂载点自己登记：在解析出下帧对象后调用
+  `lfw::loader::preprocess_next_frame(nf)`（与孪生挂 `nf.__judger` 的位置对称），登记键是
+  **对象身份**、并用源串双重确认；对象被释放后地址复用不会认错（登记用 `insert_or_assign`）。
+- 判定器的「有没有」等于「是否登记过」——**不要**再用「有没有 `expression` 字符串」去猜，
+  那比 TS 宽（TS 只在 `preprocess_frame` / `preprocess_action` / `preprocess_entity_data` /
+  `preprocess_itr` 那些调用点挂），实测会撞出加载期偶发内存破坏。
