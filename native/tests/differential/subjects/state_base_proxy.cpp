@@ -10,6 +10,7 @@
 #include "lfw/state/state_base_proxy.h"
 #include "lfw/utils/container_help/field_or.h"
 
+#include "entity_fixture.h"
 #include "trace_util.h"
 
 namespace {
@@ -62,9 +63,18 @@ struct FakeEnt : IStateEntity {
   Value _vx;
   Value _vz;
 
-  explicit FakeEnt(std::u16string id) : _id(std::move(id)) {}
+  // 切片 4BY：`buff` 以 `lfw::Entity` 为准入 ⇒ `entity_self()` 要给一个真实体
+  // （`grant_buff` 在这里只用它的 `id` 拼 buff id —— `create_buff` 返回空）。
+  fx::StubEntity _self;
 
-  const std::u16string& id() const override { return _id; }
+  explicit FakeEnt(std::u16string id) : _id(id), _self(id) {
+    _self.on_dataset = [this](const std::u16string& key) {
+      g_log.push_back(s_of(_id) + ":dataset:" + s_of(key));
+      return Value();
+    };
+  }
+  void probe() const {}
+
   Value data() const override { return _data; }
   Value state() const override { return _state; }
   void position(double& x, double& y, double& z) const override {
@@ -77,32 +87,11 @@ struct FakeEnt : IStateEntity {
     _py = y;
     _pz = z;
   }
-  double frame_centery() const override { return 0; }
-  double frame_height() const override { return 0; }
-  double frame_pic_h() const override { return 0; }
-  void set_frame(const Value& info) override {
-    g_log.push_back(s_of(_id) + ":set_frame:" + render(lfw::field_or(info, u"id")));
-  }
-  void buffs_set(const std::u16string& key, Buff*) override {
-    g_log.push_back(s_of(_id) + ":buffs_set:" + s_of(key));
-  }
-  void buffs_delete(const std::u16string& key) override {
-    g_log.push_back(s_of(_id) + ":buffs_delete:" + s_of(key));
-  }
-  void set_outline_alpha(double v) override {
-    g_log.push_back(s_of(_id) + ":outline_alpha:" + num(v));
-  }
-  void set_outline_width(double v) override {
-    g_log.push_back(s_of(_id) + ":outline_width:" + num(v));
-  }
   void set_outline_color(const std::u16string& v) override {
     g_log.push_back(s_of(_id) + ":outline_color:" + render(Value(v)));
   }
   void enter_frame_by_id(const std::u16string& id) override {
     g_log.push_back(s_of(_id) + ":enter_frame_by_id:" + render(Value(id)));
-  }
-  void attach(bool on) override {
-    g_log.push_back(s_of(_id) + ":attach:" + std::string(on ? "1" : "0"));
   }
   double velocity_x() const override { return lfw::to_number(_vx); }
   Value velocity_z() const override { return _vz; }
@@ -182,6 +171,7 @@ struct FakeEnt : IStateEntity {
   void apply_opoints(const std::vector<Value>& opoints) override {
     g_log.push_back(s_of(_id) + ":apply_opoints:" + std::to_string(opoints.size()));
   }
+  lfw::Entity* entity_self() override { return &_self; }
 };
 
 FakeEnt* g_ent = nullptr;
@@ -199,8 +189,8 @@ std::string state_text() {
 
 void bind() {
   static BuffEnv keep;
-  keep.find_entity = [](const std::u16string&) -> lfw::buff::IBuffEntity* { return nullptr; };
-  keep.create_entity = [](const Value&) -> lfw::buff::IBuffEntity* { return nullptr; };
+  keep.find_entity = [](const std::u16string&) -> lfw::Entity* { return nullptr; };
+  keep.create_entity = [](const Value&) -> lfw::Entity* { return nullptr; };
   keep.find_data = [](const std::u16string&) -> Value { return Value(); };
   keep.world_buffs_set = [](const std::u16string&, Buff*) {};
   keep.world_buffs_get = [](const std::u16string&) -> Buff* { return nullptr; };

@@ -59,19 +59,19 @@ export default {
     {
       note: "the granted buff has another kind",
       file: "native/lfw/state/state_base.cpp",
-      from: "  buff::grant_buff(g_env.buff_env, buff::Buff_Healing::KIND, nullptr, &e,\n                   buff::Buff_Healing::duration_of(e, kStateHealSelfHp));",
-      to: '  buff::grant_buff(g_env.buff_env, u"Other", nullptr, &e,\n                   buff::Buff_Healing::duration_of(e, kStateHealSelfHp));',
+      from: "  buff::grant_buff(g_env.buff_env, buff::Buff_Healing::KIND, nullptr, victim, duration);",
+      to: '  buff::grant_buff(g_env.buff_env, u"Other", nullptr, victim, duration);',
     },
     {
       note: "the granted duration ignores the heal amount",
       file: "native/lfw/state/state_base.cpp",
-      from: "                   buff::Buff_Healing::duration_of(e, kStateHealSelfHp));",
-      to: "                   buff::Buff_Healing::duration_of(e, 0));",
+      from: "      victim == nullptr ? 0.0 : buff::Buff_Healing::duration_of(*victim, kStateHealSelfHp);",
+      to: "      victim == nullptr ? 0.0 : buff::Buff_Healing::duration_of(*victim, 0);",
     },
     {
       note: "leave never grants",
       file: "native/lfw/state/state_base.cpp",
-      from: "  buff::grant_buff(g_env.buff_env, buff::Buff_Healing::KIND, nullptr, &e,\n                   buff::Buff_Healing::duration_of(e, kStateHealSelfHp));\n",
+      from: "  buff::grant_buff(g_env.buff_env, buff::Buff_Healing::KIND, nullptr, victim, duration);\n",
       to: "",
     },
     {

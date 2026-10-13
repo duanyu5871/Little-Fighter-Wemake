@@ -52,8 +52,8 @@ export default {
     {
       note: "group attack: effect is not centred",
       file: "native/lfw/buff/buff_group_attack.cpp",
-      from: "void Buff_GroupAttack::place_effect(IBuffEntity* effect, IBuffEntity* victim) {\n  place_effect_center(effect, victim);\n}",
-      to: "void Buff_GroupAttack::place_effect(IBuffEntity* effect, IBuffEntity* victim) {\n  Buff::place_effect(effect, victim);\n}",
+      from: "void Buff_GroupAttack::place_effect(Entity* effect, Entity* victim) {\n  place_effect_center(effect, victim);\n}",
+      to: "void Buff_GroupAttack::place_effect(Entity* effect, Entity* victim) {\n  Buff::place_effect(effect, victim);\n}",
     },
     {
       note: "group attack: buff kind changed",
@@ -70,14 +70,14 @@ export default {
     {
       note: "group attack: mount skips every resolved victim",
       file: "native/lfw/buff/buff_group_attack.cpp",
-      from: "    IBuffEntity* victim = env()->find_entity(victims[i]);\n    if (victim == nullptr) continue;\n    set_mark(*victim, std::u16string(KIND), id(), Value());",
-      to: "    IBuffEntity* victim = env()->find_entity(victims[i]);\n    if (victim != nullptr) continue;\n    set_mark(*victim, std::u16string(KIND), id(), Value());",
+      from: "    Entity* victim = env()->find_entity(victims[i]);\n    if (victim == nullptr) continue;\n    set_mark(*victim, std::u16string(KIND), id(), Value());",
+      to: "    Entity* victim = env()->find_entity(victims[i]);\n    if (victim != nullptr) continue;\n    set_mark(*victim, std::u16string(KIND), id(), Value());",
     },
     {
       note: "group attack: mount ignores the first victim",
       file: "native/lfw/buff/buff_group_attack.cpp",
-      from: "  for (size_t i = 0; i < victims.size(); ++i) {\n    IBuffEntity* victim = env()->find_entity(victims[i]);\n    if (victim == nullptr) continue;\n    set_mark(*victim, std::u16string(KIND), id(), Value());",
-      to: "  for (size_t i = 1; i < victims.size(); ++i) {\n    IBuffEntity* victim = env()->find_entity(victims[i]);\n    if (victim == nullptr) continue;\n    set_mark(*victim, std::u16string(KIND), id(), Value());",
+      from: "  for (size_t i = 0; i < victims.size(); ++i) {\n    Entity* victim = env()->find_entity(victims[i]);\n    if (victim == nullptr) continue;\n    set_mark(*victim, std::u16string(KIND), id(), Value());",
+      to: "  for (size_t i = 1; i < victims.size(); ++i) {\n    Entity* victim = env()->find_entity(victims[i]);\n    if (victim == nullptr) continue;\n    set_mark(*victim, std::u16string(KIND), id(), Value());",
     },
     {
       note: "group attack: mount writes the mark under another key",
@@ -142,8 +142,8 @@ export default {
     {
       note: "electrify: effect is not centred",
       file: "native/lfw/buff/buff_electrify.cpp",
-      from: "void Buff_Electrify::place_effect(IBuffEntity* effect, IBuffEntity* victim) {\n  place_effect_center(effect, victim);\n}",
-      to: "void Buff_Electrify::place_effect(IBuffEntity* effect, IBuffEntity* victim) {\n  Buff::place_effect(effect, victim);\n}",
+      from: "void Buff_Electrify::place_effect(Entity* effect, Entity* victim) {\n  place_effect_center(effect, victim);\n}",
+      to: "void Buff_Electrify::place_effect(Entity* effect, Entity* victim) {\n  Buff::place_effect(effect, victim);\n}",
     },
     {
       note: "electrify: base mount is skipped",
@@ -160,8 +160,8 @@ export default {
     {
       note: "electrify: mount ignores the first victim",
       file: "native/lfw/buff/buff_electrify.cpp",
-      from: "  for (size_t i = 0; i < victims.size(); ++i) {\n    IBuffEntity* victim = env()->find_entity(victims[i]);\n    if (victim == nullptr) continue;\n    set_mark(*victim, std::u16string(KIND), id(), Value());",
-      to: "  for (size_t i = 1; i < victims.size(); ++i) {\n    IBuffEntity* victim = env()->find_entity(victims[i]);\n    if (victim == nullptr) continue;\n    set_mark(*victim, std::u16string(KIND), id(), Value());",
+      from: "  for (size_t i = 0; i < victims.size(); ++i) {\n    Entity* victim = env()->find_entity(victims[i]);\n    if (victim == nullptr) continue;\n    set_mark(*victim, std::u16string(KIND), id(), Value());",
+      to: "  for (size_t i = 1; i < victims.size(); ++i) {\n    Entity* victim = env()->find_entity(victims[i]);\n    if (victim == nullptr) continue;\n    set_mark(*victim, std::u16string(KIND), id(), Value());",
     },
     {
       note: "electrify: mount stores a constant instead of the buff id",

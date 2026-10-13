@@ -11,7 +11,7 @@ namespace lfw {
 namespace buff {
 
 struct MagicFluteEnv {
-  std::function<void(IBuffEntity* a, const Value& injury, IBuffEntity* v,
+  std::function<void(Entity* a, const Value& injury, Entity* v,
                      const Value& prev_hp)>
       summary_apply_damage;
 };
@@ -28,8 +28,8 @@ class Buff_MagicFlute : public Buff {
  protected:
   bool has_on_update() const override { return true; }
   bool has_on_tick() const override { return true; }
-  void on_tick(IBuffEntity* attacker, IBuffEntity* victim) override;
-  void on_update(IBuffEntity* attacker, IBuffEntity* victim) override;
+  void on_tick(Entity* attacker, Entity* victim) override;
+  void on_update(Entity* attacker, Entity* victim) override;
 };
 
 class Buff_MagicFlute2 : public Buff {
@@ -41,8 +41,8 @@ class Buff_MagicFlute2 : public Buff {
  protected:
   bool has_on_update() const override { return true; }
   bool has_on_tick() const override { return true; }
-  void on_tick(IBuffEntity* attacker, IBuffEntity* victim) override;
-  void on_update(IBuffEntity* attacker, IBuffEntity* victim) override;
+  void on_tick(Entity* attacker, Entity* victim) override;
+  void on_update(Entity* attacker, Entity* victim) override;
 };
 
 }

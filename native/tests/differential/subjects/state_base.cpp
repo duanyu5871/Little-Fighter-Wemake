@@ -10,6 +10,7 @@
 #include "lfw/state/state_base.h"
 #include "lfw/utils/container_help/field_or.h"
 
+#include "entity_fixture.h"
 #include "trace_util.h"
 
 namespace {
@@ -42,6 +43,55 @@ std::string join(const std::vector<std::string>& xs) {
   return out;
 }
 
+struct FakeEnt;
+
+// 切片 4BY：`buff` 以 `lfw::Entity` 为准入 ⇒ `entity_self()` 要交出一个真 `Entity`
+// （`State_Base::leave` 的 HealSelf 分支会 grant 一个 `Buff_Healing`，它会在受害者
+// 身上落 `buffs_set` / `set_mark` / `dataset`）。这就是那个实体：同样是台面假件，
+// 只是观测点从窄接口换到实体面。
+struct BuffStub : lfw::Entity {
+  FakeEnt* _owner = nullptr;
+  std::vector<std::pair<std::u16string, std::u16string>> _marks;
+
+  explicit BuffStub(std::u16string id) : Entity(fx::shared_host(), Value()) { this->id = std::move(id); }
+
+  Value dataset(const std::u16string& key) const override;
+  void buffs_set(const std::u16string& key, Buff* b) override {
+    g_log.push_back(s_of(id) + ":buffs_set:" + s_of(key));
+    Entity::buffs_set(key, b);
+  }
+  void buffs_delete(const std::u16string& key) override {
+    g_log.push_back(s_of(id) + ":buffs_delete:" + s_of(key));
+    Entity::buffs_delete(key);
+  }
+  Value marks_get(const std::u16string& key) const override {
+    for (size_t i = 0; i < _marks.size(); ++i) {
+      if (_marks[i].first == key) return Value(std::u16string(_marks[i].second));
+    }
+    return Value();
+  }
+  void marks_set(const std::u16string& key, const std::u16string& value) override {
+    g_log.push_back(s_of(id) + ":set_mark:" + s_of(key) + ":" + render(Value(value)));
+    for (size_t i = 0; i < _marks.size(); ++i) {
+      if (_marks[i].first == key) {
+        _marks[i].second = value;
+        return;
+      }
+    }
+    _marks.emplace_back(key, value);
+  }
+  bool marks_delete(const std::u16string& key) override {
+    for (size_t i = 0; i < _marks.size(); ++i) {
+      if (_marks[i].first != key) continue;
+      _marks.erase(_marks.begin() + static_cast<std::ptrdiff_t>(i));
+      g_log.push_back(s_of(id) + ":del_mark:" + s_of(key));
+      return true;
+    }
+    g_log.push_back(s_of(id) + ":del_mark_miss:" + s_of(key));
+    return false;
+  }
+};
+
 struct FakeEnt : IStateEntity {
   std::u16string _id;
   Value _dataset;
@@ -50,11 +100,10 @@ struct FakeEnt : IStateEntity {
   double _px = 0;
   double _py = 0;
   double _pz = 0;
-  std::vector<std::pair<std::u16string, Value>> _marks;
+  BuffStub _stub;
 
-  explicit FakeEnt(std::u16string id) : _id(std::move(id)) {}
+  explicit FakeEnt(std::u16string id) : _id(id), _stub(id) { _stub._owner = this; }
 
-  const std::u16string& id() const override { return _id; }
   void position(double& x, double& y, double& z) const override {
     x = _px;
     y = _py;
@@ -65,32 +114,11 @@ struct FakeEnt : IStateEntity {
     _py = y;
     _pz = z;
   }
-  double frame_centery() const override { return 0; }
-  double frame_height() const override { return 0; }
-  double frame_pic_h() const override { return 0; }
-  void set_frame(const Value& info) override {
-    g_log.push_back(s_of(_id) + ":set_frame:" + render(lfw::field_or(info, u"id")));
-  }
-  void buffs_set(const std::u16string& key, Buff*) override {
-    g_log.push_back(s_of(_id) + ":buffs_set:" + s_of(key));
-  }
-  void buffs_delete(const std::u16string& key) override {
-    g_log.push_back(s_of(_id) + ":buffs_delete:" + s_of(key));
-  }
-  void set_outline_alpha(double v) override {
-    g_log.push_back(s_of(_id) + ":outline_alpha:" + num(v));
-  }
-  void set_outline_width(double v) override {
-    g_log.push_back(s_of(_id) + ":outline_width:" + num(v));
-  }
   void set_outline_color(const std::u16string& v) override {
     g_log.push_back(s_of(_id) + ":outline_color:" + render(Value(v)));
   }
   void enter_frame_by_id(const std::u16string& id) override {
     g_log.push_back(s_of(_id) + ":enter_frame_by_id:" + render(Value(id)));
-  }
-  void attach(bool on) override {
-    g_log.push_back(s_of(_id) + ":attach:" + std::string(on ? "1" : "0"));
   }
   double velocity_x() const override { return lfw::to_number(_vx); }
   Value velocity_z() const override { return _vz; }
@@ -110,23 +138,16 @@ struct FakeEnt : IStateEntity {
     const Value* p = o->get(key);
     return p != nullptr ? *p : Value();
   }
-  Value marks_get(const std::u16string& key) const override {
-    for (size_t i = 0; i < _marks.size(); ++i) {
-      if (_marks[i].first == key) return _marks[i].second;
-    }
-    return Value();
-  }
-  void marks_set(const std::u16string& key, const std::u16string& value) override {
-    g_log.push_back(s_of(_id) + ":set_mark:" + s_of(key) + ":" + render(Value(value)));
-    for (size_t i = 0; i < _marks.size(); ++i) {
-      if (_marks[i].first == key) {
-        _marks[i].second = Value(value);
-        return;
-      }
-    }
-    _marks.push_back(std::make_pair(key, Value(value)));
-  }
+  lfw::Entity* entity_self() override { return &_stub; }
 };
+
+Value BuffStub::dataset(const std::u16string& key) const {
+  g_log.push_back(s_of(id) + ":dataset:" + s_of(key));
+  const lfw::Object* o = _owner == nullptr ? nullptr : lfw::as_object(_owner->_dataset);
+  if (o == nullptr) return Value();
+  const Value* p = o->get(key);
+  return p != nullptr ? *p : Value();
+}
 
 std::vector<FakeEnt*> g_ents;
 FakeEnt* g_victim = nullptr;
@@ -154,9 +175,10 @@ std::string state_text() {
   }
   std::string marks = "[";
   if (g_victim != nullptr) {
-    for (size_t i = 0; i < g_victim->_marks.size(); ++i) {
+    for (size_t i = 0; i < g_victim->_stub._marks.size(); ++i) {
       if (i) marks += ",";
-      marks += s_of(g_victim->_marks[i].first) + "=" + render(g_victim->_marks[i].second);
+      marks += s_of(g_victim->_stub._marks[i].first) + "=" +
+               render(Value(g_victim->_stub._marks[i].second));
     }
   }
   marks += "]";
@@ -172,10 +194,11 @@ std::string state_text() {
 }
 
 void bind() {
-  g_benv.find_entity = [](const std::u16string& id) -> lfw::buff::IBuffEntity* {
-    return find_ent(id);
+  g_benv.find_entity = [](const std::u16string& id) -> lfw::Entity* {
+    FakeEnt* e = find_ent(id);
+    return e == nullptr ? nullptr : &e->_stub;
   };
-  g_benv.create_entity = [](const Value&) -> lfw::buff::IBuffEntity* { return nullptr; };
+  g_benv.create_entity = [](const Value&) -> lfw::Entity* { return nullptr; };
   g_benv.find_data = [](const std::u16string&) -> Value { return Value(); };
   g_benv.world_buffs_set = [](const std::u16string& id, Buff*) {
     g_log.push_back("world_buffs_set:" + s_of(id));

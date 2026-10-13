@@ -10,6 +10,7 @@
 #include "lfw/core/value.h"
 #include "lfw/utils/container_help/field_or.h"
 
+#include "entity_fixture.h"
 #include "trace_util.h"
 
 namespace {
@@ -17,7 +18,7 @@ namespace {
 using lfw::Value;
 using lfw::buff::Buff;
 using lfw::buff::BuffEnv;
-using lfw::buff::IBuffEntity;
+using lfw::buff::Buff;
 using trace::parse_value;
 using trace::render_value;
 using trace::split_ws;
@@ -39,31 +40,19 @@ std::string join(const std::vector<std::string>& xs) {
   return out;
 }
 
-struct FakeEnt : IBuffEntity {
-  std::u16string _id;
-  double _px = 0;
-  double _py = 0;
-  double _pz = 0;
+// 切片 4BY：`buff` 以 `lfw::Entity` 为准入 ⇒ 假实体是真 `Entity`（`position` 是实体
+// 自己的字段；`marks_*` / `buffs_*` / 帧几何 / 描边 / `attach` 覆写观测点）。
+struct FakeEnt : lfw::Entity {
   double _centery = 0;
   double _height = 0;
   double _pic_h = 0;
   std::vector<std::pair<std::u16string, std::u16string>> _marks;
 
-  explicit FakeEnt(std::u16string id) : _id(std::move(id)) {}
+  explicit FakeEnt(std::u16string id) : Entity(fx::shared_host(), Value()) { this->id = std::move(id); }
 
-  const std::u16string& id() const override { return _id; }
-
-  void position(double& x, double& y, double& z) const override {
-    x = _px;
-    y = _py;
-    z = _pz;
-  }
-
-  void set_position(double x, double y, double z) override {
-    _px = x;
-    _py = y;
-    _pz = z;
-    g_log.push_back(s_of(_id) + ":set_position:" + num(x) + ":" + num(y) + ":" + num(z));
+  void set_position(const Value& x, const Value& y, const Value& z) override {
+    position.set(lfw::to_number(x), lfw::to_number(y), lfw::to_number(z));
+    g_log.push_back(s_of(id) + ":set_position:" + render(x) + ":" + render(y) + ":" + render(z));
   }
 
   double frame_centery() const override { return _centery; }
@@ -71,35 +60,40 @@ struct FakeEnt : IBuffEntity {
   double frame_pic_h() const override { return _pic_h; }
 
   void set_frame(const Value& info) override {
-    g_log.push_back(s_of(_id) + ":set_frame:" + render(lfw::field_or(info, u"id")));
+    g_log.push_back(s_of(id) + ":set_frame:" + render(lfw::field_or(info, u"id")));
   }
 
-  void buffs_set(const std::u16string& key, Buff*) override {
-    g_log.push_back(s_of(_id) + ":buffs_set:" + s_of(key));
+  void buffs_set(const std::u16string& key, Buff* b) override {
+    g_log.push_back(s_of(id) + ":buffs_set:" + s_of(key));
+    Entity::buffs_set(key, b);
   }
 
   void buffs_delete(const std::u16string& key) override {
-    g_log.push_back(s_of(_id) + ":buffs_delete:" + s_of(key));
+    g_log.push_back(s_of(id) + ":buffs_delete:" + s_of(key));
+    Entity::buffs_delete(key);
   }
 
   void set_outline_alpha(double v) override {
-    g_log.push_back(s_of(_id) + ":outline_alpha:" + num(v));
+    g_log.push_back(s_of(id) + ":outline_alpha:" + num(v));
   }
 
   void set_outline_width(double v) override {
-    g_log.push_back(s_of(_id) + ":outline_width:" + num(v));
+    g_log.push_back(s_of(id) + ":outline_width:" + num(v));
   }
 
-  void set_outline_color(const std::u16string& v) override {
-    g_log.push_back(s_of(_id) + ":outline_color:" + render(Value(v)));
+  void set_outline_color(std::u16string v) override {
+    g_log.push_back(s_of(id) + ":outline_color:" + render(Value(v)));
   }
 
-  void enter_frame_by_id(const std::u16string& id) override {
-    g_log.push_back(s_of(_id) + ":enter_frame_by_id:" + render(Value(id)));
+  lfw::EnterFrameResult enter_frame_by_id(const Value& i, bool fallback = false) override {
+    (void)fallback;
+    g_log.push_back(s_of(id) + ":enter_frame_by_id:" + render(i));
+    return lfw::EnterFrameResult::Entered;
   }
 
-  void attach(bool on) override {
-    g_log.push_back(s_of(_id) + ":attach:" + std::string(on ? "1" : "0"));
+  Entity& attach(const Value& ghost = Value(false)) override {
+    g_log.push_back(s_of(id) + ":attach:" + std::string(lfw::truthy(ghost) ? "1" : "0"));
+    return *this;
   }
 
   Value marks_get(const std::u16string& key) const override {
@@ -110,7 +104,7 @@ struct FakeEnt : IBuffEntity {
   }
 
   void marks_set(const std::u16string& key, const std::u16string& value) override {
-    g_log.push_back(s_of(_id) + ":set_mark:" + s_of(key) + ":" + s_of(value));
+    g_log.push_back(s_of(id) + ":set_mark:" + s_of(key) + ":" + s_of(value));
     for (size_t i = 0; i < _marks.size(); ++i) {
       if (_marks[i].first == key) {
         _marks[i].second = value;
@@ -124,10 +118,10 @@ struct FakeEnt : IBuffEntity {
     for (size_t i = 0; i < _marks.size(); ++i) {
       if (_marks[i].first != key) continue;
       _marks.erase(_marks.begin() + static_cast<std::ptrdiff_t>(i));
-      g_log.push_back(s_of(_id) + ":del_mark:" + s_of(key));
+      g_log.push_back(s_of(id) + ":del_mark:" + s_of(key));
       return true;
     }
-    g_log.push_back(s_of(_id) + ":del_mark_miss:" + s_of(key));
+    g_log.push_back(s_of(id) + ":del_mark_miss:" + s_of(key));
     return false;
   }
 };
@@ -142,7 +136,7 @@ std::string g_cls = "group_attack";
 
 FakeEnt* find_ent(const std::u16string& id) {
   for (size_t i = 0; i < g_ents.size(); ++i) {
-    if (g_ents[i]->_id == id) return g_ents[i];
+    if (g_ents[i]->id == id) return g_ents[i];
   }
   return nullptr;
 }
@@ -158,7 +152,7 @@ std::string marks_text() {
   std::string out = "[";
   for (size_t i = 0; i < g_ents.size(); ++i) {
     if (i) out += ",";
-    out += s_of(g_ents[i]->_id);
+    out += s_of(g_ents[i]->id);
     out += "{";
     for (size_t j = 0; j < g_ents[i]->_marks.size(); ++j) {
       if (j) out += ",";
@@ -172,14 +166,15 @@ std::string marks_text() {
 
 std::string fx_text() {
   if (g_effect == nullptr) return "none";
-  return num(g_effect->_px) + "/" + num(g_effect->_py) + "/" + num(g_effect->_pz);
+  return num(g_effect->position.x) + "/" + num(g_effect->position.y) + "/" +
+         num(g_effect->position.z);
 }
 
 std::string state_text() {
   std::string victims = "[";
   for (size_t i = 0; i < g_victims.size(); ++i) {
     if (i) victims += ",";
-    victims += s_of(g_victims[i]->_id);
+    victims += s_of(g_victims[i]->id);
   }
   victims += "]";
   return "id=" + s_of(g_buff_id) + " victims=" + victims +
@@ -187,8 +182,8 @@ std::string state_text() {
 }
 
 void bind() {
-  g_benv.find_entity = [](const std::u16string& id) -> IBuffEntity* { return find_ent(id); };
-  g_benv.create_entity = [](const Value&) -> IBuffEntity* {
+  g_benv.find_entity = [](const std::u16string& id) -> lfw::Entity* { return find_ent(id); };
+  g_benv.create_entity = [](const Value&) -> lfw::Entity* {
     if (g_effect == nullptr) {
       g_effect = new FakeEnt(u"fx1");
       g_ents.push_back(g_effect);
@@ -267,9 +262,9 @@ int main(int argc, char** argv) {
       } else if (sub == "vpos") {
         const Value v = parse_value(t, i);
         if (!g_victims.empty()) {
-          g_victims.back()->_px = lfw::to_number(lfw::field_or(v, u"x"));
-          g_victims.back()->_py = lfw::to_number(lfw::field_or(v, u"y"));
-          g_victims.back()->_pz = lfw::to_number(lfw::field_or(v, u"z"));
+          g_victims.back()->position.set(lfw::to_number(lfw::field_or(v, u"x")),
+                                         lfw::to_number(lfw::field_or(v, u"y")),
+                                         lfw::to_number(lfw::field_or(v, u"z")));
         }
       } else if (sub == "vframe") {
         const Value v = parse_value(t, i);

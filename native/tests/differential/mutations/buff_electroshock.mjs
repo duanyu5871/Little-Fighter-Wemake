@@ -48,8 +48,8 @@ export default {
     {
       note: "effect is not centred",
       file: "native/lfw/buff/buff_electroshock.cpp",
-      from: "void Buff_Electroshock::place_effect(IBuffEntity* effect, IBuffEntity* victim) {\n  place_effect_center(effect, victim);\n}",
-      to: "void Buff_Electroshock::place_effect(IBuffEntity* effect, IBuffEntity* victim) {\n  Buff::place_effect(effect, victim);\n}",
+      from: "void Buff_Electroshock::place_effect(Entity* effect, Entity* victim) {\n  place_effect_center(effect, victim);\n}",
+      to: "void Buff_Electroshock::place_effect(Entity* effect, Entity* victim) {\n  Buff::place_effect(effect, victim);\n}",
     },
     {
       note: "on_tick is never scheduled",
@@ -90,13 +90,13 @@ export default {
     {
       note: "on_tick bumps wait by two",
       file: "native/lfw/buff/buff_electroshock.cpp",
-      from: "  victim->set_wait(Value(to_number(victim->wait()) + 1));",
-      to: "  victim->set_wait(Value(to_number(victim->wait()) + 2));",
+      from: "  victim->set_wait(Value(victim->wait + 1));",
+      to: "  victim->set_wait(Value(victim->wait + 2));",
     },
     {
       note: "on_tick does not bump wait",
       file: "native/lfw/buff/buff_electroshock.cpp",
-      from: "  victim->set_wait(Value(to_number(victim->wait()) + 1));",
+      from: "  victim->set_wait(Value(victim->wait + 1));",
       to: "  (void)victim;",
     },
     {
@@ -132,8 +132,8 @@ export default {
     {
       note: "mount ignores the first victim",
       file: "native/lfw/buff/buff_electroshock.cpp",
-      from: "  for (size_t i = 0; i < victims.size(); ++i) {\n    IBuffEntity* victim = env()->find_entity(victims[i]);\n    if (victim == nullptr) continue;",
-      to: "  for (size_t i = 1; i < victims.size(); ++i) {\n    IBuffEntity* victim = env()->find_entity(victims[i]);\n    if (victim == nullptr) continue;",
+      from: "  for (size_t i = 0; i < victims.size(); ++i) {\n    Entity* victim = env()->find_entity(victims[i]);\n    if (victim == nullptr) continue;",
+      to: "  for (size_t i = 1; i < victims.size(); ++i) {\n    Entity* victim = env()->find_entity(victims[i]);\n    if (victim == nullptr) continue;",
     },
     {
       note: "mount does not halve the duration",
@@ -156,8 +156,8 @@ export default {
     {
       note: "mount ignores the resolved victim",
       file: "native/lfw/buff/buff_electroshock.cpp",
-      from: "    IBuffEntity* victim = env()->find_entity(victims[i]);\n    if (victim == nullptr) continue;\n    const Value state = victim->state();\n    if (equals(state, Value(static_cast<double>(StateEnum::Injured)))) continue;",
-      to: "    IBuffEntity* victim = env()->find_entity(victims[i]);\n    if (victim != nullptr) continue;\n    const Value state = victim->state();\n    if (equals(state, Value(static_cast<double>(StateEnum::Injured)))) continue;",
+      from: "    Entity* victim = env()->find_entity(victims[i]);\n    if (victim == nullptr) continue;\n    const Value state = victim->state();\n    if (equals(state, Value(static_cast<double>(StateEnum::Injured)))) continue;",
+      to: "    Entity* victim = env()->find_entity(victims[i]);\n    if (victim != nullptr) continue;\n    const Value state = victim->state();\n    if (equals(state, Value(static_cast<double>(StateEnum::Injured)))) continue;",
     },
   ],
 };

@@ -14,7 +14,7 @@ struct IHealingEntity {
   virtual ~IHealingEntity() = default;
   virtual const std::u16string& id() const = 0;
   virtual Value dataset(const std::u16string& key) const = 0;
-  virtual buff::IBuffEntity* buff_entity() = 0;
+  virtual Entity* buff_entity() = 0;
 };
 
 struct HealingEnv {

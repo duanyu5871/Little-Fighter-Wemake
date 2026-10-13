@@ -60,7 +60,7 @@ class WorldCollisionHost : public ICollisionViewHost {
   EntityCollisionView* handler_view(Entity* e) override;
   EntityCollisionView* weapon_view(Entity* e) override;
   EntityCollisionView* action_view(Entity* e) override;
-  buff::IBuffEntity* buff_view(Entity* e) override;
+  Entity* buff_view(Entity* e) override;
   // 三个访问器（及台面探针）的公共实现：同一个实体只建一份视图（指针稳定，
   // `catcher` / `bearer` 靠它）。
   EntityCollisionView* collision_view(Entity* e);

@@ -222,7 +222,7 @@ class Entity {
   Entity(IEntityHost& host, Value data);
   Entity(IEntityHost& host, Value data, state::States* states);
   // Out of line because `state_view_` holds an incomplete type here.
-  ~Entity();
+  virtual ~Entity();
 
   Entity(const Entity&) = delete;
   Entity& operator=(const Entity&) = delete;
@@ -304,11 +304,11 @@ class Entity {
   double spawn_time() const { return _spawn_time; }
   double render_effect_time() const { return _render_effect_time; }
   std::u16string outline_color() const;
-  void set_outline_color(std::u16string v);
+  virtual void set_outline_color(std::u16string v);
   double outline_alpha() const { return _outline_alpha; }
-  void set_outline_alpha(double v);
+  virtual void set_outline_alpha(double v);
   double outline_width() const { return _outline_width; }
-  void set_outline_width(double v);
+  virtual void set_outline_width(double v);
   Value outline_enabled() const;
   void set_outline_enabled(const Value& v);
   const std::u16string& mix_color() const { return _mix_color; }
@@ -319,7 +319,7 @@ class Entity {
   void set_greyscale(double v);
 
   double ground_y() const { return _ground_y; }
-  const Value& data() const { return _data; }
+  virtual const Value& data() const { return _data; }
   std::u16string origin_data_id() const;
   Value group() const;
   double mounted() const { return _mounted; }
@@ -340,7 +340,7 @@ class Entity {
   double fall_value() const { return _fall_value; }
   void set_fall_value(double v);
   double toughness() const { return _toughness; }
-  void set_toughness(double v);
+  virtual void set_toughness(double v);
   double toughness_max() const { return _toughness_max; }
   void set_toughness_max(double v);
   double toughness_resting() const { return _toughness_resting; }
@@ -358,18 +358,18 @@ class Entity {
 
   Value name() const;
   void set_name(const Value& v);
-  double mp() const { return _mp; }
-  void set_mp(double v);
-  double hp_r() const { return _hp_r; }
-  void set_hp_r(double v);
-  double hp() const { return _hp; }
-  void set_hp(double v);
-  double mp_max() const;
+  virtual double mp() const { return _mp; }
+  virtual void set_mp(double v);
+  virtual double hp_r() const { return _hp_r; }
+  virtual void set_hp_r(double v);
+  virtual double hp() const { return _hp; }
+  virtual void set_hp(double v);
+  virtual double mp_max() const;
   void set_mp_max(double v);
   double hp_max() const;
   void set_hp_max(double v);
-  const std::u16string& team() const { return _team; }
-  void set_team(std::u16string v);
+  virtual const std::u16string& team() const { return _team; }
+  virtual void set_team(std::u16string v);
   const std::u16string* src_emitter() const;
   const std::u16string* emitter() const;
   double blinking() const { return _blinking; }
@@ -392,7 +392,32 @@ class Entity {
   void set_arest(double v);
   double weight() const;
   double base_type() const;
-  Value state() const;
+  virtual Value state() const;
+
+  // --- 实体面（接口退役：原 `Entity` 的其余读面收进实体；此前由
+  //     `EntityViewBase` 转发）---
+  virtual double frame_centery() const;
+  virtual double frame_height() const;
+  virtual double frame_pic_h() const;
+  // `victim.buffs.set/delete` —— 与同面的其它条目一样是虚的（台面假实体要观测
+  // 这几条调用；`EntityViewBase` 的那两个同名方法是各自链上的转发）。
+  virtual void buffs_set(const std::u16string& key, buff::Buff* b) { buffs[key] = b; }
+  virtual void buffs_delete(const std::u16string& key) { buffs.erase(key); }
+  Value data_indexes_of(const char16_t* key) const;
+  virtual Value data_indexes_falling() const { return data_indexes_of(u"falling"); }
+  virtual Value data_indexes_in_the_skys() const { return data_indexes_of(u"in_the_skys"); }
+  virtual Value data_type() const;
+  virtual void set_fallinjury(const Value& v) { fallinjury = to_number(v); }
+  virtual void set_wait(const Value& v) { wait = to_number(v); }
+  virtual double velocity_y() const { return velocity.y; }
+  virtual Value marks_get(const std::u16string& key) const {
+    const auto it = marks.find(key);
+    return it == marks.end() ? Value() : Value(it->second);
+  }
+  virtual void marks_set(const std::u16string& key, const std::u16string& value) {
+    marks[key] = value;
+  }
+  virtual bool marks_delete(const std::u16string& key) { return marks.erase(key) > 0; }
 
   // --- frame lookup / flags ---------------------------------------------------
   // `find_frame_by_id` falls back to `find_auto_frame()` when the id is unknown;
@@ -417,10 +442,10 @@ class Entity {
   Value dvy() const;
   Value dvz() const;
   // TS `set_velocity(x?, y?, z?)` — `undefined` / `null` skip the axis.
-  void set_velocity(const Value& x, const Value& y, const Value& z);
+  virtual void set_velocity(const Value& x, const Value& y, const Value& z);
   void leave_ground();
   void handle_ground_velocity_decay(double factor = 1);
-  void handle_velocity_decay(const Value& accx,
+  virtual void handle_velocity_decay(const Value& accx,
                              std::optional<Value> accz = std::nullopt,
                              double factor = 1);
   void handle_gravity();
@@ -428,7 +453,7 @@ class Entity {
   // `set_position(x?, y?, z?)`: the three axes, then `world.restrict`, the four
   // `on_*_restrict` frame requests plus the `_state.on_restrict` hook (all of them
   // are host/frame requests here), and finally `_ground_y` through `Ground::y`.
-  void set_position(const Value& x, const Value& y, const Value& z);
+  virtual void set_position(const Value& x, const Value& y, const Value& z);
   // `update_position()`: blockers zero the moving axis, then the average-velocity
   // step writes through `set_position`.
   void update_position();
@@ -438,9 +463,9 @@ class Entity {
   // the Entity block: `__judger` is the host seams `has_next_frame_judge` /
   // `next_frame_judge`, `lfw.mt` the `mt()` seam, and `world.restrict` the
   // `world_restrict` seam.
-  void set_frame(const Value& v);
+  virtual void set_frame(const Value& v);
   EnterFrameResult enter_frame(const Value& nf, bool fallback = false);
-  EnterFrameResult enter_frame_by_id(const Value& id, bool fallback = false);
+  virtual EnterFrameResult enter_frame_by_id(const Value& id, bool fallback = false);
   EnterFrameResult handle_next_frame_result(const Value& result, bool fallback = false);
   Value get_next_frame(const Value& which);
   // `holding?.follow_bearer()` / `catching?.follow_catcher()` — the relation half of
@@ -462,7 +487,7 @@ class Entity {
   Entity& on_spawn(Entity& emitter, const Value& opoint, const Vector3& offset_velocity,
                    double facing);
   // `attach(ghost = false): this`
-  Entity& attach(const Value& ghost = Value(false));
+  virtual Entity& attach(const Value& ghost = Value(false));
   // `release()`: the drop / clean of both holding and catching, the `on_disposed`
   // callback, the reset back to the raw data, then `world.del_entity(this)`.
   void release();
@@ -516,7 +541,7 @@ class Entity {
   Entity& set_catching(Entity* v);
   Entity& add_catch_time(double value);
   Entity& set_catch_time(double value);
-  Value dataset(const std::u16string& name) const;
+  virtual Value dataset(const std::u16string& name) const;
   // 只读世界那一层（TS 的状态代码写 `this.world.dataset.X`，端口的状态缝是
   // `e.world_dataset("X")`）。
   Value world_dataset(const std::u16string& name) const;

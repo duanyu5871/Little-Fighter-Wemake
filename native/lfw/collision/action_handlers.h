@@ -45,7 +45,7 @@ struct IActionEntity {
   virtual void enter_frame(const Value& info) = 0;
   virtual void transform(const Value& data) = 0;
   virtual void set_prop(const std::u16string& name, const Value& v) = 0;
-  virtual buff::IBuffEntity* buff_entity() = 0;
+  virtual Entity* buff_entity() = 0;
 };
 
 struct ActionEnv {

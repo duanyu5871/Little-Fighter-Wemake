@@ -28,7 +28,7 @@ class ICollisionViewHost {
   virtual EntityCollisionView* handler_view(Entity* e) = 0;
   virtual EntityCollisionView* weapon_view(Entity* e) = 0;
   virtual EntityCollisionView* action_view(Entity* e) = 0;
-  virtual buff::IBuffEntity* buff_view(Entity* e) = 0;
+  virtual Entity* buff_view(Entity* e) = 0;
   virtual Entity* entity_by_id(const std::u16string& id) = 0;
   // 窄接口 → 被包的 `Entity`。合并三视图之后 `IHandlerEntity` 成了**虚基类** ⇒ `-fno-rtti`
   // 下不能再像非虚基类那样 `static_cast` 回本类（`C2635`）⇒ 宿主建视图时登记反向表，这里查回。
@@ -49,7 +49,7 @@ class ICollisionViewHost {
 //   `INdbdyDefendEntity`（含 `INbdyNormalEntity` / `IFallEntity` / `IHandlerEntity`）
 //   `IWeaponIsHitEntity`（含 `IHandlerEntity`）
 //   `IActionEntity` / `IH3Entity` / `IH4Entity` / `IFrozenEntity` / `IHealingEntity`
-//   + `EntityViewBase`（`buff::IBuffEntity` 面，与 `EntityStateView` 共用同一实现）
+//   + `EntityViewBase`（`Entity` 面，与 `EntityStateView` 共用同一实现）
 // 两处代价（都不改行为）：
 //   1. `IHandlerEntity` 是虚基类 ⇒ 不能再 `static_cast` 回本类（见
 //      `ICollisionViewHost::entity_of_handler`）；
@@ -69,7 +69,7 @@ class EntityCollisionView : public collision::INdbdyDefendEntity,
       : EntityViewBase(e), _host(host) {}
   Entity& entity() const { return _e; }
 
-  // --- `IHandlerEntity`（`buff::IBuffEntity` 不需要的那部分；两条链共用这一份）---
+  // --- `IHandlerEntity`（`Entity` 不需要的那部分；两条链共用这一份）---
   const std::u16string& id() const override;
   Value hp() const override;
   void set_hp(const Value& v) override;
@@ -104,7 +104,7 @@ class EntityCollisionView : public collision::INdbdyDefendEntity,
   void enter_frame(const Value& info) override;
   void enter_frame_by_id(const Value& id) override;
   void play_sound(const Value& sounds) override;
-  buff::IBuffEntity* buff_entity() override;
+  Entity* buff_entity() override;
 
   // --- `IFallEntity` ---
   Value facing() const override;
@@ -140,14 +140,13 @@ class EntityCollisionView : public collision::INdbdyDefendEntity,
   Value data_indexes_in_the_skys() const override;
   void leave_ground() override;
 
-  // --- `buff::IBuffEntity`（实现在 `EntityViewBase`）---
-  // `IBuffEntity` 与 `IHandlerEntity`/`INbdyNormalEntity`/… 是两条独立链，虚槽各是各的 ⇒
-  // 基类的实现只能顶 `IBuffEntity` 那条；与碰撞家族**同名**的条目（`id` / `hp` / `state` /
-  // `position` / `set_velocity` / …）已分散在各家族段里、只需保留一行转发（实现见 cpp）。
-  // `set_position` / 帧几何 / `set_frame` / `buffs_*` / `set_outline_*` / `attach` /
-  // `marks_*` / `velocity_y` 只在 `IBuffEntity` 链上 ⇒ 声明也已删。
-  // `IBuffEntity::enter_frame_by_id(u16string)` 与家族链的 `(Value)` 版是同名重载：声明
-  // 派生类重载会隐藏基类重载，故用 `using` 拉回来（不影响虚表）。
+  // --- `Entity`（实现在 `EntityViewBase`）---
+  // 切片 4BY 起 `buff::IBuffEntity` 已退役、`EntityViewBase` 不再实现任何接口 ⇒ 碰撞家族
+  // 窄接口里与实体面**同名**的条目（`id` / `hp` / `state` / `position` / `set_velocity` / …）
+  // 在这里逐条重写、各自转回 `EntityViewBase::xxx()`（实现见 cpp）；家族链上不需要的那些
+  // （帧几何 / `set_frame` / `buffs_*` / 描边 / `attach` / `marks_*` / `velocity_y`）没声明。
+  // `EntityViewBase::enter_frame_by_id(u16string)` 与家族链的 `(Value)` 版是同名重载：
+  // 声明派生类重载会隐藏基类重载，故用 `using` 拉回来（不影响虚表）。
   using EntityViewBase::enter_frame_by_id;
   void position(double& x, double& y, double& z) const override;
   Value data_type() const override;

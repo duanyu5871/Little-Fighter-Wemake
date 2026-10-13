@@ -10,6 +10,7 @@
 #include "lfw/core/value.h"
 #include "lfw/utils/container_help/field_or.h"
 
+#include "entity_fixture.h"
 #include "trace_util.h"
 
 namespace {
@@ -17,7 +18,7 @@ namespace {
 using lfw::Value;
 using lfw::buff::Buff;
 using lfw::buff::BuffEnv;
-using lfw::buff::IBuffEntity;
+using lfw::buff::Buff;
 using trace::parse_value;
 using trace::render_value;
 using trace::split_ws;
@@ -39,66 +40,61 @@ std::string join(const std::vector<std::string>& xs) {
   return out;
 }
 
-struct FakeEnt : IBuffEntity {
-  std::u16string _id;
+// 切片 4BY：`buff` 以 `lfw::Entity` 为准入 ⇒ 假实体是真 `Entity`。`data` / `state` /
+// `wait` 里 `state` / `data` 仍是 `Value`（实体面同名虚），`wait` 在实体面上是
+// `double`（TS 的 `number`），`position` 是实体自己的字段。
+struct FakeEnt : lfw::Entity {
   Value _data;
   Value _state;
-  Value _wait;
-  double _px = 0;
-  double _py = 0;
-  double _pz = 0;
+  bool _wait_set = false;
   double _centery = 0;
   double _height = 0;
   double _pic_h = 0;
 
-  explicit FakeEnt(std::u16string id) : _id(std::move(id)) {}
+  explicit FakeEnt(std::u16string id) : Entity(fx::shared_host(), Value()) { this->id = std::move(id); }
 
-  const std::u16string& id() const override { return _id; }
-
-  void position(double& x, double& y, double& z) const override {
-    x = _px;
-    y = _py;
-    z = _pz;
+  const Value& data() const override { return _data; }
+  Value state() const override { return _state; }
+  void set_wait(const Value& v) override {
+    Entity::set_wait(v);
+    _wait_set = true;
+    g_log.push_back(s_of(id) + ":set_wait:" + render(v));
   }
-  void set_position(double x, double y, double z) override {
-    _px = x;
-    _py = y;
-    _pz = z;
-    g_log.push_back(s_of(_id) + ":set_position:" + num(x) + ":" + num(y) + ":" + num(z));
+  void set_position(const Value& x, const Value& y, const Value& z) override {
+    position.set(lfw::to_number(x), lfw::to_number(y), lfw::to_number(z));
+    g_log.push_back(s_of(id) + ":set_position:" + render(x) + ":" + render(y) + ":" + render(z));
   }
   double frame_centery() const override { return _centery; }
   double frame_height() const override { return _height; }
   double frame_pic_h() const override { return _pic_h; }
   void set_frame(const Value& info) override {
-    g_log.push_back(s_of(_id) + ":set_frame:" + render(lfw::field_or(info, u"id")));
+    g_log.push_back(s_of(id) + ":set_frame:" + render(lfw::field_or(info, u"id")));
   }
-  void buffs_set(const std::u16string& key, Buff*) override {
-    g_log.push_back(s_of(_id) + ":buffs_set:" + s_of(key));
+  void buffs_set(const std::u16string& key, Buff* b) override {
+    g_log.push_back(s_of(id) + ":buffs_set:" + s_of(key));
+    Entity::buffs_set(key, b);
   }
   void buffs_delete(const std::u16string& key) override {
-    g_log.push_back(s_of(_id) + ":buffs_delete:" + s_of(key));
+    g_log.push_back(s_of(id) + ":buffs_delete:" + s_of(key));
+    Entity::buffs_delete(key);
   }
   void set_outline_alpha(double v) override {
-    g_log.push_back(s_of(_id) + ":outline_alpha:" + num(v));
+    g_log.push_back(s_of(id) + ":outline_alpha:" + num(v));
   }
   void set_outline_width(double v) override {
-    g_log.push_back(s_of(_id) + ":outline_width:" + num(v));
+    g_log.push_back(s_of(id) + ":outline_width:" + num(v));
   }
-  void set_outline_color(const std::u16string& v) override {
-    g_log.push_back(s_of(_id) + ":outline_color:" + render(Value(v)));
+  void set_outline_color(std::u16string v) override {
+    g_log.push_back(s_of(id) + ":outline_color:" + render(Value(v)));
   }
-  void enter_frame_by_id(const std::u16string& id) override {
-    g_log.push_back(s_of(_id) + ":enter_frame_by_id:" + render(Value(id)));
+  lfw::EnterFrameResult enter_frame_by_id(const Value& i, bool fallback = false) override {
+    (void)fallback;
+    g_log.push_back(s_of(id) + ":enter_frame_by_id:" + render(i));
+    return lfw::EnterFrameResult::Entered;
   }
-  void attach(bool on) override {
-    g_log.push_back(s_of(_id) + ":attach:" + std::string(on ? "1" : "0"));
-  }
-  Value data() const override { return _data; }
-  Value state() const override { return _state; }
-  Value wait() const override { return _wait; }
-  void set_wait(const Value& v) override {
-    _wait = v;
-    g_log.push_back(s_of(_id) + ":set_wait:" + render(v));
+  Entity& attach(const Value& ghost = Value(false)) override {
+    g_log.push_back(s_of(id) + ":attach:" + std::string(lfw::truthy(ghost) ? "1" : "0"));
+    return *this;
   }
 };
 
@@ -111,7 +107,7 @@ std::u16string g_kind = u"Electroshock";
 
 FakeEnt* find_ent(const std::u16string& id) {
   for (size_t i = 0; i < g_ents.size(); ++i) {
-    if (g_ents[i]->_id == id) return g_ents[i];
+    if (g_ents[i]->id == id) return g_ents[i];
   }
   return nullptr;
 }
@@ -127,7 +123,7 @@ std::string per_victim(const std::function<std::string(const FakeEnt&)>& fn) {
   std::string out = "[";
   for (size_t i = 0; i < g_victims.size(); ++i) {
     if (i) out += ",";
-    out += s_of(g_victims[i]->_id) + ":" + fn(*g_victims[i]);
+    out += s_of(g_victims[i]->id) + ":" + fn(*g_victims[i]);
   }
   return out + "]";
 }
@@ -136,7 +132,7 @@ std::string state_text() {
   std::string victims = "[";
   for (size_t i = 0; i < g_victims.size(); ++i) {
     if (i) victims += ",";
-    victims += s_of(g_victims[i]->_id);
+    victims += s_of(g_victims[i]->id);
   }
   victims += "]";
   const std::string ticks = g_buff == nullptr ? std::string("-") : num(g_buff->ticks());
@@ -146,12 +142,14 @@ std::string state_text() {
          " life=" + life +
          " state=" + per_victim([](const FakeEnt& e) { return render(e._state); }) +
          " type=" + per_victim([](const FakeEnt& e) { return render(lfw::field_or(e._data, u"type")); }) +
-         " wait=" + per_victim([](const FakeEnt& e) { return render(e._wait); });
+         " wait=" + per_victim([](const FakeEnt& e) {
+           return e._wait_set ? num(e.wait) : std::string("u");
+         });
 }
 
 void bind() {
-  g_benv.find_entity = [](const std::u16string& id) -> IBuffEntity* { return find_ent(id); };
-  g_benv.create_entity = [](const Value&) -> IBuffEntity* {
+  g_benv.find_entity = [](const std::u16string& id) -> lfw::Entity* { return find_ent(id); };
+  g_benv.create_entity = [](const Value&) -> lfw::Entity* {
     if (g_effect == nullptr) {
       g_effect = new FakeEnt(u"fx1");
       g_ents.push_back(g_effect);
@@ -238,7 +236,10 @@ int main(int argc, char** argv) {
       } else if (sub == "vstate") {
         if (!g_victims.empty()) g_victims.back()->_state = parse_value(t, i);
       } else if (sub == "vwait") {
-        if (!g_victims.empty()) g_victims.back()->_wait = Value(trace::to_double(t[i++]));
+        if (!g_victims.empty()) {
+          g_victims.back()->wait = trace::to_double(t[i++]);
+          g_victims.back()->_wait_set = true;
+        }
       } else if (sub == "vframe") {
         const Value v = parse_value(t, i);
         if (!g_victims.empty()) {
@@ -249,9 +250,9 @@ int main(int argc, char** argv) {
       } else if (sub == "vpos") {
         const Value v = parse_value(t, i);
         if (!g_victims.empty()) {
-          g_victims.back()->_px = lfw::to_number(lfw::field_or(v, u"x"));
-          g_victims.back()->_py = lfw::to_number(lfw::field_or(v, u"y"));
-          g_victims.back()->_pz = lfw::to_number(lfw::field_or(v, u"z"));
+          g_victims.back()->position.set(lfw::to_number(lfw::field_or(v, u"x")),
+                                        lfw::to_number(lfw::field_or(v, u"y")),
+                                        lfw::to_number(lfw::field_or(v, u"z")));
         }
       } else if (sub == "duration") {
         g_buff->set_duration(trace::to_double(t[i++]));

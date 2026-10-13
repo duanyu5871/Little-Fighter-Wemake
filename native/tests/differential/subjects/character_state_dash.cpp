@@ -62,7 +62,6 @@ struct FakeEnt : IStateEntity {
 
   explicit FakeEnt(std::u16string id) : _id(std::move(id)) {}
 
-  const std::u16string& id() const override { return _id; }
   void position(double& x, double& y, double& z) const override {
     x = _px;
     y = _py;
@@ -73,32 +72,11 @@ struct FakeEnt : IStateEntity {
     _py = y;
     _pz = z;
   }
-  double frame_centery() const override { return 0; }
-  double frame_height() const override { return 0; }
-  double frame_pic_h() const override { return 0; }
-  void set_frame(const Value& info) override {
-    g_log.push_back(s_of(_id) + ":set_frame:" + render(lfw::field_or(info, u"id")));
-  }
-  void buffs_set(const std::u16string& key, Buff*) override {
-    g_log.push_back(s_of(_id) + ":buffs_set:" + s_of(key));
-  }
-  void buffs_delete(const std::u16string& key) override {
-    g_log.push_back(s_of(_id) + ":buffs_delete:" + s_of(key));
-  }
-  void set_outline_alpha(double v) override {
-    g_log.push_back(s_of(_id) + ":outline_alpha:" + num(v));
-  }
-  void set_outline_width(double v) override {
-    g_log.push_back(s_of(_id) + ":outline_width:" + num(v));
-  }
   void set_outline_color(const std::u16string& v) override {
     g_log.push_back(s_of(_id) + ":outline_color:" + render(Value(v)));
   }
   void enter_frame_by_id(const std::u16string& id) override {
     g_log.push_back(s_of(_id) + ":enter_frame_by_id:" + render(Value(id)));
-  }
-  void attach(bool on) override {
-    g_log.push_back(s_of(_id) + ":attach:" + std::string(on ? "1" : "0"));
   }
   double ground_y() const override { return lfw::to_number(_ground_y); }
   Value facing() const override { return _facing; }
@@ -158,8 +136,8 @@ std::string state_text() {
 
 void bind() {
   static BuffEnv keep;
-  keep.find_entity = [](const std::u16string&) -> lfw::buff::IBuffEntity* { return nullptr; };
-  keep.create_entity = [](const Value&) -> lfw::buff::IBuffEntity* { return nullptr; };
+  keep.find_entity = [](const std::u16string&) -> lfw::Entity* { return nullptr; };
+  keep.create_entity = [](const Value&) -> lfw::Entity* { return nullptr; };
   keep.find_data = [](const std::u16string&) -> Value { return Value(); };
   keep.world_buffs_set = [](const std::u16string&, Buff*) {};
   keep.world_buffs_get = [](const std::u16string&) -> Buff* { return nullptr; };

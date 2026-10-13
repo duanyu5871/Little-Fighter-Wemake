@@ -124,9 +124,7 @@ Entity* WorldCollisionHost::entity_of_handler(const collision::IHandlerEntity* v
   return it == _entity_of_handler.end() ? nullptr : it->second;
 }
 
-buff::IBuffEntity* WorldCollisionHost::buff_view(Entity* e) {
-  return action_view(e);
-}
+Entity* WorldCollisionHost::buff_view(Entity* e) { return e; }
 
 double WorldCollisionHost::mt_range(double min, double max) {
   MersenneTwister* const mt = _world->lfw().mt();
@@ -756,11 +754,11 @@ void WorldCollisionHost::bind_healing() {
 }
 
 void WorldCollisionHost::bind_buff_env() {
-  _buff_env.find_entity = [this](const std::u16string& id) -> buff::IBuffEntity* {
+  _buff_env.find_entity = [this](const std::u16string& id) -> Entity* {
     return buff_view(_world->find_entity(id));
   };
   // `lfw.factory.create_entity(world, data)`
-  _buff_env.create_entity = [this](const Value& data) -> buff::IBuffEntity* {
+  _buff_env.create_entity = [this](const Value& data) -> Entity* {
     Entity* const e = _world->lfw().create_entity(*_world, data);
     return buff_view(e);
   };

@@ -367,6 +367,20 @@ node native/tools/mutate.mjs native/tests/differential/mutations/<subject>.mjs
 运行器对这两处写入做了 50 × 100ms 的退避重试（`writeWithRetry`），
 重试仍失败才会退出。
 
+还有两处是踩出来的：
+
+* **头文件变异要顶台面源文件的 mtime**（`touchSubjectSource()`）。本机 `build.ninja`
+  里没有头文件依赖（没有 depfile，见 DESIGN §138）⇒ 改头文件不会让任何 `.obj` 过期；
+  而台面源文件里往往**内联/实例化**了被改的类（MSVC 把 vtable 与内联体以 COMDAT 放在
+  台面的 `.obj` 里，链接时又排在库前面赢得挑选），于是「头文件变异」会**假存活**。
+  `.cpp` 变异不需要这一步：运行器每条变异后都会把 spec 提到的文件写回一遍（顺带顶新
+  它们的 mtime），那些 `.cpp` 自然每轮重编；台面源文件不在这个集合里，得单独顶一下。
+* **测试段有 60s 上限**（`TEST_TIMEOUT_MS`）。变异体可能**转不停**（`buff` 的
+  「del_id 不截断」就是），原来只能人工去杀 ⇒ 那个 `killed` 是人杀出来的结果，不是
+  运行器的判定。现在超时按 `killed (timeout)` 记（summary 里单独说明有几条），
+  并在超时后 `taskkill` 掉卡住的台面 exe —— 否则它占着
+  `bin/lfw_trace_<subject>.exe`，后面那条变异的链接会失败（变成假的 `compile-error`）。
+
 ### 6.2 `json5`（`JSON5.parse`，12 条全杀）
 
 | 变异 | 抓它的用例 |
@@ -1673,6 +1687,8 @@ harness op：
    走 `upd_fx` 会被前面的清理掩盖。
 2. `Times.add(d)` 的差异要在**全新 buff**（`_value` 为 0）上打，否则 `add(1)` 也可能正好触顶，
    两侧都触发 hook 而看不出差别。
+3. `del_id` 的两条变异（「删除判定取反」/「不截断」）会让台面**转不停**：这两条是运行器的
+   60s 上限记成 `killed (timeout)` 的（见 §6.1），不是差分抓到 drift 的那种 `killed`。
 
 ### 6.9.61 `collision_core`（差分 258 行，变异 72/72 全杀）
 

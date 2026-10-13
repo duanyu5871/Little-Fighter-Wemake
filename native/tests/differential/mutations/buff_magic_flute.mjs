@@ -91,25 +91,25 @@ export default {
     {
       note: "hp_r grows instead of dropping",
       file: "native/lfw/buff/buff_magic_flute.cpp",
-      from: "victim->set_hp_r(Value(to_number(victim->hp_r()) - injury_r));",
-      to: "victim->set_hp_r(Value(to_number(victim->hp_r()) + injury_r));",
+      from: "victim->set_hp_r(to_number(victim->hp_r()) - injury_r);",
+      to: "victim->set_hp_r(to_number(victim->hp_r()) + injury_r);",
     },
     {
       note: "hp grows instead of dropping",
       file: "native/lfw/buff/buff_magic_flute.cpp",
-      from: "victim->set_hp(Value(to_number(victim->hp()) - injury));",
-      to: "victim->set_hp(Value(to_number(victim->hp()) + injury));",
+      from: "victim->set_hp(to_number(victim->hp()) - injury);",
+      to: "victim->set_hp(to_number(victim->hp()) + injury);",
     },
     {
       note: "hp is not changed at all",
       file: "native/lfw/buff/buff_magic_flute.cpp",
-      from: "victim->set_hp(Value(to_number(victim->hp()) - injury));\n",
+      from: "victim->set_hp(to_number(victim->hp()) - injury);\n",
       to: "",
     },
     {
       note: "hp_r is not changed at all",
       file: "native/lfw/buff/buff_magic_flute.cpp",
-      from: "victim->set_hp_r(Value(to_number(victim->hp_r()) - injury_r));\n",
+      from: "victim->set_hp_r(to_number(victim->hp_r()) - injury_r);\n",
       to: "",
     },
     {
@@ -121,25 +121,25 @@ export default {
     {
       note: "fallinjury is written into toughness",
       file: "native/lfw/buff/buff_magic_flute.cpp",
-      from: "victim->set_fallinjury(Value(kFallInjury));",
-      to: "victim->set_toughness(Value(kFallInjury));",
+      from: "victim->set_fallinjury(kFallInjury);",
+      to: "victim->set_toughness(kFallInjury);",
     },
     {
       note: "toughness is written into fallinjury",
       file: "native/lfw/buff/buff_magic_flute.cpp",
-      from: "victim->set_toughness(Value(kToughness));",
-      to: "victim->set_fallinjury(Value(kToughness));",
+      from: "victim->set_toughness(kToughness);",
+      to: "victim->set_fallinjury(kToughness);",
     },
     {
       note: "fallinjury is not written",
       file: "native/lfw/buff/buff_magic_flute.cpp",
-      from: "victim->set_fallinjury(Value(kFallInjury));\n",
+      from: "victim->set_fallinjury(kFallInjury);\n",
       to: "",
     },
     {
       note: "toughness is not reset",
       file: "native/lfw/buff/buff_magic_flute.cpp",
-      from: "victim->set_toughness(Value(kToughness));\n",
+      from: "victim->set_toughness(kToughness);\n",
       to: "",
     },
     {

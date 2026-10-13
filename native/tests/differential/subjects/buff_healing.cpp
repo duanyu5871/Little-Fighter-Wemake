@@ -10,6 +10,7 @@
 #include "lfw/core/value.h"
 #include "lfw/utils/container_help/field_or.h"
 
+#include "entity_fixture.h"
 #include "trace_util.h"
 
 namespace {
@@ -17,7 +18,7 @@ namespace {
 using lfw::Value;
 using lfw::buff::Buff;
 using lfw::buff::BuffEnv;
-using lfw::buff::IBuffEntity;
+using lfw::buff::Buff;
 using trace::parse_value;
 using trace::render_value;
 using trace::split_ws;
@@ -39,54 +40,47 @@ std::string join(const std::vector<std::string>& xs) {
   return out;
 }
 
-struct FakeEnt : IBuffEntity {
-  std::u16string _id;
+// 切片 4BY：`buff` 以 `lfw::Entity` 为准入 ⇒ 假实体是真 `Entity`；`hp/hp_r/mp/mp_max`
+// 在实体面上是 `double`（TS 的 `number`）。TS 台面允许这四个字段“没设过”
+// （`undefined`，显示 `u`）⇒ 这里用 (值, 是否设过) 两件套：实体面读回 `NaN`
+// （与 TS 的 `undefined` 参与算术同义），显示面按“设过没有”印 `u`。
+struct Stat {
+  double v = 0;
+  bool set = false;
+};
+
+std::string show(const Stat& s) { return s.set ? num(s.v) : "u"; }
+
+struct FakeEnt : lfw::Entity {
   Value _dataset;
-  Value _hp;
-  Value _hp_r;
-  Value _mp;
-  Value _mp_max;
+  Stat _hp;
+  Stat _hp_r;
+  Stat _mp;
+  Stat _mp_max;
   std::vector<std::pair<std::u16string, std::u16string>> _marks;
 
-  explicit FakeEnt(std::u16string id) : _id(std::move(id)) {}
+  explicit FakeEnt(std::u16string id) : Entity(fx::shared_host(), Value()) { this->id = std::move(id); }
 
-  const std::u16string& id() const override { return _id; }
-  void position(double& x, double& y, double& z) const override {
-    x = 0;
-    y = 0;
-    z = 0;
+  Value dataset(const std::u16string& key) const override { return lfw::field_or(_dataset, key.c_str()); }
+  double hp() const override { return _hp.set ? _hp.v : to_number(Value()); }
+  double hp_r() const override { return _hp_r.set ? _hp_r.v : to_number(Value()); }
+  void set_hp(double v) override {
+    _hp = Stat{v, true};
+    g_log.push_back(s_of(id) + ":set_hp:" + num(v));
   }
-  void set_position(double, double, double) override {}
-  double frame_centery() const override { return 0; }
-  double frame_height() const override { return 0; }
-  double frame_pic_h() const override { return 0; }
-  void set_frame(const Value&) override {}
-  void buffs_set(const std::u16string& key, Buff*) override {
-    g_log.push_back(s_of(_id) + ":buffs_set:" + s_of(key));
+  double mp() const override { return _mp.set ? _mp.v : to_number(Value()); }
+  double mp_max() const override { return _mp_max.set ? _mp_max.v : to_number(Value()); }
+  void set_mp(double v) override {
+    _mp = Stat{v, true};
+    g_log.push_back(s_of(id) + ":set_mp:" + num(v));
+  }
+  void buffs_set(const std::u16string& key, Buff* b) override {
+    g_log.push_back(s_of(id) + ":buffs_set:" + s_of(key));
+    Entity::buffs_set(key, b);
   }
   void buffs_delete(const std::u16string& key) override {
-    g_log.push_back(s_of(_id) + ":buffs_delete:" + s_of(key));
-  }
-  void set_outline_alpha(double) override {}
-  void set_outline_width(double) override {}
-  void set_outline_color(const std::u16string&) override {}
-  void enter_frame_by_id(const std::u16string&) override {}
-  void attach(bool) override {}
-
-  Value dataset(const std::u16string& key) const override {
-    return lfw::field_or(_dataset, key.c_str());
-  }
-  Value hp() const override { return _hp; }
-  Value hp_r() const override { return _hp_r; }
-  void set_hp(const Value& v) override {
-    _hp = v;
-    g_log.push_back(s_of(_id) + ":set_hp:" + render(v));
-  }
-  Value mp() const override { return _mp; }
-  Value mp_max() const override { return _mp_max; }
-  void set_mp(const Value& v) override {
-    _mp = v;
-    g_log.push_back(s_of(_id) + ":set_mp:" + render(v));
+    g_log.push_back(s_of(id) + ":buffs_delete:" + s_of(key));
+    Entity::buffs_delete(key);
   }
 
   Value marks_get(const std::u16string& key) const override {
@@ -96,7 +90,7 @@ struct FakeEnt : IBuffEntity {
     return Value();
   }
   void marks_set(const std::u16string& key, const std::u16string& value) override {
-    g_log.push_back(s_of(_id) + ":set_mark:" + s_of(key) + ":" + s_of(value));
+    g_log.push_back(s_of(id) + ":set_mark:" + s_of(key) + ":" + s_of(value));
     for (size_t i = 0; i < _marks.size(); ++i) {
       if (_marks[i].first == key) {
         _marks[i].second = value;
@@ -109,10 +103,10 @@ struct FakeEnt : IBuffEntity {
     for (size_t i = 0; i < _marks.size(); ++i) {
       if (_marks[i].first != key) continue;
       _marks.erase(_marks.begin() + static_cast<std::ptrdiff_t>(i));
-      g_log.push_back(s_of(_id) + ":del_mark:" + s_of(key));
+      g_log.push_back(s_of(id) + ":del_mark:" + s_of(key));
       return true;
     }
-    g_log.push_back(s_of(_id) + ":del_mark_miss:" + s_of(key));
+    g_log.push_back(s_of(id) + ":del_mark_miss:" + s_of(key));
     return false;
   }
 };
@@ -126,7 +120,7 @@ std::string g_cls = "healing";
 
 FakeEnt* find_ent(const std::u16string& id) {
   for (size_t i = 0; i < g_ents.size(); ++i) {
-    if (g_ents[i]->_id == id) return g_ents[i];
+    if (g_ents[i]->id == id) return g_ents[i];
   }
   return nullptr;
 }
@@ -142,7 +136,7 @@ std::string marks_text() {
   std::string out = "[";
   for (size_t i = 0; i < g_ents.size(); ++i) {
     if (i) out += ",";
-    out += s_of(g_ents[i]->_id) + "{";
+    out += s_of(g_ents[i]->id) + "{";
     for (size_t j = 0; j < g_ents[i]->_marks.size(); ++j) {
       if (j) out += ",";
       out += s_of(g_ents[i]->_marks[j].first) + "=" + s_of(g_ents[i]->_marks[j].second);
@@ -161,10 +155,10 @@ std::string stats_text() {
       hp += ",";
       mp += ",";
     }
-    hp += s_of(g_victims[i]->_id) + ":" + render(g_victims[i]->_hp) + "/" +
-          render(g_victims[i]->_hp_r);
-    mp += s_of(g_victims[i]->_id) + ":" + render(g_victims[i]->_mp) + "/" +
-          render(g_victims[i]->_mp_max);
+    hp += s_of(g_victims[i]->id) + ":" + show(g_victims[i]->_hp) + "/" +
+          show(g_victims[i]->_hp_r);
+    mp += s_of(g_victims[i]->id) + ":" + show(g_victims[i]->_mp) + "/" +
+          show(g_victims[i]->_mp_max);
   }
   return hp + "] " + mp + "]";
 }
@@ -173,7 +167,7 @@ std::string state_text() {
   std::string victims = "[";
   for (size_t i = 0; i < g_victims.size(); ++i) {
     if (i) victims += ",";
-    victims += s_of(g_victims[i]->_id);
+    victims += s_of(g_victims[i]->id);
   }
   victims += "]";
   const std::string ticks = g_buff == nullptr ? std::string("-") : num(g_buff->ticks());
@@ -184,8 +178,8 @@ std::string state_text() {
 }
 
 void bind() {
-  g_benv.find_entity = [](const std::u16string& id) -> IBuffEntity* { return find_ent(id); };
-  g_benv.create_entity = [](const Value&) -> IBuffEntity* { return nullptr; };
+  g_benv.find_entity = [](const std::u16string& id) -> lfw::Entity* { return find_ent(id); };
+  g_benv.create_entity = [](const Value&) -> lfw::Entity* { return nullptr; };
   g_benv.find_data = [](const std::u16string&) -> Value { return Value(); };
   g_benv.world_buffs_set = [](const std::u16string& id, Buff*) {
     g_log.push_back("world_buffs_set:" + s_of(id));
@@ -254,14 +248,14 @@ int main(int argc, char** argv) {
       } else if (sub == "vhp") {
         const Value v = parse_value(t, i);
         if (!g_victims.empty()) {
-          g_victims.back()->_hp = lfw::field_or(v, u"hp");
-          g_victims.back()->_hp_r = lfw::field_or(v, u"hp_r");
+          g_victims.back()->_hp = Stat{lfw::to_number(lfw::field_or(v, u"hp")), true};
+          g_victims.back()->_hp_r = Stat{lfw::to_number(lfw::field_or(v, u"hp_r")), true};
         }
       } else if (sub == "vmp") {
         const Value v = parse_value(t, i);
         if (!g_victims.empty()) {
-          g_victims.back()->_mp = lfw::field_or(v, u"mp");
-          g_victims.back()->_mp_max = lfw::field_or(v, u"mp_max");
+          g_victims.back()->_mp = Stat{lfw::to_number(lfw::field_or(v, u"mp")), true};
+          g_victims.back()->_mp_max = Stat{lfw::to_number(lfw::field_or(v, u"mp_max")), true};
         }
       } else if (sub == "mark") {
         const Value v = parse_value(t, i);
@@ -298,7 +292,7 @@ int main(int argc, char** argv) {
         std::printf("run tick || %s | %s\n", join(g_log).c_str(), state_text().c_str());
       } else if (what == "duration") {
         const double amount = trace::to_double(t[i++]);
-        const IBuffEntity* e = g_victims.empty() ? nullptr : g_victims[0];
+        const lfw::Entity* e = g_victims.empty() ? nullptr : g_victims[0];
         double out = 0;
         if (e != nullptr) {
           out = g_cls == "mp_healing" ? lfw::buff::Buff_MpHealing::duration_of(*e, amount)

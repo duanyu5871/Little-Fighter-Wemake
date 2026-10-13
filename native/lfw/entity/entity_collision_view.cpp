@@ -95,8 +95,8 @@ void set_prop_of(Entity& e, const std::u16string& name, const Value& v) {
 
 // ─────────────────────── `EntityCollisionView`（`IHandlerEntity` 那一面）───────────────────────
 
-// `EntityViewBase` 里与碰撞家族**同名**的条目：各行只留一行转发（两条独立链的虚槽各要
-// 各自的 final overrider，基类只能顶 `IBuffEntity` 那条）。
+// `EntityViewBase` 里与碰撞家族**同名**的条目：各行只留一行转发（`buff::IBuffEntity` 退役后
+// 本类不再继承任何实体面接口，家族链的虚槽要各自显式重写）。
 const std::u16string& EntityCollisionView::id() const { return EntityViewBase::id(); }
 
 Value EntityCollisionView::hp() const { return EntityViewBase::hp(); }
@@ -182,7 +182,7 @@ void EntityCollisionView::play_sound(const Value& sounds) {
   _e.host().play_sound(sounds, position_value(_e.position.x, _e.position.y, _e.position.z));
 }
 
-buff::IBuffEntity* EntityCollisionView::buff_entity() { return _host.buff_view(&_e); }
+Entity* EntityCollisionView::buff_entity() { return _host.buff_view(&_e); }
 
 // ─────────────────────────── `IFallEntity` ───────────────────────────
 
@@ -267,7 +267,7 @@ Value EntityCollisionView::data_indexes_in_the_skys() const {
 
 void EntityCollisionView::leave_ground() { _e.leave_ground(); }
 
-// ─────────────────────── `buff::IBuffEntity`（基类里）───────────────────────
+// ─────────────────────── `Entity`（基类里）───────────────────────
 
 // `position` 同时被 `IH3Entity` 声明 ⇒ 保留一行转发；帧几何 / `set_position` /
 // `set_frame` / `buffs_*` / `set_outline_*` / `attach` / `marks_*` 只在 `IBuffEntity`

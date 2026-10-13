@@ -168,7 +168,7 @@ void Entity::reset(Value data) { reset(std::move(data), &state::entity_states())
 void Entity::reset(Value data, state::States* states) {
   marks.clear();
   // `for (const buf of this.buffs.values()) buf.del_victim(this)` needs the entity to
-  // be a `buff::IBuffEntity`, which lands with the buff wiring slice; the map is still
+  // be a `Entity`, which lands with the buff wiring slice; the map is still
   // cleared here so a reset never keeps stale entries.
   buffs.clear();
   is_on_ground = false;
@@ -3012,5 +3012,36 @@ void Entity::refresh_ctrl_env() {
     ctrl_->result.set_resolver([this](const Value& nf) { return get_next_frame(nf); });
   }
 }
+
+// --- 实体面（接口退役收进实体：`EntityViewBase` 的帧几何三缝与索引口径） ----------------
+
+namespace {
+
+bool entity_frame_missing(const Value& v) {
+  return std::holds_alternative<std::monostate>(v) || std::holds_alternative<NullTag>(v);
+}
+
+}  // namespace
+
+double Entity::frame_centery() const {
+  const Value v = field_or(frame, u"centery");
+  return entity_frame_missing(v) ? 0.0 : to_number(v);
+}
+
+double Entity::frame_height() const {
+  const Value v = field_or(frame, u"height");
+  return entity_frame_missing(v) ? 0.0 : to_number(v);
+}
+
+double Entity::frame_pic_h() const {
+  const Value v = field_or(field_or(frame, u"pic"), u"h");
+  return entity_frame_missing(v) ? 0.0 : to_number(v);
+}
+
+Value Entity::data_indexes_of(const char16_t* key) const {
+  return field_or(field_or(data(), u"indexes"), key);
+}
+
+Value Entity::data_type() const { return field_or(data(), u"type"); }
 
 }

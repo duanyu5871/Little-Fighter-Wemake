@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
-import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -9,17 +9,23 @@ const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "..", "..");
 const nativeScript = resolve(root, "native", "tools", "native.mjs");
 
-function run(args) {
+// 变异体可能**卡死**（已经遇到过：`buff` 的「del_id 不截断」让台面一直转），
+// 所以测试这一段的运行时间要有上限 —— 否则整个运行会挂在那里等人工去杀，
+// 而「killed」就成了人手动杀出来的结果，不是运行器的判定。
+const TEST_TIMEOUT_MS = 60_000;
+
+function run(args, timeoutMs) {
   try {
     execFileSync(process.execPath, [nativeScript, ...args], {
       cwd: root,
       stdio: ["ignore", "pipe", "pipe"],
+      timeout: timeoutMs,
     });
     return { ok: true, out: "" };
   } catch (e) {
     const out = `${e.stdout ?? ""}${e.stderr ?? ""}`.toString();
     const tail = out.trimEnd().split(/\r?\n/).slice(-40).join("\n");
-    return { ok: false, out: tail };
+    return { ok: false, out: tail, timedOut: e.killed === true || e.signal != null };
   }
 }
 
@@ -36,12 +42,35 @@ const { subject, mutations } = spec;
 // —— 不写就照旧跑该 subject 的全部用例。
 const specCases = Array.isArray(spec.cases) ? spec.cases : spec.cases ? [spec.cases] : [];
 
+// 台面源文件（`tests/differential/subjects/<subject>.cpp`）：头文件变异要逼它重编，
+// 见下面 `touchSubjectSource()` 的注释。
+const subjectSource = resolve(root, "native", "tests", "differential", "subjects", `${subject}.cpp`);
+
+// ⚠️ 本机 `build.ninja` 里没有头文件依赖（没有 depfile，见 DESIGN §138）⇒ 改头文件
+// 不会让任何 `.obj` 过期。而台面源文件里往往**内联/实例化**了被改的类（MSVC 会把
+// vtable 与内联体以 COMDAT 放在台面的 .obj 里，链接时又排在库的前面赢得挑选），
+// 于是「头文件变异」会**假存活**。运行器本来就会在每条变异后把 spec 提到的文件
+// 写回一遍（顺带把它们的 mtime 顶新 ⇒ 下一条变异时自然会重编），台面源文件不在
+// 这个集合里，得单独顶一下。
+function touchSubjectSource() {
+  if (!existsSync(subjectSource)) return;
+  const now = new Date();
+  utimesSync(subjectSource, now, now);
+}
+
+// 超时被杀的是子进程（node），台面 exe 可能是孙进程、还在转 —— 它占着
+// `bin/lfw_trace_<subject>.exe`，会让后面那条变异的链接失败。
+function killStuckSubjects() {
+  spawnSync("taskkill", ["/F", "/IM", `lfw_trace_${subject}.exe`], { stdio: "ignore" });
+}
+
 function runTest(extraArgs) {
   for (const name of specCases.length ? specCases : [null]) {
     const args = ["test", subject];
     if (name) args.push(name);
     args.push(...extraArgs);
-    const r = run(args);
+    const r = run(args, TEST_TIMEOUT_MS);
+    if (r.timedOut) killStuckSubjects();
     if (!r.ok) return r;
   }
   return { ok: true, out: "" };
@@ -148,6 +177,7 @@ const rows = [];
 let killed = 0;
 let survived = 0;
 let compileError = 0;
+let timeouts = 0;
 const startedAt = Date.now();
 
 for (const m of mutations) {
@@ -158,14 +188,16 @@ for (const m of mutations) {
     .get(file)
     .replace(normalize_eol(m.from), normalize_eol(m.to));
   writeWithRetry(file, restore_eol(mutated, crlf));
+  if (!/\.cpp$/i.test(m.file)) touchSubjectSource();
 
   const t0 = Date.now();
   const built = run(["build", subject]);
   if (built.ok) {
     const tested = runTest(["--reuse-ts"]);
-    rows.push({ note: m.note, survived: tested.ok, ms: Date.now() - t0 });
+    rows.push({ note: m.note, survived: tested.ok, timeout: tested.timedOut, ms: Date.now() - t0 });
     if (tested.ok) ++survived;
     else ++killed;
+    if (tested.timedOut) ++timeouts;
   } else {
     rows.push({ note: m.note, survived: false, compileError: true, ms: Date.now() - t0 });
     ++compileError;
@@ -182,14 +214,21 @@ run(["build"]);
 
 const width = Math.max(...rows.map((r) => r.note.length));
 for (const r of rows) {
-  const status = r.compileError ? "compile-error" : r.survived ? "SURVIVED" : "killed";
+  const status = r.compileError
+    ? "compile-error"
+    : r.survived
+      ? "SURVIVED"
+      : r.timeout
+        ? "killed (timeout)"
+        : "killed";
   process.stdout.write(`${r.note.padEnd(width)}  ${status}\n`);
 }
 const totalMs = Date.now() - startedAt;
 const slowest = [...rows].sort((a, b) => (b.ms ?? 0) - (a.ms ?? 0))[0];
 process.stdout.write(
   `\nsubject ${subject}${specCases.length ? ` (cases: ${specCases.join(", ")})` : " (all cases)"}\n` +
-    `${killed} killed, ${survived} survived, ${compileError} compile-error (of ${rows.length})\n` +
+    `${killed} killed, ${survived} survived, ${compileError} compile-error (of ${rows.length})` +
+    (timeouts ? ` — ${timeouts} of the killed are timeouts (the mutant hangs)\n` : "\n") +
     `total ${(totalMs / 1000).toFixed(1)}s, ${(totalMs / rows.length).toFixed(0)} ms/mutation` +
     (slowest ? `, slowest '${slowest.note}' ${slowest.ms} ms\n` : "\n"),
 );

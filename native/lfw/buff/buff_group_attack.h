@@ -18,7 +18,7 @@ class Buff_GroupAttack : public Buff {
  protected:
   std::u16string effect_oid() const override;
   std::u16string effect_frame_id() const override;
-  void place_effect(IBuffEntity* effect, IBuffEntity* victim) override;
+  void place_effect(Entity* effect, Entity* victim) override;
 
  public:
   void mount() override;

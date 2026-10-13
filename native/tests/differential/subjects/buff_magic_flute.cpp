@@ -10,6 +10,7 @@
 #include "lfw/core/value.h"
 #include "lfw/utils/container_help/field_or.h"
 
+#include "entity_fixture.h"
 #include "trace_util.h"
 
 namespace {
@@ -17,7 +18,6 @@ namespace {
 using lfw::Value;
 using lfw::buff::Buff;
 using lfw::buff::BuffEnv;
-using lfw::buff::IBuffEntity;
 using lfw::buff::MagicFluteEnv;
 using trace::parse_value;
 using trace::render_value;
@@ -40,93 +40,109 @@ std::string join(const std::vector<std::string>& xs) {
   return out;
 }
 
-struct FakeEnt : IBuffEntity {
-  std::u16string _id;
-  Value _data;
+// 切片 4BY：`buff` 以 `lfw::Entity` 为准入 ⇒ 假实体是真 `Entity`。实体面上
+// `hp` / `hp_r` / `toughness` 是 `double`、`team` 是 `u16string`（TS 的
+// `number` / `string`），台面允许它们“没设过”（`undefined`，显示 `u`）⇒ 用
+// (值, 是否设过) 两件套；`data` / `state` / `fallinjury` 在实体面上仍是 `Value`。
+struct Stat {
+  double v = 0;
+  bool set = false;
+};
+
+std::string show(const Stat& s) { return s.set ? num(s.v) : "u"; }
+
+struct FakeEnt : lfw::Entity {
+  Value _type;
   Value _indexes;
+  Value _data;
   Value _state;
-  Value _hp;
-  Value _hp_r;
+  Stat _hp;
+  Stat _hp_r;
   Value _fallinjury;
   Value _toughness;
-  Value _team;
-  double _vy = 0;
+  std::u16string _team;
+  bool _team_set = false;
 
-  explicit FakeEnt(std::u16string id) : _id(std::move(id)) {}
+  explicit FakeEnt(std::u16string id) : Entity(fx::shared_host(), Value()) { this->id = std::move(id); }
 
-  const std::u16string& id() const override { return _id; }
-  void position(double& x, double& y, double& z) const override {
-    x = 0;
-    y = 0;
-    z = 0;
+  // TS 的 `get data()`：`this._indexes === undefined ? this._data : {...this._data, indexes}`。
+  void rebuild_data() {
+    lfw::Object o;
+    o.set(u"type", _type);
+    if (!std::holds_alternative<std::monostate>(_indexes)) o.set(u"indexes", _indexes);
+    _data = Value(std::make_shared<lfw::Object>(o));
   }
-  void set_position(double x, double y, double z) override {
-    g_log.push_back(s_of(_id) + ":set_position:" + num(x) + ":" + num(y) + ":" + num(z));
+
+  const Value& data() const override { return _data; }
+  Value state() const override { return _state; }
+  double hp() const override { return _hp.set ? _hp.v : to_number(Value()); }
+  double hp_r() const override { return _hp_r.set ? _hp_r.v : to_number(Value()); }
+  void set_hp(double v) override {
+    _hp = Stat{v, true};
+    g_log.push_back(s_of(id) + ":set_hp:" + num(v));
+  }
+  void set_hp_r(double v) override {
+    _hp_r = Stat{v, true};
+    g_log.push_back(s_of(id) + ":set_hp_r:" + num(v));
+  }
+  void set_fallinjury(const Value& v) override {
+    _fallinjury = v;
+    g_log.push_back(s_of(id) + ":set_fallinjury:" + render(v));
+  }
+  void set_toughness(double v) override {
+    _toughness = Value(v);
+    g_log.push_back(s_of(id) + ":set_toughness:" + num(v));
+  }
+  const std::u16string& team() const override { return _team; }
+  void set_team(std::u16string v) override {
+    _team = v;
+    _team_set = true;
+    g_log.push_back(s_of(id) + ":set_team:" + render(Value(v)));
+  }
+  void set_velocity(const Value& x, const Value& y, const Value& z) override {
+    g_log.push_back(s_of(id) + ":set_velocity:" + render(x) + ":" + render(y) + ":" + render(z));
+  }
+  void handle_velocity_decay(const Value& accx, std::optional<Value> accz = std::nullopt,
+                             double factor = 1) override {
+    (void)accz;
+    (void)factor;
+    g_log.push_back(s_of(id) + ":handle_velocity_decay:" + render(accx));
+  }
+  lfw::EnterFrameResult enter_frame_by_id(const Value& i, bool fallback = false) override {
+    (void)fallback;
+    g_log.push_back(s_of(id) + ":enter_frame_by_id:" + render(i));
+    return lfw::EnterFrameResult::Entered;
+  }
+  void set_position(const Value& x, const Value& y, const Value& z) override {
+    g_log.push_back(s_of(id) + ":set_position:" + render(x) + ":" + render(y) + ":" + render(z));
+  }
+  void set_frame(const Value& info) override {
+    g_log.push_back(s_of(id) + ":set_frame:" + render(lfw::field_or(info, u"id")));
+  }
+  void buffs_set(const std::u16string& key, Buff* b) override {
+    g_log.push_back(s_of(id) + ":buffs_set:" + s_of(key));
+    Entity::buffs_set(key, b);
+  }
+  void buffs_delete(const std::u16string& key) override {
+    g_log.push_back(s_of(id) + ":buffs_delete:" + s_of(key));
+    Entity::buffs_delete(key);
+  }
+  void set_outline_alpha(double v) override {
+    g_log.push_back(s_of(id) + ":outline_alpha:" + num(v));
+  }
+  void set_outline_width(double v) override {
+    g_log.push_back(s_of(id) + ":outline_width:" + num(v));
+  }
+  void set_outline_color(std::u16string v) override {
+    g_log.push_back(s_of(id) + ":outline_color:" + render(Value(v)));
+  }
+  Entity& attach(const Value& ghost = Value(false)) override {
+    g_log.push_back(s_of(id) + ":attach:" + std::string(lfw::truthy(ghost) ? "1" : "0"));
+    return *this;
   }
   double frame_centery() const override { return 0; }
   double frame_height() const override { return 0; }
   double frame_pic_h() const override { return 0; }
-  void set_frame(const Value& info) override {
-    g_log.push_back(s_of(_id) + ":set_frame:" + render(lfw::field_or(info, u"id")));
-  }
-  void buffs_set(const std::u16string& key, Buff*) override {
-    g_log.push_back(s_of(_id) + ":buffs_set:" + s_of(key));
-  }
-  void buffs_delete(const std::u16string& key) override {
-    g_log.push_back(s_of(_id) + ":buffs_delete:" + s_of(key));
-  }
-  void set_outline_alpha(double v) override {
-    g_log.push_back(s_of(_id) + ":outline_alpha:" + num(v));
-  }
-  void set_outline_width(double v) override {
-    g_log.push_back(s_of(_id) + ":outline_width:" + num(v));
-  }
-  void set_outline_color(const std::u16string& v) override {
-    g_log.push_back(s_of(_id) + ":outline_color:" + render(Value(v)));
-  }
-  void enter_frame_by_id(const std::u16string& id) override {
-    g_log.push_back(s_of(_id) + ":enter_frame_by_id:" + render(Value(id)));
-  }
-  void attach(bool on) override {
-    g_log.push_back(s_of(_id) + ":attach:" + std::string(on ? "1" : "0"));
-  }
-  Value data() const override { return _data; }
-  Value data_type() const override { return lfw::field_or(_data, u"type"); }
-  Value state() const override { return _state; }
-  Value hp() const override { return _hp; }
-  Value hp_r() const override { return _hp_r; }
-  void set_hp(const Value& v) override {
-    _hp = v;
-    g_log.push_back(s_of(_id) + ":set_hp:" + render(v));
-  }
-  void set_hp_r(const Value& v) override {
-    _hp_r = v;
-    g_log.push_back(s_of(_id) + ":set_hp_r:" + render(v));
-  }
-  void set_fallinjury(const Value& v) override {
-    _fallinjury = v;
-    g_log.push_back(s_of(_id) + ":set_fallinjury:" + render(v));
-  }
-  void set_toughness(const Value& v) override {
-    _toughness = v;
-    g_log.push_back(s_of(_id) + ":set_toughness:" + render(v));
-  }
-  Value team() const override { return _team; }
-  void set_team(const Value& v) override {
-    _team = v;
-    g_log.push_back(s_of(_id) + ":set_team:" + render(v));
-  }
-  double velocity_y() const override { return _vy; }
-  void set_velocity(const Value& x, const Value& y, const Value& z) override {
-    g_log.push_back(s_of(_id) + ":set_velocity:" + render(x) + ":" + render(y) + ":" + render(z));
-  }
-  void handle_velocity_decay(double accx) override {
-    g_log.push_back(s_of(_id) + ":handle_velocity_decay:" + num(accx));
-  }
-  Value data_indexes_falling() const override { return lfw::field_or(_indexes, u"falling"); }
-  Value data_indexes_in_the_skys() const override {
-    return lfw::field_or(_indexes, u"in_the_skys");
-  }
 };
 
 std::vector<FakeEnt*> g_ents;
@@ -140,7 +156,7 @@ std::u16string g_attacker_id;
 
 FakeEnt* find_ent(const std::u16string& id) {
   for (size_t i = 0; i < g_ents.size(); ++i) {
-    if (g_ents[i]->_id == id) return g_ents[i];
+    if (g_ents[i]->id == id) return g_ents[i];
   }
   return nullptr;
 }
@@ -156,7 +172,7 @@ std::string per_victim(const std::function<std::string(const FakeEnt&)>& fn) {
   std::string out = "[";
   for (size_t i = 0; i < g_victims.size(); ++i) {
     if (i) out += ",";
-    out += s_of(g_victims[i]->_id) + ":" + fn(*g_victims[i]);
+    out += s_of(g_victims[i]->id) + ":" + fn(*g_victims[i]);
   }
   return out + "]";
 }
@@ -165,7 +181,7 @@ std::string state_text() {
   std::string victims = "[";
   for (size_t i = 0; i < g_victims.size(); ++i) {
     if (i) victims += ",";
-    victims += s_of(g_victims[i]->_id);
+    victims += s_of(g_victims[i]->id);
   }
   victims += "]";
   const std::string ticks = g_buff == nullptr ? std::string("-") : num(g_buff->ticks());
@@ -173,18 +189,22 @@ std::string state_text() {
   const std::string life = g_buff == nullptr ? std::string("-") : num(g_buff->lifetime());
   return "id=" + s_of(g_buff_id) + " victims=" + victims + " ticks=" + ticks + " dur=" + dur +
          " life=" + life +
-         " hp=" + per_victim([](const FakeEnt& e) { return render(e._hp); }) +
-         " hp_r=" + per_victim([](const FakeEnt& e) { return render(e._hp_r); }) +
+         " hp=" + per_victim([](const FakeEnt& e) { return show(e._hp); }) +
+         " hp_r=" + per_victim([](const FakeEnt& e) { return show(e._hp_r); }) +
          " fall=" + per_victim([](const FakeEnt& e) { return render(e._fallinjury); }) +
          " tough=" + per_victim([](const FakeEnt& e) { return render(e._toughness); }) +
-         " team=" + per_victim([](const FakeEnt& e) { return render(e._team); }) +
-         " vy=" + per_victim([](const FakeEnt& e) { return num(e._vy); }) +
-         " type=" + per_victim([](const FakeEnt& e) { return render(e.data_type()); });
+         " team=" + per_victim([](const FakeEnt& e) {
+           return e._team_set ? render(Value(e._team)) : std::string("u");
+         }) +
+         " vy=" + per_victim([](const FakeEnt& e) { return num(e.velocity.y); }) +
+         " type=" + per_victim([](const FakeEnt& e) {
+           return render(lfw::field_or(e._data, u"type"));
+         });
 }
 
 void bind() {
-  g_benv.find_entity = [](const std::u16string& id) -> IBuffEntity* { return find_ent(id); };
-  g_benv.create_entity = [](const Value&) -> IBuffEntity* {
+  g_benv.find_entity = [](const std::u16string& id) -> lfw::Entity* { return find_ent(id); };
+  g_benv.create_entity = [](const Value&) -> lfw::Entity* {
     if (g_effect == nullptr) {
       g_effect = new FakeEnt(u"fx1");
       g_ents.push_back(g_effect);
@@ -205,10 +225,10 @@ void bind() {
   g_benv.create_buff = [](const std::u16string&, const std::u16string&) -> Buff* { return nullptr; };
 
   MagicFluteEnv menv;
-  menv.summary_apply_damage = [](IBuffEntity* a, const Value& injury, IBuffEntity* v,
+  menv.summary_apply_damage = [](lfw::Entity* a, const Value& injury, lfw::Entity* v,
                                  const Value& prev_hp) {
-    g_log.push_back("apply_damage:" + s_of(a->id()) + ":" + render(injury) + ":" +
-                    s_of(v->id()) + ":" + render(prev_hp));
+    g_log.push_back("apply_damage:" + s_of(a->id) + ":" + render(injury) + ":" +
+                    s_of(v->id) + ":" + render(prev_hp));
   };
   lfw::buff::set_magic_flute_env(menv);
 }
@@ -271,7 +291,8 @@ int main(int argc, char** argv) {
         g_attacker_id = value_text(parse_value(t, i));
       } else if (sub == "ateam") {
         FakeEnt& a = ent(g_attacker_id);
-        a._team = parse_value(t, i);
+        a._team = lfw::to_string(parse_value(t, i));
+        a._team_set = true;
       } else if (sub == "victim") {
         FakeEnt* e = &ent(value_text(parse_value(t, i)));
         for (size_t k = 0; k < g_victims.size();) {
@@ -284,26 +305,35 @@ int main(int argc, char** argv) {
         g_victims.push_back(e);
       } else if (sub == "vtype") {
         if (!g_victims.empty()) {
-          lfw::Object o;
-          o.set(u"type", parse_value(t, i));
-          g_victims.back()->_data = Value(std::make_shared<lfw::Object>(o));
+          g_victims.back()->_type = parse_value(t, i);
+          g_victims.back()->rebuild_data();
         }
       } else if (sub == "vindexes") {
-        if (!g_victims.empty()) g_victims.back()->_indexes = parse_value(t, i);
+        if (!g_victims.empty()) {
+          g_victims.back()->_indexes = parse_value(t, i);
+          g_victims.back()->rebuild_data();
+        }
       } else if (sub == "vstate") {
         if (!g_victims.empty()) g_victims.back()->_state = parse_value(t, i);
       } else if (sub == "vhp") {
-        if (!g_victims.empty()) g_victims.back()->_hp = parse_value(t, i);
+        if (!g_victims.empty()) {
+          g_victims.back()->_hp = Stat{lfw::to_number(parse_value(t, i)), true};
+        }
       } else if (sub == "vhp_r") {
-        if (!g_victims.empty()) g_victims.back()->_hp_r = parse_value(t, i);
+        if (!g_victims.empty()) {
+          g_victims.back()->_hp_r = Stat{lfw::to_number(parse_value(t, i)), true};
+        }
       } else if (sub == "vfallinjury") {
         if (!g_victims.empty()) g_victims.back()->_fallinjury = parse_value(t, i);
       } else if (sub == "vtough") {
         if (!g_victims.empty()) g_victims.back()->_toughness = parse_value(t, i);
       } else if (sub == "vteam") {
-        if (!g_victims.empty()) g_victims.back()->_team = parse_value(t, i);
+        if (!g_victims.empty()) {
+          g_victims.back()->_team = lfw::to_string(parse_value(t, i));
+          g_victims.back()->_team_set = true;
+        }
       } else if (sub == "vvy") {
-        if (!g_victims.empty()) g_victims.back()->_vy = trace::to_double(t[i++]);
+        if (!g_victims.empty()) g_victims.back()->velocity.y = trace::to_double(t[i++]);
       } else {
         std::fprintf(stderr, "unknown env '%s' at line %d\n", sub.c_str(), lineno);
         return 2;

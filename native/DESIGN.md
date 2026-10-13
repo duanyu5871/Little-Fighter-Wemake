@@ -10386,3 +10386,116 @@ double 文本、`nan_to_null`）；变异 **11 枚 spec 共 507 条全杀**：`w
 37/37 / `burning` 37/37 / `caught_rowing` 39/39 / `dash` 42/42 / `falling` 77/77 /
 `jump` 48/48 / `lying` 84/84 / `walking` 34/34。`state_base` 补了一条用例场景
 （"z 轴正速度超限"进入 Value 版 clamp 上限分支，`main.txt` 46→50 行）。
+
+## 138. 切片 4BY：`buff::IBuffEntity` 退役（buff 以 `lfw::Entity` 为准入）
+
+**背景**：4BX 让 `EntityViewBase` 去实现 `buff::IBuffEntity`（14 纯虚 + 20 默认虚），
+于是「实体面」有三份说法：`Entity` 自己、`EntityViewBase`（转发给 `Entity`）、以及
+两条视图链（`EntityCollisionView` / `EntityStateView`）。TS 侧只有一个 `Entity` 类
+（`Buff.ts` 收到的就是它）⇒ 本刀把窄接口整个删掉，`buff` 直接以 `lfw::Entity` 为准入。
+
+**lfw 侧**：
+* `buff::IBuffEntity`（含其 34 个方法）删除；`BuffEnv::find_entity` / `create_entity`、
+  `Buff::attacter/set_attacker_entity/set_victim/add_victim/del_victim/place_effect(_center)/
+  show_effect/on_*`、`grant_buff`、`MagicFluteEnv::summary_apply_damage` 全部改收/返回
+  `Entity*`。`Buff::place_effect` 从 `victim->position(x,y,z)` 改为直读
+  `victim->position.x/y/z`（TS 就是直读字段）。
+* `Entity` 吸收实体面：新增 `data_indexes_of(key)`，把 `frame_centery/frame_height/
+  frame_pic_h`、`data_type`、`data_indexes_falling`、`data_indexes_in_the_skys`、
+  `set_fallinjury`、`set_wait`、`velocity_y`、`marks_get/set/delete` 收进实体，并把
+  `buffs_set` / `buffs_delete` **改虚**（同面的其它条目都是虚的；台面假实体要观测这两条
+  调用）。
+* 4BX 的 `EntityViewBase` 保留为「纯转发实现」（不再是接口实现类）；`EntityCollisionView`
+  本来就逐条重写家族链（实现见 .cpp），保持不动。
+* **`EntityStateView` 必须逐条补 `IStateEntity` 的实体面重写（本刀最大的一处静默回归）**：
+  4BX 时这些槽的 final overrider 是 `EntityViewBase` —— 它靠 `IBuffEntity` 那条虚链顶上去；
+  接口退役后 `IStateEntity` 自带的默认体赢了（`hp()` 读回 `undefined`、`position()` 恒
+  `0/0/0`、`team()` 空串 …），共 21 条。差分 `entity/main`、`entity/spawn`、
+  `entity/update` 三份当场抓出（`hp=u` vs `n20` 之类）。补法是显式 `override` +
+  `EntityViewBase::xxx()` 转发。
+* `state::IStateEntity`：删掉 14 条实体面（`id` / 帧几何 / `set_frame` / `buffs_*` /
+  描边 / `attach`），新增桥 `virtual Entity* entity_self()`（缺省空）——`buff` 侧只认
+  `Entity`，状态侧要给实体时走它。
+* `State_Base::leave`：HealSelf 分支经 `entity_self()` 取实体再
+  `grant_buff`；`Buff_Healing::duration_of` 从（4BY 中途的）头文件模板**回到 .cpp**、
+  收 `const Entity&`，与 `Buff_MpHealing::duration_of` 同型 —— 9 条「时长公式」变异
+  锚点也随落在 `.cpp` 上，不受下面那条「头文件变异」坑的影响。
+
+**台面（29 个 subject）**：假实体从窄接口改成**真 `Entity`（或其派生）**。
+* 新增 `tests/differential/subjects/entity_fixture.h`：
+  - `fx::Host`：最小 `IEntityHost`（`new_id` 脚本化，其余走默认）；
+  - `fx::shared_host()`：Meyers 单例。**名字里的 `shared_` 是刻意的**：`lfw::Entity`
+    自己有一个成员 `IEntityHost& host() const { return *host_; }`，在 `Entity` 派生类的
+    构造初始化列表里裸写 `host()` 会解析到那个成员 —— 在 `host_` 尚未赋值时解引用它，
+    崩在 `access=0xFFFFFFFFFFFFFFFF`（本刀踩过一次，台面 `state_base_proxy` 三条线索
+    ——`sizeof(Entity)=5840`、成员 vs 独立构造、错地址每次不同——才定位到）；
+  - `fx::StubEntity`：`dataset` 转回调的最小 `Entity` 派生（`buff` 侧对宿主的唯一读面
+    就是 `dataset`）。
+* `buff` 家族（`buff` / `buff_marks` / `buff_electroshock` / `buff_healing` /
+  `buff_magic_flute`）：假实体改为 `lfw::Entity` 派生，观测点落在实体面（`set_position` /
+  `set_frame` / 帧几何 / `buffs_*` / 描边 / `enter_frame_by_id` / `attach` / `marks_*`），
+  日志逐字照抄 TS 侧假件。**实体面上有具体类型的字段**（`hp/hp_r/mp/mp_max/toughness` 是
+  `double`、`team` 是 `u16string` —— TS 侧是 `number`/`string`）用 (值, 是否设过) 两件套承载
+  TS 台面的「没设过 ⇒ 显示 `u`」；`hp/wait` 这类「没设过就参与算术」的，实体面读回 `NaN`
+  （与 TS 的 `undefined` 同义）。
+* 碰撞家族 8 个 subject：`FakeBuff`（原先 14 个空方法的空壳）收成
+  `struct FakeBuff : lfw::Entity { explicit FakeBuff(id) : Entity(fx::shared_host(), Value()) … }`，
+  `buff_entity()` 改 `Entity*`；`collision_healing` 的那个空壳保留 `dataset` 转发。
+* state / 其它 13 个 subject：删掉已退役的 10 条 shim 覆写（`id` / 帧几何 / `set_frame` /
+  `buffs_*` / `set_outline_alpha/width` / `attach`），`BuffEnv` lambda 改 `Entity*`。
+  `state_base` / `state_base_proxy` 额外给 `entity_self()` 一个实体：前者是 `BuffStub`
+  （`dataset`/`buffs_*`/`marks_*` 全带日志 —— `Buff_Healing::mount` 落 mark、读 ticks 都要
+  看得见），后者只是把 `fx::StubEntity` 交出去（`create_buff` 返回空，只用它的 `id`）。
+* `entity.cpp`（大 subject）：`IStateEntity&` 上已经拿不到 `id` / `set_frame` ⇒ 加
+  `self_of(e)` = `*e.entity_self()`（台面里发到状态钩子的就是实体自己的
+  `EntityStateView`，必非空）。
+
+**用例/文档**：`cases/buff_magic_flute/main.txt` 的 `env ateam` / `env vteam` 由数值改为
+字符串（`Entity.team` 是 `string`：TS `get team(): string`、`set team` 里还有
+`this.variant = Number(this._team) || 0`；数值 team 在实体面上过不了往返回合）。文件头的
+op 说明同步改写。
+
+**变异档（6 枚 spec 共 51 条锚点重指）**：`...->id()` → `->id`（`id` 成了字段）、
+`IBuffEntity*` → `Entity*`、`victim->wait()` → `victim->wait`、
+`effect->set_position(x, y, z + 0.5)` → 直读字段的写法、double setter 上的 `Value(...)`
+包装摘掉（`set_hp(Value(min(` → `set_hp(min(`）、`set_wait(Value(to_number(victim->wait()) + 1))`
+→ `set_wait(Value(victim->wait + 1))`、`duration_of` 锚点回 `.cpp`、`state_base` 的
+`grant_buff` 三处改 `victim` / `duration`。重指之外还修了运行器自身的两个坑（见文末）：
+「头文件变异顶台面 mtime」与「测试段 60s 上限」。
+
+**测试**：全量差分 **254/254**（本刀所有验证都做在 `rm -rf build/msvc-x64` 后的**全量重编**
+上 —— 见下面的坑）。lint **9776 ok / 0 bad anchors**（实现迁址 + 签名变更共 51 条锚点重指）。
+coverage 不变（1 条 `text-enum?` 提示是既有）。变异：本刀涉及的 6 枚 spec 共 **250 条全杀**
+（`buff` 61/61、`buff_electroshock` 22/22、`buff_healing` 42/42、`buff_magic_flute` 58/58、
+`buff_marks` 30/30、`state_base` 37/37）。
+
+**⚠ 环境坑（本刀必须记一笔）**：本机 `build/msvc-x64/build.ninja` 里的编译规则是
+`CXX_COMPILER__lfw_core_unscanned_Release` —— **既没有 `deps = msvc` 也没有 `/showIncludes`**
+（CMake 3.28+ 对 MSVC 默认开模块扫描，扫描只挂在 `CXX_SCAN__*` 规则上，普通编译那条就
+不记依赖了）⇒ ninja 不记头文件依赖、**改头文件不会触发重编**，`ninja -t deps …` 恒为
+`#deps 0`。
+
+症状（本刀踩了两次）：改完 `entity_state_view.h` 后 `native.mjs build` 声称成功、`.obj`
+时间戳也新，但运行行为还是旧的；`rm -rf build/msvc-x64` 后全量重编才现出 21 条丢掉的
+重写。所以本刀所有验证都做在**全量重编**上。
+
+第二处是变异运行时的**假存活**：头文件变异（`has_on_tick()`/`has_on_update()`/`State_Base`
+的构造）改的是台面源文件里**内联/实例化**的东西 —— MSVC 把 vtable 与内联体以 COMDAT 放在
+台面的 `.obj` 里，链接时又排在库前面赢得挑选，不重编台面就看不见改动（实测：`buff_electroshock.h`
+的 `has_on_tick()` 改 `false`，单独重编 `buff_electroshock.cpp` + 链接后仍**通过**；再把
+`tests/differential/subjects/buff_electroshock.cpp` 的 mtime 顶一下重编，同一条变异立刻
+在第 13 行 drift 上被杀）。修法落在运行器上（不是构建系统）：`mutate.mjs` 在头文件变异时
+`touch` 台面源文件（`.cpp` 变异不用 —— 运行器每条变异后都会把 spec 提到的文件写回一遍，
+顺带顶新它们的 mtime，那些 `.cpp` 自然每轮重编）。修完 5 条 `has_on_*` + `state_base.h`
+的构造锚点全部由「假存活」变「被杀」。
+
+顺带修的第二处：**测试段没有时限**。`buff` 的 `del_id 删除判定取反` / `del_id 不截断`
+两条变异会让台面转不停（4 分钟以上），原来的 `killed` 是人手动杀进程杀出来的 —— 现在
+`mutate.mjs` 给测试段加了 60s 上限（超时记 `killed (timeout)`，并在超时后 `taskkill` 掉
+卡住的台面 exe，免得它占着 `bin/lfw_trace_<subject>.exe` 让下一条变异的链接变成假
+`compile-error`）。顺带 `buff` 那枚 spec 从 650s 缩到 270s。
+
+（顺手记下根治方向，本刀不改：`-DCMAKE_CXX_SCAN_FOR_MODULES=OFF` 之后普通编译规则会带上
+`deps = msvc` + `/showIncludes`；但 ninja 只认英文前缀，本机 cl 输出的是
+`注意: 包含文件:` ⇒ 还得给 `build.ninja` 补一行 `msvc_deps_prefix = 注意: 包含文件:`。
+在 `native/build/dep-probe` 里验过：补上之后 `ninja -t deps` 能列出 `../../lfw/core/js_num.h`。）

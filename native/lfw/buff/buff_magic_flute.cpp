@@ -50,18 +50,18 @@ Value index_0(const Value& holder) {
   return Value();
 }
 
-void apply_flute_tick(IBuffEntity* attacker, IBuffEntity* victim, double injury, double injury_r) {
+void apply_flute_tick(Entity* attacker, Entity* victim, double injury, double injury_r) {
   const Value prev_hp = victim->hp();
-  victim->set_hp_r(Value(to_number(victim->hp_r()) - injury_r));
-  victim->set_hp(Value(to_number(victim->hp()) - injury));
-  victim->set_fallinjury(Value(kFallInjury));
-  victim->set_toughness(Value(kToughness));
+  victim->set_hp_r(to_number(victim->hp_r()) - injury_r);
+  victim->set_hp(to_number(victim->hp()) - injury);
+  victim->set_fallinjury(kFallInjury);
+  victim->set_toughness(kToughness);
   if (attacker != nullptr) {
     g_env.summary_apply_damage(attacker, Value(injury), victim, prev_hp);
   }
 }
 
-void apply_flute_update(IBuffEntity* attacker, IBuffEntity* victim, double acc) {
+void apply_flute_update(Entity* attacker, Entity* victim, double acc) {
   const double vy = entity::calc_v(victim->velocity_y(), acc,
                                    Value(static_cast<double>(SpeedMode::AccTo)), Value(acc),
                                    Value(1.0));
@@ -96,12 +96,12 @@ void Buff_MagicFlute::init() {
   set_duration(3);
 }
 
-void Buff_MagicFlute::on_tick(IBuffEntity* attacker, IBuffEntity* victim) {
+void Buff_MagicFlute::on_tick(Entity* attacker, Entity* victim) {
   if (victim == nullptr) return;
   apply_flute_tick(attacker, victim, kFluteInjury, kFluteInjuryR);
 }
 
-void Buff_MagicFlute::on_update(IBuffEntity* attacker, IBuffEntity* victim) {
+void Buff_MagicFlute::on_update(Entity* attacker, Entity* victim) {
   if (victim == nullptr) return;
   apply_flute_update(attacker, victim, kFluteAcc);
 }
@@ -111,12 +111,12 @@ void Buff_MagicFlute2::init() {
   set_duration(3);
 }
 
-void Buff_MagicFlute2::on_tick(IBuffEntity* attacker, IBuffEntity* victim) {
+void Buff_MagicFlute2::on_tick(Entity* attacker, Entity* victim) {
   if (victim == nullptr) return;
   apply_flute_tick(attacker, victim, kFlute2Injury, kFlute2InjuryR);
 }
 
-void Buff_MagicFlute2::on_update(IBuffEntity* attacker, IBuffEntity* victim) {
+void Buff_MagicFlute2::on_update(Entity* attacker, Entity* victim) {
   if (victim == nullptr) return;
   apply_flute_update(attacker, victim, kFlute2Acc);
 }

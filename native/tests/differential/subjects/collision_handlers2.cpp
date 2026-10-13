@@ -8,6 +8,7 @@
 #include "lfw/entity/entity_type_check.h"
 #include "lfw/utils/container_help/field_or.h"
 
+#include "entity_fixture.h"
 #include "trace_util.h"
 
 namespace {
@@ -39,27 +40,12 @@ std::string join(const std::vector<std::string>& xs) {
   return out;
 }
 
-struct FakeBuff : lfw::buff::IBuffEntity {
-  std::u16string _id;
-  explicit FakeBuff(std::u16string id) : _id(std::move(id)) {}
-  const std::u16string& id() const override { return _id; }
-  void position(double& x, double& y, double& z) const override {
-    x = 0;
-    y = 0;
-    z = 0;
+// 切片 4BY：`buff` 以 `lfw::Entity` 为准入 ⇒ `buff_entity()` 交出真 `Entity`
+// （原空壳窄接口假件；TS 侧同样是空壳，观测点不在这里）。
+struct FakeBuff : lfw::Entity {
+  explicit FakeBuff(std::u16string id) : Entity(fx::shared_host(), Value()) {
+    this->id = std::move(id);
   }
-  void set_position(double, double, double) override {}
-  double frame_centery() const override { return 0; }
-  double frame_height() const override { return 0; }
-  double frame_pic_h() const override { return 0; }
-  void set_frame(const Value&) override {}
-  void buffs_set(const std::u16string&, lfw::buff::Buff*) override {}
-  void buffs_delete(const std::u16string&) override {}
-  void set_outline_alpha(double) override {}
-  void set_outline_width(double) override {}
-  void set_outline_color(const std::u16string&) override {}
-  void enter_frame_by_id(const std::u16string&) override {}
-  void attach(bool) override {}
 };
 
 struct Fake : IHandlerEntity {
@@ -182,7 +168,7 @@ struct Fake : IHandlerEntity {
   void play_sound(const Value& sounds) override {
     g_log.push_back(s_of(_id) + ":play_sound:" + render(sounds));
   }
-  lfw::buff::IBuffEntity* buff_entity() override { return &_buff; }
+  lfw::Entity* buff_entity() override { return &_buff; }
 };
 
 Fake g_att(u"A");
@@ -257,12 +243,12 @@ void bind() {
   g_henv.buff_mount = [](const std::u16string&) {};
   g_c.env = &g_henv;
 
-  g_benv.find_entity = [](const std::u16string& id) -> lfw::buff::IBuffEntity* {
+  g_benv.find_entity = [](const std::u16string& id) -> lfw::Entity* {
     if (id == g_att._id) return &g_att._buff;
     if (id == g_vic._id) return &g_vic._buff;
     return nullptr;
   };
-  g_benv.create_entity = [](const Value&) -> lfw::buff::IBuffEntity* { return nullptr; };
+  g_benv.create_entity = [](const Value&) -> lfw::Entity* { return nullptr; };
   g_benv.find_data = [](const std::u16string&) -> Value { return Value(); };
   g_benv.world_buffs_set = [](const std::u16string&, lfw::buff::Buff*) {};
   g_benv.world_buffs_get = [](const std::u16string&) -> lfw::buff::Buff* { return nullptr; };

@@ -18,9 +18,9 @@ class Buff_Electroshock : public Buff {
 
  protected:
   std::u16string effect_oid() const override;
-  void place_effect(IBuffEntity* effect, IBuffEntity* victim) override;
+  void place_effect(Entity* effect, Entity* victim) override;
   bool has_on_tick() const override { return true; }
-  void on_tick(IBuffEntity* attacker, IBuffEntity* victim) override;
+  void on_tick(Entity* attacker, Entity* victim) override;
 };
 
 }

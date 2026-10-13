@@ -11,7 +11,7 @@ void EntityStateView::assign_position(double x, double y, double z) {
 }
 
 // `frame_centery` / `set_frame` / `buffs_*` / `set_outline_*` / `attach` 等
-// `buff::IBuffEntity` 面由 `EntityViewBase` 提供。
+// `Entity` 面由 `EntityViewBase` 提供。
 
 double EntityStateView::velocity_x() const { return _e.velocity.x; }
 
@@ -61,5 +61,63 @@ void EntityStateView::handle_ground_velocity_decay() {
 void EntityStateView::handle_ground_velocity_decay(double factor) {
   _e.handle_ground_velocity_decay(factor);
 }
+
+// `state::IStateEntity` 的实体面：4BX 由 `EntityViewBase` 顶（那时它实现
+// `buff::IBuffEntity`）；4BY 接口退役后要在这里显式转发回去。
+void EntityStateView::position(double& x, double& y, double& z) const {
+  EntityViewBase::position(x, y, z);
+}
+
+void EntityStateView::set_position(double x, double y, double z) {
+  EntityViewBase::set_position(x, y, z);
+}
+
+void EntityStateView::enter_frame_by_id(const std::u16string& id) {
+  EntityViewBase::enter_frame_by_id(id);
+}
+
+void EntityStateView::set_outline_color(const std::u16string& v) {
+  EntityViewBase::set_outline_color(v);
+}
+
+Value EntityStateView::data() const { return EntityViewBase::data(); }
+
+Value EntityStateView::data_type() const { return EntityViewBase::data_type(); }
+
+Value EntityStateView::dataset(const std::u16string& key) const {
+  return EntityViewBase::dataset(key);
+}
+
+Value EntityStateView::data_indexes_in_the_skys() const {
+  return EntityViewBase::data_indexes_in_the_skys();
+}
+
+Value EntityStateView::hp() const { return EntityViewBase::hp(); }
+
+Value EntityStateView::hp_r() const { return EntityViewBase::hp_r(); }
+
+void EntityStateView::set_hp(const Value& v) { EntityViewBase::set_hp(v); }
+
+void EntityStateView::set_hp_r(const Value& v) { EntityViewBase::set_hp_r(v); }
+
+void EntityStateView::set_toughness(const Value& v) { EntityViewBase::set_toughness(v); }
+
+Value EntityStateView::mp() const { return EntityViewBase::mp(); }
+
+void EntityStateView::set_mp(const Value& v) { EntityViewBase::set_mp(v); }
+
+Value EntityStateView::mp_max() const { return EntityViewBase::mp_max(); }
+
+Value EntityStateView::state() const { return EntityViewBase::state(); }
+
+Value EntityStateView::team() const { return EntityViewBase::team(); }
+
+void EntityStateView::set_team(const Value& v) { EntityViewBase::set_team(v); }
+
+void EntityStateView::set_velocity(const Value& x, const Value& y, const Value& z) {
+  EntityViewBase::set_velocity(x, y, z);
+}
+
+double EntityStateView::velocity_y() const { return EntityViewBase::velocity_y(); }
 
 }

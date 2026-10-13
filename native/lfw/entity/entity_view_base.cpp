@@ -20,7 +20,7 @@ Value indexes_of(const Value& data, const char16_t* key) {
 
 }  // namespace
 
-// ─────────────────────── `buff::IBuffEntity` 纯虚 ───────────────────────
+// ─────────────────────── 实体面：`Entity` 自己的那批 ───────────────────────
 
 const std::u16string& EntityViewBase::id() const { return _e.id; }
 
@@ -71,7 +71,7 @@ void EntityViewBase::enter_frame_by_id(const std::u16string& id) {
 // `this.attach(on)` —— `Entity::attach` 本体已实现（含 `host->add_entities`）。
 void EntityViewBase::attach(bool on) { _e.attach(Value(on)); }
 
-// ─────────────────────── `buff::IBuffEntity` 默认虚 ───────────────────────
+// ─────────────────────── 实体面的其余条目 ───────────────────────
 
 Value EntityViewBase::data() const { return _e.data(); }
 

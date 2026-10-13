@@ -10,9 +10,14 @@
 #include "lfw/entity/drink_info.h"
 
 namespace lfw {
+
+class Entity;
+
 namespace state {
 
-class IStateEntity : public virtual buff::IBuffEntity {
+// 实体接口退役（4BY）：`IStateEntity` 不再继承 `Entity`；状态逻辑用到的
+// 面继续由状态视图/`Entity` 提供，后续刀再整体切到 `Entity`。
+class IStateEntity {
  public:
   // `velocity_x` / `ground_y()` 统一成 `double`：TS 里就是 number（端口的 `Value` 包装是纯防御），
   // 而碰撞家族的 `IFallEntity`/`IActionEntity` 用 `double` —— `Value` 版会撞「同参不同返回」，
@@ -51,6 +56,51 @@ class IStateEntity : public virtual buff::IBuffEntity {
     return Value();
   }
   virtual Value data_indexes_bouncing() const { return Value(); }
+  // 原由 `buff::IBuffEntity` 提供的两面（接口退役后并入）：供 `assign_position` 与
+  // `enter_frame_by_id_fallback` 的默认体使用；真实宿主自行覆写。
+  virtual void set_position(double x, double y, double z) {
+    (void)x;
+    (void)y;
+    (void)z;
+  }
+  virtual void enter_frame_by_id(const std::u16string& id) { (void)id; }
+  // `IBuffEntity` 退役后由状态面自持的读面（默认与旧接口逐字一致；宿主/视图覆写）------
+  virtual Value data() const { return Value(); }
+  virtual Value data_indexes_falling() const { return Value(); }
+  virtual Value data_indexes_in_the_skys() const { return Value(); }
+  virtual Value data_type() const { return Value(); }
+  virtual Value dataset(const std::u16string& key) const {
+    (void)key;
+    return Value();
+  }
+  virtual Value hp() const { return Value(); }
+  virtual Value hp_r() const { return Value(); }
+  virtual void set_hp(const Value& v) { (void)v; }
+  virtual void set_hp_r(const Value& v) { (void)v; }
+  virtual void set_team(const Value& v) { (void)v; }
+  virtual void set_velocity(const Value& x, const Value& y, const Value& z) {
+    (void)x;
+    (void)y;
+    (void)z;
+  }
+  virtual void set_wait(const Value& v) { (void)v; }
+  virtual Value team() const { return Value(); }
+  virtual double velocity_y() const { return 0; }
+  virtual Value wait() const { return Value(); }
+  virtual Value state() const { return Value(); }
+  virtual Value mp() const { return Value(); }
+  virtual void set_mp(const Value& v) { (void)v; }
+  virtual Value mp_max() const { return Value(); }
+  virtual void set_toughness(const Value& v) { (void)v; }
+  virtual void set_outline_color(const std::u16string& v) { (void)v; }
+  virtual void set_fallinjury(const Value& v) { (void)v; }
+  // 桥接：缓冲区（`grant_buff` 等）以 `Entity` 为准入；真宿主覆写返回自身，夹具可继续给 nullptr。
+  virtual Entity* entity_self() { return nullptr; }
+  virtual void position(double& x, double& y, double& z) const {
+    x = 0;
+    y = 0;
+    z = 0;
+  }
   // `e.position.x = x` 这类**直写**：TS 的 `State_Base.on_restrict` 直接改 `Entity.position`
   // 的三个字段，不经过 `set_position`。宿主覆盖它以便跳过状态钩子（否则会递归），其余实现
   // 落到 `set_position`。

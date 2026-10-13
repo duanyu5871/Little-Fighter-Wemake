@@ -10,6 +10,7 @@
 #include "lfw/core/value.h"
 #include "lfw/utils/container_help/field_or.h"
 
+#include "entity_fixture.h"
 #include "trace_util.h"
 
 namespace {
@@ -43,28 +44,15 @@ std::string join(const std::vector<std::string>& xs) {
 
 struct Fake;
 
-struct FakeBuff : lfw::buff::IBuffEntity {
-  std::u16string _id;
+// 切片 4BY：`buff` 以 `lfw::Entity` 为准入 ⇒ `buff_entity()` 交出真 `Entity`
+// （原空壳窄接口假件，但 `dataset` 转发给宿主 `Fake`）—— `Buff_Healing.duration_of`
+// 读的就是它。
+struct FakeBuff : lfw::Entity {
   Fake* _owner;
-  FakeBuff(std::u16string id, Fake* owner) : _id(std::move(id)), _owner(owner) {}
-  const std::u16string& id() const override { return _id; }
-  void position(double& x, double& y, double& z) const override {
-    x = 0;
-    y = 0;
-    z = 0;
+  explicit FakeBuff(std::u16string id, Fake* owner)
+      : Entity(fx::shared_host(), Value()), _owner(owner) {
+    this->id = std::move(id);
   }
-  void set_position(double, double, double) override {}
-  double frame_centery() const override { return 0; }
-  double frame_height() const override { return 0; }
-  double frame_pic_h() const override { return 0; }
-  void set_frame(const Value&) override {}
-  void buffs_set(const std::u16string&, lfw::buff::Buff*) override {}
-  void buffs_delete(const std::u16string&) override {}
-  void set_outline_alpha(double) override {}
-  void set_outline_width(double) override {}
-  void set_outline_color(const std::u16string&) override {}
-  void enter_frame_by_id(const std::u16string&) override {}
-  void attach(bool) override {}
   Value dataset(const std::u16string& key) const override;
 };
 
@@ -81,7 +69,7 @@ struct Fake : IHealingEntity {
     return lfw::field_or(_dataset, key.c_str());
   }
 
-  lfw::buff::IBuffEntity* buff_entity() override { return &_buff; }
+  lfw::Entity* buff_entity() override { return &_buff; }
 };
 
 Value FakeBuff::dataset(const std::u16string& key) const { return _owner->dataset(key); }
@@ -100,12 +88,12 @@ void bind() {
   env.buff_env = []() -> const lfw::buff::BuffEnv* { return &g_benv; };
   lfw::collision::set_healing_env(env);
 
-  g_benv.find_entity = [](const std::u16string& id) -> lfw::buff::IBuffEntity* {
-    if (id == g_att._buff.id()) return &g_att._buff;
-    if (id == g_vic._buff.id()) return &g_vic._buff;
+  g_benv.find_entity = [](const std::u16string& id) -> lfw::Entity* {
+    if (id == g_att._buff.id) return &g_att._buff;
+    if (id == g_vic._buff.id) return &g_vic._buff;
     return nullptr;
   };
-  g_benv.create_entity = [](const Value&) -> lfw::buff::IBuffEntity* { return nullptr; };
+  g_benv.create_entity = [](const Value&) -> lfw::Entity* { return nullptr; };
   g_benv.find_data = [](const std::u16string&) -> Value { return Value(); };
   g_benv.world_buffs_set = [](const std::u16string&, lfw::buff::Buff*) {};
   g_benv.world_buffs_get = [](const std::u16string&) -> lfw::buff::Buff* { return nullptr; };

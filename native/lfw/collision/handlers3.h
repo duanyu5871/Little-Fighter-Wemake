@@ -37,7 +37,7 @@ struct IH3Entity {
   virtual void set_shaking(const Value& v) = 0;
   virtual void enter_frame_by_id(const Value& id) = 0;
   virtual void play_sound(const Value& sounds) = 0;
-  virtual buff::IBuffEntity* buff_entity() = 0;
+  virtual Entity* buff_entity() = 0;
 };
 
 struct Handlers3Env {

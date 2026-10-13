@@ -37,12 +37,12 @@ Buff::Buff(const BuffEnv* env, const std::u16string& id, const Value& kind)
   _lifetime.set_lifes(1.0);
 }
 
-IBuffEntity* Buff::attacter() {
+Entity* Buff::attacter() {
   if (_attacker_id.empty()) {
     _attacker = nullptr;
     return _attacker;
   }
-  if (_attacker != nullptr && _attacker->id() == _attacker_id) {
+  if (_attacker != nullptr && _attacker->id == _attacker_id) {
     _attacker = _env->find_entity(_attacker_id);
     return _attacker;
   }
@@ -54,7 +54,7 @@ void Buff::reset(const std::u16string& id) {
   const std::u16string prev = _id;
   if (prev != id) {
     for (const std::u16string& vid : _victims) {
-      IBuffEntity* v = _env->find_entity(vid);
+      Entity* v = _env->find_entity(vid);
       if (v != nullptr) v->buffs_delete(prev);
     }
   }
@@ -74,33 +74,33 @@ void Buff::set_attacker_by_id(const std::u16string& id) {
   _attacker_id = id;
 }
 
-void Buff::set_attacker_entity(IBuffEntity* e) {
+void Buff::set_attacker_entity(Entity* e) {
   _attacker = e;
-  _attacker_id = e != nullptr ? e->id() : std::u16string();
+  _attacker_id = e != nullptr ? e->id : std::u16string();
 }
 
-void Buff::set_victim(IBuffEntity* victim) {
+void Buff::set_victim(Entity* victim) {
   for (const std::u16string& vid : _victims) {
-    IBuffEntity* v = _env->find_entity(vid);
+    Entity* v = _env->find_entity(vid);
     if (v != nullptr) v->buffs_set(_id, this);
   }
   _victims.clear();
   add_victim(victim);
 }
 
-void Buff::add_victim(IBuffEntity* victim) {
+void Buff::add_victim(Entity* victim) {
   if (victim == nullptr) return;
   for (const std::u16string& vid : _victims) {
-    if (vid == victim->id()) return;
+    if (vid == victim->id) return;
   }
-  _victims.push_back(victim->id());
+  _victims.push_back(victim->id);
   victim->buffs_set(_id, this);
 }
 
-void Buff::del_victim(IBuffEntity* victim) {
+void Buff::del_victim(Entity* victim) {
   if (victim == nullptr) return;
-  del_effect(victim->id());
-  del_id(victim->id());
+  del_effect(victim->id);
+  del_id(victim->id);
   victim->buffs_delete(_id);
 }
 
@@ -127,23 +127,16 @@ Value Buff::effect_data() {
   return _effect_data;
 }
 
-void Buff::place_effect(IBuffEntity* effect, IBuffEntity* victim) {
-  double x = 0;
-  double y = 0;
-  double z = 0;
-  victim->position(x, y, z);
-  effect->set_position(x, y, z + 0.5);
+void Buff::place_effect(Entity* effect, Entity* victim) {
+  effect->set_position(victim->position.x, victim->position.y, victim->position.z + 0.5);
 }
 
-void Buff::place_effect_center(IBuffEntity* effect, IBuffEntity* victim) {
+void Buff::place_effect_center(Entity* effect, Entity* victim) {
   const double centery = victim->frame_centery();
   const double height = victim->frame_height();
   const double h = height != 0 ? height : victim->frame_pic_h();
-  double x = 0;
-  double y = 0;
-  double z = 0;
-  victim->position(x, y, z);
-  effect->set_position(x, y + centery - h / 2, z + 0.5);
+  effect->set_position(victim->position.x, victim->position.y + centery - h / 2,
+                       victim->position.z + 0.5);
 }
 
 void Buff::del_effect(const std::u16string& vid) {
@@ -160,12 +153,12 @@ void Buff::clear_effects() {
   _effects.clear();
 }
 
-void Buff::show_effect(IBuffEntity* victim) {
-  IBuffEntity* effect = nullptr;
+void Buff::show_effect(Entity* victim) {
+  Entity* effect = nullptr;
   for (const auto& e : _effects) {
-    if (e.first == victim->id()) effect = e.second;
+    if (e.first == victim->id) effect = e.second;
   }
-  if (effect != nullptr && _env->find_entity(effect->id()) == nullptr) effect = nullptr;
+  if (effect != nullptr && _env->find_entity(effect->id) == nullptr) effect = nullptr;
   if (effect == nullptr) {
     const Value data = effect_data();
     if (!truthy(data)) return;
@@ -179,12 +172,12 @@ void Buff::show_effect(IBuffEntity* victim) {
     effect->attach(true);
     bool replaced = false;
     for (auto& e : _effects) {
-      if (e.first == victim->id()) {
+      if (e.first == victim->id) {
         e.second = effect;
         replaced = true;
       }
     }
-    if (!replaced) _effects.emplace_back(victim->id(), effect);
+    if (!replaced) _effects.emplace_back(victim->id, effect);
   }
   place_effect(effect, victim);
 }
@@ -193,12 +186,12 @@ void Buff::update_effects() {
   if (_effects.empty() && effect_oid().empty()) return;
   for (size_t i = 0; i < _effects.size();) {
     const std::u16string vid = _effects[i].first;
-    IBuffEntity* effect = _effects[i].second;
+    Entity* effect = _effects[i].second;
     bool keep = false;
     for (const std::u16string& v : _victims) {
       if (v == vid) keep = true;
     }
-    if (keep && _env->find_entity(vid) != nullptr && _env->find_entity(effect->id()) != nullptr) {
+    if (keep && _env->find_entity(vid) != nullptr && _env->find_entity(effect->id) != nullptr) {
       ++i;
       continue;
     }
@@ -206,14 +199,14 @@ void Buff::update_effects() {
     _effects.erase(_effects.begin() + static_cast<std::ptrdiff_t>(i));
   }
   for (const std::u16string& vid : _victims) {
-    IBuffEntity* victim = _env->find_entity(vid);
+    Entity* victim = _env->find_entity(vid);
     if (victim != nullptr) show_effect(victim);
   }
 }
 
 void Buff::update(double d) {
   bool resolved = false;
-  IBuffEntity* attacker = nullptr;
+  Entity* attacker = nullptr;
   if (has_on_update()) {
     if (!resolved) {
       attacker = attacter();
@@ -277,14 +270,14 @@ void Buff::unmount() {
     const std::u16string vid = _victims[0];
     del_effect(vid);
     del_id(vid);
-    IBuffEntity* v = _env->find_entity(vid);
+    Entity* v = _env->find_entity(vid);
     if (v != nullptr) v->buffs_delete(_id);
   }
 }
 
-Buff* grant_buff(const BuffEnv* env, const std::u16string& kind, IBuffEntity* attacker,
-                 IBuffEntity* victim, double duration) {
-  const std::u16string id = kind + u"_" + (victim != nullptr ? victim->id() : std::u16string());
+Buff* grant_buff(const BuffEnv* env, const std::u16string& kind, Entity* attacker,
+                 Entity* victim, double duration) {
+  const std::u16string id = kind + u"_" + (victim != nullptr ? victim->id : std::u16string());
   Buff* buf = nullptr;
   if (env->world_buffs_get) buf = env->world_buffs_get(id);
   if (buf == nullptr && env->create_buff) buf = env->create_buff(kind, id);

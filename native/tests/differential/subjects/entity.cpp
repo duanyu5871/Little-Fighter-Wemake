@@ -260,10 +260,14 @@ std::string pos_of(lfw::state::IStateEntity& e) {
   return render(Value(x)) + "/" + render(Value(y)) + "/" + render(Value(z));
 }
 
+// 切片 4BY：`IStateEntity` 不再带实体面（`id` / `set_frame` …）——台面发到钩子上的
+// 就是实体自己的视图，`entity_self()` 回到 `Entity`（这台面里必非空）。
+lfw::Entity& self_of(lfw::state::IStateEntity& e) { return *e.entity_self(); }
+
 struct HarnessState : lfw::state::State_Base {
   explicit HarnessState(Value key) : State_Base(std::move(key)) {
     enter = [this](lfw::state::IStateEntity& e, const Value& prev) {
-      g_log.push_back(render(state()) + ">enter:" + s_of(e.id()) + ":" + fid(e.frame_info()) +
+      g_log.push_back(render(state()) + ">enter:" + s_of(self_of(e).id) + ":" + fid(e.frame_info()) +
                       ":" + fid(prev) + ":hp=" + render(e.hp()) +
                       ":hmax=" + render(e.hp_max()) + ":mp=" + render(e.mp()) +
                       ":ml=" + render(e.motionless()) + ":sh=" + render(e.shaking()) +
@@ -285,7 +289,7 @@ struct HarnessState : lfw::state::State_Base {
           const lfw::Object* src = lfw::as_object(f);
           lfw::Object copy = src != nullptr ? *src : lfw::Object();
           copy.set(u"id", Value(std::u16string(u"w2")));
-          e.set_frame(Value(std::make_shared<lfw::Object>(copy)));
+          self_of(e).set_frame(Value(std::make_shared<lfw::Object>(copy)));
         }
         if (g_hooks.view_enter) e.enter_frame_by_id(u"auto");
         if (g_hooks.view_data) {
@@ -301,7 +305,7 @@ struct HarnessState : lfw::state::State_Base {
     };
     on_dead = [](lfw::state::IStateEntity& e) {
       if (!g_hooks.dead) return;
-      g_log.push_back("state_on_dead:" + s_of(e.id()) + ":" + render(e.hp_r()));
+      g_log.push_back("state_on_dead:" + s_of(self_of(e).id) + ":" + render(e.hp_r()));
     };
     get_gravity = [](lfw::state::IStateEntity&) -> Value {
       if (!g_hooks.gravity) return Value();
@@ -326,30 +330,30 @@ struct HarnessState : lfw::state::State_Base {
     };
     pre_update = [](lfw::state::IStateEntity& e) {
       if (!g_hooks.pre_update) return;
-      g_log.push_back("state_pre_update:" + s_of(e.id()) + ":" + render(e.hp()));
+      g_log.push_back("state_pre_update:" + s_of(self_of(e).id) + ":" + render(e.hp()));
     };
     on_landing = [](lfw::state::IStateEntity& e, const Value& v) {
       if (!g_hooks.landing) return;
-      g_log.push_back("state_on_landing:" + s_of(e.id()) + ":" + render(v));
+      g_log.push_back("state_on_landing:" + s_of(self_of(e).id) + ":" + render(v));
     };
     on_leave_ground = [](lfw::state::IStateEntity& e) {
       if (!g_hooks.leave_ground) return;
-      g_log.push_back("state_on_leave_ground:" + s_of(e.id()));
+      g_log.push_back("state_on_leave_ground:" + s_of(self_of(e).id));
     };
   }
 
   void update(lfw::state::IStateEntity& e) override {
     if (!g_hooks.state_update) return;
-    g_log.push_back("state_update:" + s_of(e.id()) + ":" + render(e.hp()));
+    g_log.push_back("state_update:" + s_of(self_of(e).id) + ":" + render(e.hp()));
   }
 
   void on_restrict(lfw::state::IStateEntity& e, double x, double y, double z) override {
-    g_log.push_back("state_on_restrict:" + s_of(e.id()) + ":" + render(Value(x)) + ":" +
+    g_log.push_back("state_on_restrict:" + s_of(self_of(e).id) + ":" + render(Value(x)) + ":" +
                     render(Value(y)) + ":" + render(Value(z)));
   }
 
   void leave(lfw::state::IStateEntity& e, const Value& next) override {
-    g_log.push_back(render(state()) + ">leave:" + s_of(e.id()) + ":" + fid(next));
+    g_log.push_back(render(state()) + ">leave:" + s_of(self_of(e).id) + ":" + fid(next));
   }
 };
 
