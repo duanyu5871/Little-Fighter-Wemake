@@ -428,7 +428,7 @@ class TestWorld : public World {
   TestWorld() : World(g_lfw, g_renderer, &g_states) {}
   // 自带假 `lfw` / renderer / 状态表的台面（`entity.cpp` 的假件比这里的粗件更细，
   // 「假 `lfw` 各家自己写」从 `cmds.cpp` 时代就是这个口径）。
-  TestWorld(lfw::IWorldLfw& lfw, lfw::IWorldRenderer& renderer, lfw::state::States* states)
+  TestWorld(lfw::LFW& lfw, lfw::IWorldRenderer& renderer, lfw::state::States* states)
       : World(lfw, renderer, states) {}
 
   std::function<Value(const std::u16string&)> on_bg_dataset;

@@ -1,3 +1,4 @@
+#include "lfw/lfw.h"
 #include "lfw/world.h"
 #include "lfw/world_collision.h"
 
@@ -260,7 +261,7 @@ void World::play_sound(const Value& sounds, const Value& pos) {
   (void)pos;
 }
 
-World::World(IWorldLfw& lfw, IWorldRenderer& renderer, state::States* states)
+World::World(LFW& lfw, IWorldRenderer& renderer, state::States* states)
     : lfw_(&lfw), renderer_(&renderer), states_(states) {
   stage_view_ = std::make_unique<WorldStageView>(*this);
   // `this._bg = new Background(this, Defines.VOID_BG)`

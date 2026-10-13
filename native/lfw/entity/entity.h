@@ -39,7 +39,7 @@ struct IEntityRenderer {
 // `this.world` / `this.lfw` 的落地类型（完整定义在 `world.h`；entity.h 不 include 它，
 // 免得和 world.h → entity.h 形成环）。
 class World;
-class IWorldLfw;
+class LFW;
 class Entity;
 
 // The inline `jumping` record TS keeps on every entity.
@@ -232,7 +232,7 @@ class Entity {
   // `lfw.is_cheat` / `world.lfw.survival_rank_available`。
   // TS 的 `this.world` / `this.lfw`（`lfw` 的定义在 entity.cpp：`World` 在此不完整）。
   World& world() const { return *world_; }
-  IWorldLfw& lfw() const;
+  LFW& lfw() const;
   void as_key_role(const Value& v);
   void auto_key_role();
   double gravity() const;

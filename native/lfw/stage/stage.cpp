@@ -1,4 +1,5 @@
 #include "lfw/stage/stage.h"
+#include "lfw/lfw.h"
 
 #include <algorithm>
 #include <memory>
@@ -137,8 +138,18 @@ void Stage::warn(const std::u16string& where, const std::u16string& text) {
   if (stage_warn_sink()) stage_warn_sink()(where, text);
 }
 
-Stage::Stage(IStageWorld* world, IStageLfw* lfw, Value data)
-    : _world(world), _lfw(lfw), _data(std::move(data)) {
+// `IItemHost` 的转发（4CO：`IStageLfw` 退役 ⇒ `stage.h` 里只剩 `LFW` 的前置声明，
+// 这几个 inline 体搬到实现文件）。
+MersenneTwister* Stage::mt() { return _lfw->mt(); }
+Value Stage::datas_find(const Value& oid) { return _lfw->datas_find(oid); }
+std::shared_ptr<Randoming> Stage::datas_randoming_by_group(const Value& oid) {
+  return _lfw->datas_randoming_by_group(oid);
+}
+IItemEntity* Stage::create_entity_with_bot(const Value& data) {
+  return _lfw->create_entity_with_bot(data);
+}
+
+Stage::Stage(IStageWorld* world, LFW* lfw, Value data)    : _world(world), _lfw(lfw), _data(std::move(data)) {
   _states.push_back(std::make_unique<StageRunningState>(this));
   _states.push_back(std::make_unique<StageCompletedState>(this));
   _states.push_back(std::make_unique<StageEndState>());

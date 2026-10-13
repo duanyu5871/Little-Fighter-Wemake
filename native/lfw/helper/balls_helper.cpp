@@ -1,4 +1,5 @@
 #include "lfw/helper/balls_helper.h"
+#include "lfw/lfw.h"
 
 #include "lfw/entity/entity.h"
 #include "lfw/entity/entity_type_check.h"

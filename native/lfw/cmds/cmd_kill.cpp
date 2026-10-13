@@ -1,4 +1,5 @@
 #include "lfw/cmds/cmd_kill.h"
+#include "lfw/lfw.h"
 
 #include <optional>
 #include <string>

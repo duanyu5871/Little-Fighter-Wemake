@@ -1,4 +1,5 @@
 #include "lfw/helper/weapons_helper.h"
+#include "lfw/lfw.h"
 
 #include <memory>
 #include <utility>

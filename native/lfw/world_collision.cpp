@@ -1,4 +1,5 @@
 #include "lfw/world_collision.h"
+#include "lfw/lfw.h"
 
 #include <algorithm>
 #include <variant>

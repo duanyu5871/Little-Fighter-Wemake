@@ -5600,3 +5600,14 @@ harness op：
 - 什么时候该用真 `LFW`：当被测的真实现（`ui::UILayers` / `DatMgr` / `LFW` 自身）以**具体
   `LFW&`** 为入参、假件没法替它时。能用「派生真类 + 覆写原假件那几个面」复现台面脚本行为的，
   照旧用 `TestWorld` 钩子（见 6.9.187）。
+
+### 6.9.190 四族 LFW 侧缝退役（4CO）
+
+- `IWorldLfw` / `IStageLfw` / `IHelperLfw` / `IUiHelperLfw` 已删除。台面若想要「假 `lfw`」，做法只有
+  一个：**派生真 `lfw::LFW`**（宿主用 `fx::shared_stub_host()`，即 `world_fixture.h` 里 `fx::FakeLfw`
+  的写法），只覆写用例脚本化的那些面，并且**不调真基类**。
+- ⚠ `LFW` 的构造是「表级单次登记」的副作用源（`regist_buffs()` / `regist_components()`）：真 `LFW`
+  一被构造，`Factory` 的全局表就有内容。台面假 `lfw` 必须在构造后**清空**这些表（`fx::FakeLfw` 已
+  这么做），否则 dump 全局表的用例（如 `factory/all`）会与孪生漂移。
+- `World` / `Stage` / `helper::ObjectsHelper` / `helper::UIHelper` 现在持具体 `LFW*`；只前置声明，
+  实现文件里 include `lfw.h`。台面若要给它们换 `lfw`，同样只能给真 `LFW` 的派生类。

@@ -1,4 +1,5 @@
 #include "lfw/cmds/cmd_camera.h"
+#include "lfw/lfw.h"
 
 #include <cmath>
 #include <optional>

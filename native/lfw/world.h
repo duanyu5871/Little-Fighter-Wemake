@@ -29,6 +29,8 @@
 
 namespace lfw {
 
+class LFW;
+
 class ITickerOptions;
 class Ticker;
 class World;
@@ -63,102 +65,6 @@ class IWorldUi {
   virtual void update(double dt) = 0;
 };
 
-// `this.lfw.*`：`LFW` 未移植的那一面。继承 `stage::IStageLfw` —— `Stage` 那一刀开的缝正是
-// 「`LFW` 未移植的那一面」，`World` 要的是同一个 `lfw` 对象。
-class IWorldLfw : public stage::IStageLfw {
- public:
-  // `lfw.players.get(player_id)`（不建号；`lfw.player(id)` 才是自动建号）
-  virtual PlayerInfo* players_get(const Value& player_id) const = 0;
-  // `lfw.player(id)`（找不到会自动建号）
-  virtual PlayerInfo* player(const Value& player_id) = 0;
-  // `lfw.datas.get_random_bg([...])`
-  virtual Value get_random_bg(const std::vector<Value>& groups) = 0;
-  // `lfw.factory.create_entity(this, data)`
-  virtual Entity* create_entity(World& world, const Value& data) = 0;
-  // `lfw.factory.create_entity_with_player(player_id, world, data)`（`CMD_SPAWN` 玩家分支）
-  virtual Entity* create_entity_with_player(const std::u16string& player_id, World& world,
-                                            const Value& data) = 0;
-  // `lfw.factory.create_entity_with_bot(player_id, world, data)`（`CMD_SPAWN` 机器人分支；
-  // 与基类 `IStageLfw` 那条「舞台物件」薄面同名不同参 ⇒ `using` 把基类那条拉进作用域）
-  virtual Entity* create_entity_with_bot(const std::u16string& player_id, World& world,
-                                         const Value& data) = 0;
-  using stage::IStageLfw::create_entity_with_bot;
-  // `lfw.factory.recycle_entity(e)` / `lfw.factory.recycle_buff(b)`
-  virtual void recycle_entity(Entity* e) = 0;
-  virtual void recycle_buff(buff::Buff* b) = 0;
-  // `lfw.factory.acquire_entity(data.type)`（`Entity.ts` 底部 `common_creator` 的第一句：
-  // 先从对象池里拿一个复用，拿不到才 `new`）。
-  virtual Entity* acquire_entity(const Value& type) = 0;
-  // `lfw.factory.acquire_ctrl(InvalidController, "", this)` / `lfw.factory.release_ctrl(ctrl)`
-  virtual controller::BaseController* acquire_invalid_ctrl(World& world) = 0;
-  virtual void release_ctrl(controller::BaseController* ctrl) = 0;
-  // `lfw.factory.acquire_ctrl(LocalController, player_id, entity)`（`CMD_SET_PUPPET` 换控）
-  virtual controller::BaseController* acquire_local_ctrl(const std::u16string& player_id,
-                                                         Entity& entity) = 0;
-  // `lfw.datas.fighters.find(v => v.id === oid)`（`CMD_SET_PUPPET`；`DatMgr` 未移植）
-  virtual Value datas_fighters_find(const Value& oid) = 0;
-  // `lfw.datas.get_weapons_of_group(group)`（`CMD_F8`；`DatMgr` 未移植）
-  virtual Value datas_weapons_of_group(const Value& group) = 0;
-  // `lfw.entities.add(data, num)`（`CMD_F8`；`Helper.ObjectsHelper` 未移植）
-  virtual void entities_add(const Value& data, double num) = 0;
-  // `lfw.random_entity_info(e)`（`CMD_SPAWN` 的随机落位；`LFW` 未移植）
-  virtual void random_entity_info(Entity& e) = 0;
-  // `lfw.callbacks.call("on_cheat_changed", cmd, !!enabled)`（`cheat_code_handler`）
-  virtual void cheat_changed(const std::u16string& cmd, bool enabled) = 0;
-  // `lfw.layers` 那些层的 `ui`（`update_ui` 倒序遍历）
-  virtual std::vector<IWorldUi*> layer_uis() = 0;
-  // `lfw.mt.range(min, max)`
-  virtual double mt_range(double min_v, double max_v) = 0;
-  // `lfw.is_cheat(name)`
-  virtual bool is_cheat(const std::u16string& name) = 0;
-  // `lfw.new_id`
-  virtual std::u16string new_id() = 0;
-  // `lfw.datas.find_bot(bot_id)`（`BotController.check_bot`；`DatMgr` 未移植 ⇒ 默认找不到）
-  virtual Value find_bot(const std::u16string& bot_id) const {
-    (void)bot_id;
-    return Value();
-  }
-  // `lfw.factory.create_buff(kind, lfw, id)`（碰撞的 buff 缝：`handle_itr_kind_magic_flute`
-  // 的 `create_buff` / `grant_buff` 的 `create_buff`）。`LFW` 未移植 ⇒ 宿主给这一面；
-  // 默认「造不出」对应 TS 拿到 falsy 的那条路径。
-  virtual buff::Buff* create_buff(const std::u16string& kind, const std::u16string& id) {
-    (void)kind;
-    (void)id;
-    return nullptr;
-  }
-  // `lfw.broadcasts` 与 `lfw.broadcast(m)`（`Entity::broadcast` 转发）
-  virtual void broadcast(const Value& m) = 0;
-  // `lfw.factory.create_ctrl(data.id, this.ctrl.player_id, this)`（`Entity::transform` 转发）
-  virtual controller::BaseController* create_ctrl(const std::u16string& data_id,
-                                                 const std::u16string& player_id) = 0;
-  // `lfw.cmds`（`handle_cmds` 的 `if (!cmds.length) return;`）
-  virtual bool has_cmds() const = 0;
-  // `lfw.cmds.length = 0` / `lfw.broadcasts.length = 0`（`update_once` / `catch_up` 每步清空）
-  virtual void clear_cmds() = 0;
-  virtual void clear_broadcasts() = 0;
-  // `ctrl.update_lookup(i, entities)`（`step` 的每两帧一次；`BotController` / `BallController`
-  // 都未移植 ⇒ 宿主回答）
-  virtual void ctrl_update_lookup(controller::BaseController& ctrl, double index,
-                                  std::vector<Entity*>& entities) = 0;
-  // `Ditto.DEV` / `Ditto.debug(msg)`（`step` 里那个实体数超限的调试打印）
-  virtual bool dev() const = 0;
-  virtual void debug(const std::u16string& msg) = 0;
-  // `lfw.survival_rank_mode` / `lfw.survival_rank_available`（切片 4CJ 起由 `Entity` 直读 `lfw()`）
-  virtual bool survival_rank_mode() const = 0;
-  virtual bool survival_rank_available() const = 0;
-  // `CMDS.handle(this, cmds)`
-  virtual void handle_cmds(World& world) = 0;
-  // `ctrl.come(x, y, z)` / `ctrl.move()` / `ctrl.stay()` / `ctrl.follow(target)` / `ctrl.goingto`
-  // （`BotController` 未移植 ⇒ 宿主回答）
-  virtual void ctrl_come(controller::BaseController& ctrl, double x, double y, double z) = 0;
-  virtual void ctrl_move(controller::BaseController& ctrl) = 0;
-  virtual void ctrl_stay(controller::BaseController& ctrl) = 0;
-  virtual void ctrl_follow(controller::BaseController& ctrl, Entity& target) = 0;
-  virtual bool ctrl_goingto(const controller::BaseController& ctrl) const = 0;
-  // `Ditto.warn(...)`
-  virtual void warn(const std::u16string& text) = 0;
-};
-
 // `this.renderer`（TS `Ditto.WorldRender`）：渲染未移植 ⇒ 宿主给这一面。
 class IWorldRenderer {
  public:
@@ -178,7 +84,7 @@ class World {
  public:
   static constexpr const char* TAG = "World";
 
-  World(IWorldLfw& lfw, IWorldRenderer& renderer, state::States* states);
+  World(LFW& lfw, IWorldRenderer& renderer, state::States* states);
   ~World();
 
   World(const World&) = delete;
@@ -206,7 +112,7 @@ class World {
   double extra_step_budget_ms = 16.0;
   std::vector<std::pair<double, double>> ground_weapon_counts;
 
-  IWorldLfw& lfw() const { return *lfw_; }
+  LFW& lfw() const { return *lfw_; }
   IWorldRenderer& renderer() const { return *renderer_; }
   Camera& camera() const { return *camera_; }
   stage::IStageWorld& stage_world() const { return *stage_view_; }
@@ -374,7 +280,7 @@ class World {
                       Entity* value);
   static bool vec_has(const std::vector<std::u16string>& v, const std::u16string& key);
 
-  IWorldLfw* lfw_ = nullptr;
+  LFW* lfw_ = nullptr;
   IWorldRenderer* renderer_ = nullptr;
   state::States* states_ = nullptr;
   std::unique_ptr<stage::IStageWorld> stage_view_;

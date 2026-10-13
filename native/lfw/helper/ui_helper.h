@@ -6,15 +6,9 @@
 #include "lfw/core/value.h"
 
 namespace lfw {
-namespace helper {
+class LFW;
 
-// `lfw.layers.push_page(page, stack_idx)` / `set_page(page, stack_idx)`（UI 层未移植 ⇒ 缝）。
-class IUiHelperLfw {
- public:
-  virtual ~IUiHelperLfw() = default;
-  virtual void push_page(const Value& page, double stack_idx) = 0;
-  virtual void set_page(const Value& page, double stack_idx) = 0;
-};
+namespace helper {
 
 // TS `helper/UIHelper.ts`。
 //
@@ -25,7 +19,7 @@ class UIHelper {
  public:
   static constexpr const char* TAG = "UIHelper";
 
-  explicit UIHelper(IUiHelperLfw& lfw) : _lfw(&lfw) {}
+  explicit UIHelper(LFW& lfw) : _lfw(&lfw) {}
 
   const std::vector<Value>& all() const { return _all; }
 
@@ -36,7 +30,7 @@ class UIHelper {
   void set_page(const std::u16string& id, double stack_idx = 0);
 
  private:
-  IUiHelperLfw* _lfw;
+  LFW* _lfw;
   std::vector<Value> _all;
 };
 

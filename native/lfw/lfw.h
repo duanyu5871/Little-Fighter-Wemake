@@ -306,16 +306,13 @@ class ILfwHost {
 // TS `src/LFW/LFW.ts`（门面）。
 //
 // 本刀（4AB）范围：静态面 / 构造 / 玩家 / 按键 / 作弊码 / 命令与广播 / 语言 / 生存排行字段 /
-// 宿主缝实现（`IWorldLfw` / `IStageLfw` / `IKeysLfw` / `IHelperLfw` / `IUiHelperLfw` /
+// 宿主缝实现（`IKeysLfw` / `IDatMgrHost` / `IResourcesHost` / `IPlayerInfoHost` /
 // `IDatMgrHost` / `IResourcesHost` / `IPlayerInfoHost`）/ `end_testers` 编译。
 // **下一刀（4AC）**：`load` / `load_data` / `load_ui` / `load_builtin_ui` / `_load_zip_*` /
 // `_pick_zip_info` / `collect_data_infos` / `dispose_guard` 等加载流程。
-class LFW : public IWorldLfw,
-            public loader::IDatMgrHost,
+class LFW : public loader::IDatMgrHost,
             public IResourcesHost,
             public IKeysLfw,
-            public helper::IHelperLfw,
-            public helper::IUiHelperLfw,
             public IPlayerInfoHost,
             public LfwKeyboardCallback {
  public:
@@ -345,7 +342,7 @@ class LFW : public IWorldLfw,
   static helper::BallsHelper* balls_s();
   static void IgnoreDisposed(const Value& e);
 
-  // ---- 公开字段（TS 同名；与 `IWorldLfw` 方法撞名的三个改后缀，记 README 偏差表）----
+  // ---- 公开字段（TS 同名；与 `LFW` 方法撞名的三个改后缀，记 README 偏差表）----
   bool dev_mode = false;
   bool __debugging = false;
   bool toy_env = false;
@@ -403,7 +400,7 @@ class LFW : public IWorldLfw,
 
   Keys* keys();
   World& world() { return *world_; }
-  PlayerInfo* player(const std::u16string& player_id);
+  virtual PlayerInfo* player(const std::u16string& player_id);
   // TS `lfw.players.delete(id)`（移除玩家号；队列表是插入序）。
   void players_delete(const std::u16string& player_id);
   const std::vector<std::pair<std::u16string, std::unique_ptr<PlayerInfo>>>& players() const {
@@ -420,13 +417,13 @@ class LFW : public IWorldLfw,
   bool set_player_bot(const std::u16string& player_id, bool bot);
   void reset_new_team();
   void reset_new_id();
-  std::u16string new_id() override;
-  std::u16string new_team() override;
+  virtual std::u16string new_id();
+  virtual std::u16string new_team();
   double id_counter() const { return __id; }
   double team_counter() const { return __team; }
 
-  void random_entity_info(Entity& e) override;
-  bool is_cheat(const std::u16string& name) override;
+  virtual void random_entity_info(Entity& e);
+  virtual bool is_cheat(const std::u16string& name);
   void set_cheat(const std::u16string& name, const std::optional<bool>& enable = std::nullopt);
   void on_key_down(LfwKeyEvent& e) override;
   void on_key_up(LfwKeyEvent& e) override;
@@ -471,7 +468,7 @@ class LFW : public IWorldLfw,
 
   void emit_progress(const std::u16string& content, double progress) override;
   void emit_progress_size(const std::u16string& content, double progress, const Value& size);
-  void broadcast(const Value& m) override;
+  virtual void broadcast(const Value& m);
   void on_component_broadcast(ui::UIComponent* component, const std::u16string& message);
   void switch_difficulty(double offset = 1.0);
   void update_zip_names();
@@ -520,82 +517,82 @@ class LFW : public IWorldLfw,
   void cache_put(const PlayerInfoCachePut& data) override;
   void warn(const std::u16string& text) override;
 
-  // ---- helper::IHelperLfw ----
-  const std::vector<Entity*>& world_entities() override;
-  const std::vector<Entity*>& world_ghosts() override;
-  void del_entities(const std::vector<Entity*>& list) override;
-  Entity* create_entity(const Value& data) override;
-  controller::BaseController* create_ctrl(const Value& oid, const std::u16string& player_id,
-                                          Entity* entity) override;
-  const Value* find_fighter(const Value& id) override;
-  const Value* find_weapon(const Value& id) override;
-  const std::vector<Value>& fighters() override;
-  const std::vector<Value>& weapons() override;
+  // ---- helper::ObjectsHelper 要的 lfw.*（4CO：IHelperLfw 退役后并入本类）----
+  virtual const std::vector<Entity*>& world_entities();
+  virtual const std::vector<Entity*>& world_ghosts();
+  virtual void del_entities(const std::vector<Entity*>& list);
+  virtual Entity* create_entity(const Value& data);
+  virtual controller::BaseController* create_ctrl(const Value& oid, const std::u16string& player_id,
+                                          Entity* entity);
+  virtual const Value* find_fighter(const Value& id);
+  virtual const Value* find_weapon(const Value& id);
+  virtual const std::vector<Value>& fighters();
+  virtual const std::vector<Value>& weapons();
 
-  // ---- helper::IUiHelperLfw ----
-  void push_page(const Value& page, double stack_idx) override;
-  void set_page(const Value& page, double stack_idx) override;
+  // ---- helper::UIHelper 要的 lfw.layers.*（4CO：IUiHelperLfw 退役后并入本类）----
+  virtual void push_page(const Value& page, double stack_idx);
+  virtual void set_page(const Value& page, double stack_idx);
 
-  // ---- IStageLfw ----
-  MersenneTwister* mt() override;
-  Value datas_backgrounds_find(const Value& id) override;
-  Value datas_stages_find(const Value& id) override;
-  bool players_has(const Value& player_id) const override;
-  std::function<void()> sounds_play_bgm(const Value& music) override;
-  void sounds_stop_bgm() override;
-  void sounds_play(const Value& path, const Value& x, const Value& y, const Value& z) override;
-  void sounds_play_with_load(const Value& path) override;
-  stage::Expressions<stage::Stage>::Items end_testers(const Value& owner) override;
-  bool keys_is_start(const std::u16string& key) override;
-  const std::vector<std::u16string>& broadcasts_list() override { return broadcasts; }
-  Value datas_find(const Value& oid) override;
-  std::shared_ptr<Randoming> datas_randoming_by_group(const Value& oid) override;
-  stage::IItemEntity* create_entity_with_bot(const Value& data) override;
+  // ---- `lfw.datas` / `lfw.mt` / `lfw.players` / `lfw.sounds` / `lfw.factory`（4CO：`IStageLfw` 退役后并入本类）----
+  virtual MersenneTwister* mt();
+  virtual Value datas_backgrounds_find(const Value& id);
+  virtual Value datas_stages_find(const Value& id);
+  virtual bool players_has(const Value& player_id) const;
+  virtual std::function<void()> sounds_play_bgm(const Value& music);
+  virtual void sounds_stop_bgm();
+  virtual void sounds_play(const Value& path, const Value& x, const Value& y, const Value& z);
+  virtual void sounds_play_with_load(const Value& path);
+  virtual stage::Expressions<stage::Stage>::Items end_testers(const Value& owner);
+  virtual bool keys_is_start(const std::u16string& key);
+  virtual const std::vector<std::u16string>& broadcasts_list() { return broadcasts; }
+  virtual Value datas_find(const Value& oid);
+  virtual std::shared_ptr<Randoming> datas_randoming_by_group(const Value& oid);
+  virtual stage::IItemEntity* create_entity_with_bot(const Value& data);
 
-  // ---- IWorldLfw ----
-  PlayerInfo* player(const Value& player_id) override;
-  PlayerInfo* players_get(const Value& player_id) const override;
-  Value get_random_bg(const std::vector<Value>& groups) override;
-  Entity* create_entity(World& world, const Value& data) override;
-  Entity* create_entity_with_player(const std::u16string& player_id, World& world,
-                                    const Value& data) override;
-  Entity* create_entity_with_bot(const std::u16string& player_id, World& world,
-                                 const Value& data) override;
-  void recycle_entity(Entity* e) override;
-  void recycle_buff(buff::Buff* b) override;
-  Entity* acquire_entity(const Value& type) override;
-  controller::BaseController* acquire_invalid_ctrl(World& world) override;
-  void release_ctrl(controller::BaseController* ctrl) override;
-  controller::BaseController* acquire_local_ctrl(const std::u16string& player_id,
-                                                 Entity& entity) override;
-  Value datas_fighters_find(const Value& oid) override;
-  Value datas_weapons_of_group(const Value& group) override;
-  void entities_add(const Value& data, double num) override;
-  void cheat_changed(const std::u16string& cmd, bool enabled) override;
-  std::vector<IWorldUi*> layer_uis() override;
-  double mt_range(double min_v, double max_v) override;
-  Value find_bot(const std::u16string& bot_id) const override;
-  buff::Buff* create_buff(const std::u16string& kind, const std::u16string& id) override;
-  controller::BaseController* create_ctrl(const std::u16string& data_id,
-                                          const std::u16string& player_id) override;
-  bool has_cmds() const override { return !cmds.empty(); }
-  void clear_cmds() override { cmds.clear(); }
-  void clear_broadcasts() override { broadcasts.clear(); }
-  void ctrl_update_lookup(controller::BaseController& ctrl, double index,
-                          std::vector<Entity*>& entities) override;
-  bool dev() const override { return dev_mode; }
-  void debug(const std::u16string& msg) override;
-  bool survival_rank_mode() const override { return srank_mode; }
-  bool survival_rank_available() const override { return srank_available; }
-  void handle_cmds(World& world) override;
-  void ctrl_come(controller::BaseController& ctrl, double x, double y, double z) override;
-  void ctrl_move(controller::BaseController& ctrl) override;
-  void ctrl_stay(controller::BaseController& ctrl) override;
-  void ctrl_follow(controller::BaseController& ctrl, Entity& target) override;
-  bool ctrl_goingto(const controller::BaseController& ctrl) const override;
+  // ---- `lfw.*` 的实体/世界面（4CO：`IWorldLfw` 退役后并入本类）----
+  virtual PlayerInfo* player(const Value& player_id);
+  virtual PlayerInfo* players_get(const Value& player_id) const;
+  virtual Value get_random_bg(const std::vector<Value>& groups);
+  virtual Entity* create_entity(World& world, const Value& data);
+  virtual Entity* create_entity_with_player(const std::u16string& player_id, World& world,
+                                    const Value& data);
+  virtual Entity* create_entity_with_bot(const std::u16string& player_id, World& world,
+                                 const Value& data);
+  virtual void recycle_entity(Entity* e);
+  virtual void recycle_buff(buff::Buff* b);
+  virtual Entity* acquire_entity(const Value& type);
+  virtual controller::BaseController* acquire_invalid_ctrl(World& world);
+  virtual void release_ctrl(controller::BaseController* ctrl);
+  virtual controller::BaseController* acquire_local_ctrl(const std::u16string& player_id,
+                                                 Entity& entity);
+  virtual Value datas_fighters_find(const Value& oid);
+  virtual Value datas_weapons_of_group(const Value& group);
+  virtual void entities_add(const Value& data, double num);
+  virtual void cheat_changed(const std::u16string& cmd, bool enabled);
+  virtual std::vector<IWorldUi*> layer_uis();
+  virtual double mt_range(double min_v, double max_v);
+  virtual Value find_bot(const std::u16string& bot_id) const;
+  virtual buff::Buff* create_buff(const std::u16string& kind, const std::u16string& id);
+  virtual controller::BaseController* create_ctrl(const std::u16string& data_id,
+                                          const std::u16string& player_id);
+  virtual bool has_cmds() const { return !cmds.empty(); }
+  virtual void clear_cmds() { cmds.clear(); }
+  virtual void clear_broadcasts() { broadcasts.clear(); }
+  virtual void ctrl_update_lookup(controller::BaseController& ctrl, double index,
+                          std::vector<Entity*>& entities);
+  virtual bool dev() const { return dev_mode; }
+  virtual void debug(const std::u16string& msg);
+  virtual bool survival_rank_mode() const { return srank_mode; }
+  virtual bool survival_rank_available() const { return srank_available; }
+  virtual void handle_cmds(World& world);
+  virtual void ctrl_come(controller::BaseController& ctrl, double x, double y, double z);
+  virtual void ctrl_move(controller::BaseController& ctrl);
+  virtual void ctrl_stay(controller::BaseController& ctrl);
+  virtual void ctrl_follow(controller::BaseController& ctrl, Entity& target);
+  virtual bool ctrl_goingto(const controller::BaseController& ctrl) const;
 
-  loader::DatMgr& datas() { return *datas_; }
-  Resources& resources_ref() { return *resources_; }
+  virtual loader::DatMgr& datas() { return *datas_; }
+  virtual Resources& resources_ref() { return *resources_; }
 
  private:
   PlayerInfo* find_player(const std::u16string& player_id) const;

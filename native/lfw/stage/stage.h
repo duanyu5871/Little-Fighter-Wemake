@@ -18,6 +18,8 @@ namespace lfw {
 class MersenneTwister;
 class World;
 
+class LFW;
+
 namespace stage {
 
 class Stage;
@@ -65,42 +67,6 @@ class IStageWorld {
   virtual void camera_jump_x(const Value& x) = 0;
 };
 
-// `LFW` 的缝（`lfw.datas` / `lfw.mt` / `lfw.players` / `lfw.sounds` / `lfw.factory`）。
-class IStageLfw {
- public:
-  virtual ~IStageLfw() = default;
-  virtual MersenneTwister* mt() = 0;
-  virtual Value datas_backgrounds_find(const Value& id) = 0;
-  virtual Value datas_stages_find(const Value& id) = 0;
-  // `lfw.new_team` 是 getter 且**每次读都自增** ⇒ 端口也按调用计次（`Stage` 只在构造里读一次）。
-  virtual std::u16string new_team() = 0;
-  virtual bool players_has(const Value& player_id) const = 0;
-  // `lfw.sounds.play_bgm(music)` 返回停止函数；`music` 为空串时 TS 走 `stop_bgm`。
-  virtual std::function<void()> sounds_play_bgm(const Value& music) = 0;
-  virtual void sounds_stop_bgm() = 0;
-  virtual void sounds_play(const Value& path, const Value& x, const Value& y, const Value& z) = 0;
-  // `lfw.sounds.play_with_load(path)`（`cheat_code_handler` 的作弊码音效）。
-  virtual void sounds_play_with_load(const Value& path) = 0;
-  // `phase.__end_testers` / `dialog.__end_testers`：TS 里 dat 层已经把 `end_test` 那些
-  // 字符串编成了 `IExpression<Stage>` **实例**，端口的 `Value` 装不下对象 ⇒ 由宿主按
-  // 「那份数据」交出对应的表达式列表（`Stage` 只负责 `reset` / `flow`）。
-  virtual Expressions<Stage>::Items end_testers(const Value& owner) = 0;
-  // `get_val_getter_from_stage` 的按键 / 广播两条数据源（TS 直接读 `e.lfw.keys` /
-  // `e.lfw.broadcasts`；宿主未实现时给缺省）。
-  virtual bool keys_is_start(const std::u16string& key) {
-    (void)key;
-    return false;
-  }
-  virtual const std::vector<std::u16string>& broadcasts_list() {
-    static const std::vector<std::u16string> empty;
-    return empty;
-  }
-  // `Item` 侧的宿主面（`Stage` 实现 `IItemHost` 时转发给 `lfw`）。
-  virtual Value datas_find(const Value& oid) = 0;
-  virtual std::shared_ptr<Randoming> datas_randoming_by_group(const Value& oid) = 0;
-  virtual IItemEntity* create_entity_with_bot(const Value& data) = 0;
-};
-
 // `Callbacks<IStageCallbacks>` 的端口替身。TS 的回调第一个/最后一个参数是 `Stage` 本身，
 // 而 `Value` 装不下 C++ 对象 ⇒ 给一个专用 payload（同 `FSM` 用 `CallbacksT<FSM*>` 的先例）：
 // `stage` 一律是「触发这次回调的 Stage」，`a` / `b` 放那两个值参数
@@ -121,11 +87,11 @@ class Stage : public IItemHost {
   static void set_warn(Warn warn);
   static void warn(const std::u16string& where, const std::u16string& text);
 
-  Stage(IStageWorld* world, IStageLfw* lfw, Value data);
+  Stage(IStageWorld* world, LFW* lfw, Value data);
   ~Stage();
 
   IStageWorld* world() const { return _world; }
-  IStageLfw* lfw() const { return _lfw; }
+  LFW* lfw() const { return _lfw; }
   const Value& data() const { return _data; }
   const Value& next_stage() const { return _next_stage; }
   StageCallbacks& callbacks() { return _callbacks; }
@@ -137,14 +103,10 @@ class Stage : public IItemHost {
   Value team() const override { return Value(_team); }
   bool all_boss_dead() override;
   Value difficulty() const override { return _world->difficulty(); }
-  MersenneTwister* mt() override { return _lfw->mt(); }
-  Value datas_find(const Value& oid) override { return _lfw->datas_find(oid); }
-  std::shared_ptr<Randoming> datas_randoming_by_group(const Value& oid) override {
-    return _lfw->datas_randoming_by_group(oid);
-  }
-  IItemEntity* create_entity_with_bot(const Value& data) override {
-    return _lfw->create_entity_with_bot(data);
-  }
+  MersenneTwister* mt() override;
+  Value datas_find(const Value& oid) override;
+  std::shared_ptr<Randoming> datas_randoming_by_group(const Value& oid) override;
+  IItemEntity* create_entity_with_bot(const Value& data) override;
 
   Value title() const;
   bool is_stage_finish() const { return _is_stage_finish; }
@@ -218,7 +180,7 @@ class Stage : public IItemHost {
   Value dialog_state_value(const DialogState& s) const;
 
   IStageWorld* _world = nullptr;
-  IStageLfw* _lfw = nullptr;
+  LFW* _lfw = nullptr;
   Value _data;
   Value _next_stage;
   std::u16string _team;

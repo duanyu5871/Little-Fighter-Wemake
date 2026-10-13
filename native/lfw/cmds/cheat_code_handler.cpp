@@ -1,4 +1,5 @@
 #include "lfw/cmds/cheat_code_handler.h"
+#include "lfw/lfw.h"
 
 #include <optional>
 #include <string>

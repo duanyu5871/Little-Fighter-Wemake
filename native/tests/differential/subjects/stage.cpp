@@ -18,6 +18,7 @@
 #include "lfw/utils/container_help/field_or.h"
 
 #include "trace_util.h"
+#include "world_fixture.h"
 
 namespace {
 
@@ -390,8 +391,10 @@ class FakeStageExpr : public lfw::stage::IExpression<lfw::stage::Stage> {
 
 class FakeStageWorld;
 
-class FakeStageLfw : public lfw::stage::IStageLfw {
+class FakeStageLfw : public lfw::LFW {
  public:
+  FakeStageLfw() : lfw::LFW(fx::shared_stub_host(), false) {}
+
   lfw::MersenneTwister mt_value{0.0};
   std::vector<std::pair<lfw::Value, lfw::Value>> backgrounds;
   std::vector<std::pair<lfw::Value, lfw::Value>> stages;

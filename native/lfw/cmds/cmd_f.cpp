@@ -1,4 +1,5 @@
 #include "lfw/cmds/cmd_f.h"
+#include "lfw/lfw.h"
 
 #include <vector>
 

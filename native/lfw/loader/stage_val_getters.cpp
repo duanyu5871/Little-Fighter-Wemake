@@ -1,4 +1,5 @@
 #include "lfw/loader/stage_val_getters.h"
+#include "lfw/lfw.h"
 
 #include <memory>
 #include <string>

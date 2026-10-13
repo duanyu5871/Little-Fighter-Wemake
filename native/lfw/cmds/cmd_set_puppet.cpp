@@ -1,4 +1,5 @@
 #include "lfw/cmds/cmd_set_puppet.h"
+#include "lfw/lfw.h"
 
 #include <optional>
 #include <string>

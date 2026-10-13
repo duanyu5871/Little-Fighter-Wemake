@@ -1,7 +1,7 @@
 // `helper/` 家族 + `Keys` + `JoinQueue` 的 C++ 侧台面，op 与 `subjects/helpers.ts` 一一对应。
 //
 // 实体是真的 `Entity`（挂 `fx::shared_world()`：`on_add_entities` 钩子出 `attach|<id>|<team>`
-// 日志，对应 TS 侧假件 `attach()` 的日志）；`IHelperLfw` / `IKeysLfw` / `IUiHelperLfw` 三个缝
+// 日志，对应 TS 侧假件 `attach()` 的日志）；`lfw.*` 那几族缝（4CO 退役，假件派生真 `LFW`）与 `IKeysLfw`
 // 全是脚本化假件。`mt` 固定种子 12345。
 //
 // op 一览：
@@ -44,6 +44,7 @@
 
 #include "entity_fixture.h"
 #include "trace_util.h"
+#include "world_fixture.h"
 
 namespace {
 
@@ -115,8 +116,10 @@ const lfw::Value* find_in(const std::vector<lfw::Value>& list, const lfw::Value&
   return nullptr;
 }
 
-class FakeLfw : public lfw::helper::IHelperLfw {
+class FakeLfw : public lfw::LFW {
  public:
+  FakeLfw() : lfw::LFW(fx::shared_stub_host(), false) {}
+
   lfw::MersenneTwister& mt_ref() override { return g_mt; }
   const std::vector<lfw::Entity*>& world_entities() override { return g_ents; }
   const std::vector<lfw::Entity*>& world_ghosts() override { return g_ghosts; }
@@ -184,8 +187,10 @@ class FakeKeysLfw : public lfw::IKeysLfw {
   void recycle_keys(lfw::Keys&) override { push("recycle"); }
 };
 
-class FakeUiLfw : public lfw::helper::IUiHelperLfw {
+class FakeUiLfw : public lfw::LFW {
  public:
+  FakeUiLfw() : lfw::LFW(fx::shared_stub_host(), false) {}
+
   void push_page(const lfw::Value& page, double stack_idx) override {
     push("push|" + fmt_id(lfw::field_or(page, u"id")) + "|" + num(stack_idx));
   }

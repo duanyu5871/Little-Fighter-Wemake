@@ -1,6 +1,6 @@
 // `World`（`native/lfw/world.h`）的 C++ 侧台面。TS 侧是 `subjects/world.ts`，op 一一对应。
 //
-// 用例：`cases/world/*.txt`。假件：`IWorldLfw`（`LFW` 未移植的那一面）、`IWorldRenderer`、
+// 用例：`cases/world/*.txt`。假件（4CO：`IWorldLfw` 退役 ⇒ 假 `lfw` 派生真 `lfw::LFW`）：`IWorldRenderer`、
 // `IWorldUi`、`IClock`（`Ditto.Clock` / `Ditto.Render`）。实体是真的 `Entity`（切片 4CJ 后
 // 直接持有真 `lfw::World`），`step` 那一半（实体推进 / 碰撞配对 / 相机目标）在下一刀。
 #include <cmath>
@@ -35,6 +35,7 @@
 #include "lfw/world_collision.h"
 
 #include "trace_util.h"
+#include "world_fixture.h"
 
 namespace {
 
@@ -306,8 +307,10 @@ lfw::PlayerInfo* player_of(const std::string& pid) {
   return nullptr;
 }
 
-class FakeLfw : public lfw::IWorldLfw {
+class FakeLfw : public lfw::LFW {
  public:
+  FakeLfw() : lfw::LFW(fx::shared_stub_host(), false) {}
+
   lfw::MersenneTwister mt_value{0.0};
   std::vector<Value> bg_datas;
   std::vector<Value> stage_datas;
@@ -323,7 +326,7 @@ class FakeLfw : public lfw::IWorldLfw {
   int id_counter = 0;
   int team_counter = 0;
 
-  // ---- `IStageLfw` ----
+  // ---- `lfw.datas` / `lfw.mt` / `lfw.players` / `lfw.sounds` / `lfw.factory` ----
   lfw::MersenneTwister* mt() override { return &mt_value; }
 
   Value datas_backgrounds_find(const Value& id) override {
@@ -389,7 +392,7 @@ class FakeLfw : public lfw::IWorldLfw {
     return nullptr;
   }
 
-  // ---- `IWorldLfw` ----
+  // ---- `lfw.*` 的实体/世界面 ----
   lfw::PlayerInfo* players_get(const Value& player_id) const override {
     push("h:player=" + vstr(player_id));
     return player_of(str_of(player_id));

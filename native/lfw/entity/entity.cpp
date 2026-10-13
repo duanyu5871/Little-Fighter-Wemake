@@ -1,4 +1,5 @@
 #include "lfw/entity/entity.h"
+#include "lfw/lfw.h"
 
 #include <memory>
 #include <string>
@@ -160,7 +161,7 @@ Entity::Entity(World& world, Value data, state::States* states) {
 }
 
 // `this.lfw`（TS 的字段读；`World` 的完整定义在 world.h，这里才 include 得进来）。
-IWorldLfw& Entity::lfw() const { return world_->lfw(); }
+LFW& Entity::lfw() const { return world_->lfw(); }
 
 Entity::~Entity() = default;
 

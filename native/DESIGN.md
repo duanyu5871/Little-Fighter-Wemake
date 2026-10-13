@@ -11423,3 +11423,49 @@ MSVC 在这套组合下会崩出内建错误。
 - 改了**被广泛 include 的头**之后，必须**整树清 obj**（`*.obj,*.lib,*.exe`，保留目录）再编；只清
   `lfw_core.dir` 不够 —— subject 的 obj 同样会陈旧。
 - 想让 subject 的 TU 干净，就别让它们看到宿主/平台头：把实现挪进 `.cpp`（本刀的 `world_fixture.cpp`）。
+
+---
+
+## 149. 缝家族退役（3/5）：四族 LFW 侧缝（切片 4CO）
+
+### 149.1 退役对象
+
+| 缝 | 面数 | 真实现 | 原持有者 | 现在 |
+| --- | --- | --- | --- | --- |
+| `IWorldLfw` | 45 | `LFW` | `World::lfw_` | `World` 直接持 `LFW*` |
+| `IStageLfw` | 13 | `LFW` | `Stage::_lfw` | `Stage` 直接持 `LFW*` |
+| `IHelperLfw` | 12 | `LFW` | `ObjectsHelper::_lfw` | `ObjectsHelper` 直接持 `LFW*` |
+| `IUiHelperLfw` | 2 | `LFW` | `UIHelper::_lfw` | `UIHelper` 直接持 `LFW*` |
+
+它们的开口理由都是「`LFW` 未移植」，而 `LFW` 早已是实现方：`LFW : public IWorldLfw, ... helper::IHelperLfw,
+public helper::IUiHelperLfw`（基类列表本身就是证据）。4CL（台面能造真 `LFW`）+ 4CM（台面假 `lfw` 变成真
+`LFW` 的派生类）之后，台面侧已经没有任何理由保留它们。
+
+### 149.2 改法与两个坑
+
+- 删掉四个缝；`LFW` 的基类列表只剩 `loader::IDatMgrHost` / `IResourcesHost` / `IKeysLfw` /
+  `IPlayerInfoHost` / `LfwKeyboardCallback`；原来靠基类纯虚才「虚」的那批方法，在 `LFW` 里改成
+  **`virtual`**（不是简单去掉 `override` —— 去掉就变非虚，台面的覆写会全部失败 C3668）。
+  补 `virtual` 用「HEAD 版本的 `lfw.h` 里带 `override` 的行号」驱动，避免误插到注释上（误插过一次，
+  症状是 `__msvc_heap_algorithms` 的诡异级联，见 §150）。
+- 持有者一律改成具体类型；`world.h` / `stage.h` / `helper/*.h` 只**前置声明** `LFW`（`world.h` 会被
+  `lfw.h` include，反着来会成环）。
+- 因为 `stage.h` 里几个 inline 转发体要 `LFW` 的完整定义才能编译，把它们**搬到 `stage.cpp`**；
+  9 个 `cmd_*.cpp` / `loader/*.cpp` 补 `#include "lfw/lfw.h"`。
+- 台面三处直接实现这些缝的假件（`subjects/world.cpp` 的 `FakeLfw`、`subjects/stage.cpp` 的
+  `FakeStageLfw`、`subjects/helpers.cpp` 的 `FakeLfw` / `FakeUiLfw`）改成**派生真 `lfw::LFW`**
+  （宿主用 `fx::shared_stub_host()`），覆写的面一字不改、一律不调真基类 ⇒ 语义等价。
+
+### 149.3 实测（纯重构 ⇒ 摘要必须逐字节不变）
+
+差分 **255/255**；锚点 **9764 ok / 0 bad**；include 836 clean / 0 failed / 9 warnings；coverage OK；
+宿主 prel 300 = `7335aa25f4e1ce86`、stage 1 900 = `e4a9437292047044`、`--vs` 600 = `f29d3bb1ea330c32`
+—— 三条**逐字节不变**。
+
+### 149.4 还没退的同类缝
+
+`IUiLayers`(6) / `IWorldUi`(2) —— 真实现是 `ui::UILayers`（ck2，之前卡在「台面造不出 `LFW`」，
+4CL 已解锁）；`IDatMgrHost`(6)（ck5）；`IStageWorld`(9) / `IItemHost`(9)（ck3/ck4，真实现是
+`World`/`Stage`，本来就没有先决障碍）；`IStageEntity`(18) / `IItemEntity`(22)（仿实体，真实现就是
+`Entity`，适配器是 `StageEntityView` / `EntityItem`）；`IKeysLfw`(3) / `IResourcesHost`(6) 里
+`IKeysLfw` **没有真实现** ⇒ 属待移植，不是退役。

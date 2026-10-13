@@ -1,4 +1,5 @@
 #include "lfw/loader/get_val_from_collision.h"
+#include "lfw/lfw.h"
 
 #include <memory>
 #include <string>

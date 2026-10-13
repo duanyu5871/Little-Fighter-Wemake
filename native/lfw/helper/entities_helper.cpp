@@ -1,4 +1,5 @@
 #include "lfw/helper/entities_helper.h"
+#include "lfw/lfw.h"
 
 #include <cmath>
 #include <memory>
@@ -11,7 +12,7 @@
 namespace lfw {
 namespace helper {
 
-ObjectsHelper::ObjectsHelper(IHelperLfw& lfw)
+ObjectsHelper::ObjectsHelper(LFW& lfw)
     : _lfw(&lfw),
       _team_randoming(u"team_randoming",
                       {Value(std::u16string(u"1")), Value(std::u16string(u"2")),
