@@ -15,6 +15,11 @@ Electron 桌面壳、以及将来的原生客户端上跑同一份逻辑。
 
 ## 硬规则（`native/lfw/` 下）
 
+- **平台实现一律不许落在 `native/lfw/**`**：渲染、音频、图片、输入、时钟、wasm/ABI 这些**具体实现**
+  只放 `native/host/**`（C++ 侧）与 `native/web/**`（JS 侧）；核心只留**接口**与**逻辑**。
+  `lfw.h` 里与平台相关的东西只允许是"**宿主工厂**"（`create_world_renderer` / `create_ui_node_renderer`
+  这种"向宿主索要实现"的钩子）。
+
 这份规则和 `src/LFW/README.md` 是同一个意图的两面：
 **让核心不可撤销地保持平台无关。**
 
