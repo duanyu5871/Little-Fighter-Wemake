@@ -1,6 +1,12 @@
-# DESIGN —— 动态值（`Value`）的设计
+# DESIGN —— LFW 核心 C++ 端口的现行设计
 
-决定：**A2 + B2 + C2**（2026-10-01）
+本文只写**当前**的事实：`Value` 的类型与表示、端口与 TS 的现行偏差、雷区、假货与宿主缺口、
+差分够不到的分支，以及各单元的语义与保真要点。**变更史不在这里** —— 要看「第几刀改了什么」，
+查 `git log`。
+
+运行 / 验证命令与三条 canonical 宿主摘要见 `README.md`；差分用例怎么写见 `tests/differential/PROTOCOL.md`。
+
+**决定**：A2 + B2 + C2
 
 - **A2** —— `Value` = `std::variant<monostate, bool, double, std::u16string, shared_ptr<Array>, shared_ptr<Object>>`
 - **B2** —— 只把 `Value` 用在 **I/O 边界**；加载后立即转成强类型 struct
@@ -75,7 +81,7 @@ Undefined | Null | Bool | Number | String | Array | Object
 
 ---
 
-## 3. `Value` 的表示（A2）
+## 3. `Value` 的表示（A2）与 `Object` 键顺序
 
 ```cpp
 class Array;
@@ -92,7 +98,7 @@ using Value = std::variant<
 ```
 
 **已落地的部分（V1）只含到 `std::shared_ptr<Array>`** —— `Object` 连同它的键顺序一起推迟到 V6。
-理由：实测 `Expression` 的价值域里**根本没有 object**（见 §4.1），所以先加 `Object` 只会得到
+理由：实测 `Expression` 的价值域里**根本没有 object**（见 §9.1），所以先加 `Object` 只会得到
 一段在 V6 之前没人测的代码。加 `Object` 时要同步改的是：`value.h` 的 variant、`truthy`、`type_of` 三处。
 
 > **陷阱**：`Value` 里同时有 `bool` 和 `double` 两个替代，所以 `Value(0)` / `Value(1)` 是
@@ -115,21 +121,939 @@ using Value = std::variant<
 
 ---
 
-## 4. 落地顺序
+## 4. 落地状态
 
 | 阶段 | 内容 | 状态 |
 |---|---|---|
-| V1 | `Value` 基本类型 + 真值 / `typeof` / `Array.isArray` | **已完成**（89 行差分全过；`Object` 延到 V6） |
-| V2 | **`string_to_number`**（`ToNumber(string)`） | **已完成**（146 + 81 行差分全过） |
-| V3 | **`number_to_string`**（最短往返 + JS 指数阈值） | **已完成**（77 + 10558 行差分全过） |
-| V4 | **宽松 `==`** 完整规则表 | **已完成**（89 + 61 + 84 行差分全过；`{{`/`}}` 延到 V7） |
-| V5 | 关系比较 `< > <= >=` | **已完成**（107 行差分全过） |
-| V6 | `Object` + `Object.keys` 顺序 | **已完成**（109 行差分全过） |
-| V7 | `Expression` 跑在 `Value` 上 | **已完成**（303 + 216 行差分全过） |
-| V8 | `JSON.stringify` / `JSON.parse` | **已完成**（62 + 157 行差分全过） |
-| V9 | `JSON5.parse` / `JSON5.stringify` | **已完成**（详见 `JSON5.md`） |
-| V10 | `fields.ts`（字段描述 DSL + `fields()` + `reorder_fields` + `validate_fields`） | **已完成**（77 + 155 行差分全过；19 条变异全杀） |
-### 4.1 V1 `Value` 的落地结果
+| V1 | `Value` 基本类型 + 真值 / `typeof` / `Array.isArray` | **已完成** |
+| V2 | **`string_to_number`**（`ToNumber(string)`） | **已完成** |
+| V3 | **`number_to_string`**（最短往返 + JS 指数阈值） | **已完成** |
+| V4 | **宽松 `==`** 完整规则表 | **已完成** |
+| V5 | 关系比较 `< > <= >=` | **已完成** |
+| V6 | `Object` + `Object.keys` 顺序 | **已完成** |
+| V7 | `Expression` 跑在 `Value` 上 | **已完成** |
+| V8 | `JSON.stringify` / `JSON.parse` | **已完成** |
+| V9 | `JSON5.parse` / `JSON5.stringify` | **已完成**（见 `JSON5.md`） |
+| V10 | `fields.ts`（字段描述 DSL + `fields()` + `reorder_fields` + `validate_fields`） | **已完成** |
+
+## 5. 端口与 TS 的现行偏差
+
+按单元汇总**当前仍然成立**的偏差：端口有意不照搬 TS 的地方（形状差 / 契约差 / 重命名 / 语义偏差 /
+不可达分支）。改到这里任何一条，要同步改 `README.md` 的偏差表。
+
+### 5.1. Entity 的 opoint 生成簇（`spawn` / `on_spawn` / `attach`） —— 已知偏差
+
+1. **`Entity::_team` 是 `std::u16string`**（9a 起的设计），TS 的 `team` 保持原值 ⇒
+   `on_spawn` 的 Ball_Rebounding 分支若拿到**数字**队伍，两边表示不同（TS 存 `3`、
+   端口存 `"3"`）。用例只喂字符串队伍；这条偏差记进 README 的已知偏差表。
+2. `spawn` 失败分支里的 `Ditto.warn` + `debugger`（§9.59 约定）不移植。
+3. `fallback`（`States::fallback` 造出来的状态对象）在`on_spawn` 里只被 `state()` 读
+   ⇒ 没有额外的观察点。
+4. `spawn` 尾部的 `vrests` 复制循环：需要 `collision_clone`（碰撞工厂未移植）⇒
+   端口按 9i 约定原样复制记录，本主题的用例里 `vrests` 为空 ⇒ 不可观测。
+5. `as_key_role(false)` 的调用：`key_role` 只影响 `ctrl`/`player_id` 的后续路径，
+   本主题的转储里没有它的观察点（随控制器相关的刀补）。
+
+### 5.2. `Entity::apply_opoints`（opoint 列表的消费方） —— 已知偏差
+
+1. **`World.list_entities` 的按 key 缓存**：真实 `World` 会把「同名 key 的筛选结果」缓存
+   一份数组，第二次调用**不再过谓词**。缓存层属于 World ⇒ 差分 harness 每次真筛，
+   PROTOCOL 里注明；端口只依赖缝的语义（`key` 只用来拼缓存键，端口照传）。
+2. **`BallController` 未移植**（同 56.2）：`is_ball_ctrl` / `chasing` 暂放 `BaseController`，
+   等 `BallController` 的刀再搬进去；本主题的观察面因此用 `ball=` + `chasing=` 双打。
+3. `spawn` 失败分支里的 `Ditto.warn` + `debugger`（§9.59 约定）不移植（9l 已记）。
+
+### 5.3. `Entity` 的每 tick 主体（`update` / `update_ghost`） —— 已知偏差
+
+1. **`collision_list` / `collided_list` 的清空**：tick 里没有任何地方回读这两张表
+   （它们由碰撞消费），所以「不清空」在本主题的用例里不可观察；记录在
+   `mutations/entity.mjs` 头部，等碰撞接上消费者。
+2. **`refresh_ctrl_env` 的两处来源**：`env.seq_map = frame.__seq_map`（而不是
+   `data.__seq_map`）与 `transforms[0].__pre|__post_hitkeys_map` 那一对。`__seq_map` 分支要
+   控制器持有一份按键历史（`_key_list`），而 harness 的 `run keys` 每次都装一台**新**控制器
+   ⇒ 攒不出历史（`ja` 序列测不出来）；`transforms` 也不能从 harness 写。场景里两处都缺字段
+   ⇒ 互换是空操作。两条都记录在 `mutations/*.mjs` 头部，等控制器的键序列场景。
+3. **`world_puppets` 的 `team` 槽与 `entity_view` 的 `emitters`**：消费者只有真实状态钩子
+   （`csl_on_dead` 读 `team`）与 `summary_mgr.apply_damage`（只读 `id` / `hp`），本主题
+   一个都不走。两条记录在 `mutations/*.mjs` 头部。
+4. ⚠️ **用例里 `position.x` 会被 Respawn 分支写成 `NaN`**（`stage` 未设时 `max/min` 得
+   `NaN`），而 `update_aabb` 的 `round(NaN + x)` 也是 `NaN` ⇒ 它下面所有拿 x 做观察的
+   变异都会被「NaN == NaN」遮住。补 `run pos` 复位 + 给 `__aabb_x2` 一个非 0 值之后
+   `aabb_min_x` 的写法才可分辨（`update_aabb：x1 不随朝向翻` 一条就是这么补杀的）。
+   `update_ghost` **不刷新 AABB**，所以 ghost 段落里看到的 `aabb=` 是上一 tick 的残留。
+5. ⚠️ **落地判定要「恰好卡在 `ground.step` 上」才分得出 `>` 与 `>=`**：`handle_gravity` 只
+   在 `position.y > _ground_y` 时加竖直速度 ⇒ 直接把 y 摆到 `ground + step` 会被这一 tick 的
+   重力挪走。用例改成 `frame.gravity_enabled = 0`（关掉重力）+ `setvel 0`，
+   让 `y - ground` 真的等于 `step`。
+6. ⚠️ **Respawn 的「最近友军」要「死人更近」才分得出 `hp > 0` 过滤**：`d > max_distance`
+   是严格比较 ⇒ 先到且 `d = 0` 的候选会把 `max_distance` 定成 0，后面任何 `d > 0` 的都被跳过
+   ⇒ 「活人更近、死人更远」时两条路同结果。用例改成 `env puppets buddy` + buddy `hp = 0`
+   （基线 ⇒ 无友军 ⇒ `set_position(null, 300)`；变异 ⇒ 用死 buddy 的位置）。
+7. `spawn` 出的 opoint 实体位置：opoint 的 `x` / `y` / `z` 缺字段时 `num_of(undefined)` 是
+   `NaN` ⇒ 生成体位置也是 `NaN`（用例里的 `spawnv` 场景因此不拿它当观察点）。
+
+### 5.4. `base/ValExpression` + `loader/preprocess_opoint` —— 已知偏差
+
+1. **Ctx 概念取代 `Entity`**：`frame_var(name)` + `mt()`（另见 README 偏差表）。取数器给 `double`：
+   帧**缺字段**时 TS 的 `undefined` 支（`range(undefined, undefined)` 提前返回不消耗、
+   `pick` / `bag` 的 `v !== undefined` 过滤）端口不复现，用例只喂有值的帧。
+2. **`preprocess_opoint` 不写回记录**：编译结果以 `std::map<__gen_* 名, ValExpression>` 交还调用方
+   （`Value` 只有 7 种类型装不下函数，§9.42）；差分时 TS 侧 harness 删 `__gen_*` 对齐。
+3. **非字符串的 `gen_*`**：TS 抛 `TypeError`（无 trace），端口跳过 ⇒ 不可差分，不覆盖。
+4. **`mt.mark` 写在抽取之前的「顺序」**：把 `mark` 挪到两个实参**之后**，外层调用的 `mark`
+   最终值不变（内层调用写的 mark 也会被外层覆盖）⇒ 该写法按构造等价，不列。`mmark` 只钉
+   「写没写」与「tag 对不对」。
+5. **`truthy` 的边界**：`gen_*` 为 `0` / 空串 / `undefined` 时两侧都不编译（falsy）；数字 /
+   对象这类**真值非字符串**走上面第 3 条的抛异常分支，不覆盖。
+
+### 5.5. `base/Ticker` + `base/FPS`（时序层） —— 已知偏差
+
+1. **`Ticker.TAG`**（`static readonly TAG = "Ticker"`）不移植：与其它槽同款约定（没有任何运行时
+   读取点）。
+2. **`ITimeout.add` 的 `...args`** 不移植（59.2 第 1 条）。
+3. **`_tick` 的 `finally`**：TS 保证 `on_step` 抛异常时仍会 `_schedule()`；端口无异常（lint 禁
+   `try`），一律顺序执行 ⇒ 「抛异常」这条路径不可表示、也不可观察。
+4. **`_schedule()` 守卫的第三个因子 `_pending`** 原理上可观察，但本主题到不了：所有调用点
+   要么刚刚清过它（`start` / `_tick` / `resync` 内的 `cancel`），要么根本进不来 ⇒ 不列候选。
+   （另两个因子 `!_running` / `_paused` 用 `tk inside stop` / `tk inside pause` 可观察，已列。）
+5. **`_tick` 里 `if (!_running) return;`**：要观察到它需要「`stop()` 之后仍有回调被触发」，
+   而 `stop()` 已经 `cancel()` 掉了句柄（`fire` 只会打 `FIRE -`）。
+6. **`clamp(t0 - _last_step, 0, _base * 4)` 的下界**：假时钟单调（用例里只前进）⇒ 下界不可观察，
+   不列候选；上界可观察（用例把时钟一次推 64ms = `_base * 4`）。
+7. **`IClock.del` 收到未知句柄**的行为：TS 侧没有可观察 trace（`Ditto.Clock.del` 的副作用取决于
+   宿主），端口与假宿主都当 no-op ⇒ 不覆盖。
+8. **私有槽的窥视口**：`Ticker` 的 `base` / `span` / `rate` / `pending` / `paused` / `deadline` /
+   `last_step` / `timer_id` / `wake_id` 都不是 TS 的公开 API（`running` / `step` / `span` / `rate`
+   是），端口按 harness 需要把它们开成 const getter + `FPS::duration`；TS 侧靠 `as any` 读私有字段，
+   两侧都只用于 trace。
+10. **旋钮的默认值**：用例显式改的是 `maxspan` / `maxlag` / `ratewin` / `step_ms`（+ harness 的
+   `spent` / `inside`），`safety` / `slew` / `sleep_threshold` 只走默认值 —— harness 也就没给它们
+   设 op。三者的默认值本身都被现有候选钉住：`slew` 由 span 的增量（`1.004`）钉、`sleep_threshold`
+   由 `delay > sleep_threshold` 的边界与分流钉、`safety` 由「base 变化后不按 `cost` 重算 `_span`」
+   与 span 的夹紧值钉。`safety` 的**默认值**只有在 `cost * safety / _base` 落进 `±slew` 这段
+   极窄区间（如 `_base / safety` 附近）时才可分辨，没为它铺场景 ⇒ 不列候选（同族的等价论证
+   见第 9 条）。
+
+### 5.6. `base` 的三个叶子助手 + `core` 的 `toFixed(1)` —— 已知偏差
+
+1. **只做 `toFixed(1)`**：唯一的调用点就是 `get_short_file_size_txt`。一般化的 `to_fixed(v, f)`
+   要精确就得有 `10^f·m` 的大整数尾数（f ≤ 22 才装得进 128 位），而 `f ≥ 2` 现在没有调用点 ⇒
+   不提前做。**不要**用 `dat_translator` 的 `fixed_float`（3c，返回**数值**、走 `half_away_scaled` 的
+   浮点路径）来顶替这里的字符串输出：两者只在 `|x|·10^f < 2^53` 的小区间里等价。
+2. **`neg = v < 0` 写成 `v <= 0` 抓不到**：零（含 `-0`）被 `a == 0.0` 那条提前 return 兜掉了，
+   能走到加负号那一句时必有 `a > 0` ⇒ 两个比较等价（`-0` 不带负号是那条 return 写死的 `"0.0"`）。
+   `mutations/core.mjs` 头部第 0b 条记着这条构造性等价，别再试图杀它。
+3. **颜色字段的「缺失 / 非字符串」分支不可达**：两侧读的是同一份 `Defines.TeamInfoMap`（harness 注入不了），
+   数据里 `txt_color` / `txt_outline_color` 恒为非空字符串 ⇒ TS 的 `0`（假值）/数字（原样返回）
+   与 `undefined.txt_outline_color`（TypeError）这些分支都不复现（端口只认字符串）。
+4. **`team` 只收 `std::u16string`**：TS 签名是 `string | number`，但 JS 的对象键终究是字符串
+   （`TeamInfoMap[3]` 与 `TeamInfoMap["3"]` 是同一把键），而端口的 `Entity::team` 本来就是
+   `u16string`（README 偏差表那条）⇒ 数字队伍在进这个函数之前就已经字符串化了。
+5. **TS 文件名与导出名不一致**（`get_team_shadow_color.ts` 导出 `get_team_outline_color`）：
+   端口按**导出名**写函数、把两个函数放在 `team_color.h` 里（它们共享 `TeamInfoMap` 的查表）。
+
+### 5.7. `loader/get_val_from_entity`（+ 惰性的 `get_val_from_lf2` / `get_val_from_world`） —— 已知偏差
+
+1. **`Object.prototype` 的属性查找 vs 查表**：TS 的 `entity_val_getters[word]` 是**属性查找**，
+   `word` 撞上原型链（`constructor` / `toString` / `__proto__` …）时会拿到一个**函数**而不是
+   `undefined`（`Expression` 随后会把它当 getter 调用）。端口是向量查表，查不到就给 `nullptr`。
+   这条差异**不复现**：那是原型污染的产物、数据文件里也写不出这种词，而且复现了只能崩在同一个地方。
+   用例里只用「自有的键」和普通拼错（`no_such_word` / `""` / `"TrendX"` / `"trend_X"`），
+   都在两侧同为 `undefined`。
+2. **`entity_world_val_getters` 记忆 Map 不移植**：它是纯缓存（命中与未命中的结果与「重新查一遍」
+   完全同值），端口每次走一遍回落函数。
+3. **`Holding_W_Type` 的 `?? 0` 不可达**：`Entity::base_type()` 返回 `double`
+   （TS 也是 `get base_type(): number`）⇒ `undefined` 那一支进不来。
+4. **`length_of` 的非数组/非字符串分支**：`nullopt` 与 `0.0` 在
+   `has_transform_data`（`0 != 0` 为假）和 `transform_list_size`（`|| 0`）里同值 ⇒ 构造上等价。
+5. **`is_x(c.attacker)` 的载体**：TS 读的是活实体（`c.attacker.data.type`），端口的 `Collision`
+   里是**快照**（`CollisionActor`），只留了 `data.type`（`data_type`）⇒ 表里按 `data_type` 判。
+   成立的前提是「造碰撞的一方把 `data.type` 写进 `data_type`」——`collision_core` 的差分台子
+   （9 刀的 `collision_core.ts` 里 `type: this.data_type`）就是这个约定。
+7. **`get_val_from_world` 的投影层**：见 61.1，函数指针装不下 `world → world.lfw`。
+
+### 5.8. `controller/BallController` + `helper/closer_one` —— 已知偏差
+
+1. **`chasing` 是「引用快照」，TS 是活实体**：TS 的 `this.chasing` 就是那个实体对象，之后
+   目标掉血 / 换队 / 换帧都会立刻反映到 `should_chase(current)`、`aim_at(current)` 的读取上；
+   端口存的是建引用那一刻的字段。补偿办法是 `update_lookup` 开头那句 `reidentify`：名单
+   （= 世界实体表）里还有同一个 `id` 时，就把 `chasing` 换成名单里的**新引用**，于是
+   「目标还在世界里」这条常见路径与 TS 逐字段一致（用例里 `run buddy` 会在名单外换对象，
+   `reidentify` 认不到时就退回旧快照 —— 这已是**有意接受**的残差）。
+   `should_chase(current)` / `update_lookup` 的候选扫描都从名单取引用，所以这条只影响
+   「目标已离开名单」的情形。
+2. **`update_lookup` 的 `self` 由 `CtrlEnv` 位置快照现搭**（`self_ref`）：TS 读 `this.entity.position`，
+   控制器层按既有分层约定不 `#include entity/entity.h`。**注意不能拿 `entities[me]` 顶替**：
+   `me` 只保证「调用方给的下标」，只有 `entities[me]` 恰好是自己时才等价（这个缺口是
+   用例里 `run ball lookup buddy` 打出来的）。
+3. **`chasing` 放在基类**：TS 里它是 `BallController` 的字段；端口放在 `BaseController` 上，
+   因为 `spawn` 那条路只有 `BaseController*`（`is_ball_ctrl()` 门之后才写它）。语义不变。
+4. **`set_chase_point` 的 `is_f_num` 断言**只有一句 `debugger`（不改变行为）⇒ 不搬。
+5. **harness 里给实体 `position` 补了 `clone`**：TS 侧那个轻量 position 对象没有真 `Vector3` 的
+   `clone`/`copy`，而 `chase_point` 的惰性初始化要用 ⇒ 在 `run ctrl ball` 时就地补一份
+   **值语义**的副本（非枚举 + `configurable`，免得渲染出多余字段、也允许场景里再建一个控制器）。
+   这是台面的补丁，不是端口语义。
+6. **`update_lookup` 的两处「更远就丢」过滤**要三个以上候选才走得到（`self` / `buddy` 两个槽
+   不够）；而且把「球自己」当候选时距离恒 0、`found_d` 被钉在 0，那两个过滤也改不了结果 ⇒
+   不列变异（见 62.5）。同一原因（候选唯一时距离不参与决策）`self_ref` 的三个分量也不可观察。
+7. **harness 的坑（不是端口语义）**：`lfw.new_team` 在台面上是常量 `"1"` ⇒ **没设过队伍的实体
+   队伍相等**（`flag_between` 会给 `Ally`）。写用例时想造「敌我」必须显式给两边队伍。
+
+### 5.9. `loader/get_val_from_collision`（86 条 getter 表） —— 已知偏差
+
+1. **找不到那个 `id` 时读实体的项给 `undefined`**：TS 那边不存在这一刻（`Collision` 里存的是活
+   对象引用，真世界里读不出「对象没了」），要用 JS 表达只能是 `undefined.x` 抛 `TypeError`。
+   端口 `Value` 的链式取字段一路给 `undefined`。差分里只比较两边**都给 `undefined`** 的那几个词
+   （帧上的 `state` / `id`、`toughness`、`armor_work`、`victim_is_chasing`），能抛的那几个不比较。
+2. **`victim_is_chasing` 比 `id` 而不是对象**：TS 是 `c.victim === c.attacker.ctrl.chasing`；
+   端口 `chasing` 与 `victim` 都是快照 ⇒ 比 `id`（实体 `id` 唯一，等价）。
+3. **`v_frame_behavior` 读的是实体的 `frame`**（不是碰撞里的 `bframe`）：TS 也是 `c.victim.frame.behavior`，
+   移植时按字面走；用例里刻意让 `frame.behavior`（5）与 `bframe.behavior`（9）不同，好让
+   「读错了哪一份」也能被打出来。
+4. **`same_team` 的两个参数对称**：`a.is_ally(v)` 与 `v.is_ally(a)` 同值 ⇒ 交换参数构造上不可观察，
+   不列变异。`with_both` 的 `Value()` / `Value(0.0)` 同理（本用例两边都在）。
+5. **「世界里没有这个 id」的空值护栏**（`with_*` 的 `!= nullptr`、`key_state` 的空指针早退、
+   `victim_is_chasing` 的 `a == nullptr`、`armor_work` 的 `v == nullptr`）与
+   「`find_entity` 没装」的分支：TS 侧无法表达（见第 1 条），本用例走不到 ⇒ 不列变异，
+   记在 `mutations/collision_val.mjs` 头部。
+6. **harness 的坑（不是端口语义）**：
+   * `Entity::state()` 就是 `frame.state`，`run set state` / `run setstate` 都改不了它 ⇒
+     要 `run frame` / `run buddyframe` 把帧换掉。
+   * `frame.id` 为空 = `frame_id::None` ⇒ `BallController::should_chase` 直接否 ——
+     `run make` / `run buddy` 造出来的实体帧是 `EMPTY_FRAME_INFO`（id 空），想让它被追就必须
+     先 `run buddyframe`。
+   * **互相 `bearer`** 的两个实体一旦再改帧就会 `set_frame → follow_bearer → enter_frame → set_frame`
+     无限递归（**TS 侧同样栈溢出**，端口忠实复刻了这个行为）⇒ 持有位那一节放在用例最后，
+     而且只设单向关系。
+   * `run set group` / `run set armor` 不存在（那两个字段只从实体数据里来）⇒ 换一个
+     `run buddy <data>` 才换得掉。
+
+### 5.10. `loader/preprocess_frame` + `utils/read_nums` —— 偏差（同时登记在 README 的偏差表）
+
+1. `__seq_map` 用 `Object` 顶替 TS 的 `Map`：渲染一样，但键序不同（`Map` 保插入序，
+   `Object` 把整数键前置升序）⇒ 差分用例里的 `seqs` 键只能升序。
+2. `frame.opoint?.forEach(preprocess_opoint)` 与 `frame.sound` 的加载任务都不落地
+   （沿用 `preprocess_opoint` 与 `A_SOUND` 的既有约定）。
+3. `frame` 是标量时端口在入口就失败（TS 读到第一次写才抛）；差分只比「失败」这一位。
+
+### 5.11. `loader/preprocess_entity_data` —— 偏差（同时登记在 README 的偏差表）
+
+1. `__pre_hitkeys_map` / `__post_hitkeys_map` 用普通 `Object` 顶替 TS 的 `Map`
+   （`renderValue` 对两者同形；键序在本 subject 里都是短下标）。
+2. 加载任务（`images.load_img` / `load_by_pic_info` / `sounds.load`）与末尾的
+   `data.xml = () => …` 都不落地（前者是副作用、后者是函数 ⇒ `Value` 装不下）。
+3. `errors` 只做「缺失就失败」：TS 那边是数组 + `Ditto.warn(errors)`，端口沿用
+   `preprocess_bdy` / `preprocess_itr` / `preprocess_frame` 的 `bool` + `error` 出参约定。
+
+### 5.12. `I18N` + `loader/get_import_fallbacks` —— 偏差（同时登记在 README 的偏差表）
+
+1. 三张表用 `std::map` 顶 `Map`（只按键取、不迭代 ⇒ 序不可观察）；`Map` 的「键不 ToString」
+   语义靠「语言必须是字符串」的守卫保住。
+2. `base_words` / `base_lists` 两个 getter 没实现（`src/LFW` 里没有使用者）。
+
+### 5.13. `PlayerInfo` —— 偏差（同时登记在 README 的偏差表）
+
+`warn` 只留第一参、`put` 无失败面、`Ditto` 缺失不建模、JS 属性语义的少数档、
+`to_lower_case` 的 Unicode 覆盖面。
+
+### 5.14. `ZipMgr` —— 偏差（同时登记在 README 的偏差表）
+
+`ILoadedZip` 按值存（TS 存引用）、`md5s()` 给 `Value[]`、`IDataInfo` 只建模声明内的字段且
+`info` 必须非空。
+
+### 5.15. `Camera` —— 偏差（同时登记在 README 的偏差表）
+
+`x` / `y` / `set`。
+
+### 5.16. `Resources` —— 偏差（同时登记在 README 的偏差表）
+
+`Value` 标记、`XML.parse` 给 `Value` 标记、`ImportResult.file` / `origin` 用 `Value`、
+五个 `import_*` 改成同步 + `bool` 失败出参。
+
+### 5.17. `Factory` —— 偏差（同时登记在 README 的偏差表）
+
+`ICtrlCreator` 用指针身份代替「类本身」、`BaseController` 新增 `creator()` / `set_creator()`、
+`acquire_ctrl` 的 `reset(player_id, entity)` 无参化、`Factory::set_warn` 是进程级 sink、
+`IEntityCreators` / `IBuffCreator` 的形状（`World` / `LFW` 只前置声明）、
+`create_entity_with_player` 与 UI 相关不移植。
+
+### 5.18. `stage/Expressions` + `stage/Status` + `bg/Background` + `bg/Layer` —— 偏差（同时登记在 README 的偏差表）
+
+`index()` 是端口新增的只读口、`bg` 的 `info` / `data` 是 `Value`（浅拷贝要显式复制 `Object`）、
+`middle` 用小结构、`near` / `far` 访问器改名（`<windows.h>` 宏）、`field_or` 对 nullish 的宽容。
+
+### 5.19. `stage/Item`（+ `helper/Randoming` 模板化） —— 偏差（同时登记在 README 的偏差表）
+
+`Item` 的两条缝、`entity_callback` 按实体各建一份、`~Item` 会摘监听、`mt.range` 的入参强转。
+
+### 5.20. `stage/Stage` —— 偏差（同时登记在 README 的偏差表）
+
+`DialogState` 值拷贝、`warn` 进程级 sink、`same_ref`、`_disposers` 恒空、
+
+### 5.21. `World` —— 与 TS 的偏差
+
+- **`render_worker_id_` 用 0 表示 TS 的 `undefined`**：`Ditto.Render.add` 的句柄在端口里走
+  `render_add`（槽空时回 0，4K 起改成独立的渲染槽，见 §81.3）⇒ dump / 日志里把 0 打成 `u`
+  （台面的 `handle_str`），否则 TS 的 `undefined` 与端口的 0 无法对齐。
+- **`fps_value()` 落空回 `NaN`**：TS 的 `get FPS()` 在 `sync_render` 不是五个枚举值时返回
+  `undefined`（后续算术成 `NaN`）；端口的分量是 `double` ⇒ 用 `NaN` 顶替，台面把二者都打 `u`。
+- **`on_step_error` 的两处收窄**：TS 读 `Date.now()` 且参数是异常对象（`Ditto.warn(e)` +
+  `e?.errors`）；端口把它收进时钟槽（`clock_now()`，与 `render_once` 同一套）并把「有没有
+  `errors`」收成一个 `bool`，第二句告警的文本固定成 `[World::start_update] errors`
+  （TS 打的是 `e.errors` 本身）。台面为此把 `Date.now` 接到假时钟、并喂一个 `toString()` 给
+  消息、`errors` 给该固定文本的假错误对象。
+- **`Defines.RANDOM_BG.id` 是 `"?"`**：`change_bg` 的随机分支按它判定；`dataset.LF2_NET` 为真时
+  传两组 `BGG`（`regular` / `hidden`），否则只传 `regular`。
+- **`Ditto.warn` 的一参/两参**：世界自己发的是单参（`lfw.warn` 缝），`Stage` 那处是 `(where, text)`
+  两参（`Stage::set_warn`）⇒ 台面按参数个数分流，两条日志格式各自对齐。
+
+### 5.22. `World` 的 `step` / `update_once` / `catch_up` / `start_update` —— 与 TS 的偏差
+
+- **`world_pause` 的是访问器不是属性**：TS 里 `World` 没有 `world_pause`，读的是
+  `world.stage.world_pause`；端口给了一个转发访问器（台面 dump 里读 `stage.world_pause` 对齐）。
+- **`Ticker` 的 `on_step` 不装 `try/catch`**：TS 的 `Ticker` 在 `on_step` 里 `catch` 到异常后
+  交给 `World.on_step_error(e)`；端口不装异常（`lfw` 的规矩）⇒ 这一层由**宿主**在驱动 `on_step`
+  时做（台面 / `LFW` 那一刀）。`on_step_error(message, has_errors)` 的参数收窄见 §5。
+
+### 5.23. 宿主（`native/host/`，M1 headless 入口） —— 偏差与限制（同时登记在 README 的偏差表）
+
+1. 宿主不渲染 / 不出声 / 不解图 / 不接指针：`ui_image_load` 给零尺寸占位并计数，`md5` 是
+   占位哈希，`Ditto.Cache` 只在内存里，`zip_*`（下载 / 读 blob / 缓存）一律「没有」——
+   所以只走 `ZipItem{path, IZip*}` 这条**对象**加载路，不走 `load_zip_from_url`。
+3. `--zip` 必须给**已解包**目录（README 里给了 `Expand-Archive` 两行），压缩包本体留到
+   后面那刀。
+
+### 5.24. `ToolXML::parse`（XML 文本 → `IXMLElement`） —— 偏差
+
+1. 只解五个命名实体（见 140.2 的表）——数字引用照抄，与 fast-xml-parser 相同。
+2. 命名空间只做「去 `ns:` 前缀」，没有 `xmlns` 语义（真实数据不用命名空间）。
+3. 宽容度：闭合标签与栈顶不同名 ⇒ 忽略这次闭合（fxp 本身宽容）；`<!DOCTYPE …>` 跳到下一个
+   `>`（数据里没有）。畸形输入下的行为可能与 fxp 不同，格式良好的输入一致。
+
+## 6. 雷区（改前必读）
+
+### 6.1. 设计期登记的风险
+
+| 风险 | 说明 |
+|---|---|
+| `ToString(number)` | 最短往返 + 阈值，**最容易做错的单点** |
+| 宽松 `==` 的对象分支 | `ToPrimitive` 的 hint 顺序（`valueOf` → `toString`）。LFW 里对象应该走不到，但**不能假设**，要么证明、要么实现 |
+| 环引用 | A2 的 `shared_ptr` 不回收环，要实测 LFW 数据树无环 |
+| `-0` | `-0 == 0` 真、`Object.is(-0,0)` 假、`String(-0)` 是 `"0"` —— 三处行为不同 |
+| 性能 | `Expression.run` 每帧跑，要量 |
+| Unicode 空白 | `string_to_number` 的 trim 集合必须精确，差一个字符就是 NaN vs 数字 |
+
+---
+
+### 6.2. 实体引用的两种语义：`ref()` 与 `ref_of()`
+
+| 生成处 | 内容 | 谁在用 |
+| --- | --- | --- |
+| `Entity::ref()` | **只有 `{id}`** | TS 的 `ref` 就是这个薄东西（台面 `run get ref` 一字不差地对它）；`get_val_from_entity` 的 `ref` 读点也用它 |
+| `lfw::ref_of(const Entity&)`（`entity_ref.h`） | 完整视图：`id/position/velocity/frame/team/hp/type/ghosted/data/facing/mounted/invisible/invulnerable/toughness/arest/wakeup_invuln/resting/ground_y/is_on_ground` + 四个关系浅引用 | 「控制器/碰撞/机器人看到的实体」—— `entity_ref.h` 明写**唯一生成处**、别处不许手搭 |
+
+而 `LFW::ctrl_update_lookup`（`lfw.cpp`）给 `BotController::update_lookup` 喂的是 **`e->ref()`（薄）** ✗。
+于是 `BotController::lookup(other_ref)` 里的 `entity::is_fighter/is_weapon/is_ball(other_ref)`（都读
+`data`）**全部恒假** ⇒ 三条分支一个都不进 ⇒ `chasings/avoidings/defends` 永远是空 ⇒
+`BotState_Chasing` 一进来 `if (!en) return Idle` ⇒ **永不攻击**。
+
+这也解释了同时观察到的其它怪事：`should_chase` 用缺失的 `position` 当 0 算距离（所以同点敌人返回真，
+而 102→101 因 `cornered` 判成 1）、`item.cpp`/`stage.cpp` 里那一片 `is_fighter(e->ref())` 同样恒假。
+
+- **`Entity::ref()` 保持薄引用**（先改成 `ref_of` 是错的：台面 `entity/main` 立刻漂移
+  —— TS 那行就是 `{"id":s"e15"}`，把它改胖等于改数据口径）。
+- **调用点改成 `ref_of`**：`LFW::ctrl_update_lookup` 里 `e->ref()` → `lfw::ref_of(*e)`
+  （TS 的 `update_lookup(me, entities)` 收的是**活实体**，`ref_of` 才是它在端口的对应物）。
+- 两处都加了注释，写明「薄引用 vs 控制器视图」别混。
+
+**「两个 bot 走到一起却不攻击」到此闭环。**
+
+### 6.3. 构建与增量：`build.ninja` 没有头文件依赖
+
+`build.ninja` **没有头依赖**：删掉/改掉一个被广泛 include 的头（`world.h`、`camera.h` 这种）之后，
+只删 `lfw_core.dir` 的 obj 不够 —— **台面目录的 obj 也会陈旧**，表现是链接期「找不到
+`Camera::Camera(...)`」或「找不到 `World::~World`」这类**看着像真 bug** 的报错。可靠姿势：
+`Get-ChildItem -Recurse -File <build> -Include *.obj,*.lib,*.exe | Remove-Item`（**保留目录**）再编。
+
+---
+
+### 6.4. 不要在命名空间里 include 头文件
+
+- **不要在任何命名空间里 include 头文件**（尤其是定义 `namespace lfw` 的这种）——`cmds.cpp` 那个写法
+  会让头里的命名空间变成嵌套的，报出来的错和真因毫无关系。
+- 改了**被广泛 include 的头**之后，必须**整树清 obj**（`*.obj,*.lib,*.exe`，保留目录）再编；只清
+  `lfw_core.dir` 不够 —— subject 的 obj 同样会陈旧。
+
+---
+
+### 6.5. 悬垂引用（UAF）：引用成员绑到临时对象
+
+前述那个「同二进制、同数据、偶发乱码/NaN」的缺陷，定位结果是**悬垂引用（UAF）**：
+
+```cpp
+class XmlReader {                     // ditto/xml/tool_xml.cpp:102
+  explicit XmlReader(const std::u16string& text) : _t(text) {}
+  ...
+  const std::u16string& _t;           // :224  引用成员
+  size_t _i = 0;
+};
+...
+XmlReader reader(strip_comments(text));   // :242  ← `strip_comments` **按值返回**，
+                                          //         临时在语句末就析构 ⇒ 整个 `parse_first()`
+                                          //         （每个 `_t[...]` / `find` / `substr`）
+                                          //         都在读已释放的缓冲区
+```
+
+1. 调用点先落到具名变量：`const std::u16string stripped = strip_comments(text); XmlReader reader(stripped);`
+2. `XmlReader(std::u16string&&) = delete;` —— 让「临时当实参」变成**编译错误**，而不是运行期 UAF。
+3. 同类隐患一并上锁：`core/json5.cpp` 的 `Parser`（同样是引用成员 `src`）加同款 `= delete`；
+   `core/json.cpp` 的 `Parser` 是聚合（加 ctor 会破坏聚合初始化）⇒ 改成在引用成员上写注释警告。
+   （全仓「引用成员」只这三处，其余都安全。）
+
+## 7. 假货与宿主缺口
+
+### 7.1. 缝家族与真·宿主边界（现行账）
+
+**已删除的窄缝**（18 族）：`IBuffEntity`、`IActionEntity`、`IFrozenEntity`、`IHandlerEntity`、
+`IStateEntity`、`IEntityHost`、`ICameraWorld`、`IWorldLfw`、`IStageLfw`、`IHelperLfw`、
+`IUiHelperLfw`、`IUiLayers`、`IWorldUi`、`IStageWorld`、`IItemHost`、`IDatMgrHost`、`IStageEntity`、
+`IItemEntity`，外加 `IKeysLfw`。`stage/entity_item.h` 整个文件消失，`WorldStageView` /
+`StageEntityView` / `EntityItem` / `UiAdapter` 这些适配器一并删除。
+
+**仍在册的都是真·宿主/平台边界**：`ILfwHost`（TS 的 `Ditto` 包：sounds/images/keyboard/pointings/
+zip/renderer）、`IWorldRenderer`、`IPlayerInfoHost`、`IXML`/`IXMLElement`、`IBuffCreator` /
+`IComponentCreator` / `ICtrlCreator`、`IExpression`、`IUIEvent`、`IUIImgLoaderNode`、`IState`、
+`ITickerOptions`。
+
+渲染 / 音频的宿主实现（`IWorldRenderer` / `IUINodeRenderer` / sounds）仍只到宿主缝；
+按「改真货」的成本分级见 7.2 的 K2 / K4。
+
+### 7.2. 「假货清单」（按「改真货」的可行性分级）
+
+一次全仓盘点（端口 `native\lfw\**` + 宿主 `native\host\**` + 台面
+`native\tests\differential\**`，对位 TS 是 `src\LFW\**` / `src\DittoImpl\**`）按四类分桶：
+
+**K1 端口里「只为台面存在」的钩子**（最多的一堆；覆写者**只在** `native\tests\**`）
+
+- `ui\uinode.h:189-190` `virtual bool disabled()`、`:266` `virtual void update(double)` —— 注释自己写着
+  「`virtual` 只为台面脚本化」；TS 对位 `UINode.ts:254/721`；**全仓唯一的 `UINode` 子类**是台面的
+  `fx::FakeUi`（`subjects\world.cpp:207-209`）。
+- `world.h:123` 的 7 个宿主面（`bg_dataset` / `stage_value` / `bg_value` / `entity_count` /
+  `puppets_values` / `gen_field` / `play_sound`）、`world.h:172/194/196/213/232/251`（`game_time` /
+  `world_stage` / `bg_value` / `del_entities` / `add_entities` 一族 / `find_entity` / `on_step_error`）
+  —— 覆写者 `TestWorld`（`world_fixture.h:426-529`）与 `camera.cpp:51` / `helpers.cpp` / `stage.cpp:604`。
+- `entity.h:157/176/181/214-216`（`set_outline_color_raw` / `mounted` / `set_reserve` / `set_name` /
+  `set_stat_bar` / `set_dead_gone`）+ ~30 个 `virtual` 取值面；覆写者 `stage.cpp` / `buff.cpp` /
+  `entity_fixture.h`。
+- `lfw.h:470/478-483`（`regist_keys` / `recycle_keys` / `resources` / `load_img` / `warn` / `error`）。
+- 只读观测面（非虚）：`world.h:175/264/272`、`uinode.h:87`。
+- **关键性质**：这些**不能单独删**（删了台面覆写就编译不过）⇒ 只能「真宿主建起来之后**顺带**退掉」。
+  反例（**不是**假货）：`ui_component.h:101 update()` 有 45 个**真**组件覆写、`ui_event.h:17 stopped()`
+  有真实现。
+
+**K2 空转/桩的真实现**（每条挂 TS 对位，看真实现多大）
+
+- ~~`ui_component.h:125-129` `debug/warn/log` 空转 + `make_debugging` 未移植~~ **已结清（前述）**：`base/debugging.{h,cpp}` 装上真闭包体、走 `lfw().host()` 的 `debug|warn|log` 缝，
+  改道过的告警也归位（`move_table_logic.cpp` 的 `warn(...)`）。TS 对位 `UIComponent.ts:53-57` +
+  `base\Debugging.ts:10-29`。**S**（~30 行）
+- `headless_host.cpp:146` `md5`（注释自认「不是真 MD5」）⇔ `DittoImpl\md5.ts`(19)；`ui_load_img` 的键用它。**S**
+- `sounds_play*`（`headless_host.cpp:191-205` 只计数）+ `world.cpp:142` `play_sound` 默认空转 ⇔
+  `Sounds.ts`122 + `Modern.ts`307 + `Fallback.ts`171。**L**
+- `NullWorldRenderer`（`headless_host.h:37-46` 只计数）⇔ `WorldRenderer.ts`392 + `EntityMainRender.ts`757。**L**
+- `ManualClock::add→0` / `NoopTimeout::add→0`（`headless_host.h:20-34`）⇔ `Clock.ts`33 / `Timeout.ts`9 /
+  `Interval.ts`9 ⇒ `Ticker` 不自驱、台面手工推帧。**S–M**
+- `IUINodeRenderer` 渲染面未移植（`ui_node_renderer.h:9`）；`create_ui_node_renderer` 默认 **nullptr**
+  （`lfw.h:179-182`，`uinode.cpp:106` 用它）⇔ `UINodeRenderer.ts`530。**L**
+- `image_bitmap` 明确拒绝（`fs_zip.cpp:94-98`）+ `import_as_image_bitmap`（`headless_host.cpp:318-324`）⇔
+  `ImageMgr.ts`404 + `handle_image_operation.ts`67。**L**
+- `FsZip` 只认**解包目录**、无 DEFLATE/中央目录（`fs_zip.h:15`）⇔ `DittoImpl\Zip.ts`154。**M**
+- `measure_text` 近似（`headless_host.cpp:211`）⇔ `ImageMgr` / `TextMesh.ts`276（`UINode.ts:438/470` 用）。**M**
+- 细项：`dat_mgr.cpp:227` 跳过逐地形告警、`preprocess_entity_data.cpp:264` 不收集错误、
+  `fighter_thumb.h:16` `on_show` 桩（`PlayerScore` 已搬、只是没接线）、`world.h:135 gen_field`。**S–M**
+
+**K3 台面假件**（`native\tests\differential\subjects\**` —— 17 个类跨 11 个 subject **已经派生真类**，
+退役缝的老配方已是常态）
+
+- `bench::FakeComp`（`lfw.cpp:844`，经**真** `Factory::register_component` 注册）派生真 `ui::UIComponent`
+  ⇒ **换成真组件**即可解锁 前述两条够不到分支；`FakeUINodeRenderer`（`lfw.cpp:1021`）实现
+  `IUINodeRenderer`（全空默认）。
+- `FakeLfw`（`world_fixture.h:151` 等 6 处）派生真 `LFW` 但覆写 ~50 面；`TestWorld` / `FakeWorld` /
+  `FakeStageWorld` 派生真 `World`。
+- **从头实现**（不是派生）：`FakeHost : IResourcesHost`（`dat_mgr.cpp:116` / `resources.cpp:129`）、
+  `FakeZip` / `FakeZipObject` / `LoadZip*`（`zip_mgr.cpp:53` 等）⇒ 真货分别是 `HeadlessHost` 与 `FsZip`；
+  `FakeRenderer` / `QuietRenderer` 实现 `IWorldRenderer`（要真渲染器，L）。
+- TS 侧的对象字面量假 `lfw`（`bot.ts:148` / `collision_handlers.ts:71`）与 8 处 `Ditto.setup({...})`
+  用的是**真扩展点**（`Instance.ts:79`）⇒ 属「诚实的平台注入」，不列进待退名单。
+
+**K4 真·宿主边界**（别当假货改）：`ILfwHost`（`lfw.h:135`，~80 纯虚）、`IWorldRenderer`、
+`IUINodeRenderer`、`IPlayerInfoHost`、`IResourcesHost`、`IClock`/`ITimeout`、`IRenderScheduler`、
+`ITickerOptions`、`IXML`/`IXMLElement`、`IZip`/`IZipObject`、`ditto` 包。headless 实现分三档：
+**忠实的什么都不做**（`images_init` / `keyboard_init` / `pointings_*` / `*_dispose`，`headless_host.h:83-160`）、
+**偷工减料**（就是 K2 那张表）、**忠实且完整**（`IXML` 293+517 行 vs TS 274+62、JSON/JSON5、文件 I/O、
+`FsZip` 索引）。
+
+**依赖顺序（省到贵，括号=成本）**
+
+1. ~~`make_debugging`（S）~~ **已结清** —— 真 `Ditto.debug/warn/Log` 路由
+   已恢复，改道过的告警已归位。
+2. 真 MD5（S）—— 抹掉一条自认的谎；真图片/zip 键的前提。
+3. 真 `IClock`/`ITimeout`/`IRenderScheduler`（S–M）—— `Ticker` 自驱，台面不必手推帧。
+4. 真 `IPlayerInfoHost` 缓存（S，`HeadlessHost` 已有真实现）—— 删掉 `FakePlayerHost` 及其 K1 覆写。
+5. 真 `IZip`（DEFLATE + 中央目录，M）—— 与第 10 步配对，`FakeZip*` 才能退。
+6. `IXML` 根元素 `data`（S–M）—— `resources.h:18-46` 自己记了「脚本化标记」的偏差。
+7. `IUINodeRenderer` + 真 `UINodeRenderer`（L）—— **必须与第 8 步同刀**；之后 `UINode::update` 才不必是虚。
+8. 真 `IWorldRenderer`（L，新子系统）—— **必须早于「台面用真组件」**；退掉 `FakeRenderer`/`QuietRenderer`，
+   `add_entities`/`del_entities` 这些钩子才可能真。
+9. sounds 宿主（L）—— 退掉 sounds 那一簇与 `World::play_sound` 默认。
+10. images（L）—— 在第 5+8 步之后；退掉 `import_as_image_bitmap`/`ui_image_load`/`measure_text`。
+11. 批量退 K1 钩子（各 S）—— 顺序**被迫**：只要台面还在覆写，`virtual` 就摘不掉。
+12. 台面换真组件（S–M，在第 7/8 之后）—— 替掉 `bench::FakeComp`，让 `POINTER_DOWN/UP` 的
+    `event.stopped()` 早退与 `KEY_EVENT` 的 `stage.control_disabled` 可真覆盖；`set_local_cursor`
+    还要等光标渲染路径（`CursorRender.ts` 250）⇒ 在第 8/10 之后。
+
+**已复核**（抽查）：`headless_host.cpp` 的 `md5` 注释自认「不是真 MD5」✓；
+`create_ui_node_renderer` 默认 `nullptr`（`lfw.h:179-182`）✓；`FakeComp` 派生真 `UIComponent` 且经真
+`Factory::register_component` 注册 ✓。
+
+**未复核（清单自注）**：`entity.h` 那 ~30 个 `virtual` 取值面只**抽样**追踪了「只在测试里覆写」，
+没逐条核过；sounds/images 的规模是按 LOC 估的，没逐行读实现。
+
+### 7.3. `Entity` / 状态面仍是占位的面
+
+`frame_on_landing` / `frame_behavior` / `data_base` / `data_frames` / `has_data_indexes`、
+holding 一族、`world_*` / `ref_*` / `ctrl_*` / `datas_find*`、`ground_segment` /
+`ground_y(segment, …)`、`catcher_drop_catching`、`bearer_motionless` / `set_bearer_motionless`
+—— 默认体**逐字照搬**接口（TS 那边是实体字段/世界查询，端口还没接线；台面上由假实体覆写，
+差分背书）。落实它们属于**功能**、不属于本重构 ⇒ 留作下一刀（`状态面占位落实`）。
+
+1. **判帧器（`__judger`）没接线 —— 「帧链不走」的主要嫌疑。** TS 的
+   `loader/preprocess_next_frame.ts` 会给带 `expression` 的下帧挂 `__judger = new Expression(...)`；
+   端口的 `native/lfw/loader/preprocess_next_frame.cpp` 只递归数组、**不编译任何表达式**，转而指望
+   `native/host` **没有实现那两条** ⇒ 带判定器的下帧在真游戏里**永不触发**。
+   端口其实已有这一层所需的一切：`base/expression.h` + `val_expression.h`，以及两条**已经接线**的
+   先例 —— `bot_controller.cpp:961`（`Ctx = BotController`）、`world_collision.cpp:195`（碰撞 ctx）
+   ⇒ 下一刀按同一条「编译进表 + `run(ctx)`」的约定把 `next` 的判定器接上（函数对象不塞 `Value`）。
+2. `world_entities` / `world_etc` / `world_callbacks_call` / `ground_segment` / `ground_y(seg, x, z)`：
+   宿主只有 `list_entities` / `puppets` / `ground_step`，缺这几条缝。
+3. `ref_*`（含写面 `ref_set_velocity`）：引用现在是 `Value` 浅拷贝，写面要身份 ⇒ 引用得带可查的 `id`。
+5. `holding_mt_mark` / `holding_mt_range`：`mt` 缝有了，缺 `MersenneTwister::mark` / `range` 那一层。
+
+### 7.4. 组件日志（`make_debugging`）现状
+
+**TS 的真实语义**（`base\Debugging.ts:9-29`，逐条核过原文）：
+- `make_debugging(obj)` 在**构造末尾**装三个闭包（`LFW.ts:370` / `UINode.ts:426` / `UIComponent.ts:104`
+  ⇒ 每个组件都装一遍），并当场捕获 `cls = Object.getPrototypeOf(obj).constructor`、取 `cls.TAG`
+  （= `TAGS[0]`）。
+- 调用时读 `obj.id` 与 `obj.__debugging`：**只有 `debug` 检查 `__debugging`**（假就 `return`）；
+  `warn`/`log` **不检查** ⇒ 端口照此（⇒ `MoveTableLogic` 那三条错误告警关掉调试时**照样打**，与 TS 一致）。
+- 前缀：`[D]`/`[W]`/`[I]` + `id` 非空时 `<id>` + `[<TAG>::<func>]`，其余实参原样跟在后面，落到
+  `Ditto.debug/warn/Log`。
+
+**端口做法**：新增 `base/debugging.{h,cpp}`（`IDebugging` / `make_debugging` / `debugging_write`），
+`UIComponent : public IDebugging`，实现四个取值面 + `debugging_out(level, args)`（走**既有**的
+`lfw().host().debug|warn|log` 宿主缝 ⇒ 不另造通道）；**空转模板删掉**，三个方法改成
+`(func, std::vector<Value>)`（C++ 没有方法表可替换 ⇒ `make_debugging` 的活就是「装过的标记」）。
+偏差：`cls.TAG` 改成调用时经 `props_tag()` 取（基类构造里的虚调用会取到 `UIComponent` 自己的 tag；
+每个实例的 tag 不变 ⇒ 结果等价）。
+
+**归位的告警**（原本为绕开空转而改道）：`move_table_logic.cpp` ×3 恢复 `warn(...)`、`ui_component.cpp`
+的 `nums` 三处、`fade_out_opacity.cpp` 的 `debug(u"update", …)`。**只报告未改**：
+`DemoModeLogic.ts:204,220` / `StageModeLogic.ts:47,71` / `LaunchPageLogic.ts:160`（实参是
+`Stage`/phase/事件对象，装不进 `Value`）、`LaunchPageLogic.ts:165` 的 `debug('on_click')`
+（**本身可恢复**，但那行是变异锚点 ⇒ 要动 `native/tests`）、`Jalousie.ts:53`（台面早就约定
+不打，`PROTOCOL.md`）、`UINode.ts:426` / `LFW.ts:370`（`LFW` 已有真 `lfw_debug/warn/log`；
+`UINode` 在 TS 侧没有调用点）。
+
+## 8. 差分覆盖缺口
+
+按单元汇总**差分用例照不到**的分支与「有意不覆盖」项：每条都写明为什么够不到、要补上需要什么前提。
+写新用例前先看这里，别把「够不到」当成「已覆盖」。
+
+### 8.1. `state/CharacterState_Jump` —— 有意不覆盖
+
+- 机器人分支里 `t`、`y` 加的是同一个 `atom_time`，**交换两次调用不可观测**
+  （变异规格头注已写明）；少加一次 `y` 是可观测的（已列入变异）。
+- `e.jumping.*` / `e.position.y` 在 TS 是静默属性读写；端口走静默取值/写入缝，
+  只由状态文本观察终值，因此「读 `x` 还是读 `y`」这类差异靠后续行为与文本区分。
+- ⚠️ **`atom_time > 0` 时 `jumping.t` 在插值处恒为真**（计步刚加过），
+  `else` 分支只有 `atom_time = 0` 才可达。用例专门保留了这一档
+  （`atom_time n 0` + `jy n 2`），否则「条件读成 `jumping.y`」的变异会存活——
+  本片实测第一次跑变异就是这一条 SURVIVED。
+- ⚠️ 与 §41.3 同源：`landing_1` 若是 `undefined`，C++ 的 `to_string` 渲染成
+  `"undefined"` 而 TS 打 `u`，故用例里的 `landing_1` 只喂字符串，这一档有意不覆盖。
+
+### 8.2. `state/CharacterState_Falling` —— 有意不覆盖
+
+- `new Set([...bouncing[1], ...bouncing[-1]])` 的**展开顺序**不可观测（集合）；
+  可观测的是成员，已用「只加一个方向」「每个方向只加第一个」等变异覆盖。
+- `e.data.id` / `e.frame.id` / `e.data.indexes` / `e.velocity` / `e.bounced` /
+  `e.hp` / `e.wait` / `e.shaking` / `e.facing` 在原文都是**属性读**，两侧 harness
+  都保持静默：它们的取值只通过行为与状态文本观察（变异打在缝实现上）。
+- `leave` 里四次赋值的**先后顺序**不可观测（四个静默 setter、目标互不相同）。
+- `super.leave` 的 HealSelf 分支（`State_Base` 里补 `Buff_Healing`）不在本片覆盖：
+  本片用例都用 state = 12，该分支由 `state_base/main` 负责。
+- ⚠️ 与 §41.3 同源：索引里的帧 id 只喂**字符串**，
+  `enter_frame_by_id(undefined)` 的 `"undefined"` vs `u` 渲染差异有意不覆盖。
+- ⚠️ 原理上不可杀（不是漏测）：`x / facing`、`x * facing`、`facing / x` 三者的
+  符号永远相同，所以「除法换成乘法」这类变异无法用黑盒杀；可杀的同类变异是
+  「丢掉 `facing`」「`>` 写成 `>=`」「`? 1 : -1` 互换」，都已覆盖。
+
+### 8.3. `state/CharacterState_Lying` —— 有意不覆盖
+
+- `set_invulnerable(30)` 必定被紧随其后的 wakeup 块覆盖（同一个块把
+  `wakeup_invuln` 置 `1`，所以那个 `if` 必跑），因此这次写入的**取值**不可观测。
+- `set_hp_max` / `set_hp_r` / `set_hp` 三次写同一个值且都静默 → 写序不可观测
+  （变异打在各自的**值**上）。
+- `player_teams` 是 `Set`：插入顺序与去重不可观测；`Set.has` 的 SameValueZero
+  与 `strict_equals` 只在 `NaN` 上不同（用例不喂 NaN team）。
+- `truthy(count_a) && count_a % 2` 的前半边在计数为 `0` 时与后半边等价
+  （`0 % 2 === 0`）→ 原理上不可杀。
+- `on_dead` 里空的 `else if (dead_join)` 分支没有可变异实体，只变异了**分支顺序**。
+- 两个 harness 的 fake 都是**原样存储**：不做真 Entity 的
+  `round_float` / `max(0, v)` 归一化（`blinking` / `invulnerable` / `reserve` /
+  `toughness`），那部分归 Entity。
+- ⚠️ **用例教训**（本片实测踩过）：`pressing_d` 这类「按键松开」场景必须让
+  **另一个**键的计数为偶数，否则攻击分支会先 `return`、把后续判断整段短路，
+  变异就永远看不到差异。
+- ⚠️ `round_float` 是否取整只有在 `atom_time` 非整数时才可观测，
+  用例专门保留 `atom_time n 1.2345` 一档。
+
+### 8.4. `state/States` 注册表 + `ENTITY_STATES` 装配 —— 有意不覆盖
+
+- TS 的 `debugger;`：只有挂了调试器才有副作用，端口按注释处理，不改语义。
+- `States.get` 的键类型只支持 `Value`；JS 允许对象当键（按引用相等），
+  游戏代码里没有这种用法，端口不做（harness 只探 `n/s/b/z/u` 五种键形状）。
+- `States.has` 目前**还没被游戏代码调用**，所以 harness 专门加了 `run has`
+  一处观察点，否则它的变异不可杀。
+- `class_name` 只是**观察点**（给差分测试比对「哪个类接了这个状态号」），
+  游戏逻辑不读它。
+
+### 8.5. `WorldDataset`（全局调参表 + 变更通知） —— 有意不覆盖
+
+- `make_private_properties` 的 `_$_<key>` 备份属性、`on_<key>_change` 属性槽、
+  以及 `on_dataset_change` 本身都是**实例上的 own 属性**（会出现在 `Object.keys` 里）。
+  它们是该工具的实现细节（将来单独移植 `make_private_properties` 时再逐条锁），
+  端口把「字段集 + 两个回调槽」建模成数据，因此 harness 在 TS 侧把 `Object.keys`
+  归一化（丢掉 `on_*` 与 `_$_*` 前缀）。**这是 harness 约定，不是行为差异**，
+  已在变异表注释里记录。
+- 103 个默认字段**全部**存在于 `world_dataset_fields()`，
+  所以「构造时省略表归属判断」这一变异**与原实现等价**、原理上不可杀，
+  变异表里没有列它（托管判定仍由 `tracked`/`run tracked` 观察）。
+- `keys()`（完整 own 属性顺序）目前只服务 harness；游戏代码不枚举数据集实例，
+  正式导出路径是 `dump_dataset()`。
+- `pure()` 这类 C++ 侧便利访问器**没有**保留：TS 侧没有对应可观察属性，
+  留着只会变成不可观测的 API。（`MersenneTwister.pure()` 是**另一回事**：
+  它是 TS 自己的公开 API，9j 照搬了，见 §57。）
+
+### 8.6. `Entity` 的构造 / `reset` + 数值通知层 —— 有意不覆盖
+
+- **TS 需要 `data.base` 存在**：`reset()` 直接读 `data.base.resting_max`，
+  数据里没有 `base` 会抛；端口用 `field_or` 一路读穿，这不构成差异（用例都会给 `base`）。
+- `copies` / `vrests` / `blockers` / `superpunchs` / `collision_list` / `collided_list` /
+  `lastest_collided` / `opoints` 在 `reset()` 里被清空，但本单元**没有任何代码往里面写**，
+  所以「清空」这个动作不可观测（等碰撞/持有物落地后再纳入）。
+- `terrain` / `_atom_time` / `prev_position` / `position` / `velocity` / `prev_velocity` /
+  `_motionless_ticks` 被 `reset()` 写入，但**没人读**（物理才读），故不可观测。
+- `add_catch_time(0)` 与 `set_catch_time(_catch_time)` 是同一件事，
+  所以「`!value` 提前返回」在 DSL 能表达的值域里等价（已在变异表注释里记录）。
+- 「没有状态」与「有状态但没有那个钩子」在 TS 里都表现为不调用，
+  端口把两者合并成「空 `std::function`」（不可观测）。
+- `_state?.leave/enter`、`set_state`、`enter_frame` / `apply_opoints` / `play_sound` 的真实实现
+  属于后续；harness 在 TS 侧把这三个方法换成**实例间谍**（C++ 侧对应宿主虚函数），
+  两边打印同一份日志。
+- `bare` 值形状的边界（`group` 是字符串而不是数组等）会让 TS 侧 `group?.some` 抛异常，
+  这类输入不做用例。
+
+### 8.7. `Entity` 的速度 / 摩擦 / 重力层 —— 有意不覆盖
+
+- `update_position` / `set_position` / `check_velocity` 一类的调用点属于 World。
+- `WorldDataset` 给 `friction_factor = land_friction_factor = 1`、
+  `friction_x = friction_z = 0.25`、`land_friction_x = 1`、`land_friction_z = 0.5` 全部**带默认值**，
+  所以 `fz` 为 `undefined` 的分支在真实数据下不可达 →「`fz` 的 `nullopt` 处理」这条
+  等价，已在变异表头记录，不列条目。
+- `vxm`/`vym`/`vzm`/`ctrl_*` 的**默认赋值本身**不可观测：`vxm` 默认 `Default` 与
+  `calc_v` 的兜底分支是同一条路径；`ctrl_x = 0` 与 `undefined` 在 `truthy`/`equals` 下同真同假
+  → 相关候选撤回（表头记录）。
+- `acc_*` 的 `truthy(dvx)` 守卫在 DSL 能表达的值域下与去掉等价（真值→同值，假值→同假）；
+  「`nullish` 改成严格 `undefined`」则**可**观测（`acc_x: z` 用例），故保留。
+- 「`truthy(dv)` 改成 `!nullish(dv)`」等价（`0`/`""`/`NaN` 乘/不乘都得到同一个值）。
+
+### 8.8. `Entity` 的帧查找 / 标志处理 —— 有意不覆盖
+
+- `Ditto.warn("Entity::find_frame_by_id", "frame not find! id:", id)` 只是控制台警告，
+  无任何可观测副作用，端口直接不调用（已在实现处注释）。
+- `find_frame_by_id` 的 `Gone` 支返回 `GONE_FRAME_INFO` 这个**常量对象**，其内容由
+  `Defines` 数据决定；差分只断言「与 `Defines` 里的同名字段一致」，不重复锁常量形状。
+- `find_align_frame` 的 `dst` 里含非字符串项、`src` 含重复 id 等情形属于数据约束
+  （帧表由 `IData` 保证），不在 DSL 里构造。
+- `handle_facing_flag` 在 `ctrl` 为 `null` 时 TS 的 `Trend` 支会抛异常（没有可选链），
+  端口同样不防；这是上游行为，不构造该输入。
+
+### 8.9. `Entity` 的快照读写层 —— 有意不覆盖
+
+- 往 `double` 槽位 poke 非数字（例如 `s "7"`）超出端口模型：TS 会把字符串原样存进
+  `_hp`，端口按 `to_number` 折算；差分只 poke 数字 / `null` / `NaN`。
+- `JSON.parse` 失败时 TS 抛异常、端口保留旧值 → 不做差分（不是可比较的行为）。
+- `read_snapshot` 里 `frame = find_frame_by_id(...) ?? frame` 的兜底（见 47.2-10）等价，
+  与 `_landing_frame` 的 `?? null` 同类，均已在变异表头记录，不列条目。
+- `nums[STAT_BAR_TYPE] = this.stat_bar ?? NaN` 的 `??` 在端口不可达：TS 把 `stat_bar`
+  声明成 `number`（初值 0），端口同样是 `double`，所以写侧直接 `Value(stat_bar)`。
+
+### 8.10. `Entity` 的每 tick 恢复层 —— 有意不覆盖
+
+- `get toughness_max()` 就是私有 `_toughness_max`（没有数据集兜底），所以
+  「夹取用 getter 还是字段」在韧性这一支不可观测 → 不列条目。
+- `hp_recovering` 的 `_hp_r_tick.set_max(...)` 传的是 `to_number(dataset(...))`：
+  数据集缺键时是 `NaN`，`Times` 的区间比较随之恒假；这条与 `Times` 自身的行为重合，
+  只在 `hp_r_value` 缺键的场景里顺带覆盖。
+- 各恢复函数的返回值是 `void`，没有任何「是否恢复」的外部信号，所以只能用状态读数判断。
+
+### 8.11. `Entity` 的标记 / 发射者 / 出弹点速度 —— 有意不覆盖
+
+- `if (!(idx >= 0) || …)` 里去掉 `!(idx >= 0)` 那一半是**等价变异**：
+  `-1` 转成 `size_t` 是巨大值，仍会被越界检查挡住并返回 `undefined`，不列条目。
+- `i >= emitters.size()` 改成 `i > emitters.size()` 会越界读（UB），不作为变异条目。
+- `del_mark` 里「缺键读成 `""` 而不是 `undefined`」不可观测：缺键时
+  `Map.delete` 无论如何都返回 `false`，转储也不会变，所以同一处只对 `set_mark` 列条目。
+- `is_ally` 的严格 / 宽松在字符串团队上同义，没有对应变异条目。
+- `speedz` 是对象 / 数组这类非数字时，两端都原样返回（`field_or` 交回 `Value`），
+  由「原样返回」那条覆盖，不再单列。
+
+### 8.12. `Entity` 的状态接线（`set_state` + `_state`） —— 有意不覆盖
+
+- `States::set` 覆盖**活动**键的场景不可测（见 50.4 的生命周期差异），差分不写。
+
+### 8.13. `Entity` 的 v_rest 三段 / 关系清理 / 闪烁标记 / 落地请求 —— 有意不覆盖
+
+- TS 的 `Map` 插入序与三表别名（见 51.2.3）：差分两侧不可比 / 端口无对应物，不写场景。
+- `add_v_rest` 收到没有 `itr` 的 collision：TS 抛错、端口静默，属于非法输入，不写场景。
+- `update_itr_bdy_hit_ground` 的非数组入参：TS 对字符串会按 `length` 逐字符迭代
+  （字符上没有 `on_hit_ground`，什么也不做），端口 `as_array` 直接返回 ——
+  两条路都**不产生日志**，因此不可观测（用例仍写了 `n 5` / `s "ab"` 两组，
+  作用是把「不崩」钉住）。
+
+### 8.14. `Entity` 的帧进入链 / 位置写入 / 跟随关系 / transform —— 有意不覆盖
+
+- `handle_next_frame_result` 的 `ctrl.reset_key_list()`：TS 没有可选链（`ctrl`
+  缺失会抛），端口加了 `nullptr` 守卫；而 `reset_key_list()` 只清控制器私有按键
+  队列（`_key_list` / `_readable_key_list`），实体侧没有观察点 —— 用例仍写
+  `reset_keys b 1` / `b 0` 把「不崩」钉住，键队列语义归控制器。
+- `collision_clone(v)`：TS 从 `lfw.new_id` 造新 id，端口按值拷贝 —— v_rest 路径
+  只读 `aid` / `itr` / `rest`，harness 用一个**不消耗**真实 id
+  计数器的假 `lfw` 让 `id=eNN` 打印一致。
+- `transform` 的 `host_->create_ctrl(id, player_id)`：端口的 `acquire_ctrl()` 缝
+  没有 `player_id` 参数，`reset()` 的 `""` 只能由 harness 给定；
+  「旧 pid 传下去」这一条要「基控制器带非空 pid」才能观察，harness 的基控制器是
+  `""`，所以该变异列在 `mutations/*.mjs` 头部的不可观测清单里。
+- `follow_bearer` 的 `WpointKind.Drop` 分支里 `lfw.mt.mark = 'dh_v'`
+  （TS 的调试标记）端口无对应物，两侧都没有观察点。
+- **9i 全量重跑后的 67 条「本主题不可观测」变异**：逐条查证后从
+  `mutations/entity.mjs` 移到了该文件头部的清单（每条都写明原因），分三类：
+  2. **两式在本场景同值**（`follow_*` 的居中项为 0 / 权重为 1 / facing 相同、
+     `update_position` 的梯形与 dt、`get_next_frame` 的 mt 序列恰好等价、
+     `pick_value` 的假值输入、`on_restrict` 的速度阈值、`States::fallback` 的
+     字符串类型走不到分派）：需要给出「与 TS 一致又能区分两式」的具体数值/序列。
+  3. **harness 还没有的探针**（被放下侧的帧/位置、`transform` 的回调载荷、
+     自引用 `copies` 的 transform 结果）：需要新增观察口或改场景结构。
+  ——这三类都不是「端口与 TS 不一致」，差分本身仍然全绿（§56.1 的真链路替换
+  没有引入行为漂移）。
+
+### 8.15. `MersenneTwister` 的调试面 + `Cases` —— 有意不覆盖
+
+1. **`sus_cases`**：`src/` 里没有任何调用点 ⇒ 不建实例（等真有调用点的刀再建）。
+2. **`range(min, max, debugging = this.debugging)` 的第三参**：TS 里就是**死参数**
+  （函数体只看 `this.debugging`）⇒ 端口不保留该参数，也没有对应变异。
+3. **`pure()` 返回的 `mt` 是别名还是拷贝**：TS 是拷贝，C++ 是值语义 ⇒ 无法构造出
+  「返回别名」的 C++ 变异（没有可杀的变异，不是漏测）。
+4. **`load()` / `reset()` 返回 `*this`**：TS 的 `: this` 只服务链式调用，两边都没有链式调用点，
+  harness 也不链式 ⇒ 返回什么不可观察。
+5. **`MersenneTwisterInfo` 的字段默认值**：`pure()` 会写满全部字段，harness 也总以
+  `mt.pure()` 为底再改 ⇒ 默认值不可
+6. **`next_int` 里 `log_entry` 与 `++_times` 的先后**：条目文本不含 mt 自己的 `times`，
+  `state` 哈希在两者都完成之后取 ⇒ 任何顺序同值。
+
+### 8.16. `mt.mark` 调试探针（把已移植模块里被丢掉的写入补回来） —— 有意不覆盖
+
+1. `dh_1` 的字符串与存在性（见 54.1-3）。
+4. `Entity::spawn` / `update` / `spark_point`、`ValExpression`、`bot/*`、`stage/*`、`ui/*`
+  的 mark 调用点：模块没移植，随各自的刀进来。
+
+### 8.17. `loader/preprocess_bdy` + `loader/preprocess_itr`（+ `action.tester` 落地） —— 有意不覆盖
+
+1. **`bdy` / `itr` 是数组**：TS 能往数组实例上挂 `__tester`（数组是对象），端口的 `Array` 只有
+   元素没有键位 ⇒ `bdy` 侧按失败处理（这类数据没有意义）。`itr` 侧没有分支会命中 ⇒
+   两边都是「成功、无副作用」，用例里有 `a()` 这种输入。
+2. **`ctx` 不是对象**：端口 `return false`；用例总是给对象 ctx，TS 侧也表达不出「ctx 是标量」
+   （它读的是 `ctx.bdy`，抛的是 TypeError）。
+3. **CondMaker 每组首项的 `.add` ↔ `.and_` / `.or_` ↔ `.and_` / `wrap` ↔ `add`**：在空 maker /
+   空组上生成的串完全相同（`bdy` 的两组首项、`itr` 的 MFire2 / Pick 首项、Whirlwind 外层
+   `wrap`）⇒ 按构造等价，不进变异名单；**组内第二项起**的同类改写都在名单里。
+4. **`set_default` 的 `is_nullish` → `!truthy` 一族**：`motionless` / `shaking` / `dvx` 这些键的
+   默认值本身就是 `0`，两种判法结果相同；只有 `vrest ??= 1` 能区分，已单独列。
+5. **`get_next_frame_by_raw_id(dvx, 'frame' | 'repeat')`**：`dvx` 为真值 ⇒ 进不到 `id == 0` 那一支，
+   `zero_as` 只在 `s "0"` / `s "-0"` 这种「字符串零」（真值、但 `"" + id === "0"`）时可区分，
+   用例补了这两行。
+
+### 8.18. `loader/preprocess_frame` + `utils/read_nums` —— 有意不覆盖
+
+1. `ctx` 不是对象（harness 的 TS 侧要先往 ctx 上挂 `lfw` / `jobs`，标量 ctx 在 harness 里就抛了）。
+2. weapon 分支里的 `if (d == nullptr)`：`is_weapon_data(data)` 为真就说明 `data` 是对象 ⇒ 不可达。
+3. `frame.pics` 的 `arr[i] = preprocess_pic(pic)` 与帧内 `bdy` / `itr` 的**普通**项：
+   `preprocess_pic` / `preprocess_bdy` / `preprocess_itr` 都是**就地改并返回同一个对象** ⇒
+   写回是恒等操作。**命中 prefab 时例外**（`resolve_prefab` 拼的是新对象）⇒ 用例专门补了
+   `bdy_prefabs` / `itr_prefabs` 六行把这条差异钉住。
+4. `fold_aabb` 之前那段 `bdy` / `itr` 的 `else { return false; }`：走到这里时两者只可能是假值
+   或数组（上面那个 `?.forEach` 循环已经对非数组返回过 `false`）⇒ 不可达。
+5. `breakfall` 里 `edit` 的 `if (o == nullptr) return;`：能命中 id 100/108 的 `j` 一定是对象。
+
+### 8.19. `loader/preprocess_entity_data` —— 有意不覆盖
+
+1. `if (is_nullish(ctx))` / `if (is_nullish(data))` 两道入口：去掉后会在后面同一批
+   「读不到字段 ⇒ 失败」的地方兜住，且中间没有任何写操作 ⇒ 失败时渲染出来的 `data` 一样。
+2. `pre_hitkeys` / `post_hitkeys` 的 `truthy(...)` 门：去掉后 `build_hitkeys_map` 对假值照样
+   不遍历、不失败。
+3. `build_hitkeys_map` 字符串分支里的 `if (!truthy(v)) continue;` 与
+   `if (!preprocess_next_frame(v)) return false;`：`v` 是单个字符 ⇒ 恒真值、恒没有
+   `expression` ⇒ 不可达。
+4. `value_length` 的字符串分支：`jobs` 是字符串时真假都成功；`frame.pics` 是字符串会先被
+   `preprocess_frame` 的 `pics?.forEach` 抛掉 ⇒ 看不
+5. `on_dead` / `on_exhaustion` 的写回、`data.base.bot` 的写回、`make_entity_special(data)`：
+   `preprocess_next_frame` / `preprocess_bot_data` 就地改并返回同一个对象（写回恒等），
+   `make_entity_special` 两端都是空函数。
+6. `traversal` 值版字符串分支里「值是那个字符」：本 subject 只有 `base.files` 用它，
+   而它的回调不看值。
+7. `spread_assign` 的方向（`{ itr, ...ctx }` 写成 `{ ...ctx, itr }`）：用例的 ctx 里没有
+   `itr` / `bdy` / `frame` 这些键，两种写法给下游的字段一样。
+8. `portraits` 的写回：`preprocess_pic` 就地改并返回同一个对象。
+
+### 8.20. `I18N` + `loader/get_import_fallbacks` —— 有意不覆盖
+
+1. `add` 的两个假值门（`!truthy(langs)` / `!truthy(new_words)`）：去掉后 `as_object` 对同一批
+   假值返回 `nullptr`，走的是同一个「跳过」出口。
+2. `add` 里「先判字符串别名、再判真值」的顺序：唯一区别是空串别名算不算别名，而 `alias` 对
+   空串别名本来就当「没有别名」（要点 4）⇒ 两种顺序结果一样。
+3. `alias` 里 `visited.push_back(ret)` 记 `ret` 还是 `lang`：只在原地打转时才命中环检测，那种
+   情况两种记法都在第二轮命中。
+4. `string` / `strings` 里 `alias(lang) ?? ''` 的 `''` 换成 `undefined`：`words_of` 对两者都
+   查不到，递归一步后结果相同。
+5. 构造函数里给 `_words['']` / `_lists['']` 种的空表：`add` 处理任何语言名（含 `''`）时都会
+   补建这两张表，而「查不到」与「空表」在 `?.[name] ?? fallback` 下不可区分。
+6. `split_path` 的端点交换分支：见要点 6，`begin > end` 不可达。
+7. 图/音两个后缀组的先后：`endsWith` 不可能同时命中。
+
+### 8.21. `PlayerInfo` —— 有意不覆盖
+
+1. `prop_get` 的 nullish 分支、`prop_set` 的数组分支与「非对象写」失败分支、`prop_get` 的
+   字符串 / 数组 `length` 分支：`_info.keys` 一定是构造函数写进去的共享键表（对象），`load`
+   从不替换它，而 payload 的 `keys` 只在 `for...in` 里按下标读 ⇒ 本 subject 造不出来。
+2. `load` 的 `if (truthy(keys_v))` 门：`for_in_keys` 对假值本来就不给键。
+3. `load` 的 `if (!strict_equals(ctrl_v, ctrl()))` 门：`set_ctrl` 自己会短路。
+5. `save` 里 `put.type = kDataType` 换成 `kTag`：两者文本都是 `"PlayerInfo"`。
+6. `get_default_keys_value` 里 `truthy(*exact)` 写成 `exact != nullptr`：表里只有 `'_'`。
+7. `load_impl` 的 `if (!parsed.ok)`：去掉后由后面的解构失败兜住同一条 warn。
+
+### 8.22. `ZipMgr` —— 有意不覆盖
+
+1. 三个 getter 里的 `out.reserve(_list.size())`：只影响扩容，不改结果。
+2. `get_import_fallbacks` 的失败面：端口的 `paths` 已经是 `std::u16string` ⇒ 走不到「名字不是
+   字符串」那条（TS 的 `paths: string[]` 同理）。
+3. `IZip::file` 的抛错面：真实 zip 是纯查表，不会抛；台面也没脚本化「宿主自己抛」。
+4. `ILoadedZip` 按值存与 TS 存引用的差别：宿主在 `add` 之后改自己那份结构体才会显现，台面不造
+   （真实调用点 `LFW.ts` 是现造现加）。
+5. `md5s()` 里空串写成 `Value(std::u16string())` 还是 `Value(u"")`：同一个值。
+6. harness 层的脚本 op 与 `dump` / `find` 回显行：那是台面自己的输出。
+
+### 8.23. `Camera` —— 有意不覆盖
+
+1. `defines::num` 缺键回 0 的分支：`Defines.MODERN_SCREEN_HEIGHT` 一定在运行时表里。
+3. `vec2(x, y)` 的 `x` / `y` 是 `null` / `undefined`：TS 会原样写进分量，端口的分量是 `double`
+   （台面只喂数字）。
+4. `_dested` / `_locked` 的分量是 nullish 时的 `??` 分支：同上。
+5. `world.stage` / `bg` / `dataset` 是 nullish 时的 `TypeError`：端口按契约要求返回对象。
+6. harness 层的 `sf` 脚本与 `dump` / `w:` 回显行：那是台面自己的输出。
+
+### 8.24. `Resources` —— 有意不覆盖
+
+1. `base/dedup.h` 的整个实现：TS 的并发共享在同步端口观察不到（台面也只做顺序调用）。
+2. `dedup_key` 拼出来的键字符串：同上，不参与端口逻辑。
+3. `if (file != nullptr && truthy(tag))` 里 `truthy(tag)` 那一半：`origin` 恒带方括号 ⇒ 等价于
+   只看 `file`。
+4. `find_first` 里 `hits` 非空时的其它元素：端口只取第一个。
+5. 回退分支把 `out.origin = Value()` 写成 `tag`：回退时 `tag` 本来就是 `undefined`。
+6. `get_import_fallbacks` 对非字符串 `path` 抛出的失败面：端口的 `path` 是 `std::u16string`。
+
+### 8.25. `Factory` —— 有意不覆盖
+
+1. `create_buff` 里 `new B(lfw, id, B.KIND)` 的第三个实参写成 `b->kind()`：`register_buff` 就是
+   按 `KIND` 建索引的 ⇒ 与查表用的 `kind` 恒等。
+2. `map_set` / `index_of` 返回的索引：表里不会出现重复键（`map_set` 自己保证），
+   「取第一个」与「取最后一个」等价。
+3. `acquire_entity` 的 `?.take()` 与 `create_entity` / `create_ctrl` 的 `undefined`：端口统一是
+   `nullptr`。
+4. `register_component` 里的 `debugger` 语句、`components` 与 `_usedALIAS` 两张表：随 UI 层推迟
+   （`_usedALIAS` 全仓库没有调用点）。
+5. `symbol` 键与「`NaN` 当键」：`Value` 装不下 `symbol`；`NaN` 在 `strict_equals` 与
+   SameValueZero 上不同（记在偏差表）。
+6. `create_entity` / `create_entity_with_bot` 的 `states` 实参：台面两侧都不传（端口是
+   `state::States*`）。
+
+### 8.26. `stage/Expressions` + `stage/Status` + `bg/Background` + `bg/Layer` —— 有意不覆盖
+
+1. `flow` 里 `is_last` 取在 `run` 之前还是之后：`run` 既不碰 `_index` 也不碰 `_items` ⇒ 等价
+   （变异名单里没有这条）。
+2. `Status` 的三个常量与 `status_entries()`：只是字符串表，用例里逐个对过值。
+3. `Expressions::index()`：TS 的 `_index` 是 `protected`，只给台面观测用。
+4. `Background` 的 `world` 字段：TS 只存不读（端口同样只存，构造传 `nullptr`）。
+5. `data` / `info` 非对象、`data.layers` 非数组这几种形态：TS 会抛 `TypeError`
+   （读 `undefined` 的属性 / `for...of` 不可迭代），端口给 `undefined` 或跳过 ⇒ 台面只喂合法形态。
+
+### 8.27. `stage/Item`（+ `helper/Randoming` 模板化） —— 有意不覆盖
+
+1. `forget` 里「按实体找 `_watches`」那条：找不到也只是少摘一个监听，日志看不见（出列本身由
+   `_objects.erase` 决定）。
+2. `spawn` 里 `_objects` 的 `Set` 判重：`create_entity_with_bot` 不会给同一个实体两次。
+3. `mt.range(min, max)` 的入参是非数字时的 JS 语义（见偏差表）⇒ 台面不喂。
+4. `spawn` 里的两个 `debugger` 语句（端口没有对应物）。
+5. `Item.data` / `info` 非对象、`id` 是数字/对象这几档：TS 读属性会抛 ⇒ 端口给 `undefined`。
+
+### 8.28. `stage/Stage` —— 有意不覆盖
+
+1. `_disposers` 永远为空（TS 里没有 push 点）⇒ `dispose` 的那一行无从观察。
+2. `same_ref` 的「对象比指针」这件事实本身：用例只能证明「同一份数据再传一次会早退」。
+3. `is_nullish(bdt)` vs `!truthy(bdt)`：`datas.backgrounds.find` 只可能返回对象或 undefined
+   ⇒ 两种写法在可达输入上等价。
+4. `hp_recovery` 的 `|| 0` vs `?? 0`：后续 `truthy` / `to_number` 会把假值（含 NaN）拉平。
+5. `hp_recovery_r`：TS 原文就是 `health_up?.[diff] || hp_recovery` ⇒ 与 `hp_recovery` 同源。
+6. `player_facing` 的 `is_num(...) ? ... : void 0`：`player_f` 只被拿去**严**比较 `1` / `-1`
+   ⇒ 换成 `!is_undefined` 的守卫看不出差别。
+7. `enter_phase` 里 `_phase_idx = idx` 与 `phases()` 的先后：`phases()` 不读 `_phase_idx`。
+8. `spawn_count <= 0` vs `< 0`：后面还有 `while (spawn_count > 0)` ⇒ `0` 时两边都不刷。
+9. `update` 里 `id == VOID_STAGE.id` 的松/严相等：两边都是字符串（`id` 由 `|| ""` 得来）。
+10. `update` 里 released 的物件要不要再 `update()`：`Item::update` 开头的 `_released` 门让它立刻
+    返回 ⇒ 交换两个分支的副作用不可
+11. `kill_*` 的 `e.team === this.team`：`Item::spawn` 里就是 `e.set_team(this.stage.team)`
+    ⇒ 物件刷出来的实体恒等于本队，这个过滤在可达输入上恒真。
+12. `change_bg` 里 `prev_bg` 为 null 时 TS 会 `TypeError`（端口有守卫）：`World` 构造里先建
+    `bg` 再建 `Stage` ⇒ 不可达。
+13. `Stage::warn` 的 sink 未安装时（`if (sink)`）不产生任何观察。
+14. `DialogState` 在端口是值语义 ⇒ 「共享 `list`」这种写法不存在（TS 那侧也不共享：
+    `[...prev.list, ...more]`）。
+
+### 8.29. 仍然够不到的 3 个分支（全局）
+
+    `--from` 走通的 `move_cursor` / `cursor_for` / `get_pointer_cursors` 光标表。
+  * `KEY_EVENT`：必填参数告警、自顶向下选**第一个未禁用的层**（含跳过被禁用的下层）、按下自根到子 /
+    抬起自子到根、`stop_key` 短路、**挂载按键真的被 `hit`/`end`**（用 `lifetime` 时间戳非 0 证明）、
+    真人控制器队列的 `start`/`end`、非真人/无傀儡分支。
+  * `F4`：层 0 单页 ⇒ 不弹；两页 ⇒ 弹一页并带层回调（`on_ui_changed` / pause-stop-resume）；
+    层 1 单页 ⇒ 照弹（`i != 0` 例外）；空层 ⇒ `length <= 0` 分支。
+- **仍然够不到的 3 处**（记在案）：`POINTER_DOWN`/`POINTER_UP` 的 `event.stopped()` 早退
+  （`bench::FakeComp` 只在 `on_click` 上停）、`set_local_cursor` 的写面（平台层调用，无 op 驱动，
+  且不在本三命令范围内）、`KEY_EVENT` 的 `stage.control_disabled` 早退（要翻 stage phase）。
+
+## 9. `Value` / 解析 / 装载层的现行要点
+
+### 9.1. `Value`
 
 **先量后做**：把 5 张 getter 表（`get_val_from_entity` / `get_val_from_collision` /
 `get_val_getter_from_stage` / `get_val_from_bot_ctrl` / `get_val_from_world`+`lfw`）读到底，
@@ -169,12 +1093,7 @@ same <i> <j> → same true|false|-   两个句柄是否同一个数组（非数�
 `hold` / `dup` / `elem` / `same` 这组的存在理由是**验证 A2 的引用语义决策**：
 `dup` 出的句柄必须与原件指向同一个 `Array`（`same true`），而两个独立字面量必须不同（`same false`）。
 
-| 变异 | 结果 |
-|---|---|
-| `truthy` 去掉 `isnan` 判定 | FAIL 第 24 行（`truthy n nan`） |
-| `type_of` 对数组返回 `"array"` | FAIL 第 14 行（`typeof a 0`） |
-| `dup` 改做深拷贝（模拟 "Value 拷贝 = 深拷贝"） | FAIL 第 59 行（`same 0 1`）—— **引用语义测试不是空转** |
-### 4.2 V2 `string_to_number` 的实现要点
+### 9.2. `string_to_number` 的实现要点
 
 ECMAScript 的 `StringNumericLiteral` 语法：
 
@@ -204,15 +1123,9 @@ NonDecimalIntegerLiteral  ::  0b|0B | 0o|0O | 0x|0X  + 至少一位数字（**�
 
 十进制则**先校验语法**，再交给 `std::from_chars(..., chars_format::general)`（它是正确舍入的，与 V8 一致；**不要用 `strtod`**，它是 locale 相关的 —— 小数点会随 locale 变）。差分测试本身就是这条的参照 —— 不需要外部参考实现。
 
-**落地结果**：`lfw/core/js_string.{h,cpp}` + 差分 subject `core`（`cases/core/{to_number,js_num}.txt`）+ `trace_util` 的 `num_hex` / `parse_js_string_literal`。
+**实现**：`lfw/core/js_string.{h,cpp}` + 差分 subject `core`（`cases/core/{to_number,js_num}.txt`）+ `trace_util` 的 `num_hex` / `parse_js_string_literal`。
 
 三个变异测试全部被抓到，但**第一个变异暴露了用例的缺陷**：
-
-| 变异 | 结果 |
-|---|---|
-| `parse_radix` 换成 `double` 里逐步累加 `acc = acc*base + d` | **第一次 PASS（没抓到！）** → 补搜索出的判别用例后 FAIL 第 107 行 |
-| `is_str_white_space` 去掉 `0x3000` | FAIL 第 33 行 |
-| 上溢/下溢分支恒返回 Infinity | FAIL 第 131 行 |
 
 **教训（第二次踩同一个坑）**：旧用例是 `0x` + 一串 `f`，这种特例天真实现恰好也得到正确结果。不要手造「看起来很长」的用例，要**写脚本搜**（`native/build/gen/search_radix.mjs`）：随机长数字串，比 `Number(BigInt(prefix+s))` 与天真累积的位模式。搜索结果：
 
@@ -220,13 +1133,13 @@ NonDecimalIntegerLiteral  ::  0b|0B | 0o|0O | 0x|0X  + 至少一位数字（**�
 - 二进制需 ≥ 70 位，八进制需 ≥ 26 位。
 - **十进制整数串 400 万次采样 0 个判别用例** ⇒ `a*10+d` 的 double 累积极少出错。
 
-### 4.2.1 一条必须记住的隐含前提
+### 9.3. 一条必须记住的隐含前提
 
 `from_chars` 的 `result_out_of_range` 只用于**超出 double 范围**的判定，而次正规数（`4.9e-324`）**不算越界**。
 若某个实现把次正规也报成 `result_out_of_range`，按十进制指数 `E < 0` 就会返回 `+0`，而 V8 返回 `5e-324`。
 用例里的 `"4.9e-324"` / `"5e-324"` 正是钉住这一点的，**实测 MSVC 的 `from_chars` 行为正确**。
 
-### 4.3 V3 `number_to_string`
+### 9.4. `number_to_string`
 
 **不实现这条，`DatMgr` 的 `JSON.stringify` 往返校验（`DatMgr.ts:135/157`）就没法验。**
 
@@ -248,14 +1161,7 @@ k = 数字个数,  n = E + 1
 而 5.c 自己要求 `n ≤ 21`，所以必然 `k > n` —— 这正是规范把两个分支写成同一个上界的原因。
 若两者不一致，5.c 会按 `n` 个数字去读一个只有 `k < n` 位的串（越界）。
 
-**落地结果与变异测试**（`native/lfw/core/js_string.{h,cpp}`，差分 subject `core` 的 `to_string` / `to_string_bits`）：
-
-| 变异 | 结果 |
-|---|---|
-| 5.b/5.c 的 `21` → `20` | FAIL 第 27 行（`1e20` 变成 `1e+20`） |
-| 5.d 的 `-6` → `-5` | FAIL 第 38 行（`1e-6` 变成 `1e-6` 而非 `0.000001`）+ fuzz 第 195 行 |
-| 指数位 `n - 1` → `n` | FAIL 第 28 行（`1e+22`）+ fuzz 第 1 行 |
-| 5.e 的 `k > 1` → `k >= 1` | FAIL 第 28 行（`1.e+21`）+ fuzz 第 801 行 |
+**实现**（`native/lfw/core/js_string.{h,cpp}`，差分 subject `core` 的 `to_string` / `to_string_bits`）：
 
 **最短往返的取舍是否与 V8 一致 —— 只能靠随机搜**：V8 在「两个等长候选」中挑靠近 x 的那个、
 并列时挑偶尾数，而 C++ 标准的措辞不保证同样规则。实测 **569,110 个随机 double**
@@ -266,13 +1172,13 @@ k = 数字个数,  n = E + 1
 `native/build/gen/gen_number_to_string_fuzz.mjs <N> <out>` 生成（脚本在 gitignore 的 `build/gen/`）；
 需要更大规模时直接跑大 N 的临时文件即可，不必入库。
 
-### 4.3.1 不在 V3 范围内：`toFixed`
+### 9.5. 不在范围内：`toFixed`
 
 `get_short_file_size_txt.ts` 和 `dat_translator/fixed_float.ts` 用 `Number(n.toFixed(d))`，
 那是**另一套舍入规则**（`toFixed` 有自成的舍入与补零逻辑）。
 它们只被 `cook_frames` / `make_itr_prefabs` 调用 ⇒ **构建期 cook**，不在运行期，运行期移植不需要。
 
-### 4.4 V4 宽松 `==` 与它的强制转换核心
+### 9.6. 宽松 `==` 与它的强制转换核心
 
 先做**强制转换原语** —— `==` 只是它们的一个消费者，V5 的关系比较也要用同一套：
 
@@ -313,19 +1219,12 @@ bool equals(const Value&, const Value&);
 
 差分 subject `value` 新增 `eq` / `seq` / `ton` / `tos` 四个 op（`tos` 用 `\uXXXX` 转义输出，全是 ASCII）。
 
-| 变异 | 结果 |
-|---|---|
-| 删掉 `kb == V_BOOL` 分支（规则 9） | FAIL 第 40 行（`eq n 1 b 1`） |
-| 删掉 `kb == V_ARR` 分支（规则 11） | FAIL 第 61 行（`eq n 0 a 0`） |
-| `array_join` 去掉 `null`/`undefined` → 空串 | FAIL `coerce` 第 22 行 + `equality` 第 65 行 |
-| 数字比较加 `signbit` 区分 `±0` | FAIL 第 2 行（`eq n 0 n -0`） |
-
 **不在 V4 范围**：`{{` / `}}` / `!{` / `!}` 的 `a_included_b` 留到 V7。它用 `indexOf` ⇒
 **严格相等**（不是 `==`，也不等于 `includes` 的 SameValueZero，所以 `NaN` 永不匹配）；
 另外它在非数组操作数上会**抛 TypeError**（`!b.length` 过了之后调 `b.findIndex`，或 `a.indexOf`），
 而数值操作数因为 `!b.length` 为真会**直接返回 `true`** —— 这条要在 V7 逐字照抄。
 
-### 4.5 V5 关系比较
+### 9.7. 关系比较
 
 **这是整个 `Value` 里最容易写错的一步**：规范的 `IsLessThan` 返回的是 **`true` / `false` / `undefined` 三态**
 （两边沾了 `NaN` 就是 `undefined`），而四个运算符是这样映射的：
@@ -357,13 +1256,7 @@ return nx < ny;
   用例 `lt s "2" s "10"` / `lt n 2 s "10"` / `lt a 1 n 2 s "10"` 三个成组钉这一点：
   前两个是字符串则按字符串比（**数组 `[2]` 先 `ToPrimitive` 成 `"2"`，所以也是字符串序**）。
 
-| 变异 | 结果 |
-|---|---|
-| `le` 写成 `!gt(a, b)`（丢掉三态） | FAIL 第 25 行（`le n nan n 1`） |
-| `less_than` 去掉字符串分支（永远转数字） | FAIL 第 34 行（`lt s "" s "a"`） |
-| `ge` 的参数顺序写成 `less_than(b, a)`（从 `le` 复制粘贴） | FAIL 第 8 行（`ge n 2 n 1`） |
-
-### 4.6 V7 `Expression`
+### 9.8. `Expression`
 
 文件：`lfw/defines/bin_op.h`（枚举 + 文本双向转换，header-only）、`lfw/base/predicate.{h,cpp}`
 （`apply_predicate` + `a_included_b`）、`lfw/base/expression.h`（模板，header-only）。
@@ -383,7 +1276,7 @@ class Expression { std::vector<Expression> children; ... };
 - getter 用**函数指针**而非 `std::function` —— 每个节点都要存两个，`std::function` 会变成每节点两次堆分配。
 - 实测所有构造点都只写**一个**类型参数（`Expression<T>`，`T2` 从未显式出现），所以模板只参数化 `Ctx`。
 
-#### 两条必须逐字照拄、不能“整理”的
+#### 9.8.1. 两条必须逐字照拄、不能“整理”的
 
 1. **`!(` 分支的 `p = i + 2`**（而 `(` 分支是 `p = i + 1`）。`i += child.text.length + 2` 之后 `i` 正好指向那个 `)`，
    所以正确的下一个未消费位置应该是 `i + 1`。写成 `i + 2` 会**多跳一格** —— 只要 `)` 后面紧跟的字符不是分隔符
@@ -395,7 +1288,7 @@ class Expression { std::vector<Expression> children; ... };
    （顺带：`bin_op_from_one` **不能**把 `=` 当成 `==` —— TS 里 `predicate_maps["="]` 是 `undefined`，
    所以 `A=B` 走的是 `always_false("wrong operator: =")`。所以 op 存的是**正则捕获的原文**，不是枚举。）
 
-#### `a_included_b` 的语义
+#### 9.8.2. `a_included_b` 的语义
 
 ```
 !b.length || b.findIndex(i => a.indexOf(i) < 0) === -1
@@ -413,14 +1306,7 @@ class Expression { std::vector<Expression> children; ... };
 差分测试的 TS 侧**直接用仓库里真正的 `Expression`**（不是重写一遍），只桩掉 `Ditto.warn`
 （`Ditto` 是 `Partial<IDitto>` 可变对象，`warn` 默认不存在）—— 所以这是真对拍，不是自说自话。
 
-| 变异 | 结果 |
-|---|---|
-| `!(` 的 `p = i + 2` “修”成 `p = i + 1` | FAIL `parse` 第 223 行（`!(A==B)C==D`） |
-| OR 短路返回时丢掉 `not_`（`result = true`） | FAIL `eval` 第 142 行（`!((hp==100)|(mp==200))`） |
-| 去掉 `&&`/`\|\|` 双字符检测里的 `++i` | FAIL `eval` 第 118 行 + `parse` 侧崩 |
-| `find_op` 改成从左往右找 | FAIL `parse` 第 44 行（`A==B!=C`） |
-
-### 4.7 V6 `Object` 与键顺序（C2）
+### 9.9. `Object` 与键顺序（C2）
 
 **表示直接按规范的 `OrdinaryOwnPropertyKeys` 结构来**，不用一个容器再排序：
 
@@ -432,7 +1318,7 @@ class Object {
 // keys() = _ints 的键（转回十进制串） + _strs 的键
 ```
 
-这样“插入时即维持顺序”是天然成立的，不需要在 `keys()` 里重排。普通对象只在 I/O 边界用（§1.1），
+这样“插入时即维持顺序”是天然成立的，不需要在 `keys()` 里重排。普通对象只在 I/O 边界用，
 所以字符串键的线性查找是可接受的。
 
 **“整数样式”的判定**（`ToUint32` 往返 + 显式排除 `2^32-1`）：
@@ -449,25 +1335,17 @@ class Object {
 （`Object.prototype.toString` 的默认结果 ⇒ `to_number(Object)` 是 NaN）；`kind_of` 新增 `V_OBJ`；
 `strict_equals` 对 Object 按指针比；`equals` 的规则 10/11 改成 `(V_ARR || V_OBJ)` —— **依然是对称的两条**。
 
-#### 一个测试教训
+#### 9.9.1. 一个测试教训
 
 `4294967295` 的“整数键 / 字符串键”之争，**单键对象区分不出来** —— 因为
 `number_to_string(4294967295.0)` 恰好就是 `"4294967295"`，两种存法 `keys()` 输出完全一样。
 必须让那个键**有机会跳到字符串键前面**才可区分：
 `hold o 2 a n 1 4294967295 n 2` → 正确是 `"a,4294967295"`，错成整数键则是 `"4294967295,a"`。
-（第一版我写的是 `o 2 4294967295 n 1 5 n 2`，两种存法都得 `"4294967295,5"`，**变异没抓到**。）
-
-| 变异 | 结果 |
-|---|---|
-| 去掉“无前导零”判定 | FAIL 第 15 行（`"01"` 与 `"1"` 合并） |
-| `2^32-2` 放宽成 `2^32-1` | FAIL 第 84 行（`4294967295` 跳到 `"a"` 前面） |
-| `keys()` 先输出字符串键 | FAIL 第 11 行（`o 5 b n 1 2 n 2 a n 3 1 n 4 c n 5`） |
-| `set` 更新已有的字符串键改成追加 | FAIL 第 49 行（键重复成 `"a,b,a"`） |
 
 **已知偏差**：JS 的 `Object.keys(null)` / `Object.keys(undefined)` 会**抛 TypeError**；
 C++ 的 `object_keys` 对非对象返回空列表。这条在本作数据里不可达。
 
-### 4.8 V8 `JSON.stringify` / `JSON.parse`
+### 9.10. `JSON.stringify` / `JSON.parse`
 
 见 `native/README.md` 的“已知偏差”表与 `tests/differential/PROTOCOL.md` §6；要点：
 
@@ -478,14 +1356,14 @@ C++ 的 `object_keys` 对非对象返回空列表。这条在本作数据里不�
   不许尾随逗号/注释/单引号/BOM，重复键**后者胜**。
 - 差分发现 1 个真 bug：`json_parse` 漏了**开头的 `ws()`** ⇒ `JSON.parse(" 1 ")` 被自己判成 err。
 
-### 4.9 V9 `JSON5`
+### 9.11. `JSON5`
 
 `lfw/core/json5.{h,cpp}` + `json5_util.h` + 生成的 `json5_unicode.{h,cpp}`。
 **目标是与仓库里的 `json5@2.2.3` 逐一对齐**，不是“按规范写一个”。完整细节见 `native/JSON5.md`。
 
-### 4.10 V10 `fields.ts`（字段描述层）
+### 9.12. `fields.ts`（字段描述层）
 
-**为什么可以直接用 `Value` 实现**：§1.2 已把 `fields` 归到“一次性装载路径”，
+**为什么可以直接用 `Value` 实现**：前述已把 `fields` 归到“一次性装载路径”，
 而且 TS 里的字段描述符（`{type:'int', min:0, title:'...'}`）**本身就是普通对象**。
 所以 C++ 侧不造 struct，直接对 `Value`/`Object` 操作 —— 1:1 忠实，且能用现成的值字面量 DSL 对拍。
 
@@ -525,13 +1403,12 @@ bool  validate_fields(const Value& obj, const Value& field_map,
 
 都在 `defines/` 的真实数据里不可达（`fields` 一定存在，`field_map` 一定是 `Map`）。
 
-**变异测试 19/19 全杀**，覆盖：`w()` 的 title/desc 计数与追加、`order` 起点、
 “先合并源对象再补 key/order”的顺序、排序方向/稳定性/清空重插、`undefined` 是否算已知字段、
 `to_array` 的 null/undefined 与引用语义、`assign` 的字符串索引键、`nullable` 真值、
 `array===true`/`'auto'` 的严格比较、int 的整数判定与 `min` 比较、options 的严格相等与 join 语义、
 未知字段告警。
 
-### 4.11 V11 `defines/` 的枚举（46 个）
+### 9.13. `defines/` 的枚举（46 个）
 
 `native/lfw/defines/*.h`，**由 `native/tools/gen_defines_enums.mjs` 从 `src/LFW/defines/**/*.ts` 生成**：
 数值枚举 → `enum class X : int`；字符串枚举 → `namespace x { inline constexpr const char16_t* kMember = ... }`。
@@ -542,12 +1419,9 @@ bool  validate_fields(const Value& obj, const Value& field_map,
 （`tests/differential/subjects/gen/defines_enums.ts`），所以两边都**没有手抄的枚举名单**。
 配套工具 `native/tools/list_ts_enums.mjs`（剥注释、尊重字符串字面量地列出所有枚举，用于读数据）。
 
-**验证**：差分 subject `defines` 对每个枚举都打出「成员名 → 值」以及 TS 运行时枚举的**反向映射**，
 与 C++ 侧同一形式逐行比 —— `defines/all` **796 行全对**。
 
-**⚠ 一个被变异测试抓到的设计错误（重要）**：第一版让生成的头里同时写「枚举成员初始值」
-和「表里的字面量」，于是**改枚举值根本测不到**（被比对的是表），3 条变异存活。
-改成表**引用枚举成员本身**（`static_cast<double>(BdyKind::Defend)`、`team_enum::kTeam_8`）后 6/6 全杀。
+**⚠ 一个被变异测试抓到的设计错误（重要）**：
 
 > ⇒ **生成的代码内部也不要重复字面量。任何「名字 → 值」的表都必须引用权威定义本身，
 > 否则测试验的是那张表，而不是被测的枚举。**
@@ -561,7 +1435,7 @@ bool  validate_fields(const Value& obj, const Value& field_map,
   （`FacingFlag` 的 `SameAsCatcher` 与 `SameAsBearer` 都是 4 ⇒ `FacingFlag[4] === "SameAsBearer"`）。
 - 字符串枚举**没有**反向映射。
 
-#### 覆盖检查（`tools/check_defines_coverage.mjs`，已接进 `native.mjs all`）
+#### 9.13.1. 覆盖检查（`tools/check_defines_coverage.mjs`，已接进 `native.mjs all`）
 
 **⚠ 这里曾有一个真实漏洞，值得记**：C++ 侧与 TS 侧的枚举名单**都出自同一个生成器**，
 所以生成器漏掉的东西会被两边**同时**漏掉 —— **差分测试看不见**。
@@ -581,7 +1455,7 @@ bool  validate_fields(const Value& obj, const Value& field_map,
 > **教训：「两边同源」消除了转录错误，但也消除了交叉检查。**
 > 凡是生成出来的数据，都要再配一条从**权威实现**出发的独立覆盖检查。
 
-### 4.12 V12 `defines/` 的字段表（34 张）
+### 9.14. `defines/` 的字段表（34 张）
 
 字段表是 `defines/` 里**运行期真正相关**的部分：`reorder_fields(obj, table)` 只取 `order`；
 `WorldDataset.ts` 用 `has`/`keys` 做 schema 比对；`IFrameInfo.ts:398` 把整张
@@ -605,12 +1479,11 @@ bool  validate_fields(const Value& obj, const Value& field_map,
 **为什么不手抄**：961 行字段表里塞满了中文标题/描述/`options` —— 手抄的唯一产物是 typo。
 生成法下 C++ 的字段表与 TS **同源**，而 `json5_parse` 本身已被 JSON5 那一整套差分验证过。
 差分 subject `defines_fields` 再比一次「C++ 解析结果 vs TS 原表」，
-顺带覆盖「JSON5 往返丢信息」的风险 —— `defines_fields/all` 34 行全对，5 条变异全杀。
 
 **边界**：`JSON.stringify` 会把 `-0` 写成 `0`。当前 34 张表里没有 `-0`；
 若将来有，diff 会在数字位模式上暴露，那时改成手工序列化即可。
 
-### 4.13 V13 `base/{NoEmitCallbacks, Callbacks, FSM}`
+### 9.15. `base/{NoEmitCallbacks, Callbacks, FSM}`
 
 `native/lfw/base/no_emit_callbacks.h`（内含 `CallbacksT`）、`native/lfw/base/fsm.h`。
 
@@ -628,7 +1501,7 @@ bool  validate_fields(const Value& obj, const Value& field_map,
 - **溢出保护**：单次 flush 最多派发 `kMaxPendingsPerFlush = 1000` 条；超了告警一次
   （`_overflow_warned`，队列耗尽后复位）、`compact()` 保留剩余、下次 `emit` 继续。
   `_head` 是「已消费下标」，`compact()` 会把它归零 ⇒ flush 之外恒为 0，
-  所以「`size() - _head` 写成 `size()`」是**等价变异体**（见 PROTOCOL §6.9.1）。
+  所以「`size() - _head` 写成 `size()`」是**等价变异体**（见 PROTOCOL）。
 - **告警出口**：TS 是 `Ditto.warn`，C++ 是 `callbacks_warn()`（宿主注入的 `std::function`，
   默认空 ⇒ 静默）——`Ditto` 那类全局可变宿主状态的标准做法。
 - **`FSM`**：`_state_map` 用 `std::vector<std::pair<Value, IState*>>` 保序（同 `Map`），
@@ -639,7 +1512,6 @@ bool  validate_fields(const Value& obj, const Value& field_map,
 - `state_label` 的**宽松相等**是 TS 原样行为（`name == key`，`"7" == 7` 为真 ⇒ 标签不带括号），
   移植时不能「顺手改成严格相等」；数字 key 用例专门盯这一点。
 
-**验证**：subject `base`（`cases/base/core.txt`，3127 行全对）+ 21 条变异全杀。
 用例覆盖：身份去重、插入序、`del` 后重加、重入 `emit`、派发期间 `add`/`del` 延迟生效、
 `once` 自删、未知 key 是 no-op、`clear`、溢出告警文案与「耗尽后复位 + 二次告警」、
 数字 key 的宽松标签、`use`/`reset`/`update`/`snapshot`/`restore`、`enter`/`leave` 顺序、
@@ -648,7 +1520,7 @@ bool  validate_fields(const Value& obj, const Value& field_map,
 **渲染注意**：告警文案含 `U+2014`。终端里的 `to_ascii` 只做 `static_cast<char>` ⇒ 非 ASCII 被截成
 控制字符，两侧看起来不一致。**自由文本一律用两侧共用的 `esc()` 渲染**（`>0x7e` 转义成 `\uXXXX`）。
 
-### 4.14 V14 `defines/` 的运行时数据（`Defines` 命名空间）
+### 9.16. `defines/` 的运行时数据（`Defines` 命名空间）
 
 **先验证范围，再动手。** `defines/` 有 127 个文件 / 8613 行，按「谁在用」分成三类
 （`native/tools/list_defines_exports.mjs` 分类导出 + 全仓库查引用）：
@@ -676,10 +1548,7 @@ bool  validate_fields(const Value& obj, const Value& field_map,
 - **构建陷阱**：`native/lfw/CMakeLists.txt` 用的是**显式源文件列表**（不是 glob）——
   新增 `.cpp` 必须手工登记；只有 subject 目录是 glob。
 
-**验证**：subject `defines_runtime`，`cases/defines_runtime/all.txt` **149 行全对**；
-9 条变异全杀（含 1 条打生成表里的数值，证明这些表确实在对拍范围内）。
-
-### 4.15 V15 `dat_translator/CondMaker`（条件字符串构造器）
+### 9.17. `dat_translator/CondMaker`（条件字符串构造器）
 
 **第四块（`entity`/`collision`/`buff`/`state`/`controller`/`bot`/`World`）先量再做。**
 实测总规模 **12,526 行**（entity 3498 / bot 1854 / loader 1839 / collision 1481 /
@@ -706,9 +1575,7 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
 - `js_trim` 的空白集合（含 NBSP / U+3000 / U+FEFF / LS / PS）在 `lfw_core` 里没有现成的，
   本地实现并用用例锁住（NBSP、U+3000、U+FEFF、`\t\n\r` 各一条）。
 
-**验证**：subject `cond_maker`（55 行：29 条正常文本 + 19+ 条错误文案）+ 17 条变异全杀。
-
-### 4.16 V16 `defines/` 的名称/标签函数（`labels`）
+### 9.18. `defines/` 的名称/标签函数（`labels`）
 
 `set_hit_flag` / `set_bdy_kind`（数据烹饪要用）依赖这批函数，所以它们从“编辑器专用”
 变成了关键路径。形态：`native/lfw/defines/labels.{h,cpp}`。
@@ -731,9 +1598,7 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
   `OLD_BDY_KIND_GOTO_MIN|MAX` …）继续由 `gen_defines_runtime.mjs` 提取
   （现 81 条 / 15 个顶层对象）。
 
-**验证**：subject `labels`（107 行）+ 15 条变异全杀。
-
-### 4.17 V17 `dat_translator` 小助手（`take*` / `set_*` / `fixed_float` / `find_float` / `copy_*`）
+### 9.19. `dat_translator` 小助手（`take*` / `set_*` / `fixed_float` / `find_float` / `copy_*`）
 
 形态：`native/lfw/utils/type_check.h`（谓词）+ `native/lfw/dat_translator/helpers.{h,cpp}`。
 全部吃 `Value`/`Object`，所以现在就能对拍，不用等步骤 4 的数据模型。
@@ -753,9 +1618,7 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
   （前者变 `null`，后者保留）——这是**真的行为差异**，不是笔误。
 - 合并语义 `{...src, ...edit}`：`Object::set` 对已有键原地更新 ⇒ 已有键**保位**。
 
-**验证**：subject `dat_helpers`（100 行）+ 19 条变异全杀。
-
-### 4.18 V18 `dat_translator` 的帧跳转（`get_next_frame_by_raw_id` 等）
+### 9.20. `dat_translator` 的帧跳转（`get_next_frame_by_raw_id` 等）
 
 形态：`native/lfw/dat_translator/next_frame.{h,cpp}`。这是 `preprocess_next_frame` 的前置。
 
@@ -775,9 +1638,7 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
 - `add_next_frame` 空 items 时**原样返回 src**（不包一层数组）；`edit_next_frame` 对数组逐项回调、
   对单对象回调一次（回调可原地改）。
 
-**验证**：subject `next_frame`（83 行）+ 17 条变异全杀。
-
-### 4.19 V19 `dat_translator/ColonValueReader`
+### 9.21. `dat_translator/ColonValueReader`
 
 形态：`native/lfw/dat_translator/colon_value_reader.{h,cpp}`。它解析 LF2 里
 `name: xxx width: 100 zboundary: 550 550` 这类文本（真实调用点只有 `make_bg_data`）。
@@ -790,7 +1651,7 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
   但 Int_2 的 `\d+\s*\d+` **需要回溯**（`a: 123` → [12, 3]），所以从最长第一段往短试。
 - **`\s` 集合复用 `lfw/core/js_string.h` 的 `is_str_white_space`**（已由 `core/to_number` 验证）。
   顺手把 `cond_maker.cpp` 里那份重复的局部 `is_js_whitespace` 删掉——同一规则只留一处
-  （见 PROTOCOL §6.9.5 的教训）。
+  （见 PROTOCOL）。
 - **原代码里有一处手误，必须照抄**：
   ```ts
   rem_txt = rem_txt.slice(0, reg_res.index) + rem_txt.slice(reg_res[0].length);
@@ -800,9 +1661,7 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
   `read(i:z)` 处理 `"width: 100 z: 7"` 得到 `rem = "width: 100 h: 100 z: 7"`（**变长**）。
   这不是我们该“修正”的地方——差分把两侧拉到一致，变异点再防止它被“修好”。
 
-**验证**：subject `colon_reader`（52 行）+ 14 条变异全杀。
-
-### 4.20 V20 `dat_translator` 的 cook 系列
+### 9.22. `dat_translator` 的 cook 系列
 
 形态：`native/lfw/dat_translator/cookers.{h,cpp}`，含 `cook_bdy` / `cook_wpoint` /
 `cook_cpoint` / `cook_itr` / `float_scaling_itr`。这五个都是纯数据→数据。
@@ -832,9 +1691,7 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
   而 `all_enums.h` 已经有 `{名字, entries, name_of}` 注册表 ⇒ 用注册表惰性建 JS 风格的
   正/反向 map。顺手把 `labels.cpp` 里 bdy/wpoint 各自的两份实现合并到这一处。
 
-**验证**：subject `cookers`（68 行）+ 32 条变异全杀；`labels` 重构后 15/15 仍全杀。
-
-#### 4.20.1 `cook_opoint`
+#### 9.22.1. `cook_opoint`
 
 - **`oid` 先归一化**：`opoint.oid = "" + take(opoint, "oid")` ⇒ `oid` 恒为字符串，
   所以后面 `case OID.FirenFlame:` 这类字符串枚举对比才有意义（`OID` 是字符串枚举，
@@ -852,7 +1709,7 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
 - `cook_opoint` 会往**返回的下一帧对象**上写 `facing` ⇒ 当 action 是 `999/1000` 时会直接
   写进 `Defines.NEXT_FRAME_*` 共享常量（原代码如此，已对拍）。
 
-### 4.21 V21 `make_frame_state`（+ `foreach` / `ensure`）
+### 9.23. `make_frame_state`（+ `foreach` / `ensure`）
 
 形态：`native/lfw/dat_translator/make_frame_state.{h,cpp}`，纯数据→数据（就帧对象改）。
 
@@ -880,10 +1737,7 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
 - **`ensure(frame.opoint, …)` 的三条路径**都要有用例：缺键、显式 `null`（都是
   “新建数组”）、已有数组（`push` 追加）。
 
-**验证**：subject `cookers`（`/all` 68 行不变）+ 新用例 `cookers/mfstate`（20 行，8 个分支
-加非数字/缺键/`null` 反例）；新增 17 条变异，合计 **49/49 全杀**。
-
-### 4.22 V22 `frame_behavior/*`（14 个模块 + 分发器）
+### 9.24. `frame_behavior/*`（14 个模块 + 分发器）
 
 形态：`native/lfw/dat_translator/frame_behavior.{h,cpp}`（14 个 `make_fb_*` +
 `make_frame_behavior`），以及共享的字面量工具 `native/lfw/dat_translator/value_builder.h`
@@ -918,10 +1772,9 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
 - `ensure` 对非数组的**真值**（如数字）在 TS 里会 `throw`，C++ 会当成 falsy 重建数组。
   这是有意保留的差异（不可达：真实数据里 `opoint`/`itr`/`bdy` 要么是数组要么缺失）。
 
-**验证**：subject `cookers` 新用例 `fbehavior`（52 行：14 个模块 + 分发器 14 个分支 +
-字符串 `behavior` / 未知值 / 缺字段的反例）；新增 22 条变异。
+字符串 `behavior` / 未知值 / 缺字段的反例）；
 
-### 4.23 V23 `dat_translator` 的字符串匹配器（+ `delete_undefined`）
+### 9.25. `dat_translator` 的字符串匹配器（+ `delete_undefined`）
 
 形态：`native/lfw/dat_translator/string_matchers.{h,cpp}`（`match_colon_value` /
 `match_block_once` / `take_blocks`），`delete_undefined` 落在 `helpers.{h,cpp}`。
@@ -930,9 +1783,7 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
 **移植要点**
 
 - `match_colon_value` = 对 `text.trim()` 全局迭代 `/\s*(\S*)\s*:\s*(\S*)/g`。三个易错点：
-  1. `:` **后面还有一个 `\s*`**（值前的空白要跳过）—— 第一版漏了它，差分第一次就报出来；
-  2. 键的 `\S*` 是**贪婪**的，必须从最长往短回溯（`a:b:c` 的键是 `a:b`、值是 `c`）；
-  3. 匹配区间收在**值末尾**（不是冒号处），下一轮从那继续。
+  1. `:` **后面还有一个 `\s*`**（值前的空白要跳过）——
 - `match_block_once` / `take_blocks` 共用模板 `${start.trim()}((.|\n)+?)${end.trim()}`：**懒惰**、
   body **至少一个字符**、start/end 会 trim。C++ 把 trim 收敛成 `find_block_trimmed` **一处**
   （两个公开函数都走它），避免同一条规则写两遍。
@@ -943,9 +1794,7 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
 - 有意与 TS 不同的地方：TS 传非字符串（`null` / `number`）时这三个函数返回空/原值，
   C++ 里由调用方用 `is_str` 守住（harness 已对拍）。
 
-**验证**：subject `string_matchers`（`/all` **35 行**）+ 13 条变异全杀。
-
-### 4.24 V24 `make_frames_special` / `make_entity_data`（+ `traversal`）
+### 9.26. `make_frames_special` / `make_entity_data`（+ `traversal`）
 
 形态：`native/lfw/dat_translator/entity_data.{h,cpp}`（`make_frames_special` /
 `make_entity_special`（空实现，照抄）/ `make_entity_data`）+ `utils/container_help/traversal.h`。
@@ -964,12 +1813,10 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
 - `hash ?? file.replace(...)` 是 **nullish**：`hash: ""` **不**回落（`""` 保留），`hash: 0` 也不
   回落（`name` 会变成数字 0 —— 源里没有类型校验）。变异「把空串也算 nullish」可杀。
 - 文件名字符过滤 `[^a-z|A-Z|0-9|_]` 里的 **`|` 是字面竖线、也会被保留**（不是「或」）⇒ 用例
-  必须有含 `|` 的文件名（第一版把 `|` 放在 `hash:""` 的样本里，等于没测到 ⇒ 补 e4 后才杀掉）。
+  必须有含 `|` 的文件名。
 - `make_entity_special` 是空函数，照抄一个空函数（保持调用点存在）。
 
-**验证**：subject `entity_data`（`/all` 22 行）+ 11 条变异全杀。
-
-### 4.25 V25 `make_itr_prefabs`（+ 手写的 `entry:` 匹配器）
+### 9.27. `make_itr_prefabs`（+ 手写的 `entry:` 匹配器）
 
 形态：`native/lfw/dat_translator/itr_prefabs.{h,cpp}`；配套 `utils/type_cast.h`（`to_num`）
 与 `utils/type_check.h` 的 `is_non_empty_str`。
@@ -990,9 +1837,7 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
 - 结果 `{[id]: item}`：重复 id 后者覆盖、键位置保持首次出现；`list` 为空时返回 `undefined`
   （“块存在但无 entry”是一个**独立**分支，要有用例）。
 
-**验证**：subject `itr_prefabs`（`/all` 14 行）+ 11 条变异全杀。
-
-### 4.26 V26 `make_ball_data` / `make_weapon_data`
+### 9.28. `make_ball_data` / `make_weapon_data`
 
 形态：`native/lfw/dat_translator/entity_kinds.{h,cpp}`（两者共用一个 `cook_kind_frames`，
 差别只有 `acc_z` 的除数 1 / 2）。
@@ -1021,9 +1866,7 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
 - `drop_hurt` / `weapon_hp` 是 `if (x && Number(x))`：字符串 `"0"` **真值**但 `Number` 后为 0 ⇒
   跳过；空串 ⇒ 直接跳过。
 
-**验证**：subject `entity_kinds`（`/all` 17 行）+ 19 条变异全杀。
-
-### 4.27 V27 `make_bg_data`（+ `make_bg_layer` / `bg_color_translate`）
+### 9.29. `make_bg_data`（+ `make_bg_layer` / `bg_color_translate`）
 
 形态：`native/lfw/dat_translator/bg_data.{h,cpp}`，一个 subject 覆盖三个函数（后两个未导出，
 只能通过 `make_bg_data` 间接对拍）。**前置工作**：给 `gen_defines_runtime.mjs` 加了
@@ -1050,9 +1893,7 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
   且 `*2` / `*2+1`，`loop` 是 `?? undefined`（键会被写进去，随后 `delete_undefined` 删掉）。
 - `ret.base.name` 的 `_` → 空格；`out.id` 用 `datIndex.id ?? fields.name`（nullish）。
 
-**验证**：subject `bg_data`（`/all` 11 行）+ 22 条变异全杀。
-
-### 4.28 V28 `post_process_obj_data`
+### 9.30. `post_process_obj_data`
 
 形态：加在 `native/lfw/dat_translator/entity_data.{h,cpp}`（它是装配层的**入口**）。
 
@@ -1066,10 +1907,7 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
   再 `as_object` 取可变指针；注意 `as_object` 有 const / 非 const 两个重载，**局部变量别声明成
   `const Value`**（否则拿到 `const Object*`，编译报“无法从 const Object* 转换”）。
 
-**验证**：subject `entity_data`（`/all` 29 行：22 + 5 个 `ppo` + 2 个假值 `groups`）+
-累计 16 条变异全杀。
-
-### 4.29 V29 `EditBdy` + `cook_ball_bdy_get_hit_to_frame_20/30`
+### 9.31. `EditBdy` + `cook_ball_bdy_get_hit_to_frame_20/30`
 
 形态：`native/lfw/dat_translator/ball_bdy.{h,cpp}`。
 
@@ -1090,24 +1928,9 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
 - **前提条件**：`ctx.data.id` 是无条件访问 ⇒ `data` 缺失时 TS **抛错**，而 C++ 静默按
   `undefined` 处理 ⇒ 这种输入不进差分（有意保留的差异）。
 
-**验证**：subject `ball_bdy`（`/all` 11 行）+ 14 条变异全杀。
-
 ---
 
-## 5. 风险
-
-| 风险 | 说明 |
-|---|---|
-| `ToString(number)` | 最短往返 + 阈值，**最容易做错的单点** |
-| 宽松 `==` 的对象分支 | `ToPrimitive` 的 hint 顺序（`valueOf` → `toString`）。LFW 里对象应该走不到，但**不能假设**，要么证明、要么实现 |
-| 环引用 | A2 的 `shared_ptr` 不回收环，要实测 LFW 数据树无环 |
-| `-0` | `-0 == 0` 真、`Object.is(-0,0)` 假、`String(-0)` 是 `"0"` —— 三处行为不同 |
-| 性能 | `Expression.run` 每帧跑，要量 |
-| Unicode 空白 | `string_to_number` 的 trim 集合必须精确，差一个字符就是 NaN vs 数字 |
-
----
-
-### 4.30 V30 `cook_ball_frame_state_15/3000/3001/3005/3006`
+### 9.32. `cook_ball_frame_state_15/3000/3001/3005/3006`
 
 - 文件：`native/lfw/dat_translator/ball_frame_state.{h,cpp}`（另含匿名命名空间的
   `cook_shrink_and_bounce`、`ensure_field_array`、`make_bdy_ctx`、`field_or_any`、
@@ -1136,7 +1959,7 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
 
 ---
 
-### 4.31 V31 `hit_next_frame_*`（8 个）+ `utils/container_help/assign`
+### 9.33. `hit_next_frame_*`（8 个）+ `utils/container_help/assign`
 
 - 文件：`native/lfw/dat_translator/hit_next_frame.{h,cpp}`（`drink` / `super_punch` / `punch` /
   `turn_back` / `jump` / `defend` / `weapon_atk` / `jump_atk`）、
@@ -1155,14 +1978,12 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
   都是对象字面量；JS 对 Array/String 源会拷下标键，本项目不出现，未实现（已记录，不是隐性差异）。
 - `hit_next_frame_turn_back(frame, back_frame?)`：
   - `back_frame == void 0` 是**宽松**比较 ⇒ 显式传 `null` 也走 `facing = Ctrl` 分支（用例 `f2` 钉住）；
-  - 否则写入 `{ B: { id: <原值>, wait: "i", facing: Backward } }` —— **外层 `B` 键容易漏**
-    （本轮唯一的漂移就是它）；`id` 放的是**原值**，不转字符串（数字 5 就写数字，用例 `f7`）；
   - `key_down` 与 `hit` 的赋值**先后有序**（影响键插入序，变异可杀）。
 - `CondMaker` 用法：`one_of(key, {v...})`、`add(key, op, v)`、`or_/and_(lambda)`（lambda 返回 `CondMaker*`）。
 
 ---
 
-### 4.32 V32 `parase_indexes` + `match_hash_end`（+ `utils/string_help.h`）
+### 9.34. `parase_indexes` + `match_hash_end`（+ `utils/string_help.h`）
 
 - 文件：`native/lfw/dat_translator/parase_indexes.{h,cpp}`（TS 原文件名就是 `parase_indexes.ts`，拼写照抄）、
   `match_hash_end` 落在 `dat_translator/string_matchers.{h,cpp}`、
@@ -1187,7 +2008,7 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
 
 ---
 
-### 4.33 V33 `cook_frames`（+ `take_sections`）
+### 9.35. `cook_frames`（+ `take_sections`）
 
 - 文件：`native/lfw/dat_translator/cook_frames.{h,cpp}`；`take_sections` 落在 `string_matchers.{h,cpp}`
   （`take_blocks` + 每块 `match_colon_value` + `to_num(v) ?? v`）。
@@ -1212,7 +2033,7 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
 
 ---
 
-### 4.34 V34 `make_ball_special`
+### 9.36. `make_ball_special`
 
 - 文件：`native/lfw/dat_translator/make_ball_special.{h,cpp}`；`find_value_index` 加到
   `native/lfw/utils/container_help/find.h`（TS 的 `find` 对数组返回**元素**，C++ 返回**下标**再取）。
@@ -1234,13 +2055,10 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
   10. 其余一大串 case 无操作。
 - tail 的字段写入顺序（链式赋值从右往左）：`unimportant` → `dvz, dvy, dvx, speedz` → `ghost`。
 - **有意差异**：TS 里 `data.base.hit_sounds`、`data.frames['50']` 缺失会抛错（前提条件），C++ 跳过。
-- 教训：**不要为“好看”把三组 chase 逻辑抽成带 `with_opoint` 开关的共享函数** ——
-  `JanChase` 用 `centerx/centery` 而 `FirzenChase*` 用 `pic.w/2`，抽共享会掩盖真实差异
-  （本轮一度这么写，已撤回；抽出但逐字相同的只保留 `pic_half`/`tail_index`/`edit_tail`）。
 
 ---
 
-### 4.35 V35 `make_weapon_special` + `broken_piece_frames`
+### 9.37. `make_weapon_special` + `broken_piece_frames`
 
 - 文件：`native/lfw/dat_translator/make_weapon_special.{h,cpp}`、
   `native/lfw/dat_translator/broken_piece_frames.{h,cpp}`。
@@ -1263,13 +2081,10 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
     跳过（**有意差异**，正常数据不会触发）。
 - **前提条件**：`data.base` 必须存在（TS 无条件访问 `data.base.group` / `data.base.type`）
   ⇒ **所有**样本都要给 `base`，否则 TS 直接抛错。
-- **C++ 坑（本轮差分抓到的真 bug）**：`as_object(make_aa(idx))` 把**临时** `Value` 传进去，
-  临时析构后 `Object` 被释放（`make_obj` 用 `make_shared`，引用计数归零）⇒ 悬垂指针，
-  表现为“`aa` 展开的那整段字段全不见了”（不是崩溃）。⇒ 取指针前必须把临时存进局部变量。
 
 ---
 
-### 4.36 V36 `make_stage_info_list`
+### 9.38. `make_stage_info_list`
 
 - 文件：`native/lfw/dat_translator/make_stage_info_list.{h,cpp}`。
   `stage_info_new()` / `stage_phase_info_new()` 在 TS 里都只是 `return {}`（无字段）⇒
@@ -1297,10 +2112,9 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
   `stable_sort`（JS `Array.sort` 自 ES2019 是**稳定**的 ⇒ 必须用 `std::stable_sort`）；
   `next` 不在列表里则按区间改写；`is_stage_end` 的 stage 把 `last_phase.on_end` 置 undefined。
 
-
 ---
 
-### 4.37 V37 `cook_file_variants` + `FrameEditing`
+### 9.39. `cook_file_variants` + `FrameEditing`
 
 两个 `make_fighter_data` 的前置单元，同轮完成。
 
@@ -1342,10 +2156,9 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
   3. 否则写 `seqs[key]`（同样 `add_next_frame(已有值, cookeds)`）。
 - 两处都必须调用 `add_next_frame` 并传入**旧值**，否则同一键第二次调用会丢掉第一批。
 
-
 ---
 
-### 4.38 V38 `make_fighter_data`（594 行 TS）
+### 9.40. `make_fighter_data`（594 行 TS）
 
 - 文件：`native/lfw/dat_translator/make_fighter_data.{h,cpp}`；配套新增
   `native/lfw/dat_translator/bots_frames.{h,cpp}`（`fids.defends`，其余 `bots/frames` 字段等
@@ -1387,11 +2200,8 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
 
 ---
 
-### 4.39 V39 `obj_dat_to_json`（121 行 TS）
+### 9.41. `obj_dat_to_json`（121 行 TS）
 
-- 文件：`native/lfw/dat_translator/obj_dat_to_json.{h,cpp}`；配套新增
-  `native/lfw/utils/container_help/set_obj_field.h`（header-only，与 `ensure.h` 同风格）。
-  `post_process_obj_data` 在 `entity_data` 那轮就已经落地，本轮直接复用。
 - 入口返回 `ObjDatToJsonResult{ok, error, data}`，把 TS 的 `throw new Error('[dat_to_json] failed, 3')`
   变成 `ok = false`。
 - 预处理两步：`replace(/\\\\/g, "/")`（**两个**连续反斜杠 → `/`；`string_help.h` 的 `replace_all`
@@ -1423,7 +2233,7 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
 
 ---
 
-### 4.40 V40 loader 第一批纯助手（`make_buring_smoke` / `preprocess_pic` / `preprocess_stage`）
+### 9.42. loader 第一批纯助手（`make_buring_smoke` / `preprocess_pic` / `preprocess_stage`）
 
 - `native/lfw/dat_translator/make_buring_smoke.{h,cpp}`：
   `make_buring_smoke(foo)` 里 `foo === 1` 决定 `gen_x`/`gen_y` 的表达式文本；
@@ -1454,7 +2264,7 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
 
 ---
 
-### 4.41 V41 loader 第二批（`preprocess_ball_frame` / `preprocess_bg_data` / `resolve_prefab`）
+### 9.43. loader 第二批（`preprocess_ball_frame` / `preprocess_bg_data` / `resolve_prefab`）
 
 - `native/lfw/loader/preprocess_ball_frame.{h,cpp}`：`ctx = {data, frame}`；两轮遍历 `frame.itr`：
   第一轮给 `kind === JohnShield` 的 itr 补 `A_NEXT_FRAME`（`data` 用 `frame.on_dead`，**必须先判
@@ -1465,7 +2275,7 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
   `ItrKind` 的值：Normal 0 / CharacterThrew 4 / WeaponSwing 5 / Heal 8 / JohnShield 9 / Block 14 /
   Whirlwind 15 / **Freeze 16**。
 - `native/lfw/loader/preprocess_bg_data.{h,cpp}`：`jobs`（图片加载）与 `SV.validate + Ditto.warn/error`
-  （schema 校验）**都不改数据**；4W 起校验已接（`warnings`/`errors` sink 参数，见 §84），
+  （schema 校验）**都不改数据**；4W 起校验已接（`warnings`/`errors` sink 参数，见 §88），
   `jobs` 仍略过；其余照抄 —— `base`/`dataset`/`layers[*]`/`terrain[*]`
   各自 `reorder_fields + delete_undefined`，`base.height ??= MODERN_SCREEN_HEIGHT`，
   `shadowsize`/`zoom` 解构后用 `typeof === "number" ? v : 0`（**不是 truthy**）写
@@ -1478,7 +2288,7 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
 
 ---
 
-### 4.42 V42 `cook_frame_indicator_info`（122 行 TS）
+### 9.44. `cook_frame_indicator_info`（122 行 TS）
 
 - 文件：`native/lfw/dat_translator/cook_frame_indicator_info.{h,cpp}`，纯数据、零外部依赖。
 - 尺寸来源：`const w = pic && "w" in pic ? pic.w : frame.width`，**`"w" in pic` 是键存在性判定**
@@ -1494,11 +2304,11 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
   （**只在 `undefined` 时**生效，`null`/`""`/`0` 原样保留）。C++ 用两个 helper 分别对应：
   `or_zero_if_falsy` 与 `or_zero_if_undefined`。
 - `cpoint` 的 `x/y` 只参与 `add`/`sub` 等数值运算 ⇒ `null` 与 `0` 经 `to_number` 后结果相同
-  （见 PROTOCOL §6.9.31 的等价变异说明）。
+  （见 PROTOCOL）。
 
 ---
 
-### 4.43 V43 `loader/preprocess_action` / `preprocess_bot_data` / `preprocess_next_frame`
+### 9.45. `loader/preprocess_action` / `preprocess_bot_data` / `preprocess_next_frame`
 
 - 文件：`native/lfw/loader/preprocess_action.{h,cpp}`、`preprocess_bot_data.{h,cpp}`、
   `preprocess_next_frame.{h,cpp}`。三个函数都返回 `bool`：`false` 表示"TS 会抛异常"
@@ -1520,7 +2330,6 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
   - `traversal(data.actions, …)` 写 `judger` ⇒ 同 `tester`，不生成；
   - `frames` 与 `states` 各自做"逗号键展开"：`k.split(',')` 长度 >1 时 `delete o[k]`，
     再对每个新键写 `[...v]`。**`traversal` 的键是快照**（`Object.keys(r).map`）⇒ 新写入的键
-    不会被本轮再访问，但**同一个键被删掉后重新插入会改变键序**；
   - `[...v]` 的可迭代语义照搬：数组 ⇒ 浅拷贝；**字符串 ⇒ 按码点切**（代理对算一个元素）；
     其他类型 ⇒ **抛**（C++ 返回 `false`，此时原键已被删、新键一个都没建，与 JS 中途抛出的
     状态一致）；
@@ -1532,9 +2341,10 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
   **（58 已推翻「不建文件」这半条：`__gen_*` 的编译语义本身是可差分的（`err` 文案 +
   `get()` 结果 + 告警顺序），端口已落地 `native/lfw/loader/preprocess_opoint.h`；
   仍然成立的是「不写回记录」——`Value` 装不下函数对象。）**
+
 ---
 
-### 4.44 V44 `dat_translator/bots` 的动作构建层
+### 9.46. `dat_translator/bots` 的动作构建层
 
 - 文件：`native/lfw/dat_translator/bots/{bots_types.h, constants.h, frames.{h,cpp}, bot_actions.{h,cpp}}`。
 - **两种可调用类型**（对齐 TS 的 `IEditBotAction` / `IEditBotActionFunc`）：
@@ -1562,7 +2372,7 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
 
 ---
 
-### 4.45 V45 `dat_translator/bots` 的 `BotMaker` 与角色数据（前 5 个）
+### 9.47. `dat_translator/bots` 的 `BotMaker` 与角色数据（前 5 个）
 
 - 文件：`native/lfw/dat_translator/bots/bot_maker.{h,cpp}`、`bots/make_bot_data.{h,cpp}`
   （已实现 `bat` / `hunter` / `jan` / `knight` / `monk`，其余 18 个待补），
@@ -1589,7 +2399,7 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
 
 ---
 
-### 4.46 V46 `dat_translator/bots` 角色数据（第二批 6 个：davis / jack / justin / louis / mark / sorcerer）
+### 9.48. `dat_translator/bots` 角色数据（第二批 6 个：davis / jack / justin / louis / mark / sorcerer）
 
 - 累计 11/22 个角色（bat / davis / hunter / jack / jan / justin / knight / louis / mark / monk /
   sorcerer），仍在 `bots/make_bot_data.{h,cpp}` 里。
@@ -1613,7 +2423,7 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
 
 ---
 
-### 4.47 V47 `dat_translator/bots` 角色数据（第三批 6 个：firen / firzen / henry / julian / louisex / woody）
+### 9.49. `dat_translator/bots` 角色数据（第三批 6 个：firen / firzen / henry / julian / louisex / woody）
 
 - 累计 **17/22** 个角色；剩 deep / dennis / freeze / john / rudolf。
 - `bot_actions.h` 又补了一批"构建器函数对象上的静态属性"：`kBallDfaId` / `kBallDfjId` /
@@ -1635,7 +2445,7 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
 
 ---
 
-### 4.48 V48 `dat_translator/bots` 角色数据（第四批 5 个：deep / dennis / freeze / john / rudolf）
+### 9.50. `dat_translator/bots` 角色数据（第四批 5 个：deep / dennis / freeze / john / rudolf）
 
 - **22/22 个角色全部完成**，`bots` 子模块的数据层收口。
 - **注册表顺序是真信号，必须由真实模块图定义**：C++ `register_all_bots()` 的顺序 vs TS
@@ -1652,15 +2462,11 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
 - `dennis` 的 `run_atk` 帧段是 `arr([88, 89])`（整数键）——**整数键在 `Object.keys` 里永远排在
   字符串键之前**，所以"交换整数键与字符串键的插入顺序"是**等价变异**（不可观测），
   写变异时要避开这类组合。
-- 变异 130 → **174 条全杀**；差分 64 → **82 行**。
 
 ---
 
-### 4.49 V49 `dat_translator/fighters` 角色装配（23 个 `make_fighter_data_*` + `make_fighter_special`）
+### 9.51. `dat_translator/fighters` 角色装配（23 个 `make_fighter_data_*` + `make_fighter_special`）
 
-- `native/lfw/dat_translator/fighters/fighters.{h,cpp}`（23 个角色函数）+
-  `make_fighter_special.{h,cpp}`（OID 分发器）；subject `fighters_special`（op `fd`/`fs`）
-  **93 行全对**，变异 **133/133 全杀**。
 - TS 的分发是 `switch ((data.alias_id ?? data.id) as OID)` ⇒ **严格字符串匹配**：
   `id` 是数字（`n 38`）时区间判断照做、但 switch 不命中。C++ 用 `std::get_if<std::u16string>`
   保住这个语义（有一条例变专门把它放宽成 `to_string(selected)`）。
@@ -1680,9 +2486,6 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
   `!truthy` 那句与紧随的 `as_object == nullptr` 检查**结果重合** ⇒ 对它写变异是等价变异
   （已记录，不写）。而 `running_*` 是**真值非对象**时 TS 会抛（严格模式给原始值加属性），
   C++ 跳过 ⇒ 有意差异，用例避开。
-- ⚠️ **`o N` 写小会静默吞掉多余 token**（两侧同源 ⇒ 同时被吞 ⇒ 差分"通过"但是假的）。
-  本轮为此踩了 6 次（症状：TS 报 `Cannot read properties of undefined`、C++ 静默返回）。
-  **已给 `fd`/`fs` 两个 harness 都加「剩余 token 非空即报错」自检**（此后计数写错立刻硬失败）。
 - ⚠️ **`ensure` 对「非数组真值」在 TS 侧抛**（`output.push is not a function`），
   C++ 会转成新数组 ⇒ 有意差异（生产中 `group`/`itr`/`bdy` 只可能是数组或缺失）。
 - `fighters/index.ts` 的自动导出列表**不含** `make_fighter_data_template`（TS 生产代码也是
@@ -1690,12 +2493,8 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
 
 ---
 
-### 4.50 V50 `dat_translator` 收尾三件（`float_scaling_entity` / `decode_lf2_dat` / `edit_info`）
+### 9.52. `dat_translator` 收尾三件（`float_scaling_entity` / `decode_lf2_dat` / `edit_info`）
 
-- `new` `float_scaling_entity.{h,cpp}`（82 行）+ `decode_lf2_dat.{h,cpp}`（14 行）；
-  `edit_bdy_info` / `edit_itr_info` 合成 `helpers` 的 `edit_info`（两者函数体**完全相同**，
-  都是 `Object.assign(src, ...edit)`）；subject `translator_tail`（op `ei`/`fse`/`dlf2`）
-  **63 行全对**，变异 **35/35 全杀**。
 - **范围核验**：`edit_itr_info`、`float_scaling_entity` 在 `src/**` 里**零调用点**（仅由
   `dat_translator/index.ts` 再导出）；`edit_bdy_info` 唯一的生产调用点在
   `cook_ball_bdy_get_hit_to_frame_20/30`（我们已移植，原先内联了同一逻辑）；
@@ -1717,21 +2516,11 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
 - `edit_info` 的支持面：对象源（含 `undefined` 值）与**数组源**（按下标写键，`length` 不可枚举
   因而不复制）；其他原始值源 TS 侧也复制不了自有可枚举属性 ⇒ 忽略。字符串源的索引属性未复制，
   属未达差异（真实调用点只传对象）。
-- ⚠️ 又一次踩 `o N` 计数：本轮 5 处（`o 2` 实际只有 1 对）⇒ 症状是 `value literal truncated`
-  或"该有的键没有、TS 报 undefined"。**harness 的「剩余 token 即报错」自检必须与新用例同时上线**。
 
 ---
 
-### 4.51 V51 步骤 4 第一块 `entity/` 纯助手层
+### 9.53. 步骤 4 第一块 `entity/` 纯助手层
 
-- 新增 `native/lfw/entity/`：`calc_v.{h,cpp}` / `find_frame_direction.{h,cpp}` /
-  `face_helper.{h,cpp}` / `entity_type_check.{h,cpp}` / `entity_snapshot.{h,cpp}`；
-  subject `entity_helpers`（op `cv`/`fd`/`sf`/`tf`/`tc`/`non`/`tri`/`ftri`/`ns`/`ss`/`nslots`/`sslots`）
-  **153 行全对**，变异 **62/62 全杀**。
-- **范围核验（本轮主要产出）**：`entity`/`buff`/`collision`/`state`/`controller`/`bot` 六个目录
-  **完全不依赖 `three`/DOM**（渲染相关都在 `animation`/`bg`/`ui`/`stage`/`Camera`/`Ground`）。
-  但 `entity/Entity.ts`（2717 行 / 29 import）依赖 `Factory`/`Ground`/`World`/`Ditto`/`States`
-  ⇒ 「必须整块移植」的判断仍成立，**不能**把 `Entity` 拆成纯函数。本轮只做它周围可独立验证的缝隙。
 - **`calc_v` 的 `switch (mode)` 是严格 `===`**：`mode` 为字符串/`null`/小数时**不命中任何 case**，
   落到 `default`。C++ 用 `std::get_if<double>` 取模值，非数字一律走 default；
   用例 `mode s "3"` / `mode z` / `mode n 1.5` 专门锁这条。
@@ -1741,7 +2530,7 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
   而 `["Boss"] == "Boss"` 经 ToPrimitive 后为真 ⇒ 用例 `group a 1 a 1 s "Boss"` 锁住。
 - **`NSlot`/`SSlot` 的顺序即语义**（槽位下标）：C++ 用 `enum class` 按 TS 原序声明 +
   `nslot_entries()`/`sslot_entries()`（每项 `static_cast<double>(NSlot::X)`，**不重复字面量**），
-  差分把整表 `NAME=value` 打出来对拍 ⇒ 任何重排/漏项立刻可见。
+  差分把整表 `NAME=value` 打出来对拍 ⇒ 任何重排/漏项立刻可
 - **`field_or` 三重复制收口**：原先 `dat_translator/value_builder.h` 一份、新写的两个 entity 文件
   各一份 ⇒ 统一到 `utils/container_help/field_or.h`，三处共用（`value_builder.h` 删掉本地副本）。
 - ⚠️ **`o N` 又一次在"多层级对象"上写错**：`tc boss o 2 data o 2 ...` 里顶层其实只有 `data`
@@ -1750,11 +2539,8 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
 
 ---
 
-### 4.52 V52 步骤 4 第二块 `controller/` 纯助手
+### 9.54. 步骤 4 第二块 `controller/` 纯助手
 
-- 新增 `native/lfw/controller/`：`double_click.{h,cpp}` / `seq_keys.{h,cpp}` /
-  `key_status.{h,cpp}` / `controller_double_clicks.{h,cpp}`；subject `controller_helpers`
-  （op `dc`/`sk`/`ks`/`cdc`，参数序 `<sub> <name> ...`）**102 行全对**，变异 **55/55 全杀**。
 - **`KeyStatus` 的 `ctrl.time` / `world.dataset.key_hit_duration` 降为方法参数**
   （`is_hit(time, duration)` / `hit(t, time)` / `end(time)`）：类只是**按需读取**这两个值、
   从不缓存，所以参数化后就不需要 `BaseController`/`World` 了。TS harness 侧搭
@@ -1762,11 +2548,6 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
 - **`ControllerDoubleClicks` 虽持有 `owner: BaseController` 但从不调用它**（只把按键名字符串
   传给 `DoubleClick`）⇒ 整个类是纯的；那 7 个名字的映射（`L`→`"d"`/`R`→`"a"`/`U`→`"j"`/
   `D`→`"L"`/`d`→`"R"`/`j`→`"U"`/`a`→`"D"`，看着像错位但确实是原样）成了可对拍的常量表。
-- `ControllerResult` **本轮未做**：它唯一的逻辑 `fire()` 要调 `owner.entity.get_next_frame(nf)`，
-  依赖 `Entity` ⇒ 留到整块移植时一起。
-- **`SeqKeys.press` 的匹配是"消耗式多重集匹配"**：`idx` 推进 + `arr.splice(j,1)`；失配清 `idx`/`hit`
-  并返回，`idx == len-1` 时置 `hit=1` 且 `idx` 归零。⚠️ **`indexOf` 取首匹配还是末匹配不可观察**
-  —— 删掉一个匹配项后多重集相同，后续匹配结果不变（本轮唯一的等价变异，已删）。
 - **快照数值字段的前提条件**：`from_snapshot` 的字段必须是声明的类型。TS 不校验，`undefined`
   会流进数值字段（`+` 甚至可能变成字符串拼接）；C++ 用 `to_number` 归一化。
   真实快照恒由 `to_snapshot` 产出 ⇒ 属于不可达差异，用例只用良构快照。
@@ -1775,13 +2556,8 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
 
 ---
 
-### 4.53 V53 步骤 4 第三块 `bot/` 纯助手（含 `helper/manhattan_xz`）
+### 9.55. 步骤 4 第三块 `bot/` 纯助手（含 `helper/manhattan_xz`）
 
-- 新增 `native/lfw/bot/`：`closest.{h,cpp}` / `is_ray_hit.{h,cpp}` / `dummy_enum.{h,cpp}` /
-  `nearest_targets.{h,cpp}`，并补上 `native/lfw/helper/manhattan_xz.{h,cpp}`
-  （TS `helper/manhattan_xz.ts`，此前一直没实现，本轮 `NearestTargets` 需要它）。
-  subject `bot_helpers`（op `de` / `ent` / `dxz` / `ray` / `cl` / `nt`）**201 行全对**，
-  变异 **99/99 全杀**。
 - **`is_ray_hit` 的前两个提前返回返回的是 `reverse` 本身（不是 `bool`）** ⇒ C++ 必须返回 `Value`。
   `reverse = false` 是**默认参数**，只在 `undefined` 时生效 ⇒ 用例 `min_x n 5`（不给 reverse）
   必须渲染出 `b0` 而不是 `u`；用例 `min_x n 5 reverse n 7` 必须渲染出 `n7:...`。
@@ -1806,34 +2582,17 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
   `erase(begin()+max, end())` 截断。
 - **`defendable` 原样存储而不是转成 `double`**：TS 里它就是"传进来什么存什么"，
   只有 `undefined` 才吃默认 0 ⇒ C++ 存 `Value`，用 `holds_alternative<monostate>` 判默认。
-- **`DummyEnum` 有两个成员同值**（`LockAtMid_dDj_auto = "18"` 与 `LockAtMid_dLa_auto = "18"`，
-  原样如此）。字符串枚举没有反向映射，所以 `Object.keys` 仍是 24 项且**声明序即遍历序**
-  ⇒ C++ 表按声明序逐项对拍（`de <i> "<name>" "<value>"`），任何重排/改名/改值立刻可见。
-  `dummy_updaters` 的**键集**（`""` + `"1"`..`"22"`，`_auto` 系列值为 `undefined`）是可观察的，
-  但它的键序是 **JS 对象的整数键优先** ⇒ C++ 侧先用声明序建一个 `Object` 再走
-  `object_keys()`，复用已验证的排序规则，**不**手工再排一遍。
-  闭包体（`self.key_down(...)`）要等 `BotController` ⇒ 本轮不做，
-  也**不**把不同形状的 updater 塞进一张带标志位的表（`make_ball_special` 的教训）。
 - `DummyEnum.ts` 的 `import { BotController }` 是**值导入**（虽然只当类型用），
   esbuild 打包会连带 `Entity` 链；实测可打包运行（`bot` 链不碰 `three`/DOM）
   ⇒ 枚举表可以直接从产品模块 import，不必手抄"影子表"。
-- ⚠️ **`o N` 又错了两次**（本轮的 `o 3` 以为有两对、`o 4` 实际有五对），
-  都被 harness 的"解析完 `idx != t.length` 即报错"自检当场抓住 ⇒ 这条自检是必需的。- ⚠️ **中断 `mutate.mjs` 后手工恢复源码必须刷新时间戳**：`Copy-Item` 会保留备份文件的旧 mtime
-  ⇒ ninja 认为 `.obj` 比源码新、**跳过重编译** ⇒ 随后 `native.mjs test` 用的是"最后一次变异"
-  的二进制，表现为莫名其妙的漂移（本轮误报过一次 `is_ray_hit` 漂移）。
-  `mutate.mjs` 自带 `recoverFromInterruptedRun()`，能让它自己恢复就别手工抄。
 - **变异体必须能编译**：`closest.cpp` 只 include 了 `base.h`，"`round` → `round_float`"的变异
   直接 `C3861`（`round_float` 未声明）⇒ 那测的是"符号在不在这个头文件里"，不是语义。
   改成同样意图、但能编译的"完全不做四舍五入"，照样被 `3.3335`/`3.3334` 那条用例杀掉。
 
 ---
 
-### 4.54 V54 步骤 4 第四块 `collision/` 纯助手（含 `Entity.dataset`）
+### 9.56. 步骤 4 第四块 `collision/` 纯助手（含 `Entity.dataset`）
 
-- 新增 `native/lfw/collision/`：`is_fall.{h,cpp}` / `is_armor_work.{h,cpp}` /
-  `calc_itr_velocity.{h,cpp}`；并补上 `native/lfw/entity/entity_dataset.{h,cpp}`
-  （TS `Entity.dataset`，`calc_itr_velocity` 的必需依赖）。subject `collision_helpers`
-  （op `ent` / `col` / `ds` / `ifall` / `armor` / `civ`）**243 行全对**，变异 **99/99 全杀**。
 - **`Entity.dataset(name)` 是四级 `??` 链**：
   `frame.dataset?.[name] ?? data.base[name] ?? world.bg.data.dataset?.[name] ?? world.dataset[name]`。
   `??` 只在 `null`/`undefined` 时下探 ⇒ `0` / `false` / `""` 会**截断**链条（写成 `||` 会穿透）。
@@ -1857,30 +2616,11 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
 - **返回四元组里的 `x_direction` 保留原值**（`attacker.facing` 可能是字符串）⇒ C++ 用 `Value`
   而不是 `double`，只在参与乘法时 `to_number`。用例 `cv_fs`（`facing s "1"`）把第 4 位渲染成
   `s"1"`，`cv_nof`（无 facing）渲染成 `u` 且 `x` 变 NaN。
-- ⚠️ **"我写了这个用例"≠"这条分支被执行到了"（本轮 5 连杀）**：`civ` 的 `position_based`
-  分支要 `diff_x > 0` 才走到 `x_direction = -1`，而我给 `vf` 写的 `position.x` 是 `0`
-  （本意是 25）⇒ 所有 position_based 用例都只落到 `diff_x < 0` ⇒
-  "`effect == FireExplosion` 用严相等"、"`state === 2000` 用松相等"、"2000 写成 2001"、
-  "attacker 状态读成顶层字段"、"`diff_x > 0` 分支方向写错"这 **5 条全部存活**；
-  补 `vright`(x=25) 后一次性全杀。⇒ 写完用例要**回看输出值**确认落在预期分支。
-- ⚠️ **同一"形状"的 op 要一起设计**：`ent`/`col` 带 sub，`ds`/`ifall`/`armor`/`civ` **不带**
-  ⇒ 后者必须在通用 `<sub> <name>` 解析**之前**分流（本轮又踩一次；C++ 侧越界 token 会直接 AV，
-  比报错更难查）。
 
 ---
 
-### 4.55 V55 步骤 4 第五块 `entity/Summary` + `SummaryMgr`（含 `js_add`）
+### 9.57. 步骤 4 第五块 `entity/Summary` + `SummaryMgr`（含 `js_add`）
 
-- 新增 `native/lfw/entity/summary.{h,cpp}` / `summary_mgr.{h,cpp}` / `native/lfw/utils/js_add.{h,cpp}`，
-  并在 `defines/team_enum.h` 补上 `is_independent`（TS `defines/TeamEnum.ts`）。
-  subject `summary_helpers`（op `ent` / `sm` / `sg` / `su`）**146 行全对**，变异 **57/57 全杀**。
-  （`buff/grant_buff.ts` 依赖 `Entity`/`World`/`factory.create_buff` ⇒ 仍留在整块移植里；
-  本轮把它前面的这块缝隙补完。）
-- **`Summary` 的五个 setter 都用松相等守卫**（`if (o == v) return;`）⇒ `5` 与 `"5"` 视为相同
-  （不触发回调、不改值），而 `null == undefined` 为真、`undefined == false` 为假。
-  用例把这三条都锁住；写成 `===` 或 `Object.is` 都会被杀。
-  ⚠️ 只在**同一事件**上重复设值才可观察 ⇒ 五个事件必须**各注册一个监听器**，
-  否则"漏掉守卫"的变异在四个字段上全部存活（本轮 8 条存活里有 4 条是这个原因）。
 - **`sum += value` 必须走 JS 的 `+`**：`SummaryMgr.add_*_sum` 用的是 `+=`，
   所以字段是字符串时会**拼接**（`"6" + 1 = "61"`），对象/数组会先 ToPrimitive
   （`0 + {} = "0[object Object]"`、`0 + [] = "0"`）⇒ 新增 `js_add`
@@ -1892,20 +2632,11 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
   `_graves` 是 LIFO 池，但"复用哪一个对象"不可观察（复用前会 `reset(id)`）；
   可观察的是**墓碑数量**与"复用后旧回调已被清"。`Summary` 内嵌不可拷贝的 `Callbacks`
   ⇒ `_items`/`_graves` 存 `shared_ptr<Summary>`。
-- **`SummaryMgr.apply_damage` 的击杀走模块级单例 `summary_mgr`，不是 `this`**（TS 源码原样）
-  ⇒ 对非单例实例调用时，伤害记在自己身上、击杀记到单例上。这是可观察的怪癖，
-  harness 用 `sm <mgr> items` 与 `sg items` / `sg get <id>` 两个视图分别对拍。
-  ⚠️ 一开始 `sg` 只输出**条目 id**，看不到数值 ⇒ "不判 fighter"/"fighter 判定用 `||`"/
-  "`prev_hp > 0` 用 `>=`" 三条存活；补 `sg get <id>` 后一次性全杀。
 - **第 3 个回调参数 `target: Summary` 未移植**：只有监听方（运行时/UI）会读它，
   C++ 传 `undefined`，差分 harness 也不渲染它 ⇒ 记为已知差异（与 `Expression` 同类）。
 
-### 4.56 V56 步骤 4 第六块 `entity/DrinkInfo` + `collision/handle_stiffness`
+### 9.58. 步骤 4 第六块 `entity/DrinkInfo` + `collision/handle_stiffness`
 
-- 新增 `native/lfw/entity/drink_info.{h,cpp}` / `native/lfw/collision/stiffness.{h,cpp}`，
-  subject `drink_stiffness`（op `di` / `stf` / `ent`）**63 行全对**，变异 **44/44 全杀**。
-  这是步骤 4 里两个"小而独立"的叶子：`DrinkInfo` 只依赖 `Times` 与 `is_num`，
-  `handle_stiffness` 只依赖 `entity_dataset`（上一轮已移植）。
 - **TS 类字段初始值必须逐字搬到 C++ 成员初始化式**。`DrinkInfo` 的
   `hp_h_value: number = 0` / `hp_h_total: number = 9999999` / `hp_h: number = 0` …（3 组 × 3）
   若只在构造里赋 `Value()`，`null` 输入（`??` 不穿透 `null`… 实为 `undefined`）的
@@ -1933,31 +2664,9 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
 - **`calc_stiffness` 的 itr 同名字段优先于回退**：`motionless = itr.motionless ?? 回退值`，
   `shaking = itr.shaking ?? 回退值`，且 `??` 只在 `null`/`undefined` 时穿透
   （`0` / `false` / `""` 都会保留）⇒ `or_default` 与 `field_or` 的组合语义各出一条变异。
-### 4.57 V57 步骤 4 第七块 `helper/Randoming` + `state/spawn_ice_piece`
 
-- 新增 `native/lfw/base/clock.h` / `native/lfw/helper/randoming.{h,cpp}` /
-  `native/lfw/state/spawn_ice_piece.{h,cpp}`；subject `mt_random`（op `mt` / `rn` / `ent` / `ip`）
-  **143 行全对**，变异 **55/55 全杀**。
-  `MersenneTwister` 早期就移植过（subject `mersenne_twister`，7564 行）⇒ 本轮只补它上面的
-  `Randoming` 包装与 `spawn_ice_piece` 那两个叶块。
-- **`<chrono>` 被 lint 禁止**（"host clock; use injected IClock"）⇒ 新增 `base/clock.h`：
-  `class IClock { virtual double now_ms() const; }` + `clock()` / `set_clock()` 的
-  **函数局部静态槽**（header-only，不用登记 CMake）。`Randoming::default_mt()` 用
-  `clock() != nullptr ? clock()->now_ms() : 0.0` 作种子。
-  ⚠️ **已被 §59（切片 2f）取代**：`IClock` 补成 TS `ditto/IClock` 的完整四面
-  （`now` / `add` / `del` / `hidden`），方法名也从 `now_ms` 改回 TS 的 `now`；上文
-  「只带 `now_ms()`」是当时的最小投影。
-  差分里两侧都装假时钟（`1700000000000`）：C++ 侧 `set_clock(&TestClock)`，
-  TS 侧靠 `subjects/shared/patch_date.ts`（`Date.now = () => 1700000000000`）**在 import 顺序上先于**
-  `Randoming` 被求值（`Randoming.mt = new MersenneTwister(Date.now())` 是模块求值期执行的）
-  ⇒ 两边默认 mt 的种子一致，**默认通道的取值也能逐位对拍**。
-  ⚠️ `run.mjs` 只 glob `subjects/*.ts`（不递归）⇒ 共享模块必须放在子目录（本轮 `subjects/shared/`），
-  否则它会被当成一个 subject 去跑。
-- **TS 默认参数 ≠ `??`**（本轮唯一的漂移）：`create(name, src, mt = Randoming.mt, duplicate = false)`
-  与构造函数的 `duplicate = false`，传 `undefined` 要回落 `false`，传 `null` 不回落
-  ⇒ C++ 用 `duplicate_or_default()`（`monostate → Value(false)`），并且 `duplicate` 存 **`Value`**
-  而不是 `bool`（否则 `dup=z` 与 `dup=b0` 不可区分）。差分直接抓到这个：
-  `rn create c1 - … u` 输出 `dup=u`（错）vs `dup=b0`（对）。
+### 9.59. 步骤 4 第七块 `helper/Randoming` + `state/spawn_ice_piece`
+
 - **`Randoming` 要点**：`_src` 与 `cur` 是两份，`set_src` **不动 `cur`**；`get()` 按 `truthy(duplicate)`
   分 `random_get`（从 `_src` 取，**不动 `cur`**）/`random_take`（从 `cur` 里 splice，抽空后重填）；
   重填条件是 `_src.size() > 1`，用 `v != taken` 的**松相等**过滤（`null == undefined`）
@@ -1981,20 +2690,15 @@ state 1300 / controller 1023 / World 965 / buff 566）。按「谁能独立验�
     ⇒ 用例必须在 `w = 0` 之后**再抽一次**才能观察到"有没有消耗"。
   - `mt.mark = ...`、`debugging`、`mt_cases` 只被调试探针读（`pure()` 在 `src/LFW` 里无调用点）
     ⇒ 不移植（沿用既有 `MersenneTwister` 实现，它本来就没有 `mark`）。
-    **（9j 已推翻这条：它们是 TS 侧可观察的，见 §53；各模块里的 `mt.mark = …` 写入点由 §54 补回。）**
+    **（9j 已推翻这条：它们是 TS 侧可观察的，见 §57；各模块里的 `mt.mark = …` 写入点由 §58 补回。）**
 - **变异覆盖技巧（不放回抽样 ⇒ 一次覆盖全表）**：`random_take` 是"抽走不放回"
   ⇒ 连抽 n 次（n = 数组长度）必然**恰好**把数组每个元素各抽到一次
   ⇒ 打 9 次 `ip dvx` + 13 次 `ip dvy` 就足以杀死数组里任何单个元素的变异，不必逐个写条目。
-- **`round` vs `floor` 的分岔要用非整数半径**：`w/4` 是整数时（如 80）`round` 与 `floor` 同值
-  ⇒ 必须用 `w = 2 / 10 / -10` 这种 `w/4` 带 `.5` 的宽度（本轮 2 条存活之一就是这样补杀的）。
-### 4.58 V58 覆盖审计 + `base/Expression` 加固 + 构建链提速
 
-**背景（本轮查出的真问题）**：有 8 个早期 subject **从来没有过变异文件** ——
+### 9.60. 覆盖审计 + `base/Expression` 加固 + 构建链提速
+
 `expression` / `value` / `json` / `math` / `mersenne_twister` / `core` / `utils` / `collections`
 （`git log --diff-filter=A -- 'native/tests/differential/mutations/*'` 里只有 44 个文件）。
-README §1.6 记的"共 48 条变异全杀"当时是**临时脚本**跑的，产物没留下 ⇒ 不可复现。
-这不影响差分（差分一直在跑），但"每条单元都要有可复现的变异全杀"这条纪律出现了 8 个缺口。
-本轮先补最关键的一个：`Expression`（条件引擎，所有 `__judger` / 帧条件都过它）。
 
 - **harness 强化**（两侧同步改）：`val_1`/`val_2` 从只打类型标签改成 `render_value` 的**位精确**输出；
   新增 `result` 字段；**新增 getter 调用日志**（`clr` / `log`）—— 求值顺序与短路**只能**靠它观察；
@@ -2004,7 +2708,6 @@ README §1.6 记的"共 48 条变异全杀"当时是**临时脚本**跑的，产
 - 顺手修掉 `expression.h` 里两个被静默吞掉的 `C4458`（构造函数局部 `text` / `before` 遮蔽同名成员）
   ⇒ 改名 `src_text` / `pending`。**注意**：`native.mjs` 报的 "N clean / 0 warnings" 来自
   `check_lfw_cpp_includes.mjs`（纯文本检查），**不统计编译器告警** —— 编译器告警要自己看构建输出。
-- `mutations/expression.mjs`：**69 条全杀**（覆盖 `expression.h` / `bin_op.h` / `predicate.cpp` 三处）。
 - **删掉 3 条已证明等价的变异**（第 6 形态：死代码 / 冗余守卫）：
   1. `&`/`|` 分支里 `while (!sub.empty() && sub.back() == u')') sub.pop_back();` 改成 `if` / 去掉 ——
      **死代码**。推导：扫描遇到任何 `)` 都会 `break`；而 `p` 在每次子节点分支后都已被推到已消费区之后
@@ -2025,14 +2728,13 @@ README §1.6 记的"共 48 条变异全杀"当时是**临时脚本**跑的，产
      ⇒ 若 `trace.<subject>.<case>.ts.txt` 比用例文件与 subject `.ts` 都新就直接复用
      （0.94 s → 0.34 s）。`mutate.mjs` 会**断言每条变异的 `file` 都在 `native/lfw/` 下**，
      越界直接报错退出 —— 这是该优化成立的依据。
-  4. `mutate.mjs` 新增进度点与 `总耗时 / ms per mutation / 最慢的一条`，以后一慢就看得见。
+  4. `mutate.mjs` 新增进度点与 `总耗时 / ms per mutation / 最慢的一条`，以后一慢就看得
 - 实测单条变异的构建内容（ninja 日志）：`predicate.cpp` + `labels.cpp` + `cook_frames.cpp`
   + subject 的 `expression.cpp` 共 4 个 obj，再链 `lfw_core.lib` 与 1 个 exe，外加 cmake 的
   `verify_globs`（测试 subject 是 GLOB 出来的，每次构建都会校验）。这部分是**必要成本**，不可省。
-### 4.59 覆盖审计（二）：`utils/math/MersenneTwister` 加固
 
-- 用例 42 行 → **71 行**（输出 7614 行），变异 **49/49 全杀**（109 s / 2.2 s 每条 —— 变异只碰
-  `mersenne_twister.cpp`，走新的单 target 快速路径）。
+### 9.61. 覆盖审计（二）：`utils/math/MersenneTwister` 加固
+
 - 意义：`MersenneTwister` 是**全游戏唯一的随机源**（`Randoming` / `RandomVisible` /
   `team_randoming` / `World.random_*` 全在它上面），之前只有差分、没有变异 ⇒ 现在补上了。
 - **harness 扩展**：`pick` / `take` 现在把**操作后的剩余数组**一起打印。
@@ -2050,10 +2752,9 @@ README §1.6 记的"共 48 条变异全杀"当时是**临时脚本**跑的，产
 - 顺带：`range(min, max)` 在 `min == max` 时**提前返回且不消耗随机数**，返回的是 `min`
   ⇒ `range(-0, 0)` 必须保留 `-0` 的位模式。用例成对写：`range -0 0 1` + 紧随其后的 `int`
   （既锁 `-0`，又锁"没消耗随机数"）。
-### 4.60 覆盖审计（三）：`utils/math/` 全家族加固
 
-- 用例 `scalar` 90 → **95 行**、`plane` 52 → **59 行**，变异 **61/61 全杀**（327 s / 5.4 s 每条，
-  最慢单条 20.8 s —— 变异目标是被大量 TU 包含的 header，必须重编译所有包含者，这部分不可省）。
+### 9.62. 覆盖审计（三）：`utils/math/` 全家族加固
+
 - 覆盖：`clamp` / `clamp_add` / `normalize` / `float_equal`·`equal`·`eqgt`·`eqlt` /
   `round_float` / `floor_float` / `range` / `probability` / `normalize_plane` / `calc_plane` /
   `line_plane_intersection` / `project_to_line`。三者（含既有的 `mersenne_twister`）合起来
@@ -2074,14 +2775,10 @@ README §1.6 记的"共 48 条变异全杀"当时是**临时脚本**跑的，产
   ⇒ 补样本的**通用办法**：先把变异点想成"哪一类输入才分岔"，再检查现有用例的参数取值集合
   是否覆盖了那个分岔方向（这里是"斜率非 0/±1"与"起点≠终点"）。
 
-### 4.61 覆盖审计（四）：`base/Value` + `Object`/`Array` 加固
+### 9.63. 覆盖审计（四）：`base/Value` + `Object`/`Array` 加固
 
-- **覆盖面**：`native/lfw/base/value.h`、`object.h`、`array.h`、`kind_of`、`is_array_index`、
-  `equals` / `strict_equals` / `less_than`、`to_number` / `to_string`。用例 187 → 489 行
-  （`basic` 89 / `coerce` 61 / `equality` 99 / `object` 131 / `relational` 107），变异
-  **71/71 全杀**。
-- **harness 修正（第 2 例，与 §4.60 的 `normalize` 同源）**：`odel` 之前只打印被删的键名，
-  把 `Object::remove` 的**返回值吞掉了** ⇒ "删除失败却报成功"这类变异不可见。改成
+- **harness 修正（第 2 例，与 §9.62 的 `normalize` 同源）**：`odel` 之前只打印被删的键名，
+  把 `Object::remove` 的**返回值吞掉了** ⇒ "删除失败却报成功"这类变异不可改成
   `odel <key> <existed>`（两侧同步：C++ 取 `remove()` 的返回值，TS 用 `Object.hasOwn` 先探再删）。
   **教训：harness 必须透明转发被测代码的每一个可观察输出，既不能替它补默认值，也不能吞返回值。**
 - **用例缺口（已补）**：
@@ -2095,13 +2792,9 @@ README §1.6 记的"共 48 条变异全杀"当时是**临时脚本**跑的，产
 - 一条**死代码**（已删，理由写在文件头）：`strict_equals` 末尾的 `return false;` —— 上面 7 个
   variant 分支已覆盖全部 kind，该行不可达。"等价"判定要看**可达性**，不是看语义相同。
 
-### 4.62 覆盖审计（五）：`utils/` 全家族加固
+### 9.64. 覆盖审计（五）：`utils/` 全家族加固
 
-- **覆盖面**：`cross_bounding.h`、`easing/`（`ease_linearity` / `ease_in_out_sine` / `ease_in_out_quint`
-  各含 `backward`）、`Times`、`utf8`，另补上此前**只有"能编译"、没有任何差分**的
-  `type_check.h` / `type_cast.h`。用例 184 → 321 行（`cross_bounding` 8 / `easing` 63 /
-  `times` 111 / `type` 98 / `utf8` 41），变异 **108/108 全杀**。
-- **harness 修正（第 3 例，与 §4.60 `normalize`、§4.61 `odel` 同源）**：`ease_*` 这 8 个函数的
+- **harness 修正（第 3 例，与 §9.62 `normalize`、§9.63 `odel` 同源）**：`ease_*` 这 8 个函数的
   `from`/`to` 两个默认实参此前**永远由 harness 显式填 `0` / `1`** ⇒ 头文件里写的默认值不可达。
   改成**按实参个数分派**：C++ 侧 `ease_at(tok, f1, f2, f3)` 收 3 个 lambda，TS 侧给缺的形参传
   `undefined` 走原生默认参数（JS 的默认值对 `undefined` 生效）。用例补 `ease_linearity 0.5 10`
@@ -2125,11 +2818,8 @@ README §1.6 记的"共 48 条变异全杀"当时是**临时脚本**跑的，产
   3. `Times::add` 的 `if (ret && _remains > 0.0)` 把 `> 0.0` 改成 `>= 0.0`：能走到这一行就说明
      `_remains != 0`（前面已有 `if (_remains == 0.0) return false;`）⇒ 两条件等价。
 
-### 4.63 覆盖审计（六）：`core/json` 加固
+### 9.65. 覆盖审计（六）：`core/json` 加固
 
-- **覆盖面**：`lfw/core/json.cpp` 的 `json_stringify`（`quote()` + `write()` + `number_to_string` 委派）
-  与 `json_parse`（`Parser` 的 `str/num/arr/obj/val` + `digit()` + `is_json_ws`）。
-  用例 163 → 250 行（`parse` 94→161、`stringify` 69→89），变异 **76/76 全杀**。
 - **两条用例缺口（都不是等价，是样本没打在变异点的分岔方向上）**：
   1. **`\uXXXX` 的十六进制有 `0-9` / `a-f` / `A-F` 三段**，而原样本是 `0041`、`00e9`、
      `d83d`、`0000` —— **一个大写字母都没出现** ⇒ "不认大写十六进制"（删掉 `A-F` 分支）存活。
@@ -2149,18 +2839,14 @@ README §1.6 记的"共 48 条变异全杀"当时是**临时脚本**跑的，产
   5. 去掉 `arr()`/`obj()` 里的 `++i`、去掉 `str()` 的越界判断、把 `write(*p, out)` 写成 `write(v, out)`：
      分别是死循环与越界读 —— 它们给出的是 UB/挂死而不是"漂移"，**不能作为覆盖证据**，故不打。
 
+### 9.66. 覆盖审计（七）：`collections` 全家族加固
 
-### 4.64 覆盖审计（七）：`collections` 全家族加固
-
-- **覆盖面**：`base/graves.h`（`add`/`take`/`l`）、`utils/array/{loop_arr,make_arr,map_arr}.h`、
-  `utils/container_help/{filter,find,fisrt,ensure,loop_offset,map_no_void,nested_map,nested_multi_map}.h`。
-  用例 144 → 194 行（`basic` 87→109、`nested` 57→85），变异 **68/68 全杀**（6.9 s/变异，总计 471.6 s）。
 - **四处观测盲区（都在 harness 侧补齐，不用改被测代码）**：
   1. **1 实参的 `fisrt()` / `last()` 一条用例都没有**（此前只有 `fisrt_gt`/`last_gt` 这两个 2 实参版）
      ⇒ 新增 `fisrt_any` / `last_any`；它们的 `return std::nullopt;` / `ret = item;` 也才第一次有观测。
   2. **`map_arr` / `loop_arr` 回调的后两个实参被 harness 的 lambda 忽略**
      （原式 `[k](double v, auto, const std::vector<double>&) { return v * k; }`）⇒
-     "下标写错"与"第三参传空 vector"这两类变异全部不可见。改成
+     "下标写错"与"第三参传空 vector"这两类变异全部不可改成
      `v * k + i * 10 + arr.size()`（两侧同式），下标与数组长度同时进入输出。
   3. **`ensure` 只有模板重载被覆盖**，`Value&` 版（含单元素转发重载）从没被任何 subject 观测过
      （而 `ensure.h` 的生产调用点全在它上面）⇒ 新增
@@ -2195,34 +2881,21 @@ README §1.6 记的"共 48 条变异全杀"当时是**临时脚本**跑的，产
   一直是可观测的，同族的 `map_arr` 因为 lambda 只用了第一个实参，四条相关变异全部不可见 ——
   同族函数之间这种"一个测到一个没测"的差异，最容易在写变异规格时被整体漏掉。
 
+### 9.67. 覆盖审计（八）：`core` 加固（`js_num` / `js_string`）
 
-### 4.65 覆盖审计（八）：`core` 加固（`js_num` / `js_string`）
-
-- **覆盖面**：`lfw/core/js_num.cpp`（`js_round`/`js_floor`/`js_ceil`/`js_abs`/`js_to_uint32`/`js_to_int32`/
-  `f64_bits`/`f64_from_bits`）与 `lfw/core/js_string.cpp`（`is_str_white_space`/`digit_value`/
-  `parse_radix`/`scan_decimal`/`string_to_number`/`shortest_digits`/`number_to_string`）。
-  用例 10893 → 10969 行（`js_num` 85→116、`to_number` 152→197），变异 **112/112 全杀**
-  （2.4 s/变异，268.4 s）。这是早期 subject 里最后一块覆盖缺口。
 - **三处补样本，都是"分支的常量表/边界"**：
   1. **空白常量表缺两项**：`is_str_white_space` 的 switch 有 14 个码点，而 `to_number` 用例只覆盖了
      `\t \n \r \s`、NBSP、`\u3000`、`\ufeff`、`\u2028/\u2029/\u202f/\u205f/\u1680/\u2000/\u200a` ——
-     **`\v`(0x000b) 与 `\f`(0x000c) 一条都没有** ⇒ 这两条"码点写错"的变异原本不可见。补
+     **`\v`(0x000b) 与 `\f`(0x000c) 一条都没有** ⇒ 这两条"码点写错"的变异原本不可补
      `"\u000b1"`、`"1\u000c"` 等 9 条后 14 条码点变异全部可杀（按"常量表逐项打"的规矩一次打齐）。
   2. **`Math.round` 的"x + 0.5 进位到偶数"修正只在 ≥ 2^52 的奇数上生效**：`if (r - x > 0.5) r -= 1.0;`
      要 `floor(x + 0.5)` 真的跳到偶数上才会触发（4503599627370497 → 4503599627370498 → 减回），
      原用例只有 `4503599627370495.5` 与 `.4` ⇒ 补 `round 4503599627370497/…499`、`-…497/-…499`
      以及 7 条 `nan` 传播样本。
-  3. **`parse_radix` 的舍入路径（`keep/rest/half/sticky`）只在输入 > 64 位时才走**：小于 64 位时
-     `shifted == 0` 直接精确返回 ⇒ 之前所有"看着像 tie"的样本（如 `0x40000000000004`，60 位）
-     其实都没走到舍入，5 条舍入变异存活。补 >64 位样本后全杀：
-     `0x10000000000000800`（`drop=8`、`rest==half`、keep 偶、sticky 假 ⇒ round-half-even 不进位）、
-     `0x10000000000000810`（同前但 sticky 真 ⇒ 进位到 `2^64+4096`）、`0xbc1fb2f56a0dbea88c0` 等。
 - **两条踩坑（"样本看似命中、其实没打到分岔点"）**：
   1. 60 位的"tie"走的是 `shifted == 0` 的精确返回 ⇒ **样本必须落在变异点真正经过的那条路径上**：
      先确认 `shifted > 0` / `drop > 0`，再谈 `rest == half`。
-  2. **自查工具本身要先对拍**：我写的第一版 `parse_radix` 模拟器在**不带 `0x` 前缀**的字符串上用
-     `from = 2`（等于丢掉前两位十六进制），据此"搜到"的样本根本不是被检验的那个数 ⇒ 两句无效样本、
-     2 条变异假幸存。改成"模拟器 vs 真实 exe 逐条比位模式"后才定位（顺带发现探针里
+  2. **自查工具本身要先对拍**：我写的改成"模拟器 vs 真实 exe 逐条比位模式"后才定位（顺带发现探针里
      `execFileSync` 的 `\r` 会制造假 MISMATCH）。**凡自己写的判据搜索器，先拿真实实现校准再用它下结论。**
 - **首轮 3 个幸存者里 2 个是真等价（已删，理由写进规格头部）**：
   1. `js_to_int32` 的 `u < 0x80000000u` → `u < 0x7fffffffu`：只有 `u == 0x7fffffff` 会从正支掉到负支，
@@ -2239,8 +2912,7 @@ README §1.6 记的"共 48 条变异全杀"当时是**临时脚本**跑的，产
   快速路径（数值至少 2^1101，`ldexp` 反正溢出成 inf）、`scan_decimal` 的 `e < 1000000`
   （有符号溢出保护）、`e10 == 0`（不可达）等。
 
-
-### 4.66 V59 步骤 5 第一片 `Transform`（Entity/World 整块的入口）
+### 9.68. 步骤 5 第一片 `Transform`（Entity/World 整块的入口）
 
 - **为什么从它开始（先量再做）**：新增工具 `native/tools/ts_scope.mjs`，把 `entity/Entity.ts` + `World.ts`
   的依赖拆成"值可达 / 仅类型可达"两类来量。结果：值闭包 **319 文件 / 24773 行**，其中 `defines`(7145)、
@@ -2255,14 +2927,7 @@ README §1.6 记的"共 48 条变异全杀"当时是**临时脚本**跑的，产
      28157 行**（依赖 `entity`/`World`/`LFW`）⇒ 必须排在 `Entity` **之后**，不能当叶子先做。
   2. `Entity.ts` 的值导入只有 24 个，其中 `defines`/`utils`/`entity/*` 已移植；真正是新的：
      `Factory`/`Ground`/`World`/`base`/`buff/Buff`/`collision/Collision`/`controller/BaseController`。
-- **本片**：`native/lfw/transform.{h,cpp}`（TS `src/LFW/Transform.ts`，147 行）——位置/缩放/旋转的平滑补间。
-  依赖只有已移植的 `pow` 与 `round_float`，是干净叶子。用例 `cases/transform/*.txt` 4 个共 **339 行**，
-  差分 4/4 通过，变异 **45/45 全杀**（2.87 s/变异，129.3 s）。
 - **接口简化（已记录，语义等价）**：
-  1. TS `move_to(x, y, z, opts: ITransformTweenOpts = {})` 里 `opts.rate ?? 0.1` ⇒ C++
-     `std::optional<double> rate` + `rate.value_or(0.1)`。
-     ⚠️ **harness 必须做翻译**：把裸 rate 直接当 `opts` 传给 TS，`opts.rate` 会是 `undefined` 而静默回落
-     0.1 —— 本轮第一次 drift 正是这么来的（`move 10 0 0 0.5` 之后 C++ 走 0.5、TS 走 0.1）。
   2. TS 可以同时有属性 accessor `set rotation(v)` 与同名方法 `set_rotation(...)`；C++ 不能重载 get/set
      ⇒ 属性 setter 记为 `set_x/y/z`、`set_scale_x/y/z`、`set_rotation_value`，方法保持原名。
      两者的语义差别被完整保留：**属性 setter 不动 `_smoothing`，方法会清**（用例专门锁这条）。
@@ -2277,14 +2942,8 @@ README §1.6 记的"共 48 条变异全杀"当时是**临时脚本**跑的，产
   2. **`set_position`/`set_scale`/`set_rotation` 清 `_smoothing` 要"`move` 之后再调 setter"的样本**；
      原先只在 `move` 之后调了**属性** setter（它本来就不清）⇒ 三条"不清 smoothing"的变异存活。
 
+### 9.69. 步骤 5 第二片 `Ground`（地形高度 / 阻挡 / 地面碰撞几何）
 
-### 4.67 V60 步骤 5 第二片 `Ground`（地形高度 / 阻挡 / 地面碰撞几何）
-
-- **本片**：`native/lfw/ground.{h,cpp}`（TS `src/LFW/Ground.ts`，467 行），并顺带补上它需要的
-  `defines/i_terrain_info.h` 的 `ITerrainInfo`。依赖只有已移植的 `clamp`/`abs`/`line_plane_intersection`，
-  是 `Entity.ts` 的直接值依赖（`Ground.ts` 自己的值闭包只剩 `fields`/`defines`/`utils`）。
-  用例 `cases/ground/*.txt` 3 个共 **310 行**（terrain 129 / edge 100 / edge2 81），差分 3/3，
-  变异 **58/58 全杀**（2.33 s/变异）。
 - **接口简化（语义等价，逐条记录）**：
   1. TS 构造时吃 `World`、每次调用现读 `world.bg.data.terrain` ⇒ C++ 改成
      `set_terrain(const std::vector<ITerrainInfo>*)` 注入指针，**方法内每次现读**（保留"地形可被整体替换"
@@ -2316,11 +2975,11 @@ README §1.6 记的"共 48 条变异全杀"当时是**临时脚本**跑的，产
      （否则顶面命中先落地、墙面分支根本不执行）；`seg_y - y1 <= _step` 需要"表面恰好高出 y1 十"的射线
      （`intersect 0 10 0 0 50 0`：向上穿过 h=20 的平地）。
 
-## 6. 控制器中枢（步骤 5 第三片）
+## 10. 控制器中枢
 
 TS `controller/` 里与输入判定相关的部分已移植完毕，落点如下。
 
-### 6.1 常量与查表
+### 10.1. 常量与查表
 
 `native/lfw/defines/game_key.h` 补齐 `GKLabels` / `AGK` / `CONFLICTS_KEY_MAP` 三张表，以
 `gk_label_table()` / `all_game_keys()` / `conflicts_key_table()` 暴露；查表用 `gk_label_of(key)`
@@ -2328,7 +2987,7 @@ TS `controller/` 里与输入判定相关的部分已移植完毕，落点如下
 
 `AGK` 的**顺序是语义的一部分**：`BaseController::update()` 的按键扫描按该顺序判定，先命中者生效。
 
-### 6.2 `ControllerKeyStatus`
+### 10.2. `ControllerKeyStatus`
 
 `native/lfw/controller/controller_key_status.{h,cpp}`：7 个 `KeyStatus` 槽（L R U D d j a）。
 与 TS 的唯一差异是把 `owner` 引用去掉，时间与 `key_hit_duration` 作为实参传入，于是
@@ -2337,15 +2996,14 @@ TS `controller/` 里与输入判定相关的部分已移植完毕，落点如下
 TS 的快照是 `number[][]`，喂短数组会直接抛错；C++ 侧对越界做了守卫，所以**短快照属于不可差分观测**，
 只测完整 7×3。
 
-### 6.3 `ControllerResult`
+### 10.3. `ControllerResult`
 
 `clear` / `fire` / `fire2`。`fire` 里 `owner.entity.get_next_frame(nf)` 换成 `set_resolver` 注入的
 `std::function`。
 
 ⚠️ 守卫必须是 **JS 真值判定**：`if (!truthy(result)) return false;`。TS 写的是 `if (!result)`，
-于是 `fire(nf = 0)` 必须失败；只查 `monostate` 会漂移（本轮由差分抓到并修正）。
 
-### 6.4 `BaseController`
+### 10.4. `BaseController`
 
 `native/lfw/controller/base_controller.{h,cpp}` 是主控全链。实体/世界读面用 `CtrlEnv` 注入：
 `facing` / `hp`→`alive` / `team` / `position` / `frame.state` /
@@ -2373,7 +3031,7 @@ TS 的快照是 `number[][]`，喂短数组会直接抛错；C++ 侧对越界做
 `LR` / `UD` / `jd` 返回 `int`，而取负的 `RL` / `DU` / `dj` 返回 `double`：
 JS 的 `-0` 与 `0` 在 `num_hex` 下可区分，用整数取负会把负零丢掉。
 
-## 7. 步骤 6 的叶子单元：碰撞处理器
+## 11. 步骤 6 的叶子单元：碰撞处理器
 
 `src/LFW/collision/` 目录里，核心的两个文件（`Collision.ts` 312 行、`CollisionKeeper.ts` 320 行）
 以及绝大多数 `handle_*` 处理器都要读写 `Entity` / `World` / `LFW` 的运行状态；
@@ -2395,9 +3053,9 @@ JS 的 `-0` 与 `0` 在 `num_hex` 下可区分，用整数取负会把负零丢�
   `handle_super_punch_me` / `handle_weapon_picked` / `handle_rest` / `handle_itr_kind_magic_flute`
 - 实体/世界动作面用 `HandlersEnv` 回调注入（与 `BaseController` 的 `CtrlEnv` 同型），
   harness 记录**调用序列 + 落地值**。差分校验的是处理器的判定逻辑与调用顺序，
-  `add_v_rest` / `pick` / `Buff` 的内部实现留给后续切片。
+  `add_v_rest` / `pick` / `Buff` 的内部实现留给后续。
 
-### 7.1 必须保留的惰性
+### 11.1. 必须保留的惰性
 
 TS 里 `itr.motionless ?? attacker.itr_motionless` 与 `itr.arest || world.dataset.itr_arest`
 都要求**惰性**：右侧只在左侧缺失/为假时才求值。C++ 侧若写成 `coalesce(a, b)` 这类
@@ -2407,7 +3065,7 @@ TS 里 `itr.motionless ?? attacker.itr_motionless` 与 `itr.arest || world.datas
 另外注意 `??`（nullish：`undefined` / `null` 才回落）与 `||`（falsy：`0` / `""` 也回落）
 在同一个文件里混用：`handle_stiffness` 用 `??`，`handle_rest` 用 `||`。
 
-## 8. `Buff` 基类（步骤 4 主体）
+## 12. `Buff` 基类
 
 `native/lfw/buff/buff.{h,cpp}` 落地了 TS `buff/Buff.ts` 的全部状态机：
 
@@ -2422,17 +3080,16 @@ TS 里 `itr.motionless ?? attacker.itr_motionless` 与 `itr.arest || world.datas
 - `grant_buff`：`world.buffs.get(id) ?? factory.create_buff(kind, lfw, id)`，再复位寿命、设时长、加等级、
   绑施放者/受害者并 `mount()`。
 
-单元边界：`IBuffEntity`（受害者的读面 + 动作，含特效实体的 `outline_*`/`enter_frame_by_id`/`attach`）
 与 `BuffEnv`（`find_entity` / `create_entity` / `find_data` / `world_buffs_set/get` / `create_buff`）。
 
-### 8.1 本单元抓到的两个真实端口 bug
+### 12.1. 本单元抓到的两个真实端口 bug
 
 1. **覆盖语义**：TS `show_effect` 用 `this._effects.set(victim.id, effect)`，是**同键覆盖**；
    C++ 侧写成 `emplace_back`（追加），同一受害者会留两条记录。差分直接在 `nfx` 上暴露（2 vs 1）。
    已改为「同键替换、否则追加」，并补了针对它的变异。
 2. `_effects` 用 vector 承载，覆盖语义必须手写 —— 不能指望容器帮忙。
 
-### 8.2 harness 教训：别名 vs 拷贝
+### 12.2. harness 教训：别名 vs 拷贝
 
 TS 的 `Map.get` 返回**同一个对象**。C++ harness 若写 `g_buff = *it->second`（拷贝），
 会出现「改了副本、容器里没变」的假漂移（第二次 `grant` 后 `dead` 不一致）。
@@ -2441,13 +3098,14 @@ TS 的 `Map.get` 返回**同一个对象**。C++ harness 若写 `g_buff = *it->s
 另外：特效实体 id 是运行时生成的（`E1/E2/…`），静态用例拿不到，故 harness 约定 `env entity "@"`
 表示「最近创建的实体」。
 
-## 9. 切片 6 核心：`Collision`（碰撞对象与判定）
+## 13. `Collision`（碰撞对象与判定）
 
 `native/lfw/collision/collision.{h,cpp}` 落地 TS `collision/Collision.ts`：
 `collision_new` / `collision_get` / `collision_test` / `collision_to_snapshot` /
 `collision_from_snapshot` / `collision_clone`。
 
-### 9.1 单元边界
+### 13.1. 单元边界
+
 - `CollisionActor`：**值结构**读面（id / 位置 / data_id / data_type / frame /
   itr_prefabs / bear 的 wpoint.attacking / marks / dropping / arest / catcher(hurtable) /
   invulnerable / bot_ignore / team / emitter / spawn_time / is_bot_ctrl）。
@@ -2457,7 +3115,8 @@ TS 的 `Map.get` 返回**同一个对象**。C++ harness 若写 `g_buff = *it->s
 - `HandlersEnv` 与 `Collision` 结构上移到 `collision.h`（`handlers.h` 只 include 它），
   使两个单元共用同一个碰撞对象，且 `handlers.cpp` 无需改动。
 
-### 9.2 三处必须保真的表示
+### 13.2. 三处必须保真的表示
+
 1. `acquire_collision` 返回 **`Collision&`**：TS 是对象池复用，复用对象上「上一轮的残留字段」
    本身可观测，不能改成每次新建。
 2. `handlers` 用 `shared_ptr<vector<u16string>>`：TS `{...src}` 中该数组是**浅拷贝引用**，
@@ -2465,69 +3124,35 @@ TS 的 `Map.get` 返回**同一个对象**。C++ harness 若写 `g_buff = *it->s
 3. `priority` 是 `Value` 而非 `double`：`ENTITY_PRIORITY_MAP` 对未列出的实体类型返回
    `undefined`，用 `double` 无法表示。
 
-### 9.3 保留的 TS 怪癖
+### 13.3. 保留的 TS 怪癖
+
 `collision_from_snapshot` 里查 `bdy` 用的是 **`aframe.bdy`**（不是 `bframe.bdy`）。
 用例专门构造了「FA 有 bdy[0]/bdy[1]、FB 只有 bdy[0]，且 bdy[0] 的 hit_flag 决定性不同」
 来锁住它：把这里「改对」会立刻被差分打回。
 
-### 9.4 本轮抓到的两个真实端口 bug
-1. **`index_by` 只认对象**：TS 里 `frames[id]` 与 `itr[i]` 都走 JS 属性访问，
-   数组也能用数字字符串下标；C++ 首版只处理 `Object`，于是 `from_snapshot` 一取 `itr`/`bdy`
-   就返回 null（差分表现为 `from_snap no` vs `yes`）。现已支持 `Array` + 数字下标，
-   并显式做 `!(index >= 0)` 以避开 NaN 转型。
-2. **`dataset` 不是 `Collision` 的字段**：TS 只在 `collision_new` 内部解构
-   `world.dataset` 用于算 `rest`，从不写回碰撞对象。首版多写了 `c.dataset = dataset;`，
-   被差分抓到（对象字段多出一个键）。`Collision::dataset` 保留，但只作为 handlers 单元
-   的行为缝字段、由那个单元的 harness 直接设置。
-
-### 9.5 「看起来必然可观测」的三条变异其实不可观测
-- `if (!truthy(prefab_id)) itr_index = -1;` 取反 **以及** 整段短路：
-  `prefab_id` 为假时，紧随其后的 `index_by(a.itr_prefabs, to_string(prefab_id), ...)`
-  必定同样失败（拿不到 `"undefined"` 键），两条路径都得 `-1`。
-- `truthy(v.emitter)` → `truthy(a.emitter)`：同一条 `&&` 链上，
-  `strict_equals(v.emitter, a.emitter)` 在两者真假性不同时必为 false ⇒ 结果恒等。
-- `get` 的 `if (!ni || !nj) return nullptr;` → `&&`：纯提前退出，
-  任一侧为空数组时循环体一次都不执行，返回值仍是 `nullptr`。
-- `get` 双层循环次序反转：成对成立性 = 两侧各自谓词的合取，
-  可通过的组合构成乘积集，其字典序最小元在两种遍历次序下相同。
-这些都已写进 `mutations/collision_core.mjs` 头注（连同证明），不列入变异集。
-
-## 10. 切片 6 核心：动作表 `collision_action_handlers`
+## 14. 动作表 `collision_action_handlers`
 
 `native/lfw/collision/action_handlers.{h,cpp}` 落地 TS `entity/collision_action_handlers.ts`：
 一个按动作类型字符串分发的表，21 种动作全部覆盖（`A/V_SOUND`、`A/V_NEXT_FRAME`、
 `A/V_SET_PROP`、四个「防御」项、`A/V_REBOUND_VX`、`V_TURN_FACE`、`V_TURN_TEAM`、
 `FUSION`、`BROADCAST`、`VALUE_STEAL`、`A/V_BUFF`（含 `apply_buff`）、`ERROR`、`NONE`）。
 
-### 10.1 单元边界
-- `IActionEntity`：读面 + 动作（hp/hp_r/hp_max/mp/mp_max、velocity_x、facing、team、
-  data/data_type、src_emitter/emitter/bearer、fuse_bys、dismiss_data/dismiss_time、
-  invisible/motionless/invulnerable、play_sound/enter_frame/transform/set_prop、
-  `buff_entity()` 供 `grant_buff` 使用）。
+### 14.1. 单元边界
+
 - `ActionEnv`：`mt_int`/`mt_set_mark`/`find_data`/`broadcast`/`alert`/`find_entity`/
   `is_ally`/`buff_env`。
 - `run_action(env, type, action, attacker, victim, injury, real_injury)` 返回该动作的返回値
   （四个防御项返回 `0`，其余返回 `undefined`）。
 
-### 10.2 从真源码里挖出来的三处约定（都靠差分打出来）
-1. `play_sound(sounds, pos = this.position)` 的默认位置在**实现侧的参数默认值**上，
-   调用点原样传 `a.data?.pos`（可能是 `undefined`）。端口因此把默认值交给 `IActionEntity`
-   的实现去处理，而不是在分发处补。首版在调用点补默认值，被差分立刻打回。
-2. `fighter_2.invisible = fighter_2.motionless = fighter_2.invulnerable = 1000000`
-   是**从右往左**求值的：先 `invulnerable`、再 `motionless`、最后 `invisible`。
-   端口按同样的顺序调用 setter（顺序本身可观测）。
-3. `is_bot_ctrl(attacker.ctrl)` 读的是实体上的 `ctrl.__is_bot_ctrl__`，
-   不是实体自身的某个布尔字段；`VALUE_STEAL` 的 `target` 是 `switch`：
-   `0`/其他 → 攻击者自身、`1` → `src_emitter`、`2` → `emitter`、`3` → `bearer`，
-   取不到就整体放弃；`over_hp_r` 决定 hp 的钳制上限是 `hp_r` 还是 `hp_max`。
+### 14.2. `apply_buff` 的两级判定
 
-### 10.3 `apply_buff` 的两级判定
 `hitflag` **只有是数字时**才做判定：先 `hitflag & victim.data.type`（类型位），
 再 `hitflag & (attacker.is_ally(victim) ? Ally : Enemy)`（队伍位）；
 是字符串（或缺失）则跳过两级，直接施放。`duration`/`buff` 用解构默认值 `0`/`''`。
 这一点在写用例时必须显式构造队伍位，否则「队伍位判定取反」这类变异全部存活。
 
-### 10.4 harness 观测量教训
+### 14.3. harness 观测量教训
+
 - 无状态动作（`play_sound`/`enter_frame`/`transform`）的日志必须带**实体身份**
   （`A:play_sound:…`），否则「打到受击方」这类主客互换完全不可观测。
 - 两侧假实体的 `data` 必须能区分主客（这里给了 `id: "DA"`/`"DV"`），
@@ -2535,23 +3160,21 @@ TS 的 `Map.get` 返回**同一个对象**。C++ harness 若写 `g_buff = *it->s
 - 数值边界要挑在**钳制会生效**的地方：`hp_r` 的上限、`mp` 的封顶、
   `hp_max` 与 `hp_r` 的大小关系，都要让「上限取错」真的改变结果。
 
-## 11. 切片 6 核心：`handlers2`（受伤 / 抓取 / 冰冻 / 护盾）
+## 15. `handlers2`（受伤 / 抓取 / 冰冻 / 护盾）
 
 `native/lfw/collision/handlers2.{h,cpp}` 落地 5 个 handler：
 `handle_injury`（含 scale / keep_toughness 参数与「施放者转嫁」）、`handle_itr_catch`、
 `handle_itr_kind_freeze`、`handle_itr_effect_freeze`、`handle_john_shield_hit_other_ball`。
 
-### 11.1 单元边界
-- `IHandlerEntity`：接口式读面 + 动作（hp/hp_r/toughness、fall_value(+max)、
-  defend_value(+max)、resting、catch_time(+max)、catching/catcher、itr_fall、
-  src_emitter、shaking/motionless、set_velocity、enter_frame(_by_id)、play_sound、
-  `data()`、`dataset(key)`、`marks_has(kind)`、`buff_entity()`）。
+### 15.1. 单元边界
+
 - `Handlers2Env`：`warn` / `hp_recoverability` / `find_entity` / `summary_apply_damage` /
   `buff_env` / `is_fighter` / `calc_velocity`。
 - 缝用**模块级全局**（`set_handlers2_env`），因为真源码里这批 handler 依赖的是模块级单例
   （`summary_mgr`、`Ditto`、`world.dataset`），而且 `Collision` 结构属于已冻结单元，不动它更安全。
 
-### 11.2 保真要点（都由差分逼出来）
+### 15.2. 保真要点（都由差分逼出来）
+
 1. **JS 参数默认值发生在被调函数里**：TS 写 `grant_buff(KIND, a, v, a.dataset('electrify_duration'))`，
    当该值为 `undefined` 时由 `grant_buff(duration = 0)` 兜成 `0`。端口不能直接传 `to_number(...)`
    （会得到 `NaN`），必须在**调用点**补默认：`missing(x) ? 0 : to_number(x)`。
@@ -2564,14 +3187,15 @@ TS 的 `Map.get` 返回**同一个对象**。C++ harness 若写 `g_buff = *it->s
    恰好算出同一组值：`dvx*ivx_f*facing/weight`、`(!is_fall ? 0 : dvy*ivy_f/weight)`、
    `dvz*ivz_f/weight`；`is_fall` 还会看 `hp <= 0`，所以打伤之后要把 hp 还原再测冰冻。
 
-### 11.3 观测量教训
+### 15.3. 观测量教训
+
 - 「抖动 = 无动作值」这类变异要求 `itr.motionless` 在同一个 handler 里被显式设置：
   `handle_john_shield_hit_other_ball` 先跑 `handle_stiffness`，会把 `attacker.motionless`
   重新写成 `itr.motionless ?? itr_motionless`——用例不设 `itr.motionless` 就永远是 `undefined`，
   两侧都取不到差异。
 - 「`injury_r` 为 0 也写」这类分支要用 `hp_recoverability = 1` 构造出 0 才能杀。
 
-## 12. `collision/handlers3`：旋风、球受击与护甲
+## 16. `collision/handlers3`：旋风、球受击与护甲
 
 `native/lfw/collision/handlers3.{h,cpp}` 落地 4 个 handler：`handle_itr_kind_whirlwind`、
 `handle_ball_is_hit_a`、`handle_ball_is_hit_b`、`handle_armor`（唯一带回返回值的一个）。
@@ -2579,18 +3203,14 @@ TS 的 `Map.get` 返回**同一个对象**。C++ harness 若写 `g_buff = *it->s
 6 个常量：`DEFAULT_FALL_VALUE_DIZZY/CRITICAL`、`DEFAULT_FORCE_BREAK_DEFEND_VALUE`
 以及三个护甲比率。
 
-### 12.1 单元边界
-- `IH3Entity`：速度/位置读写、`team`、`bearer`/`base_type`/`state`、
-  `data_in_the_skys_first()`、`data_base_hit_sounds()`、`armor`、`toughness(+_max)`、
-  `itr_fall(itr)`、`dataset(key)`、`set_motionless`/`set_shaking`、
-  `enter_frame_by_id`、`play_sound`、`buff_entity()`。
+### 16.1. 单元边界
+
 - `Handlers3Env`：`find_entity` / `is_ball` / `is_weapon` / `spark_point(a_cube, b_cube)` /
   `spark` / `play_sound_global` / `is_armor_work`；与 `handlers2` 一样用**模块级全局缝**
   （`set_handlers3_env`）。
-- `handle_armor` 结尾会调 `handlers2` 的 `handle_injury`，所以假实体必须**同时实现
-  `IH3Entity` 与 `IHandlerEntity`**，用例也要同时装好 `set_handlers2_env` + `set_handlers3_env`。
 
-### 12.2 保真要点
+### 16.2. 保真要点
+
 1. **临界值比较不统一**：两个 `ball_is_hit` 用的是严格 `>`，而 `handle_armor` 用的是 `>=`
    （`fall >= DEFAULT_FALL_VALUE_CRITICAL`）。端口用同一个 helper 上的 `inclusive` 参数区分，
    绝不「顺手统一」。
@@ -2603,10 +3223,9 @@ TS 的 `Map.get` 返回**同一个对象**。C++ harness 若写 `g_buff = *it->s
 5. 护甲那两处 dataset 兜底（`itr_shaking` / `itr_motionless`）读的是**实体**上的
    `dataset()`，与 `handle_stiffness` 读**碰撞体** `dataset` 不是同一个来源。
 
-### 12.3 观测量教训
-- **harness 的 `env a|v` 行只消费一个字段**，多余 token 会被静默丢弃。第一版用例把
-  `posx/posz`、`velx/vely/velz`、`hp/hp_r` 写在同一条 `env` 行里，结果 z 方向恒为 0，
-  三条只影响 `vz` 的变异因此存活。现已改为「一行一字段」，并让两侧 harness 在
+### 16.3. 观测量教训
+
+- **harness 的 `env a|v` 行只消费一个字段**，多余 token 会被静默丢弃。现已改为「一行一字段」，并让两侧 harness 在
   `walk_side` 之后检查 `i == 行 token 数`，否则直接报错退出——这类静默丢字段
   比变异存活更难发现。
 - 方向类变异要靠**符号组合**杀：用例必须同时覆盖 `(+x,+z)`、`(-x,+z)`、`(+x,-z)` 三种位移，
@@ -2614,24 +3233,22 @@ TS 的 `Map.get` 返回**同一个对象**。C++ harness 若写 `g_buff = *it->s
 - `is_ball` / `is_weapon` 复用了 `entity/entity_type_check` 的 `*_data(data)`，所以假实体要按
   各自的 `data.type` 区分（Fighter 8 / Weapon 16 / Ball 32），「看错实体」才可观测。
 
-## 13. `collision/handlers4`：球击中他人与武器击中他人
+## 17. `collision/handlers4`：球击中他人与武器击中他人
 
 `native/lfw/collision/handlers4.{h,cpp}` 落地 `handle_ball_hit_other` 与
 `handle_weapon_hit_other`，对应 `src/LFW/collision/handle_ball_hit_other.ts` 与
 `handle_weapon_hit_other.ts`。
 
-### 13.1 单元边界
-- `IH4Entity`（独立接口，**不**继承 `IH3Entity`）：`id`、`data()`、`hp(+_r)` 读写、`state`、
-  `facing`、`base_type`、`velocity`/`set_velocity`、`frame_id()`、
-  `data_indexes_throwings()`、`data_indexes_in_the_skys()`、`arest()`/`set_arest`、
-  `enter_frame(info)`、`set_dropping(bool)`、`data_base_hit_sounds()`、`play_sound(sounds)`。
+### 17.1. 单元边界
+
 - `Handlers4Env`：`find_entity` / `is_fighter` /
   `find_align_frame(frame_id, throwings, in_the_skys)`；同样是**模块级全局缝**
   （`set_handlers4_env`）。
 - 两个函数各自还要 `handlers` 的 `handle_rest` + `handle_stiffness`，所以用例必须同时装好
   `set_handlers_env`（`handlers` 缝）与 `set_handlers4_env`。
 
-### 13.2 保真要点
+### 17.2. 保真要点
+
 1. **`attacker.hp = attacker.hp_r = 0` 复用 `handlers3` 的右到左语义**：`zero_hp()` 先写
    `hp_r` 再写 `hp`，日志顺序可观测。三处调用点（Normal / 破防 / 同朝向）共用它。
 2. **`bdefend` 的 `truthy && >= 200` 里 `truthy` 是死代码**：JS 的 `>=` 会先 `ToNumber`，
@@ -2653,7 +3270,8 @@ TS 的 `Map.get` 返回**同一个对象**。C++ harness 若写 `g_buff = *it->s
 7. TS 的 `switch (aframe.behavior)` 里 `DennisChase` … `JulianBall` 一批 `case` 的 body 只有
    一个 `break`，与「整段省略」语义完全等价，端口按省略落地；变异规格头部记录了这一点。
 
-### 13.3 harness 观察点
+### 17.3. harness 观察点
+
 - `env a|v` 沿用「**一行一字段**」硬约束（多余 token 直接报错退出），字段：`hp` `hp_r`
   `state` `facing` `base_type` `velx` `vely` `velz` `frame_id` `throwings` `in_the_sky`
   `arest` `dropping` `hit_sounds` `type`。
@@ -2664,30 +3282,25 @@ TS 的 `Map.get` 返回**同一个对象**。C++ harness 若写 `g_buff = *it->s
   `attacker.arest = ...` 走的就是实体 setter，若 C++ 侧只打日志不回写，实体状态行会停在
   `undefined`，造成纯 harness 建模差异（首轮差分就是这么失败的）。
 
-## 14. `collision/weapon_is_hit`：武器被命中
+## 18. `collision/weapon_is_hit`：武器被命中
 
 `native/lfw/collision/weapon_is_hit.{h,cpp}` 落地 `handle_weapon_is_hit`
 （对应 `src/LFW/collision/handle_weapon_is_hit.ts`）。
 
-### 14.1 单元边界
-- `IWeaponIsHitEntity : IHandlerEntity`：在 handlers2 的实体缝之上补 `has_bearer` /
-  `set_dropping` / `base_type` / `facing` / `team`+`set_team` / `data_id` /
-  `data_indexes_throwings` / `data_indexes_in_the_skys` / `leave_ground`。这里**继承**而不是
-  另开接口，因为本单元前后要串 `handle_rest` / `handle_stiffness` / `handle_injury`，
-  而 `handle_injury` 直接吃 `IHandlerEntity`。
+### 18.1. 单元边界
+
 - `WeaponIsHitEnv`：`find_entity` / `spark_point(a_cube, b_cube)`（返回 `SparkPoint` 三值结构，
   免得把 JS 的元组展开搬进端口）/ `spark(x, y, z, kind)` / `mt_mark` / `mt_pick` /
   `calc_velocity`；模块级全局缝（`set_weapon_is_hit_env`）。
 
-### 14.2 保真要点
+### 18.2. 保真要点
+
 1. **`calc_itr_velocity` 是注入缝**：TS 里 `handle_weapon_is_hit` 直接 import 它，端口把它挂到
    `WeaponIsHitEnv` 上。于是差分两侧必须满足「真算式 == 注入值」：harness 把 `weight` 与
    `ivx_f/ivy_f/ivz_f` 固定为 1，用 `env velx/vely/velz` 当作 `itr.dvx/dvy/dvz`，并让假
    `calc_velocity` 复刻 `x_direction = attacker.facing` 这个因子——否则「朝向 -1」的用例会漂移。
 2. **`is_fly` 在 TS 里并不是布尔**：`itr.fall && itr.fall >= D.DEFAULT_FALL_VALUE_CRITICAL`
    在 `itr.fall` 为 `undefined` 时返回 `undefined`。端口收成 `bool`，只参与真值判断，语义等价。
-3. **临界值是 100 而不是 140**：`DEFAULT_FALL_VALUE_CRITICAL = 140 - DEFAULT_FALL_VALUE_DIZZY = 100`。
-   用例必须卡在 99/100；卡在 139/140 时 `is_fly` 的三条变异会全部不可观测（本轮就是这么栽的）。
 4. **`truthy(itr.fall)` / `truthy(itr.bdefend)` 前缀是死代码**：JS 的 `>=` 先 `ToNumber`，数值一旦
    达到阈值必然是真值；其余假值要么低于阈值、要么是 `NaN`（而端口的 `ge` 遇 `NaN` 返回 false）。
    端口照抄以保持逐行一致，并在变异规格头注里记录为不可观测。
@@ -2698,7 +3311,8 @@ TS 的 `Map.get` 返回**同一个对象**。C++ harness 若写 `g_buff = *it->s
    `as_array` → `as_object` → `undefined`，空数组提前返回 `undefined`，所以「数组下标」与
    「对象键」两条分支都能挂变异，而空数组不会越界。
 
-### 14.3 harness 观察点
+### 18.3. harness 观察点
+
 - `env a|v` 一行一字段，字段：`hp` `hp_r` `tough` `state` `face` `base_type` `team` `bearer`
   `drop` `data_id` `throwings` `in_the_sky` `velx` `vely` `velz` `on_ground` `fall` `fall_max`
   `defend` `resting` `type` `src_emitter` `ice` `hit_sounds` `motionless` `dataset`。
@@ -2709,19 +3323,19 @@ TS 的 `Map.get` 返回**同一个对象**。C++ harness 若写 `g_buff = *it->s
 - 受害者必须是**非 Fighter**（`env v type n 16`），这样 TS 的真 `is_fall()` 才为真，
   `calc_itr_velocity` 的 y 分量才等于注入值。
 
-## 15. `collision/fall`：倒地
+## 19. `collision/fall`：倒地
 
 `native/lfw/collision/fall.{h,cpp}` 落地 `handle_fall`（对应 `src/LFW/collision/handle_fall.ts`）。
 
-### 15.1 单元边界
-- `IFallEntity : IHandlerEntity`：补 `facing` / `velocity_x` / `spark_point(a, b, out x, y, z)` /
-  `data_indexes_fire` / `data_indexes_critical_hit` / `holding_base_type` / `drop_holding`。
+### 19.1. 单元边界
+
 - `FallEnv`：`find_entity` / `is_fighter` / `spark` / `calc_velocity`；模块级全局缝
   （`set_fall_env`）。
 - 本单元不调用其他 handler，只额外依赖 `entity/face_helper` 的 `turn_face`（已由
   `entity_helpers` 门禁覆盖）。
 
-### 15.2 保真要点
+### 19.2. 保真要点
+
 1. **`is_critical` 读的是 `itr.fall`**，与实体自身的 `fall_value` 无关——后者在本函数开头就被清零。
 2. **`victim.velocity.x / victim.facing` 的除法语义必须保住**：`0 / 0` 是 `NaN`，而 `NaN >= 0`
    为 false ⇒ 方向 -1；`±x / 0` 是 `±Infinity` ⇒ 方向由符号决定。用例专门覆盖了 `0/0`、
@@ -2744,7 +3358,8 @@ TS 的 `Map.get` 返回**同一个对象**。C++ harness 若写 `g_buff = *it->s
 8. **`index_0` 的三态**（数组 / 对象键 `"0"` / 缺失）与 `fall.cpp` 内的 `index_by` 配套，
    空数组提前返回，避免「下标写成 1」这类变异退化成越界 UB。
 
-### 15.3 harness 观察点
+### 19.3. harness 观察点
+
 - `env a|v` 一行一字段：`hp` `hp_r` `tough` `fall` `fall_max` `defend` `resting` `state` `face`
   `type` `velx` `vely` `velz` `fire` `crit` `holding` `ice` `hit_sounds` `src_emitter`
   `motionless` `dataset`。
@@ -2752,14 +3367,13 @@ TS 的 `Map.get` 返回**同一个对象**。C++ harness 若写 `g_buff = *it->s
   （`calc_itr_velocity` 缝的注入值）。
 - 数值写法沿用既有约定：`face` / `fall` / `hp` 等走值语法 `n ...`，`velx` / `tough` 走裸数字。
 
-## 16. `collision/n_bdy_normal`：普通 bdy 受击
+## 20. `collision/n_bdy_normal`：普通 bdy 受击
 
 `native/lfw/collision/n_bdy_normal.{h,cpp}` 落地 `handle_itr_normal_bdy_normal`
 （对应 `src/LFW/collision/handle_itr_normal_bdy_normal.ts`）。
 
-### 16.1 单元边界
-- `INbdyNormalEntity : IFallEntity`——**必须是一条继承链**。本单元要串 `handle_fall`，而假实体若
-  同时实现两个各自继承 `IHandlerEntity` 的接口，就会出现两个 `IHandlerEntity` 子对象 ⇒ 纯虚二义。
+### 20.1. 单元边界
+
 - `NbdyNormalEnv`：`find_entity` / `is_fighter` / `is_fall(Collision&)` / `spark` /
   `calc_velocity`；模块级全局缝（`set_nbdy_normal_env`）。
 - 子处理器**直接调用已闭合的真函数**，不再另开缝：`handle_armor`(handlers3，返回 bool)、
@@ -2768,7 +3382,8 @@ TS 的 `Map.get` 返回**同一个对象**。C++ harness 若写 `g_buff = *it->s
 - 已移植的 `is_fall` 吃的是 **`Value` 图**，所以缝定义为 `std::function<bool(Collision&)>`，
   harness 现场构造 `{victim:{fall_value, hp, is_on_ground, frame:{state}, data:{type}}}` 再调真函数。
 
-### 16.2 保真要点
+### 20.2. 保真要点
+
 1. **`if (itr.effect == ItrEffect.Ignore)` 用的是宽松 `==`**，端口用 `equals()`；而 `switch`
    内部是 `===`，端口用 `strict_equals()`。两者只在「能强转为 10000 但本身不是数字」时分离
    （例如字符串 `"10000"`），用例专门构造了这一条。
@@ -2795,7 +3410,8 @@ TS 的 `Map.get` 返回**同一个对象**。C++ harness 若写 `g_buff = *it->s
 8. **impact 尾段之前必须重置 `fall_value`**：`handle_fall` 会把 `fall_value` 清零，而 `is_fall` 对
    `fall_value <= 0` 恒真 ⇒ 不重置就整段尾逻辑被早退跳过（首轮 25 条变异存活全因于此）。
 
-### 16.3 harness 观察点
+### 20.3. harness 观察点
+
 - `env a|v` 一行一字段：`hp` `hp_r` `tough` `tough_max` `armor` `state` `face` `team`
   `base_type` `bearer` `type` `velx` `vely` `velz` `posx` `posy` `posz` `ground_y` `fall`
   `fall_max` `defend` `resting` `itr_fall` `fire` `crit` `dizzy` `grand_injured` `injured`
@@ -2814,23 +3430,18 @@ TS 的 `Map.get` 返回**同一个对象**。C++ harness 若写 `g_buff = *it->s
   （`fulltime` 为真、`bframe.state` 在允许集合内、effect 不是火/冰、`bdefend < 200`、
   `aframe.state !== 3006`）。
 
-## 17. `collision/n_bdy_defend`：bdy 防御
+## 21. `collision/n_bdy_defend`：bdy 防御
 
 `native/lfw/collision/n_bdy_defend.{h,cpp}` 落地 `handle_itr_normal_bdy_defend`
 （对应 `src/LFW/collision/handle_itr_normal_bdy_defend.ts`）。
 
-### 17.1 单元边界
-- `INdbdyDefendEntity : INbdyNormalEntity`（只多一个 `defend_ratio()`）+ 模块级 `NbdDefendEnv`
-  （`find_entity` / `calc_velocity` / `spark` / `dispatch`）。
+### 21.1. 单元边界
+
 - 子处理器直接调真函数：`handle_itr_normal_bdy_normal`、`handle_injury`、`handle_rest`、
   `handle_stiffness`。
-- **action 分发做成了缝**：TS 是 `collision_action_handlers[AT.A_NEXT_FRAME](action, collision)`，
-  而端口的 `run_action` 会牵进 `ActionEnv` 与 34 个纯虚的 `IActionEntity`；本单元真正要保证的只有
-  「分发给哪个 handler key」与「`action.type` 的过滤条件」两件事，handler 本体已由
-  `action_handlers` 单元门禁。所以端口写为 `g_env.dispatch(handler_type, action)`，harness 两侧
-  都打成 `dispatch:<handler_type>:<render(action)>`。
 
-### 17.2 保真要点
+### 21.2. 保真要点
+
 1. **`const { bdefend = DEFAULT_BREAK_DEFEND_VALUE } = itr` 的默认值只在 `undefined` 时生效**
    ⇒ 端口用 `missing()`（只认 `monostate`），默认值 **32**；破防阈值是 **200**。
 2. **守卫是德摩根前的三段式**：`(effect !== FireExplosion && effect !== Explosion &&
@@ -2851,27 +3462,24 @@ TS 的 `Map.get` 返回**同一个对象**。C++ harness 若写 `g_buff = *it->s
    这是有意的行为分歧，用例只用数组与 `null` / 缺失。
 8. 破防分支会把 `defend_value` 夹到 `0`（递减后可能已经是负数）。
 
-### 17.3 harness 观察点
+### 21.3. harness 观察点
+
 - 沿用 `n_bdy_normal` 的全套 `env a|v` 字段，另加 `defend_ratio`；`env` 侧另加 `env bdy`。
 - 一次 run 只会走「守卫移交 → `handle_itr_normal_bdy_normal`」或「防御路径（破防 / 未破防）」其中
   一条，三者的日志形态区别明显。
-- **每条防御用例之前都要重置 `defend`**：递减会累积，不重置就会从「未破防」掉进「破防」
-  （本轮 3 条变异存活全因于此）。
 
-## 18. `collision/ball_frozen`：冻结飞球
+## 22. `collision/ball_frozen`：冻结飞球
 
 `native/lfw/collision/ball_frozen.{h,cpp}` 落地 `handle_ball_frozen`
 （对应 `src/LFW/collision/handle_ball_frozen.ts`）。
 
-### 18.1 单元边界
-- `IFrozenEntity`（**独立接口**，不继承 `IHandlerEntity`）+ 模块级 `BallFrozenEnv
-  { is_ball, is_fighter }`。
-- 与其它 collision 单元不同，本单元**没有被调用的子处理器**：全部是纯判定 + 一次 `spawn` +
-  一次 `enter_frame`，所以不需要 `IHandlerEntity` 那一族。
+### 22.1. 单元边界
+
 - `is_ball` / `is_fighter` 做成缝：端口侧用 `lfw::entity::is_ball_data` / `is_fighter_data`
   作用在 `e.data()` 上，TS 侧直接调真函数。
 
-### 18.2 保真要点
+### 22.2. 保真要点
+
 1. **模块级可变 opoint**：`freeze_ball_opoint` 是 TS 的模块级单例对象，只有 `x` / `y` / `z`
    三个字段会被重写。端口用 `static Value`（持 `shared_ptr<Object>`）复刻，于是连续两次调用
    共享同一个对象；字段顺序也照抄（`oid,kind,x,y,action,z`）。
@@ -2899,7 +3507,8 @@ TS 的 `Map.get` 返回**同一个对象**。C++ harness 若写 `g_buff = *it->s
 10. `turn_face(undefined)` 返回 `undefined`（不会退化成 `1`）；`a.facing` 缺失时
     `a_facing * round(...)` 得到 `NaN`，只污染 `opoint.x`。
 
-### 18.3 harness 观察点
+### 22.3. harness 观察点
+
 - 假实体的 `group` / `state` / `type` / `face` / `posx` / `posy` / `posz` / `frame` 都是
   「一行一字段」的 `env a|v` 输入；`frame` 是对象（`centerx` / `centery` / `width` / `height`）。
 - `spawn` 与 `enter_frame` 的日志**必须带实体身份**（`A:spawn:` / `V:enter_frame:`），
@@ -2909,27 +3518,18 @@ TS 的 `Map.get` 返回**同一个对象**。C++ harness 若写 `g_buff = *it->s
   （首轮就是这个坑，靠 `A.spawn=` / `V.spawn=` 出现在状态文本里才看出来）。
 - 状态文本同时打印双方的 `spawn` 标志，所以「谁被问了」也能从状态侧看出来。
 
-## 19. `collision/healing`：治疗 buff
+## 23. `collision/healing`：治疗 buff
 
 `native/lfw/collision/healing.{h,cpp}` 落地 `handle_healing`
 （对应 `src/LFW/collision/handle_healing.ts`）。
 
-### 19.1 单元边界
-- `IHealingEntity { id, dataset(key), buff_entity() }`（**最小读面**，只有三个方法）+
-  模块级 `HealingEnv { find_entity, buff_env }`。
-- 这里**没有**复用 `handlers2.h` 的 `IHandlerEntity`（34 个纯虚）：本单元只读 `dataset` 与
-  `buff_entity` 两处，复用会把 harness 逼成一份 150 行的空实现，反而掩盖边界。
+### 23.1. 单元边界
+
 - `buff::grant_buff` 用**真实现**（它属于已门禁的 `buff` 单元），本单元只负责「把谁和多少时长
   交出去」。
-- `Buff_Healing.duration_of` 一度是**就地实现**；切片 4 落地 `Buff_Healing` 之后（见 §23）
-  已改成 `buff::Buff_Healing::duration_of(*v->buff_entity(), to_number(injury))`。
-  要点：端口的 `IHealingEntity` 与 `IBuffEntity` **不是同一个接口**，时长必须从
-  **受击者的 buff 实体**读 dataset（真实游戏里 `entity.buff_entity()` 就是实体本身）；
-  harness 里假 buff 实体的 `dataset` 必须**转发**给所属实体，否则读到空数据集。
-  搬走后，本单元只保留「`itr.injury` 守卫 + 两次 id 查表 + `Healing` 这个 kind +
-  交给 `grant_buff` 的实参」，时长公式的变异归 `buff_healing` subject 覆盖。
 
-### 19.2 保真要点
+### 23.2. 保真要点
+
 1. **`if (!itr.injury) return;` 在一切查表之前**：`0` / `""` / 缺失都会直接返回，
    连 `create_buff` 都不会发生。
 2. **`Math.max(1, x)` 的 NaN 语义**：`x` 缺失时 `Math.max(1, undefined)` 是 **NaN**，
@@ -2942,32 +3542,31 @@ TS 的 `Map.get` 返回**同一个对象**。C++ harness 若写 `g_buff = *it->s
 6. `v == nullptr` 守卫是**端口产物**（TS 是解构 `collision.attacker/victim`，不存在查表失败），
    在契约内不可达；已写进变异规格头注。
 
-### 19.3 harness 观察点
+### 23.3. harness 观察点
+
 - 输入：`env itr <值>`、`env a|v dataset <值>`；输出：
   `run heal || <日志> | <双方 dataset> buff=<id>/<lifetime>/<duration>/<level>/<attacker>`。
 - 日志里的 `create_buff:<kind>:<id>` 与状态里的 `buff=` 一起，把「kind 对不对」「时长算没算对」
   「谁是 attacker」三件事都变成可观测；少了 `duration` 这一项，handler 返回 void 会让整个公式
   不可观测。
-- **假 `IBuffEntity` 的 id 必须等于它所属实体的 id**：`grant_buff` 用 `victim.id` 拼 buff id，
-  第一版我把 buff 实体的 id 写成 `"VB"` 而实体是 `"V"`，差分立刻在 buff id 上分叉。
 - 每个 op 之前清空 `g_granted`，否则早退用例会打印出上一条留下的 buff。
 
-## 20. `collision/keeper`：碰撞处理表（注册半边）
+## 24. `collision/keeper`：碰撞处理表（注册半边）
 
 `native/lfw/collision/keeper.{h,cpp}` 落地 `CollisionKeeper` 的**注册与查表**半边
 （对应 `src/LFW/collision/CollisionKeeper.ts` 的 `pack_a` / `pack_b` / `is_u8,u12,u16` /
 `IHandlerEntry` / `add` / `register` / `load_handlers` / `HANDLER_CONFIGS` / `collisions_keeper`）。
 
-### 20.1 作用域说明（重要）
+### 24.1. 作用域说明（重要）
+
 本单元**暂不包含** `handle(collision)`。它需要三样目前还不存在的东西：
 1. 实体侧的 `victim.collided_list` / `victim.lastest_collided` / `attacker.collision_list`；
 2. `collision_action_handlers[action.type]` 的分派入口（端口里是 `run_action`，需要
-   `ActionEnv` 与 28 个纯虚的 `IActionEntity`）；
-3. `handle_ball_frozen(victim, attacker, itr)` 所需的 `IFrozenEntity` 适配器。
 现在硬做会把本单元 90% 的差分内容变成「测缝」。这些缝齐了之后再在同一个文件里补 `handle`，
 并重跑两道门禁。
 
-### 20.2 保真要点
+### 24.2. 保真要点
+
 1. **`pack_a` / `pack_b` 是双向自洽的**：插入与查表都走同一个函数，所以任何**确定的、单射的**
    位移或加一都会把两侧一起挪走 —— 改位移、改加一都**不可观测**。唯一可观测的破坏是让它**丢掉一个
    参数**（制造键碰撞）。变异规格里用的是后者。
@@ -2993,7 +3592,8 @@ TS 的 `Map.get` 返回**同一个对象**。C++ harness 若写 `g_buff = *it->s
 8. `adds(...)` 用 `i.run.bind(i)`，注册进去的函数名会变成 `"bound run"`；当前表格全部走
    `register`，所以**本单元不实现 `adds`**（结果与 `register` 等价），待有真实调用方时再补。
 
-### 20.3 harness 观察点
+### 24.3. harness 观察点
+
 - 输入：`env a|v type|state <裸数字>`、`env itr|bdy|handlers <值语法>`；`run load`。
 - 输出：`run load || handlers=[<名字,…>] | ret=0|1`。
 - `collision.handlers` 在端口里是 `shared_ptr<vector<u16string>>`（**名字**，与 TS 的
@@ -3001,25 +3601,25 @@ TS 的 `Map.get` 返回**同一个对象**。C++ harness 若写 `g_buff = *it->s
   「命中哪几条」「几条」「顺序」三件事。
 - `env handlers` 预置脏数据，用来观测「查表前必须清空」。
 
-## 21. `collision/keeper`：`handle()` 调度半边
+## 25. `collision/keeper`：`handle()` 调度半边
 
-`CollisionKeeper::handle(Collision&) const`（同一个 `keeper.{h,cpp}`，与 §20 的注册半边共用
+`CollisionKeeper::handle(Collision&) const`（同一个 `keeper.{h,cpp}`，与 §24 的注册半边共用
 `collisions_keeper` 单例）。
 
-### 21.1 单元边界：六个新缝
+### 25.1. 单元边界：六个新缝
+
 `KeeperEnv` 在原来的 `attacker_state` / `victim_state` 之外再加六个：
 
 | 缝 | 对应 TS | 理由 |
 |---|---|---|
 | `call_handler(name, c)` | `handlers.forEach(fn => fn(collision))` | 端口的 `collision.handlers` 存的是**函数名**（`collision_core` 单元定下的形态，与 `Ditto.debug` 打印 `fn.name` 一致），所以调用点必须由一个名字→函数的映射来兑现 |
-| `ball_frozen(first, second, itr)` | `handle_ball_frozen(victim, attacker, itr)` | 真函数要 `IFrozenEntity`（11 个方法），端口此刻只有 `CollisionActor`；本单元只负责「在什么时候、用哪个顺序调它」 |
-| `run_action(type, action, c)` | `collision_action_handlers[action.type](action, collision)` | 同 `n_bdy_defend`：`run_action` 要 `ActionEnv` + 28 个纯虚的 `IActionEntity`，handler 本体由 `action_handlers` 单元门禁 |
 | `victim_push_collided(c)` / `attacker_push_collision(c)` | `victim.collided_list.push(...)` / `attacker.collision_list.push(...)` | 实体侧列表尚未端口化 |
 | `victim_play_sound(sounds)` | `victim.play_sound(sounds)` | 实体动作面 |
 
 `dev` / `log` / `tester_run` / `find_object_data` 复用已有的 `CollisionCoreEnv`，不新造缝。
 
-### 21.2 保真要点
+### 25.2. 保真要点
+
 1. **`handle_ball_frozen(victim, attacker, itr)` 的实参顺序是 `(v, a, itr)`** —— 与其它所有
    handler 的 `(collision)` 不同，这是最容易写错的一处。
 2. **`itr_tests` / `bdy_tests` 在 handler 循环之前算好、循环之后才用**：`itr.actions?.map(v =>
@@ -3038,7 +3638,8 @@ TS 的 `Map.get` 返回**同一个对象**。C++ harness 若写 `g_buff = *it->s
    相关变异在规格头注里标记为不可观测。
 7. `handle()` 不改 keeper 状态 ⇒ 端口声明为 `const`。
 
-### 21.3 harness 观察点
+### 25.3. harness 观察点
+
 - 本单元的 harness 是**独立的一对** `collision_keeper_handle.{cpp,ts}`，不复用注册半边的用例
   （注册与调度各有各的输入面）。同一个 TS 文件因此被两个 subject 覆盖。
 - 输入：`env dev 0|1`、`env data <值>`、`env a|v id/type/state`、`env itr|bdy|handlers <值>`；
@@ -3054,30 +3655,25 @@ TS 的 `Map.get` 返回**同一个对象**。C++ harness 若写 `g_buff = *it->s
 - **打完桩的对象要洗一遍**：给 action 注入 `tester.run` 后先用 `JSON.parse(JSON.stringify(x))`
   去掉函数再 `renderValue`，才能与 C++ 侧的 `render(action)` 对齐（注意保留 `r` 键）。
 
-## 22. `buff` 子类（一）：`Buff_GroupAttack` / `Buff_Electrify`
+## 26. `buff` 子类（一）：`Buff_GroupAttack` / `Buff_Electrify`
 
 `native/lfw/buff/buff_group_attack.{h,cpp}`、`native/lfw/buff/buff_electrify.{h,cpp}`
-（对应 `src/LFW/buff/Buff_GroupAttack.ts`、`Buff_Electrify.ts`）。这两类是切片 4 的第一对，
+（对应 `src/LFW/buff/Buff_GroupAttack.ts`、`Buff_Electrify.ts`）。这两类是步骤 4 的第一对，
 形状完全一致：**给每个受击者打/清一个标记 + 挂一个居中特效实体**。
 
-### 22.1 为了可继承而对基类做的改造（`native/lfw/buff/buff.h`）
+### 26.1. 为了可继承而对基类做的改造（`native/lfw/buff/buff.h`）
+
 1. `Buff::place_effect` / `mount` / `unmount` / `init` 全部改成 **`virtual`**：
    TS 里子类正是覆写这四个。`place_effect_center` 保持非虚（TS 也非虚，子类只在
    `place_effect` 里转调它）。这些改动**不改变任何既有行为**，只是打开继承点。
-2. `IBuffEntity` 新增 `data` / `state` / `wait` / `set_wait` / `mp` / `set_mp` / `mp_max` /
-   `dataset` / `marks_get` / `marks_set` / `marks_delete`，全部是**带默认实现的虚函数**，
-   **不是纯虚**。原因：有 **10 个已门禁 harness** 实现了 `IBuffEntity`，加纯虚会让它们全部
-   编译失败；带默认实现则零改动、零回归。
-   ——「给已门禁接口补充能力」一律用这个办法。
-3. 新增 `set_mark(IBuffEntity&, key, value, prev)` / `del_mark(IBuffEntity&, key, value)` 自由函数，
-   照抄 `Entity.set_mark` / `del_mark` 的**条件语义**：
    - `prev == void 0` 只认 `undefined`（用 `std::holds_alternative<std::monostate>`，**不是** `missing()`，
      后者把 `null` 也算缺失）；
    - 值比较用宽松 `equals`；
    - 条件不成立时**什么都不做**（`del_mark` 连日志都不产生）。
    这套语义是 `unmount()` 的关键：标记值被别人改过时就不能删。
 
-### 22.2 保真要点
+### 26.2. 保真要点
+
 1. **`static KIND` 是类的身份**：`Buff_GroupAttack.KIND === "GroupAttack"`、
    `Buff_Electrify.KIND === "Electrify"`。`mount` 用它当**标记键**，`unmount` 也用它。
    端口里它是 `const char16_t*` 静态成员（`grant_buff` 的调用方需要它）。
@@ -3093,7 +3689,8 @@ TS 的 `Map.get` 返回**同一个对象**。C++ harness 若写 `g_buff = *it->s
 7. 端口用 `using Buff::Buff;` 继承构造函数（真实签名是 `(const BuffEnv*, id, kind)`，
    与 TS 的 `(lfw, id, kind)` 对应）。
 
-### 22.3 harness 观察点
+### 26.3. harness 观察点
+
 - 一对 harness `buff_marks.{cpp,ts}` 同时覆盖两个类（`env cls s "group_attack"|"electrify"`）。
 - 输入：`env id|kind|cls|victim`（字符串值）、`env vpos|vframe|mark`（对象）、
   `run make|mount|unmount|effect`。
@@ -3109,20 +3706,21 @@ TS 的 `Map.get` 返回**同一个对象**。C++ harness 若写 `g_buff = *it->s
 - `env mark` 必须是**覆盖**语义（对应 `marks.set`），所以 C++ 侧走实体的 `marks_set()`
   而不是往 `_marks` 里 `emplace_back`（后者会造出重复键，而 TS 的 `Map` 不会）。
 
-## 23. `buff` 子类（二）：`Buff_Healing` / `Buff_MpHealing`
+## 27. `buff` 子类（二）：`Buff_Healing` / `Buff_MpHealing`
 
 `native/lfw/buff/buff_healing.{h,cpp}`、`native/lfw/buff/buff_mp_healing.{h,cpp}`
 （对应 `src/LFW/buff/Buff_Healing.ts`、`Buff_MpHealing.ts`）。
-这对是切片 4 第二组：**打标记 + 按 ticker 周期回血/回蓝**。
+这对是步骤 4 第二组：**打标记 + 按 ticker 周期回血/回蓝**。
 
-### 23.1 单元边界（`native/lfw/buff/buff.h` 的补充）
-`IBuffEntity` 又补了三个**带默认实现的虚函数**：`hp` / `hp_r` / `set_hp`。
+### 27.1. 单元边界（`native/lfw/buff/buff.h` 的补充）
+
 和上一轮一样，**不能加纯虚**（10 个已门禁 harness 会被打断）。
 
-### 23.2 保真要点
+### 27.2. 保真要点
+
 1. **`static duration_of(e, amount)`**：`ceil(amount / max(1, <kind>_healing_value)) *
    max(1, <kind>_healing_ticks)`。两个 `max(1, …)` 分别在**分母**与**乘数**上，位置不可换；
-   `Math.max(1, undefined)` 是 **NaN**（见 DESIGN §19.2）。
+   `Math.max(1, undefined)` 是 **NaN**（见 DESIGN §23.2）。
 2. **`mount()`**：先 `Buff::mount()`，再对每个受害者 `set_mark(KIND, this.id)`，
    并把 `this.ticks` 设成该受害者的 `<kind>_healing_ticks`（循环里最后一个受害者胜出）。
    ⇒ 标记键是**类常量**，而 tick 间隔是**每受害者读一遍**。
@@ -3135,31 +3733,29 @@ TS 的 `Map.get` 返回**同一个对象**。C++ harness 若写 `g_buff = *it->s
      端口照抄（不要「顺手补上」）。只做 `mp = min(mp_max, mp + mp_healing_value)`。
 5. **`unmount()`**：用 `del_mark(KIND, this.id)` 的**条件删除**（标记值被别人改过就不删），
    最后 `Buff::unmount()`。
-6. `Times` 的**累积语义**（`native/lfw/utils/times.cpp`）：`add(d)` 把 `d` 累加到 `_value`，
-   只有 `_value >= _max` 才返回 `true` 并把 `_value` 归位。
-   ⇒ 写用例时 `run tick <ticks>` 才会**每次**触发；`run tick 1` 三次只触发一次。
-   这是本轮 5 条变异存活的主因（用例的 tick 根本没触发到 `on_tick`）。
 
-### 23.3 harness 观察点
+### 27.3. harness 观察点
+
 - 一对 harness `buff_healing.{cpp,ts}`（`env cls s "healing"|"mp_healing"`）。
 - 输入：`env id|kind|cls|victim`（字符串）、`env vdata|vhp|vmp|mark`（对象）、
   `env ticks|duration`（裸数字，需先 `run make`）。
 - `run make|mount|unmount|tick <d>|duration <amount>`；`duration` 直接调类的**静态** `duration_of`。
 - 状态文本逐受害者打印 `hp=[…]` / `mp=[…]`，另有 `ticks=` / `life=` / `dur=` / `marks=`。
 - **数值日志一律走 `render`**（两端都是），别一端 `renderValue` 一端裸数字 ——
-  字符串日志则按 §22.3 的「值型 vs 键型」分别处理。
+  字符串日志则按 §26.3 的「值型 vs 键型」分别处理。
 
-## 24. `buff` 子类（三）：`Buff_Electroshock`
+## 28. `buff` 子类（三）：`Buff_Electroshock`
 
 `native/lfw/buff/buff_electroshock.{h,cpp}`（对应 `src/LFW/buff/Buff_Electroshock.ts`）。
-切片 4 第三组：**没有标记，只按 ticker 周期推进受害者的 `wait`，并在 `mount` 时缩短自身时长**。
+步骤 4 第三组：**没有标记，只按 ticker 周期推进受害者的 `wait`，并在 `mount` 时缩短自身时长**。
 
-### 24.1 单元边界
-本单元**不需要**给 `IBuffEntity` 增补任何成员：只用到已有的 `data` / `state` / `wait` /
+### 28.1. 单元边界
+
 `set_wait`，加上继承来的 `victims` / `find_entity` / `set_duration` / `duration` / `set_ticks` /
 `place_effect_center`。
 
-### 24.2 保真要点
+### 28.2. 保真要点
+
 1. **`init()` 覆写为 `set_ticks(3)`**：只设 tick 间隔，不碰 `duration`。
 2. **`effect_oid()` 覆写为 `"fx"`**，但**不覆写 `effect_frame_id()`**（基类 `"0"`）。
    曾经想把 `effect_frame_id` 也写成 `"32"`（照抄 `Buff_Electrify`）——那是**新增行为**，
@@ -3195,7 +3791,8 @@ TS 的 `Map.get` 返回**同一个对象**。C++ harness 若写 `g_buff = *it->s
 8. `if (victim == nullptr) return;` / `continue;` **不能反向**（`!= nullptr` 是空指针解引用路径），
    反向形式才是可观测变异。
 
-### 24.3 harness 观察点
+### 28.3. harness 观察点
+
 - 一对 harness `buff_electroshock.{cpp,ts}`。
 - 输入：`env id|kind|victim`（字符串）、`env vtype|vstate`（**值字面量**）、
   `env vwait|duration`（**裸数字**）、`env vpos|vframe`（对象）。
@@ -3204,13 +3801,12 @@ TS 的 `Map.get` 返回**同一个对象**。C++ harness 若写 `g_buff = *it->s
   列表里只要还剩一个中性状态的受害者，时长就会被它偷偷减半、变异藏进噪声里）。
 - `run make|init|mount|unmount|tick <d>`；`run tick <d>` 的 `d >= ticks` 才会每次都触发 `on_tick`。
 
-## 25. `buff` 子类（四）：`Buff_MagicFlute` / `Buff_MagicFlute2`
+## 29. `buff` 子类（四）：`Buff_MagicFlute` / `Buff_MagicFlute2`
 
 `native/lfw/buff/buff_magic_flute.{h,cpp}`（对应 `src/LFW/buff/Buff_MagicFlute.ts`、
-`Buff_MagicFlute2.ts`）。切片 4 第四组：**唯一同时实现 `on_tick` 与 `on_update` 的子类**。
+`Buff_MagicFlute2.ts`）。步骤 4 第四组：**唯一同时实现 `on_tick` 与 `on_update` 的子类**。
 
-### 25.1 单元边界（`native/lfw/buff/buff.h` 的补充）
-`IBuffEntity` 又补了一批**带默认实现的虚函数**（依旧不能加纯虚：10 个已门禁 harness 会全崩）：
+### 29.1. 单元边界（`native/lfw/buff/buff.h` 的补充）
 
 - 读：`data_type` / `velocity_y` / `team` / `data_indexes_falling` / `data_indexes_in_the_skys`
 - 写：`set_velocity(x,y,z)` / `handle_velocity_decay(accx)` / `set_hp_r` / `set_fallinjury` /
@@ -3221,7 +3817,8 @@ TS 的 `Map.get` 返回**同一个对象**。C++ harness 若写 `g_buff = *it->s
 `summary_mgr.apply_damage` 用**模块级缝**（与 `handlers2` 的 `summary_apply_damage` 同形）：
 `MagicFluteEnv { summary_apply_damage }` + `magic_flute_env()` / `set_magic_flute_env()`。
 
-### 25.2 结构说明：两个类共用文件内 helper
+### 29.2. 结构说明：两个类共用文件内 helper
+
 两个 TS 类的 `on_tick` / `on_update` **逐字相同**，只差两个常量
 （`injury` / 加速度）。端口把方法体抽成文件内匿名 namespace 的
 `apply_flute_tick(attacker, victim, injury, injury_r)` 与
@@ -3229,7 +3826,8 @@ TS 的 `Map.get` 返回**同一个对象**。C++ harness 若写 `g_buff = *it->s
 这是本仓端口化里**唯一一处**主动合并重复体的地方，理由是 TS 侧除常量外连标识符序列都一致，
 合并后没有引入任何 TS 里不存在的分支；变异规格的锚点也相应落在 helper 文本与常量定义上。
 
-### 25.3 保真要点
+### 29.3. 保真要点
+
 1. **`init()`**：`ticks = 3; duration = 3;`（两个类一致）。
 2. **`on_tick()`** 顺序不可换：
    ```text
@@ -3264,7 +3862,8 @@ TS 的 `Map.get` 返回**同一个对象**。C++ harness 若写 `g_buff = *it->s
 10. Fighter 分支结尾那个 `return;` 是 if/else-if 的等价变换，**不可观测**（删掉后
     落到 Weapon 测试，而该测试在 Fighter 为真时必为假）。
 
-### 25.4 harness 观察点
+### 29.4. harness 观察点
+
 - 一对 harness `buff_magic_flute.{cpp,ts}`（`env cls s "mf1"|"mf2"` 选择类）。
 - 输入：`env id|kind|cls|attacker|victim`（字符串；`env attacker s ""` 表示无攻击者）、
   `env ateam|vtype|vstate|vhp|vhp_r|vfallinjury|vtough|vteam|vindexes`（**值字面量**）、
@@ -3278,21 +3877,19 @@ TS 的 `Map.get` 返回**同一个对象**。C++ harness 若写 `g_buff = *it->s
   `victim.data.indexes.falling`，而端口读的是 `data_indexes_falling()` 缝；
   若 TS 侧 `data` 只返回 `_data`，`env vtype` 会连带把 `indexes` 抹掉，差分立刻分叉。
 
-## 26. 切片 5 起点：`state/State_Base`
+## 30. `state/State_Base`
 
 `native/lfw/state/state_base.{h,cpp}`（对应 `src/LFW/state/State_Base.ts`）。
-切片 5 的第一块：所有状态类的基类。
+步骤 5 的第一块：所有状态类的基类。
 
-### 26.1 单元边界
+### 30.1. 单元边界
+
 ```text
-IStateEntity : buff::IBuffEntity   // 只加 velocity_x() / velocity_z()
 StateEnv { const buff::BuffEnv* buff_env; }   // 模块级缝，同 handlers4 的 x_env()
 ```
-`IStateEntity` 继承 `IBuffEntity`，因为 `leave()` 里要调
-`Buff_Healing::duration_of(e, …)`（它的参数就是 `const IBuffEntity&`），
-而 `grant_buff` 的 victim 形参也是 `IBuffEntity*`。
 
-### 26.2 可选钩子用 `std::function` 成员，不用「虚函数 + has_ 标志」
+### 30.2. 可选钩子用 `std::function` 成员，不用「虚函数 + has_ 标志」
+
 `State_Base.ts` 里的 `pre_update?` / `enter?` / `on_dead?` / `on_landing?` /
 `get_gravity?` / `get_sudden_death_frame?` / `get_caught_end_frame?` / `get_auto_frame?` /
 `find_frame_by_id?` / `on_leave_ground?` 都是**声明式可选成员**：基类原型上根本没有这些属性。
@@ -3309,7 +3906,8 @@ if (s->get_gravity) { Value g = s->get_gravity(*e); }
 （`Buff` 用 `has_on_tick()` 是因为那边是必需/可选的二选一，这里 10 个钩子用虚函数会写 20 个函数）。
 `update` / `leave` / `on_restrict` 在 TS 里**基类就有实现** ⇒ 保持 `virtual` 且始终存在。
 
-### 26.3 保真要点
+### 30.3. 保真要点
+
 1. **`leave(e, next_frame)` 只处理 `HealSelf`**，用**严格** `===`：
    `grant_buff(Buff_Healing.KIND, void 0, e, Buff_Healing.duration_of(e, Defines.STATE_HEAL_SELF_HP))`。
    `STATE_HEAL_SELF_HP = 104`（端口写成文件内 `kStateHealSelfHp`，同 `n_bdy_defend` 的
@@ -3332,12 +3930,10 @@ if (s->get_gravity) { Value g = s->get_gravity(*e); }
    端口的 `lfw::clamp` 是 `double` 版，所以 `on_restrict` 里用一个 `Value` 版的
    `clamp_velocity(v)`：`d = to_number(v)`，越界返回**数值上/下界**，否则**原样返回 `v`**
    （这样 `undefined` 仍是 `undefined`、`NaN` 仍是 `NaN`、字符串仍是字符串）。
-4. **`e.position.x = x` 是直接写字段，不是 `set_position`**：端口用 `IBuffEntity::set_position`，
-   其语义（写 `_px/_py/_pz`）与 TS 的字段写一致；**harness 里这一处不能打日志**，
-   否则 TS 侧（字段写，无法拦截）与 C++ 侧（函数调用，可打日志）立刻分叉。
 5. `update(e)` 在 TS 里是**空方法**，照抄成空方法。
 
-### 26.4 harness 观察点
+### 30.4. harness 观察点
+
 - 一对 harness `state_base.{cpp,ts}`。
 - 输入：`env victim s "V1"`、`env state` / `dataset` / `pos` / `velx` / `velz`（**值字面量**，
   `velx`/`velz` 可写 `u` 造缺失速度）。
@@ -3348,23 +3944,23 @@ if (s->get_gravity) { Value g = s->get_gravity(*e); }
   —— 与 `buff_marks` 的「值型 vs 键型」约定一致。
 - `run make` 必须把「上一个创建出来的 buff」清空，否则 `granted=` 会把上一场景的结果带进来。
 
-## 27. 切片 5：`state/CharacterState_Base`
+## 31. `state/CharacterState_Base`
 
 `native/lfw/state/character_state_base.{h,cpp}`（对应 `src/LFW/state/CharacterState_Base.ts`）。
 角色状态的基类，覆写了 `update` 并**首次**给 `State_Base` 的可选钩子装上了实现。
 
-### 27.1 单元边界（`native/lfw/state/state_base.h` 的补充）
-`IStateEntity` 又补了一批**带默认实现的虚函数**（不能加纯虚：`state_base` 的 harness 已门禁）：
+### 31.1. 单元边界（`native/lfw/state/state_base.h` 的补充）
 
 - 读：`facing` / `holding_base_type` / `is_on_ground` / `frame_on_landing` / `data_frames` /
   `data_indexes_default` / `data_indexes_landing_2` / `data_indexes_heavy_obj_walk`
   （`data_indexes_falling` / `data_indexes_in_the_skys` 已在上一单元加好）
 - 写/动作：`enter_frame(next_frame)` / `drop_holding` / `handle_ground_velocity_decay`
 
-### 27.2 可选钩子的「安装」而不是「覆写」
+### 31.2. 可选钩子的「安装」而不是「覆写」
+
 `State_Base.ts` 里 `on_landing?` / `get_auto_frame?` / `get_sudden_death_frame?` /
 `get_caught_end_frame?` / `on_leave_ground?` 是可选成员，端口把它们建模成空 `std::function` 成员
-（见 DESIGN §26.2）。于是 `CharacterState_Base` **不是覆写虚函数，而是在构造函数里赋值**：
+（见 DESIGN §30.2）。于是 `CharacterState_Base` **不是覆写虚函数，而是在构造函数里赋值**：
 
 ```text
 CharacterState_Base::CharacterState_Base(Value state) : State_Base(std::move(state)) {
@@ -3375,7 +3971,8 @@ CharacterState_Base::CharacterState_Base(Value state) : State_Base(std::move(sta
 五个实现体放在文件内匿名 namespace 里（无捕获 ⇒ 可以直接取函数地址）。
 `update` 因为基类本来就有实现，保持 `override`。
 
-### 27.3 保真要点
+### 31.3. 保真要点
+
 1. **`update`**：`State_Base::update(e)`（空）之后调 `e.handle_ground_velocity_decay()`。
 2. **`on_landing`**：先看 `e.frame.on_landing`（`truthy` 判定），有就 `enter_frame` 并返回；
    否则 `enter_frame_by_id(e.data.indexes?.landing_2)`。
@@ -3397,7 +3994,8 @@ CharacterState_Base::CharacterState_Base(Value state) : State_Base(std::move(sta
    `falling["1"]` 是 `undefined`，再 `[1]` 就 TypeError。端口不复制这个异常，用例始终给全两个键。
 8. `index_by` 的**数组分支**与 `index_0` 的**对象分支**在本单元仍是死代码（照抄 `fall.cpp`）。
 
-### 27.4 harness 观察点
+### 31.4. harness 观察点
+
 - 一对 harness `character_state_base.{cpp,ts}`。
 - 输入：`env victim s "V1"`、`env onground`（**裸数字**）、
   `env state`（状态对象自己的 state）/ `vstate`（**实体的** state）/
@@ -3406,35 +4004,32 @@ CharacterState_Base::CharacterState_Base(Value state) : State_Base(std::move(sta
 - 输出 `run <op> || <日志> | ret=<返回值或 -> | <状态>`；五个可选钩子在端口的返回值
   用 `ret=` 观测（`undefined` 打成 `-`，与 TS 侧一致）。
 - ⚠️ **两处命名坑**：
-  1. `env state` 是**状态对象自己**的 state（构造参数），`env vstate` 才是**实体**的 state。
-     `on_leave_ground` 读的是后者 —— 只设 `env state` 会让 `run up` 静默什么都不做
-     （本轮 7 条变异存活全因此而起）。
   2. `on_landing` 的 velocity 形参 TS 原文没用，所以 `run landing` 不传值。
 
-## 28. 切片 5：`state/CharacterState_Standing` / `_Running` / `_Injured`
+## 32. `state/CharacterState_Standing` / `_Running` / `_Injured`
 
 `native/lfw/state/character_state_basic.{h,cpp}`
 （对应 `src/LFW/state/CharacterState_Standing.ts`、`CharacterState_Running.ts`、`CharacterState_Injured.ts`）。
 三个都是几十行的「地面小状态」，共用一份 harness 与用例，合成一个单元。
 
-### 28.1 单元边界（`native/lfw/state/state_base.h` 的补充）
-`IStateEntity` 又补 3 个**带默认实现的虚函数**：
+### 32.1. 单元边界（`native/lfw/state/state_base.h` 的补充）
 
 - `ground_y()`（`e.ground_y`）
 - `get_sudden_death_frame()` —— **注意这是「实体侧」的同名方法**，与 `State_Base` 上那个
-  「钩子」不是一回事（见 §28.2）
+  「钩子」不是一回事（见 §32.2）
 - `holding_set_team(v)` —— 对应 `holding.team = e.team`（写的是**持有物实体**的字段）
 
-### 28.2 两个 `get_sudden_death_frame` 必须分清
+### 32.2. 两个 `get_sudden_death_frame` 必须分清
+
 ```text
 Entity.get_sudden_death_frame(): TNextFrame      // 无参，内部 this._state?.get_sudden_death_frame?.(this) || NEXT_FRAME_AUTO
 State_Base.get_sudden_death_frame?(e): INextFrame // 有参，是「状态对象」上的可选钩子
 ```
 `CharacterState_Standing/Running` 写的是 **`e.get_sudden_death_frame()`**（实体侧、无参）
-⇒ 端口把它建成 `IStateEntity::get_sudden_death_frame()` **缝**（无参、返回 `Value`），
-由 harness 的假实体给出返回值。真正的「钩子 → 实体方法」那一层委托属于 `Entity`（切片 7）。
+由 harness 的假实体给出返回值。真正的「钩子 → 实体方法」那一层委托属于 `Entity`（步骤 7）。
 
-### 28.3 保真要点
+### 32.3. 保真要点
+
 1. **`CharacterState_Injured` 的 `super.enter?.(e, prev_frame)` 是死代码**：
    `State_Base.ts` 与 `CharacterState_Base.ts` 都只用 `?` **声明** `enter`，
    谁都没实现 ⇒ `super.enter` 恒为 `undefined`。端口因此什么都不写（不是漏）。
@@ -3454,7 +4049,8 @@ State_Base.get_sudden_death_frame?(e): INextFrame // 有参，是「状态对象
 5. 三个类的构造函数默认参数（`Standing` / `Running` / `Injured`）在本单元**不可观测**
    （没有任何路径读状态对象自己的 `_state`），写进规格头注。
 
-### 28.4 harness 观察点
+### 32.4. harness 观察点
+
 - 一对 harness `character_state_basic.{cpp,ts}`。
 - `env cls s "standing"|"running"|"injured"` 选类；`env usedefault 1` 不带状态构造（验证默认参数可省）。
 - 输入：`env victim s "V1"`、`env onground|usedefault`（**裸数字**）、
@@ -3462,29 +4058,22 @@ State_Base.get_sudden_death_frame?(e): INextFrame // 有参，是「状态对象
 - `run make|update|enter`。
 - 状态文本：`state=` / `hp=` / `ground=` / `pos=[x:y:z]` / `vel=[x:z]` /
   `holding=` / `holding_team=` / `team=`。
-- ⚠️ **TS 侧的「普通字段写」要改成带日志的属性**：
-  `holding.team = e.team` 在 TS 里是纯字段写（无日志），而端口那一步是缝调用。
-  若只在 C++ 侧打日志，差分立刻分叉；若两侧都**不打**日志，则「先掉落再改阵营」与
-  「先改阵营再掉落」两条变异的**顺序**不可观测（本轮唯一存活项）。
-  最终做法：TS 假实体的 `holding` getter 返回一个带 **`get/set team`** 的对象，
-  setter 里打 `holding_set_team:<值>` 日志；C++ 的 `holding_set_team` 也打同样的日志。
 
-## 29. 切片 5：`state/CharacterState_Walking`
+## 33. `state/CharacterState_Walking`
 
 `native/lfw/state/character_state_walking.{h,cpp}`（对应 `src/LFW/state/CharacterState_Walking.ts`）。
 第一个同时使用「输入（ctrl）」与「等待值（wait）」的状态。
 
-### 29.1 单元边界（`native/lfw/state/state_base.h` 的补充）
-`IStateEntity` 补 6 个**带默认实现的虚函数**：
+### 33.1. 单元边界（`native/lfw/state/state_base.h` 的补充）
 
 - `frame_info()`（`e.frame`，整帧对象）、`ctrl_ud()` / `ctrl_lr()`（`e.ctrl.UD` / `.LR`）
 - `holding_is_weapon()`（`is_weapon(e.holding)`）
 - `handle_wait_flag(wait, frame)` → `double`
 - `enter_frame_by_id_fallback(id, fallback)`
 
-### 29.2 为什么新开一个 `enter_frame_by_id_fallback` 而不是给已有虚函数加形参
+### 33.2. 为什么新开一个 `enter_frame_by_id_fallback` 而不是给已有虚函数加形参
+
 TS 的签名是 `enter_frame_by_id(id: string | undefined, fallback: boolean = false)`。
-**绝不能**把已有的 `IBuffEntity::enter_frame_by_id(const u16string&)` 改成两参数版本：
 现有 harness 覆写的是**一参数**版本，基类签名一变，它们的函数就不再是覆写，
 调用会静默落到基类的空实现上（编译通过、行为全错）。
 所以新开一个**带默认实现**的虚函数，默认实现转发给一参数版本：
@@ -3498,7 +4087,8 @@ virtual void enter_frame_by_id_fallback(const std::u16string& id, bool fallback)
 
 新增成员永远安全，改已有签名永远不安全 —— 这是本仓反复确认的规则。
 
-### 29.3 保真要点
+### 33.3. 保真要点
+
 1. **`update`**：`super.update(e)`（含 `handle_ground_velocity_decay`）之后：
    ```text
    if (!ctrl.UD && !ctrl.LR && !e.wait) {
@@ -3519,7 +4109,8 @@ virtual void enter_frame_by_id_fallback(const std::u16string& id, bool fallback)
    必须构造「hp<=0 **且** 高于地面」的输入才能观测这个 `return`。
 3. 构造函数默认参数（`StateEnum.Walking`）在本单元不可观测（没有路径读状态对象自己的 `_state`）。
 
-### 29.4 harness 观察点
+### 33.4. harness 观察点
+
 - 一对 harness `character_state_walking.{cpp,ts}`。
 - 输入：`env victim s "V1"`、`env ctrlud|ctrllr|hweapon|waitflag`（**裸数字**）、
   `env state|hp|vwait|frame|ground_y|holding|indexes|pos`（值字面量，`vwait` 可 `u`）。
@@ -3533,21 +4124,21 @@ virtual void enter_frame_by_id_fallback(const std::u16string& id, bool fallback)
   TS 侧只有一个带默认参数的 `enter_frame_by_id(id, fallback=false)`，
   两条调用路径打出的文本必须一致。
 
-## 30. 切片 5：`state/CharacterState_Caught` / `_Rowing`
+## 34. `state/CharacterState_Caught` / `_Rowing`
 
 `native/lfw/state/character_state_caught_rowing.{h,cpp}`
 （对应 `src/LFW/state/CharacterState_Caught.ts`、`CharacterState_Rowing.ts`）。
 两个都在 `enter` 钩子里干活的小状态，合成一个单元。
 
-### 30.1 单元边界（`native/lfw/state/state_base.h` 的补充）
-`IStateEntity` 补 5 个**带默认实现的虚函数**：
+### 34.1. 单元边界（`native/lfw/state/state_base.h` 的补充）
 
 - `has_holding()`（`const holding = e.holding; if (holding)` 的**真值**判定，
   与 `holding_base_type()` 是两件事：前者看对象是否存在，后者看它的 `base_type` 字段）
 - `fall_value()` / `fall_value_max()` / `set_fall_value(v)`
 - `data_indexes_landing_1()`
 
-### 30.2 保真要点
+### 34.2. 保真要点
+
 1. **`CharacterState_Caught.update` 不调 `super.update(e)`**：因此**没有**
    `handle_ground_velocity_decay`，只做 `e.set_velocity(0, 0, 0)`。
    这是与 `Standing` / `Running` / `Walking` 不同的地方，用例专门断言「update 无日志」。
@@ -3577,11 +4168,9 @@ virtual void enter_frame_by_id_fallback(const std::u16string& id, bool fallback)
      `current < target && target > 0` 取 `target`；`current > target && target < 0` 取 `target`；
      否则**返回原值**。所以 `current` 比负数目标更小的时候会**原样保留**（用例专门覆盖）。
    - `acc` 在 `Default` 模式下**不被使用**（变异不可观测，已写进规格头注）。
-5. **`velocity.y` 缺失在端口无法表示**：`IBuffEntity::velocity_y()`（以及 `calc_v` 本身）
-   是 `double` 型，缺失值变成 `NaN`，而 TS 会原样保留 `undefined` 并把它返回。
-   ⇒ 用例只给数值型 `vely`（`velocity.x` 是 `Value` 型，`u` 已覆盖）。已写进规格头注。
 
-### 30.3 harness 观察点
+### 34.3. harness 观察点
+
 - 一对 harness `character_state_caught_rowing.{cpp,ts}`。
 - `env cls s "caught"|"rowing"`；`env victim s "V1"`；`env has_holding 0|1`（**裸数字**）。
 - 输入：`env state|prevstate|fall|fallmax|vteam|velx|vely|holding|onlanding|dataset|indexes`
@@ -3595,7 +4184,7 @@ virtual void enter_frame_by_id_fallback(const std::u16string& id, bool fallback)
   修法：把两次读取**拆成独立语句**先读进局部量，再相乘。
   **凡是一个表达式里有两次带副作用的读取/调用，都必须拆开。**
 
-## 31. 切片 5：五个小状态（`state_misc`）
+## 35. 五个小状态（`state_misc`）
 
 `native/lfw/state/state_misc.{h,cpp}`，一个文件装五个各几十行的小状态：
 
@@ -3607,12 +4196,13 @@ virtual void enter_frame_by_id_fallback(const std::u16string& id, bool fallback)
 | `State_TransformTo8XXX` | `State_TransformTo8XXX.ts` | `leave`（**虚函数**，唯一一个读自己 `_state` 的） |
 | `BallState_Base` | `BallState_Base.ts` | `enter` 钩子 |
 
-### 31.1 单元边界（`native/lfw/state/state_base.h` 的补充）
-`IStateEntity` 补 8 个**带默认实现的虚函数**：
+### 35.1. 单元边界（`native/lfw/state/state_base.h` 的补充）
+
 `transfrom_to_another` / `find_auto_frame` / `transform(data)` / `datas_find(oid)` /
 `datas_find_fighter(oid)` / `set_shaking` / `set_motionless` / `world_callbacks_call(name)`。
 
-### 31.2 保真要点
+### 35.2. 保真要点
+
 1. **`State_WeaponBroken`**：`on_landing` 直接 `enter_frame(GONE_FRAME_INFO)`，
    连 `truthy` 判断都没有（对比 `CharacterState_Base` / `Rowing` 的 on_landing 都有帧判定）。
 2. **`State_TransformToCatching.update`** 与 **`CharacterState_TransformToLouisEX.enter`**
@@ -3642,7 +4232,8 @@ virtual void enter_frame_by_id_fallback(const std::u16string& id, bool fallback)
    命中后清 `shaking`、`motionless`、速度（三个都清）。
    注意它覆写的是 `State_Base` 里的**钩子**，不是虚函数。
 
-### 31.3 harness 观察点
+### 35.3. harness 观察点
+
 - 一对 harness `state_misc.{cpp,ts}`（`env cls` 选 5 个类之一）。
 - 输入：`env victim s "V1"`、`env state|vstate|vtype|finddata|findfighter|transformtype`（值字面量）。
   `finddata` / `findfighter` 是 `datas_find*` 的返回值；`transformtype` 是 `transform()` 之后
@@ -3651,35 +4242,14 @@ virtual void enter_frame_by_id_fallback(const std::u16string& id, bool fallback)
 - 状态文本：`state=`（状态对象自己的）/ `vstate=`（实体）/ `type=` / `shaking=` / `motionless=` / `vel=[x:y:z]`。
 - ⚠️ 同名调用要去重：`e.enter_frame(e.find_auto_frame());` 在本文件里出现 **3 次**
   （`cs2_enter` / `update` / `leave`），写变异锚点必须带上前后一行。
-- ⚠️ 「宽松比较」类变异需要**字符串形态**的输入：`transformtype s "8"` 是
-  `strict_equals(new_type, Fighter)` → `equals` 的唯一观测点（本轮唯一一次存活）。
 
-### 29.5 修订：`ctrl_ud()` / `ctrl_lr()` 由 `bool` 改为 `double`
-
-`CharacterState_Dash`（§32）要把上下/左右输入**当数字用**（`UD * dz`、`LR * dx`），
-而 §29 落地时这两个缝是 `bool`。现已改为：
-
-```text
-virtual double ctrl_ud() const { return 0; }
-virtual double ctrl_lr() const { return 0; }
-```
-
-- **`Walking` 的端口文本一个字都不用改**：`!e.ctrl_ud()` 对 `double` 依然成立
-  （`!0.0` 为真、`!(-1.0)` 为假），与 JS 的 `!UD` 完全一致。
-  ⇒ 它的变异锚点也没变，门禁复跑仍 **34/34 全杀**。
-- **改返回类型是「大声失败」而不是静默失配**：旧 harness 里写的是
-  `bool ctrl_ud() const override`，返回类型不协变 ⇒ **编译报 C2555**（与
-  `character_state_caught_rowing` 里 `velocity_y()` 那次同一类错误）。这正是「可以改已有缝的类型」与「不可以改已有缝的形参个数」
-  的区别：前者会报错，后者会静默退化成隐藏而非覆写。
-- 语义边界：控制器取值只可能是 `0 / ±1`，`NaN` 不可能出现，所以 `double` 足够；
-  这点已写进 `character_state_dash` 的规格头注。
-
-## 32. 切片 5：`state/CharacterState_Dash`
+## 36. `state/CharacterState_Dash`
 
 `native/lfw/state/character_state_dash.{h,cpp}`（对应 `src/LFW/state/CharacterState_Dash.ts`）。
 本片第一个**用数字型 ctrl** 的状态。
 
-### 32.1 保真要点
+### 36.1. 保真要点
+
 1. **`enter` 的早退守卫要求两个条件同时成立**：
    ```text
    if (e.position.y > e.ground_y && e.velocity.y !== 0) return
@@ -3690,7 +4260,7 @@ virtual double ctrl_lr() const { return 0; }
 2. **六个 dataset 的读取顺序即日志顺序**：
    `dash_distance` → `dash_x_f`（→ `dx`）→ `dash_distancez` → `dash_z_f`（→ `dz`）→
    `dash_height` → `dash_h_f`（→ `vy`）。端口把六次读取**拆成独立语句**再相乘，
-   否则 MSVC 的求值顺序与 TS 的左到右不一致（同 §30.3 的坑）。
+   否则 MSVC 的求值顺序与 TS 的左到右不一致（同 §34.3 的坑）。
 3. **`next_vz` 的初值会被保留**：`let next_vz = vz`，只有 `if (UD)` 为真才被覆盖
    ⇒ 没有上下输入时 z 速度**原样保留**（`next_vx` 的初值则总是被后面的 if/else 链覆盖，
    属死代码，已写进规格头注）。
@@ -3707,7 +4277,8 @@ virtual double ctrl_lr() const { return 0; }
 5. `vy = dash_height * dash_h_f` 是**向上初速度**，与 x/z 一起交给 `set_velocity(next_vx, vy, next_vz)`。
 6. 构造函数默认参数（`StateEnum.Dash`）在本单元不可观测。
 
-### 32.2 harness 观察点
+### 36.2. harness 观察点
+
 - 一对 harness `character_state_dash.{cpp,ts}`。
 - 输入：`env victim s "V1"`、`env ctrlud|ctrllr`（**裸数字**，`-1/0/1`）、
   `env state|prevstate|pos|ground_y|velx|vely|velz|facing|dataset`（值字面量）。
@@ -3721,20 +4292,21 @@ virtual double ctrl_lr() const { return 0; }
   于是「`vx < 0` 支被删」与「兜底支忽略 facing」两条变异互相掩护。
   必须**同时**给 `facing = 1`（区分 `-dx`）与 `facing = -1`（区分 `dx`）两组零速度场景。
 
-## 33. 切片 5：`state/CharacterState_Burning`
+## 37. `state/CharacterState_Burning`
 
 `native/lfw/state/character_state_burning.{h,cpp}`（对应 `src/LFW/state/CharacterState_Burning.ts`）。
 第一个同时覆写 `enter` / `update` / `leave` / `on_landing` 四个位置的状态。
 
-### 33.1 单元边界（`native/lfw/state/state_base.h` 的补充）
-`IStateEntity` 补 8 个**带默认实现的虚函数**：
+### 37.1. 单元边界（`native/lfw/state/state_base.h` 的补充）
+
 `bounced` / `set_bounced` / `has_catcher` / `catcher_drop_catching` / `set_facing` /
 `world_dataset(key)` / `data_indexes_bouncing` / `data_indexes_lying`。
 
 其中 `world.dataset.*` 用「按 key 取值」的缝（`world_dataset("cha_bc_tst_spd_y")` 等），
 而不是给每个字段开一个成员。
 
-### 33.2 保真要点
+### 37.2. 保真要点
+
 1. **`enter` 里调的是 `super.update(e)` 而不是 `super.enter`** —— 这是 TS 原文的
    怪异之处（`override enter(...) { super.update(e); ... }`），端口**照抄**：
    安装的 lambda 里调 `this->CharacterState_Base::update(e)`。
@@ -3768,7 +4340,8 @@ virtual double ctrl_lr() const { return 0; }
    - `set_velocity(null, spd)` 只给 y，x 是 `null`、z 省略。
 5. 构造函数**没有**默认参数（TS 里就是 `constructor() { super(StateEnum.Burning) }`）。
 
-### 33.3 harness 观察点
+### 37.3. harness 观察点
+
 - 一对 harness `character_state_burning.{cpp,ts}`。
 - 输入：`env victim s "V1"`、`env catcher 0|1`（**裸数字**）、
   `env indexes|wdata|facing|bounced|velx|vely|velz|landingvel|onlanding`（值字面量）。
@@ -3784,15 +4357,15 @@ virtual double ctrl_lr() const { return 0; }
    「缓落弹跳」场景把 `bounced` 置真后，后面两条本想观测右侧条件的场景直接走了 else。
    ⇒ **每个 `landing` 场景都要显式 `env bounced n 0`。**
 
-## 34. 切片 5：`state/CharacterState_Teleport2*`
+## 38. `state/CharacterState_Teleport2*`
 
 `native/lfw/state/character_state_teleport.{h,cpp}`（对应
 `src/LFW/state/CharacterState_Teleport2NearestEnemy.ts` 与
 `CharacterState_Teleport2FarthestAlly.ts`）。
 两个 TS 类**镜像**实现：除「同盟极性」与「接受更优者的谓词」外逐字节相同。
 
-### 34.1 单元边界（`native/lfw/state/state_base.h` 的补充）
-`IStateEntity` 补 9 个**带默认实现的虚函数**：
+### 38.1. 单元边界（`native/lfw/state/state_base.h` 的补充）
+
 `world_entities()`（世界实体列表）、
 `is_fighter_ref(o)` / `is_self_ref(o)` / `is_ally_ref(o)` / `ref_hp(o)` /
 `ref_position_x(o)` / `ref_position_z(o)`、
@@ -3804,7 +4377,8 @@ virtual double ctrl_lr() const { return 0; }
 而 `world.ground.segment(x, z)` 与 `world.ground.y(seg, x, z)` 在 TS 里是
 **方法调用** ⇒ 端口里**打日志**，两个 harness 必须给出一致的条数与顺序。
 
-### 34.2 保真要点
+### 38.2. 保真要点
+
 1. **`abs(o.position.z - o.position.z)` 是 TS 原文的 bug**（恒为 0），端口**照抄**成
    `abs(e.ref_position_z(o) - e.ref_position_z(o))`。
    规格里用「第二个操作数换成 `mz` / 第一个换成 `mx`」两条变异证明用例能看见这个死项。
@@ -3813,7 +4387,7 @@ virtual double ctrl_lr() const { return 0; }
    端口写成一条三元：`nearest_enemy ? (best < 0 || dis < best) : (dis > best)`。
 3. **两个类合并成两个自由函数**
    （`pick_target(e, bool nearest_enemy)` + `teleport_to(e, tar)`）：
-   两份镜像体逐字节相同，直接复制会让**每一条变异锚点都二义**（同 §25.2 的理由）。
+   两份镜像体逐字节相同，直接复制会让**每一条变异锚点都二义**（同 §29.2 的理由）。
    这个合并**没有引入**原对里不存在的分支 —— 那个布尔开关正是「同盟极性 + 比较谓词」本身。
 4. **`let { x, z } = m.position` 在 `if (_tar)` 之前** ⇒ 端口**先无条件**读一次
    `e.position(x, y, z)`。TS 只解构 `x` / `z`，端口多读了一个 `y`（不用它）；
@@ -3825,7 +4399,8 @@ virtual double ctrl_lr() const { return 0; }
 7. 构造函数带默认实参（`StateEnum.TeleportToNearestEnemy = 400` /
    `TeleportToFarthestAlly = 401`），端口保留；harness 用 `run default` 观测它。
 
-### 34.3 harness 观察点
+### 38.3. harness 观察点
+
 - 一对 harness `character_state_teleport.{cpp,ts}`。
 - 输入：`env cls s "nearest"|"farthest"`、`env state`（值字面量）、
   `env victim s "M1"`、`env facing|seg`（值字面量）、`env gy <裸数字>`、
@@ -3845,13 +4420,14 @@ virtual double ctrl_lr() const { return 0; }
   （「谓词忽略搜索方向」）就是远盟那一段忘了 `run make`：
   结果用近敌对象跑了「只有同盟」的场景，两边都退化成自身位置，无法区分。
 
-## 35. 切片 5：`state/WeaponState_Base` + `defines/weapon_bounce.h`
+## 39. `state/WeaponState_Base` + `defines/weapon_bounce.h`
 
 `native/lfw/state/weapon_state_base.{h,cpp}`（对应 `src/LFW/state/WeaponState_Base.ts`）
 与新的手写常量表 `native/lfw/defines/weapon_bounce.h`
 （对应 `src/LFW/defines/defines.ts` 里 `Defines.WT_*` 九张表）。
 
-### 35.1 常量表（`lfw/defines/weapon_bounce.h`）
+### 39.1. 常量表（`lfw/defines/weapon_bounce.h`）
+
 `Defines.WT_BOUNCE_MIN_Y/X/Z`、`WT_BOUNCE_Y/X/Z`、`WT_FAST_Y/X/Z` 都是
 `Record<WT, number>`，即「以武器类型为键的对象」。TS 里用一个**不在范围内的键**
 （`undefined`、`9`、`2.5`）取值会得到 `undefined`，从而让调用点的 `??` 兜底生效。
@@ -3863,7 +4439,8 @@ virtual double ctrl_lr() const { return 0; }
 ⚠️ **`-1` 必须被拦住**：表是定长 `std::array<double,6>`，负下标是 UB 而不是可观测分歧
 （规格头注里写明了这条，避免以后有人把「范围检查」当成死代码删掉）。
 
-### 35.2 保真要点
+### 39.2. 保真要点
+
 1. **三个钩子在构造函数里安装**（`get_auto_frame` / `on_landing` / `on_leave_ground`），
    `update` 是 `override`（TS 里 `WeaponState_Base.update` 只调
    `e.handle_ground_velocity_decay()`，**不调 `super.update`**）。
@@ -3897,7 +4474,8 @@ virtual double ctrl_lr() const { return 0; }
 7. `Defines.WT_BOUNCE_Z` 与 `Defines.WT_BOUNCE_X` **逐项相同** ⇒
    「深度反弹走 x 表」这类变异不可观测（同样写进规格头注）。
 
-### 35.3 harness 观察点
+### 39.3. harness 观察点
+
 - 一对 harness `weapon_state_base.{cpp,ts}`。
 - 输入：`env state|indexes|ionground|ithrow|isky|frames|onlanding|base|wt|dh|vstate|fid|vel|nf|align`
   （值字面量）、`env hp|hpr <裸数字>`、`env onground <真值>`。
@@ -3908,21 +4486,20 @@ virtual double ctrl_lr() const { return 0; }
   （`o` 的计数是**键值对**个数，不是 token 数）。第一次就是因为把键写成了 `s "4"` 才被拒。
 - ⚠️ 被 `hit_ground_rebouncing` 写回的字段（`dh`、`hp`、`hp_r`）**每段场景开头都要重置**。
 
-## 36. 切片 5：`state/StateBase_Proxy` + `State_15` + `State_Frozen`
+## 40. `state/StateBase_Proxy` + `State_15` + `State_Frozen`
 
 `native/lfw/state/state_base_proxy.{h,cpp}`（对应 `StateBase_Proxy.ts` / `State_15.ts` /
 `State_Frozen.ts` 三个小类，按 `state_misc` 的先例合并成一个单元）。
 
-### 36.1 单元边界
-`IStateEntity` 补两个带默认实现的虚函数：`play_sound(const Value& sounds)`、
+### 40.1. 单元边界
+
 `apply_opoints(const std::vector<Value>& opoints)`。
 
-### 36.2 保真要点
+### 40.2. 保真要点
+
 1. **`leave` / `update` / `on_restrict` 是虚函数，不是可选钩子**：`State_Base` 里只有
    `pre_update` / `enter` / `on_dead` / `on_landing` / `get_*` / `find_frame_by_id` /
-   `on_leave_ground` 是 `std::function` 成员。端口第一版把 `leave` 当成钩子成员写，
-   编译直接报 `C3867`（`leave` 解析成了成员函数）——**看到 `?.()` 不要想当然，先看它在
-   基类里是方法还是可选属性**。
+   `on_leave_ground` 是 `std::function` 成员。端口
 2. **四个代理按值持有**（`_character_proxy` / `_weapon_proxy` / `_ball_proxy` / `_proxy`），
    构造函数里 `State_Base(state)` 与四个成员**都用拷贝**：如果基类初始化列表写
    `std::move(state)`，四个成员就会拿到被掏空的值（基类先于成员初始化）。
@@ -3951,7 +4528,8 @@ virtual double ctrl_lr() const { return 0; }
      `set_velocity(null, cha_bc_spd)`、`hp -= 10`。
 8. `sound_list()` 是文件内 helper：把单个路径包成一个数组（TS 传的是 `["..."]`）。
 
-### 36.3 harness 观察点
+### 40.3. harness 观察点
+
 - 一对 harness `state_base_proxy.{cpp,ts}`。
 - 输入：`env cls s "proxy"|"15"|"frozen"`、`env dstate`（构造参数，用 `state`）、
   `env data|indexes|frames|onlanding|wdata|hbtype|vx|vz|vel|rid|pos|rxyz`（值字面量）、
@@ -3967,21 +4545,22 @@ virtual double ctrl_lr() const { return 0; }
   假实体要提供 `world.buffs = new Map()` 与一个打日志并返回 `undefined` 的 `create_buff`，
   才能与 C++ 侧 `BuffEnv::create_buff` 对齐。
 
-## 37. 切片 5：`state/WeaponState_OnGround` / `_OnHand` / `_Throwing` / `_InTheSky`
+## 41. `state/WeaponState_OnGround` / `_OnHand` / `_Throwing` / `_InTheSky`
 
 `native/lfw/state/weapon_state_misc.{h,cpp}`（对应
 `src/LFW/state/WeaponState_OnGround.ts` / `_OnHand.ts` / `_Throwing.ts` / `_InTheSky.ts`）。
 四个类都直接继承 `WeaponState_Base`，合并成一个单元。
 
-### 37.1 单元边界（`native/lfw/state/state_base.h` 的补充）
-`IStateEntity` 补 9 个**带默认实现的虚函数**：
+### 41.1. 单元边界（`native/lfw/state/state_base.h` 的补充）
+
 `motionless` / `has_bearer` / `bearer_motionless` / `set_bearer_motionless` /
 `lfw_new_team` / `frame_behavior` / `set_dropping` /
 `data_indexes_throw_on_ground` / `data_indexes_just_on_ground`。
 分别对应 TS 的 `e.motionless`、`e.bearer.motionless`、`e.lfw.new_team`、
 `e.frame.behavior`、`e.dropping`、`indexes?.throw_on_ground` / `?.just_on_ground`。
 
-### 37.2 保真要点
+### 41.2. 保真要点
+
 1. 四个类在 TS 里都**没有构造函数默认实参**（继承来的 `state` 是必填），
    端口保持 `explicit X(Value state)`；`ENTITY_STATES` 对普通/重型武器的多次实例化
    都靠显式传值。
@@ -4017,9 +4596,10 @@ virtual double ctrl_lr() const { return 0; }
    - `set_drop_hurted` 与 `leave_ground` 的先后顺序（`dh` 无日志）。
 10. `nf` 为真时先 `e.dropping = false`（属性写 ⇒ 静默）再 `enter_frame(nf)`。
 
-### 37.3 harness 观察点
+### 41.3. harness 观察点
+
 - 一对 harness `weapon_state_misc.{cpp,ts}`；`env cls` 选类，构造参数走 `env state`。
-- 输入与覆盖面见 `PROTOCOL.md` §6.9.89。
+- 输入与覆盖面见 `PROTOCOL.md`
 - 状态文本 `team= dh= hp= hpr= motionless= bmotion= dropping=`；
   `run make` 额外打 `s=`，`run gravity` 额外打 `r=`。
 - ⚠️ **`base` 必须一直是有键对象**（TS 读 `base.fast_vx` 没有 `?.`）；
@@ -4028,16 +4608,17 @@ virtual double ctrl_lr() const { return 0; }
   `enter_frame_by_id` 在 C++ 是 `std::u16string` 形参，会把 `undefined` 渲染成
   字符串 `"undefined"`，与 TS 的 `u` 不同（属工具边界，不是语义差异）。
 
-## 38. 切片 5：`state/CharacterState_Drink` + `state/State_Burning`
+## 42. `state/CharacterState_Drink` + `state/State_Burning`
 
 `native/lfw/state/character_state_drink.{h,cpp}`（对应
 `src/LFW/state/CharacterState_Drink.ts`）与 `native/lfw/state/state_burning.{h,cpp}`
 （对应 `src/LFW/state/State_Burning.ts`）。
 
-### 38.1 单元边界（`StateBase_Proxy` 的代理注入）
+### 42.1. 单元边界（`StateBase_Proxy` 的代理注入）
+
 TS 的 `StateBase_Proxy` 构造器可以注入四个代理，`State_Burning` 注入了
 `new CharacterState_Burning()` 作为 character 代理（其余三个用默认值）。
-§36 的端口当时把四个成员**按值**持有并统一用 `state` 构造，无法表达这个需求，
+§40 的端口当时把四个成员**按值**持有并统一用 `state` 构造，无法表达这个需求，
 所以本片给 `StateBase_Proxy` 补了一个重载：
 
 ```cpp
@@ -4049,19 +4630,19 @@ StateBase_Proxy(Value state, std::unique_ptr<CharacterState_Base> character_prox
 单参构造器委托给双参版本（传 `nullptr` 时按 `state` 默认构造）。
 `State_15` / `State_Frozen` / 既有 `state_base_proxy` 用例的语义不受影响。
 
-`IStateEntity` 补 5 个带默认实现的虚函数：
 `hp_max` / `holding_drink`（返回 `DrinkInfo*`）/ `holding_set_hp` /
 `holding_set_hp_r` / `holding_set_velocity` / `holding_mt_range`
 （`has_holding` 复用 6u 的缝）。
 
-### 38.2 保真要点
+### 42.2. 保真要点
+
 1. **`State_Burning` 只做三件事**：默认 state 取 `StateEnum.Burning`（18）、
    把 `CharacterState_Burning` 注入代理、其余三个代理留给基类默认。
    `state` 参数仍可覆写（构造函数默认实参）。
 2. **分派即代理的全部行为**：Fighter（`data.type = 8`）→ `CharacterState_Burning`、
    Weapon（16）→ `WeaponState_Base(state)`、Ball（32）→ `BallState_Base(state)`、
    其它 → 裸 `State_Base(state)`。端口用 `entity::is_*_data(data)`（读 `e.data`），
-   与 `is_fighter(e)`（读 `v.data`）的区别见 §36.2 第 4 条。
+   与 `is_fighter(e)`（读 `v.data`）的区别见 §40.2 第 4 条。
 3. **`CharacterState_Drink.update` 照抄原文的四段结构**：
    - `super.update`（地面速度衰减）永远先跑；
    - `holding` / `drink` 两层守卫，缺一即返回；
@@ -4082,28 +4663,31 @@ StateBase_Proxy(Value state, std::unique_ptr<CharacterState_Base> character_prox
 7. `mt.range(-6, 6)` 的结果由缝注入（`holding_mt_range` 打日志并返回注入值）；
    真 MT 流由 `mersenne_twister` 单元负责，本片只锁参数与后续算术。
 
-### 38.3 harness 观察点
+### 42.3. harness 观察点
+
 - 一对 harness `burning_drink.{cpp,ts}`；`env cls` 选类。
-- 输入与覆盖面见 `PROTOCOL.md` §6.9.90。
+- 输入与覆盖面见 `PROTOCOL.md`
 - 状态文本 `hp= hpr= hpmax= mp= mpmax= state= bounced= facing= holding= hhp= hhpr= drink=<快照> pos=[…]`；
   `run make|default` 额外打 `s=`。
 - ⚠️ `indexes.bouncing` 的索引形状是 `{"-1":[_, id]}`、`lying` 是 `{"-1": id}`，
-  参与 `enter_frame_by_id` 的值必须是**字符串**（否则撞 §37.3 的 `to_string` 差异）。
+  参与 `enter_frame_by_id` 的值必须是**字符串**（否则撞 §41.3 的 `to_string` 差异）。
 - ⚠️ `env drink` 直接构造真 `DrinkInfo`，状态文本打 `to_snapshot()` ——
   三个 `Times` 的内部状态因此全部可观测（`add()` 是否被调用也不例外）。
 
-## 39. 切片 5：`state/CharacterState_Jump`
+## 43. `state/CharacterState_Jump`
 
 `native/lfw/state/character_state_jump.{h,cpp}`（对应 `src/LFW/state/CharacterState_Jump.ts`）。
 
-### 39.1 单元边界（`IStateEntity` 补 12 个缝）
+### 43.1. 单元边界
+
 `ctrl_is_bot()` / `ctrl_is_end(const std::u16string&)`、`jumping_x/y/z/t()` 与
 `set_jumping_x/y/z/t()`（8 个）、`prev_frame()`、`update_velocity(const Value&)`。
 其余用既有缝：`position`、`set_position`、`ground_y`、`dataset`、`world_dataset`、
 `ctrl_lr/ud`、`handle_ground_velocity_decay`、`frame_on_landing`、
 `data_indexes_landing_1`、`enter_frame`、`enter_frame_by_id`、`set_velocity`。
 
-### 39.2 保真要点
+### 43.2. 保真要点
+
 1. **钩子装配**：构造函数里只装 `enter` 与 `on_landing`（`update` 是重写的虚函数，
    不是钩子）。默认 state 取 `StateEnum.Jump`（4），`state` 参数仍可覆写。
 2. **`enter` 只清四个 `jumping` 字段**（x→y→z→t 各写一次 0），不碰位置、速度、帧。
@@ -4132,32 +4716,22 @@ StateBase_Proxy(Value state, std::unique_ptr<CharacterState_Base> character_prox
    否则 `enter_frame_by_id(to_string(e.data.indexes?.landing_1))`，随后
    `update_velocity({ dvz: 4, ctrl_z: SpeedCtrl.Control })`。
 
-### 39.3 有意不覆盖 / 不可观测项
-- 机器人分支里 `t`、`y` 加的是同一个 `atom_time`，**交换两次调用不可观测**
-  （变异规格头注已写明）；少加一次 `y` 是可观测的（已列入变异）。
-- `e.jumping.*` / `e.position.y` 在 TS 是静默属性读写；端口走静默取值/写入缝，
-  只由状态文本观察终值，因此「读 `x` 还是读 `y`」这类差异靠后续行为与文本区分。
-- ⚠️ **`atom_time > 0` 时 `jumping.t` 在插值处恒为真**（计步刚加过），
-  `else` 分支只有 `atom_time = 0` 才可达。用例专门保留了这一档
-  （`atom_time n 0` + `jy n 2`），否则「条件读成 `jumping.y`」的变异会存活——
-  本片实测第一次跑变异就是这一条 SURVIVED。
-- ⚠️ 与 §37.3 同源：`landing_1` 若是 `undefined`，C++ 的 `to_string` 渲染成
-  `"undefined"` 而 TS 打 `u`，故用例里的 `landing_1` 只喂字符串，这一档有意不覆盖。
+### 43.3. harness 观察点
 
-### 39.4 harness 观察点
 - 一对 harness `character_state_jump.{cpp,ts}`；TS 侧用真 `CharacterState_Jump`，
   fake Entity 提供 `jumping`（逐字段 getter/setter）、`ctrl`（`__is_bot_ctrl__`
   与 `is_end` 打日志）、`world`（Proxy，打 `world_dataset:<键>`）、
   `get_prev_frame()`（打日志）。
-- 输入与覆盖面见 `PROTOCOL.md` §6.9.91。
+- 输入与覆盖面见 `PROTOCOL.md`
 - 状态文本 `pos=[x:y:z] gy= jx= jy= jz= jt=`；`run make|default` 额外打 `s=`。
 
-## 40. 切片 5：`state/CharacterState_Falling`
+## 44. `state/CharacterState_Falling`
 
 `native/lfw/state/character_state_falling.{h,cpp}`（对应
 `src/LFW/state/CharacterState_Falling.ts`）。
 
-### 40.1 单元边界（`IStateEntity` 补 13 个缝）
+### 44.1. 单元边界
+
 `ctrl_reset_key_list()`、`data_id()`、`shaking()`、
 `handle_ground_velocity_decay(double factor)`（**重载**：无参版本代表默认 `1`）、
 `fuse_bys()`、`ref_set_velocity(who, x, y, z)`、`dismiss_fusion(frame_id)`、
@@ -4174,7 +4748,8 @@ StateBase_Proxy(Value state, std::unique_ptr<CharacterState_Base> character_prox
 仍是 `&csf_on_landing` 自由函数）。另外 `on_landing` 在端口里是 `State_Base`
 的 `std::function` 成员而**不是**虚函数，写 `override` 会编译失败（C3668）。
 
-### 40.2 保真要点
+### 44.2. 保真要点
+
 1. `_bouncing_frames_map` 是 `Map<dataId, Set<frameId>>`：`enter` 只在
    `!map.has(e.data.id) && e.data.indexes?.bouncing` 成立时建表，并且
    **短路顺序要保真**——`indexes.bouncing` 只有在「还没缓存」时才被读。
@@ -4212,36 +4787,23 @@ StateBase_Proxy(Value state, std::unique_ptr<CharacterState_Base> character_prox
    `js_at_index(holder, i)`（数组按下标且越界给 `undefined`，非数组回落 `js_at`）。
    用例里两种形状都喂到了。
 
-### 40.3 有意不覆盖 / 不可观测项
-- `new Set([...bouncing[1], ...bouncing[-1]])` 的**展开顺序**不可观测（集合）；
-  可观测的是成员，已用「只加一个方向」「每个方向只加第一个」等变异覆盖。
-- `e.data.id` / `e.frame.id` / `e.data.indexes` / `e.velocity` / `e.bounced` /
-  `e.hp` / `e.wait` / `e.shaking` / `e.facing` 在原文都是**属性读**，两侧 harness
-  都保持静默：它们的取值只通过行为与状态文本观察（变异打在缝实现上）。
-- `leave` 里四次赋值的**先后顺序**不可观测（四个静默 setter、目标互不相同）。
-- `super.leave` 的 HealSelf 分支（`State_Base` 里补 `Buff_Healing`）不在本片覆盖：
-  本片用例都用 state = 12，该分支由 `state_base/main` 负责。
-- ⚠️ 与 §37.3 同源：索引里的帧 id 只喂**字符串**，
-  `enter_frame_by_id(undefined)` 的 `"undefined"` vs `u` 渲染差异有意不覆盖。
-- ⚠️ 原理上不可杀（不是漏测）：`x / facing`、`x * facing`、`facing / x` 三者的
-  符号永远相同，所以「除法换成乘法」这类变异无法用黑盒杀；可杀的同类变异是
-  「丢掉 `facing`」「`>` 写成 `>=`」「`? 1 : -1` 互换」，都已覆盖。
+### 44.3. harness 观察点
 
-### 40.4 harness 观察点
 - 一对 harness `character_state_falling.{cpp,ts}`；TS 侧的 `fuse_bys` 返回
   `FakeFighter` 实例，其 `set_velocity` 打 `ref_set_velocity` 日志，
   对象渲染成 `{"key":"G1"}`，与 C++ 侧日志逐字相同。
-- 输入与覆盖面见 `PROTOCOL.md` §6.9.92。
+- 输入与覆盖面见 `PROTOCOL.md`
 - 状态文本
   `pos=[x,y,z] vel=[x,y,z] dataid= frameid= hp= facing= bounced= fall=/<max> defend=/<max> rest=/<max> finj= tinj=`；
   `run make|default` 额外打 `s=`。
 
-## 41. 切片 5：`state/CharacterState_Lying`
+## 45. `state/CharacterState_Lying`
 
 `native/lfw/state/character_state_lying.{h,cpp}`（对应
 `src/LFW/state/CharacterState_Lying.ts`）。这是**最后一个未移植的 character state**。
 
-### 41.1 单元边界（`IStateEntity` 补 22 个缝）
+### 45.1. 单元边界
+
 计数器 `lying_a_count` / `lying_d_count` / `lying_c_count`（读+写 6 缝）、
 `toughness_max()` / `set_toughness_resting(v)`、`set_hp_max(v)`、
 `dead_join()` / `set_dead_join(v)` / `dead_gone()`、`reserve()` / `set_reserve(v)`、
@@ -4249,7 +4811,6 @@ StateBase_Proxy(Value state, std::unique_ptr<CharacterState_Base> character_prox
 `blink_and_respawn(v)` / `blink_and_gone(v)`、`world_puppets()`、
 `world_etc(x, y, z, kind)`。
 其余用既有缝：`has_holding` / `holding_base_type` / `holding_set_team` /
-`drop_holding`、`toughness`（写，来自 `IBuffEntity` `set_toughness`）、
 `hp` / `hp_r` / `hp_max` / `set_hp` / `set_hp_r`、`team` / `set_team`、`wait` /
 `set_wait`、`motionless`（写）、`set_outline_color`、`state()`、`position`、
 `ground_y`、`frame_info`、`ctrl_is_end`、`ctrl_reset_key_list`、`world_dataset`。
@@ -4258,7 +4819,8 @@ StateBase_Proxy(Value state, std::unique_ptr<CharacterState_Base> character_prox
 `std::function` 钩子（**不是**虚函数），`enter` 用捕获 `this` 的 lambda 调
 `on_dead`；写 `override` 会编译失败。
 
-### 41.2 保真要点
+### 45.2. 保真要点
+
 1. `enter`：三个计数器归零 → `ctrl.reset_key_list()` →
    `const holding = e.holding; if (holding) e.drop_holding();
    if (holding?.base_type === WeaponEnum.Heavy) holding.team = e.team;`
@@ -4295,42 +4857,25 @@ StateBase_Proxy(Value state, std::unique_ptr<CharacterState_Base> character_prox
    `hp <= 0 && position.y <= ground_y && state === StateEnum.Lying && !dead_join`
    成立时返回 `e.frame`，否则 `undefined`。
 
-### 41.3 有意不覆盖 / 不可观测项
-- `set_invulnerable(30)` 必定被紧随其后的 wakeup 块覆盖（同一个块把
-  `wakeup_invuln` 置 `1`，所以那个 `if` 必跑），因此这次写入的**取值**不可观测。
-- `set_hp_max` / `set_hp_r` / `set_hp` 三次写同一个值且都静默 → 写序不可观测
-  （变异打在各自的**值**上）。
-- `player_teams` 是 `Set`：插入顺序与去重不可观测；`Set.has` 的 SameValueZero
-  与 `strict_equals` 只在 `NaN` 上不同（用例不喂 NaN team）。
-- `truthy(count_a) && count_a % 2` 的前半边在计数为 `0` 时与后半边等价
-  （`0 % 2 === 0`）→ 原理上不可杀。
-- `on_dead` 里空的 `else if (dead_join)` 分支没有可变异实体，只变异了**分支顺序**。
-- 两个 harness 的 fake 都是**原样存储**：不做真 Entity 的
-  `round_float` / `max(0, v)` 归一化（`blinking` / `invulnerable` / `reserve` /
-  `toughness`），那部分归 Entity 切片。
-- ⚠️ **用例教训**（本片实测踩过）：`pressing_d` 这类「按键松开」场景必须让
-  **另一个**键的计数为偶数，否则攻击分支会先 `return`、把后续判断整段短路，
-  变异就永远看不到差异（第一版因此漏杀 3 条）。
-- ⚠️ `round_float` 是否取整只有在 `atom_time` 非整数时才可观测，
-  用例专门保留 `atom_time n 1.2345` 一档。
+### 45.3. harness 观察点
 
-### 41.4 harness 观察点
 - 一对 harness `character_state_lying.{cpp,ts}`；`env state` 是构造参数，
   `env estate` 是**实体自身**的 state（`find_frame_by_id` 要比它）；
   `env held s "..."` 给出按住的键（`is_end(key)` 为真表示**未**按住）。
-- 输入与覆盖面见 `PROTOCOL.md` §6.9.93。
+- 输入与覆盖面见 `PROTOCOL.md`
 - 状态文本很长，一次锁住所有静默写入：
   `pos= hp=/<hp_r>/<hp_max> team= tough=/<max> trest= la= ld= lc= wait= holding= holdteam=
    deadjoin= deadgone= reserve= wakeup= motionless= invul= blink= outline= frameid= gy=`；
   `run make|default` 额外打 `s=`；`run findframe` 额外打 `r=`。
 
-## 42. 切片 8：`state/States` 注册表 + `ENTITY_STATES` 装配
+## 46. `state/States` 注册表 + `ENTITY_STATES` 装配
 
 `native/lfw/state/states.{h,cpp}`（对应 `src/LFW/state/States.ts`）、
 `native/lfw/state/entity_states.{h,cpp}`（对应 `src/LFW/state/ENTITY_STATES.ts`）与
 `native/lfw/state/state_names.h`（C++ 侧的 `constructor.name` 替身）。
 
-### 42.1 单元边界（为什么需要 `state_names.h`）
+### 46.1. 单元边界（为什么需要 `state_names.h`）
+
 TS 把每个状态按 `value.state` 塞进 `Map`，靠 `constructor.name` 区分实现类。
 端口这边 **RTTI 是关掉的**（编译参数 `/GR-`），`typeid` 不可用，所以：
 
@@ -4343,7 +4888,8 @@ TS 把每个状态按 `value.state` 塞进 `Map`，靠 `constructor.name` 区分
 `States` 的条目是 `{Value key, unique_ptr<State_Base> state, u16string class_name}`，
 另有一张 `map<u16string, size_t>` 做索引。
 
-### 42.2 保真要点
+### 46.2. 保真要点
+
 1. **JS `Map` 的键语义**：数字键与字符串键**互不相同**（`0` ≠ `"0"`），
    端口把键编码成 `"n:<值>"` / `"s:<值>"` 再查表；
    `-0` 与 `0` 在 JS 里是同一个键（SameValueZero），`to_string(-0)` 也是 `"0"`，
@@ -4367,28 +4913,21 @@ TS 把每个状态按 `value.state` 塞进 `Map`，靠 `constructor.name` 区分
    `TransformTo_Min..Max`（8001..8999，**999** 条）→ 7 个球的 `StateBase_Proxy` →
    34 条具名条目（武器 7 + 重型武器 4 + 三个基类 + 21 个角色/杂项状态）→ 共 **1040** 条。
 
-### 42.3 有意不覆盖 / 不可观测项
-- TS 的 `debugger;`：只有挂了调试器才有副作用，端口按注释处理，不改语义。
-- `States.get` 的键类型只支持 `Value`；JS 允许对象当键（按引用相等），
-  游戏代码里没有这种用法，端口不做（harness 只探 `n/s/b/z/u` 五种键形状）。
-- `States.has` 目前**还没被游戏代码调用**，所以 harness 专门加了 `run has`
-  一处观察点，否则它的变异不可杀。
-- `class_name` 只是**观察点**（给差分测试比对「哪个类接了这个状态号」），
-  游戏逻辑不读它。
+### 46.3. harness 观察点
 
-### 42.4 harness 观察点
 - 一对 harness `entity_states.{cpp,ts}`；TS 侧直接用真 `ENTITY_STATES`
   （`map` 是公开字段）与真 `States`。
-- 输入与覆盖面见 `PROTOCOL.md` §6.9.94。
+- 输入与覆盖面见 `PROTOCOL.md`
 - 输出：`run size` → `n=<条数>`；`run dump|head|tail` → 逐条
   `k=<键> cls=<类名> s=<状态值>`；`run get <键> | has <键>` → `r=`/`has=`；
   `run fallback|fallback2` → `r=`/`s=` 与 `same=b0|b1`（同一实例判定）。
 
-## 43. 切片 8b：`WorldDataset`（全局调参表 + 变更通知）
+## 47. `WorldDataset`（全局调参表 + 变更通知）
 
 `native/lfw/world_dataset.{h,cpp}`（对应 `src/LFW/WorldDataset.ts`）。
 
-### 43.1 单元边界（为什么是「键值表」而不是 103 个 C++ 字段）
+### 47.1. 单元边界（为什么是「键值表」而不是 103 个 C++ 字段）
+
 TS 侧 `WorldDataset` 有 103 个字段，但**所有已经移植过的调用点都按键取值**
 （如 `e.world_dataset(u"atom_time")`，见 `world_data.h` 的缝），并没有按 C++ 成员访问的用法。
 所以端口把实例建模成「有序键表」：
@@ -4401,7 +4940,8 @@ TS 侧 `WorldDataset` 有 103 个字段，但**所有已经移植过的调用点
 `world_dataset_fields()`（`native/lfw/defines/fields_gen.h`）就是 TS 的
 `world_dataset_fields`（103 键），只用来判定托管关系与 `dump_dataset` 的键序。
 
-### 43.2 保真要点
+### 47.2. 保真要点
+
 1. **默认值来源与顺序**：103 条按 TS 类字段**声明顺序**逐条抄写（顺序本身可观测：
    `pure` 数据集与 `run keys` 直接按这个顺序打印）。其中
    `screen_w = Defines.MODERN_SCREEN_WIDTH = 794`、`screen_h = MODERN_SCREEN_HEIGHT = 450`、
@@ -4433,53 +4973,34 @@ TS 侧 `WorldDataset` 有 103 个字段，但**所有已经移植过的调用点
 7. **默认实例**：`DEFAULT` 是懒加载单例（`new WorldDataset()`，非纯），
    跨 `run default` 可写且可观察：先 `set` 再 `default` 仍能读回新值。
 
-### 43.3 有意不覆盖 / 不可观测项
-- `make_private_properties` 的 `_$_<key>` 备份属性、`on_<key>_change` 属性槽、
-  以及 `on_dataset_change` 本身都是**实例上的 own 属性**（会出现在 `Object.keys` 里）。
-  它们是该工具的实现细节（将来单独移植 `make_private_properties` 时再逐条锁），
-  端口把「字段集 + 两个回调槽」建模成数据，因此 harness 在 TS 侧把 `Object.keys`
-  归一化（丢掉 `on_*` 与 `_$_*` 前缀）。**这是 harness 约定，不是行为差异**，
-  已在变异表注释里记录。
-- 103 个默认字段**全部**存在于 `world_dataset_fields()`，
-  所以「构造时省略表归属判断」这一变异**与原实现等价**、原理上不可杀，
-  变异表里没有列它（托管判定仍由 `tracked`/`run tracked` 观察）。
-- `keys()`（完整 own 属性顺序）目前只服务 harness；游戏代码不枚举数据集实例，
-  正式导出路径是 `dump_dataset()`。
-- `pure()` 这类 C++ 侧便利访问器**没有**保留：TS 侧没有对应可观察属性，
-  留着只会变成不可观测的 API。（`MersenneTwister.pure()` 是**另一回事**：
-  它是 TS 自己的公开 API，9j 照搬了，见 §53。）
+### 47.3. harness 观察点
 
-### 43.4 harness 观察点
 - 一对 harness `world_dataset.{cpp,ts}`；TS 侧用真 `WorldDataset` 类与真 `WorldDataset.DEFAULT`。
-- 输入与覆盖面见 `PROTOCOL.md` §6.9.95。
+- 输入与覆盖面见 `PROTOCOL.md`
 - 输出：`run make|default` → `pure=`/`same=`/`keys=`；
   `run keys|dump` → 键列表 / 整张表；`run get|has|tracked` → `v=`/`has=`/`tracked=`；
   `run set` → `field_change:<键>:<新值>:<旧值>` 与 `dataset_change:<键>:<新值>:<旧值>`（无通知则为空）。
 
-## 44. 切片 9a：`Entity` 的构造 / `reset` + 数值通知层
+## 48. `Entity` 的构造 / `reset` + 数值通知层
 
 `native/lfw/entity/entity.{h,cpp}`（对应 `src/LFW/entity/Entity.ts` 的 2716 行中的
-「构造 + `reset()` + 统计量访问器」这一段）。这是**强连通块的第一刀**：
 `Entity` / `World` / `LFW` 互相依赖，只能按可验证的切面逐块搬。
 
-### 44.1 单元边界（为什么先搬这一段）
+### 48.1. 单元边界（为什么先搬这一段）
+
 1. `Entity.ts` 里最底层、被后续所有行为（物理、帧、碰撞、快照）依赖的是
    **统计量槽位 + 通知层**：`hp/mp/hp_r/hp_max/mp_max/toughness*/fall_value*/defend_value*/`
    `resting*/catch_time_max/reserve/blinking/invisible/invulnerable/arest/outline_*/mix_*/greyscale`，
-   以及 `reset()` 对它们的初始化。先把这一层逐字节锁死，后面的物理切片才有可信地基。
-2. **宿主边界**：TS 里这段代码读 `this.world` / `this.lfw`（`world.dataset`、
-   `world.bg.data.dataset`、`world.mark_players_alive`、`lfw.new_id`、`lfw.new_team`、
-   `lfw.factory.acquire_ctrl/release_ctrl`）以及 `this.enter_frame` / `this.apply_opoints` /
-   `this.play_sound`。`World` / `LFW` 还没搬，所以端口把这些**注入**成 `IEntityHost`
-   （每个虚函数注释里都写着它镜像的那句 TS）。harness 的双侧桩世界与此一一对应。
+   以及 `reset()` 对它们的初始化。先把这一层逐字节锁死，后面的物理才有可信地基。
 3. **数据形态**：`_data` / `frame` / `armor` / `dead_join` / `transforms` / `group` 等都是
    `Value`（和其余端口一致）；统计量本身是 C++ 数值成员（TS 里也只是数值）。
-4. `_state` 在完整端口里是 `state::State_Base*`；本切片只用到两个可选钩子
+4. `_state` 在完整端口里是 `state::State_Base*`；本单元只用到两个可选钩子
    （`_state?.on_dead?.(this)` / `_state?.get_gravity?.(this)`），所以先暴露成
    `std::function<void()> state_on_dead` 与 `std::function<Value()> state_get_gravity`，
-   等状态接线切片落地再换成真指针（`reset()` 里 `this._state = null` 对应「两个钩子都清空」）。
+   等状态接线落地再换成真指针（`reset()` 里 `this._state = null` 对应「两个钩子都清空」）。
 
-### 44.2 保真要点
+### 48.2. 保真要点
+
 1. **`??` 与 `||` 分得很清**：`resting_max` 家族是 `_x ?? world.dataset.x`（只有
    `undefined`/`null` 才回退，`0` 不回退），`armor = armor || null`、`name` 的
    `ctrl.player.name || \`Player ${id}\``、`variant = Number(team) || 0` 都是**真值**语义
@@ -4531,47 +5052,30 @@ TS 侧 `WorldDataset` 有 103 个字段，但**所有已经移植过的调用点
     所以两条通知的顺序是 max → value，端口按这个顺序写（harness 的 `run armor` 用带监听器的
     重跑把顺序锁住）。
 
-### 44.3 有意不覆盖 / 不可观测项
-- **TS 需要 `data.base` 存在**：`reset()` 直接读 `data.base.resting_max`，
-  数据里没有 `base` 会抛；端口用 `field_or` 一路读穿，这不构成差异（用例都会给 `base`）。
-- `copies` / `vrests` / `blockers` / `superpunchs` / `collision_list` / `collided_list` /
-  `lastest_collided` / `opoints` 在 `reset()` 里被清空，但本切片**没有任何代码往里面写**，
-  所以「清空」这个动作不可观测（等碰撞/持有物切片落地后再纳入）。
-- `terrain` / `_atom_time` / `prev_position` / `position` / `velocity` / `prev_velocity` /
-  `_motionless_ticks` 被 `reset()` 写入，但**没人读**（物理切片才读），故不可观测。
-- `add_catch_time(0)` 与 `set_catch_time(_catch_time)` 是同一件事，
-  所以「`!value` 提前返回」在 DSL 能表达的值域里等价（已在变异表注释里记录）。
-- 「没有状态」与「有状态但没有那个钩子」在 TS 里都表现为不调用，
-  端口把两者合并成「空 `std::function`」（不可观测）。
-- `_state?.leave/enter`、`set_state`、`enter_frame` / `apply_opoints` / `play_sound` 的真实实现
-  属于后续切片；harness 在 TS 侧把这三个方法换成**实例间谍**（C++ 侧对应宿主虚函数），
-  两边打印同一份日志。
-- `bare` 值形状的边界（`group` 是字符串而不是数组等）会让 TS 侧 `group?.some` 抛异常，
-  这类输入不做用例。
+### 48.3. harness 观察点
 
-### 44.4 harness 观察点
 - 一对 harness `entity.{cpp,ts}`；TS 侧构造**真** `Entity`，宿主侧给桩
   `world`（真 `WorldDataset` 当 `dataset`、`bg.data.dataset` 是普通层、`mark_players_alive` 打日志）
   与桩 `lfw`（`new_id`/`new_team`/`factory`），并打桩 `Ditto.vec3`。
 - 控制器：`base`/`human`/`bot` 三种（对应 `__is_*_ctrl__` 标记 / `set_kind`），
   另有 `human_bare`（玩家没有名字，走 `Player <id>`）、`base_released`（`d` 键
   `_d_time > _u_time`，让 `is_end('d')` 为假以覆盖 `gravity` 的另一支）、`same`（重设同一控制器）。
-- 输入与覆盖面见 `PROTOCOL.md` §6.9.96。
+- 输入与覆盖面见 `PROTOCOL.md`
 - `Entity::stat_slots()` 是**给 harness/宿主看的窥视口**：把 TS 侧的私有槽位
   （`_catch_time`、`_toughness_r_value`、五个恢复 tick 的 `max`）一次导出成数据，
   TS 侧用 `as any` 读同样的字段拼同一个对象，两边逐字节比对。
 
-## 45. 切片 9b：`Entity` 的速度 / 摩擦 / 重力层
+## 49. `Entity` 的速度 / 摩擦 / 重力层
 
-`entity.{h,cpp}` 的第二刀：`get dvx/dvy/dvz`、`set_velocity`、`leave_ground`、
 `handle_ground_velocity_decay`、`handle_velocity_decay`、`handle_gravity`、
 `update_velocity`。这一层是后续 `update()` / 状态机落地判定（`is_on_ground`、
 `velocity.y`）的地基，输入只有「数值 + 帧 + 控制器」三样，所以在 `World` / `LFW` 缺席时
 也能独立锁死。
 
-### 45.1 单元边界（为什么是这七支）
+### 49.1. 单元边界（为什么是这七支）
+
 1. **不碰位置积分**：`update_position` / `set_position` 需要 `world.restrict` 与
-   `world.ground.y`（真 `World`），留到 World 切片；`set_velocity` 的 `prev_velocity`
+   `world.ground.y`（真 `World`），留到 World；`set_velocity` 的 `prev_velocity`
    镜像与 `velocity.y > 0 → leave_ground` 已经能独立观察。
 2. **`leave_ground` 与 `set_velocity` 一起搬**：`leave_ground` 只依赖
    `position.y` / `ground_y` / `is_on_ground`，而 `set_velocity` 依赖它；`eqlt`
@@ -4583,7 +5087,8 @@ TS 侧 `WorldDataset` 有 103 个字段，但**所有已经移植过的调用点
 4. **`calc_v` 复用**：速度模式计算交给已搬的 `entity/calc_v.*`，本层只负责
    `SpeedMode` / `SpeedCtrl` 的分派与 `acc_*` 的补默认。
 
-### 45.2 保真要点
+### 49.2. 保真要点
+
 1. **`set_velocity` 跳过 `null`/`undefined` 但写入 `NaN`**：TS 是
    `_x !== null && _x !== void 0`，所以端口签名收 `Value`（`monostate` = `undefined`、
    `NullTag` = `null`），只有 `nullish` 才跳过；差分里 `run setvel u z u` 与
@@ -4621,20 +5126,8 @@ TS 侧 `WorldDataset` 有 103 个字段，但**所有已经移植过的调用点
    也不调 `leave_ground`**：差分先 `run set is_on_ground n 1`，正 `vy` 之后
    `is_on_ground` 必须仍是 `b1`；同时「0.1 + 0.2」这类和必须在写回时重新取整。
 
-### 45.3 有意不覆盖 / 不可观测项
-- `update_position` / `set_position` / `check_velocity` 一类的调用点属于 World 切片。
-- `WorldDataset` 给 `friction_factor = land_friction_factor = 1`、
-  `friction_x = friction_z = 0.25`、`land_friction_x = 1`、`land_friction_z = 0.5` 全部**带默认值**，
-  所以 `fz` 为 `undefined` 的分支在真实数据下不可达 →「`fz` 的 `nullopt` 处理」这条
-  等价，已在变异表头记录，不列条目。
-- `vxm`/`vym`/`vzm`/`ctrl_*` 的**默认赋值本身**不可观测：`vxm` 默认 `Default` 与
-  `calc_v` 的兜底分支是同一条路径；`ctrl_x = 0` 与 `undefined` 在 `truthy`/`equals` 下同真同假
-  → 相关候选撤回（表头记录）。
-- `acc_*` 的 `truthy(dvx)` 守卫在 DSL 能表达的值域下与去掉等价（真值→同值，假值→同假）；
-  「`nullish` 改成严格 `undefined`」则**可**观测（`acc_x: z` 用例），故保留。
-- 「`truthy(dv)` 改成 `!nullish(dv)`」等价（`0`/`""`/`NaN` 乘/不乘都得到同一个值）。
+### 49.3. harness 观察点
 
-### 45.4 harness 观察点
 - 新增 op：`run setvel <x> <y> <z>`（`Value` 字面量，`u`/`z` 就是 `undefined`/`null`）、
   `run leaveground`、`run pos <x> <y> <z>` 与 `run ground <数字>`（窥视写 `position` / `_ground_y`，
   因为 `set_position` 未搬）、`run link bearer|catcher|holding|catching self|none`、
@@ -4650,24 +5143,20 @@ TS 侧 `WorldDataset` 有 103 个字段，但**所有已经移植过的调用点
 - `run land self` 把 `_landing_frame` 指向**当前帧对象**，才能覆盖 `=== this.frame` 的
   同一性分支（另一支用等值但不同一的对象）。
 
-## 46. 切片 9c：`Entity` 的帧查找 / 标志处理
+## 50. `Entity` 的帧查找 / 标志处理
 
-`entity.{h,cpp}` 的第三刀：`find_frame_by_id`、`find_auto_frame`、`find_align_frame`、
 `get_prev_frame`、`get_sudden_death_frame`、`get_caught_end_frame`、`handle_facing_flag`、
 `handle_wait_flag`、`get_frame_wait`。这一层的输入只有「帧表 + 状态回调 + 控制器/关系」
 三样，所以在 `set_frame` / `enter_frame`（需要 `__judger` 与 `lfw.mt` 缝）之前就能独立锁死。
 
-### 46.1 单元边界（为什么是这九支）
-1. **不碰 `set_frame` / `enter_frame` / `get_next_frame`**：这三支要 `lfw.mt.pick`、
-   `preprocess_next_frame`（端口仍是桩）和 `__judger` 表达式求值，属于下一刀。
-2. **不碰 `set_state`**：它要完整的 `IStateEntity` 实现与 `_states` 注册表注入，放在
-   `Entity` 实现 `state::IStateEntity` 的那一刀一起做。本刀只把 `_state?.xxx?.(this)` 的
-   六个可选回调保留成注入钩子（9a/9b 已建立的缝）。
+### 50.1. 单元边界（为什么是这九支）
+
 3. **`get_prev_frame` 顺手搬**：它只是 `_prev_frame` 的读取口，同时把 9a 的窥视口
    从 `prev_frame()` 改名成 `get_prev_frame()`，避免与 TS 只有方法无属性的事实混淆。
 4. **`find_align_frame` 依赖 `find_auto_frame`**：后者的兜底链要被前者复用，所以两支同刀。
 
-### 46.2 保真要点
+### 50.2. 保真要点
+
 1. **`find_frame_by_id` 的 `switch` 是严格比较**：`case void 0:` 只吃 `undefined`，
    所以 `null` 的 id **不会**返回当前帧，而是落到 `this._data.frames["null"]`（键名是
    `String(null)`）→ 查不到 → `find_auto_frame()`。端口因此只对 `monostate` 短路，
@@ -4675,7 +5164,7 @@ TS 侧 `WorldDataset` 有 103 个字段，但**所有已经移植过的调用点
 2. **状态钩子的返回值用 `truthy` 判定**：`const r = this._state?.find_frame_by_id?.(this, id); if (r) return r;`
    ——`0`/`""`/`null` 都算「没找到」，继续走 switch。端口用 `truthy(r)`；差分用
    `run hook frameid s "hookf"`（真值命中）与 `run hook frameid n 0`（假值穿透）两面覆盖。
-   钩子的**第一个参数是实体自身**（TS `(this, id)`），端口目前只传 id——见 §46.3。
+   钩子的**第一个参数是实体自身**（TS `(this, id)`），端口目前只传 id——见 §8。
 3. **`find_auto_frame` 是 nullish 链**：`_state?.get_auto_frame?.() ?? frames["0"] ?? this.frame`。
    注意 `frames["0"]` 只要非 nullish 就赢，哪怕它是 `0`（假值）——差分用
    `run frames o 1 "0" n 0` + `run autoframe` 锁「返回 0 而不是当前帧」。
@@ -4722,22 +5211,8 @@ TS 侧 `WorldDataset` 有 103 个字段，但**所有已经移植过的调用点
    `from_wait_block()` / `set_from_wait_block()` 窥视口，差分把 `atom_time` 设成 2 后
    用 `run waitblock 1` 锁「减的是 `_atom_time` 而不是常量 1」。
 
-### 46.3 有意不覆盖 / 不可观测项
-- `this._state?.find_frame_by_id?.(this, id)` 的**第一个参数**（实体自身）在端口里没有对应
-  类型可传，钩子签名收缩成 `std::function<Value(const Value&)>`（只收 id）。这是明确的
-  **缝简化**，等 `Entity` 实现 `state::IStateEntity` 时统一改回 `(Entity&, …)`；在
-  harness 里用 `(_e, id) => id` 的 echo 钩子把「第二参数是查找用的 id」钉住，
-  所以「端口误传实体 id」这条变异是可杀的（见变异表 `find_frame_by_id passes the entity id`）。
-- `Ditto.warn("Entity::find_frame_by_id", "frame not find! id:", id)` 只是控制台警告，
-  无任何可观测副作用，端口直接不调用（已在实现处注释）。
-- `find_frame_by_id` 的 `Gone` 支返回 `GONE_FRAME_INFO` 这个**常量对象**，其内容由
-  `Defines` 数据决定；差分只断言「与 `Defines` 里的同名字段一致」，不重复锁常量形状。
-- `find_align_frame` 的 `dst` 里含非字符串项、`src` 含重复 id 等情形属于数据约束
-  （帧表由 `IData` 保证），不在 DSL 里构造。
-- `handle_facing_flag` 在 `ctrl` 为 `null` 时 TS 的 `Trend` 支会抛异常（没有可选链），
-  端口同样不防；这是上游行为，不构造该输入。
+### 50.3. harness 观察点
 
-### 46.4 harness 观察点
 - 新增 op：`run prev`、`run findframe <id>`、`run autoframe`、`run align <id> <src> <dst>`、
   `run suddenframe`、`run caughtframe`、`run facingflag <flag>`、`run waitflag <wait> <frame>`、
   `run framewait <frame>`、`run waitblock <数字>`（裸数字，不用 `Value` 字面量）、
@@ -4749,26 +5224,20 @@ TS 侧 `WorldDataset` 有 103 个字段，但**所有已经移植过的调用点
 - 新 `get` 字段：`from_wait_block`（`b0`/`b1`）。
 - `run findframe` 的 id 直接收 `Value` 字面量，`s "gone"` / `z` / `u` / `n 7` 分别覆盖
   `Gone` 常量支、`null` 查表支、`undefined` 当前帧支、数字键支。
-## 47. 切片 9d：`Entity` 的快照读写层
 
-`entity.{h,cpp}` 的第四刀：`to_snapshot(nums, strs)` / `read_snapshot(nums, strs)`，
+## 51. `Entity` 的快照读写层
+
 外加它需要的 `copies`（TS 的 `Set<string>`）、两个新宿主缝
 （`find_data` = `lfw.datas.find`、`find_entity` = `world.entity_map.get`）。
-这一层是存档 / 回放的地基：`NSlot` / `SSlot` 表在切片 4 就搬完了，所以本刀只做
 「逐槽位搬运 + 类型转换」，可以在没有 `World` / `LFW` 的情况下整片锁死。
 
-### 47.1 单元边界（为什么是这两支）
+### 51.1. 单元边界（为什么是这两支）
+
 1. **不碰 `set_frame` / `enter_frame` / `get_next_frame`**：它们要
    `__judger`（`base/expression.h` + `lfw.mt`）与 `preprocess_next_frame`（端口仍是桩）。
-2. **不碰 `set_state`**：需要 `Entity` 实现 `state::IStateEntity`，与本刀无关。
-3. **`copies` 顺手补上**：`to_snapshot` 读它、`read_snapshot` 写它、`reset()` 清它，
-   而且它出现的第三条路径（`create_copy`）属于后续切片，所以本刀只给
-   `Set.add` 语义（插入序 + 去重）留一个 `add_copy` 缝。
-4. **两个宿主缝**：`read_snapshot` 是端口里第一处「按 id 找数据 / 找实体」的需求
-   （`lfw.datas.find`、`world.entity_map.get`），做成 `IEntityHost` 的虚函数，
-   默认实现是「找不到」。
 
-### 47.2 保真要点
+### 51.2. 保真要点
+
 1. **端口签名收 `Value` 而不是 `double`**：TS 的 `nums` 是 `number[]`，但槽位里
    可以出现 `null`（`nums[MP_MAX] = this._mp_max` 没有 `?? NaN` 兜底），而 `null`
    与 `NaN` 在 `read_snapshot` 之后的 `mp_max()` 上**可观测地不同**，所以端口用
@@ -4782,7 +5251,7 @@ TS 侧 `WorldDataset` 有 103 个字段，但**所有已经移植过的调用点
    于是「NaN 进 → null 出 → NaN 再写出」对前一组成立，对后一组 `null` 会留着。
    差分给六个槽位各喂一次 `n NaN`（再 `run get` 看它回落到数据集）与一次普通数字。
 3. **`num_or_null` 是严格 `Number.isNaN`**：`null` / `undefined` / 字符串都原样穿过，
-   只有真 NaN 变 `null`。端口复用切片 4 的 `entity::num_or_null(const Value&)`，
+   只有真 NaN 变 `null`。端口复用步骤 4 的 `entity::num_or_null(const Value&)`，
    再套 `opt_num`（nullish → `nullopt`，NaN 保持 NaN）。
 4. **布尔四件套是 `!== 0`，不是 `truthy`**：`bounced` / `drop_hurted` / `dropping` /
    `is_on_ground` 的读侧是 `nums[SLOT] !== 0`，所以 `null` / `undefined` / `"0"`
@@ -4815,20 +5284,8 @@ TS 侧 `WorldDataset` 有 103 个字段，但**所有已经移植过的调用点
     自带的 `frames` 表参与查找。差分的 `env data` 记录里放了一张 `frames` 表
     （`"f-7"`），并用 `DATA_ID → "d1"` + `FRAME_ID → "f-7"` 把这条顺序钉住。
 
-### 47.3 有意不覆盖 / 不可观测项
-- `to_tri` / `from_tri` 不在 `Entity` 的快照路径上（属于别的调用点），本刀不涉及。
-- `Times::to_snapshot` / `read_snapshot`（`array<double,5>`）不属于本刀。
-- `_after_blink` 的「空串 vs nullopt」在**本刀不可观测**：它只喂给尚未搬的闪烁逻辑，
-  写侧两种表示都打印成 `""` → 相关候选撤回（表头记录）。
-- 往 `double` 槽位 poke 非数字（例如 `s "7"`）超出端口模型：TS 会把字符串原样存进
-  `_hp`，端口按 `to_number` 折算；差分只 poke 数字 / `null` / `NaN`。
-- `JSON.parse` 失败时 TS 抛异常、端口保留旧值 → 不做差分（不是可比较的行为）。
-- `read_snapshot` 里 `frame = find_frame_by_id(...) ?? frame` 的兜底（见 47.2-10）等价，
-  与 `_landing_frame` 的 `?? null` 同类，均已在变异表头记录，不列条目。
-- `nums[STAT_BAR_TYPE] = this.stat_bar ?? NaN` 的 `??` 在端口不可达：TS 把 `stat_bar`
-  声明成 `number`（初值 0），端口同样是 `double`，所以写侧直接 `Value(stat_bar)`。
+### 51.3. harness 观察点
 
-### 47.4 harness 观察点
 - 新增 op：`run snap`（当前快照）、`run snapbuf`（把当前快照存进缓冲区）、
   `run snappoke <槽位名> <值字面量>`、`run snappokestr <槽位名> <值字面量>`、
   `run snappokeid <槽位名> self|buddy`（把**活实体的 id** 塞进某个字符串槽位，
@@ -4838,7 +5295,7 @@ TS 侧 `WorldDataset` 有 103 个字段，但**所有已经移植过的调用点
   `env data <id 字面量> <数据字面量>`（`lfw.datas.find` 的表）。
 - 输出：`run snap|snapbuf|snapapply || <日志> | n=<全部 num 槽位> s=<全部 str 槽位>`，
   槽位用**枚举顺序**、逗号分隔、两侧共用 `render`（数字带位模式），任何一个槽位错位都会露。
-- 槽位名 → 下标走 `nslot_entries()` / `sslot_entries()`（切片 4 的表），
+- 槽位名 → 下标走 `nslot_entries()` / `sslot_entries()`（步骤 4 的表），
   顺带把「枚举表与实际赋值」绑在一起。
 - 新 `get` 字段：`dismiss_time`（`number | null`）、`dismiss_data`（对象或 null）、
   `catching` / `catcher` / `bearer` / `holding`（渲染成 `{id}` 或 `null`，
@@ -4849,21 +5306,18 @@ TS 侧 `WorldDataset` 有 103 个字段，但**所有已经移植过的调用点
 - TS 侧的 `world.entity_map.get` 用**活实体**现算（`reset` 会换 id，用表会过期），
   `lfw.datas.find` 用 `env data` 填的表；端口侧同义。
 
-## 48. 切片 9e：`Entity` 的每 tick 恢复层
+## 52. `Entity` 的每 tick 恢复层
 
-`entity.{h,cpp}` 的第五刀：`toughness_recovering`、`fall_value_recovering`、
 `defend_value_recovering`、`stat_recovering`、`hp_recovering`、`mp_recovering`。
 这六支是 `update()` 每个 tick 都会调的「回血 / 回气 / 回韧性」逻辑，输入只有
 「帧标志 + 数据集 + `Times` + `_atom_time`」，所以仍然可以在 `World` / 状态机缺席时整片锁死。
 
-### 48.1 单元边界（为什么是这六支）
-1. **不碰 `update()`**：它是这些函数的调用者，还要状态机、碰撞与 `lfw.mt`，属于后面的切片。
-2. **`Times` 早已搬完**：`add(_atom_time)` 的「到上限才返回 true + 回绕 + `_remains` 递减」
-   是上一批 `Times` 切片的既有行为，本刀只负责**门控**（不通过就 return）。
-3. **`clamp_add` 已存在**（`utils/math/clamp_add.h`）：本刀第一次用它，
-   与 `round_float(value + offset)` 再夹的语义一致（先取整再夹）。
+### 52.1. 单元边界（为什么是这六支）
 
-### 48.2 保真要点
+1. **不碰 `update()`**：它是这些函数的调用者，还要状态机、碰撞与 `lfw.mt`，属于后面的。
+
+### 52.2. 保真要点
+
 1. **两段式分支**：`toughness_recovering` 与 `stat_recovering` 都是
    「先看 *_resting 是否 > 0 → 走排空支；否则走恢复支」，两支都以 `return` 结尾。
    端口逐字照抄，其中排空支靠 `frame.toughness_recover` / `frame.stat_recover` 开关。
@@ -4891,16 +5345,8 @@ TS 侧 `WorldDataset` 有 103 个字段，但**所有已经移植过的调用点
    - `round_float` 是**三位小数**取整，差分用 `mp_r_ratio = 0.33333333333` 造出
      `1.9600000000004 → 1.96` 的差异（harness 打印数字的位模式，能分辨）。
 
-### 48.3 有意不覆盖 / 不可观测项
-- `update()`（调用方）与 `mouse` / `world` 相关的旁路不在本刀。
-- `get toughness_max()` 就是私有 `_toughness_max`（没有数据集兜底），所以
-  「夹取用 getter 还是字段」在韧性这一支不可观测 → 不列条目。
-- `hp_recovering` 的 `_hp_r_tick.set_max(...)` 传的是 `to_number(dataset(...))`：
-  数据集缺键时是 `NaN`，`Times` 的区间比较随之恒假；这条与 `Times` 自身的行为重合，
-  只在 `hp_r_value` 缺键的场景里顺带覆盖。
-- 各恢复函数的返回值是 `void`，没有任何「是否恢复」的外部信号，所以只能用状态读数判断。
+### 52.3. harness 观察点
 
-### 48.4 harness 观察点
 - 新增 op `run rec <stat|hp|mp|toughness|fall|defend>`，一次调用同时打印
   `hp / hpr / mp / mpmax / r / t / tr / fv / dv` 与回调日志——恢复函数的每个写入
   都走 setter，所以 `on_hp_changed` 这类日志本身就是判别力来源。
@@ -4908,15 +5354,16 @@ TS 侧 `WorldDataset` 有 103 个字段，但**所有已经移植过的调用点
   `set_atom_time`），否则只能用「改数据集 + 重新 `run make`」来造 `_atom_time` 的变化。
 - `Times` 的内部状态（`VALUE/MIN/MAX/LIFES/REMAINS` 五个槽位）直接用 9d 的快照窥视口
   `snappoke` 精确摆位（例如把 `HP_R_TICK_REMAINS` 设成 0 验证「耗尽后永不再触发」），
-  再用 `run snap` 读回——9d 的快照能力在这里第一次被别的切片当工具用。
-## 49. 切片 9f：`Entity` 的标记 / 发射者 / 出弹点速度
+  再用 `run snap` 读回——9d 的快照能力在这里第一次被别的当工具用。
 
-`entity.{h,cpp}` 的第六刀：`set_mark` / `del_mark` / `is_ally` / `get_emitter` /
+## 53. `Entity` 的标记 / 发射者 / 出弹点速度
+
 `get_opoint_speed_z`。这五支是「不含状态机、不含 World」的最后一批纯逻辑：
 前四支只读自身的 `marks` / `_team` / `emitters`，最后一支只读 `frame.state` 与
 emitter 的 `data.type`，所以仍然可以整片锁死。
 
-### 49.1 单元边界（为什么是这五支）
+### 53.1. 单元边界（为什么是这五支）
+
 1. **`marks` 是 `Map<string, string>`**：端口用 `std::map`（键唯一 + 按 key 有序）。
    JS `Map` 是插入序，端口是字典序，所以 harness 两侧都把转储**排序**后再打印
    （`k:v` 逗号拼接），让「顺序」不再是差异来源，只留「内容」。
@@ -4939,7 +5386,8 @@ emitter 的 `data.type`，所以仍然可以整片锁死。
    `HeavyWeapon_InTheSky(2000)` 四个状态给 `Defines.DEFAULT_OPOINT_SPEED_Z`，
    其余（含字符串 `"1002"`、小数 `1002.5`、`null`、`undefined`）一律 `0`。
 
-### 49.2 保真要点
+### 53.2. 保真要点
+
 1. **端口签名收 `const Entity*`**：TS 里 emitter 可以是 `undefined`（调用方
    `get_emitter` 的返回值），`is_fighter(undefined)` 走 `v?.data` → false → `0`。
    差分有 `run opointz null …` 场景锁这条路径（`speedz` 存在时仍然先返回 `speedz`）。
@@ -4956,17 +5404,8 @@ emitter 的 `data.type`，所以仍然可以整片锁死。
    `n 3000 / n 1002 / n 3006 / n 2000 / n 3009 / s "1002" / n 1002.5 / z / u`
    九个状态，任何一种「提前转成数字」都会在字符串与小数两行露出来。
 
-### 49.3 有意不覆盖 / 不可观测项
-- `if (!(idx >= 0) || …)` 里去掉 `!(idx >= 0)` 那一半是**等价变异**：
-  `-1` 转成 `size_t` 是巨大值，仍会被越界检查挡住并返回 `undefined`，不列条目。
-- `i >= emitters.size()` 改成 `i > emitters.size()` 会越界读（UB），不作为变异条目。
-- `del_mark` 里「缺键读成 `""` 而不是 `undefined`」不可观测：缺键时
-  `Map.delete` 无论如何都返回 `false`，转储也不会变，所以同一处只对 `set_mark` 列条目。
-- `is_ally` 的严格 / 宽松在字符串团队上同义，没有对应变异条目。
-- `speedz` 是对象 / 数组这类非数字时，两端都原样返回（`field_or` 交回 `Value`），
-  由「原样返回」那条覆盖，不再单列。
+### 53.3. harness 观察点
 
-### 49.4 harness 观察点
 - 新增 op：`run mark <键> <值> [prev]`、`run delmark <键> [值]`
   （都打印 `v=b0|b1` 与排序后的 marks 转储）、`run ally self|buddy`
   （同时打印双方的 `team`）、`run emit <下标> <id 字面量>`、
@@ -4980,35 +5419,30 @@ emitter 的 `data.type`，所以仍然可以整片锁死。
 > ⚠ **4BS 尾刀（用户调整）**：`get_opoint_speed_z` 已随 TS 一起删掉 —— 默认 `speedz`
 > 改在 `preprocess_opoint` 预处理期落值（只看 `frame.state`，**不再看 data/emitter**），
 > 运行时 `on_spawn` 只剩 `or_nullish(speedz, 0)`；差分观察从 `run opointz` 换成
-> `base/val_expr` 的 `pctx`/`pget` 场景（见 PROTOCOL §6.9.102 与 §59）。
+> `base/val_expr` 的 `pctx`/`pget` 场景（见 PROTOCOL）。
 
-## 50. 切片 9g：`Entity` 的状态接线（`set_state` + `_state`）
+## 54. `Entity` 的状态接线（`set_state` + `_state`）
 
-`entity.{h,cpp}` 的第七刀，也是 Entity 块里第一刀**结构接线**：新增
-`set_state`、`_state` 字段与 `EntityStateView` 适配器，并把此前注入的六个状态钩子
 （`state_on_dead` / `state_get_gravity` / `state_find_frame_by_id` /
 `state_get_auto_frame` / `state_get_sudden_death_frame` / `state_get_caught_end_frame`）
 全部改成从**活动状态对象**上取——TS 里这些钩子本来就在 `State_Base` 上，
 注入只是"状态机到位前的临时接法"。
 
-### 50.1 单元边界（为什么是这一刀）
+### 54.1. 单元边界（为什么是这一刀）
+
 1. **`set_state` 是唯一入口**：TS 里 `this._state` 只在 `set_state` / `reset` 里被赋值，
    而 `set_state` 的调用点（`set_frame` / `attach` / `update` 系列）都还没搬，
    所以这一刀能**自洽地**把状态接线锁死：harness 直接调 `set_state` 即可。
 2. **六个钩子调用点已存在**（9a 的 `on_dead` / `get_gravity`，9c 的 `find_frame_by_id` /
    `find_auto_frame` / `get_sudden_death_frame` / `get_caught_end_frame`），
    这一刀只换"从哪取钩子"，不改调用语义（`truthy` / `??` / `nullish` 的判定保持原样）。
-3. **`States` / `State_Base` 早在状态块里搬完**：本刀第一次让它们与真实实体对接，
-   于是 `States.fallback` 的键格式（`\`${type}_${code}\``）、类型分派
-   （Fighter → `CharacterState_Base`、Weapon → `WeaponState_Base`、
-   Ball → `BallState_Base`、其余 → `State_Base`）与**缓存**（命中就不新建）
-   都第一次有了外部观察点。
 4. **`reset` 里的 `this._states = states` 第一次变得可观测**：9a 就照抄了这一行，
    但在此之前没有任何观察点（`set_state` 还不存在）。
    差分用 `run resetstates`（`reset(data, &g_states)`）与 `run reset`（默认注册表）
    两次对照把它钉住：同一批 `setstate` 在两个注册表里的结果不同。
 
-### 50.2 保真要点
+### 54.2. 保真要点
+
 1. **注册表查找与兜底**：`states.get(state_code) || states.fallback(_data.type, state_code)`。
    `get` 用的是**数字键**，`fallback` 用的是字符串键 `"${type}_${code}"`——
    两套键在端口里由 `States::encode_key` 的 `n:` / `s:` 前缀区分，
@@ -5027,33 +5461,22 @@ emitter 的 `data.type`，所以仍然可以整片锁死。
    所以 `reset` 之后钩子必须全部失灵（差分在 reset 前打开 `on_dead` 钩子、
    reset 后打死血，日志必须为空）。
 
-### 50.3 `EntityStateView`（为什么需要适配器）
-- TS 把实体**本身**交给钩子（`on_dead?.(this)`），而端口的 `state::IStateEntity`
-  把同一批成员写成了 `Value` 签名（`Value hp_max()`），与 `Entity` 的
-  `double hp_max()` 冲突，所以用 `EntityStateView` 做桥：`Entity` 持有一个
-  `std::unique_ptr<EntityStateView>`（头文件里只有前置声明，析构写在 `.cpp`）。
 - **已转发的成员**（差分全部覆盖）：`id` / `position` / `velocity_x|y|z` /
   `hp` / `hp_r` / `set_hp_r` / `hp_max` / `mp` / `motionless` / `set_motionless` /
   `shaking` / `state` / `frame_info` / `prev_frame` / `is_on_ground` / `team` /
   `data_type` / `jumping_x`。harness 的假状态在 `enter` 里把这些全部读出来打日志，
   于是每条转发都有一条变异能被杀。
-- **有意留空**（`IBuffEntity` / `IStateEntity` 的默认值，属于后续切片）：
-  `set_position`（World 拥有位置，等地形/限制切片）、`frame_centery` / `frame_height` /
-  `frame_pic_h` / `set_frame` / `enter_frame_by_id`（进入帧链）、`attach`（要
-  `world.add_entities`），以及 `IStateEntity` 里那批还没搬的成员
-  （`holding_*` / `data_indexes_*` / `world_*` / `ground_*` …）。
-- **只能转发的两个**：`buffs_set` / `buffs_delete` 已接到 `Entity.buffs` 上，
-  但本轮差分没有"读回 buff 表"的观察点（buff 接线切片负责），
-  同理 `set_outline_alpha|width|color` 只是照抄转发。
 
-### 50.4 生命周期：TS 的 `Map` 与端口的裸指针
+### 54.4. 生命周期：TS 的 `Map` 与端口的裸指针
+
 TS 的 `States` 是 `Map`，`set` 覆盖一个键时旧对象仍被 `this._state` 引用着（GC 保命），
 端口 `States::set` 会销毁被替换的 `unique_ptr`。真实游戏的注册表在启动时**一次性**建好
 （`entity_states()`），此后不再替换，所以裸指针是安全的；差分也遵守这条：
 场景里覆盖一个键时，该键一定**不是**当前活动状态（`reg 50`/50 活动 → 切到 51 再覆盖 50）。
 这条写进 DESIGN 而不是"悄悄绕过"，因为它是端口与 TS 之间唯一无法用代码表达成一致的差异。
 
-### 50.5 harness 观察点
+### 54.5. harness 观察点
+
 - `run reg <数字>` / `run regbare <数字>` / `run regkey <键字面量>`：往 harness 自己的
   注册表里放"会打日志的假状态" / "没有钩子的裸 `State_Base`" / "任意键的假状态"。
 - `run setstate <数字>` / `run setstateb <数字>`（后者作用于 buddy，用来验证
@@ -5065,23 +5488,15 @@ TS 的 `States` 是 `Map`，`set` 覆盖一个键时旧对象仍被 `this._state
   假状态的 `enter` / `leave` 日志自带**自己的状态键**，
   于是"leave 的是旧状态还是新状态"这种顺序错误也能被杀。
 
-### 50.6 有意不覆盖 / 不可观测项
-- 上面 50.3 列出的留空成员与两个"只转发未观察"的成员：本轮没有观察点，
-  不列变异条目（各自的切片负责）。
-- `States::set` 覆盖**活动**键的场景不可测（见 50.4 的生命周期差异），差分不写。
-- `pre_update` / `update` / `on_landing` / `on_leave_ground` / `on_restrict` 的调用点
-  分别在更新循环与地形限制里，尚未搬运，本轮不涉及。
+## 55. `Entity` 的 v_rest 三段 / 关系清理 / 闪烁标记 / 落地请求
 
-## 51. 切片 9h：`Entity` 的 v_rest 三段 / 关系清理 / 闪烁标记 / 落地请求
-
-第四刀之后的又一把「小刀」：这一层全部是**短函数 + 一个隐藏的语义分歧点**，
 输入只有实体自己的容器与字段，外加一次宿主「请求进入某帧」的回调。
 
 搬运的十支：`add_v_rest` / `get_v_rest` / `del_v_rest`、
 `get_flag`、`clean_holding` / `clean_catching` / `drop_catching`、
 `blink_and_gone` / `blink_and_respawn`、`update_itr_bdy_hit_ground`。
 
-### 51.1 单元边界（为什么是这十支）
+### 55.1. 单元边界（为什么是这十支）
 
 1. **不碰帧链**：`set_frame` / `enter_frame` / `get_next_frame` /
    `handle_next_frame_result` 要 `preprocess_next_frame` 的 `__judger`
@@ -5096,7 +5511,7 @@ TS 的 `States` 是 `Map`，`set` 覆盖一个键时旧对象仍被 `this._state
 5. **不碰更新循环**：`update_caught` / `update_catching` 内含 `follow_catcher` 与
    `transfrom_to_another`；`update_ghost` / `check_fusion_dismissing` 要 Actor 与 `ctrl` 的按键判定。
 
-### 51.2 保真要点
+### 55.2. 保真要点
 
 1. **`add_v_rest` 写三张表，但从不删旧镜像**：`vrests` 一定写；
    `blockers` / `superpunchs` 只在 `itr.kind` **严格等于** `ItrKind.Block`(14) /
@@ -5110,8 +5525,6 @@ TS 的 `States` 是 `Map`，`set` 覆盖一个键时旧对象仍被 `this._state
 3. **容器值语义**：端口三张表都是 `std::map<std::u16string, Collision>`，**按值存**；
    TS 三张 `Map` 共享同一个 `Collision` 对象引用。于是：
    - TS 的 `Map` 插入序端口不保留 ⇒ `run vrestdump` 两侧都**按键排序**输出；
-   - TS 的别名（同一条 collision 同时出现在三张表里，改一处三处都变）端口没有对应物，
-     本轮用例不覆盖别名，等碰撞层真的按引用传递时再定。
 4. **`get_v_rest` 的 `|| 0`**：缺失、`0`、`NaN`（还有 `-0`）都读回 `0`；
    端口因此写 `truthy(Value(rest)) ? rest : 0`。用例覆盖 `n 0`、`n NaN` 与未知 id。
 5. **key 会被字符串化**：`Map<string, …>` 的 key 是字符串，端口用 `std::u16string`；
@@ -5153,38 +5566,9 @@ TS 的 `States` 是 `Map`，`set` 覆盖一个键时旧对象仍被 `this._state
     （`b0` / `u` / 缺键）但箱子已经压到地面线」的场景把
     `if (!truthy(target)) continue;` 这条守卫单独钉住（少了它就会请求一个假帧）。
 
-### 51.3 harness 扩充
+## 56. `Entity` 的帧进入链 / 位置写入 / 跟随关系 / transform
 
-- 新 op：`run vrest <aid> <kind> <rest>` / `run vrestget <aid>` / `run vrestdel <aid>` /
-  `run vrestdump` / `run flag <self|buddy>` / `run cleanhold` / `run cleancatch` /
-  `run dropcatch` / `run blinkgone <数>` / `run blinkrespawn <数>` /
-  `run itrground <数组字面量>` / `run linkb <字段> <self|buddy|null>`。
-- 端口侧直接构造 `collision::Collision` 结构体（只填被读的 `aid` / `itr` / `rest`），
-  TS 侧给一个同形状的字面量对象 —— 两侧都只关心这三个字段。
-- `run link` 只管 self，`run linkb` 是它的镜像（回指必须能指向自己/对方），
-  两者都打印八位关系探针 `sh sb sc sr bh bb bc br`（self/buddy 的
-  holding/bearer/catching/catcher 是否非空），于是「回指被清/没被清」在日志里可见。
-- `_after_blink` 端口通过窥视口 `after_blink()` 读回（TS 直接读 `_after_blink`），
-  `null` 与字符串两侧渲染一致。
-
-### 51.4 有意不覆盖 / 不可观测项
-
-- TS 的 `Map` 插入序与三表别名（见 51.2.3）：差分两侧不可比 / 端口无对应物，不写场景。
-- `add_v_rest` 收到没有 `itr` 的 collision：TS 抛错、端口静默，属于非法输入，不写场景。
-- `update_itr_bdy_hit_ground` 的非数组入参：TS 对字符串会按 `length` 逐字符迭代
-  （字符上没有 `on_hit_ground`，什么也不做），端口 `as_array` 直接返回 ——
-  两条路都**不产生日志**，因此不可观测（用例仍写了 `n 5` / `s "ab"` 两组，
-  作用是把「不崩」钉住）。
-- `drop_catching` / `update_itr_bdy_hit_ground` 里的 `enter_frame` 在端口只是
-  **请求**（`IEntityHost::enter_frame` 缝），harness 记录 `enter_frame:<帧>`；
-  真正「进入帧」的语义归帧链切片。
-  （9i 之后这条缝已被**真方法**取代，见 §52.1。）
-
-## 52. 切片 9i：`Entity` 的帧进入链 / 位置写入 / 跟随关系 / transform
-
-`entity.{h,cpp}` 的第九刀，也是 Entity 块**第一次把「宿主缝」换成真链路**：9h 之前
 `enter_frame` / `set_frame` / `set_position` 都是缝或桩，这一刀把它们按 TS 语义完整
-落地，顺带把 `EntityStateView` 的三个转发、`States::fallback` 的签名、
 `State_Base::on_restrict` 的位置写回一起对齐。
 
 搬的东西：`set_frame`、`enter_frame` / `enter_frame_by_id` /
@@ -5194,17 +5578,15 @@ TS 的 `States` 是 `Map`，`set` 覆盖一个键时旧对象仍被 `this._state
 `entity/enter_frame_result.h`（`EnterFrameResult` 四态）与
 `MersenneTwister::pick_value`。
 
-### 52.1 从缝到真：这一刀删掉了哪些「宿主缝」
+### 56.1. 从缝到真：这一刀删掉了哪些「宿主缝」
 
 | 之前（9a–9h） | 这一刀之后 |
 | --- | --- |
-| `IEntityHost::enter_frame(帧)` 缝（9h 用它记录 `drop_catching` / `update_itr_bdy_hit_ground` 的请求） | 真 `Entity::enter_frame`：帧链自己走，返回 `EnterFrameResult`；缝从 `IEntityHost` 删除，port 侧 4 处 `host_->enter_frame(...)` 改成真调用 |
 | `set_frame` 是桩（harness 直接写 `opoints` 容器） | 真实现：gone 清 opoint、interval 过滤、状态钩子、四个标志、cpoint / broadcast / holding 收尾 |
 | `set_position` / `update_position` 未搬（harness 用 `run pos` / `run ground` 窥视写） | 真实现：轴跳过 + 取整 + MIN_SAFE 的 `prev_position` 复制 + `world.restrict` 后四条请求 + `Ground::y` |
-| `EntityStateView::set_position` / `set_frame` / `enter_frame_by_id` 只满足接口 | 三个转发全部转真（状态钩子第一次能真正驱动帧链），并补 `assign_position` / `set_velocity` |
 | `States::fallback(type, code)` 收 `double` | 收 `Value`：`to_string` 的键构造与 `strict_equals` 的类型分支都要保住 `undefined` 语义 |
 
-### 52.2 保真要点
+### 56.2. 保真要点
 
 1. **`set_frame` 的 opoint 过滤是单趟稳定压实**：只留 `interval_mode` 严格等于 1
    且新帧 `opoint` 里存在同 `interval_id` 的项（`gone` 帧直接清空）。删掉 `exists`
@@ -5248,97 +5630,27 @@ TS 的 `States` 是 `Map`，`set` 覆盖一个键时旧对象仍被 `this._state
     是 `data.id` 与**旧 ctrl 的 `player_id`**；`reset()` 拿的是 `""`，
     harness 的 `make_ctrl(0)` 一开始给了 `"7"`，被 `create_ctrl:…:s""` 这一支杀掉。
 
-### 52.3 递归陷阱：`assign_position`
+### 56.3. 递归陷阱：`assign_position`
 
 TS 的 `State_Base.on_restrict` 结尾是 `e.position.x = x; …`（**直写**），端口最初
 写成 `e.set_position(x, y, z)`，于是 `Entity::set_position` → 状态钩子 →
-`set_position` → … 直接爆栈。新增 `IStateEntity::assign_position`（默认回落到
-`set_position`，`EntityStateView` 覆盖成直写三个字段）；同时补上
-`EntityStateView::set_velocity` 的转发 —— 少了它，`on_restrict` 的速度钳制静默
 失效（TS 打 0.5、端口打 1）。
 
-### 52.4 harness 扩充
-
-- 新 op：`run setpos <x> <y> <z>`、`run updatepos`、`run setframe <帧字面量>`、
-  `run enter <帧字面量> [b 0|1]`、`run enternext [b 0|1]`、
-  `run enterid <id字面量> [b 0|1]`、`run followbearer`、`run followcatcher`、
-  `run drop`、`run pick`、`run transform <data字面量>`、`run transnext`、
-  `run terrain <地形字面量>`、`run vratt <aid> <px> <pz>`、`run copyself`、
-  `run frameb <帧字面量>`（写 buddy 的当前帧）、`run bkeys <LR> <UD> <jd>`。
-- 观察点：`run setpos` 打印 `p=` / `pv=`（`position` / `prev_position`）/ `g=`
-  （`_ground_y`）与 `world.restrict` 日志；`run enter*` 打印
-  `r=`（`gone` / `notfound` / `entered` / `fallback`）+ `f/w/fa/bl/pf/ar/mt`；
-  `run setframe` 打印 `f/pf/lf/ar/mt/in/bl/iv/op=[…]`（opoint 的 `interval_id` 列表）
-  + `p=` / `bp=`（自己与被放下侧的坐标）；
-  `run itrground` 追加 `f=` / `w=`（9i 把 `enter_frame` 换成真方法后，原来靠缝日志
-  观察的「请求了哪一帧」改从帧本身读）；
-  `run dropcatch` / `run drop` / `run pick` 也补了 `f=`（被放下侧的帧）/
-  `bpv=`（被放下侧的 `prev_position`）/ `bdr=`（被放下侧的 `dropping`）；
-  `run followbearer|followcatcher` 追加 `f=`（对齐帧结果）与 `dr=`（`dropping`）；
-  `run summaries` 追加 `p <id>:<picking_sum>`（`pick` 的计数只能从摘要里看）。
-- `run hook viewpos|viewframe|viewenter`：让假状态在 `enter` 里调
-  `EntityStateView` 的三个转发（`set_position` / `set_frame` / `enter_frame_by_id`），
-  这是本主题唯一能驱动它们的入口；`view_busy` 防止 `set_frame` 触发的状态进入再回调
-  成环，TS 侧同一份假状态镜像同一开关。
-- `world.ground` 在 TS 侧用**真** `Ground` 实例（`new Ground(worldStub)`）回答
-  `y()`，端口侧直接调 `Ground::y`；`run terrain` 覆盖 SlopeH / SlopeV / Flat h1 /
-  未知类型，x/z 换参因此可见。
-- `run vratt` 只写阻挡者的 `attacker.px/pz`（端口 `blockers` 存的是**值**语义的
-  `Collision`），两侧按同一形状构造。
-- `run bkeys` 的存在原因：`follow_bearer` / `follow_catcher` 各有一项速度乘
-  **对方控制器**的 `UD()`，不按对方键就没有观察点。
-- TS 侧删掉了 `enter_frame` spy（它让 `run enter` 变成空操作）；harness 里
-  `buddy` 被替换时先解除四条关系（端口是裸指针，否则悬垂）；`vratt` 的
-  `parseValue(t, [i])` 连读 bug、`Ditto.vec3` 桩缺 `copy`、8 个 `on_*_changed`
-  回调（用户 WIP 提交里删掉的那批）都已同步。
-
-### 52.5 有意不覆盖 / 不可观测项
-
-- `handle_next_frame_result` 的 `ctrl.reset_key_list()`：TS 没有可选链（`ctrl`
-  缺失会抛），端口加了 `nullptr` 守卫；而 `reset_key_list()` 只清控制器私有按键
-  队列（`_key_list` / `_readable_key_list`），实体侧没有观察点 —— 用例仍写
-  `reset_keys b 1` / `b 0` 把「不崩」钉住，键队列语义归控制器切片。
-- `collision_clone(v)`：TS 从 `lfw.new_id` 造新 id，端口按值拷贝 —— v_rest 路径
-  只读 `aid` / `itr` / `rest`（见 §51.2.3），harness 用一个**不消耗**真实 id
-  计数器的假 `lfw` 让 `id=eNN` 打印一致。
-- `transform` 的 `host_->create_ctrl(id, player_id)`：端口的 `acquire_ctrl()` 缝
-  没有 `player_id` 参数，`reset()` 的 `""` 只能由 harness 给定（见 §52.2.12）；
-  「旧 pid 传下去」这一条要「基控制器带非空 pid」才能观察，harness 的基控制器是
-  `""`，所以该变异列在 spec 头部的不可观测清单里。
-- `follow_bearer` 的 `WpointKind.Drop` 分支里 `lfw.mt.mark = 'dh_v'`
-  （TS 的调试标记）端口无对应物，两侧都没有观察点。
-- **9i 全量重跑后的 67 条「本主题不可观测」变异**：逐条查证后从
-  `mutations/entity.mjs` 移到了该文件头部的清单（每条都写明原因），分三类：
-  1. **9a/9e/9h 时代用例的覆盖缺口**（`set_toughness_max` 的取整、`fall_value` 的
-     未取整比较、`reset_armor` 的赋值顺序、三个 `*_recovering` 的「跳过通知」、
-     `drop_catching` 清自身一侧、`update_itr_bdy_hit_ground` 的 11 条判定）：
-     它们原本靠「帧请求日志 / 部分回调统计」观察，9i 把 `enter_frame` 缝换成真方法、
-     且用户 WIP 提交收窄过回调统计，观察点随之消失；补场景属于这四刀的用例工作，
-     不在本刀范围内。
-  2. **两式在本场景同值**（`follow_*` 的居中项为 0 / 权重为 1 / facing 相同、
-     `update_position` 的梯形与 dt、`get_next_frame` 的 mt 序列恰好等价、
-     `pick_value` 的假值输入、`on_restrict` 的速度阈值、`States::fallback` 的
-     字符串类型走不到分派）：需要给出「与 TS 一致又能区分两式」的具体数值/序列。
-  3. **harness 还没有的探针**（被放下侧的帧/位置、`transform` 的回调载荷、
-     自引用 `copies` 的 transform 结果）：需要新增观察口或改场景结构。
-  ——这三类都不是「端口与 TS 不一致」，差分本身仍然全绿（§52.1 的真链路替换
-  没有引入行为漂移）。
-
-## 53. 切片 9j：`MersenneTwister` 的调试面 + `Cases`
+## 57. `MersenneTwister` 的调试面 + `Cases`
 
 **背景**：9i 之后，README「已知偏差」里与本文件相关的省略只剩最后一条 ——
 `math/mersenne_twister` 少了 `mark` / `debugging` / `mt_cases`（`pure()` / `load()` 也没搬）。
 当时的理由写的是「只是写 `Cases` 的调试探针，不影响输出与状态」。这一刀把它补齐，理由三条：
 
 1. 这三样在 **TS 侧是可观察的**：`mt_cases.submit()` 返回一整段文本，`mark` / `debugging`
-  决定这段文本的前缀与有无 ⇒ 不是 §43.3 拒绝保留的那种「TS 没有对应可观察属性」的便利 API。
+  决定这段文本的前缀与有无 ⇒ 不是 §8 拒绝保留的那种「TS 没有对应可观察属性」的便利 API。
 2. `mt.mark = …` / `mt.case(…)` / `mt.debugging` 在 `src/` 里有 20 多处调用点
   （`BotController` / `BotState*` / `ValExpression` / `handle_weapon_is_hit` …），
   全在还没搬的强连通块里；先把落点 `Cases` 建好，后面那几刀直接调用。
 3. `pure()` / `load()` 是状态存取对，且 `pure()` 正是既有 harness 算 `state` 哈希的入口
   （TS 侧一直在用）⇒ 端口补上它，harness 两侧才对称。
 
-### 53.1 单元边界
+### 57.1. 单元边界
 
 | 单元 | 位置 | 说明 |
 |---|---|---|
@@ -5347,7 +5659,7 @@ TS 的 `State_Base.on_restrict` 结尾是 `e.position.x = x; …`（**直写**�
 | `MersenneTwister` 新增 | `native/lfw/utils/math/mersenne_twister.{h,cpp}` | `mark` / `debugging` / `log_case`（TS `case`，C++ 关键字）/ `log_entry` / `pure` / `load` / `reset` 第二参 / `take_value` |
 | `Array::remove_at` | `native/lfw/core/value.h` | `take<T>` 的 `splice(index, 1)` 要按位删除（`Array` 之前只有 push/at） |
 
-### 53.2 保真要点
+### 57.2. 保真要点
 
 1. **条目文本就是协议**：`"<mark>(<编号>)"` 或 `"<mark>(<编号>):[<args>]"`，其中 `<args>`
   是 **`Array.join()` 语义**（`","` 连接、每个元素 `String(x)`、`undefined`/`null` 输出**空串**）
@@ -5382,121 +5694,36 @@ TS 的 `State_Base.on_restrict` 结尾是 `e.position.x = x; …`（**直写**�
 12. **`take` 推送的长度是「删之前」的长度**：TS 先 `push` 再 `splice` ⇒ 端口也必须
    先 `log_entry` 再 `erase`（用例里 `take 10 20 30 40` 的条目是 `[take,4,index]`）。
 
-### 53.3 harness 扩充（`subjects/mersenne_twister.{cpp,ts}` + 新用例 `mt_debug.txt`）
-
-- 新 op：`mark <token>` / `debug <0|1>` / `case <valueLiteral>…` / `cases`（`submit()` 转储 +
-  submit 后的 `cases.length`）/ `cinfo`（`name` + `separator`）/ `creset` / `pure`（逐字段）/
-  `load <field> <value>…`（以 `pure()` 为底改一个字段再 `load`，输出 `state` 哈希与 `mark`）/
-  `pickv` / `takev`（`Value` 版 `pick` / `take`，打印返回值与操作后的参数）。
-- `seed <n>` 增加可选的 `d` 尾参 ⇒ `reset(n, true)`；输出行追加 `debug=1`。
-- 场景（`mt_debug.txt`，133 行）覆盖：关闭时零条目 / 打开时每种抽取的条目与格式 /
-  `min == max` 的零条目 / `case` 的空参·原语·数组·对象 / mark 传递与清空 /
-  `submit` 的连续编号与清空 / 每个 `load` 字段（`mt` 取 0·1·5·622·623）/ 空数组与非数组的
-  `pickv`·`takev` / **`creset` 之前先攒两条未提交条目**（否则「只清 times 不清 cases」不可观察）/
-  **`pick` 连抽 6 次**让内层 `range` 的下标出现非 0 值（否则「下标一律记 0」不可观察）。
-- `mt_basic.txt` 不动（它是随机数本体的 7614 行基线）。
-- 首轮变异跑出 2 条幸存，**两条都是用例缺口、不是端口问题**（`creset` 前队列为空、
-  `pick` 的下标恰好都是 0），补上上面两条场景后转为全杀。
-
-### 53.4 有意不覆盖 / 不可观测项
-
-1. **`sus_cases`**：`src/` 里没有任何调用点 ⇒ 不建实例（等真有调用点的刀再建）。
-2. **`range(min, max, debugging = this.debugging)` 的第三参**：TS 里就是**死参数**
-  （函数体只看 `this.debugging`）⇒ 端口不保留该参数，也没有对应变异。
-3. **`pure()` 返回的 `mt` 是别名还是拷贝**：TS 是拷贝，C++ 是值语义 ⇒ 无法构造出
-  「返回别名」的 C++ 变异（没有可杀的变异，不是漏测）。
-4. **`load()` / `reset()` 返回 `*this`**：TS 的 `: this` 只服务链式调用，两边都没有链式调用点，
-  harness 也不链式 ⇒ 返回什么不可观察。
-5. **`MersenneTwisterInfo` 的字段默认值**：`pure()` 会写满全部字段，harness 也总以
-  `mt.pure()` 为底再改 ⇒ 默认值不可见。
-6. **`next_int` 里 `log_entry` 与 `++_times` 的先后**：条目文本不含 mt 自己的 `times`，
-  `state` 哈希在两者都完成之后取 ⇒ 任何顺序同值。
-
-## 54. 切片 9k：`mt.mark` 调试探针（把已移植模块里被丢掉的写入补回来）
+## 58. `mt.mark` 调试探针
 
 **背景**：9j 把 `Cases` / `mt_cases` / `mark` / `debugging` / `case` 补齐之后，
 「谁会写 mark」这件事才变得有意义 —— 而当时**没有任何已移植模块写 mark**：
 早期各刀按「只是调试探针，不影响输出与状态」的口径把 `lfw.mt.mark = …` 一行行丢掉了
-（§4.57 的那条结论）。这一刀把**已移植代码里**的这些写入逐处补回来，并让它们可观察。
+（§9.59 的那条结论）。这一刀把**已移植代码里**的这些写入逐处补回来，并让它们可观察。
 
 按 `src/` 全量清点共有 20 处调用点，其中：
 
 | 状态 | 位置 | 处理 |
 |---|---|---|
-| 已有缝（本刀不动） | `collision/weapon_is_hit`（`mt_mark(u"hwih_1"/u"hwih_2")`）、`collision/action_handlers`（`mt_set_mark(u"cact_" + kFUSION)`） | 缝已存在且 harness 已观察 |
-| **本刀补回** | `entity/entity.cpp` 的 `drop_holding`（`dh_1`）、`follow_bearer`（`dh_v`）、`get_next_frame`（`gnf_0` / `gnf_1`） | 直接用真 `host_->mt()` |
-| **本刀补回** | `state/spawn_ice_piece.cpp` 的 `ice_piece_x` / `ice_piece_y` | 参数里就有真 `mt` |
-| **本刀补回** | `helper/randoming.cpp` 的 `random_in`（`mark = name`） | 参数里就有真 `mt` |
-| **本刀补回** | `state/character_state_drink.cpp` 的掉落分支（`drink_drop`） | 新增 `holding_mt_mark` 缝（与既有 `holding_mt_range` 同款） |
 | 等各自的刀 | `Entity::spawn` / `Entity::update`（4 处）/ `Entity::spark_point` | 三个函数本身还没移植 |
 | 等各自的刀 | `base/ValExpression`（4 处）、`bot/BotController`（6 处）、`bot/state/*`（3 处）、`stage/*`、`ui/*` | 模块未移植 |
 
-### 54.1 保真要点
+### 58.1. 保真要点
 
-1. **mark 写在抽取之前**：条目的 mark 是 `push` 那一刻的 `this.mark`，所以顺序是行为
-  （把 mark 挪到 `range` 之后就变成「条目挂在上一个 mark 上」）。本刀给每处都配了
-  「mark 写在抽取之后」的变异。
-2. **`reset()` 会清空 mark 并重置 `debugging = false`**（§53.2-5）⇒ harness 的
-  `run mtseed` 之后必须重新 `mtdebug 1`，否则场景里一条条目都没有（首版用例就踩了）。
+2. **`reset()` 会清空 mark 并重置 `debugging = false`**（§57.2-5）⇒ harness 的
+  `run mtseed` 之后必须重新 `mtdebug 1`，否则场景里一条条目都没有。
 3. **`dh_1` 目前不可观察**：`drop_holding` 写完 `dh_1` 之后立刻进 `enter_frame` 链，
   而对齐帧一定带 `id` ⇒ `get_next_frame` 的 id 分支必然再写 `gnf_1`，中间没有任何抽取
   ⇒ 改字符串 / 删掉都不可观察（端口照抄保留，变异表头部记录）。
-4. **`entity` 用真 `host_->mt()`，不新增缝**：`IEntityHost::mt()` 在 9i 就已存在
-  （`get_next_frame` 的 `pick_value` 一直在用）⇒ 直接写即可。
-5. **`drink` 处新增 `holding_mt_mark` 缝**：`IStateEntity` 已经用 `holding_mt_range`
-  代理「持握物的 mt」，而 `holding.lfw.mt.mark = …` 也在同一个对象上 ⇒ 沿用它
-  （默认空实现，不引入 nullptr 判空路径）。
-6. `weapon_is_hit` / `action_handlers` 的缝是**有损**的（只传 mark，不传实体），
-  但它们各自只有一个受害者/攻击者 ⇒ 观察上无歧义，本刀不动它们（真要动就是另一刀：
-  把缝换成「实体自带的 mt 访问器」）。
 
-### 54.2 harness 扩充
-
-- `entity`：新增 `run mtdebug <value>` / `run mtmark` / `run mtcases`
-  （`mark=` / `text=` 用 `render`，与既有 `run` 行同格式），新用例 `entity/mt_probe.txt`
-  覆盖四条 mark（含「数组分支 + 元素带 id ⇒ `gnf_0` 被递归改成 `gnf_1`」的次序）。
-- `mt_random`：新增 `mt dbg <name> <v>` / `mt mark <name>` / `cases`（`submit()` 转储），
-  用例尾部覆盖 `Randoming.random_in`（`mark = r1`）、`ice_piece_dvx`（`ice_piece_vx`）、
-  `ice_piece_x/y`，并验证 `mt dbg … b 0` 之后条目停止。
-- `burning_drink`：新增 `run mtmark`；TS 侧的 holder 双件把 `lfw.mt.mark` 改成
-  带日志的 getter/setter 对（与 C++ 的 `holding_mt_mark` 日志逐字对齐）。
-- ⚠️ `mt_cases` 是**全局**单例 ⇒ 各 subject 的一次运行就是一个进程，
-  `mtcases` / `cases` 会清空它，场景里要按「转储即清空」来排。
-
-### 54.3 有意不覆盖 / 不可观测项
-
-1. `dh_1` 的字符串与存在性（见 54.1-3）。
-2. `weapon_is_hit` / `action_handlers` 的缝本身（本刀不改；它们已由各自的日志覆盖）。
-3. `holding_mt_mark` 的**默认实现**（空体）：没有任何 `IStateEntity` 走默认实现
-  （双件全部覆写），改默认体没有观察点。
-4. `Entity::spawn` / `update` / `spark_point`、`ValExpression`、`bot/*`、`stage/*`、`ui/*`
-  的 mark 调用点：模块没移植，随各自的刀进来。
-
-### 54.4 变异与结果
-
-- 本刀新增 21 条变异（`entity` 9 / `mt_random` 9 / `burning_drink` 3），**全部被杀**；
-  三个 spec 的现状是 `entity` 759/759、`mt_random` 64/64、`burning_drink` 41/41 全杀。
-- 其中 3 条是「mark 挪到抽取之后」的顺序变异、3 条是「不写 mark」，其余是字符串/分支写反。
-- `entity` 里那条 `pick_value wraps a non-array input` 的锚点被 9j 的 `take_value`
-  撞成两处（`if (arr == nullptr) return a;`）⇒ 本刀给它补上 `const Array*` 前缀消歧。
-- `mt_random` 里 8 条旧变异的锚点因为 `random_in` / `ice_piece_*` 插入了 mark 行而失配，
-  已按新代码重写（语义不变）。
-
-## 55. 切片 9l：Entity 的 opoint 生成簇（`spawn` / `on_spawn` / `attach`）
+## 59. Entity 的 opoint 生成簇（`spawn` / `on_spawn` / `attach`）
 
 **背景**：9f 移植了 `get_opoint_speed_z`，7c 的 `State_Frozen` 会产 `ice_piece_opoints`，
 但**消费这些 opoint 的三件套一直没搬**：`Entity::spawn` 负责「从 opoint 造出一个新实体」，
 `on_spawn` 负责新实体的位置 / 朝向 / 速度 / hp·mp / Pick 关系，`attach` 负责把它挂进世界。
-这一刀把三件套搬完（`apply_opoints` 与 `world.list_entities` 的联动留下一刀）。
 
-### 55.1 保真要点
+### 59.1. 保真要点
 
-1. **`__gen_*` 表达式字段用宿主缝代替**：TS 的 `opoint.__gen_x?.get(emitter)` 是一个
-   **函数对象**，`src/` 里由 `ValExpression` 提供（模块未移植，§4.57 约定不引入）。
-   端口把它建模成 `IEntityHost::gen_field(holder, kind, emitter) -> std::optional<Value>`：
-   `nullopt` = 「这个对象上没有 `__gen_*` 字段」⇒ 走 `field_or(holder, kind)` 回落；
-   `Value()` = 「生成器存在但返回 undefined」⇒ 走 `?? 默认`。**两种"没有"必须分开**，
-   用例里各有一条场景（`env gen … u` 与 `env genclear`）。
 2. **`pick(oid)` 的输入可以是数组**：TS 的 `mt.pick(oid)` 对数组取一个元素、对字符串取一个
    字符 ⇒ 用例第一条就是 `oid a 2 s "w1" s "nope"`，让「不 pick」这种变异必死。
 3. **门限是「`> 355` 且 unimportant」**：两个条件都在用例里各有对照
@@ -5523,7 +5750,7 @@ TS 的 `State_Base.on_restrict` 结尾是 `e.position.x = x; …`（**直写**�
 10. **`OpointKind::Pick`(2) 不只是设 bearer**：它先 `emitter.drop_holding()`，
     再双向链接 `this.bearer = emitter; emitter.holding = this`。用例用
     `run link holding self` 让发射者持着**自己**，于是 `drop_holding` 的清空
-    在后面的 `attach` 转储里看得见。
+    在后面的 `attach` 转储里看得
 11. **`Fixed`(6) / `Extra`(5) 速度模式读的是**进入后的帧**：opoint 里的 `dvx/vdy/dvz`
     是 `o_dv*`（先除以 weight、再按 `abs(ovz/2)` 修正符号），而 `vxm/vym/vzm` 与
     `dvx/dvy/dvz` 取自 `data.frames` 解析出来的帧对象 ⇒ 用例里用 `env data` 造了
@@ -5531,65 +5758,16 @@ TS 的 `State_Base.on_restrict` 结尾是 `e.position.x = x; …`（**直写**�
 12. **`weight` 影响 `o_dvy` 与 `o_dvx`**：用例把 `p1` 数据的 base 设成 `weight 2`，
     并让 UD 场景的 opoint 带 `dvy 8` ⇒ 「除以 weight」与「不除」分得开。
 
-### 55.2 harness 扩充
-
-- `IEntityHost` 新增 5 个缝（都是"宿主供给"而不是行为）：
-  `entity_count()`（`world.list_entities().length`）、`add_entities(Entity&)`（`world.add_entities`）、
-  `game_time()`（`world.game_time`）、`create_entity_with_bot(Value)`（`lfw.factory.create_entity_with_bot`）、
-  `gen_field(holder, kind, emitter)`（`__gen_*` 表达式字段，见 55.1-1）。
-  9l 之前占位注入的 `apply_opoints` 缝**保留到 9m**（`State_Frozen` 还在用），§56 换成真方法。
-- C++ 侧新增全局 `g_ecount` / `g_gtime` / `g_gen` / `g_spawns` / `g_last_spawn` 与
-  `bind_entity_factory()`（让 Host 能在建实体时把新实体登记进 `g_spawns`），
-  `dump_spawn()` 打印新实体的关键槽位（id/pos/pv/v/pvv/team/facing/frame/motionless/
-  hp·hp_r·hp_max/mp·mp_max/emitters/bearer/holding/mounted/ghosted/spawn_time/ground_y/on_ground）。
-- 新 op：`env ecount|gtime <值>`、`env gen <kind 字面量> <值字面量>`、`env genclear`、
-  `run spawn <opoint>` / `run spawnv <opoint> <4 个值>`（带 offset_velocity 与 facing）、
-  `run spawndump`（转储最后一次生成的实体 + 当前日志）、`run attach <值字面量>`、
-  `run lastcollided <id> <team>`（写 `lastest_collided`，为 Ball_Rebounding 那一支）。
-- ⚠️ TS 侧的实体是**每个宿主方法一个 spy**（`bindHostSpies`）：工厂建出来的实体也要绑一次，
-  否则它走真实 `play_sound`（什么都不记）⇒ 第一版差分就卡在这里
-  （C++ 多一条 `play_sound:u@…`）。回调**不绑**：端口侧生成出来的实体在宿主里没人注册回调，
-  两侧观测面必须一致。
-- ⚠️ `run spawn` 的「本次结果」在 TS 侧要显式赋值给 `spawned`（失败时留旧值会让
-  `spawndump` 打出上一个实体），端口侧是 `g_last_spawn = nullptr` 起手。
-
-### 55.3 已知偏差 / 有意不覆盖
-
-1. **`Entity::_team` 是 `std::u16string`**（9a 起的设计），TS 的 `team` 保持原值 ⇒
-   `on_spawn` 的 Ball_Rebounding 分支若拿到**数字**队伍，两边表示不同（TS 存 `3`、
-   端口存 `"3"`）。用例只喂字符串队伍；这条偏差记进 README 的已知偏差表。
-2. `spawn` 失败分支里的 `Ditto.warn` + `debugger`（§4.57 约定）不移植。
-3. `fallback`（`States::fallback` 造出来的状态对象）在`on_spawn` 里只被 `state()` 读
-   ⇒ 没有额外的观察点。
-4. `spawn` 尾部的 `vrests` 复制循环：需要 `collision_clone`（碰撞工厂未移植）⇒
-   端口按 9i 约定原样复制记录，本主题的用例里 `vrests` 为空 ⇒ 不可观测。
-5. `as_key_role(false)` 的调用：`key_role` 只影响 `ctrl`/`player_id` 的后续路径，
-   本主题的转储里没有它的观察点（随控制器相关的刀补）。
-
-### 55.4 变异与结果
-
-- 本刀新增 61 条变异，**全部被杀**（`entity` 从 759 涨到 820）。
-- 分布：`spawn` 10、`on_spawn` 47、`attach` 4；其中 6 条是「观察面」变异
-  （`.__gen_*` 忽略、门限的两种写法、Pick 的 kind 值、Fixed 的逐轴覆盖），
-  其余是符号 / 键名 / 顺序 / 默认值。
-- 首轮 13 条存活，逐条查证后**全部是"用例没喂到那个分支"**，为此扩了场景：
-  `pos_type` 需要非零中心点、`o_dvx > 0` 的 `abs` 符号需要带 offset 的 `spawn`、
-  `Fixed` 的 `vy` 需要 offset 的 y、`max_hp` 需要没有 `hp` 的场景、
-  `Ball_Rebounding` 需要 `run reg 3003` + 一张 `state: 3003` 的帧、
-  `Pick` 的 kind 要用 2、`__gen_facing` 的回落要先 `genclear`。
-  改完这 7 处，13 条全杀。
-
-## 56. 切片 9m：`Entity::apply_opoints`（opoint 列表的消费方）
+## 60. `Entity::apply_opoints`（opoint 列表的消费方）
 
 **背景**：9l 把「一个 opoint ⇒ 一个实体」的三件套搬完，但**谁来遍历 opoint 列表**一直没搬：
 `apply_opoints(opoints)` 负责逐条 opoint 的 interval 记账、`multi` 计数（按敌人 / 按友军 /
 按发射者）、`spreading` 偏移、按计数逐个 `spawn`、以及给 ball ctrl 写 `chasing`、
 给新实体按 `inherit_speed_*` 写速度。它是 `set_frame`（帧数据里的 `opoint` 字段）、
 `set_hp`（hp 归零时的 `base.brokens`）与 `State_Frozen::leave`（`ice_piece_opoints`）
-的共同下游。这一刀把 `IEntityHost::apply_opoints` 占位缝删掉、换成 `Entity::apply_opoints`
 真方法（两个调用点都是真的了），并补上它依赖的 `world.list_entities(key, predicate)` 缝。
 
-### 56.1 保真要点
+### 60.1. 保真要点
 
 1. **interval 记账是「先查再记」**：`opoints` 里按 `interval_id` **严格比较**找已有条目
    （`find`，找不到就当没有）。命中且 `interval_mode` **严格等于 1** 时，只有
@@ -5629,84 +5807,7 @@ TS 的 `State_Base.on_restrict` 结尾是 `e.position.x = x; …`（**直写**�
    `null` 交给 `set_velocity` 跳过该轴（不是写 0）⇒ `0` 与「缺失」在加法上同值、但在
    「跳过 vs 写 0」上可分（用例里 z 轴专门用 `0` 和缺失各一条）。
 
-### 56.2 harness 扩充
-
-- `IEntityHost`：**删掉** `apply_opoints` 占位缝（`set_frame` / `set_hp` 死亡分支现在都走
-  真方法；`State_Frozen::leave` 那条走 `IStateEntity::apply_opoints` 转发），**新增**
-  `list_entities(key, predicate)`（`world.list_entities`）。
-- `BaseController` 新增 `set_ball(bool)` / `is_ball_ctrl()` 与公开的 `Entity* chasing`：
-  `BallController` 未移植（等它的刀再把字段搬进子类），所以 `__is_ball_ctrl__` /
-  `chasing` 暂时落在基类上。
-- C++ 侧新 op：`env ents self|buddy|sp<N>…`（`env ents` 无参数 = 空名单）、
-  `env ballctrl b 1`、`run opoints <数组字面量>`（**真调** `Entity::apply_opoints`，
-  打印 `n=`（记账长度）/`itv=`（`interval_id:tick` 列表）/宿主日志/最后一次生成的实体）、
-  `run seedop <数组字面量>`（原 `run opoints` 改名：只往记账表里塞条目，给 9i 的场景用）。
-- `dump_spawn()` 增加 `ball=` 与 `chasing=`（`chasing` 打 `{"id":…}` 或 `z`）。
-- 新用例 `cases/entity/opoints.txt`（138 行源文件 / 108 行 trace），用会话侧生成器
-  （JS 对象 + 自动计数）产出：手写嵌套的 `o <n>` / `a <n>` 计数必错。末尾两条场景
-  专门覆盖**两个调用点**：帧里带 `opoint` 的 `run setframe`（顺带把这条 opoint 的
-  interval 记账在 `op=` 里露出来）与「`base.brokens` + `run set hp n 0`」的死亡分支。
-- ⚠️ **候选名单只记 token、筛的时候现查**：`run make` / `run buddy` 会换掉实体，而真实
-  `World` 每次筛的是「当前」世界里的实体。第一版在 `env ents` 时快照裸指针 ⇒ `run buddy`
-  重建后 `g_candidates` 里是悬垂指针 ⇒ 谓词读到释放后的内存 ⇒ 恰好返回 false，
-  把「友军谓词不看 `hp`」这条**真变异遮成了存活**。两侧同时改成 token + 现查
-  （`candidate_of(tok)`）后该条立即被杀。
-- ⚠️ TS 侧镜像：`worldStub.list_entities`（同样的 token 现查）、`worldStub.find_entity`、
-  `acquire_ctrl` 按 `ballCtrl` 打标；`run opoints` 打印前**先取 `r(list)`**，
-  否则 `applyGens` 挂上去的生成器会污染当行的字面量转储。
-- ⚠️ TS 的 `get_next_frame(undefined)` 会抛异常 ⇒ 用例里**每个 opoint 都必须带
-  `action: {id:"0"}`**（生成器自动补）。
-
-### 56.3 已知偏差 / 有意不覆盖
-
-1. **`World.list_entities` 的按 key 缓存**：真实 `World` 会把「同名 key 的筛选结果」缓存
-   一份数组，第二次调用**不再过谓词**。缓存层属于 World 切片 ⇒ 差分 harness 每次真筛，
-   PROTOCOL 里注明；端口只依赖缝的语义（`key` 只用来拼缓存键，端口照传）。
-2. **`BallController` 未移植**（同 56.2）：`is_ball_ctrl` / `chasing` 暂放 `BaseController`，
-   等 `BallController` 的刀再搬进去；本主题的观察面因此用 `ball=` + `chasing=` 双打。
-3. `spawn` 失败分支里的 `Ditto.warn` + `debugger`（§4.57 约定）不移植（9l 已记）。
-4. ⚠️ **`find` 的数组版应带一遍 pair 回落**（本刀发现并修掉）：TS 的
-   `find`（`utils/container_help/find.ts`）在可迭代对象上扫完元素后**还会**跑
-   `for (const k in p0) if (p1([k, p0[k]])) return [k, p0[k]]`（两个循环之间没有 `else`）。
-   对数组来说这会把 `["0", v0]`… 交给同一个谓词；谓词按字段读时
-   （`o => o.interval_id === interval_id`）从 pair 上读到 `undefined` ⇒ 「拿 `undefined`
-   去比」的谓词会在元素一个都不匹配时**拿到真值**。`set_frame` 的 opoint 压实正是这种
-   谓词，端口原来的内联循环会丢掉 TS 保留的那条记账项 ⇒ 端口新增
-   `lfw::find_array`（元素扫完没命中就把 pair 视图再喂同一个谓词），`set_frame` 改用它。
-   其余数组版 `find` 调用点的谓词对 pair 都为假（如 `is_fighter(c.attacker)`），
-   暂时不可观察，随各自的刀再过一遍。
-5. `State_Frozen::leave` 里对 `StateBase_Proxy::leave` 的**第二次调用**：TS 只调一次
-   `super.leave(e, next_frame)`，端口多了一次收尾调用（`state_base_proxy.cpp`）。
-   本刀的 `apply_opoints(ice_piece_opoints())` 顺序与 TS 一致，所以不影响 9m 的保真；
-   这条属于状态切片，已记进 README 的已知偏差表待复核（当前用例观察不到）。
-   另注：`Entity::apply_opoints` 的调用点一共三处（`set_frame`、`set_hp` 死亡分支、
-   `State_Frozen::leave`），后者的差分归状态切片。
-
-### 56.4 变异与结果
-
-- 本刀新增 44 条候选，**43 条列入名单并全部被杀**；另 1 条（`Spreading` 分支的 `sp.x`
-  回落值 → 字面量 0）经查证按构造等价（`Vector3 sp;` 在循环体内刚构造、`sp.x` 先读后写
-  ⇒ 读到恒为 0）故不列，已记录在 `mutations/entity.mjs` 头部（`entity` 从 820 涨到 **863**）。
-- 分布：interval 6、`multi` 谓词与边界 16、spreading / FloatRange 6、chasing 4、
-  inherit_speed 3、调用点 2（`set_hp` 的死亡分支 + `find` 的 pair 回落）、其他 7。
-- 不可观察项（记录在 `mutations/entity.mjs` 头部，不列）：`Spreading` 分支里
-  `sp.x = __gen_spread_x ?? sp.x` 的**回落值恒等于 0**（`sp` 是刚构造的 `(0,0,0)`，
-  且这一支里 `sp.x` 只被这一行赋值）⇒ 把回落写成字面量 0 与写 `sp.x` 不可分。
-- 首轮 6 条存活 → 扩场景后 3 条 → 2 条；最后 2 条里 1 条是上面那条等价项，
-  另 1 条（「友军谓词不看 `hp`」）是 **harness 的悬垂候选指针**遮蔽（见 56.2 ⚠️），
-  修完 harness 立即被杀。
-- 「`set_frame` 跳过帧 `opoint`」（9i 留下的变异）在 9i 时靠宿主缝的日志观察，
-  缝换成真方法之后日志没了 ⇒ 本刀第一次全量跑时它**存活**；补上「帧里带 `opoint`」
-  的场景（含这条 opoint 的 interval 记账在 `op=` 里可见）后被杀。
-- 这条新场景还暴露出 **`find` 的保真缺口**（见 56.3-⚠️）：TS 的 `find` 在数组上扫完元素
-  还有一遍 `for..in` 的 pair 回落 ⇒ 「拿 `undefined` 字段去比」的谓词会拿到真值
-  （`set_frame` 的压实正好是这种谓词）。端口补 `lfw::find_array` 后两侧一致，
-  并新增一条变异（去掉 pair 回落）钉住它。
-- 另外把 9i 留下的一条锚点失效的变异（`set_frame skips the frame opoints`：占位缝
-  `host_->apply_opoints(...)` 被真方法取代 ⇒ 锚点文本消失）更新到新调用点，
-  并补上 `set_hp` 死亡分支那条调用点的变异（9l 只钉了守卫、没钉调用）。
-
-## 57. 切片 9n：`Entity` 的每 tick 主体（`update` / `update_ghost`）
+## 61. `Entity` 的每 tick 主体（`update` / `update_ghost`）
 
 **背景**：9a–9m 把 `Entity` 的每一层（构造 / 速度 / 帧查找 / 快照 / 恢复 / 标记 / 状态 /
 v_rest / 帧进入链 / opoint 生成与消费）都铺好了，但**没有任何东西把它们按顺序调起来**：
@@ -5715,7 +5816,7 @@ v_rest / 帧进入链 / opoint 生成与消费）都铺好了，但**没有任�
 `update_catching` / `update_caught`，并把状态层要用的三个视图（`state_view_` 的新转发、
 `Entity::world_puppets` / `entity_view` / `refresh_ctrl_env`）一次接齐。
 
-### 57.1 保真要点
+### 61.1. 保真要点
 
 1. **顺序就是语义**：`update()` 里 `hp_recovering` / `mp_recovering` 在帧 hp·mp 消耗之前、
    `stat_recovering` / `toughness_recovering` 在 `state.pre_update` 之前、`state.update` 只在
@@ -5726,10 +5827,6 @@ v_rest / 帧进入链 / opoint 生成与消费）都铺好了，但**没有任�
 2. **`_atom_time` 会被子步临时改写**：`Number.isInteger(t) && 1 < t <= 8` 时切成 `t` 个子步，
    循环里 `_atom_time = round_float(t / 子步)`，循环**之后必须还原**（`子步后不还原 atom_time`
    一条变异钉住）；`_lifetime` / 各层递减用的都是**还原前**的 tick 值。`update_ghost` 同款。
-3. **`_motionless_ticks` 累加的是 `_atom_time` 而不是 1**（`wait` 那一支：
-   `motionless > 0 && !catcher && !bearer` 时 `_motionless_ticks += _atom_time`，
-   到 `MotionlessWaitTicks` 才归零并扣 `wait`）。第一版写成 `+ 1`，`entity/update` 的
-   `mticks=` 当场漂移（atom_time = 8 时差 8 倍）—— 这条就是本刀的第一个漂移。
 4. **闪烁的两支都是「先归零再看标记」**：`_blinking = round_float(_blinking - _atom_time)`，
    `<= 0` 时**先写 0**，再按 `_after_blink` 分 Gone（**直写字段** `GONE_FRAME_INFO`，不走
    `set_frame`，并清 `arest`）与 Respawn（`hp`/`hp_r` 回满、最近友军扫描、舞台夹紧、
@@ -5763,97 +5860,16 @@ v_rest / 帧进入链 / opoint 生成与消费）都铺好了，但**没有任�
 11. **`refresh_ctrl_env` 是端口特有的「控制器环境」落点**：TS 的控制器直接读 `me.frame.*` /
     `me.data.*` / `me.world.*`，端口把这些收进 `CtrlEnv`，由实体在**每次**控制器调用前
     （`check_fusion_dismissing` 之前、`ctrl_->update()` 之前、以及 ctrl 结果处理之后）
-    重新填。`world.etc` / `world.team_*` 属 World 切片，留在空位。
+    重新填。`world.etc` / `world.team_*` 属 World，留在空位。
 
-### 57.2 harness 扩充
+## 62. `base/ValExpression` + `loader/preprocess_opoint`
 
-- `IEntityHost` 新增 4 缝：`puppets()`（`world.puppets.values()`，Respawn 扫描）、
-  `stage_value(key)`（`world.stage.*`）、`ground_step()`（`Ground.step`，默认 10）、
-  `survival_rank_mode()`（`lfw.survival_rank_mode`）。
-- `EntityStateView` 新增 9 个转发：`dismiss_fusion`（**另有一条 `to_string(Value)` 的口径**）、
-  `world_puppets` / `dataset` / `world_dataset` / `facing` / `enter_frame` /
-  `drop_holding` / `handle_ground_velocity_decay`（两个重载）。`Entity` 侧补
-  `world_dataset`（只读世界那层）与 `Entity::dataset` 的四层回落。
-- `Entity` 公开两个只读访问器 `temp_v()` / `prev_cpoint_a()`（TS 里是私有字段，
-  harness 要读回）。
-- 新 op：`env puppets <token>…`（`world.puppets.values()`）、`env stage <key> <值>`、
-  `env groundstep <值>`、`env rankmode b 0|1`；`run update` / `run updateg`
-  （真调 `Entity::update` / `update_ghost`，打印 `dump_tick`）、`run buddydump`
-  （第二个实体的槽位：hp / hp_r / mp / frame / pos / v / facing / inv / invu / ml /
-  prev_cp / catcher / catching）、`run buddy` / `run buddyframe` / `run buddyset` /
-  `run linkb`（对 buddy 的 `link`）、`run bkeys`（buddy 的控制器方向）、
-  `run fuseby` / `run fuseclear`，以及 `run get` / `run set` 的 `catch_time` 等。
-- `run hook preupdate|stateupdate|landing|leaveground`（`update()` 走的四个状态钩子）与
-  `run hook viewdata|viewdismiss`（本刀补的：让假状态去读 `dataset` / `world_dataset`
-  两个查找与 `dismiss_fusion` —— 这三个转发只有真实状态代码才走得到）。`viewdata` 把两个
-  查找**并排**打进日志（`state_view_dataset:<帧层>:world=<世界层>`），`viewdismiss` 调完
-  `dismiss_fusion("112")` 再打当时的帧 id。
-- 新用例 `cases/entity/update.txt`（642 行源文件 / 576 行 trace），19 组场景：
-  时钟 / 帧朝向 / 帧 hp·mp 消耗、`mt.case` 标记、融合解散（位置同步 / 到点 / `y != 0` /
-  按键 / 清空）、v_rest 掩码、arest / invisible / invulnerable、闪烁四支、opoint 计时表、
-  恢复层（stat / toughness）、wait / motionless 记账、wait=0 的 next / auto、
-  **子步切分（1 / 4 / 8 / 9 / 2.5 / 0.5 / 0）**、抓人、被抓、控制器结果、落地判定
-  （落 / 斜坡 / 离地 / 不可站立 / 落地伤 / 命中地面 / 关系挂起）、AABB（默认 / 自定义 /
-  朝向 / facing 0）、`update_ghost`，以及本刀补的边界组（见 57.3）。
-
-### 57.3 已知偏差 / 有意不覆盖
-
-1. **`collision_list` / `collided_list` 的清空**：tick 里没有任何地方回读这两张表
-   （它们由碰撞切片消费），所以「不清空」在本主题的用例里不可观察；记录在
-   `mutations/entity.mjs` 头部，等碰撞切片接上消费者。
-2. **`refresh_ctrl_env` 的两处来源**：`env.seq_map = frame.__seq_map`（而不是
-   `data.__seq_map`）与 `transforms[0].__pre|__post_hitkeys_map` 那一对。`__seq_map` 分支要
-   控制器持有一份按键历史（`_key_list`），而 harness 的 `run keys` 每次都装一台**新**控制器
-   ⇒ 攒不出历史（`ja` 序列测不出来）；`transforms` 也不能从 harness 写。场景里两处都缺字段
-   ⇒ 互换是空操作。两条都记录在 spec 头部，等控制器切片的键序列场景。
-3. **`world_puppets` 的 `team` 槽与 `entity_view` 的 `emitters`**：消费者只有真实状态钩子
-   （`csl_on_dead` 读 `team`）与 `summary_mgr.apply_damage`（只读 `id` / `hp`），本主题
-   一个都不走。两条记录在 spec 头部。
-4. ⚠️ **用例里 `position.x` 会被 Respawn 分支写成 `NaN`**（`stage` 未设时 `max/min` 得
-   `NaN`），而 `update_aabb` 的 `round(NaN + x)` 也是 `NaN` ⇒ 它下面所有拿 x 做观察的
-   变异都会被「NaN == NaN」遮住。补 `run pos` 复位 + 给 `__aabb_x2` 一个非 0 值之后
-   `aabb_min_x` 的写法才可分辨（`update_aabb：x1 不随朝向翻` 一条就是这么补杀的）。
-   `update_ghost` **不刷新 AABB**，所以 ghost 段落里看到的 `aabb=` 是上一 tick 的残留。
-5. ⚠️ **落地判定要「恰好卡在 `ground.step` 上」才分得出 `>` 与 `>=`**：`handle_gravity` 只
-   在 `position.y > _ground_y` 时加竖直速度 ⇒ 直接把 y 摆到 `ground + step` 会被这一 tick 的
-   重力挪走。用例改成 `frame.gravity_enabled = 0`（关掉重力）+ `setvel 0`，
-   让 `y - ground` 真的等于 `step`。
-6. ⚠️ **Respawn 的「最近友军」要「死人更近」才分得出 `hp > 0` 过滤**：`d > max_distance`
-   是严格比较 ⇒ 先到且 `d = 0` 的候选会把 `max_distance` 定成 0，后面任何 `d > 0` 的都被跳过
-   ⇒ 「活人更近、死人更远」时两条路同结果。用例改成 `env puppets buddy` + buddy `hp = 0`
-   （基线 ⇒ 无友军 ⇒ `set_position(null, 300)`；变异 ⇒ 用死 buddy 的位置）。
-7. `spawn` 出的 opoint 实体位置：opoint 的 `x` / `y` / `z` 缺字段时 `num_of(undefined)` 是
-   `NaN` ⇒ 生成体位置也是 `NaN`（用例里的 `spawnv` 场景因此不拿它当观察点）。
-
-### 57.4 变异与结果
-
-- 本刀新增 97 条候选，**92 条被杀**，5 条原理可观察但本主题的场景到不了（见 57.3 的
-  1–3），已记录在 `mutations/entity.mjs` 头部；`entity` 从 863 涨到 **955**。
-- 分布：时钟 / 帧消耗 / 恢复层 13、融合解散与 `dismiss_fusion` 12、闪烁（含 Respawn 扫描与
-  夹紧）10、opoint 计时 3、wait / motionless 8、子步与状态钩子 7、抓人 / 被抓 13、
-  控制器结果 3、落地判定 10、AABB 3、`update_ghost` 4、视图转发与控制器环境 6、其他 5。
-- 首轮 32 条存活 → 补 19 组场景后 11 条 → 再补边界（位置复位 / 重力关闭 / 死友军 /
-  假状态的三个视图转发）后 5 条；剩下的 5 条即 57.3 的 1–3。
-- 新补的 `run hook viewdata|viewdismiss` 两个钩子是本刀唯一为「观察面」加的 harness 口子：
-  `dataset` / `world_dataset` / `dismiss_fusion` 三个转发在真实数据里只被状态代码调用，
-  假状态不主动读就永远不可观察（`viewdata` 把「帧 `dataset` 层」与「世界层」并排打出来，
-  `dismiss_fusion` 那支打调用后的帧 id）。
-- **全量重跑**（串行、956 条、0 编译失败）：**955 条被杀、1 条存活**，存活的就是上面
-  撤出的那条按构造等价项（`Spreading` 的 `sp.x` 回落值，9m 误列进名单）。撤出后名单
-  **955 条全杀**，即 `entity` 的最终口径。
-- 顺手修掉本刀新增代码里的一个 `C4458`（`update_catching` 的局部 `throwinjury` 遮蔽同名
-  成员）⇒ 改名 `cp_throwinjury`（照 §4.58 那次 `expression.h` 的处理），同时把两条锚在该局部
-  上的变异（`throwinjury 上界用 -2` / `survival_rank_mode 判定取反`）更新到新文本。
-
-## 58. 切片 9o：`base/ValExpression` + `loader/preprocess_opoint`
-
-**背景**：§4.40 把「TS 往数据上挂 `Expression`/`ValExpression` 实例字段」记成已知偏差，并
-承诺「等步骤 4 移植运行时再补」；§54.4 的待办表里也挂着 `base/ValExpression`（4 处 `mt.mark`）。
-9l 已经把**读** `__gen_*` 的一侧做成宿主缝（`IEntityHost::gen_field`），这一刀把**产生**那一侧
-搬完：`ValExpression` 的解析器 + `preprocess_opoint` 的九组编译落点 —— 它是 §4.40 那句承诺的
+**背景**：§9.42 把「TS 往数据上挂 `Expression`/`ValExpression` 实例字段」记成已知偏差，并
+承诺「等步骤 4 移植运行时再补」；前述待办表里也挂着 `base/ValExpression`（4 处 `mt.mark`）。
+搬完：`ValExpression` 的解析器 + `preprocess_opoint` 的九组编译落点 —— 它是 §9.42 那句承诺的
 第一笔兑现（兑现方式见 58.4 的第 2 条）。
 
-### 58.1 单元边界
+### 62.1. 单元边界
 
 | 单元 | 位置 | 说明 |
 |---|---|---|
@@ -5864,12 +5880,8 @@ v_rest / 帧进入链 / opoint 生成与消费）都铺好了，但**没有任�
 模板参数 `Ctx` 取代 TS 的 `Entity`（照 `base/Expression<Ctx>` 的既有约定）；两处新文件都是
 header-only（不加 CMake 登记，靠 `#include` 传递）。
 
-### 58.2 保真要点
+### 62.2. 保真要点
 
-1. **求值顺序就是行为**（本刀唯一的漂移，也是「真链路」暴露出来的）：TS 的 `(e) => l(e) + r(e)`
-   与 `rand(a, b)` 都是**先左后右**；C++ 的 `l(e) + r(e)` 求值顺序**未指定**（MSVC 先算右边）
-   ⇒ 第一版 `round(rand(0,10))*flip()` 两侧的随机数消耗顺序不同、取值整段漂移。四处二元运算
-   与 `rand` 的两个实参都显式定序（`const double a = l(e); const double b = r(e);`），各配一条变异。
 2. **空白剥离用 JS 的 `\s`**：`(source ?? "").replace(/\s/g, "")` 复现为 `is_str_white_space`
    过滤（U+3000 / U+00A0 / U+2028 / U+2029 / U+FEFF / `\v` / `\f` 都在表里，用例用 `xw <hex…>`
    逐个钉住）。`text` 是**剥离后**的串，错误文案里引用的也是它。
@@ -5895,52 +5907,14 @@ header-only（不加 CMake 登记，靠 `#include` 传递）。
 10. **非字符串的 `gen_*`**：TS 的 `(source ?? "").replace(...)` 对数字会抛 `TypeError`（没有
     `replace`）⇒ 端口 `continue` 跳过；这条分支在 TS 侧没有可观察 trace，记在 58.4。
 
-### 58.3 harness 扩充
+## 63. `base/Ticker` + `base/FPS`（时序层）
 
-- `subjects/base.{cpp,ts}` 新增：`x` / `xt <tag>` / `xw <hex…>`（造表达式并打
-  `D <idx> <esc(text)> <esc(tag)> <esc(err)|->`）、`get [<n>]`（对**最近**一个表达式调 n 次，
-  打 `G <idx> <n> <esc(mark)> <bits16>…`，位模式 + **调用后**的 `mark`）、`mtseed` / `mdraw` /
-  `mmark`（观察消耗与 mark）、`frame` / `var` / `varclr`（假宿主）、`po` / `ps` / `pc` / `pkeys`。
-- `get` 取「最近一个」而不是按下标：用例里表达式是逐行造的，按下标引用要人工数行 ——
-  首版就是数错的（`get 30` 打的是常量 `1+2`，六个 `3.0` 看上去还挺像样）。
-- `pc` 的输出是 `PC <成功条数>` + 九行 `PG <__gen_* 名> <成功?> <err|-> <get 位模式|-> <保持的原值|->`；
-  两侧都**把记录里的 `__gen_*` 删掉**（§4.40 的对齐约定）⇒ 随后的 `pkeys` 才能对上键序。
-
-### 58.4 已知偏差 / 有意不覆盖
-
-1. **Ctx 概念取代 `Entity`**：`frame_var(name)` + `mt()`（另见 README 偏差表）。取数器给 `double`：
-   帧**缺字段**时 TS 的 `undefined` 支（`range(undefined, undefined)` 提前返回不消耗、
-   `pick` / `bag` 的 `v !== undefined` 过滤）端口不复现，用例只喂有值的帧。
-2. **`preprocess_opoint` 不写回记录**：编译结果以 `std::map<__gen_* 名, ValExpression>` 交还调用方
-   （`Value` 只有 7 种类型装不下函数，§4.40）；差分时 TS 侧 harness 删 `__gen_*` 对齐。
-3. **非字符串的 `gen_*`**：TS 抛 `TypeError`（无 trace），端口跳过 ⇒ 不可差分，不覆盖。
-4. **`mt.mark` 写在抽取之前的「顺序」**：把 `mark` 挪到两个实参**之后**，外层调用的 `mark`
-   最终值不变（内层调用写的 mark 也会被外层覆盖）⇒ 该写法按构造等价，不列。`mmark` 只钉
-   「写没写」与「tag 对不对」。
-5. **`truthy` 的边界**：`gen_*` 为 `0` / 空串 / `undefined` 时两侧都不编译（falsy）；数字 /
-   对象这类**真值非字符串**走上面第 3 条的抛异常分支，不覆盖。
-
-### 58.5 变异与结果
-
-- 本刀新增 66 条候选，**全杀**；`base` 从 21 涨到 **87**（`base/core` 21 + 本刀 66）。
-- 分布：空白与结构 5（剥离 / tag 的两支 / 空表达式 / 尾部残留）、二元运算与定序 5、
-  括号与一元 4、数字与标识符 9、调用与实参 4、五个调用与 `mark` 12、
-  `_get` 与 `fail` 文案（含 `dec` 的十进制化）21、`preprocess_opoint` 6。
-- 差分**先**抓到一处真漂移（58.2 的第 1 条，求值顺序），补完定序后首轮变异就 0 存活 ——
-  这一刀的观察面（位模式 + `mark` + 消耗探针 + 逐字错误文案）是够的。
-- 唯一的一条存活是「`pick` 不写 `mark`」：它要求调用**前**的 `mark` 与 `tag` 不同，
-  而首版用例里 `pick` 前面正好是同 tag 的表达式（`mark` 已被写成一模一样的值）⇒
-  加一段 `mtseed` 把 `mark` 清空后再 `pick`，这条立刻被杀（`mmark` 从 `""` 变 `"val_expr"`）。
-  **教训同 §6.9.1**：存活先看「是不是被同值遮住」，再决定补用例还是换变异点。
-
-## 59. 切片 2f：`base/Ticker` + `base/FPS`（时序层）
-
-**背景**：`helper/Randoming`（§4.57）与 `base/Ticker` 都要一个时钟，而 `<chrono>` 被 lint 禁止
+**背景**：`helper/Randoming`（§9.59）与 `base/Ticker` 都要一个时钟，而 `<chrono>` 被 lint 禁止
 （"host clock; use injected IClock"）⇒ 4.57 只建了 `IClock{ now_ms() }` 这个**种子用**的最小投影。
 Ticker 还需要 `add` / `del` / `hidden` 与一个 `ITimeout`，所以这一刀先把时序层的两个槽补成
 TS `ditto/IClock` + `ditto/ITimeout` 的原样，再把 `Ticker` / `FPS` 搬进来。
 
-### 59.1 单元边界
+### 63.1. 单元边界
 
 | 单元 | 位置 | 说明 |
 |---|---|---|
@@ -5954,7 +5928,7 @@ TS `ditto/IClock` + `ditto/ITimeout` 的原样，再把 `Ticker` / `FPS` 搬进�
 三个头都是 header-only；`Ticker` 按 TS 保留 `ITickerOptions` **接口**（而不是像 `base/Expression`
 那样收 `std::function`），因为 `step_ms()` 每帧都要现读，宿主天然实现这个两方法接口。
 
-### 59.2 保真要点
+### 63.2. 保真要点
 
 1. **`IClock` / `ITimeout` 是原样补全，不是重新设计**：`now_ms()` 改名为 TS 的 `now`（因此
    `helper/randoming.cpp`、`subjects/mt_random.cpp` 与 `mutations/mt_random.mjs` 的 2 条锚点
@@ -5991,90 +5965,7 @@ TS `ditto/IClock` + `ditto/ITimeout` 的原样，再把 `Ticker` / `FPS` 搬进�
 11. **`FPS` 的 `clamp(retention, 0, 0.99)`**：上界 0.99 不是 1；`_duration` 真值才走 EMA、
     否则**直取** `dt`（所以 `update(0)` 之后 `value` 是 `Infinity`，用例里有这条）。
 
-### 59.3 harness 扩充
-
-- `subjects/base.{cpp,ts}` 新增假宿主：`FakeClock`（`clk add <id>` / `clk del <id>` 日志、
-  `set` / `adv` / `hidden` / `pending` 四个 op）与 `FakeTimeout`（`TOUT add <id> <bits(delay)>` /
-  `TOUT del <id>`），`main` 里 `set_clock` / `set_timeout` 装好。TS 侧同名假对象直接赋给
-  `Ditto.Clock` / `Ditto.Timeout`。
-- `fire`：**先**看有没有待触发 Timeout（有就触发并让假时钟前进它的延时），否则触发待唤醒的 Clock。
-- `tk new [<step_ms>]` / `maxspan` / `maxlag` / `ratewin` 三个旋钮 / `tk spent <ms>`（让
-  `TestTickerOptions` 在 `on_step` 里把假时钟推走 `spent`）/ `tk inside
-  <resume|pause|stop|resync>`（**重入钩子**：下一次 `on_step` 里回调 Ticker 自己一次，
-  用完即清；`tk new` 也会清）/ `start` / `stop` / `pause` / `resume` / `resync <0|1>` /
-  `stepms` / `dump`；`fps new [<ret>]` / `update <dt>` / `reset` / `dump`。
-  `safety` / `slew` / `sleep_threshold` 三个旋钮**不设 op**：用例给默认值就能走到所有分支
-  （`slew` 的增量、`sleep_threshold` 的边界、`safety` 进 `want` 的公式），见 59.4 第 10 条。
-- **两个 harness 语义（不是端口语义）**：① `fire` 不管待触发的是哪一类，Timeout 优先；
-  ② `tk new` 会清空两个待触发队列（模拟 TS 里「换一个 `Ticker` 实例 = 旧回调随 world 一起弃掉」）。
-  没有 ① 时首版用例会「Clock 先被触发了、Timeout 永远待触发」；没有 ② 时上一场景的残留回调
-  会被下一场景的 `fire` 触发。
-- **用例必须把假时钟推到截止点**（`clk set <deadline>`）才看得到步进：`step_once` 里
-  `t0 < _deadline` 直接返回，所以 `clk set` 给早了只会得到「什么都没发生」的 trace。
-  重入钩子的三段每段都要先 `clk set <起点>` 再 `tk new`（截止点是 `start` 用当时的时钟算的），
-  否则钩子那一枪压根步进不了 —— 首版就是这么写的，三段里有俩段白跑。
-- `cases/base/ticker.txt` 231 行，15 个场景（S1–S13 + S5.5 / S6.5 两段补丁场景）：
-  启动两路分流 / `sleep_threshold` 边界 / `hidden` /
-  `resync(immediate)` / rate 窗口与「`el` 恰好等于 `ratewin`」边界 + resync 后的重新累计 /
-  cost EMA（含 `spent` 变化，见 59.5）与 span slew / `on_step` 里重入 `resume`·`pause`·`stop` /
-  `spent` 为 0/8 / base 5% 换挡（含 `stepms 0`）/ `dt` 夹到 4 倍与 `maxlag` 三种取值 /
-  pause·resume·stop·resync 的组合与五种 no-op 状态 / `step_ms == 0` 的 `rate` 回落 /
-  FPS 的一场（含 `update 0` 的 `Infinity`、`retention` 夹取与 `reset`）。
-
-### 59.4 已知偏差 / 有意不覆盖
-
-1. **`Ticker.TAG`**（`static readonly TAG = "Ticker"`）不移植：与其它槽同款约定（没有任何运行时
-   读取点）。
-2. **`ITimeout.add` 的 `...args`** 不移植（59.2 第 1 条）。
-3. **`_tick` 的 `finally`**：TS 保证 `on_step` 抛异常时仍会 `_schedule()`；端口无异常（lint 禁
-   `try`），一律顺序执行 ⇒ 「抛异常」这条路径不可表示、也不可观察。
-4. **`_schedule()` 守卫的第三个因子 `_pending`** 原理上可观察，但本主题到不了：所有调用点
-   要么刚刚清过它（`start` / `_tick` / `resync` 内的 `cancel`），要么根本进不来 ⇒ 不列候选。
-   （另两个因子 `!_running` / `_paused` 用 `tk inside stop` / `tk inside pause` 可观察，已列。）
-5. **`_tick` 里 `if (!_running) return;`**：要观察到它需要「`stop()` 之后仍有回调被触发」，
-   而 `stop()` 已经 `cancel()` 掉了句柄（`fire` 只会打 `FIRE -`）。
-6. **`clamp(t0 - _last_step, 0, _base * 4)` 的下界**：假时钟单调（用例里只前进）⇒ 下界不可观察，
-   不列候选；上界可观察（用例把时钟一次推 64ms = `_base * 4`）。
-7. **`IClock.del` 收到未知句柄**的行为：TS 侧没有可观察 trace（`Ditto.Clock.del` 的副作用取决于
-   宿主），端口与假宿主都当 no-op ⇒ 不覆盖。
-8. **私有槽的窥视口**：`Ticker` 的 `base` / `span` / `rate` / `pending` / `paused` / `deadline` /
-   `last_step` / `timer_id` / `wake_id` 都不是 TS 的公开 API（`running` / `step` / `span` / `rate`
-   是），端口按 harness 需要把它们开成 const getter + `FPS::duration`；TS 侧靠 `as any` 读私有字段，
-   两侧都只用于 trace。
-9. **`want` 的上界换成字面量 `2` 是等价候选（已撤出名单）**：`_span` 紧接着被**同一个**
-   `max_span` 夹取，且只要 `want < max_span`，内侧的 `±slew` 夹取就保证 `_span` 正好走到 `want`；
-   `want == max_span` 时两侧的输出也同为 `max_span`（外层夹取吃掉）。因此两个 `max_span` 取值下
-   `_span` 恒同 —— 与 `9n` 撤出 `Spreading` 那条的处理口径一致（见 59.5 的存活分析）。
-10. **旋钮的默认值**：用例显式改的是 `maxspan` / `maxlag` / `ratewin` / `step_ms`（+ harness 的
-   `spent` / `inside`），`safety` / `slew` / `sleep_threshold` 只走默认值 —— harness 也就没给它们
-   设 op。三者的默认值本身都被现有候选钉住：`slew` 由 span 的增量（`1.004`）钉、`sleep_threshold`
-   由 `delay > sleep_threshold` 的边界与分流钉、`safety` 由「base 变化后不按 `cost` 重算 `_span`」
-   与 span 的夹紧值钉。`safety` 的**默认值**只有在 `cost * safety / _base` 落进 `±slew` 这段
-   极窄区间（如 `_base / safety` 附近）时才可分辨，没为它铺场景 ⇒ 不列候选（同族的等价论证
-   见第 9 条）。
-
-### 59.5 变异与结果
-
-- 本刀新增 54 条候选（`Ticker` 46 + `FPS` 6 + `clock.h` 2），**全杀**；`base` 从 87 涨到 **141**
-  （另有 1 条按构造等价、撤出名单，见 59.4 第 9 条）。
-- 分布：`start` 5、`stop`/`pause` 4、`resume` 3、`resync` 4、`cancel` 3、`schedule` 6、
-  `tick` 2、`step_once` 18、`step` getter 1、`FPS` 6、`clock.h` 2。
-- **首轮全量跑 140 条 → 6 条存活，全部是「用例的观察面不够」**（不是端口错），逐条分析后：
-  1. `resume` 去掉 `!_paused`：那一枪必须**在一步的中间**重新 `resume`（`_tick` 已经把
-     `_pending` 清了），否则 `_schedule` 的守卫会把多出来的重排吃掉 ⇒ 新增 `tk inside` 重入钩子。
-  2. `resync` 的 `immediate` 分支取反：用例里 `resync` 前的时钟没动，`now == _last_step`
-     ⇒ **同值遮住**；改成先 `clk set` 再 `resync`。
-  3/4. `resync` 不复位 rate 的计数 / 窗口起点：用例里前一步刚好**命中**了 rate 窗口，
-    所以 `_rate_steps` 与 `_rate_start` 在 `resync` 前就已经等于 `resync` 要写的值
-     ⇒ 加一段「窗口未命中（`el < ratewin`）时 resync」的场景（顺带钉住 `el == ratewin` 的边界）。
-  5. `cost` 的 EMA 系数颠倒：用例里每步的 `spent` 恒等于当前 `cost`，EMA 的两个系数**恒等**
-     ⇒ 让 `spent` 在步与步之间变（0 / 40）。
-  6. `want` 的上界换成字面量：**按构造等价**，撤出名单（证明见 59.4 第 9 条）。
-- 结论同 §6.9.1 / §58.5 的教训：**存活先看「是不是被同值遮住」，再看「用例给的状态到不到得了」**。
-  这一刀 6 条存活里有 5 条是这两类，只有 1 条是真等价。
-- 最终用例 231 行、16 个场景；`base` 三个用例合计 3660 行。
-
-## 60. 切片 2g：`base` 的三个叶子助手 + `core` 的 `toFixed(1)`
+## 64. `base` 的三个叶子助手 + `core` 的 `toFixed(1)`
 
 **背景**：`base/` 里还剩五个没搬的小文件，其中 `dedup.ts`（Promise 去重）、`Debugging.ts`
 （`Object.getPrototypeOf(obj).constructor` 的原型反射）、`IActionHandler.ts`（纯类型）都不是可移植对象；
@@ -6082,7 +5973,7 @@ TS `ditto/IClock` + `ditto/ITimeout` 的原样，再把 `Ticker` / `FPS` 搬进�
 `Number.prototype.toFixed(1)` 的**字符串**形式 —— 端口此前只有 `number_to_string`
 （JS ToString(number)），所以这一刀顺带在 `core` 补一个 `number_to_fixed_1`。
 
-### 60.1 单元边界
+### 64.1. 单元边界
 
 | 单元 | 位置 | 说明 |
 |---|---|---|
@@ -6094,7 +5985,7 @@ TS `ditto/IClock` + `ditto/ITimeout` 的原样，再把 `Ticker` / `FPS` 搬进�
 `team_color.h` 与 `get_short_file_size_txt.h` 都是 header-only（`base/` 的既有做法）；
 `number_to_fixed_1` 落在 `js_string.cpp`（与 `number_to_string` 同一个文件，共用十进制那套设施）。
 
-### 60.2 保真要点
+### 64.2. 保真要点
 
 1. **`toFixed(1)` 的语义边界**（spec 的第 6–9 步）：非有限 ⇒ `ToString`；取绝对值并记符号；
    `|x| ≥ 1e21` ⇒ `ToString(绝对值)` 前补符号；否则取 n 使 `n/10` 最接近 `|x|`，**平局取较大的 n**。
@@ -6121,71 +6012,16 @@ TS `ditto/IClock` + `ditto/ITimeout` 的原样，再把 `Ticker` / `FPS` 搬进�
 9. **B 那一支没有 `toFixed`**：`` `${bytes}B` `` 是 JS 的 `ToString(number)`（17 位有效数字的最短往返），
    所以 `1023.5` 走 B 支、`270.55379486083984B` 这种长尾串也必须原样输出。
 
-### 60.3 harness 扩充
-
-- `core` subject 新增 `to_fixed <bits16>` → `to_fixed <bits16> <结果串>`（与 `to_string` 同款：不转义）；
-  TS 侧就是 **真 JS 的 `.toFixed(1)`**（标准答案）。
-- `base` subject 新增三个 op：
-  * `gtt <team> [<fallback>]` → `GTT "<team>" "<fallback|->" "<color>"`（fallback 省略 = TS 的 undefined）；
-  * `gto <team>` → `GTO "<team>" "<color>"`；
-  * `gsf <bits16>` → `GSF <bits16> "<text>"`。
-    队伍名按 JS 字符串字面量读（`""` 就是 Independent 的键）；颜色/大小都走 `esc` 转义（虽然全是 ASCII）。
-- 新用例 `cases/core/to_fixed.txt`（**487 行**）与 `cases/base/color_size.txt`（**245 行**）：
-  前者把 `0 / -0 / .25 系 / 整数 / 2^53 / .95 进位 / 次正规数 / 1e21 分界 / NaN / ±Infinity`
-  以及 **400 条固定种子的随机位模式**喂给 `toFixed(1)`；后者铺八个真实队伍 + Independent + 六个找不到的
-  键 + 显式 fallback（含空串），以及 B/KB/MB/GB 四段的分界、`/1024` 与 `/1000` 分辨得出来的取值。
-
-### 60.4 已知偏差 / 有意不覆盖
-
-1. **只做 `toFixed(1)`**：唯一的调用点就是 `get_short_file_size_txt`。一般化的 `to_fixed(v, f)`
-   要精确就得有 `10^f·m` 的大整数尾数（f ≤ 22 才装得进 128 位），而 `f ≥ 2` 现在没有调用点 ⇒
-   不提前做。**不要**用 `dat_translator` 的 `fixed_float`（3c，返回**数值**、走 `half_away_scaled` 的
-   浮点路径）来顶替这里的字符串输出：两者只在 `|x|·10^f < 2^53` 的小区间里等价。
-2. **`neg = v < 0` 写成 `v <= 0` 抓不到**：零（含 `-0`）被 `a == 0.0` 那条提前 return 兜掉了，
-   能走到加负号那一句时必有 `a > 0` ⇒ 两个比较等价（`-0` 不带负号是那条 return 写死的 `"0.0"`）。
-   `mutations/core.mjs` 头部第 0b 条记着这条构造性等价，别再试图杀它。
-3. **颜色字段的「缺失 / 非字符串」分支不可达**：两侧读的是同一份 `Defines.TeamInfoMap`（harness 注入不了），
-   数据里 `txt_color` / `txt_outline_color` 恒为非空字符串 ⇒ TS 的 `0`（假值）/数字（原样返回）
-   与 `undefined.txt_outline_color`（TypeError）这些分支都不复现（端口只认字符串）。
-4. **`team` 只收 `std::u16string`**：TS 签名是 `string | number`，但 JS 的对象键终究是字符串
-   （`TeamInfoMap[3]` 与 `TeamInfoMap["3"]` 是同一把键），而端口的 `Entity::team` 本来就是
-   `u16string`（README 偏差表那条）⇒ 数字队伍在进这个函数之前就已经字符串化了。
-5. **TS 文件名与导出名不一致**（`get_team_shadow_color.ts` 导出 `get_team_outline_color`）：
-   端口按**导出名**写函数、把两个函数放在 `team_color.h` 里（它们共享 `TeamInfoMap` 的查表）。
-
-### 60.5 变异与结果
-
-- `core` 新增 15 条（`number_to_fixed_1`，另 **1 条按构造等价、撤出名单**），`base` 新增 22 条
-  （`team_color.h` 9 + `get_short_file_size_txt.h` 13）；两边都是 **全杀**（core 127/127、base 163/163）。
-- 首轮跑之前先做了差分（`to_fixed` 461 行、`color_size` 240 行**一次全对**），随后按「哪儿会被同值遮住」
-  补了两批取值才开跑变异：`to_fixed` 补 `0.05` 附近的 7 个值（把「非零下界」那条变成可杀的，
-  否则 `k ≤ 56/57/58` 三种写法等价 —— 见 `mutations/core.mjs` 头部第 0 条）、
-  `color_size` 补 `1024·1.04 / 1.04MB / 1.04GB` 等（把 `/1024` 写成 `/1000` 的变异变成可杀的）。
-- **唯一一条存活是「`const bool neg = v < 0;` 改成 `v <= 0`」**：它被 `a == 0.0` 那条**提前 return**
-  遮住了 —— 能走到 `if (neg) out.push_back(u'-');` 时必有 `a > 0`，而 `a > 0` 时两个比较同真同假；
-  `-0` 的「不带负号」是那条提前 return 写死的 `"0.0"` 给的。⇒ 按构造等价、撤出名单
-  （与 `2f` 撤出 `want` 上界那条同一处理口径）。
-- 踩到的两个**工程**坑（不是端口语义）：新文件被 `create` 工具写成 CRLF ⇒ 多行变异锚点全部匹配失败
-  （`base` 首版 preflight 6 条 `count=0`）；`number_to_fixed_1` 里与 `number_to_string` 同款的几行
-  （`if (std::isnan(v))` / `if (std::isinf(v))` / `const bool neg = v < 0;`）让 core 的 3 条**既有**锚点
-  变成 `count=2` ⇒ 锚点都得带上相邻行才唯一（`core` 首版 preflight 5 条 `count=2`）。
-
-
-## 61. 切片 3aa：`loader/get_val_from_entity`（+ 惰性的 `get_val_from_lf2` / `get_val_from_world`）
+## 65. `loader/get_val_from_entity`（+ 惰性的 `get_val_from_lf2` / `get_val_from_world`）
 
 `loader/get_val_*` 是计划里的步骤 3（README 里写的「103 条 getter 表」）。真正看下来，
-**这一步现在只搬得动三分之一**，所以本刀只做 entity 段并把其余部分的依赖写清楚：
 
 | 文件 | 条数 | 能不能搬 |
 |---|---|---|
-| `get_val_from_entity.ts` | 39 | ✅ 本刀（`Entity` 已整块移植） |
-| `get_val_from_collision.ts` | 86 | ✅ 切片 3ab（`Collision` 已移植；「两个真实实体」的用例台面靠 `CollisionValEnv` 宿主缝，见 §63.2） |
 | `get_val_from_bot_ctrl.ts` | ? | ✗ 要 `BotController`（未移植） |
 | `get_val_getter_from_stage.ts` | ? | ✗ 要 `Stage`（未移植） |
-| `get_val_from_lf2.ts` | 0 | ✅ 本刀（但它是个**死文件**，见 61.1） |
-| `get_val_from_world.ts` | 0 | ✅ 本刀（同上） |
 
-### 61.1 惰性链条：`lf2` → `world` → `entity`
+### 65.1. 惰性链条：`lf2` → `world` → `entity`
 
 `get_val_from_lf2.ts` 是个只有 `default` 分支的 `switch`（`LF2Val` 一个实现都没有）⇒ 恒 `undefined`。
 `get_val_from_world.ts` 查 `WorldVal` 表（同样没有一项）后向它回落 ⇒ 也恒 `undefined`。
@@ -6196,9 +6032,8 @@ TS `ditto/IClock` + `ditto/ITimeout` 的原样，再把 `Ticker` / `FPS` 搬进�
 TS 的回落还会包一层**投影**：`(e, ...arg) => fallback(e.world, ...arg)`（把实体换成世界）。
 端口的 `ValGetter<Ctx>` 是**裸函数指针**（`base/expression.h`），捕获不了 `world → world.lfw` 这一步 ⇒
 这层投影**不可表示**，等 `LF2Val` 真有了实现，需要一个「按 getter 生成的静态适配器」。
-本刀不预造（现在造就是死代码）。
 
-### 61.2 39 条逐项对照
+### 65.2. 39 条逐项对照
 
 表本身按 TS 的声明顺序放在 `entity_val_getters()`（`std::vector<std::pair<u16string, ValGetter<Entity>>>`，
 键是 `defines/entity_val.h` 的 `entity_val::k*`）。`ValGetter` 的 `word` / `op` 两个参数表里一项都用不上
@@ -6210,7 +6045,6 @@ TS 的回落还会包一层**投影**：`(e, ...arg) => fallback(e.world, ...arg
 | `PressFB` / `PressUD` / `PressLR` | `ctrl.LR * facing` / `ctrl.UD` / `ctrl.LR` | 同；`ctrl` 为空指针时按 0 处理（TS 的 `ctrl` 恒为真控制器，没设备时是 `NoneController`，也是 0 ⇒ 等价，同 `entity.cpp` 既有写法） |
 | `Holding_W_Type` | `holding?.base_type ?? 0` | `holding ? base_type() : 0`（`?? 0` 不可达，见 61.4） |
 | `HP_P` | `clamp(round(100 * hp / hp_max), 0, 100)` | 同（`hp_max === 0` 时的 `±Infinity` / `NaN` 原样走 JS 语义，用例专门喂了这两格） |
-| `LF2_NET_ON` / `HERO_FT_ON` / `GIM_INK_ON` | `lfw.is_cheat(CheatEnum.X) ? 1 : 0` | 宿主缝 `IEntityHost::is_cheat(name)`（新增，默认 `false`） |
 | `HAS_TRANSFORM_DATA` | `transforms?.length ? 1 : 0` | `length_of(transforms)` 有值且非 0 |
 | `Catching` / `CAUGHT` | `catching ? 1 : 0` / `catcher ? 1 : 0` | 判空 |
 | `RequireSuperPunch` | `superpunchs.size` | `superpunchs.size()` |
@@ -6229,47 +6063,16 @@ TS 的回落还会包一层**投影**：`(e, ...arg) => fallback(e.world, ...arg
 | `TransformListSize` | `transforms?.length \|\| 0` | `length_of(transforms).value_or(0)` |
 | `IsOnGround` | `is_on_ground ? 1 : 0` | 同 |
 | `TransformIndex` | `transform_index` | 同 |
-| `IsSurvialRankMode` | `world.lfw.survival_rank_available ? 1 : 0` | 宿主缝 `IEntityHost::survival_rank_available()`（新增，默认 `false`；和既有的 `survival_rank_mode` 是**两个字段**） |
 
 `?.length` 的「四种类型」这一格值得单独记：`length_of` 按 JS 的规矩——数组给元素个数、**字符串给码元数**、
 其它类型没有 `length`（⇒ `undefined`）。用例把 null / undefined / 空数组 / 数组 / 字符串 / 数字 / 布尔 /
 对象都喂了一遍（`"abc"` ⇒ 3、数字 5 ⇒ 0），否则「字符串也算长度」这条会被同值遮住。
 
-### 61.3 未移植部分（为什么）
+### 65.3. 未移植部分（为什么）
 
-- `get_val_from_collision`（86 条）：✅ 切片 3ab 已搬（`loader/get_val_from_collision.{h,cpp}`）。
-  当时缺的是**用例台面**——`collision_core` 用假实体驱动核心，而这张表要读实体的
-  `hp` / `toughness` / `bearer` / `ctrl` 等快照里没有的字段 ⇒ 台面靠 `CollisionValEnv`
-  宿主缝把活实体按 `id` 交回来（见 §63.2）。
 - `get_val_from_bot_ctrl` / `get_val_getter_from_stage`：要 `BotController` / `Stage`（步骤 4）。
-- `LFW` / `World` 两个类型没有移植 ⇒ `is_cheat` 与 `survival_rank_available` 走宿主缝
-  （`IEntityHost` 的既有约定：默认实现给「没有这个服务」，旧 harness 一行都不用改）。
-  `LFW.is_cheat` 里的 `is_cheat_type(name)` 那一段也就留在宿主侧（见 61.4）。
 
-### 61.4 已知偏差 / 有意不覆盖
-
-1. **`Object.prototype` 的属性查找 vs 查表**：TS 的 `entity_val_getters[word]` 是**属性查找**，
-   `word` 撞上原型链（`constructor` / `toString` / `__proto__` …）时会拿到一个**函数**而不是
-   `undefined`（`Expression` 随后会把它当 getter 调用）。端口是向量查表，查不到就给 `nullptr`。
-   这条差异**不复现**：那是原型污染的产物、数据文件里也写不出这种词，而且复现了只能崩在同一个地方。
-   用例里只用「自有的键」和普通拼错（`no_such_word` / `""` / `"TrendX"` / `"trend_X"`），
-   都在两侧同为 `undefined`。
-2. **`entity_world_val_getters` 记忆 Map 不移植**：它是纯缓存（命中与未命中的结果与「重新查一遍」
-   完全同值），端口每次走一遍回落函数。
-3. **`Holding_W_Type` 的 `?? 0` 不可达**：`Entity::base_type()` 返回 `double`
-   （TS 也是 `get base_type(): number`）⇒ `undefined` 那一支进不来。
-4. **`length_of` 的非数组/非字符串分支**：`nullopt` 与 `0.0` 在
-   `has_transform_data`（`0 != 0` 为假）和 `transform_list_size`（`|| 0`）里同值 ⇒ 构造上等价。
-5. **`is_x(c.attacker)` 的载体**：TS 读的是活实体（`c.attacker.data.type`），端口的 `Collision`
-   里是**快照**（`CollisionActor`），只留了 `data.type`（`data_type`）⇒ 表里按 `data_type` 判。
-   成立的前提是「造碰撞的一方把 `data.type` 写进 `data_type`」——`collision_core` 的差分台子
-   （9 刀的 `collision_core.ts` 里 `type: this.data_type`）就是这个约定。
-6. **`IEntityHost::is_cheat` / `survival_rank_available` 的默认实现**：返回 `false`，
-   等价于「宿主没有这个服务」。`entity` 用例里两个接缝都被测试替身覆盖 ⇒ 默认值不可观察
-   （也不在变异名单里）。
-7. **`get_val_from_world` 的投影层**：见 61.1，函数指针装不下 `world → world.lfw`。
-
-### 61.5 用例
+### 65.4. 用例
 
 新用例 `cases/entity/get_val.txt`（**319 行**，11 个场景）：
 
@@ -6294,27 +6097,13 @@ harness（`entity` subject）新增：`run gv <词>`（查表 + 调用，印 `ha
 <aframe> <itr> <bframe>`、`run collclear <collided|collision|both>`、`env cheat <名字> b 0|1`、
 `env rankavail b 0|1`，以及 `run set transform_index`。
 
-### 61.6 变异与结果
-
-新增 `mutations/get_val.mjs`（**54 条**，subject 仍是 `entity`）⇒ **54/54 全杀，一条不剩**（首轮即全杀）。
-每条都钉在一个具体的表项或表本身（三个 `is_x_actor` 的枚举、`find_flag` / `flag_of` / `length_of` /
-`ctrl_lr` / `ctrl_ud` 五个助手、39 项里除纯直读之外的每一项、表里的键与指针、查表的相等判断）。
-
-头部记了 6 条**有意不覆盖**：两个惰性文件（死分支）、`IEntityHost` 的两个默认实现（被替身覆盖）、
-原型链差异、记忆 Map、`Holding_W_Type` 的不可达分支、`length_of` 的构造等价分支。
-
-用例台面的两处工程细节：`run make` / `run buddy` 的 `base` 记录必须给（TS 的 `reset` 直接读
-`data.base.resting_max`，没有 `base` 会 TypeError），以及对象字面量的**对数**要写对
-（`o 2` 后给了三对 ⇒ TS 那边 `base` 丢掉、直接崩；两处都踩过）。
-
-
-## 62. 切片 4r：`controller/BallController` + `helper/closer_one`
+## 66. `controller/BallController` + `helper/closer_one`
 
 `BaseController` 里原本留着两个「等它的刀」的占位（`set_ball` / `Entity* chasing`，见 `base_controller.h`
 的旧注释）：球的那一档控制器要读实体的位置 / 帧 / 血量，而端口的控制器看不见 `Entity`
 （依赖走 `CtrlEnv` + `Value` 引用，同 `bot/*`）。这一刀把 `BallController` 真搬了。
 
-### 62.1 移植面
+### 66.1. 移植面
 
 | TS | 端口 |
 |---|---|
@@ -6327,7 +6116,7 @@ harness（`entity` subject）新增：`run gv <词>`（查表 + 调用，印 `ha
 | `closer_one(s, t1, t2)`（`helper/closer_one.ts`） | 同名的 `Value` 版（与 `manhattan_xz` 同一套约定） |
 | `e.get_flag(me)`（`should_chase` 里） | `entity/entity_flag.h` 的 `flag_between(...)`：`Entity::get_flag` 也改成调它，避免两份实现漂移 |
 
-### 62.2 「实体引用」与 `entity/entity_ref.h`
+### 66.2. 「实体引用」与 `entity/entity_ref.h`
 
 `BallController` 要读**别人**的 `position` / `frame` / `team` / `ghosted`，而控制器这一侧
 不认识 `Entity` ⇒ 新增 `entity/entity_ref.h` 的 `ref_of(const Entity&)` 作为**唯一**生成处
@@ -6338,34 +6127,7 @@ harness（`entity` subject）新增：`run gv <词>`（查表 + 调用，印 `ha
 `chasing` 的观察点（harness 的 `dump_spawn`）也跟着改成打引用的 `id`（TS 那边 `idRef(e)` 打的
 就是 `{id}`，两边逐字对齐）。
 
-### 62.3 已知偏差 / 有意不覆盖
-
-1. **`chasing` 是「引用快照」，TS 是活实体**：TS 的 `this.chasing` 就是那个实体对象，之后
-   目标掉血 / 换队 / 换帧都会立刻反映到 `should_chase(current)`、`aim_at(current)` 的读取上；
-   端口存的是建引用那一刻的字段。补偿办法是 `update_lookup` 开头那句 `reidentify`：名单
-   （= 世界实体表）里还有同一个 `id` 时，就把 `chasing` 换成名单里的**新引用**，于是
-   「目标还在世界里」这条常见路径与 TS 逐字段一致（用例里 `run buddy` 会在名单外换对象，
-   `reidentify` 认不到时就退回旧快照 —— 这已是**有意接受**的残差）。
-   `should_chase(current)` / `update_lookup` 的候选扫描都从名单取引用，所以这条只影响
-   「目标已离开名单」的情形。
-2. **`update_lookup` 的 `self` 由 `CtrlEnv` 位置快照现搭**（`self_ref`）：TS 读 `this.entity.position`，
-   控制器层按既有分层约定不 `#include entity/entity.h`。**注意不能拿 `entities[me]` 顶替**：
-   `me` 只保证「调用方给的下标」，只有 `entities[me]` 恰好是自己时才等价（这个缺口是
-   用例里 `run ball lookup buddy` 打出来的）。
-3. **`chasing` 放在基类**：TS 里它是 `BallController` 的字段；端口放在 `BaseController` 上，
-   因为 `spawn` 那条路只有 `BaseController*`（`is_ball_ctrl()` 门之后才写它）。语义不变。
-4. **`set_chase_point` 的 `is_f_num` 断言**只有一句 `debugger`（不改变行为）⇒ 不搬。
-5. **harness 里给实体 `position` 补了 `clone`**：TS 侧那个轻量 position 对象没有真 `Vector3` 的
-   `clone`/`copy`，而 `chase_point` 的惰性初始化要用 ⇒ 在 `run ctrl ball` 时就地补一份
-   **值语义**的副本（非枚举 + `configurable`，免得渲染出多余字段、也允许场景里再建一个控制器）。
-   这是台面的补丁，不是端口语义。
-6. **`update_lookup` 的两处「更远就丢」过滤**要三个以上候选才走得到（`self` / `buddy` 两个槽
-   不够）；而且把「球自己」当候选时距离恒 0、`found_d` 被钉在 0，那两个过滤也改不了结果 ⇒
-   不列变异（见 62.5）。同一原因（候选唯一时距离不参与决策）`self_ref` 的三个分量也不可观察。
-7. **harness 的坑（不是端口语义）**：`lfw.new_team` 在台面上是常量 `"1"` ⇒ **没设过队伍的实体
-   队伍相等**（`flag_between` 会给 `Ally`）。写用例时想造「敌我」必须显式给两边队伍。
-
-### 62.4 用例
+### 66.3. 用例
 
 `cases/entity/ball_ctrl.txt`（**174 行**，18 个场景）：帧上没有 `chase` 的早退；`Default` 找目标
 （`should_chase` 的四道门：帧 id `gone`/空、缺 `chase`、队伍、对方 hp 的 `Dead` 位、对方 `type` 的位）；
@@ -6379,27 +6141,14 @@ harness（`entity` subject）新增：`run gv <词>`（查表 + 调用，印 `ha
 `chase` + 新帧没有」⇒ 停追并把追踪点收回自己、死亡分支（`hp <= 0` 真的停追）；`reset` 的
 `gave_up` / `leave_dir` 初值（要新造一个控制器才看得到）。
 
-### 62.5 变异与结果
-
-`mutations/ball_controller.mjs`（**49 条，49/49 全杀**，subject 仍是 `entity`）：`BallController`
-本体（`reset` 的两个字段 / 惰性初始化 / 取整 / `should_chase` 的四道门与两个 `ref_*` /
-`update_lookup` 的四档策略、`reidentify`、`gave_up` 门、失效清理、`ghosted` 跳过、距离比较、记账 /
-`update` 的帧变化与死亡分支 / `update_chasing` 的三轴按键、`oy` 默认值、`leave_dir` 初始化 /
-`calc_dir` 三处 / `stop_chasing`）、`closer_one` 三处、`ref_of` 的六个字段、`flag_between` 两处。
-
-过程中被用例打出来的两个真 bug（都在端口侧）：
-* `chase.overshoot?.x ?? 0` 漏了 `?? 0` ⇒ 缺 `overshoot` 时算成 `NaN`，`calc_dir` 的反向判断静默失效；
-* `should_chase` 的角色写反（TS 是「对方的 team/hp/type 对**自己**的 team」）。
-
-
-## 63. 切片 3ab：`loader/get_val_from_collision`（86 条 getter 表）
+## 67. `loader/get_val_from_collision`（86 条 getter 表）
 
 `Expression<Collision>` 的另一半：`preprocess_bdy` / `preprocess_itr` 和 `preprocess_action` 的
 `action.tester` 都要拿它把词换成值。TS 那张表是 `map: Record<CollisionVal, IValGetter<Collision>>`
 （86 项，顺序同 `defines/CollisionVal.ts`），查表入口 `get_val_geter_from_collision`（TS 的拼写
 少了个 `t`，端口写成 `get_val_getter_from_collision`）。
 
-### 63.1 移植面
+### 67.1. 移植面
 
 | TS | 端口 |
 |---|---|
@@ -6410,7 +6159,7 @@ harness（`entity` subject）新增：`run gv <词>`（查表 + 调用，印 `ha
 | `c.attacker.is_ally(c.victim)` | `a.is_ally(v)`（`Entity::is_ally` 早就有） |
 | `c.attacker.throwinjury ? 1 : 0` | `num_of(truthy(Value(e.throwinjury)))`（`throwinjury` 是数字，0 与 `undefined` 都给 0） |
 | `round(100 * hp / hp_max)` | `lfw::round(...)`（`hp_max = 0` 的 `NaN` / `±Infinity` 原样走 JS 语义） |
-| `c.attacker.lfw.is_cheat(CheatEnum.LF2_NET)` | `e.host().is_cheat(cheat_enum::kLF2_NET)`（宿主缝，`get_val_from_entity` 切片加的） |
+| `c.attacker.lfw.is_cheat(CheatEnum.LF2_NET)` | `e.host().is_cheat(cheat_enum::kLF2_NET)`（宿主缝，`get_val_from_entity`加的） |
 | `c.attacker.emitter ?? ''` | `e.emitter()` 是**指针**（没有发射者），空指针 → 空串 |
 | `c.attacker.ctrl.is_hit(k)` / `is_start(k)` / `is_db_hit(k)` | `controller::BaseController::{is_hit,is_start,is_db_hit}`；返回 **boolean**（与 `1`/`0` 的那些项不同）；`is_db_hit` 非 const ⇒ `key_state` 拿非 const `BaseController*` |
 | `group?.some(v => v === EntityGroup.FreezableBall)` | `group_has(e.group(), entity_group::kFreezableBall)`：`group` 不是数组时 TS 会抛、端口给 false（`?.` 的短路在本用例里就够） |
@@ -6419,7 +6168,7 @@ harness（`entity` subject）新增：`run gv <词>`（查表 + 调用，印 `ha
 | `p1 > p2 ⇒ -v` / `p1 < p2 ⇒ v` / 相等 ⇒ `abs(-v)` | 同名 `closing_speed(v, p1, p2)` 一个函数，三条 `a_closing_speed_*` 共用 |
 | `is_fighter(c.attacker) && c.attacker.state == SE.Falling` | `entity::is_fighter(e.entity_view()) && equals(e.state(), Value(StateEnum::Falling))`（`Entity::state()` = `frame.state`） |
 
-### 63.2 「活实体」缺口与 `CollisionValEnv`
+### 67.2. 「活实体」缺口与 `CollisionValEnv`
 
 TS 的 `Collision.attacker` / `.victim` **就是**那两个实体对象（读的时候才取字段），而端口的
 `Collision` 里只有 `CollisionActor` 快照（`id` / `data_id` / `data_type` / `frame` / `team` /
@@ -6438,36 +6187,7 @@ struct CollisionValEnv { std::function<const Entity*(const std::u16string& id)> 
 `bool is_armor_work(const Value& collision)`（读 `victim.armor` / `bframe` / `itr` / `aframe`
 四项），于是这里现搭一个只含这四项的 `Value` 递进去，同样不用让 `collision/` 认识 `Entity`。
 
-### 63.3 已知偏差 / 有意不覆盖
-
-1. **找不到那个 `id` 时读实体的项给 `undefined`**：TS 那边不存在这一刻（`Collision` 里存的是活
-   对象引用，真世界里读不出「对象没了」），要用 JS 表达只能是 `undefined.x` 抛 `TypeError`。
-   端口 `Value` 的链式取字段一路给 `undefined`。差分里只比较两边**都给 `undefined`** 的那几个词
-   （帧上的 `state` / `id`、`toughness`、`armor_work`、`victim_is_chasing`），能抛的那几个不比较。
-2. **`victim_is_chasing` 比 `id` 而不是对象**：TS 是 `c.victim === c.attacker.ctrl.chasing`；
-   端口 `chasing` 与 `victim` 都是快照 ⇒ 比 `id`（实体 `id` 唯一，等价）。
-3. **`v_frame_behavior` 读的是实体的 `frame`**（不是碰撞里的 `bframe`）：TS 也是 `c.victim.frame.behavior`，
-   移植时按字面走；用例里刻意让 `frame.behavior`（5）与 `bframe.behavior`（9）不同，好让
-   「读错了哪一份」也能被打出来。
-4. **`same_team` 的两个参数对称**：`a.is_ally(v)` 与 `v.is_ally(a)` 同值 ⇒ 交换参数构造上不可观察，
-   不列变异。`with_both` 的 `Value()` / `Value(0.0)` 同理（本用例两边都在）。
-5. **「世界里没有这个 id」的空值护栏**（`with_*` 的 `!= nullptr`、`key_state` 的空指针早退、
-   `victim_is_chasing` 的 `a == nullptr`、`armor_work` 的 `v == nullptr`）与
-   「`find_entity` 没装」的分支：TS 侧无法表达（见第 1 条），本用例走不到 ⇒ 不列变异，
-   记在 `mutations/collision_val.mjs` 头部。
-6. **harness 的坑（不是端口语义）**：
-   * `Entity::state()` 就是 `frame.state`，`run set state` / `run setstate` 都改不了它 ⇒
-     要 `run frame` / `run buddyframe` 把帧换掉。
-   * `frame.id` 为空 = `frame_id::None` ⇒ `BallController::should_chase` 直接否 ——
-     `run make` / `run buddy` 造出来的实体帧是 `EMPTY_FRAME_INFO`（id 空），想让它被追就必须
-     先 `run buddyframe`。
-   * **互相 `bearer`** 的两个实体一旦再改帧就会 `set_frame → follow_bearer → enter_frame → set_frame`
-     无限递归（**TS 侧同样栈溢出**，端口忠实复刻了这个行为）⇒ 持有位那一节放在用例最后，
-     而且只设单向关系。
-   * `run set group` / `run set armor` 不存在（那两个字段只从实体数据里来）⇒ 换一个
-     `run buddy <data>` 才换得掉。
-
-### 63.4 用例
+### 67.3. 用例
 
 `cases/entity/collision_val.txt`（**672 行**，9 个场景，86 个词全覆盖）：默认碰撞（`cvclear`，
 两边都只探 TS 也读得下去的词）+ 表外的词（`no_such_word` / 空串 / 大小写不同的词）；
@@ -6491,42 +6211,20 @@ Fighter + Falling（1）—— 两侧各有一个 1 与一个 0，两道门的�
 （`run buddyframe` 把受击方做成 Fighter + Falling；`frame.state` 只能靠 `run frame` /
 `run buddyframe` 改，`run set state` / `run setstate` 改的是状态机那一份。）
 
-### 63.5 变异与结果
-
-`mutations/collision_val.mjs`（**122 条，122/122 全杀**）：73 条打在 getter 本体的「读错了哪一边 /
-哪一个字段 / 哪一个分支」上（实体换边、`data.type` 与 `base.type` 互换、`itr` 与 `bdy` 互换、
-`aframe` 与 `bframe` 互换、`frame` 与 `bframe` 互换、`!= nullptr` 判反、`num_of` 判反、
-`round` / 乘 100 去掉、`closing_speed` 的三处、`armor_work` 视角少一项或拿错护甲、
-`victim_is_chasing` 的三处、`is_fighter` / `state` 两道门）、7 条打在表本身
-（词接到别的 getter、查不到时给表尾项）、42 条打在 42 个按键词上（换边或换键）。
-
-第一轮跑出 1 条 `SURVIVED`（`a_falling` 不判 Fighter）与 1 条 `compile-error`
-（我把 `v_frame_behavior` 的变异写成读 `c.bframe` 却忘了捕获 `c`）⇒ 前者补上
-「攻击方是 Weapon + Falling」那一档、后者改成 `[&c]` 捕获，再全量重跑才 122/122。
-
-`tools/mutate.mjs` 顺带加了可选的 `cases: [...]`：一份变异通常只有一两份用例看得见，
-而 subject 的用例集越攒越大（`entity` 现在有 8 份、`main.txt` 68 KB）⇒ 只跑相关用例后
-测试那一段从 ~2.0s 降到 ~0.2s（整条 `build` + `test` 从 ~4.5s 到 ~2.8s；不写 `cases`
-就照旧跑全部，既有 spec 不受影响。`build` 那 ~2.5s 省不掉 —— 一次变异改的就是 `lfw_core`）。
-
-这一刀**没有**打出端口 bug：86 个 getter 都是「读哪一边」的直译，第一次跑用例就全过；
-前两刀修过的保真缺口（`update_lookup` 的 `self_ref`、`reidentify`）在这一刀又各被间接覆盖了一次。
-
-## 64. 切片 3ac：`loader/preprocess_bdy` + `loader/preprocess_itr`（+ `action.tester` 落地）
+## 68. `loader/preprocess_bdy` + `loader/preprocess_itr`（+ `action.tester`）
 
 步骤 3 尾段的判定器装配层：把 `bdy` / `itr` / `action` 上「缺省的条件串」补出来（`test` 的
 CondMaker 默认值、`??=` 的数值默认、`hit_flag` 兜底），再把 `bdy.actions` / `itr.actions`
 逐条交给 `preprocess_action`。三处调用点（`preprocess_frame.ts` 的 `l[i] = preprocess_bdy(…)` /
 `preprocess_itr(…)`、`preprocess_entity_data.ts` 的 prefab 预热）都靠**返回值**回写。
 
-### 64.1 移植面
+### 68.1. 移植面
 
 | TS | 端口 |
 |---|---|
 | `preprocess_bdy(ctx)` / `preprocess_itr(ctx)`，`ctx = { lfw, data, jobs, frame?, bdy\|itr }` | `preprocess_bdy(Value& ctx, u16string& error)` / `preprocess_itr(...)`：从 `ctx` 读 `data` / `frame` / `bdy`\|`itr`，**成功时把结果写回 `ctx.bdy` / `ctx.itr`**（= TS 调用点的 `l[i] = …`），失败返回 `false` |
-| `lfw` / `jobs` | 不落地：端口 `preprocess_action(Value&)` 不接收它们（`A_SOUND` 的加载任务在端口是「只校验 path 可迭代」，见 §36 起的既有约定） |
+| `lfw` / `jobs` | 不落地：端口 `preprocess_action(Value&)` 不接收它们（`A_SOUND` 的加载任务在端口是「只校验 path 可迭代」，见 §40 起的既有约定） |
 | `throw prefab_error('preprocess_bdy', data.id, 'bdy', merged)` | `error = prefab_error_message(...)` + `return false`；`data.id` 缺省时 `to_string(undefined)` 给 `"undefined"`，与 TS 模板串一致 |
-| `resolve_prefab(bdy, data.bdy_prefabs)` | 同名（`loader/resolve_prefab.{h,cpp}`，本刀第一个消费者），`prefabs` 缺省 = `undefined` ⇒ `prefabs?.[ref]` 恒 miss |
 | `bdy.__tester = bdy.test ? new Expression(...) : void 0` | `b->set(u"__tester", truthy(test) ? test : Value())`（见 64.2；**两种形态都会建出键**） |
 | `if (itr.test) itr.__tester = new Expression(...)` | `if (truthy(test)) it->set(u"__tester", test)`（**只有有 test 时才建键** —— 探针专门区分这两处） |
 | `action.tester = action.test ? new Expression(...) : void 0` | `a->set(u"tester", truthy(test) ? test : Value())`，位置在 `action.type` 大写化**之前**（同 TS） |
@@ -6541,11 +6239,11 @@ Pick / PickSecretly / SuperPunchMe / MagicFlute+MagicFlute2 / Block / JohnShield
 Freeze / Whirlwind / CharacterThrew），`??=` 一律翻成 `is_nullish(...) ? 写默认值 : 保持`
 （`null` 与 `undefined` 都算，`0` / `""` / `false` **不算**）。
 
-### 64.2 `__tester` / `action.tester`：编译产物装不进 `Value`
+### 68.2. `__tester` / `action.tester`：编译产物装不进 `Value`
 
 TS 在这三处把 `new Expression(test, get_val_geter_from_collision)` 的**编译结果**挂到记录上
 （`bdy.__tester` / `itr.__tester` / `action.tester`，`preprocess_next_frame` 还有一个 `__judger`）。
-端口 `Value` 只有 7 种类型（§4.40 起的老结论），装不下一个带函数字段的 C++ 对象 ⇒
+端口 `Value` 只有 7 种类型（§9.42 起的老结论），装不下一个带函数字段的 C++ 对象 ⇒
 
 1. **端口存源串**（`test` 不是字符串时存原值）：`__tester` / `tester` 的语义是「这里有一份
    判定器源串」，消费侧（`collision.cpp` 的 `bdy.__tester`、`collision/keeper.cpp` 的
@@ -6555,12 +6253,12 @@ TS 在这三处把 `new Expression(test, get_val_geter_from_collision)` 的**编
 2. **加载期不再编译**：TS 的 `new Expression(...)` 在加载期会解析源串，两端词都不认识时还会
    `Ditto.warn`（未装 sink 时是 `not a function`）—— 那是副作用不是数据，端口不产生。
    `Expression` 的解析结果（`is_expression` / `children` / `err` …）本来就带函数字段、两端不可比
-   （§63 的 `__judger` 同款）。
+   （§67 的 `__judger` 同款）。
 3. **差分对齐**：两侧都先记「键在不在、值真不真」（`-` / `u` / `s`）的探针，再把
    `__tester` / `__judger` / `tester` 递归剥掉后比较其余字段。探针是必须的 —— 否则
-   §64.1 里「两种形态都会建键」与「只有有 test 才建键」这处差别完全不可见。
+   §68.1 里「两种形态都会建键」与「只有有 test 才建键」这处差别完全不可
 
-### 64.3 保真要点
+### 68.3. 保真要点
 
 1. **两处 `===` 与一处 `==`**：`kind === BdyKind.Normal`、`frame?.state === StateEnum.Caught` 是
    **严格**比较（`"0"` / `"10"` 都不成立），而 `bdy.hit_flag == void 0` 是**松散**比较
@@ -6581,45 +6279,14 @@ TS 在这三处把 `new Expression(test, get_val_geter_from_collision)` 的**编
    `truthy(x) && as_array(x) == nullptr ⇒ return false` 的护栏，且护栏放在**同一位置**（Pick 的
    `test ??=` 之后、Heal 的 `set_hit_flag` 之后）—— 失败时已发生的写入要与 TS 一致。
 
-### 64.4 有意不覆盖 / 等价
-
-1. **`bdy` / `itr` 是数组**：TS 能往数组实例上挂 `__tester`（数组是对象），端口的 `Array` 只有
-   元素没有键位 ⇒ `bdy` 侧按失败处理（这类数据没有意义）。`itr` 侧没有分支会命中 ⇒
-   两边都是「成功、无副作用」，用例里有 `a()` 这种输入。
-2. **`ctx` 不是对象**：端口 `return false`；用例总是给对象 ctx，TS 侧也表达不出「ctx 是标量」
-   （它读的是 `ctx.bdy`，抛的是 TypeError）。
-3. **CondMaker 每组首项的 `.add` ↔ `.and_` / `.or_` ↔ `.and_` / `wrap` ↔ `add`**：在空 maker /
-   空组上生成的串完全相同（`bdy` 的两组首项、`itr` 的 MFire2 / Pick 首项、Whirlwind 外层
-   `wrap`）⇒ 按构造等价，不进变异名单；**组内第二项起**的同类改写都在名单里。
-4. **`set_default` 的 `is_nullish` → `!truthy` 一族**：`motionless` / `shaking` / `dvx` 这些键的
-   默认值本身就是 `0`，两种判法结果相同；只有 `vrest ??= 1` 能区分，已单独列。
-5. **`get_next_frame_by_raw_id(dvx, 'frame' | 'repeat')`**：`dvx` 为真值 ⇒ 进不到 `id == 0` 那一支，
-   `zero_as` 只在 `s "0"` / `s "-0"` 这种「字符串零」（真值、但 `"" + id === "0"`）时可区分，
-   用例补了这两行。
-
-### 64.5 harness 与变异
-
-新 subject `loader_frames`（`subjects/loader_frames.{ts,cpp}`）只有两个 op：`bdy` / `itr`，
-参数是一个 ctx 字面量。TS 侧要补 `lfw`（`sounds` stub）与 `jobs` 并把**返回值**写回 ctx；
-两侧都先探针、后剥键，输出形如
-`bdy ok <data> [<frame>] <结果> t=<探针>`，失败再跟 `msg=<文本>`（**只有**以 `[` 开头的
-prefab 错误才比文本，TypeError 的文本两端不可能相同）。用例 `cases/loader_frames/all.txt`
-222 行（12 组场景）；变异名单 `mutations/loader_frames.mjs` 166 条 **166/166 全杀**
-（52 条打在 `preprocess_bdy.cpp`、97 条打在 `preprocess_itr.cpp`、17 条打在
-`preprocess_action.cpp` 的 `tester`；`cases: ["all"]` 过滤）。顺带把 `loader_actions` 的
-harness 对齐：`pa` / `pnf` 现在也要把编译产物剥掉（`preprocess_action` 落 `tester` 之后才对得上），
-那份 spec 重跑仍全杀。
-
----
-
-## 65. 切片 3ad：`loader/preprocess_frame` + `utils/read_nums`
+## 69. `loader/preprocess_frame` + `utils/read_nums`
 
 `src/LFW/loader/preprocess_frame.ts`（250 行）是帧装配层：它把一帧原始数据补齐成运行时帧。
 它同时是 `3ac` 那套 `bdy` / `itr` 判定器的**第一个帧级调用者**，也是 `ui/utils/read_nums` 的
 第一个调用者 —— `ui/` 整块没移植，而 `read_nums` 是纯函数（`loader/` 用得到），所以它落在
 `native/lfw/utils/read_nums.{h,cpp}`，注释里注明「TS 在 `ui/utils/`」。
 
-### 65.1 移植面
+### 69.1. 移植面
 
 - `native/lfw/loader/preprocess_frame.{h,cpp}`：`bool preprocess_frame(Value& ctx, std::u16string& error)`
   —— 成功把结果写回 `ctx.frame`（= TS 调用点 `o[fid] = preprocess_frame({ ...ctx, frame })`）。
@@ -6630,11 +6297,10 @@ harness 对齐：`pa` / `pnf` 现在也要把编译产物剥掉（`preprocess_ac
   `pic` / `pics` → `landable` → `behavior Boomerang` 的 `facing` → `fold_aabb`。
 - `native/lfw/utils/read_nums.{h,cpp}`：`bool read_nums(const Value& src, double len, const Value& fallbacks,
   std::vector<Value>& out, std::u16string* error = nullptr)`。`len` 取 `double` 而不是 `size_t`
-  —— TS 的参数就是 number，负长度必须走 `len < 1 ⇒ []` 那条路（第一版用 `size_t` 把 `-1`
-  变成 2^64-1，补长循环直接把堆吃穿）。`out` 的元素可能是 `undefined`（TS 的越界读）或 `NaN`。
+  —— TS 的参数就是 number，负长度必须走 `len < 1 ⇒ []` 那条路。`out` 的元素可能是 `undefined`（TS 的越界读）或 `NaN`。
 - 这两个文件都进了 `native/lfw/CMakeLists.txt`。
 
-### 65.2 保真要点
+### 69.2. 保真要点
 
 1. **`data.processed != false` 是松散比较**：`false` / `0` / `""` / `null` 都算「未处理」⇒
    才进 ball / weapon 段；`undefined != false` 为**真** ⇒ 缺省数据的走法是「走空分支」。
@@ -6652,7 +6318,7 @@ harness 对齐：`pa` / `pnf` 现在也要把编译产物剥掉（`preprocess_ac
 5. **`read_nums` 的两个怪癖**：`is_num_arr` 是「是数组且没有 `NaN`」（**不要求**元素都是数字，
    所以 `["3"]` 也算数字数组、后面原样透出），越界判断是 `idx > src.length`（**不是 `>=`**）
    ⇒ `idx === length` 时推 `undefined`（`center "1"` 会给出 `centery: u`）。补长用
-   `fallbacks[length-1] || 0`，**空数组时读成 `undefined`** ⇒ 补 0（端口第一版在这里越界崩过）。
+   `fallbacks[length-1] || 0`，**空数组时读成 `undefined`** ⇒ 补 0（端口
 6. **`fold_aabb` 的四轴都是 `??` 回落**：`x1 = x - centerx`（解构默认值只在 `undefined` 生效）、
    `x2 = x1 + w`（`+` 是 `js_add`：`w` 是字符串时会**拼接**，所以 `a(10) + "3"` 是 `"103"`），
    `z1 = z ?? -DZL/2`、`z2 = z + (l ?? DZL)`，然后 `min`/`max` 与旧值合并。
@@ -6664,59 +6330,18 @@ harness 对齐：`pa` / `pnf` 现在也要把编译产物剥掉（`preprocess_ac
 9. **`pics` / `on_*` / `bdy` / `itr` 的 `?.forEach`**：真值非数组时 TS 抛 TypeError ⇒ 端口
    `return false`；`null` / `undefined` 才是「跳过」。
 10. **`cook_frame_indicator_info` 的三类失败**（`"w" in pic` 对原始值、`?.forEach` 对非数组、
-    给标量挂 `__indicator_info`）以前被端口静默吞掉 —— 这一刀把它改成 `bool`（见 §65.4），
+    给标量挂 `__indicator_info`）以前被端口静默吞掉 —— 这一刀把它改成 `bool`（见 §8），
     并把「抛之前改了多少」也对齐：`__indicator_info` 先写，opoint / cpoint / bpoint / wpoint /
     bdy / itr 任何一处失败都在**同一位置**停下。
 
-### 65.3 偏差（同时登记在 README 的偏差表）
-
-1. `__seq_map` 用 `Object` 顶替 TS 的 `Map`：渲染一样，但键序不同（`Map` 保插入序，
-   `Object` 把整数键前置升序）⇒ 差分用例里的 `seqs` 键只能升序。
-2. `frame.opoint?.forEach(preprocess_opoint)` 与 `frame.sound` 的加载任务都不落地
-   （沿用 `preprocess_opoint` 与 `A_SOUND` 的既有约定）。
-3. `frame` 是标量时端口在入口就失败（TS 读到第一次写才抛）；差分只比「失败」这一位。
-4. `preprocess_ball_frame` 里 `data.base` 缺失时 TS 抛、端口跳过 —— **V41 遗留**，本刀的用例
-   一律给 `base`（记在 `mutations/preprocess_frame.mjs` 头部，不在本刀修）。
-
-### 65.4 有意不覆盖 / 等价
-
-1. `ctx` 不是对象（harness 的 TS 侧要先往 ctx 上挂 `lfw` / `jobs`，标量 ctx 在 harness 里就抛了）。
-2. weapon 分支里的 `if (d == nullptr)`：`is_weapon_data(data)` 为真就说明 `data` 是对象 ⇒ 不可达。
-3. `frame.pics` 的 `arr[i] = preprocess_pic(pic)` 与帧内 `bdy` / `itr` 的**普通**项：
-   `preprocess_pic` / `preprocess_bdy` / `preprocess_itr` 都是**就地改并返回同一个对象** ⇒
-   写回是恒等操作。**命中 prefab 时例外**（`resolve_prefab` 拼的是新对象）⇒ 用例专门补了
-   `bdy_prefabs` / `itr_prefabs` 六行把这条差异钉住。
-4. `fold_aabb` 之前那段 `bdy` / `itr` 的 `else { return false; }`：走到这里时两者只可能是假值
-   或数组（上面那个 `?.forEach` 循环已经对非数组返回过 `false`）⇒ 不可达。
-5. `breakfall` 里 `edit` 的 `if (o == nullptr) return;`：能命中 id 100/108 的 `j` 一定是对象。
-
-### 65.5 harness 与变异
-
-`loader_frames` 新增两个 op（同一个 subject、同一个用例文件）：
-`frame <data> <frame>` 与 `rn <src> <len> [<fallbacks>]`。
-- `frame` 的输出是 `frame <ok|throw> <data> <帧> t=<探针> [msg=<文本>]`；探针是
-  「帧自己 + 每个 `bdy` / `itr` 的 `__tester` + 它们 `actions` 里的 `tester`」的 `-`/`u`/`s` 串
-  （`__tester` 装不进 `Value`，只能这样比）。剥键表在原有的 `__tester` / `__judger` / `tester`
-  之外**加了九个 `__gen_*` 与 `__gen_facing`**（`make_buring_smoke` 的 `action.__gen_facing`
-  是同一个道理）。
-- `rn` 直接把 `read_nums` 的结果打出来：`rn ok <数组> fb=<第三参渲染> msg=<文本>` /
-  `rn throw - fb=… msg=[read_nums] failed, …`。第三参会被**就地补长**，所以把它也渲染出来
-  （`fb=` 是数组的话能看见补出来的元素）。
-- `msg=` 的规矩照旧：只有以 `[` 开头的文本两端可比 —— 本刀起 `[read_nums] failed, …` 也进了
-  这一类（端口逐字对齐）。
-- 用例 `cases/loader_frames/all.txt` 222 → **544** 行；变异名单 `mutations/preprocess_frame.mjs`
-  **213** 条 **213/213 全杀**（190 条 `preprocess_frame.cpp` + 23 条 `read_nums.cpp`）。
-- `indicator_info` 的 harness 也跟着改：`cfi` 现在输出 `cfi <ok|throw> <帧>`（TS 侧 try/catch），
-  用例 16 → **69** 行（补的全是新失败路径），变异 23 → **40** 条 **40/40 全杀**；那条
-  「`bdy` 列表之后不检查 `ok`」是等价的（末尾那次检查兜住了），只在名单头部记了一句。
-## 66. 切片 3ae：`loader/preprocess_entity_data`
+## 70. `loader/preprocess_entity_data`
 
 `src/LFW/loader/preprocess_entity_data.ts`（130 行，`async`）是**步骤 3 的总装入口**：一份 dat
 解析出来的实体数据，从「字段齐不齐都不知道」的形状被它补齐成运行时形状（四路 special 的默认值、
 `bdy`/`itr` prefab 逐条预处理、`hitkeys` 索引、`portraits`·`frames` 的加工、`__pics` 统计、
 bot 数据的展开）。`DatMgr` 直接调它，`loader/` 这一层到它为止就只剩 `DatMgr` 与几个 getter 了。
 
-### 66.1 移植面
+### 70.1. 移植面
 
 - `native/lfw/loader/preprocess_entity_data.{h,cpp}`：
   `bool preprocess_entity_data(Value& ctx, std::u16string& error)` —— 从 `ctx` 读
@@ -6735,7 +6360,7 @@ bot 数据的展开）。`DatMgr` 直接调它，`loader/` 这一层到它为止
   - `utils/type_check.h`：新增 `is_non_blank_str`（`is_str(v) && v.trim().length > 0`，
     空白集用现成的 `is_str_white_space`）。
 
-### 66.2 保真要点
+### 70.2. 保真要点
 
 1. **`data.base` 的两道解构在各种怪值上的差别**：`const { small, head } = data.base` 与
    `const { base: { files, portraits } } = data` 只在 `data.base` 是 `null` / `undefined` 时抛；
@@ -6748,7 +6373,7 @@ bot 数据的展开）。`DatMgr` 直接调它，`loader/` 这一层到它为止
    `if (k.length < 2) return;` `if (k[0] == k[1]) return;` 三道门，所以
    `pre_hitkeys: "ab"`（键 `"0"` / `"1"`，长度 1）**不抛**，而 11 位以上（出现键 `"10"`）才抛。
    端口因此**不能**直接用 `traversal_write` 的「非空字符串直接失败」，在 `build_hitkeys_map`
-   里单独判一遍字符串分支（见 §65.2 第 4 条的反面情形）。
+   里单独判一遍字符串分支（见 §69.2 第 4 条的反面情形）。
 4. **`__pics` 的累加读的是回调参数**：`o[fid] = preprocess_frame({ ...ctx, frame })` 之后紧接着
    `const pics = frame.pics?.length;` —— `frame` 还是**回调那个**（命中 prefab 时
    `resolve_prefab` 拼的是新对象，写回的是新对象，但 `frame` 这个绑定没变）。端口保留
@@ -6767,66 +6392,12 @@ bot 数据的展开）。`DatMgr` 直接调它，`loader/` 这一层到它为止
    `make_fighter_special` 都是按 `data.id`（fighter 还要看 `alias_id`）查表，用例得挑表里
    真能写东西的 id，否则「分支换错 / 不再调用」这类变异会幸存（第一轮就踩了）。
 
-### 66.3 偏差（同时登记在 README 的偏差表）
+## 71. `I18N` + `loader/get_import_fallbacks`
 
-1. `__pre_hitkeys_map` / `__post_hitkeys_map` 用普通 `Object` 顶替 TS 的 `Map`
-   （`renderValue` 对两者同形；键序在本 subject 里都是短下标）。
-2. 加载任务（`images.load_img` / `load_by_pic_info` / `sounds.load`）与末尾的
-   `data.xml = () => …` 都不落地（前者是副作用、后者是函数 ⇒ `Value` 装不下）。
-3. `errors` 只做「缺失就失败」：TS 那边是数组 + `Ditto.warn(errors)`，端口沿用
-   `preprocess_bdy` / `preprocess_itr` / `preprocess_frame` 的 `bool` + `error` 出参约定。
-4. 两个**遗留**偏差会在这一层暴露（都不在本刀修）：
-   `make_ball_special` 对稀疏输入（缺 `frames`）TS 抛、端口跳过；
-   `make_fighter_special` 的 `ensure(data.base.group, …)` 对非数组真值 TS 抛、端口换新数组。
-   用例挑能跑通的输入，两条都记在 `mutations/preprocess_entity_data.mjs` 头部。
-
-### 66.4 有意不覆盖 / 等价
-
-1. `if (is_nullish(ctx))` / `if (is_nullish(data))` 两道入口：去掉后会在后面同一批
-   「读不到字段 ⇒ 失败」的地方兜住，且中间没有任何写操作 ⇒ 失败时渲染出来的 `data` 一样。
-2. `pre_hitkeys` / `post_hitkeys` 的 `truthy(...)` 门：去掉后 `build_hitkeys_map` 对假值照样
-   不遍历、不失败。
-3. `build_hitkeys_map` 字符串分支里的 `if (!truthy(v)) continue;` 与
-   `if (!preprocess_next_frame(v)) return false;`：`v` 是单个字符 ⇒ 恒真值、恒没有
-   `expression` ⇒ 不可达。
-4. `value_length` 的字符串分支：`jobs` 是字符串时真假都成功；`frame.pics` 是字符串会先被
-   `preprocess_frame` 的 `pics?.forEach` 抛掉 ⇒ 看不见。
-5. `on_dead` / `on_exhaustion` 的写回、`data.base.bot` 的写回、`make_entity_special(data)`：
-   `preprocess_next_frame` / `preprocess_bot_data` 就地改并返回同一个对象（写回恒等），
-   `make_entity_special` 两端都是空函数。
-6. `traversal` 值版字符串分支里「值是那个字符」：本 subject 只有 `base.files` 用它，
-   而它的回调不看值。
-7. `spread_assign` 的方向（`{ itr, ...ctx }` 写成 `{ ...ctx, itr }`）：用例的 ctx 里没有
-   `itr` / `bdy` / `frame` 这些键，两种写法给下游的字段一样。
-8. `portraits` 的写回：`preprocess_pic` 就地改并返回同一个对象。
-
-### 66.5 harness 与变异
-
-新 subject `loader_entity`（`subjects/loader_entity.{cpp,ts}` + `cases/loader_entity/all.txt`），
-只有一个 op：`ed <ctx>`。
-- 输出 = `ed` + `ok`/`throw` + 渲染出来的 `ctx.data`；失败再补 `msg=`（规矩照旧：只有以 `[`
-  开头的文本两端可比 —— 本刀起 `[preprocess_itr] …` / `[preprocess_bdy] …` /
-  `[preprocess_frame] …` 都会透出来）。
-- TS 侧 `await preprocess_entity_data(ctx)`（它是 `async`）；`ctx` 里没有 `lfw` 时补一个桩
-  （`images.load_img` / `load_by_pic_info` / `sounds.load` 返回 `undefined`，`jobs.push` 照收）；
-  `Ditto.warn` / `Ditto.error` 换成空实现；`data.xml` 在渲染前删掉。
-- 剥键表复用 `__tester` / `__judger` / `tester` / 九个 `__gen_*`，并**加上 bot 动作的
-  `judger`**（`preprocess_bot_data` 挂的编译产物）与 `Map` 值的递归（两张 `hitkeys` 表是
-  `Map`，里面的帧和 `data.<x>_hitkeys` 是同一批对象）。
-- 用例 387 行；变异 `mutations/preprocess_entity_data.mjs` **121** 条 **121/121 全杀**
-  （全部为本刀新增，含 2 条打在 `traversal.h`、2 条打在 `type_check.h`）。
-- 差分里踩到的两个**用例**坑（值得记住）：① prefab 表要挂在 `data.frame_prefabs` /
-  `data.itr_prefabs` 上（不是 ctx 上），否则 `resolve_prefab` 找不到 ⇒ 用例变成「两边都抛」
-  的哑弹；② `deg 45` 的 `Math.sin` 与 UCRT `std::sin` 差 1 ULP
-  （`preprocess_pic` 会算 `__sin_r`，位模式不同）⇒ 用例避开 `45°`（README 的 libm 一节）。
-
-## 67. 切片 4A：`I18N` + `loader/get_import_fallbacks`
-
-步骤 4「主干」（宿主层）的第一刀。挑的是两片**没有宿主依赖**的叶子：`I18N`（语言别名 + 三张
 词表，96 行）与 `loader/get_import_fallbacks`（引入名 → 备选名，纯字符串，60 行）。它们不碰
 `World` / `stage` / `Factory`，所以能在宿主层开工前先把差分台面立起来（`i18n` subject）。
 
-### 67.1 移植面
+### 71.1. 移植面
 
 - `native/lfw/i18n.{h,cpp}`：`class I18N` —— `set_lang(v, error)`（返回 `bool` + 文本出参）、
   `add(langs)`、`alias(v)` / `canonical(v)` / `string(name, lang)` / `strings(name, lang)`、
@@ -6837,7 +6408,7 @@ bot 数据的展开）。`DatMgr` 直接调它，`loader/` 这一层到它为止
   std::u16string& suffix)`；`name` 非字符串 ⇒ `false`（TS 在 `path.endsWith` 上抛）。
 - 进 `native/lfw/CMakeLists.txt`（C++ 源 406 → 408）。
 
-### 67.2 保真要点
+### 71.2. 保真要点
 
 1. **`lang == ''` 是松散比较**：直接复用 `core/value.h` 的 `equals`（同类型走严格，否则按 JS
    抽象相等规则），所以 `''` / `0` / `false` / `[]` / `[null]` 都算「空」，`null` /
@@ -6865,55 +6436,13 @@ bot 数据的展开）。`DatMgr` 直接调它，`loader/` 这一层到它为止
    会把最后那条候选（`dir+name+".png"` / `".webp"`）过滤掉；漏了过滤就多一条与原名重复的
    候选。音分支**不过滤**（`a.mp3` / `a.wav.mp3` 都不可能等于原名）。
 
-### 67.3 偏差（同时登记在 README 的偏差表）
+## 72. `PlayerInfo`
 
-1. 三张表用 `std::map` 顶 `Map`（只按键取、不迭代 ⇒ 序不可观察）；`Map` 的「键不 ToString」
-   语义靠「语言必须是字符串」的守卫保住。
-2. `base_words` / `base_lists` 两个 getter 没实现（`src/LFW` 里没有使用者）。
-
-### 67.4 有意不覆盖 / 等价
-
-1. `add` 的两个假值门（`!truthy(langs)` / `!truthy(new_words)`）：去掉后 `as_object` 对同一批
-   假值返回 `nullptr`，走的是同一个「跳过」出口。
-2. `add` 里「先判字符串别名、再判真值」的顺序：唯一区别是空串别名算不算别名，而 `alias` 对
-   空串别名本来就当「没有别名」（要点 4）⇒ 两种顺序结果一样。
-3. `alias` 里 `visited.push_back(ret)` 记 `ret` 还是 `lang`：只在原地打转时才命中环检测，那种
-   情况两种记法都在第二轮命中。
-4. `string` / `strings` 里 `alias(lang) ?? ''` 的 `''` 换成 `undefined`：`words_of` 对两者都
-   查不到，递归一步后结果相同。
-5. 构造函数里给 `_words['']` / `_lists['']` 种的空表：`add` 处理任何语言名（含 `''`）时都会
-   补建这两张表，而「查不到」与「空表」在 `?.[name] ?? fallback` 下不可区分。
-6. `split_path` 的端点交换分支：见要点 6，`begin > end` 不可达。
-7. 图/音两个后缀组的先后：`endsWith` 不可能同时命中。
-
-### 67.5 harness 与变异
-
-新 subject `i18n`（`subjects/i18n.{cpp,ts}` + `cases/i18n/all.txt`），八个 op：
-`gif <name>`（`get_import_fallbacks`，非字符串 ⇒ `throw`）、`new <id>`、`add <id> <langs>`、
-`lang <id> <lang>`（`set_lang`，输出 `ok`/`throw` + `cur=` 当前语言 + `msg=`）、
-`alias <id> [lang]` / `canonical <id> [lang]`、`str <id> <name> [lang]` / `strs <id> <name> [lang]`。
-- `I18N` 内部是 `Map` / 私有字段，不能直接渲染 ⇒ 输出只走 `lang` / `alias` / `canonical` /
-  `string` / `strings` 的返回值。
-- **默认参数**：TS 的 `alias(lang = this._lang)` 等只对 `undefined` 生效（显式写 `u` 也算），
-  两端都用 `langArg` 把它换成 `it.lang`；`canonical` 显式 `u` 时 TS 给的是 `''`（默认参数生效）
-  而不是 `undefined`，这条一开始就踩到了。
-- 用例 262 行（16 组：`gif` 的非字符串入口 / 三种图后缀 / 目录切分（含 `a/.png`、`@2x/.png`、
-  `a\\b.png`）/ 音分支 / 无分支；`add` 三道门 / 别名 + 两种词 / 非对象词图夹在中间；`alias`
-  链与空串别名、环、松散 `lang == ''` 各档、词键类型转换；非字符串 `lang` / `name`；
-  `set_lang` 失败后语言不变；同名语言二次 `add`；数组词的两种字符串化；空串词与空数组词）。
-- 变异 `mutations/i18n.mjs` **67/67 全杀**（全部本刀新增；7 类按构造等价 / 不可达记在名单头部
-  与 §67.4）。踩到的两个坑：① `join_lines` 的锚点里 `u'\n'` 在 JS 模板串里必须写成 `u'\\n'`，
-  否则锚点是真换行、匹配不到；② 一开始把「不再种基表」与「端点交换」两条当可杀，实测都是
-  等价 ⇒ 改记进 §67.4。
-
-## 68. 切片 4B：`PlayerInfo`
-
-步骤 4「主干」（宿主层）的第二刀，也是宿主层里第一块**有状态**的东西：`src/LFW/PlayerInfo.ts`
 （137 行）管一个玩家的 `{ id, name, keys, version, ctrl }`，`save()` / `load()` 走 `Ditto.Cache`，
 `set_*` 四件套发 `IPlayerInfoCallback`。顺带两处共享文件的小改：`core/js_string` 的
 `to_lower_case`（`set_key` 用）与 `defines` 的 `get_default_keys_value`。
 
-### 68.1 移植面
+### 72.1. 移植面
 
 - `native/lfw/player_info.{h,cpp}`：`IPlayerInfoHost`（`cache_get` / `cache_del` / `cache_put` /
   `warn`）、`PlayerInfoCacheEntry`（`ICacheData` 里用到的字段）、`PlayerInfoCachePut` 与
@@ -6927,7 +6456,7 @@ bot 数据的展开）。`DatMgr` 直接调它，`loader/` 这一层到它为止
   （`Defines.get_default_keys` 的原始返回；取的是 `default_keys_map` 里那个**共享对象**）。
 - 进 `native/lfw/CMakeLists.txt`（C++ 源 408 → 409）。
 
-### 68.2 保真要点
+### 72.2. 保真要点
 
 1. **`keys` 是共享对象**：`_info.keys = Defines.get_default_keys(id)` 拿的是 `default_keys_map`
    里那一个对象（所有 id 都落到 `'_'`）⇒ `set_key` 就地把某个玩家改了，**别的玩家也看得见**，
@@ -6957,67 +6486,22 @@ bot 数据的展开）。`DatMgr` 直接调它，`loader/` 这一层到它为止
    Latin Extended-A 的两段奇偶、希腊 `Α-Ρ` / `Σ-Ϋ`、西里尔 `Ѐ-Џ`（+0x50）与 `А-Я`，外加
    `İ`（`U+0130` ⇒ `i` + `U+0307`）与 `Ÿ`（`U+0178` ⇒ `U+00FF`）两个特例。
 
-### 68.3 偏差（同时登记在 README 的偏差表）
+## 73. `ZipMgr`
 
-本刀在 README 加了 9 行：字段 `Value` 化、`loaded` 挂起、`on_ctrl_changed` 少第 3 参、
-`warn` 只留第一参、`put` 无失败面、`Ditto` 缺失不建模、JS 属性语义的少数档、
-`to_lower_case` 的 Unicode 覆盖面。
-
-### 68.4 有意不覆盖 / 等价
-
-1. `prop_get` 的 nullish 分支、`prop_set` 的数组分支与「非对象写」失败分支、`prop_get` 的
-   字符串 / 数组 `length` 分支：`_info.keys` 一定是构造函数写进去的共享键表（对象），`load`
-   从不替换它，而 payload 的 `keys` 只在 `for...in` 里按下标读 ⇒ 本 subject 造不出来。
-2. `load` 的 `if (truthy(keys_v))` 门：`for_in_keys` 对假值本来就不给键。
-3. `load` 的 `if (!strict_equals(ctrl_v, ctrl()))` 门：`set_ctrl` 自己会短路。
-4. `save` 的 `if (!text.has_value())` 分支：本刀的数据 `json_stringify` 不会失败。
-5. `save` 里 `put.type = kDataType` 换成 `kTag`：两者文本都是 `"PlayerInfo"`。
-6. `get_default_keys_value` 里 `truthy(*exact)` 写成 `exact != nullptr`：表里只有 `'_'`。
-7. `load_impl` 的 `if (!parsed.ok)`：去掉后由后面的解构失败兜住同一条 warn。
-
-### 68.5 harness 与变异
-
-新 subject `player_info`（`subjects/player_info.{cpp,ts}` + `cases/player_info/all.txt`），
-op 分三组：
-- `cache_*`（`cache_ok <pid> <text>` / `cache_bytes` / `cache_other` / `cache_nulldata` /
-  `cache_blob` / `cache_blobbytes` / `cache_blobfail` / `cache_blobother` / `cache_missing` /
-  `cache_getfail` / `cache_delfail`）：给某个玩家 id 脚本化一条缓存；
-- `new <pid> [name] [local] [mine]` / `dump <pid>` / `reload <pid>` / `save <pid>`；
-- `setname` / `setctrl` / `setiscom` / `setkey` / `getkey` / `setfighter`。
-台面把宿主调用与回调记进一条日志（`get:` / `del:` / `put:name|type|version|bytes` / `warn:` /
-`cb:name|ctrl|is_com|key`，回调参数按 `renderValue` 打），每处理完一行就刷出去 ⇒ 差分按整段
-日志逐行比。
-- TS 侧用 `Ditto.setup({ Cache, JSON5: __JSON5, warn })` 装假 `Ditto`（`__JSON5` 就是真的
-  `src/DittoImpl/JSON5`，即 `json5` 包 ⇒ 与端口 `json5_parse` 同源）；`on_ctrl_changed` 的监听者
-  只取前两个参数（与端口一致）。
-- 用例 270 行（构造默认值 / 缓存入口 / `load` 失败面 / blob 字节 / `save` 的宿主调用 /
-  `load` 应用 payload / `keys` 不是普通对象 / `set_key`·`get_key` / 共享键表 / 三个 `set_*` 的
-  短路与回调 / `toLowerCase` 的码点段，共 11 组）。
-- 变异 `mutations/player_info.mjs` **76/76 全杀**（含 `to_lower_case` 8 条、`defines` 1 条；
-  7 类等价 / 不可达记在名单头部与 §68.4）。踩到的两个坑：①
-  `const Value lowered(std::u16string(*k));` 会被解析成**函数声明**（most vexing parse）⇒ 变异体
-  里得写成 `{...}`；②「数组下标一律读第 0 个」一开始杀不掉 —— payload 的 `keys` 装数字时，
-  第一个下标就因为 `key.toLowerCase` 不是函数抛掉了，把数组元素换成字符串才看见第二个下标。
-
-## 69. 切片 4C：`ZipMgr`
-
-步骤 4「主干」（宿主层）的第三刀：`src/LFW/ZipMgr.ts`（65 行）管「已加载数据包」的列表 ——
 `add`（`unshift`，后加载优先）、`clear`、四个 getter，以及 `find(paths, exact)`：在已加载的包里
 查路径，`exact` 为 false 时先对每个路径做备选名扩展（复用 4A 的 `loader/get_import_fallbacks`）。
 顺带开出宿主层第一批「数据包」接口：`ditto/zip/IZip` / `IZipObject` 与 `defines/IDataInfo`。
 
-### 69.1 移植面
+### 73.1. 移植面
 
 - `native/lfw/zip_mgr.{h,cpp}`：`IZipResult`（`origin` / `file` / `zip`）、`ILoadedZip`
   （`zip` / `info`）与 `class ZipMgr`（`length()` / `all()` / `zips()` / `md5s()` /
   `data_infos()` / `add` / `clear` / `find`）。
-- `native/lfw/ditto/zip/i_zip.h`（`name()` + `file(path)`）、`ditto/zip/i_zip_object.h`
-  （`name()`）：TS 是宿主给的 zip 对象（`Ditto` 平台包），端口只开本刀读得到的两个方法。
 - `native/lfw/defines/i_data_info.h`：`IDataInfo` 的 8 个字段（`type` / `url` / `title` /
   `description` / `author` / `version` / `time` / `md5`），一律 `Value`。
 - 进 `native/lfw/CMakeLists.txt`（C++ 源 409 → 410）。
 
-### 69.2 保真要点
+### 73.2. 保真要点
 
 1. **`add` 是 `unshift`**：后加载的数据包排在前面，`find` 与 `zips()` / `md5s()` /
    `data_infos()` 的顺序都跟着它走（`find` 的「先命中谁」由此决定）。`clear` 是
@@ -7032,67 +6516,21 @@ op 分三组：
    （可以和查询路径不同），方括号与 `]` 一个都不能少。
 4. **`md5s` 的 `?? ''`**：只有 `null` / `undefined` 落回空串（`md5: 0` / `''` 原样给出）；TS 声明
    是 `string[]`，但运行时给的就是 `info.md5` 本身 ⇒ 端口给 `Value[]`，不丢信息。
-5. **`IZip.file` 是纯查表**：未命中回 `null` ⇒ 端口 `nullptr`（`if (!file) continue`）。TS 的
-   `IZip.file` 还有 `RegExp` 重载与 `files` / `md5` / `set` / `blob`，`IZipObject` 还有七个
-   `async` 读取方法 —— 本刀都不需要，记在偏差表里等 `Resources` 那刀。
 
-### 69.3 偏差（同时登记在 README 的偏差表）
+## 74. `Camera`
 
-本刀在 README 加了 6 行：`IZip` 只建模两个成员、`file` 不给抛错面、`IZipObject` 只有 `name`、
-`ILoadedZip` 按值存（TS 存引用）、`md5s()` 给 `Value[]`、`IDataInfo` 只建模声明内的字段且
-`info` 必须非空。
-
-### 69.4 有意不覆盖 / 等价
-
-1. 三个 getter 里的 `out.reserve(_list.size())`：只影响扩容，不改结果。
-2. `get_import_fallbacks` 的失败面：端口的 `paths` 已经是 `std::u16string` ⇒ 走不到「名字不是
-   字符串」那条（TS 的 `paths: string[]` 同理）。
-3. `IZip::file` 的抛错面：真实 zip 是纯查表，不会抛；台面也没脚本化「宿主自己抛」。
-4. `ILoadedZip` 按值存与 TS 存引用的差别：宿主在 `add` 之后改自己那份结构体才会显现，台面不造
-   （真实调用点 `LFW.ts` 是现造现加）。
-5. `md5s()` 里空串写成 `Value(std::u16string())` 还是 `Value(u"")`：同一个值。
-6. harness 层的脚本 op 与 `dump` / `find` 回显行：那是台面自己的输出。
-
-### 69.5 harness 与变异
-
-新 subject `zip_mgr`（`subjects/zip_mgr.{cpp,ts}` + `cases/zip_mgr/all.txt`），op：
-- `zip <zid> <name>` / `zfile <zid> <path> miss|hit <fname>`：造一个假数据包并脚本化它的
-  `file(path)`（命中给一个带 `name` 的对象、未命中给 `null`）；每次调用都记一条
-  `call:<zipname>|<path>` ⇒ 候选名表的**顺序与去重**都能从日志上看出来；
-- `info <iid>` / `imd5 <iid> u|z|s "md5"`：造一份 `IDataInfo`（`u` = 没有这个键、`z` = `null`）；
-- `add <zid> <iid>` / `clear`；
-- `dump`：`len` / `all`（按列表序打 zip 名）/ `zips` / `md5s`（走 `renderValue` 的数组）/ `infos`
-  （个数 + 每份 info 的 `md5` 原样渲染，专门盯 `data_infos` 的顺序与 `?? ''`）；
-- `find <0|1> p <n> <path…>`：`find` 的条数与每条的 `origin` / `file.name` / `zip.name`。
-- TS 侧用两个假类实现 `IZip` / `IZipObject`（`file` 每次返回新对象，端口返回同一份 ⇒ 两侧的
-  `name` 文本一致，台面不比较对象身份）。
-- 用例 `cases/zip_mgr/all.txt` **114** 行（空表 / 单包命中与未命中 / 多路径顺序 / `exact` 的去重
-  差别 / `origin` 与查询路径不同 / 图片与音频后缀的回退扩展 / 多包后加载优先 / `all` 返回内部
-  数组 / `clear` 后重载 / `md5` 的三种形态 / 带空格的路径，共 12 组）。
-- 变异 `mutations/zip_mgr.mjs` **33/33 全杀**（其中「候选名表反序」「回退名表反序」「两重循环
-  调换」这类顺序变异，靠的是「同一路径多个回退名都命中」与「两个包 × 两条路径」两组用例）。
-- 踩到的坑：**新建的源文件必须用 LF**。变异脚本里的多行锚点写在模板字面量里，JS 会把
-  `CRLF` 规范化成 `LF`，而 Windows 上新建的文件是 `CRLF` ⇒ 多行锚点会「anchor occurs 0 times」；
-  写成 LF 后才对得上。
-
-## 70. 切片 4D：`Camera`
-
-步骤 4「主干」（宿主层）的第四刀：`src/LFW/Camera.ts`（122 行）是镜头跟随 —— 两个
 `do { ... } while (0)` 各管一轴，`_locked` 时直接把位置与目标跳到锁定点，`_dested` 参与的
 目标是 `_dested?.x ?? destination.x` 再夹到 `[cam_l, cam_r - screen_w / zoom_x]`，速度按
 「距离线性增长、50 倍封顶」逐帧逼近。顺带开出宿主层的两个小件：`Ditto.vec2`（three.js 的
 `Vector2`）与 `IVector2`。
 
-### 70.1 移植面
+### 74.1. 移植面
 
-- `native/lfw/camera.{h,cpp}`：`ICameraWorld`（`world_stage` / `world_bg` / `world_dataset`）与
-  `class Camera`（`world()` / `locked()` / `dested()` / `destination` / `position` / `velocity` /
-  `reset` / `jump_x` / `jump_y` / `undest` / `dest` / `unlock` / `lock` / `update`）。
 - `native/lfw/ditto/instance.h`：`ditto::vec2()` 与 `ditto::vec2(x, y)`（`Ditto.vec2`）。
 - `native/lfw/defines/i_vector2.h`：`Vector2`（只有 `x` / `y` / `set`）。
 - 进 `native/lfw/CMakeLists.txt`（C++ 源 410 → 411）。
 
-### 70.2 保真要点
+### 74.2. 保真要点
 
 1. **两个 `do { ... } while (0)` 是独立的**：x 块的三处 `break`（越界 / 已对齐）只跳过 x 的加速，
    **y 块照常跑**。`break` 之前已经发生的赋值都会留下（`destination.x` 的夹取在越界判断之前）。
@@ -7111,55 +6549,15 @@ op 分三组：
 7. **`Ditto.vec2` 的默认参只吃 `undefined`**：`vec2()` ⇒ `{x: 0, y: 0}`；`vec2(x, y)` 原样写。
    TS 里 `null` 会被原样写进 `x`，端口只收数字（见偏差表）。
 
-### 70.3 偏差（同时登记在 README 的偏差表）
+## 75. `Resources`
 
-本刀在 README 加了 5 行：`ditto::vec2` 只收数字、`_dested` / `_locked` 的分量只能是数字、
-`ICameraWorld` 的三个方法必须回对象、`modern_screen_height()` 缺键时回 0、`IVector2` 只实现
-`x` / `y` / `set`。
-
-### 70.4 有意不覆盖 / 等价
-
-1. `defines::num` 缺键回 0 的分支：`Defines.MODERN_SCREEN_HEIGHT` 一定在运行时表里。
-2. `Vector2::set` 与 `IVector2` 里没实现的方法：本刀没有调用点。
-3. `vec2(x, y)` 的 `x` / `y` 是 `null` / `undefined`：TS 会原样写进分量，端口的分量是 `double`
-   （台面只喂数字）。
-4. `_dested` / `_locked` 的分量是 nullish 时的 `??` 分支：同上。
-5. `world.stage` / `bg` / `dataset` 是 nullish 时的 `TypeError`：端口按契约要求返回对象。
-6. harness 层的 `sf` 脚本与 `dump` / `w:` 回显行：那是台面自己的输出。
-
-### 70.5 harness 与变异
-
-新 subject `camera`（`subjects/camera.{cpp,ts}` + `cases/camera/all.txt`），op：
-- `sf <stage|bg|dataset> <field> <value>`：给假世界的某个字段赋值（值字面量，`u` / `z` /
-  `s "…"` / `n …` 都能喂 ⇒ 缺字段、字符串、`NaN` 这些 JS 强转路径都能压到）；
-- `new` / `dump`（`destination` / `position` / `velocity` / `locked` / `dested`，浮点打位模式，
-  `NaN` 打 `nan`）；
-- `reset` / `undest` / `unlock` / `jx <n>` / `jy <n>` / `dest <n> <n>` / `lock <n> <n>`；
-- `pos <n> <n>` / `dset <n> <n>` / `vel <n> <n>`：直接摆好 `position` / `destination` /
-  `velocity` 再 `update`（越界、已对齐、封顶、反向这些分支靠它精准命中）；
-- `update`。
-- 假世界那三个对象用 `Proxy` / `ICameraWorld` 记 `w:stage` / `w:bg` / `w:dataset` ⇒
-  「`world.stage` 读两次」「锁定时不读世界」都能验。
-- 用例 `cases/camera/all.txt` **369** 行（基础 API / 全空世界 / 常规推进 / 越界 / 已对齐 /
-  `_dested` 参与 / y 块与 `cam_max_y` / `zoom_y` 的四种形态 / `height` 门限三档 / 字符串与缺字段 /
-  锁定 / 反向与 `NaN` / 两段收敛循环 / `atom_time` 边界 / `screen_w` 为 0 与区间倒置，共 15 组）。
-- 变异 `mutations/camera.mjs` **93/93 全杀**（构造与复位 / 锁定分支 / 顶部三个读取 / x 块 / y 块
-  五组；其中「`cam_y` 取 `_dested.x`」「`zoom_y` 缺失时落回 2」「y 的封顶分支」三条一开始存活，
-  补了「`_dested` 的 x ≠ y」「`far` 很大使第二项取胜」「速度已超 `max_vy`」三组用例才杀掉）。
-- 踩到一个**台面**坑：`g_camera->dest(number_of(...), number_of(...))` 里的两个 `number_of` 会
-  推进同一个 token 游标，而 C++ 不保证实参求值顺序（MSVC 是右到左）⇒ 读成 `(y, x)`。
-  差分第一轮就抓到了（TS 是左到右），改成两句局部变量后才对。
-
-## 71. 切片 4E：`Resources`
-
-步骤 4「主干」（宿主层）的第五刀：`src/LFW/Resources.ts`（79 行）是「资源导入」的统一入口 ——
 `import_json` / `import_resource` / `import_image_bitmap` / `import_array_buffer` / `import_xml`
 五个方法都要先算出**候选路径表**，在已加载的数据包里查第一个命中；命中就读包里的文件
 （`file.json()` / `text()` / `blob_url()` / `array_buffer()` / `image_bitmap()`），
 否则把整张表交给宿主的 `Ditto.Importer.import_as_*`（网络回退）。顺带补上
 `native/lfw/base/dedup.h`（`base/dedup.ts` 的 promise 去重）。
 
-### 71.1 移植面
+### 75.1. 移植面
 
 - `native/lfw/resources.{h,cpp}`：`ImportResult`（`data` / `file` / `origin`）、
   `IResourcesHost`（五个 `import_as_*` + `xml_parse`）与 `class Resources`（`kTag` /
@@ -7169,7 +6567,7 @@ op 分三组：
   `array_buffer` / `image_bitmap`），形状是 `bool` + 失败出参。
 - 进 `native/lfw/CMakeLists.txt`（C++ 源 411 → 412）。
 
-### 71.2 保真要点
+### 75.2. 保真要点
 
 1. **候选路径表**：`exact ? [path] : get_import_fallbacks(path)[0]` —— 注意 `[0]` 取的是
    「备选名数组」本身（`get_import_fallbacks` 返回的是 `[备选名数组, 命中的后缀]`），所以
@@ -7194,59 +6592,15 @@ op 分三组：
 6. **失败面**：`Resources` 自己不 catch ⇒ 宿主的失败（`file.json()` reject / `Importer` reject /
    `XML.parse` 抛）原样往外传。端口给 `bool` + `error`，文案与 TS 的 `Error.message` 逐字相同。
 
-### 71.3 偏差（同时登记在 README 的偏差表）
+## 76. `Factory`
 
-本刀在 README 加了 6 行：`base/dedup.h` 是直通、`array_buffer` 给字节数组、`image_bitmap` 给
-`Value` 标记、`XML.parse` 给 `Value` 标记、`ImportResult.file` / `origin` 用 `Value`、
-五个 `import_*` 改成同步 + `bool` 失败出参。
-
-### 71.4 有意不覆盖 / 等价
-
-1. `base/dedup.h` 的整个实现：TS 的并发共享在同步端口观察不到（台面也只做顺序调用）。
-2. `dedup_key` 拼出来的键字符串：同上，不参与端口逻辑。
-3. `if (file != nullptr && truthy(tag))` 里 `truthy(tag)` 那一半：`origin` 恒带方括号 ⇒ 等价于
-   只看 `file`。
-4. `find_first` 里 `hits` 非空时的其它元素：端口只取第一个。
-5. 回退分支把 `out.origin = Value()` 写成 `tag`：回退时 `tag` 本来就是 `undefined`。
-6. `get_import_fallbacks` 对非字符串 `path` 抛出的失败面：端口的 `path` 是 `std::u16string`。
-7. `IZipObject` 的 `uint8_array` / `blob`：本刀没有调用点。
-
-### 71.5 harness 与变异
-
-新 subject `resources`（`subjects/resources.{cpp,ts}` + `cases/resources/all.txt`），op：
-- `zip <zid> <name>` / `zfile <zid> <path> miss|hit <name>`：假数据包与它的成员表
-  （**注意 script 是按「被查询的路径」存的**，命中对象的名字可以不同）；
-- `zval <zid> <path> <method> <value>` / `zfail <zid> <path> <method> <msg>`：命中文件的某个
-  读取方法返回什么 / reject（没脚本化就报错退出，避免「两边都没报但对不上」）；
-- `add <zid>`：加进 `ZipMgr`（`info` 用空表，`Resources` 不读它）；
-- `netval <method> <value> <hit>` / `netfail <method> <msg>`：宿主 `Importer` 的某个方法；
-- `xmlparse <value> | null | fail <msg>`：`Ditto.XML.parse` 的返回（`null` / `u` ⇒ 触发「解析失败」）；
-- `rjson` / `rres` / `rimg` / `rabuf` / `rxml <path> [1|0]`：调 `Resources.import_*`，打
-  `data` / `file` / `origin`（失败打 `throw:<文案>`）。
-  台面把 `zip.file` 的每次调用、`Importer.*` 的每次调用（含候选表）与 `XML.parse` 的入参都记进
-  日志 ⇒ 候选名表的**顺序**与「走包还是走网络」都能验。
-- 用例 `cases/resources/all.txt` **136** 行（空包回退 / 五个方法的命中 / 非 exact 的回退扩展 /
-  回退名也没命中 / `paths[0]` 的三处差别 / xml 的 `file` 三态 / 命中文件读取失败 / 宿主失败 /
-  `XML.parse` 三态与**命中文本**路径 / 假值 `data` / 后加载优先 / 名字与路径不同 / 带空格路径，
-  共 13 组）。
-- 变异 `mutations/resources.mjs` **44/44 全杀**（候选表与 `find_first` / `import_json` /
-  `import_resource` / `import_image_bitmap` / `import_array_buffer` / `import_xml` / 名字回退
-  七组）。第一轮有 7 条存活，两个原因都是**用例写错**：① `zval` 的 key 写成了命中对象的
-  **名字**而不是「被查询的路径」⇒ 读取直接抛，`file` / `origin` 那几条变异根本走不到；
-  ② `XML.parse` 的「假值 ⇒ 抛」那条路只在宿主文本也失败时才被压到 ⇒ 补了「文本来自命中文件」
-  的一组用例（`x/a.xml`）才把文案类变异杀掉。
-
-## 72. 切片 4F：`Factory`
-
-步骤 4「主干」（宿主层）的第六刀：`src/LFW/Factory.ts`（166 行）是宿主层的**登记处** ——
 四张静态表（实体 creator / 控制器 creator / buff creator / buff 分组）加三张**对象池**
-（实体 / buff / 控制器），一共 14 个公开方法。本刀做 12 个（`register_entity` /
 `register_ctrl` / `register_buff` / `create_buff` / `recycle_buff` / `recycle_entity` /
 `acquire_entity` / `create_entity` / `create_ctrl` / `acquire_ctrl` / `release_ctrl` /
 `create_entity_with_bot`）；`create_entity_with_player` 要 `LocalController`（依赖 `LFW.player()`），
 `register_component` / `create_components` 是 UI 层 ⇒ 都推迟。
 
-### 72.1 移植面
+### 76.1. 移植面
 
 - `native/lfw/factory.{h,cpp}`：`FactoryKey`（= `Value`）、`IEntityCreators`（`std::function`）、
   `ICtrlCreator` / `IBuffCreator` 两个接口、`FactoryWarn` sink、`class Factory`（四张静态表访问器 +
@@ -7255,7 +6609,7 @@ op 分三组：
   `creator()` / `set_creator()`，加成员 `const ICtrlCreator* _creator = nullptr;`。
 - 进 `native/lfw/CMakeLists.txt`（C++ 源 412 → 413）。
 
-### 72.2 保真要点
+### 76.2. 保真要点
 
 1. **四张表的顺序语义**：JS 的 `Map` / `Set` 迭代是**插入序**，且 `Map.set` 覆盖已有键时
    **位置不变**（`Set.add` 是判重后追加到末尾）。端口用 `std::vector<std::pair<…>>` 自己实现
@@ -7280,62 +6634,14 @@ op 分三组：
 8. **`release_ctrl(undefined)`**：TS 的 `if (!ctrl) return this` 是既有语义 ⇒ 端口保留
    （`nullptr` 直接返回）。
 
-### 72.3 偏差（同时登记在 README 的偏差表）
+## 77. `stage/Expressions` + `stage/Status` + `bg/Background` + `bg/Layer`
 
-本刀在 README 加了 7 行：`FactoryKey` 用 `Value` + `vector` 代替 `Map` / `Set`、
-`ICtrlCreator` 用指针身份代替「类本身」、`BaseController` 新增 `creator()` / `set_creator()`、
-`acquire_ctrl` 的 `reset(player_id, entity)` 无参化、`Factory::set_warn` 是进程级 sink、
-`IEntityCreators` / `IBuffCreator` 的形状（`World` / `LFW` 只前置声明）、
-`create_entity_with_player` 与 UI 相关不移植。
-
-### 72.4 有意不覆盖 / 等价
-
-1. `create_buff` 里 `new B(lfw, id, B.KIND)` 的第三个实参写成 `b->kind()`：`register_buff` 就是
-   按 `KIND` 建索引的 ⇒ 与查表用的 `kind` 恒等。
-2. `map_set` / `index_of` 返回的索引：表里不会出现重复键（`map_set` 自己保证），
-   「取第一个」与「取最后一个」等价。
-3. `acquire_entity` 的 `?.take()` 与 `create_entity` / `create_ctrl` 的 `undefined`：端口统一是
-   `nullptr`。
-4. `register_component` 里的 `debugger` 语句、`components` 与 `_usedALIAS` 两张表：随 UI 层推迟
-   （`_usedALIAS` 全仓库没有调用点）。
-5. `symbol` 键与「`NaN` 当键」：`Value` 装不下 `symbol`；`NaN` 在 `strict_equals` 与
-   SameValueZero 上不同（记在偏差表）。
-6. `create_entity` / `create_entity_with_bot` 的 `states` 实参：台面两侧都不传（端口是
-   `state::States*`）。
-
-### 72.5 harness 与变异
-
-新 subject `factory`（`subjects/factory.{cpp,ts}` + `cases/factory/all.txt`），op：
-- `regent <key> <label>` / `regctrl <key> <label>`：登记一个 creator，`label` 回显在日志里
-  （`label == miss` 表示这个 creator 返回 `undefined`）；
-- `regbuff <kind> <group>…`：登记一个 buff creator（`GROUPS` 就是 op 的剩余 token）；
-- `ce <key> <data>` / `cebot <pid> <key> <data>`：`create_entity` / `create_entity_with_bot`；
-- `acq-e <key>` / `rec-e <label>` / `newctrl <oid> <pid>` / `acq-ctrl <label> <pid>` /
-  `rel-ctrl <label> <pid>` / `cbuff <kind> <id>` / `rec-buff <label>`：其余入口；
-- `dump`：打三张注册表的**键列表**、`buff_groups`（扁平 `g=[k,…]`）与三个池的「键 = 条数」
-  （`cgraves` 的键渲染成 creator label、未知打 `?`；`bgraves` 的键是 kind 值）。
-两侧的假对象：TS 用 duck-typed 假类 / 假对象（控制器 creator 必须是**类**，`new Cls(...)`），
-C++ 用**真** `Entity`（`IEntityHost` 没有纯虚函数 ⇒ 假宿主极简）、`buff::Buff` 子类
-（只统计 `init`，因为基类的 `reset` 不是虚函数）与 `BaseController` 子类（统计 `reset` 次数与
-`player_id`）。
-- 用例 `cases/factory/all.txt` **92** 行（注册与重复告警 / 实体创建三态 / 实体池与 LIFO /
-  `create_entity_with_bot` / 控制器命中·未命中·复用 / buff 命中·未命中·复用 / 数值键与分组去重 /
-  数值 oid / 数值 KIND / **键同一性**（`s "1"` 与 `n 1` 是两张键）/ 两实体回收后的取出顺序，
-  共 12 组）。
-- 变异 `mutations/factory.mjs` **35/35 全杀**（注册告警 3 条 + warn sink 1 条 + 文案 3 条 +
-  表语义 9 条 + `create_buff` 5 条 + 实体与实体池 8 条 + 控制器 6 条）。其中
-  一条 `pool_of(..., nullptr)` 的写法因模板推导失败算作 `compile-error`（`K` 只能从 vector 推）
-  ⇒ 改成显式 `static_cast<const ICtrlCreator*>(nullptr)` 后全绿。
-
-## 73. 切片 4G：`stage/Expressions` + `stage/Status` + `bg/Background` + `bg/Layer`
-
-步骤 4「主干」（宿主层）的第七刀，也是 `stage/*` 的第一块。本刀搬的是两块**不依赖
 `LFW` / `World` / `Stage` 具体实现**的东西：`stage/Expressions.ts`（35 行，表达式游标）、
 `stage/Status.ts`（5 行，字符串枚举）、`bg/Background.ts`（81 行）+ `bg/Layer.ts`（33 行）
 （舞台背景与它的图层）。`stage/Item.ts`（要 `LFW.datas` / `Factory` / `Stage` 三条缝）、
 `stage/IStageCallbacks.ts`（纯接口）、`stage/Stage.ts`（487 行）留到后面各自开刀。
 
-### 73.1 移植面
+### 77.1. 移植面
 
 - `native/lfw/stage/expressions.h`：`IExpression<T>`（只保留 `run`）与模板 `Expressions<T>`
   （`list` / `is_first` / `is_last` / `index` / `reset` / `run` / `next` / `flow`）。
@@ -7347,25 +6653,14 @@ C++ 用**真** `Entity`（`IEntityHost` 没有纯虚函数 ⇒ 假宿主极简�
   `layers()` / `update()` / `dispose()` + 私有 `add_layer`）。
 - 进 `native/lfw/CMakeLists.txt`（C++ 源 413 → 415）。
 
-### 73.2 保真要点
+### 77.2. 保真要点
 
-1. **`Expressions::reset` 的同一性早退**：TS 是
-   ```ts
-   this._index = 0;
-   if (this._list === list) return;   // `list` 就是内部那个数组（调用方把 `list` 取回来再传）
-   this._list.length = 0;
-   if (list?.length) this._list.push(...list);
-   ```
-   没有这行早退，「传回自己的 list」会把列表**清空**（先清后灌，灌的是空数组）。端口的
-   `_items` 是**副本**，所以同一性只能按「传进来的正是 `list()` 返回的那一份」判 ——
-   **不能比地址**：调用方传临时量时栈地址会复用，会误判成同一份（本刀踩过：`resetcopy` 的
-   临时量正好落在上一次的栈格上 ⇒ 提前返回 ⇒ 列表没更新）。
 2. **`run` / `next` / `flow`**：`next()` 是 `min(_index + 1, _list.length - 1)`（空表 ⇒ -1，
    于是 `run` 的 `i < 0` 守卫生效）；`flow` 里 `is_last` **必须在 `run` 之前取**（TS 是先解构），
    且循环条件是 `!pass || is_last`。
 3. **`Layer::update`**：`if (cc !== void 0 && c1 !== void 0 && c2 !== void 0)` 是**严格
    `undefined`**（`null` 不算）⇒ 三件齐全才做 `now = count % cc`，否则**恒可见**；`cc` 为 `0`
-   时 `count % 0` 是 NaN ⇒ 两个比较都假 ⇒ 不可见。
+   时 `count % 0` 是 NaN ⇒ 两个比较都假 ⇒ 不可
 4. **`Layer::is_static`**：`(cc === void 0 || c1 === void 0 || c2 === void 0)`（严格 undefined）
    且 `!offsetAnimX`、`!offsetAnimY`（**真值**判定，`0` / `""` 都算「没有动画」）且 `!!absolute`。
 5. **`Background` 构造**：`left` / `right` / `near` / `far` / `height` 走 `?? 0`、
@@ -7380,63 +6675,21 @@ C++ 用**真** `Entity`（`IEntityHost` 没有纯虚函数 ⇒ 假宿主极简�
 7. **`update` / `dispose`**：`update` 先 `_update_times++` 再把**同一个**计数传给每层；
    `dispose` 清层并把 `_layer_data_index` 归零。
 
-### 73.3 偏差（同时登记在 README 的偏差表）
+## 78. `stage/Item`（+ `helper/Randoming` 模板化）
 
-本刀在 README 加了 6 行：`Expressions` 存副本（同一性按「传回 `list()`」判）、
-`index()` 是端口新增的只读口、`bg` 的 `info` / `data` 是 `Value`（浅拷贝要显式复制 `Object`）、
-`middle` 用小结构、`near` / `far` 访问器改名（`<windows.h>` 宏）、`field_or` 对 nullish 的宽容。
-
-### 73.4 有意不覆盖 / 等价
-
-1. `flow` 里 `is_last` 取在 `run` 之前还是之后：`run` 既不碰 `_index` 也不碰 `_items` ⇒ 等价
-   （变异名单里没有这条）。
-2. `Status` 的三个常量与 `status_entries()`：只是字符串表，用例里逐个对过值。
-3. `Expressions::index()`：TS 的 `_index` 是 `protected`，只给台面观测用。
-4. `Background` 的 `world` 字段：TS 只存不读（端口同样只存，构造传 `nullptr`）。
-5. `data` / `info` 非对象、`data.layers` 非数组这几种形态：TS 会抛 `TypeError`
-   （读 `undefined` 的属性 / `for...of` 不可迭代），端口给 `undefined` 或跳过 ⇒ 台面只喂合法形态。
-
-### 73.5 harness 与变异
-
-新 subject `stage`（`subjects/stage.{cpp,ts}` + 两个用例），op：
-- **Expressions 侧**：`it <b…>`（追加假表达式，`run` 按脚本吐真假值、跑完最后一个就重复，
-  并把 `call:<i>:arg=<值>` 记进日志）、`arg <值>`、`run` / `flow` / `next`、
-  `resetsame`（传 `exp.list` ⇒ 走同一性早退）、`resetcopy`（传一份新数组 ⇒ 清空再灌）、
-  `expdump`（`n` / `i` / `is_first` / `is_last`）、`status`。
-- **Background 侧**：`data <值>`、`new`、`bgdump`（全部尺寸 + `middle` + `zoom` + 层数 +
-  `_update_times` / `_layer_data_index`）、`layer <n i>`（`data_index` / `loop_index` / `x` / `y` /
-  `file` / `visible` / `is_static`）、`upd`、`disp`、`lset <n i> <字段> <值>`（改**数据里**那层；
-  TS 的 loop 副本是浅拷贝 ⇒ 改原对象看不到，非 loop 层看得到 —— 这一条正好把「副本是不是共享」
-  钉死）。
-- 用例 `cases/stage/expr.txt` **70** 行（11 组：空表 / 全假 / 全真 / 真真假 / 假真真 / 单格 /
-  同一性早退 / 清空再灌 / 参数渲染 / 负游标 / Status）、`cases/stage/bg.txt` **83** 行
-  （10 组：最小数据 / 全字段 / 名字三态 / zoom 的 nullish 与 falsy / layers nullish 与空数组 /
-  单层与 `layers` 下标 / `loop` 正数与其它档 / `x` 缺失 ⇒ NaN ⇒ 0 副本 / `cc` 三态与边界 /
-  `is_static` 十一种 / `lset` 的别名效应 / `dispose`）。
-- 变异 `mutations/stage.mjs` **46/46 全杀**（Expressions 9 条 + Layer 10 条 + Background 27 条）。
-  第一轮 3 条存活：① 两条用例没喂到（`is_static` 只看 `cc` 那一条要「cc 缺 + c1/c2 都有」的层；
-  名字那条被 `o 2 name … name …` 的**重复键**吃掉了 ⇒ 拆成两条用例）；② 一条按构造等价
-  （`flow` 里 `is_last` 的取值时机）⇒ 撤出名单并记在 §73.4。
-
-## 74. 切片 4H：`stage/Item`（+ `helper/Randoming` 模板化）
-
-步骤 4「主干」（宿主层）的第八刀：`src/LFW/stage/Item.ts`（186 行）是**舞台物件** ——
 按 `times` 与 120 拍的 `end_delay` 刷怪（`spawn`），刷出来的实体登记进 `objects`；实体
 「换队」或「死亡」就出列。它要 `LFW.datas`（`find` / `get_randoming_by_group`）、`LFW.mt`、
 `LFW.factory.create_entity_with_bot`、`World.dataset.difficulty` 与 `Stage` 的
 `far` / `near` / `team` / `all_boss_dead`；而 `Item.randoming` 的类型是
 `Randoming<Randoming<IEntityData>>` ⇒ 顺带把 `helper/Randoming` 模板化。
 
-### 74.1 移植面
+### 78.1. 移植面
 
-- `native/lfw/stage/item.{h,cpp}`：`IItemEntity`（`ref` / `data` / `callbacks` + 18 个
-  setter / 方法）、`IItemHost`（`Stage` 五面 + `difficulty` + `LFW` 四面）、`class Item`
-  （`times` / `data` / `randoming` 三个公开字段 + `update` / `spawn` / `release` / `~Item`）。
 - `native/lfw/helper/randoming.{h,cpp}`：`RandomingT<T>` + `RandomingItem<T>`
   （`Value` 与 `shared_ptr` 两个特化）+ `randoming_default_mt()`；`Randoming` 仍是别名。
 - 进 `native/lfw/CMakeLists.txt`（C++ 源 415 → 416）。
 
-### 74.2 保真要点
+### 78.2. 保真要点
 
 1. **构造**：`times = info.times ? round(info.times) : void 0`（**真值**判定：`0` / `NaN` 都当没有）；
    `id` 只认「字符串」与「数组」两种，其他（数字、对象）⇒ 空表；每个 oid 先 `datas.find`：
@@ -7448,13 +6701,6 @@ C++ 用**真** `Entity`（`IEntityHost` 没有纯虚函数 ⇒ 假宿主极简�
    `end_delay.add()`（`Times(0, 120)` ⇒ 要 **120 拍**才真）没过就返回；`times` 缺省 **-1**；
    soldier ⇒ `all_boss_dead() || times == 0` 就 `release`，否则 `spawn`；非 soldier ⇒ `times >= 1`
    才 `spawn`，否则 `release`。
-3. **`spawn`**：`data || randoming?.get().get()`（外层抽到 `undefined` 时 TS 读 `.get` 会抛 ⇒
-   端口给 `undefined`，记偏差）；`data` 假值 ⇒ 返回 `false`（TS 那里有个 `debugger`）；
-   `enemy_l` / `enemy_r` 是**解构默认**（只吞 `undefined`）；`difficulty` 在**这里读第二次**
-   （`hp_map` 非 nullish 才读，`?.` 短路）；`x` 的缺省要**抽一次随机**
-   （`mt.float() < 0.5 ? enemy_l : enemy_r`）—— 默认值只在 `undefined` 时求值，所以两种写法
-   （先求值再 `??` / `is_undefined` 三元）会差一次随机抽取，本刀踩过；
-   `mp = mp_map?.[difficulty]` 同理（`mp` 是 `undefined` 且 `mp_map` 非 nullish 才查表）。
 4. **数值语义**：`max_x = js_add(x, range_x)`（JS 的 `+`，字符串会拼接）；`is_num(z)` / `is_num(y)`
    决定用 `z + range_z` 还是 `stage.far` / `stage.near`；weapon 的缺省 y 是 **300**；
    `times` 递减走**真值**判定（减到 `0` 之后不再减）；hp 的三段 `round(hp * 3/4)` /
@@ -7467,75 +6713,23 @@ C++ 用**真** `Entity`（`IEntityHost` 没有纯虚函数 ⇒ 假宿主极简�
    （`"1"` 也算）；进帧三路：`act` 是字符串 ⇒ `enter_frame_by_id(act)`、fighter ⇒ `"running_0"`、
    否则 `enter_frame(Defines.NEXT_FRAME_AUTO)`（那是 `{ id: "auto" }` **对象**，不是数字 ⇒
    走 `defines::find`）。
-6. **监听与出列**：TS 是一个共享的 `entity_callback` 对象挂到每个实体上；端口按实体各建一份
-   （`Callbacks::on` 两个键 + `Remover`），`~Item` **必须**把它们都摘掉 —— TS 里那个对象会被
-   实体强引用、永远不会析构，端口不摘就是悬空 `this`（本刀踩过：`dead` 之后下一次分配就崩）。
 
-### 74.3 偏差（同时登记在 README 的偏差表）
+## 79. `stage/Stage`
 
-本刀在 README 加了 5 行：`Randoming` 模板化（+ `RandomingItem<T>`）、`default_mt()` 的落点、
-`Item` 的两条缝、`entity_callback` 按实体各建一份、`~Item` 会摘监听、`mt.range` 的入参强转。
-
-### 74.4 有意不覆盖 / 等价
-
-1. `forget` 里「按实体找 `_watches`」那条：找不到也只是少摘一个监听，日志看不见（出列本身由
-   `_objects.erase` 决定）。
-2. `spawn` 里 `_objects` 的 `Set` 判重：`create_entity_with_bot` 不会给同一个实体两次。
-3. `mt.range(min, max)` 的入参是非数字时的 JS 语义（见偏差表）⇒ 台面不喂。
-4. `spawn` 里的两个 `debugger` 语句（端口没有对应物）。
-5. `Item.data` / `info` 非对象、`id` 是数字/对象这几档：TS 读属性会抛 ⇒ 端口给 `undefined`。
-
-### 74.5 harness 与变异
-
-subject `stage` 新增用例 `item`（`subjects/stage.{cpp,ts}` 里加了 `FakeItemEntity` +
-`FakeItemHost`），op：`mtseed` / `datas` / `datasgroup` / `far` / `near` / `team` / `aboss` /
-`diff` / `phase` / `info` / `newitem` / `upd` / `updn` / `spawn` / `rel` / `itemdump` /
-`dead <标签>` / `teamchg <标签>`。假实体把每次 setter 都打进日志（含 `pos` 三个分量、
-`dead_join` 的对象、`enter_frame*`）；假宿主把每次读也打进日志（`h:far` / `h:near` /
-`h:team` / `h:aboss` / `h:diff=` / `h:find=` / `h:group=` / `h:create=`）⇒ **读的顺序与次数**
-都是可比的（本刀两次 drift 都是靠这个抓出来的）。
-- 用例 `cases/stage/item.txt` **622** 行（10 组：单条 data + 120 拍刷新与出列 / 未命中 /
-  数组与数值 id / 空分组与内外两层 randoming / hp·mp 的四种 difficulty 与 `hp_map`·`mp_map` /
-  `times` 减到 0 / 位置六档 / facing·act·join·outline_color·reserve / soldier 五档 /
-  出列与 `release`）。
-- 变异 `mutations/stage.mjs` 扩到 **93/93 全杀**（本刀新增 48 条）。第一轮 8 条存活，成因：
-  ① 用例没喂到（`hp_map` / `mp_map` 被我写进了 **data** 而不是 `info`；`join` 没喂「缺 `join_team`」
-  的那档；`z` 的 `is_num` 判定要「`y` 有、`z` 没有」）；
-  ② 语义上到不了（`times == 0` 的 item 在构造里就已经是 `undefined`；soldier 的 `times == 0` 会先
-  `release` ⇒ 递减不到；`times` 递减那条要**直接调 `spawn`** 才能观察到）；
-  ③ 一个用例写错：`times` 那组引用的 id 在那一刻还没 `datas` 登记 ⇒ `spawn` 直接早退。
-- 顺带：`Randoming` 模板化改了定义文本 ⇒ 同步修了 `mutations/mt_random.mjs` 的 8 条锚点，
-  并修掉模板化引入的一处真·漂移（`taken` 的缺省是 `null`、越界返回是 `undefined`
-  ⇒ 拆成 `null_taken()` 与 `out_of_range()` 两个特化）；另有 3 条的 `to` 文本在
-  `RandomingT<std::shared_ptr<Randoming>>` 下**无法实例化**（往模板里塞 `Value(NullTag{})`
-  与 `strict_equals(shared_ptr, shared_ptr)` ⇒ `C2440`）⇒ 改成 `RandomingItem<T>::null_taken()`
-  与 `RandomingItem<Value>::loose_ne` 里的 `!strict_equals`（语义等价、两种元素都能编译）。
-  `mt_random` 仍 **64/64 全杀 0 compile-error**。
-
-## 75. 切片 4I：`stage/Stage`
-
-步骤 4「主干」（宿主层）的第九刀：`src/LFW/stage/Stage.ts`（493 行）是**一节的舞台** ——
 边界、相位（`phases`）、舞台物件（`items`）、对话框、以及收场（`dispose` / 四种 `kill_*`
 / 三种「死绝」判定）。它把前九刀的东西全串了起来：`Background`（`change_bg`）、
 `Expressions`（`phase_end_tester` / `dialog_end_tester`）、`Item`（`spawn` 出来的物件）、
 `FSM<Status>`（`Running → Completed → End`）、`Callbacks`（五个回调）。
 
-### 75.1 移植面
+### 79.1. 移植面
 
-- `native/lfw/stage/stage.h`：`IStageEntity`（实体面：`hp` / `hp_r` / `mp` / `facing` /
-  `mounted` / `position_x` / `set_position` / `ctrl` / `team` / `data` / `bearer`）、
-  `IStageWorld`（`bg` 读写 / `stage()` / `entities` / `puppets` / `del_entities` /
-  `difficulty` / `camera_jump_x`）、`IStageLfw`（`mt` / `datas.backgrounds.find` /
-  `datas.stages.find` / `new_team` / `players` / `sounds` / `end_testers` / `Item` 侧三项）、
-  `StageCallbackArgs` + `StageCallbacks`、`class Stage : public IItemHost`。
 - `native/lfw/stage/stage.cpp`：`change_bg` / `set_phase` / `push_dialogs` / `next_dialog` /
   `clear_dialogs` / `enter_phase` / `ce` / `spawn` / 四个 `kill_*` / `dispose` /
   `all_boss_dead` / `all_fighter_dead` / 四个「结束判定」/ `should_goto_next_stage` / `update`
   + `FSM` 的三个状态。
-- `native/lfw/stage/item.h`：`IItemEntity` 增 `team()`（`kill_*` 要 `e.team === stage.team`）。
 - 进 `native/lfw/CMakeLists.txt`（C++ 源 416 → 417）。
 
-### 75.2 保真要点
+### 79.2. 保真要点
 
 1. **构造**：`datas.backgrounds.find(v => v.id === bid)` 没命中 ⇒ `Ditto.warn` + 回退
    `Defines.VOID_BG`；随后的一大票边界赋值**分两处**（`change_bg` 里一份、构造里又一份），
@@ -7586,130 +6780,27 @@ subject `stage` 新增用例 `item`（`subjects/stage.{cpp,ts}` 里加了 `FakeI
     的实体（fighter 直接看 team、weapon 看 `bearer.team`）交给 `world.del_entities` →
     `callbacks.clear()`。
 
-### 75.3 偏差（同时登记在 README 的偏差表）
+## 80. `World`
 
-本刀在 README 加了 10 行：三条缝、`CallbacksT<StageCallbackArgs>`、`end_testers` 由宿主提供、
-`DialogState` 值拷贝、`warn` 进程级 sink、`same_ref`、`_disposers` 恒空、
-`change_bg` 的 null 守卫、`IItemEntity::team()`。
-
-### 75.4 有意不覆盖 / 等价
-
-1. `_disposers` 永远为空（TS 里没有 push 点）⇒ `dispose` 的那一行无从观察。
-2. `same_ref` 的「对象比指针」这件事实本身：用例只能证明「同一份数据再传一次会早退」。
-3. `is_nullish(bdt)` vs `!truthy(bdt)`：`datas.backgrounds.find` 只可能返回对象或 undefined
-   ⇒ 两种写法在可达输入上等价。
-4. `hp_recovery` 的 `|| 0` vs `?? 0`：后续 `truthy` / `to_number` 会把假值（含 NaN）拉平。
-5. `hp_recovery_r`：TS 原文就是 `health_up?.[diff] || hp_recovery` ⇒ 与 `hp_recovery` 同源。
-6. `player_facing` 的 `is_num(...) ? ... : void 0`：`player_f` 只被拿去**严**比较 `1` / `-1`
-   ⇒ 换成 `!is_undefined` 的守卫看不出差别。
-7. `enter_phase` 里 `_phase_idx = idx` 与 `phases()` 的先后：`phases()` 不读 `_phase_idx`。
-8. `spawn_count <= 0` vs `< 0`：后面还有 `while (spawn_count > 0)` ⇒ `0` 时两边都不刷。
-9. `update` 里 `id == VOID_STAGE.id` 的松/严相等：两边都是字符串（`id` 由 `|| ""` 得来）。
-10. `update` 里 released 的物件要不要再 `update()`：`Item::update` 开头的 `_released` 门让它立刻
-    返回 ⇒ 交换两个分支的副作用不可见。
-11. `kill_*` 的 `e.team === this.team`：`Item::spawn` 里就是 `e.set_team(this.stage.team)`
-    ⇒ 物件刷出来的实体恒等于本队，这个过滤在可达输入上恒真。
-12. `change_bg` 里 `prev_bg` 为 null 时 TS 会 `TypeError`（端口有守卫）：`World` 构造里先建
-    `bg` 再建 `Stage` ⇒ 不可达。
-13. `Stage::warn` 的 sink 未安装时（`if (sink)`）不产生任何观察。
-14. `DialogState` 在端口是值语义 ⇒ 「共享 `list`」这种写法不存在（TS 那侧也不共享：
-    `[...prev.list, ...more]`）。
-
-### 75.5 harness 与变异
-
-- 台面加了三层假件：`FakeStageEntity`（**写**打日志、**读**静默 —— 与 TS 的属性读对齐）、
-  `FakeStageWorld`（`bg` 读写 / `stage()` / `entities` / `puppets` / `del_entities` /
-  `difficulty` / `camera_jump_x` 各打一行，**`set_bg` 连旧 bg 的层数一起打** ⇒
-  `prev_bg->dispose()` 才看得见）、`FakeStageLfw`（`datas` 两张表按 `data.id` 查、**重复 id 取最后
-  一条**（对齐 TS 台面用 `Map` 的覆盖语义）、`new_team` 自增、`sounds` 三个口、
-  `end_testers(owner)` 读对象上的 `__end_testers` **序号**：`prepare_data`（`snew` 时）与
-  `spushd` 把 `__test` 就地转成「实例表 + 序号」，于是同一份数据对象永远拿到同一批实例 ——
-  与 TS 的引用语义一致）。
-- op（19 个）：`sbgfind` / `sstagefind` / `sbg` / `schangebg` / `sdiff` / `splayer` / `stmseed` /
-  `sprop` / `steamlike` / `sent` / `sentdata` / `sentce` / `sentteam` / `sentctrl` / `senthp` /
-  `senthpmax` / `senthpr` / `sentmp` / `sentmpmax` / `sentmounted` / `sentx` / `sentbearer` /
-  `sentities` / `spuppets` / `sdata` / `snew` / `sprop` / `sfree` / `sdump` / `squest` / `sphase` /
-  `supd` / `sdisp` / `skill` / `spushd` / `snextd` / `scleard` / `sstopbgm`。
-- 用例 `cases/stage/stage.txt` **1045** 行（23 组：构造 / `change_bg` 的早退 / `enter_phase` 的
-  边界 / hp·mp 恢复与复活 / `player_jump` / items 的 `spawn` 与 `update` 出列 / dialog /
-  `kill_*` 与 `dispose` / `fsm` 与回调 / 相位音效 / `change_bg` 的第二次调用 /
-  `phase.__end_testers` / `next` 是空串 / `ce` 的几档 / `spawn` 的 `times`·`ratio` /
-  `should_goto_next_stage` 的 bot / —— 16) 起的 8 组是**按存活的变异补的**：恢复·复活的
-  `>= 1` 支与 `respawn_x`（16）/ dialog 的空数组·`dialog_time`·`clear`（17）/ 空 `phases` 的
-  `enter_phase`（18）/ `ce` 的非 `Team_1` 与未 `mounted`（19）/ 非 boss 的 fighter 与非
-  fighter 的 item（20）/ 右边界的 `>=` 与玩家判定（21）/ `VOID_STAGE` 的早退（22）/
-  `id` 的 `|| ""`（23））。
-- 变异 `mutations/stage_main.mjs`（subject `stage`，只跑 `stage` 用例）：**108/108 全杀**
-  （第一轮 115 条 → 89 杀 / 26 存活；6 条按构造等价或不可达撤出（清单见 §75.4）、其余 20 条
-  靠补的用例杀回（旧 bg 的层数、`schangebg` 的第二次调用、`phase.__test`、`hp_respawn_r` 表、
-  `next s ""`、`cam_jump_to_x 0`、不同队的实体、`ce` 三档、`spawn` 的 `times`·`ratio`、bot、
-  `dead e0`、`dispose` 的队伍与武器、`smtmark`）⇒ 109 条里还剩 18 条存活：再撤出 1 条
-  （`dispose` 的 `_disposers`，见 §75.4 第 1 条）、其余 17 条用用例 16)~23) 补上）。
-- **一个 C++ 侧的坑**（写进 PROTOCOL §6.9.119）：`push("..." + f() + g() + ...)` 里那些
-  有副作用的调用**不能**写在拼接链里 —— `operator+` 是函数调用、参数求值顺序**未指定**
-  （MSVC 从右往左），而 TS 的模板字符串插值严格从左往右 ⇒ 宿主日志的顺序会漂。
-  `dump_stage_quest` 就是被这个坑到的（`should_goto_next_stage()` 抢在 `ce()` 前面跑），
-  改成先按 TS 顺序求到局部量再拼接。
-- **另一个坑（差分抖动）**：台面最初拿 `const lfw::Object*` 当 `end_testers` 的缓存键 ⇒
-  **同一份用例每次跑出来行数都不同**（当时 742 / 740 / 732 乱跳，`is_phase_end()` 有时跑表达式
-  有时不跑）。对象释放后地址会被复用，于是「指针相同」有时是同一份数据、有时是另一份
-  ⇒ 命中错表。定位手法：临时在每个 op 前打一行标记 + 在 `end_testers` 里打诊断，再按 op
-  分组比对多个变体。改成「对象上挂 `__end_testers` 序号 + 宿主表」后，25 次连跑哈希一致。
-  **教训：宿主侧任何以对象地址为键的缓存都不确定**（TS 那侧天然是引用，没有这个问题）。
-
-## 76. 切片 4J：`World`
-
-步骤 4「主干」（宿主层）的第十刀：`src/LFW/World.ts`（1017 行）是**世界本体** —— 实体表
 （`entity_map` / `entities` / `ghosts` / `puppets`）、边界转发、`team_*`、碰撞对表、相机、
 背景与舞台的换装、计分（`_counts` / `team_alive_counts` / `game_result`）、渲染循环与
 暂停/休眠。这一刀**只搬「状态与查询」那一半**：`step` / `update_once` / `start_update` /
 `catch_up`（实体推进、碰撞配对、相机目标）留给 4K。
 
-### 76.1 移植面
+### 80.1. 移植面
 
-- `native/lfw/world.h`：`WorldCallbackArgs` + `WorldCallbacks`（`CallbacksT<WorldCallbackArgs>`）、
-  `IWorldUi`（`lfw.layers.at(i)?.ui` 那一面）、`IWorldLfw : stage::IStageLfw`（`LFW` 未移植的
-  那一面 **加上** 世界额外要的：`player` / `get_random_bg` / `create_entity` / `recycle_*` /
-  `acquire_invalid_ctrl` / `release_ctrl` / `layer_uis` / `mt_range` / `is_cheat` / `new_id` /
-  `broadcast` / `create_ctrl` / `has_cmds` / `survival_rank_*` / `ctrl_come|move|stay|follow|goingto`
-  / `warn`）、`IWorldRenderer`（`Ditto.WorldRender` 那一面）、`class World : public ICameraWorld`。
-- `native/lfw/world.cpp`：三个视图（`WorldEntityHost : IEntityHost`、`WorldStageView :
-  stage::IStageWorld`、`StageEntityView : stage::IStageEntity`）+ 世界全部方法。
 - `native/lfw/entity/entity.{h,cpp}`：`mark_players_alive(bool)` → `mark_players_alive(Entity&, bool)`
   （TS 是 `world.mark_players_alive(this, alive)`，宿主那面原来少了个实体参数）。
 - `native/lfw/entity/entity_ref.cpp`：`ref_of` 补 `data`（见 76.4）。
 - 进 `native/lfw/CMakeLists.txt`（C++ 源 417 → 418）。
 
-### 76.2 结构上的三个决定
+### 80.2. 结构上的三个决定
 
-1. **`IWorldLfw` 继承 `IStageLfw`**：`Stage` 那一刀开的缝就是「`LFW` 未移植的那一面」，`World`
-   要的是同一个 `lfw` 对象 ⇒ 不新开一套假件，直接把那面接长。台面只需实现一个类。
-2. **`World` 直接实现 `ICameraWorld`**（`world_stage()` / `world_bg()` / `world_dataset()`）：
-   TS 里 `Camera` 读的是 `world.stage` / `world.bg` / `world.dataset` 三次**属性读**，而端口
-   的 `ICameraWorld` 是三个方法；名字与 `World` 自己的字段不撞 ⇒ 不用再包一层视图。
-   返回的是**每次新建的 `Value` 快照**（`field_or` 读属性），与「读几次就是几次」对齐。
 3. **JS `Map` / `Set` 一律用「vector + 线性查找」**（`entity_map` / `_entities_map` 缓存 /
    `puppets` / `puppet_teams` / `collisions` / `counts` / `team_alive_counts` / `_gones`）：
-   `Map.set` 覆盖同键时**位置不变**、`Set` 判重且保插入序 —— 这两条 dump 里都看得见。
+   `Map.set` 覆盖同键时**位置不变**、`Set` 判重且保插入序 —— 这两条 dump 里都看得
 
-### 76.3 与 TS 的偏差（本刀新增）
-
-- **`render_worker_id_` 用 0 表示 TS 的 `undefined`**：`Ditto.Render.add` 的句柄在端口里走
-  `render_add`（槽空时回 0，4K 起改成独立的渲染槽，见 §77.4）⇒ dump / 日志里把 0 打成 `u`
-  （台面的 `handle_str`），否则 TS 的 `undefined` 与端口的 0 无法对齐。
-- **`fps_value()` 落空回 `NaN`**：TS 的 `get FPS()` 在 `sync_render` 不是五个枚举值时返回
-  `undefined`（后续算术成 `NaN`）；端口的分量是 `double` ⇒ 用 `NaN` 顶替，台面把二者都打 `u`。
-- **`on_step_error` 的两处收窄**：TS 读 `Date.now()` 且参数是异常对象（`Ditto.warn(e)` +
-  `e?.errors`）；端口把它收进时钟槽（`clock_now()`，与 `render_once` 同一套）并把「有没有
-  `errors`」收成一个 `bool`，第二句告警的文本固定成 `[World::start_update] errors`
-  （TS 打的是 `e.errors` 本身）。台面为此把 `Date.now` 接到假时钟、并喂一个 `toString()` 给
-  消息、`errors` 给该固定文本的假错误对象。
-- **`Defines.RANDOM_BG.id` 是 `"?"`**：`change_bg` 的随机分支按它判定；`dataset.LF2_NET` 为真时
-  传两组 `BGG`（`regular` / `hidden`），否则只传 `regular`。
-- **`Ditto.warn` 的一参/两参**：世界自己发的是单参（`lfw.warn` 缝），`Stage` 那处是 `(where, text)`
-  两参（`Stage::set_warn`）⇒ 台面按参数个数分流，两条日志格式各自对齐。
-
-### 76.4 差分抓出来的真 bug：`ref_of` 少了 `data`
+### 80.3. 差分抓出来的真 bug：`ref_of` 少了 `data`
 
 `native/lfw/entity/entity_type_check.cpp` 里：
 
@@ -7722,17 +6813,14 @@ bool is_fighter(const Value& v) { return is_fighter_data(field_or(v, u"data")); 
 **没有 `data`**。于是 `world.cpp` 里四处 `entity::is_fighter(ref_of(e))` 全是恒假：战士不进
 「玩家/puppet」分支、`get_bound` 永远走默认支、`calc_alives` 一个队伍都数不出来。
 4I 没暴露它，是因为 `stage` 台面的假实体**自己**造引用（`ref()` 里塞了 `data`）；
-4J 用真 `Entity` 接线（`StageEntityView::ref()` → `ref_of`），一跑就现形。
 修法：`ref_of` 补 `data`（`o.set(u"data", e.data())`，共享同一个数据对象）。
 `is_weapon` / `is_ball` 同理，一起受益。
 
-### 76.5 台面（新 subject `world`）的坑
+### 80.4. 台面（新 subject `world`）的坑
 
 - **TS 侧 `new World(lfw)` 会 `new Ditto.WorldRender(this)`**（渲染未移植）⇒ 台面在
   `Ditto.setup` 里塞一个**什么都不做**的 `WorldRender` 空壳，构造完再 `world.renderer = 假件`
   （端口侧是注入的 `IWorldRenderer&`，没有这一步）。
-- **`Stage` 会读 `lfw.world`**（`dispose` 里 `this.lfw.world.puppets`）⇒ 假 `lfw` 必须有个
-  `get world()` 指回世界（端口侧对应 `IStageWorld` 视图）。
 - **`Entity` 的向量走 `Ditto.vec3()`**：`reset` 里 `prev_position.set(...)` /
   `prev_position.copy(...)` ⇒ 台面给的轻量 Vector3 要有 `set` / `copy`
   （`entity` 台面同款做法）。
@@ -7749,59 +6837,18 @@ bool is_fighter(const Value& v) { return is_fighter_data(field_or(v, u"data")); 
 - **`spark` 的 355 门**看的是 `entities.length + ghosts.length`；`wfill <n>` 会把 `ghosts`
   撑到 n 条 `null` ⇒ 台面的 dump 必须跳过 `null`（TS 的 dump 同样跳过）。
 
-### 76.6 变异：两轮、33 条存活全是用例问题
+## 81. `World` 的 `step` / `update_once` / `catch_up` / `start_update`
 
-第一轮 135 条跑出 **102 杀 / 33 存活**，逐条查完**没有一条是端口错误** —— 全是「用例没写到位」
-或「按构造等价」，改完用例 + 撤出 4 条后第二轮 131 条 **126 杀 / 5 存活**，再补 5 刀（见下）
-+ 2 条新变异（`set_stage` 的 `dispose` / `enter_phase(0)`，之前因为「空世界看不出差别」被列进
-「有意不覆盖」）后 **133/133 全杀**。值得记下来的五个：
-
-1. **舞台的 `player_*` / `enemy_*` 会被 `enter_phase(0)` 覆盖**：`bound` 的舞台数据只写了顶层
-   字段，可 `set_stage` 之后紧跟的 `enter_phase(0)` → `set_phase(phases[0])` 会把
-   `player_l` / `enemy_l` 重写成阶段里的值（没有 `phases` 时两边都退回 `bg` 的左右界 ⇒
-   正好**相等**）⇒ `get_bound` 的「队内 / 队外」两支打印同一个数，`==` 翻成 `!=` 也看不出来。
-   给舞台数据补 `phases`，并补一条 `wteamsame` **之前**的 `wbound` 把两支都打出来。
-2. **`clear` 的那段循环会被 `set_stage` 的 `Stage::dispose` 盖住**：`clear` 里「舞台不是
-   VOID_STAGE 就换回 VOID_STAGE」→ `set_stage` → `Stage::dispose` 会把实体全设成 gone。
-   `bound` 的 `wclear` 恰好落在这一支 ⇒ 要看 `clear` 自己那句 `set_frame(GONE_FRAME_INFO)`，
-   得在 `wclear` 前先 `wstage s "VOID_STAGE"`（这一步同时把 `set_stage` 的 `dispose` /
-   `enter_phase(0)` 两处变成可观察的 —— 两条新变异就是这么来的）。
-3. **`add_entities` 的 `entity_map` 早退会吃掉回调**：台面先 `wadd` 再改 `ctrl`、再 `wreadd`，
-   第二次调用整体早退 ⇒ `on_puppet_add` 一次都没发过。要 `wmk`（只造实体）+ 摆好
-   `ctrl` / `pid` + `wreadd`。
-4. **默认 `hp > 0`**：`entities` 那条「hp = 0 不记账」的注释写了、`hp` 没写 ⇒ 两边都记账、
-   变异看不出来。把 `hp` 真的写成 0，再加一个 `hp 10` 的实体覆盖另一半。
-5. **「空队伍」不等于空表**：`teams` 里 `game_result` 的 `drawn` 支要求 `team_alive_counts`
-   真为空，可台面另加的 bot / puppet 都还活着（`d` 的 hp 从没设过 ⇒ 默认 > 0）⇒ 一直走的是
-   `'over'`。末尾把活着的战士全打死再 `wgame`，且**不能**是 VOID_STAGE（否则 `'drawn'` 与
-   `'over'` 又会撞在一起）。
-
-另外两条一次就杀、但值得留在脑子的：`clear` 里那个 bg 判等**按构造等价**（等号成立时
-`Stage::change_bg` 自己也有「同 id 早退」，打不打这个电话分辨不出来），以及
-`SyncRenderEnum` 的取值顺序（Unlimited 0 / Half 1 / Sync 2 / FPS_60 3 / FPS_120 4）——
-写 `render` 用例时最容易错。
-
-## 77. 切片 4K：`World` 的 `step` / `update_once` / `catch_up` / `start_update`
-
-步骤 4「主干」的第十一刀：`World` 剩下的一半 —— **每帧推进**。`step` 是 `World.ts` 里最长的
 一个方法（587–767），把实体推进、碰撞配对、相机目标、垃圾清运、舞台推进串成一条链。这一刀
 **只搬「非碰撞配对」那半**：`get_bound` 的边界与配对（`collision_get` / `collisions_keeper.handle`）
 要绑八十来个 Env 缝函数，留给 4L；`step` 里留了注释。
 
-### 77.1 移植面
+### 81.1. 移植面
 
-- `native/lfw/world.{h,cpp}`：`step` / `update_once` / `catch_up` / `start_update`、
-  `WorldUpdateOptions : ITickerOptions`（匿名命名空间，对应 TS `new Ticker({step_ms, on_step})`
-  那个字面量）、公开钩子 `before_update` / `after_update`、`set_step_error_count`；
-  `IWorldLfw` 增 `clear_cmds` / `clear_broadcasts` / `ctrl_update_lookup` / `dev` / `debug`。
-- `native/lfw/entity/entity.{h,cpp}`：`IEntityHost::del_entity`（`world.del_entity(this)`）与
-  `Entity::release()`（挂载门 → `drop_holding` / `drop_catching` → `clean_holding` /
-  `clean_catching` → `_mounted = 0` → `on_disposed` → `callbacks.clear()` → `reset(_data, states_)`
-  → `host_->del_entity`）。
 - `native/lfw/base/render_scheduler.h`（**新**）：`IRenderScheduler` + 全局槽
   `render_scheduler_slot()` / `set_render_scheduler()` / `render_add()` / `render_del()`。
 
-### 77.2 结构上的决定：渲染槽与时钟槽分开
+### 81.2. 结构上的决定：渲染槽与时钟槽分开
 
 4J 把 `Ditto.Render.add` 接在**时钟**槽上（`clock_add`），4K 才现形：真 `Ditto.Clock` 的 `add`
 是**一次性**的（`Clock.ts` 的 `flush` 把待发批次跑一遍就清空），而 `Ditto.Render` 是 **raf** 式
@@ -7811,17 +6858,7 @@ bool is_fighter(const Value& v) { return is_fighter_data(field_or(v, u"data")); 
 `render_scheduler.h` 开一个独立槽（`render_add` / `render_del`），`start_render` / `stop_render`
 改用它；假件里时钟保持一次性、渲染槽保持重复。
 
-### 77.3 与 TS 的偏差（本刀新增）
-
-- **`world_pause` 的是访问器不是属性**：TS 里 `World` 没有 `world_pause`，读的是
-  `world.stage.world_pause`；端口给了一个转发访问器（台面 dump 里读 `stage.world_pause` 对齐）。
-- **`Ticker` 的 `on_step` 不装 `try/catch`**：TS 的 `Ticker` 在 `on_step` 里 `catch` 到异常后
-  交给 `World.on_step_error(e)`；端口不装异常（`lfw` 的规矩）⇒ 这一层由**宿主**在驱动 `on_step`
-  时做（台面 / `LFW` 那一刀）。`on_step_error(message, has_errors)` 的参数收窄见 §76.3。
-- **`IWorldLfw::dev` / `debug` 收成一对方法**：TS 是 `Ditto.DEV`（可写全局）与 `Ditto.debug`；
-  端口按宿主缝处理（`IWorldLfw::dev()` / `debug(msg)`），`step` 里那句实体数超限的打印据此开。
-
-### 77.4 ASAN 抓出来的真 bug：`Ticker` 的 heap-use-after-free
+### 81.3. ASAN 抓出来的真 bug：`Ticker` 的 heap-use-after-free
 
 4K 的用例写完先随机崩（约三成，node 记 `0xC0000005`）。用一次**临时 ASAN 构建**拿到栈：
 
@@ -7831,15 +6868,15 @@ ERROR: AddressSanitizer: heap-use-after-free ... in WorldUpdateOptions::on_step
 ```
 
 栈底是 `Ticker` 的 `tick` → `_opt->on_step` → `update_once`：`stop_update()` 已经删掉
-`Ticker`（`update_options_` 也跟着换），可假时钟里那个「渲染回调」还指着它。根因见 §77.2
+`Ticker`（`update_options_` 也跟着换），可假时钟里那个「渲染回调」还指着它。根因见 §81.2
 （4J 把渲染接在时钟槽上，而时钟是一次性的）。修法就是拆槽；改完 `Wnew` 连跑 40 次 0 崩溃。
 记下来的手法：`native/build/gen/vsenv.json` 里的环境 + `-DCMAKE_CXX_FLAGS="/fsanitize=address
 /Zi /Od"` 到 `native/build/asan`，把 `clang_rt.asan_dynamic-x86_64.dll` 拷到产物 `bin/`，
 `ASAN_OPTIONS=detect_leaks=0`。
 
-### 77.5 台面（`world` subject 扩展）的坑
+### 81.4. 台面（`world` subject 扩展）的坑
 
-- **`Ditto.Clock` 一次性 vs `Ditto.Render` 重复**（见 §77.2）：假件照真件语义写，时钟 `tick`
+- **`Ditto.Clock` 一次性 vs `Ditto.Render` 重复**（见 §81.2）：假件照真件语义写，时钟 `tick`
   顺带把到点的一次性定时器与渲染帧跑掉。
 - **`wtick` 的粒度**：`16ms` 还不到一步的 `step_ms`（`1000/60`），`Ticker` 只会重新排期 ⇒
   想让它真的步进要推够（用例里用 `50ms`）；即便如此，`update_once` 里 `worker != nullptr`
@@ -7857,39 +6894,9 @@ ERROR: AddressSanitizer: heap-use-after-free ... in WorldUpdateOptions::on_step
   `world.is_stage_finish`（读到 `undefined` ⇒ 恒 0，正好和「没有舞台真的结束过」撞上）⇒
   台面自己的 bug，改成读 `world.stage.*` 之后才和端口对齐。
 
-### 77.6 变异：四轮，从 133 杀 / 44 存活清到 95/95
+## 82. 碰撞配对与 `collision/` 的 82 条缝
 
-档是 `mutations/world_step.mjs`（subject `world`，只跑 `step` + `render` 两份用例，115 → 111 → 95 条）：
-
-1. **第一轮 117 条：72 杀 / 44 存活 / 1 compile-error**。逐条查，修掉三类**用例问题**：
-   - **观测点缺**：`handle_cmds` / `clear_cmds` / `clear_broadcasts`（`wcmds` + 连跑两帧）、
-     `list_entities` 缓存（`wlist` 前后夹 `wstep`）、`update_ui`（`wlayer`）、`bg.update()`
-     （dump 加 `bgu=`）、`transform.update()`（`wtrscaleto` 平滑）、`stage.update()`（dump 加
-     `sft=`）、`Entity::release` 之后的字段（新 op `wentump`）；
-   - **构造等价/分支压着**：加了第二个「我的」人类玩家之后 `local` 支一直压着 `human` / `puppet`
-     / `fighter` 三支 ⇒ 相机四支的变异集体存活，得按顺序把人一个个收掉；
-   - **锚点写错**：`kv.second = count + 1; replaced = true;` 在 `step`（12 空格）与武器分带
-     （10 空格）、`calc_alives`（8 空格）里各有一份 ⇒ 缩进写窄了会打到别的循环上。探针里加
-     「patch 在第几行」之后一眼看出来。
-2. **第二轮**：`nc`（时钟读次数）当观测点，结果 `misc` / `render` 两份用例跟端口对不上 ——
-   端口把 TS 的 `Date.now()` 收进时钟槽（`on_step_error` / `render_once`），台面数不出这一读
-   ⇒ **撤掉 `nc`**，那条「`extra_steps >= 0`」的变异按构造等价撤出。
-3. **第三/四轮**：补 `on_disposed` 回调、`wteamsame` 让多个战士（含傀儡）同队、`Gone = 9998`
-   之后，最后 19 条存活里 3 条又杀掉；剩下 16 条逐条验证「改了没漂」，按「不可观察 / 构造等价 /
-   留给下一刀」写进档头（碰撞表两清 —— 4K 没有东西往里写；buff 四句 —— 台面还没有真 `Buff`；
-   `Entity::release` 里除挂载门外的五句 —— `_mounted` 恒 0；`_gones` 清运里那次
-   `mark_players_alive` —— 冗余；`_gones` 跳过那一支 —— 同一帧就先被压实摘掉了）。
-4. **一条 compile-error**（把 `stable_sort` 的比较器反过来）是因为 lambda 形参写成
-   `const Entity*`、而 `x_sorter` 收 `Entity*` —— 改成 `Entity* const` 就能编译，而且**会漂**
-   （排序真的换了序，用例里实体的 x 互不相同才看得见）。
-
-最终 **95/95 全杀 0 compile-error**；`native/tools/native.mjs all` ⇒ lint / coverage /
-differential **155/155**。
-
-
-## 78. 切片 4L 核心：碰撞配对与 `collision/` 的 82 条缝
-
-### 78.1 移植面
+### 82.1. 移植面
 
 `World::step` 补两段：配对循环（`entities[i]` 的内层 `j`，`a_max_x < b.aabb_min_x` 的
 `break` / 幽灵跳过 / z 轴 AABB 剔除 / `pairs_compared++` / `collision_get(a,b)` 与
@@ -7904,16 +6911,9 @@ differential **155/155**。
 
 新增 `native/lfw/entity/entity_collision_view.{h,cpp}`：TS 里碰撞两边**就是** `Entity`，
 端口的 `collision/*` 收窄接口 ⇒ `EntityCollisionView` 把 `Entity` 转发上去（与
-`EntityStateView` 同一套路；4Q 之前这里是三个同类视图，见 §78.8）。
 
-### 78.2 三处必须保真的表示
+### 82.2. 三处必须保真的表示
 
-1. ~~**视图要分链**~~（4Q 已合并成一个，见 §78.8）：`IFallEntity` 与 `IWeaponIsHitEntity`
-   各自从 `IHandlerEntity` 非虚继承派生 ⇒ 一个类同时实现两者会出现两个 `IHandlerEntity`
-   子对象（转换二义）。4L 当时的处置是按继承链分三个：`EntityHandlerView : INdbdyDefendEntity`
-   （含 `IFallEntity` / `INbdyNormalEntity`）、`EntityWeaponView : IWeaponIsHitEntity`、
-   `EntityActionView : IActionEntity + IH3Entity + IH4Entity + IFrozenEntity + IHealingEntity +
-   buff::IBuffEntity`。
 2. **`CollisionActor` 是快照**：`collision/` 层看不见 `Entity`，宿主按 TS 的读法逐个字段投影
    （`bear_wpoint_attacking` ← `bearer?.frame.wpoint?.attacking`、`catcher_hurtable` ←
    `catcher.frame.cpoint?.hurtable`、`marks_group_attack` ← `marks.has("GroupAttack")`、…
@@ -7923,7 +6923,7 @@ differential **155/155**。
    入口（`collision_get` / `collision_test`）登记 `_cur_a` / `_cur_v`。`collision/` 的直接调用者
    必须走宿主，这是这一刀的接线约定。
 
-### 78.3 `Value` 形状的助手：投影一层
+### 82.3. `Value` 形状的助手：投影一层
 
 `is_fall` / `is_armor_work` / `calc_itr_velocity` / `calc_stiffness` 是 4.54 那一刀落的**纯函数**，
 收 `Value` 形状的实体/碰撞（`victim.frame.state` / `data.base.weight` / `world.dataset` …）⇒
@@ -7931,24 +6931,8 @@ differential **155/155**。
 `world_helpers_value`）。`entity::entity_dataset` 的四级 `??` 链因此照常工作（`world` 那一层是
 `world.bg.data.dataset` 与 `world.dataset`）。
 
-### 78.4 本刀修掉的既有偏差
+### 82.4. 宿主的三条约束
 
-`collision/keeper.cpp` 的 `handle` 末尾原来用 `core->find_object_data(vdata_id)` 取受击方的
-`base.hit_sounds` —— 那是 4E 那一刀**还没有宿主**时的替代写法（TS 直读 `victim.data.base.hit_sounds`）。
-本刀接上宿主后改回直读：`KeeperEnv` 新增 `victim_data` 缝（宿主给 `_cur_v->data()`），
-`collision_keeper_handle` 台面把同一份 `g_vdata` 接到这条缝上（观测量不变）。
-差别的可见处：旧写法会**多一次** `lfw.datas.find(vdata_id)`（在台面上就是多一行
-`h:datasfind=`，本次差分用例正是这样把它顶出来的）。
-
-**观测量扩展当场抓到的漏接**（同一刀的第二趟）：`WorldCollisionHost::handle` 起初只补了
-`c.env` 与 `c.core`，漏了 `c.dataset`（TS 里 `handlers.cpp` 读的是 `attacker.world.dataset`）。
-端口把 `c.dataset` 留成「由 harness 直接设」的行为缝字段 ⇒ `handle_stiffness` 的 `itr_shaking`
-回退读到 `undefined` ⇒ `to_number(undefined)` = `NaN` ⇒ 受击方的 `shaking` 变 `NaN`（TS 是 8）。
-补 `c.dataset = _world->world_dataset();` 后与 TS 一致。发现路径：给两侧 `dump_entity` 补上
-`motionless` / `shaking` 等 11 个碰撞观测量之后，`world/collision` 立刻在 `shaking` 上分岔
-（在此之前这条缝只表现为「某些实体不抖动」，差分用例看不见）。
-
-### 78.5 宿主的三条约束
 1. **Env 是模块级单例**：11 个 Env 由 `set_*_env` 装到各自 `.cpp` 的全局槽上。4M 之前这条意味着
    「同一时刻只应有一个活的 `WorldCollisionHost`」；现在发布带所有权（`g_published` +
    `ensure_published()` + 析构时 `clear_globals()`）⇒ 多个 `World` 可以**轮流**步进（不能同时
@@ -7962,36 +6946,16 @@ differential **155/155**。
    字段」（TS 里分别是 `this` / `this.core` / `attacker.world.dataset`），漏一个就会读到
    `undefined`（`c.dataset` 漏了的表现是 `shaking` 变 `NaN`）。
 
-### 78.6 未接线的宿主缝（都留给对应的那一刀）
+### 82.5. 未接线的宿主缝（都留给对应的那一刀）
 
 | 缝 | 现状 | 原因 |
 | --- | --- | --- |
 | `tester_debug` | 恒 `undefined` | TS 是 `stringify_expr_debug(collect())`，端口 `Expression` 没有这层渲染；只在 `Ditto.DEV` 的日志里可见 |
 | `A/V_SET_PROP` 的 `set_prop` | 白名单（hp/hp_r/hp_max/mp/mp_max/invisible/invulnerable/toughness/fallinjury/throwinjury/motionless/shaking/facing/arest/dropping/reserve），名单外 no-op | TS 是 `entity[name] = value` 的任意属性写入，端口没有动态字段表 |
-| `buff::IBuffEntity::frame_centery/frame_height/frame_pic_h` | 恒 0 | 与 `EntityStateView` 同一处置（帧几何那一层还没搬） |
-| `IWorldLfw::create_buff` | 默认 `nullptr`（宿主管） | `Factory::create_buff` 要 `LFW*`，`LFW` 未移植；`nullptr` 对应 TS 拿到 falsy 的那条路径 |
 | `attach(bool)` | 空 | 要 `world.add_entities` / 渲染层 |
 
-### 78.7 待办（下一刀的入口）
+### 82.6. 待办（下一刀的入口）
 
-1. ~~变异档 `mutations/world_collision.mjs`~~ 已做：**34/34 全杀**（配对循环 6 条 +
-   `CollisionActor` 投影 6 条 + handler 分发 5 条 + `handle` 补的 `c.dataset` 1 条 +
-   `KeeperEnv` 回写 2 条 + `HandlersEnv` 回写 6 条 + 三个视图方法 3 条 + `get_bounding` 两条互换 +
-   `victim_get_v_rest` / `new_id` / `attacker_is_ally` 各 1 条）。
-   用例同一世界十二组实体：单向 / 双向 / `hit_flag` 不匹配 / 同队 / `SuperPunchMe` / `Catch` /
-   Pick / Pick 的 bot 门 / Block（`handle_rest`）/ Freeze / `rest` 支 / 部分重叠的判定框。
-   仍未锁的缝：`get_bounding` 的 `near` / `far`（z 框都是默认值 ⇒ 对称）、Pick 的 bot 门
-   （`bot_ignore` / `is_bot_ctrl`：实测在本用例里不可观察，见 PROTOCOL §6.9.122）、
-   `_core.dataset` 恒空（实测等价：`min_vrest` / `vrest_offset` 取 0 与真值同结论）、
-   buff 支（`magic_flute` / `Electrify` / `Healing`）、`ball_*` 与 `john_shield`。
-2. handler 路径的用例：`world/collision` 现在走到 `handle_itr_normal_bdy_normal` → `handle_injury`
-   → `handle_fall`、`handle_super_punch_me`、`handle_itr_catch`、`handle_weapon_picked`、
-   `handle_rest`（两条：`arest` 与 `rest`）、`handle_itr_kind_freeze`、`handle_itr_kind_whirlwind`、
-   `handle_weapon_is_hit`、`handle_ball_hit_other`、`handle_healing` 十条；还差 `john_shield`
-   （要 `IFrozenEntity` 视图面 + 球）与 `ball_frozen`。
-   ⚠️ 后四条（whirlwind / weapon_is_hit / ball_hit_other / healing）目前**只有配对，没有观测**
-   —— 它们的效果落在速度（同一个 `step` 内被清成 0）或 buff 表（没进 dump）上。下一刀要么
-   「只跑 handler 不跑完整 `step`」，要么把 buff 表 / 帧内速度也进 dump，否则这四条的变异锁不住。
 3. `collision_to_snapshot` / `from_snapshot` 在宿主上的往返。
 4. ~~观测量扩展~~ 已做一半：`dump_entity` 两侧补了 `motionless` / `shaking` / `catching` /
    `catcher` / `holding` / `vrests.size` / `collided_list.length` / `collision_list.length` /
@@ -8010,54 +6974,37 @@ differential **155/155**。
    仍能正常步进且两侧一致」；**锁不住**「悬垂 lambda 真被调用」（台面没有「不建新宿主就去摸
    碰撞层」的 op，TS 侧也没有这个概念）—— 那部分是设计性的防御，见该用例档头。
 
-### 78.8 三个碰撞视图合并成一个 `EntityCollisionView`（4Q）
+### 82.7. 三个碰撞视图合并成一个 `EntityCollisionView`（4Q）
 
-**动机**：§78.2 第 1 条按继承链把视图分成三个（`EntityHandlerView` / `EntityWeaponView` /
+**动机**：§82.2 第 1 条按继承链把视图分成三个（`EntityHandlerView` / `EntityWeaponView` /
 `EntityActionView`），但三者本来就是同一件事 —— 把同一个 `Entity` 转发给不同的窄接口；一个
 实体因此可能在宿主里同时持有三份视图（三张缓存表各一份），指针也不共用。
 
-**菱形**：`IHandlerEntity`（`collision/handlers2.h`）位于两条平行链之下 ——
-`IWeaponIsHitEntity : IHandlerEntity`（`collision/weapon_is_hit.h`）与
-`IFallEntity : IHandlerEntity`（`collision/fall.h`）→ `INbdyNormalEntity`
-（`collision/n_bdy_normal.h`）→ `INdbdyDefendEntity`（`collision/n_bdy_defend.h`）。一个类同时
-派生两条链就拿到两个 `IHandlerEntity` 子对象 ⇒ 对 `IHandlerEntity&` 的转换二义（端口
 `/GR-`，没有 RTTI 可退）。
 
 **修法**：
-1. 两条链的**直接**派生改成虚基类（中间链不动）：`struct IFallEntity : virtual IHandlerEntity`、
-   `struct IWeaponIsHitEntity : virtual IHandlerEntity`。菱形消失，三个视图合成一个
-   `class EntityCollisionView : public INdbdyDefendEntity, public IWeaponIsHitEntity, public
-   IActionEntity, public IH3Entity, public IH4Entity, public IFrozenEntity, public
-   IHealingEntity, public buff::IBuffEntity`。三边原来的方法体**逐字相同**（都只是转发）⇒
    直接去重（`catcher` / `set_catching` / `set_catcher` 各只留一份定义）。
-2. 唯一的例外是 `velocity_x()`：`IFallEntity` 声明 `double`、`IActionEntity` 声明 `Value`，
    同名同参不同返回类型**没法用一个重写覆盖**（MSVC `C2555`，已实测）⇒ 按「取经典链
-   （`IHandlerEntity` 那条）的语义」把 `IActionEntity::velocity_x()` 改成 `double`
    （`collision/action_handlers.h`；调用处 `-to_number(x)` → `-x`，行为不变），本类只写一个
    `double velocity_x() const`。（把 11 个窄接口头文件的纯虚声明按「名字 + 参数表」归一化后
    比对，全接口只有这一处冲突。）
 3. `WorldCollisionHost` 的三张缓存表合成一张 `_collision_views`；`handler_view` / `weapon_view`
    / `action_view` 三个访问器（签名与调用点不变）返回**同一个**实例，`buff_view` 仍是它的
-   `buff::IBuffEntity` 面。
 
 **虚基类带来的两处连带改动**（只是取回 `Entity` 的手段，不改行为）：
 - **不能 `static_cast` 回视图**：从虚基类向下转是 ill-formed（MSVC `C2635`，已实测）。
-  `IHandlerEntity*` → `Entity*` 原来走 `static_cast<EntityHandlerView*>(v)->entity()`，现在改成
   宿主建视图时登记反向表 `_entity_of_handler`（键是**虚基子对象地址**，也就是 `find_entity`
   交出去的地址），`ICollisionViewHost` 增一个 `entity_of_handler()` 供视图查回。
-  `IActionEntity` / `IH3Entity` 是**非虚**基类 ⇒ 那两处 `static_cast` 照旧。
 - `EntityCollisionView` 是唯一实现者 ⇒ 反向表只有一个登记点（`collision_view()`）。
 
-**为什么不干脆折进 `Entity` 本身**（与 `EntityStateView` 同理，留待以后）：这些窄接口返回
 `Value`，而 `Entity` 自己的 `hp()` / `position` … 返回 `double` / `Vector3`；合并就得改
 `Entity` 的公开 API（改名或加壳），比这一刀大得多，也与「`collision/` 层只收窄接口」的分层
-冲突。`state/` 层的 `EntityStateView` 是同类问题，不在本刀范围。
 
 **行为不变**：差分 `all` **157/157**（`world/collision` 345 行逐行一致，lint / coverage 全清）；
-变异 `world_collision` 档 **38 条 36 全杀 / 2 存活 / 0 compile-error**（存活的仍是
 `find_object_data` 与 `find_entity` 两条快照恢复型缝，按构造不可观察）；视图那三条变异
 （`catcher` / `set_catching` / `set_catcher`）重新锚到 `EntityCollisionView::` 之后仍然被杀。
-## 79. 切片 4R：`bot/`（`BotController` + `bot/state/*` + `LocalController`/`InvalidController` + `get_val_from_bot_ctrl`）
+
+## 83. `bot/`（`BotController` + `bot/state/*` + `LocalController`/`InvalidController` + `get_val_from_bot_ctrl`）
 
 **范围**：`bot/BotController`（TS 931 行）、六个状态（`Idle` / `Chasing` / `Avoiding` /
 `Following` / `StageEnd` / `Dead`）、`bot/BotDataSet`、`bot/NearestTargets::reidentify`、
@@ -8093,29 +7040,26 @@ differential **155/155**。
 
 **记录在案的偏差**：
 - `action.judger` 的**现编**：TS 在 `preprocess_bot_data` 里编好，端口在 `handle_action`
-  里按 `action.expression` 现编（同 §4.57 的既有约定；台面 TS 侧照样先挂 `judger` 再调）。
+  里按 `action.expression` 现编（同 §9.59 的既有约定；台面 TS 侧照样先挂 `judger` 再调）。
 - `BaseController::bind_player()` 提供但不自动调用：TS 在构造 / `reset` 里绑，端口那两个
   时机都没有 env（池子回收时的 `reset` 甚至可能驮着上一个实体的悬挂 env）。真路径
   （`CMD_SET_PUPPET` / 游戏层）在 env 就绪后显式调。
 - `mt_cases` 的参数序列化：JS 的 `Array.join` 把 `undefined`/`null` 变空串，端口的数字
   模型把它们折成 `NaN` ⇒ **stage.near/far 缺省**时同一抽签的 case 文本会差 `""` vs `NaN`
-  （台面因此总是先设 near/far；属既有 §6.9.102 类缺口）。
+  （台面因此总是先设 near/far；属既有 既有缺口）。
 
 **测试**：新 subject `bot`（`me`/`fx` 场景 + `CtrlEnv` 缝 + `meref` 引用绑定；7 个用例
 **444 行**：`basic` 27 / `targets` 71 / `actions` 60 / `fsm` 82 / `update` 88 /
-`state_keys` 95 / `dummy_queue` 21），变异档 `bot_controller.mjs` **24/24 全杀**（0 存活）。
 顺带修正 `defines/game_key.h`：`all_game_keys()` 回归 AGK 顺序，新增
-`object_values_game_keys()`。全量差分 **164/164**、lint **7299 锚点全清**。
 
-## 80. 切片 4S：`ditto/xml` 方言（seam + tool 实现）
+## 84. `ditto/xml` 方言（seam + tool 实现）
 
 **范围**：`src/LFW/ditto/xml/` 的两个宿主接口 `IXMLElement` / `IXML` 搬成
 `native/lfw/ditto/xml/i_xml_element.h` / `i_xml.h`，并把两份 TS 实现里的 **tool 那份**
 （`tool/src/xml/ToolXMLElement.ts` 320 行 + `ToolXML.ts` 117 行）搬成默认实现
 `tool_xml_element.{h,cpp}` / `tool_xml.{h,cpp}`。LFW 的 `dat_translator/xml/*`（45 文件）
-是**下一刀**，本刀只把方言落地并上差分。
 
-**为什么是 tool 那份**：§4.66 已经定调 —— `ditto/` 是**依赖注入缝**，不是要整块搬的
+**为什么是 tool 那份**：§9.68 已经定调 —— `ditto/` 是**依赖注入缝**，不是要整块搬的
 平台代码。两份实现里，浏览器版（`src/DittoImpl/xml/XMLElement.ts`）是 DOM +
 `XMLSerializer` + `xml-formatter` 的皮、tool 版是纯内存的骨。工具链（`DatMgr` 的
 dat→xml→dat）走的就是 tool 版，且它无平台依赖 ⇒ Node 侧能原样跑差分（TS 台面直接
@@ -8124,7 +7068,7 @@ dat→xml→dat）走的就是 tool 版，且它无平台依赖 ⇒ Node 侧能�
 的 `or`、`text` 的 `textContent`、`insert` 的先摘旧父、`from_number` 的文本/属性、
 `stringify` 的序列化器、`parse`……）。
 
-**形状**（接 §4.66 与 `IZip` 的先例）：
+**形状**（接 §9.68 与 `IZip` 的先例）：
 - `Voidable<T>` ⇒ `std::optional<T>`；可空成员（`strs_attr_soft` 的项）嵌一层
   `std::optional`；`as_array` / `as_object` / `set_attr` 这类装 JS 值的口子收 `Value`。
 - 所有权：工厂给 `std::shared_ptr<IXMLElement>`，`insert` 收 `shared_ptr`，读向
@@ -8155,15 +7099,13 @@ dat→xml→dat）走的就是 tool 版，且它无平台依赖 ⇒ Node 侧能�
 
 **明确不搬**：`IXML::parse` 给 `nullptr`（fast-xml-parser 的 `XMLParser` 等价物是
 另一刀的活）。LFW 里 `Ditto.XML.parse` 的真实调用点只有 `LFW.ts` / `Resources.ts`，
-`dat_translator/xml/*` 全走 `create` / `from_*` ⇒ 不挡本刀。
 
 **测试**：新 subject `xml`（台面 op：`new` / `fromstr|num|bool|arr|obj` / `bytag(i)` /
 `attr|dattr|sattr|text` / `ins|rm|rmself|rmall` / `rd <kind>` / `dump`；TS 侧直接吃
 `tool/src/xml`），4 个用例 **278 行**（`factory` 109 / `quirks` 43 / `reads` 87 /
-`tree` 39）；变异档 `xml.mjs` **48/48 全杀**（0 存活、0 compile-error）。全量差分
 **168/168**。
 
-## 81. 切片 4T：xml 方言读写层（第一批）
+## 85. xml 方言读写层（第一批）
 
 **范围**：`src/LFW/dat_translator/xml/` 的第一批 —— 助手（`one_or_arr`（含 `non_empty`）/
 `merge_by_tag` / `parse_rect_qube` / `xml_x_qube` / `xml_x_non_empty`）+ 数据读写
@@ -8174,7 +7116,7 @@ dat→xml→dat）走的就是 tool 版，且它无平台依赖 ⇒ Node 侧能�
 frame*/ itr/model/next_frame/opoint*/ picture/sound_play/stage*/ terrain/wpoint 的 `*_new()`），
 `runtime_gen.{h,cpp}` 随之重生成。
 
-**形状**（接 §80 的 `ditto/xml` 缝）：
+**形状**（接 §84 的 `ditto/xml` 缝）：
 - 数据对象 = `Value`（Object）：读用 `field_or(obj, key)`、写用 `Object::set`；
   `xml_util.h` 提供 `get_str_or` / `get_num_or` / `get_bool_or`（TS 的
   `el.get_str(name, ret.name)` 里「`or` 可以是任何 JS 值」）与 `opt_*` / `from_opt`
@@ -8201,7 +7143,7 @@ frame*/ itr/model/next_frame/opoint*/ picture/sound_play/stage*/ terrain/wpoint 
    的 overshoot 直接跳过）。
 7. `xml_2_next_frame` 的 `expression` **往返丢失**：写口造的是 `<expression value="…">`
    子元素，而读口 `get_str("expression", …)` 的子元素分支被 `as_string` 的
-   `type == 'string'` 门挡住（§80 的死路径）⇒ 只能读回属性形式。
+   `type == 'string'` 门挡住（§84 的死路径）⇒ 只能读回属性形式。
 8. `xml_2_cpoint` 的 `reorder_fields` 在本批**不可观察**（默认对象为空、赋值顺序天然
    与 `cpoint_info_fields` 一致）—— 记在 `mutations/xml_layer.mjs` 头部。
 9. **stringify 的裸属性**：fast-xml-parser 的 `XMLBuilder`（`allowBooleanAttributes`
@@ -8212,10 +7154,8 @@ frame*/ itr/model/next_frame/opoint*/ picture/sound_play/stage*/ terrain/wpoint 
 
 **测试**：新用例 `cases/xml/layer.txt` **148 行**；TS 台面新增 `dv/dset/ddel/ddump/dvp/
 dvo/dvm/wrv/wrins` 一组 op（数据对象放 `dv` 变量、读口/写口按函数名分派；`-` 表示
-undefined / 省略）；变异档 `xml_layer.mjs` **44/44 全杀**（0 存活、0 compile-error），
-`xml.mjs` 扩到 **49/49**（新增裸属性一条）。全量差分 **169/169**、lint 全清。
 
-## 82. 切片 4U：xml 方言读写层（第二批）
+## 86. xml 方言读写层（第二批）
 
 **范围**：`src/LFW/dat_translator/xml/` 余下的 **29 个文件**一次搬完 ——
 `xml_x_dat_index` / `xml_x_difficulty_map` / `xml_x_map`（含 `xml_2_map`）/
@@ -8232,8 +7172,8 @@ undefined / 省略）；变异档 `xml_layer.mjs` **44/44 全杀**（0 存活、
 `StateEnumNames`，`xml_x_frame` 的 `behavior_label`/`state_label` 用 `defines::find` 查），
 `runtime_gen.{h,cpp}` 与 `subjects/gen/defines_runtime.ts` 重生成。
 
-**形状补充**（接 §81）：
-- `xml_x_map` 的读/写回调直接复用 §81 的 `XmlMapReader`（与 `XmlElementParser` 同型）与
+**形状补充**（接 §85）：
+- `xml_x_map` 的读/写回调直接复用 §85 的 `XmlMapReader`（与 `XmlElementParser` 同型）与
   `XmlElementCreator`；`xml_x_map` 回 `optional<vector<shared_ptr<IXMLElement>>>`。
 - **带下标的 parser**：TS 的 `xml_2_non_empty(el, "layer", xml_2_bg_layer)` 走
   `Array.map`，parser 会收到 `index`（`xml_2_bg_layer` 的 z 兜底用它）⇒
@@ -8242,7 +7182,7 @@ undefined / 省略）；变异档 `xml_layer.mjs` **44/44 全杀**（0 存活、
 - `xml_util.h` 再补 `from_opt(optional<vector<double>>)`、`field_join(Value)`（TS 的
   `f.variants?.join()` 语义：nullish 给 undefined、数组成员按 JS join 拼）。
 
-**照抄的怪癖 / 费解处**（都用例/变异锁住；序号接 §81 的 9）：
+**照抄的怪癖 / 费解处**（都用例/变异锁住；序号接 §85 的 9）：
 10. **`xml_x_sound_play_info` 的 `if (!s || s.path.trim()) return;`**：`path` 有内容
     （trim 后非空）反而**写不出元素**，只有 path 缺省/空白时才写 —— 照抄。
 11. **`xml_2_stage_phase_info` 的三条裸调用**：`xml_2_non_empty(el, "sound"/"object"/
@@ -8254,7 +7194,7 @@ undefined / 省略）；变异档 `xml_layer.mjs` **44/44 全杀**（0 存活、
     portraits 的键 = `name ?? ""`（写向造的元素没有 `name` ⇒ 往返落到空串键）、值缺省
     `tex "0"`/坐标 0；models 读 `quaternion` 四分量而写向只写 `rotation`。
 13. **`xml_to_world_dataset` 的 int/float 分支是死值**：`child.as_number()` 在 tool 实现
-    里恒 `undefined`（§80 的 as_string 类型门）⇒ 数字型世界字段（当前版本全是 float）
+    里恒 `undefined`（§84 的 as_string 类型门）⇒ 数字型世界字段（当前版本全是 float）
     读回**全是 undefined**，照抄；`xml_from_world_dataset` 写向把 `null` 也算「有值」
     （它判的是 `v !== void 0`）。
 14. **`xml_x_map` 的两行死代码**：`if (!el.get_str("id")) el.get_str("id", key);`（连同
@@ -8308,12 +7248,10 @@ undefined / 省略）；变异档 `xml_layer.mjs` **44/44 全杀**（0 存活、
 才摆得下）、新增 `wrl`（列表写口：`xml_x_hit_key_map` / `xml_x_map` / 三个 `*_map` 薄壳，
 打 `wrl|<eid>|n=…` 与逐项 stringify）、`wjson`（`xml_from_json`，可带 keyOrder）、
 `wstages`（`xml_from_stage_info`）；`readers`/`writers`/`parsers` 三张表按 TS 函数名补齐
-（`xml_2_map2` 供双 tag 查找用）。变异档 `xml_layer2.mjs` **65/65 全杀**（0 存活、
 0 compile-error），头部记「有意不覆盖」四处（`xml_x_map` 的死代码两行、`delete_undefined`/
 `reorder_fields` 的渲染不可观察、`xml_x_partial_world_dataset` 的假值面、`xml_from_json`
-的 attrs 数组分支）。全量差分 **171/171**、lint 全清。
 
-## 83. 切片 4V：`animation/` 家族
+## 87. `animation/` 家族
 
 **范围**：`src/LFW/animation/` 整目录（11 个 TS 文件）一次搬完 —— `Loop` / `Animation` /
 `Delay` / `Easing` / `Periodic` / `Cosine` / `Sine` / `Tangent` / `Sequence`（9 个类，
@@ -8329,7 +7267,7 @@ undefined / 省略）；变异档 `xml_layer.mjs` **44/44 全杀**（0 存活、
 - `std::optional<bool>` 承接 `start(reverse = this.reverse)` / `end(...)` 的
   「缺省值 = 调用那一刻的当前方向」（`nullopt` ⇒ 现取）。
 
-**照抄的怪癖 / 费解处**（序号接 §82 的 26）：
+**照抄的怪癖 / 费解处**（序号接 §86 的 26）：
 27. **`Loop.continue` 撞 C++ 关键字** ⇒ 端口叫 `continue_()`；语义：`times <= 0` 恒
     返回 `true`（不推进）、`count >= times` 返回 `false`、否则 `++count` 收场。
 28. **`Loop.set(count, times)` 的次序**：先 `set_times` 再 `set_count`（count 的 clamp
@@ -8367,21 +7305,19 @@ undefined / 省略）；变异档 `xml_layer.mjs` **44/44 全杀**（0 存活、
 / `seqpush` / `get`。数字一律打**量化位**（1e-3）+ `isnan ⇒ "nan"`（`qb`）：MSVC
 `strtod("NaN")` 的 payload（全 1）与 V8（`7ff8…`）不同位（同 `utils` 底座的先例）；
 三角函数用例避开极点（tan 在 250/750 处爆炸）与巨大实参（V8 与 UCRT 的参数归约不同）。
-变异档 `animation.mjs` **76/76 全杀**（0 存活、0 compile-error，~3 分钟）；头部记
 「有意不覆盖」：`Loop.continue_` 的 `times <= 0` 分支（返回 `true`、计数不动 ⇒ 与
 `< 0` 同观）、`Easing.calc` 的因子 clamp（time 已被夹住）、头文件缺省实参（台面 `mk`
 一律显式传参）、会死循环/挂死的 `update` 改写（`time ±= 0`、去掉 `done()` 早退）。
 用例教训：**`mk d delay N` 给的是值不是时长** —— `Sequence` 的时长求和因而全 0，
-段扫描根本没跑（逆放侧 5 条变异存活）；补 `set d duration N` 后全杀。全量差分
 **176/176**、lint 全清。
 
-## 84. 切片 4W：schema 家族（`utils/schema` + `Schema_*` 表 + check_stage_info + bg_data 接线）
+## 88. schema 家族（`utils/schema` + `Schema_*` 表 + check_stage_info + bg_data 接线）
 
 **范围**：`src/LFW/utils/schema/` 三件（`make_schema` / `validate_schema` / `index`）、
 `defines/` 里的 **10 份 `Schema_*`**（IBgData / IBgLayerInfo / IFrameInfo / IFrameModel /
 IFramePic / IStageInfo / IStagePhaseInfo / ITerrainInfo / IWorldDataset / IWorldDataset_Partial）、
 `loader/check_stage_info`（两个薄包装），以及 `preprocess_bg_data` 里此前**略过**的
-`SV.Default.validate + Ditto.warn/error` 接线（§4.41 的旧注已修）。
+`SV.Default.validate + Ditto.warn/error` 接线（§9.43 的旧注已修）。
 
 **形状 / 决策**：
 - `make_schema` 不手工移：`Schema_*` 是纯数据（探针确认只有 object/string/boolean/number，
@@ -8398,7 +7334,7 @@ IFramePic / IStageInfo / IStagePhaseInfo / ITerrainInfo / IWorldDataset / IWorld
   接成**宿主缝参数**（TS 传的是**整个数组** ⇒ 端口把消息追加进 sink）；`loader_more` 台面两侧
   分别用 sink 与 `Ditto.warn/error` 替换桩捕获，非空时打 `bgw`/`bge` 行。
 
-**照抄的怪癖 / 费解处**（序号接 §83 的 35）：
+**照抄的怪癖 / 费解处**（序号接 §87 的 35）：
 36. **`typeof prop_type === 'object'` 是作者笔误**：`prop_type` 是**类型值**（字符串，如
     `"number"`）⇒ `typeof` 恒为 `"string"` ⇒ 数组项与对象属性里的「对象再浅拷贝」
     （`{...prop_value}`）是**死代码**；只有**数组**会被拷贝 —— 数组分支先
@@ -8425,11 +7361,9 @@ IFramePic / IStageInfo / IStagePhaseInfo / ITerrainInfo / IWorldDataset / IWorld
     已移植的 10 份 schema 也没有这种形态（变异档头部记「有意不覆盖」）。
 
 **测试**：新 subject `schema` + 3 份用例 **313 行**（terrain 39 / real 98 / adhoc 176）；台面 ops：
-`nv` / `sch` / `schv` / `val` / `rz` / `cst` / `cph`。变异 `schema.mjs` **47/47 全杀** +
-`schema_wiring.mjs`（loader_more 侧）**6/6 全杀**（0 存活、0 编译错）；全量差分 **179/179**、
 lint 全清。
 
-## 85. 切片 4X：cmds 家族第一批（CMDS 调度器 + 21 条纯世界命令）
+## 89. cmds 家族第一批（CMDS 调度器 + 21 条纯世界命令）
 
 **范围**：`src/LFW/cmds/` 32 个文件的**第一批** —— 调度器 `CMDS`（词法解析 / 命名参数 /
 静态注册表）+ **21 条纯世界状态命令**：`F1` / `F2` / `F3` / `F5` / `F6` / `F7` / `F9` /
@@ -8450,13 +7384,12 @@ lint 全清。
   世界换了就重建（TS `this.inst?.world !== world` 的对应物）。`set_cmd` 里
   `split(' ')` → `js_trim` → 跳过空词 → `words`（保大小写）/ `positionals`（滤 `--` 开头）；
   命名参数缓存 `args_` 在每次 `set_cmd` 里 `reset()`。
-- `IWorldLfw` 缝上加 `handle_cmds()`（TS `World.handle_cmds` 直呼 `CMDS.handle`；端口由台面
   假件转呼 `CMDS::handle`，同时把 `cmds` 队列空/非空两半都过了）。
 - 台面私货 `__probe__`（两侧同名注册）把解析层的结果逐条打出来 —— 词数 / `words` /
   `positionals` / `str` / `num` / `nums` / 各命名参数，`args` 的怪键（`--` / `-` / `--eq` /
   `=y`）都用它钉住。注册用**大写键**（`CMDS.register("__PROBE__", …)`）以暴露注册侧降格。
 
-**照抄的怪癖 / 费解处**（序号接 §84 的 41）：
+**照抄的怪癖 / 费解处**（序号接 §88 的 41）：
 42. **全空白命令 TS 会 TypeError**：`handle` 里 `this.inst.words[0].toLowerCase()` 对
     `words[0] === undefined` 抛 —— 端口无异常，直接跳过这一步（`words_.empty()`）。差分台面
     因此不发全空白命令（不是覆盖缺口，是「共同可观测量不存在」）。
@@ -8495,18 +7428,14 @@ lint 全清。
     （第一轮 DESPAWN 变异因此存活）；补上帧 id 后才分开。
 52. **Stage 击杀族只扫 `stage.items`**：`kill_all` / `kill_boss` / `kill_others` /
     `kill_soliders` 遍历的是**重生流程建出来的 items**（`is_boss` / `is_soldier` 分组），
-    不是 `world.entities`。重生流程本刀没搬 ⇒ 台面上这几个方法都是空转、**方法互换不可观察**
     （守卫 / 文案 / 计数那几层已覆盖；记在变异档头部）。
 
 **测试**：新 subject `cmds` + 5 份用例 **683 行**（parse 427 / kill 156 / fs 41 / handle 45 /
 puppet 14）；台面 ops：`cmd s "…"`（直过调度器）、`wcmds`/`handlecmds`（过世界缝）、
 `h s "key"`（查 handler）、`hdump`（世界快照）、`ds` / `bdata` / `sdata` / `bg` / `stage` /
-`cheat` / `mk`/`add` / `ent` / `pup`。变异 `cmds.mjs` **56/56 全杀**（0 存活、0 编译错；
-等价变异 1 条与「有意不覆盖」记在档头）；全量差分 **184/184**、lint 全清。
 
-## 86. 切片 4Y：cmds 家族第二批（作弊码族 + SPAWN / SET_PUPPET / F8）
+## 90. cmds 家族第二批（作弊码族 + SPAWN / SET_PUPPET / F8）
 
-**范围**：`cmds/` 里上一刀缓办的**四块可搬部分** —— 作弊码族（`cheat_code_handler` + `GIM_INK` /
 `HERO_FT` / `LF2_NET` 三条注册 + 三条 help）、`SPAWN`（实体工厂 + 出生流程）、`SET_PUPPET`
 （傀儡创建 / 换数据 / 换控）、`F8`（按舞台/对决刷武器组）。**仍缓办 3 条**：`F4`（UI 按钮）、
 `KEY_EVENT`（按键事件表 + UI 分发）、`POINTER_EVENTS`（UI 命中检测）—— 全卡在未移植的 UI /
@@ -8514,17 +7443,8 @@ puppet 14）；台面 ops：`cmd s "…"`（直过调度器）、`wcmds`/`handle
 
 **形状 / 决策**：
 - **新缝**（宿主层未移植 ⇒ 先挂接口 + 台面假件兜底）：
-  - `IStageLfw::sounds_play_with_load(path)` —— 作弊码音效（`sounds.play` 的「先装载再播」变体）；
-  - `IWorldLfw::create_entity_with_player(pid, world, data)` —— SPAWN 的玩家实体工厂；
-    `create_entity_with_bot` **不是新缝**（它本在 `IStageLfw` 上，与 4X 的 `add_entities` 同源），
-    用 `using stage::IStageLfw::create_entity_with_bot;` 拉进调用面；
-  - `IWorldLfw::acquire_local_ctrl(pid, e)` —— `factory.acquire_ctrl(LocalController…)` 的替身
     （控制器族未移植；`controller/` 刀落地后可改直连）；
-  - `IWorldLfw::datas_fighters_find(oid)` / `datas_weapons_of_group(group)` —— 两种数据表查询
     （SET_PUPPET 只认 fighters 表；F8 按组拿一份拷贝）；
-  - `IWorldLfw::entities_add(data, num)` —— F8 的 `lfw.entities.add`（4X 已在用的刷怪点）；
-  - `IWorldLfw::random_entity_info(e)` —— SPAWN 缺 `--x` 时的随机落位（背景 / 地形相关，留宿主）；
-  - `IWorldLfw::cheat_changed(cmd, enabled)` —— `callbacks.cheat_changed` 钩子。
 - **注册接线**：`cmds.cpp` 按 `index.ts` 次序补 7 条（F8 在 F7 后；GIM_INK / HERO_FT 在 F10 后；
   LF2_NET 在 KILL_SOLIDERS 后；SET_PUPPET / SPAWN 在 SET_DIFFICULTY 后）；作弊码三条共用一个
   handler + 各一条 help。
@@ -8547,7 +7467,7 @@ puppet 14）；台面 ops：`cmd s "…"`（直过调度器）、`wcmds`/`handle
   `is_stage = stage.id !== 'VOID_STAGE'` 选组（StageWeapon / VsWeapon）；逐个
   `entities.add(wd, 1)`。
 
-**照抄的怪癖 / 费解处**（序号接 §85 的 52）：
+**照抄的怪癖 / 费解处**（序号接 §89 的 52）：
 53. **作弊码词大小写敏感**：`is_cheat_type` 吃的是 `ctx.str(0)`（**保留大小写**的原始词 ——
     调度器的降格只负责找 handler）⇒ `gim_ink 1` 静默返回，连 dataset 都不写。
 54. **`prev == enabled` 是宽松比较**：dataset 里存布尔 `true` 或字符串 `"1"` 时 `== 1` 都真 ⇒
@@ -8573,10 +7493,8 @@ puppet 14）；台面 ops：`cmd s "…"`（直过调度器）、`wcmds`/`handle
 `ctrl <label> <bot|human> <pid>`（直造控制器挂实体）；新假件日志 `h:loadplay` / `h:cheatchanged` /
 `h:datasfind` / `h:fdatafind=<id|u>` / `h:wpgroup` / `h:entadd=<id>|<hex>` / `h:randominfo` /
 `h:ceplayer` / `h:cebot` / `h:acqlocal` / `h:release`；实体 dump 追加 **`:did=`**（origin data id ——
-SET_PUPPET 换数据（transform）靠它才可观测）。变异 `cmds2.mjs` **58/58 全杀**（0 存活、0 编译错；
-五条「有意不覆盖 / 不建形」记在档头）；全量差分 **188/188**、lint 全清。
 
-## 87. 切片 4Z：`loader/DatMgr`（数据表管理器 + Resources 的 XML 元素缝）
+## 91. `loader/DatMgr`（数据表管理器 + Resources 的 XML 元素缝）
 
 **范围**：`loader/` 最后一块 —— `DatMgr`（`Inner` + 外层：内置数据两趟 → 索引文件
 （`.xml` / `.json` / `.json5`）→ bots / moves / objects / backgrounds / stages 五趟 → 合并），
@@ -8584,10 +7502,8 @@ SET_PUPPET 换数据（transform）靠它才可观测）。变异 `cmds2.mjs` **
 `ICtrlCreator`，TS `Factory.register_ctrl(data.id, Cls)` 里那个「类」）；②`Resources` 的
 **xml 缝升级** —— `ImportResult` 加 `std::shared_ptr<IXMLElement> xml_root`、宿主缝
 `xml_parse(text, marker, root, error)` 多出一个真·根元素出口（marker 旧语义不变；`resources`
-台面只动 host 一处 + 两处变异锚点，**44/44** 仍全杀）。
 
 **形状 / 决策**：
-- `IDatMgrHost`（宿主缝）：`resources()` / `mt()` / `load_img(path)`（`await images.load_img(path,
   path)` 的完成态）/ `emit_progress(content, progress)`（TS 第三参 `size` 不传）/ `warn(args)` /
   `error(args)`（全局 `Ditto.warn/error`，参数原样给台面渲染）。台面假件与将来的 `LFW` 都实现它。
 - 数据面一律 `Value`：五张实体表 = `std::vector<Value>`，四张 `Map` = 插入序 pair 表
@@ -8605,7 +7521,7 @@ SET_PUPPET 换数据（transform）靠它才可观测）。变异 `cmds2.mjs` **
 - 控制器创建器：`create(player_id, entity)` 只落 `player_id`（端口控制器看不见 `Entity`，env 由
   `Entity::set_ctrl` 刷，见 4R）；一个类一个进程级单例（注册表 / 归池的键就是指针身份）。
 
-**照抄的怪癖 / 费解处**（序号接 §86 的 60）：
+**照抄的怪癖 / 费解处**（序号接 §90 的 60）：
 61. `new Randoming('dat_${group}_randoming', …)` —— 引号写成了**单引号** ⇒ 名字是字面
     `dat_${group}_randoming`（每个组的随机组**同名**）；`get_bg_randoming_of_group` 的名字才是
     真插值的 `bg_<组名用_连>_randoming`。
@@ -8637,7 +7553,7 @@ SET_PUPPET 换数据（transform）靠它才可观测）。变异 `cmds2.mjs` **
     `data.base.bot = data.base.bot ?? bot_map.get(data.id ?? data.base.bot_id)`（`??` 语义；
     bot 缺省时把查到的 bot 数据塞进 `base.bot`，preprocess 接着把它的 `expression` 编成
     judger）；ctx = `{lfw: {images:{},sounds:{}} 桩, data, jobs: [], errors: []}`（加载任务不落地，
-    见 §66）。
+    见 §70）。
 71. `preprocess_bg_data` 的告警转发：TS 在**每个 terrain 项**后按需 `Ditto.warn(SV.Default.warnings)`
     / `Ditto.error(...)`（参数是整个数组）；端口把整趟收集并成一次（≥ 2 个会告警的 terrain 项
     才看得到差别）。
@@ -8655,18 +7571,14 @@ rand 22 / xml 58）；台面 ops：脚本化资源 `jfile` / `xtree` / `jfail` /
 `find` / `botof` / `bgh` / `stg` / `stgz` / `botst` / `findbot` / `findmoves` / `fwv` / `fwpred` /
 `fobjv` / `fentv` / `ffv` / `fbgv` / `objg` / `fg` / `wg` / `fng` / `bgg` / `randg` / `randgc` /
 `bgr` / `rbg` / `ctrls` / `mkctrl`（`Factory::set_warn` 也汇流进同一个日志）。变异 `dat_mgr.mjs`
-**82/82 全杀**（0 存活、0 编译错；等价 / 防御项在档头）；全量差分 **194/194**、lint 全清。
 
-## 88. 切片 4AA：helper 家族 + `Keys` + `JoinQueue`（+ `cases_instances` 补齐）
+## 92. helper 家族 + `Keys` + `JoinQueue`（+ `cases_instances` 补齐）
 
 **范围**：`helper/` 四个实体助手（`ObjectsHelper` / `BallsHelper` / `CharactersHelper` /
 `WeaponsHelper`）、`UIHelper`、`Keys`（`src/LFW/Keys.ts`）、`JoinQueue` + `pick_join_team`
 （`helper/JoinQueue.ts`，给 `ui/component/DanmuGameLogic` 备的料）、`cases_instances` 的
 `sus_cases()`。`LFW.ts` 仍未移植 ⇒ 全部按「宿主回答 `lfw.*`」的既有套路，三个缝：
-`helper::IHelperLfw`（`mt` / `world.entities` / `world.ghosts` / `world.del_entities` /
 `factory.create_entity` / `factory.create_ctrl` / `datas.find_*` / `datas.fighters`·`weapons` /
-`new_team` / `random_entity_info`）、`IKeysLfw`（`world.lifetime` + `regist_keys` /
-`recycle_keys`）、`helper::IUiHelperLfw`（`layers.push_page` / `set_page`）。
 
 **落地形状**：
 - `ObjectsHelper::all()` 是 `virtual`（`BallsHelper` 等覆写），返回 entities 在前、ghosts 在后的
@@ -8694,7 +7606,7 @@ rand 22 / xml 58）；台面 ops：脚本化资源 `jfile` / `xtree` / `jfail` /
   `list.empty()` 早退挡住 ⇒ 用例造不出该分支，变异档记录。
 - `randoms` 的 `v.base.group` **非数组**：TS 会抛 TypeError，端口按「不入选」处理。
 
-**照抄的怪癖 / 费解处**（序号接 §87 的 73）：
+**照抄的怪癖 / 费解处**（序号接 §91 的 73）：
 74. `add` 的计数 `while (--num >= 0)` 先减再比：`2.5` 造 **3 个**、`0.5` 造 0 个、`NaN` 不进
     循环；`create_entity` 回空只 `continue`（计数照走）。
 75. team 三分支：`'?'` ⇒ `team_randoming.get()`（名字 `team_randoming`、src `"1".."4"`、共享
@@ -8711,10 +7623,9 @@ rand 22 / xml 58）；台面 ops：脚本化资源 `jfile` / `xtree` / `jfail` /
 81. `cases_instances`：两个进程级单例 `mt_cases`（名字 `mt`）与 `sus_cases`（名字 `suspicious`）。
 
 **测试**：新 subject `helpers` + 4 份用例 **214 行**（basic 134 / keys 30 / ui 12 / jq 38）；
-变异 `helpers.mjs` **58/58 全杀**（0 存活、0 编译错；等价 / 防御项在档头）；全量差分
 **198/198**、lint 全清。
 
-## 89. 切片 4AB：`LFW` 门面第一批（类核心 + 缝接线）
+## 93. `LFW` 门面第一批（类核心 + 缝接线）
 
 `native/lfw/lfw.{h,cpp}` 落地 `LFW` 本体：静态（`INFO`/`ZIPS`/`instances`/`instance`、
 `VERSION_NAME`/`DATA_LIST`）、实例表、`new_id`/`new_team` 族与重置、`player(s)` 表、
@@ -8725,9 +7636,6 @@ rand 22 / xml 58）；台面 ops：脚本化资源 `jfile` / `xtree` / `jfail` /
 `canonical_lang`/`set_lang`（先 `lang_apply` 再 `on_lang_changed`）、生存排行四开关、
 `end_testers`、`stage_val_getters`（12 个固定词 + `get_val_from_world` 兜底）、
 `buff::regist_buffs`（7 个 `BuffCreator` 单例 + `kind_value`/`GROUPS` 两分支）、
-`stage::EntityItem`（`Entity` → `IItemEntity` 适配）、`Factory::create_entity_with_player`。
-七道缝全部接线：`IWorldLfw`/`loader::IDatMgrHost`/`IResourcesHost`/`IKeysLfw`/
-`helper::IHelperLfw`/`helper::IUiHelperLfw`/`IPlayerInfoHost` + `ILfwHost`/`IUiLayers`。
 
 照抄怪癖（编号接 81）：82. 构造顺序即台面轨迹：注册组件 → 注册 buff → resources →
 datas → sounds/images/keyboard(+回调) → pointings → 三连 `cache_forget` →
@@ -8743,15 +7651,13 @@ helpers → 8 个 player → states → World（`wr_init`）→ 世界启动 →
 失败时保留原语言并警告（`lang should be string, but got …`）。
 
 偏差记录：`dev_mode`/`srank_*` 字段名 C++ 化（TS 的 `dev`/`survival_rank_*` 只在台面
-适配）、helper 访问器改名（`characters_helper()` 等）、`IHelperLfw`/`IDatMgrHost` 的
 `mt()` 合并为 `mt_ref()`、`end_testers` 的表达式类型包装（`StageExpression`）、
 `IgnoreDisposed` 不抛（TS 侧分支相同）、`lang_apply` 的缝契约（宿主负责真正写 i18n，
 LFW 只发 `on_lang_changed`）。
 
 **测试**：新 subject `lfw` + 4 份用例 **125 行**（basic / keys / misc / welds）；
-变异 `lfw.mjs` **11/11 全杀**；全量差分 **202/202**、lint 通过（剩 raw-new 风格告警）。
 
-## 90. 切片 4AC：`LFW` 加载流程（对象包路径 + 首屏）
+## 94. `LFW` 加载流程（对象包路径 + 首屏）
 
 `collect_data_infos`（含 `pick_data_info` / `no_cache_url`）、`on_loading_file`（含
 `get_short_file_size_txt` 的 `toFixed(1)` 端口）、`dispose_guard`（无异常模型：失败出参）、
@@ -8777,11 +7683,9 @@ URL 下载/缓存缝只有接口 + 实现（惰性顺序照抄），台面/变�
 collect 用例覆盖）。
 
 **测试**：`cases/lfw/load.txt`（144 行，collect/对象包/load_data/首屏 load/失败与 guard）；
-变异 `lfw.mjs` 累计 **25/25 全杀**；全量差分 **203/203**、lint 全清。
 
-## 91. 切片 4AD：`LFW` URL 流程台面/变异补齐（+ `cachelate`）
+## 95. `LFW` URL 流程（+ `cachelate`）
 
-上刀 `_load_zip_from_url` 的代码落地但只有缝层，本刀把 URL 流程从「信息 json → 已存 blob →
 Cache.data/blob → 下载（stored / blob+md5 → put → cached / 无 md5）→ 失败」全部拉上台面，
 并给 `full_zip_url` / `zip_content_url` / `no_cache_url` / `short_size` / `on_loading_file` 补上
 可杀变异。台面新增脚本 op：`stored` / `blob`|`buf`（token → 假 zip）/ `dl`（下载脚本）/
@@ -8794,12 +7698,9 @@ Cache.data/blob → 下载（stored / blob+md5 → put → cached / 无 md5）�
 「put 之后的第二次 `Cache.get` 走 `cached.name`」——一次性条目第一次查报 miss、第二次才
 给值（首查命中就没机会下载）。
 
-偏差记录：同 §90（regex 固定模式表 / 错误文本化 / `add_<name>` 不建模）。
+偏差记录：同 §94（regex 固定模式表 / 错误文本化 / `add_<name>` 不建模）。
 
-**测试**：`cases/lfw/url.txt`（103 行）；变异 `lfw.mjs` 累计 **40/40 全杀**；
-全量差分 **204/204**、lint 全清。
-
-## 92. 切片 4AE：UI 叶层第一批（颜色 / 文本解析 / CrossInfo）
+## 96. UI 叶层第一批（颜色 / 文本解析 / CrossInfo）
 
 `native/lfw/ui/` 开张：`color.{h,cpp}`（`Rgb/Rgba` + `hex_to_rgba` + `int_to_rgba` +
 名字表 `RGBA_MAP` + `parse_rgba`）、`ui_parse.{h,cpp}`（`parse_call_func_expression` +
@@ -8824,9 +7725,8 @@ alpha 用 `parseFloat`、其余 `parseInt`（无 radix ⇒ 认 `0x`）。97. `he
 仍按 TS 写回）。
 
 **测试**：新 subject `ui_base` + 3 份用例 **76 行**（color 43 / parse 28 / cross 5）；
-变异 `ui_base.mjs` **15/15 全杀**；全量差分 **207/207**、lint 全清。
 
-## 93. 切片 4AF：`Style` + `isClass`
+## 97. `Style` + `isClass`
 
 `native/lfw/ui/style.{h,cpp}`（TS `ui/Style.ts`，IStyle 用 `Value` 对象表示，字段名同 TS；
 29 对访问器）+ `native/lfw/utils/is_class.h`（`ui/utils/isClass.ts` 的端口模型）。
@@ -8843,9 +7743,8 @@ alpha 用 `parseFloat`、其余 `parseInt`（无 radix ⇒ 认 `0x`）。97. `he
 返回一份**不缓存**的临时包装；`_data` 被赋成非对象后 TS 的 setter 会 TypeError，端口空转。
 
 **测试**：新 subject `ui_style` + 2 份用例 **42 行**（style 32 / class 10）；变异
-`ui_style.mjs` **10/10 全杀**；全量差分 **209/209**、lint 全清。
 
-## 94. 切片 4AG：`read_info_value`（`find_ui_value` / `parse_ui_value`）
+## 98. `read_info_value`（`find_ui_value` / `parse_ui_value`）
 
 `native/lfw/ui/read_info_value.{h,cpp}`：`ICookedUIInfo` 用 `Value` 对象表示（`values` /
 `template_values` / `parent`）；judger 不能塞进 `Value` ⇒ 用枚举 `UIJudger`；`type` 用
@@ -8863,14 +7762,11 @@ null 不报错）；ui 三连校验（falsy / 数组 / 非对象）的报错文�
 偏差记录：`Cls`/构造函数型 `type`（`ret instanceof type`）需要对象→类的映射，端口暂不支持
 （按 null 处理）；judger 的 `is_0_or_1` / `unsafe_is_object` / `unsafe_is_array` 三个已落。
 
-**测试**：新 subject `ui_value` + 1 份用例 **35 行**；变异 `ui_value.mjs` **11/11 全杀**；
-全量差分 **210/210**、lint 全清。
-
-## 95. 切片 4AH：`Schema_IUIImgInfo` + `validate_ui_img_info`
+## 99. `Schema_IUIImgInfo` + `validate_ui_img_info`
 
 生成器 `native/tools/gen_defines_schemas.mjs` 的扫描根从 `src/LFW/defines` 扩到
 `src/LFW/defines` + `src/LFW/ui`（只捞「导出 `Schema_`」的模块）；`schemas_gen.h` 现 **11 份**
-表、台面 `defines_schemas.ts` 多一条 `SCHEMA_TABLES`（§84 的「UI 的 `Schema_IUIImgInfo` 不在
+表、台面 `defines_schemas.ts` 多一条 `SCHEMA_TABLES`（§88 的「UI 的 `Schema_IUIImgInfo` 不在
 范围」注就此作废）。coverage 工具 `check_defines_coverage.mjs` 同样扩根（defines 全量 + ui 只扫
 `export const Schema_`），报数 `10/10` → `11/11`。
 
@@ -8886,9 +7782,8 @@ null 不报错）；ui 三连校验（falsy / 数组 / 非对象）的报错文�
 只报 x）。
 
 **测试**：新 subject `ui_img_info` + 1 份用例 **37 行**（`v` / `vd` / `tag` 三种 op）；变异
-`ui_img_info.mjs` **9/9 全杀**；全量差分 **211/211**、lint 全清（coverage 11/11）。
 
-## 96. 切片 4AI：`xml_to_ui_info`
+## 100. `xml_to_ui_info`
 
 `native/lfw/ui/xml_to_ui_info.{h,cpp}`：XML 元素 → IUIInfo（`Value` 对象）。纯函数、只要
 `IXMLElement` 接口（xml 那刀开的缝），所以直接挂进 **xml 台面**（新 op `x2ui`，用例
@@ -8908,9 +7803,8 @@ null 不报错）；ui 三连校验（falsy / 数组 / 非对象）的报错文�
 偏差记录：无（纯函数，`IXMLElement` 缝已齐）。
 
 **测试**：xml 台面新 op `x2ui` + 用例 `cases/xml/ui.txt` **193 行**（15 次 `x2ui`）；变异
-`xml_ui.mjs` **16/16 全杀**；全量差分 **212/212**、lint 全清。
 
-## 97. 切片 4AJ：`find_ui_template` / `merge_ui_template`（`cook_ui_info` 前两件）
+## 101. `find_ui_template` / `merge_ui_template`（`cook_ui_info` 前两件）
 
 `native/lfw/ui/cook_ui_info.{h,cpp}`：TS 同名模块的 find/merge（`cook_ui_info` 本体随 UI 节点族
 再补）。测试挂 **lfw 台面**（新 op `uinew` / `uinest` / `uifind` / `uimerge` / `devon` / `devoff`
@@ -8928,9 +7822,8 @@ template_values}` —— component 先模板后余下、dev 时再各接一轮 `
 失败一律吞；`template_name` 非字符串 TS 会抛（`startsWith`），端口按找不到处理。
 
 **测试**：lfw 台面新 op 一族 + 用例 `cases/lfw/cook.txt` **35 行**；变异 `lfw_cook.mjs`
-**14/14 全杀**；全量差分 **213/213**、lint 全清。
 
-## 98. 切片 4AK：`ui_load_img`（+ UI 值小工具与宿主图片缝）
+## 102. `ui_load_img`（+ UI 值小工具与宿主图片缝）
 
 `native/lfw/ui/value_spread.{h,cpp}`（把 4AJ 里 cook 文件的 `spread_into` / `field_of` /
 `js_key_count` 提出来共用）+ `ui/ui_load_img.{h,cpp}`。`ILfwHost` 加三缝：
@@ -8948,10 +7841,7 @@ x/y/w/h/dw/dh 保持原样（nullish → 空串）；key 是 `` `${path}?x=${md5
 
 偏差记录：TS 校验错是 `Error(errors.join('\n'))` ⇒ 端口 `error` 同款拼接。
 
-**测试**：lfw 台面新 op + 用例 `cases/lfw/uimg.txt` **15 行**；变异 `lfw_uimg.mjs` **9/9 全杀**；
-全量差分 **214/214**、lint 全清。
-
-## 99. 切片 4AL：`cook_ui_info` 本体
+## 103. `cook_ui_info` 本体
 
 `native/lfw/ui/cook_ui_info.cpp` 补上 `cook_ui_info(lfw, info, parent)`：string ⇒ 先
 `find_ui_template`；有 `template` ⇒ 先 merge；id/name 补全（`no_id_${++__new_id}` 进程级计数器）；
@@ -8979,9 +7869,8 @@ txt_info,items,img,component,style,count,…`），`raw` 接在最后；后续�
 items TS 按字符迭代，端口只告警。
 
 **测试**：用例 `cases/lfw/ucook.txt` **35 行**（17 次 `ucook`）；变异 `lfw_ucook.mjs`
-**19/19 全杀**；全量差分 **215/215**、lint 全清。
 
-## 100. 切片 4AM：UI 事件层 + `UIImgLoader`
+## 104. UI 事件层 + `UIImgLoader`
 
 `native/lfw/ui/ui_event.h`（头文件即全部：`IUIEvent` / `LFWUIEvent` / `LFWPointerEvent` /
 `LFWKeyEvent`；TS 的 `GK` 是字符串枚举 ⇒ 端口用 `std::u16string`）+ `ui/ui_img_loader.{h,cpp}`
@@ -8998,15 +7887,13 @@ items TS 按字符迭代，端口只告警。
 `node got null`）；`load` 里两次 out-of-date 比较在同步端口不可翻转（宿主不重入）。
 
 **测试**：lfw 台面新 op 一族 + 用例 `cases/lfw/event.txt` **15 行** / `imloader.txt` **31 行**；
-变异 `lfw_misc.mjs` **15/15 全杀**；全量差分 **217/217**、lint 全清。
 
-## 101. 切片 4AN：`UINode` 第一段（几何/状态/树/焦点/指针）
+## 105. `UINode` 第一段（几何/状态/树/焦点/指针）
 
 `native/lfw/ui/uinode.{h,cpp}`：构造（`data` → 各字段，`_root` 挂父链）、`UINodeCallbacks`
 九回调、几何（`set_w/h`、`resize`/`move_to`/`set_center`/`set_scale` 收 `std::optional<double>`
 对等 TS 缺省实参）、`global_pos()/set_global_pos/move_to_global`、`cross()/rect()/geo()` 三个
 缓存结构、`hit`、可见性/禁用/透明度、焦点链、树查询与 `get_value`、指针五态、
-`invoke_all_on_show/hide/visible`、`update`。本刀**不做**：`text`/`image` 建形与 `set_text`、
 renderer 面、components 行为（`find`/`search`/`lookup_component`…）、生命周期
 `on_start/stop/resume/pause`、`on_click`/`on_key_*`、`pop_page`/`UILayer`、静态 `create`。
 
@@ -9020,7 +7907,7 @@ fc|sn|ln|fp、fcn、hit、clip、depth）、`npd/npm/npu/npc`、`npl/npe`、`ncb
 回调打 `cb|<nid>|<ev>|…`，节点参数用 `node_ref`/`nref` 归一。
 
 照抄怪癖（编号接 129 → 130）：130. `global_pos()` 只在**自己** `update` 检到几何变化才清缓存
-（含父链），父节点移动/`set_scale` 都不清 ⇒ 陈旧值可见；`cross/rect/geo` 同理全靠 `clear_caches`。
+（含父链），父节点移动/`set_scale` 都不清 ⇒ 陈旧值可`cross/rect/geo` 同理全靠 `clear_caches`。
 131. `hit` 左上角用 `round(center*size)`，右下角却读**原始 `data.size`**（后续 resize 不影响右
 下角）。132. `visible()`/`disabled()` 沿父链 `&&`/`||`，`invoke_all_*` 递归看的是**自身** `_visible`。
 133. 焦点：`set_focused_node` 先将禁用/不可见的新焦点置空；派发 old.on_blur → old cb →
@@ -9035,15 +7922,11 @@ pos.xyz；递归子节点跳过（含父链）禁用者；`_update_times` 无条
 偏差记录：TS 构造尾 `new UINodeRenderer(this)`（渲染器面）不建形；`Object.freeze(data)` 无对等；
 `data.txt_info`/`img` 分支延后刀（台面数据不含）。
 
-**测试**：用例 `cases/lfw/uinode.txt` **125 行**；变异 `lfw_uinode.mjs` **44/44 全杀**；
-全量差分 **218/218**、lint 全清。
-
-## 102. 切片 4AO：`UINode` 第二段（文本/图像/i18n 自动尺寸）
+## 106. `UINode` 第二段（文本/图像/i18n 自动尺寸）
 
 `uinode.{h,cpp}` 第二段：`text`/`image` 建形（`txt_info` 走 `make_i18n_text`；`img_info ?? null`；
 `color`）、`set text`（`set_text_object`：赋值 + `auto_size_by_text`）、`set_text(text, style?)`、
 `auto_size_by_text` / `_text_size_key` / `TextSizeKey` 结构（版本分支 vs JSON 分支）。
-本刀不做：`renderer` 缝、`components`、`on_start/stop/resume/pause`、`on_click`/`on_key_*`、
 `pop_page`/`layer`（同 4AN 待后续刀）。
 
 台面：`nset <nid> text <s>`（节点 Style 分支）/ `text2 <s> <样式值>`（nullish 回落节点 Style；
@@ -9064,15 +7947,10 @@ pos.xyz；递归子节点跳过（含父链）禁用者；`_update_times` 无条
 `image = img_info ?? null`。
 
 偏差记录：`renderer = new D.UINodeRenderer(this)` 不建形（同 4AN）；`TextInfo`/`ImageInfo` 只保留
-本刀用到的字段（`text/style/w/h/scale`），其余类字段（`key/url/pic/…`）不建形。
 
-**测试**：用例 `cases/lfw/uinode_txt.txt` **61 行**；变异 `lfw_uinode_txt.mjs` **24/24 全杀**；
-全量差分 **219/219**、lint 全清。
-
-## 103. 切片 4AP：UI 骨架（页面栈 + 生命周期 + 输入 + 动作）
+## 107. UI 骨架（页面栈 + 生命周期 + 输入 + 动作）
 
 `ui/uilayer.{h,cpp}`：`UILayer`（页面栈 + `set/push/pop/dispose` + `UILayersCallbacks`）
-与 `UILayers`（`push/ensure/at/all/ui_top/length`，实现 `IUiLayers` 缝；页面用 `unique_ptr` 持有）。
 `ui/action/actor.{h,cpp}`：`UIActor`（handler 表 + `act`）与单例 `actor()`。
 `UINode` 追加：`static create`（items 计数递归；components 随后续刀）、`on_start/on_stop/on_resume/
 on_pause`、`on_click`、`on_key_down/on_key_up`、`pop_page`。`ILfwHost` 新缝 `sounds_play_preset`。
@@ -9101,9 +7979,8 @@ rlinfo/rlui/rlz/rlfind/rlfocus/rlfn/rltree/rlact/rldisp`）、`unpatch`（TS 侧
 `renderer` 面继续空转；`broadcast` 端口在 LFW 层就把参数 `to_string`（台面 listen 对 on_broadcast 做同构归一）。
 
 **测试**：用例 `cases/lfw/uinode_life.txt` **59 行** / `uilayer.txt` **70 行**；变异 `lfw_uinode_life.mjs`
-**38/38 全杀**；全量差分 **221/221**、lint 全清。
 
-## 104. 切片 4AQ：UI 缝换真实现（接线第一段）
+## 108. UI 接线（第一段：真页面栈）
 
 `ILfwHost` 删除六条 UI 缝（`ui_cook_path` / `ui_cook_value` / `ui_xml_to_info` / `ui_add` /
 `ui_clear` / `ui_all`）与 `create_layers` 缝；`LFW` 构造函数自建真 `ui::UILayers`
@@ -9125,13 +8002,11 @@ rlinfo/rlui/rlz/rlfind/rlfocus/rlfn/rltree/rlact/rldisp`）、`unpatch`（TS 侧
 `_disposed` 时 `uis.clear()` 并把 `uis.all` 当返回值（**不**置 `_ui_loaded`）。147. `load_builtin_ui`
 按 `_index.json` 顺序 `ret.unshift(...)`（**倒序**堆），最后一次性 `uis.add(...ret)`。
 
-偏差记录：`IUiLayers` 抽象类保留（作 `UILayers` 基类）；`UILayers` 成员所有权在 `LFW`
 （`unique_ptr`），`dispose()` 只清层不注销对象；台面侧的补丁/假实现/`listen` 归一不属于端口行为。
 
 **测试**：全 lfw 用例 **15/15**（load 行数 144 → 137，与台面补丁移除同步）；变异
-`lfw_uinode_life.mjs` 新增两条（`on_set`/`on_push` 接线）共 **40/40 全杀**；全量差分 **221/221**。
 
-## 105. 切片 4AR：schema 类类型与惰性实例（instance_getter/setter + make_schema）
+## 109. schema 类类型与惰性实例（instance_getter/setter + make_schema）
 
 `utils/schema/validate_schema.{h,cpp}` 升级：类类型标记 `$cls:<类名>`（`is_class_type` / `class_type_name`——
 TS 的 `type` 可以是构造器（函数），端口的数据表装不下函数）；`instance_getter` / `instance_setter` 钩子 +
@@ -9158,10 +8033,7 @@ remains = meta 去 `properties/items/key/type` 后的剩余键（插入序照抄
 台面用标记字符串 + 假类抹平；TS `defineProperty` 的惰性求值在此以 `DefinedInstance` 数据建模，
 **读取时**才调 getter（外部可观测行为一致）；`psch` 是台面自造的观测格式，不属端口行为。
 
-**测试**：用例 `cases/schema/inst.txt` **58 行**；变异 `schema_inst.mjs` **29/29 全杀**、
-既有 `schema.mjs` **47/47** 复跑全杀；全量差分 **222/222**。
-
-## 106. 切片 4AS：UIProps + UIComponent 基类 + UINode 组件循环
+## 110. UIProps + UIComponent 基类 + UINode 组件循环
 
 新 `ui/component/ui_props.{h,cpp}`（UIProps）、`ui/component/ui_component.{h,cpp}`（UIComponent 基类 +
 `find_node` 迷你语言 + `keys`/LR/UD + 废弃的 args 访问器）、`ui/register_class.h`（类名 ↔ `ClazzTag` 登记表，
@@ -9197,10 +8069,7 @@ IS 无 RTTI 的 `isUIComponentClass`/`isUINodeClass` 替代）、`ui/instance_re
 `regist_ui_class` 自注册（UINode/UIComponent 构造前静态登记，台面假类手工登记）；Factory 的 `Ditto.warn`
 第二参（info）不落地。
 
-**测试**：用例 `cases/lfw/uicomp.txt` **119 行**；变异 `lfw_uicomp.mjs` **18/18 全杀**
-（`lfw_uinode_life.mjs` 锚点随本刀修字后 **40/40** 复跑）；全量差分 **223/223**。
-
-## 107. 切片 4AT：UINode renderer 缝
+## 111. UINode renderer 缝
 
 新 `ui/ui_node_renderer.h`（`IUINodeRenderer`：`del_self` + 八个 `on_*` 虚函数，默认空实现）；
 `ILfwHost` 新增缝 `create_ui_node_renderer(UINode&)`（默认 nullptr；TS 是每节点 `new Ditto.UINodeRenderer(node)`）；
@@ -9217,9 +8086,8 @@ actions 之前；子节点 pause 不碰 renderer。`on_show` 的 renderer 转发
 `render/add/del/parent/x/y/visible` 等渲染面方法未建形。
 
 **测试**：用例 `cases/lfw/uicomp.txt` **149 行**（其余 lfw 用例行数同步增长：`uilayer` 199、`uinode` 165、
-`uinode_life` 111…）；变异 `lfw_uicomp.mjs` **23/23 全杀**；全量差分 **223/223**。
 
-## 108. 切片 4AU：组件族第一批（FocusBehavior/HoverBehavior/OpacityHover/SineOpacity/FadeInOpacity + 注册表）
+## 112. 组件族第一批（FocusBehavior/HoverBehavior/OpacityHover/SineOpacity/FadeInOpacity + 注册表）
 
 新 `ui/component/component_registry.{h,cpp}`（`ComponentCreatorT<T>` 模板 + `regist_components()`；
 `regist_one<T>(name)` = `regist_ui_class(tag, name)` + 静态 creator + `Factory::register_component`，
@@ -9243,9 +8111,7 @@ reverse 公式 `(!over && !focused) || down`）、`sine_opacity`（五参 min/ma
 
 偏差记录：`Easing::set_val_1` 返回 void（TS 可链式）；渲染未移植照旧。
 
-**测试**：用例 `cases/lfw/components.txt` **97 行**；变异 `lfw_components.mjs` **16/16 全杀**；全量差分 **224/224**。
-
-## 109. 切片 4AV：动画族组件（OpacityAnimation/OpacityFlash/FadeOutOpacity/ScaleAnimation/PositionAnimation/ScaleClickable/PauseHandling）
+## 113. 动画族组件（OpacityAnimation/OpacityFlash/FadeOutOpacity/ScaleAnimation/PositionAnimation/ScaleClickable/PauseHandling）
 
 七个新组件：`opacity_animation`（args 对列，相等段 Delay / 不同段 Easing+linear，`play/reverse` 真值起播，`start`/`stop` 公开）、
 `opacity_flash`（props `steps`/`times`，缺省 steps 自带的相等段走 Delay，`loop.set_times`；start/stop/replay）、
@@ -9266,9 +8132,8 @@ TS 又链了冗余的 `set_val_1/set_val_2`（端口构造参数已同值；`set
 真值（`'false'`/`'0'` 以外全真）；缺 props 时反转为假 = 跟随 `world.paused`。
 
 **测试**：用例 `cases/lfw/anim.txt` **138 行**（新台面 op `wpause`/`cplay`；TS 假 Vector3 补 equals/clone/sub）；
-变异 `lfw_anim.mjs` **22/22 全杀**；全量差分 **225/225**。
 
-## 110. 切片 4AW：布局族组件（FlexItem/VerticalLayout/HorizontalLayout/FitChildren/WrapContent）
+## 114. 布局族组件（FlexItem/VerticalLayout/HorizontalLayout/FitChildren/WrapContent）
 
 五个新组件 + `flex_align.h`（`FlexAlign` 枚举 + `ALL_FLEX_ALIGN()`）：`flex_item`（props `align` +
 `oneof` 四值校验；getter 缺省 null；台面 op `calign` 钉校验失败/缺省两种路径）、`vertical_layout`
@@ -9283,14 +8148,12 @@ props `wrapWidth/wrapHeight` 仅参与校验，`apply` 先读一次 props）。
 `w/h` 为 0 时 center 落 0（除零保护写成三目）；`child.rect` 用真包围盒（含 center 偏移）。
 178. FlexItem 的 `oneof` 是 schema 关键字（不在选项内 → 校验失败 → 端口 props() 返 nullptr，TS 抛）。
 
-**测试**：用例 `cases/lfw/layout.txt` **40 行**；变异 `lfw_layout.mjs` **16/16 全杀**；全量差分 **226/226**。
-
-## 111. 切片 4AX：Picture / ImgLoop / SmoothNumber
+## 115. Picture / ImgLoop / SmoothNumber
 
 三个新件：`picture`（TAGS `["Picture", "Image"]`；props `width/height`；`set_src` 拼 `{path, dw, dh}` 进
 `UIImgLoader`，失败走 `host.warn`；getter 回退 `node.w/h`；`src` 读 `node.image.src`）、`img_loop`
 （props `w/h`（必填）/`col/row/count/duration`；构造期把 `Easing` 打成 1000ms+linear+times(0)+fill(1)；
-`on_start` 按行列展开 `rects`（双重循环都卡 `count`）；`update` 按 `floor(anim.value)` 切片——
+`on_start` 按行列展开 `rects`（双重循环都卡 `count`）；`update` 按 `floor(anim.value)`——
 越界隐藏、命中就 `image.clone()` 后写 `clip_*`，`done` 自禁；`stop/start` 切 `times`+`count`）、
 `SmoothNumber`（线性=每步 `speed`、指数=`factor*(t-v)` 且 `min_diff` 内吸到目标；setter 相等早退；`handler` 回调）。
 
@@ -9300,10 +8163,7 @@ C++ `regist_one` 需对 `Picture` 巨两次（`Picture`/`Image`）。180. `image
 181. ImgLoop 的双重循环**两层都卡 count**（内层条件去掉在可观察面上等效：idx 永远 < count）。
 182. SmoothNumber 的两个 setter 都有「与当前相等就早退」守卫（`set_target` 相等时不重置 `done`）。
 
-**测试**：用例 `cases/lfw/img.txt` **113 行** + `cases/lfw/smooth.txt` **44 行**；变异 `lfw_widget.mjs` **15/15 全杀**；
-全量差分 **228/228**。
-
-## 112. 切片 4AY：Reachable / ReachableGroup（焦点导航）
+## 116. Reachable / ReachableGroup（焦点导航）
 
 两个新组件：`reachable`（args = [group]；`group_name` 缺省空串；`group()` 从 `node.root()` 向上 `lookup_component`
 同名 ReachableGroup）与 `reachable_group`（args = [group, direction, binded_layout_id?]；`binded_layout` 缺省自身、
@@ -9317,10 +8177,7 @@ C++ `regist_one` 需对 `Picture` 巨两次（`Picture`/`Image`）。180. `image
 组挂在子节点（而非 root 自身/祖先）时永远找不到（TS 如此）。185. `binded_layout` 的 `find_child` 只查**直接子节点**。
 186. `focus_prev` 无焦点时 `max(idx,0)` → 落在最后一项；`focus_next` 无焦点（-1）→ 0 即最左项。
 
-**测试**：用例 `cases/lfw/focus_nav.txt` **55 行**（新台面 op `reach`）；变异 `lfw_reach.mjs` **13/13 全杀**；
-全量差分 **229/229**。
-
-## 113. 切片 4AZ：DifficultyText / PlayingTimeText / FnKeysCounts / ExtraZipText
+## 117. DifficultyText / PlayingTimeText / FnKeysCounts / ExtraZipText
 
 四个新组件：`difficulty_text`（TAGS 别名 `difficulty_text`；`on_resume` 订 `on_dataset_change`
 并立即写一次，`on_pause` 退订；写 `dataset.difficulty` 的标签）、`playing_time_text`（`on_show` 把
@@ -9335,10 +8192,7 @@ C++ `regist_one` 需对 `Picture` 巨两次（`Picture`/`Image`）。180. `image
 已登记的字段（如 `itr_fall`）。188. TS `Stage.time` 是属性 setter（端口对应 `set_time`）。
 189. `world.counts()` 里查不到的键按 0 写（`?? 0`）。
 
-**测试**：用例 `cases/lfw/texts.txt` **81 行**；变异 `lfw_texts.mjs` **13/13 全杀**；全量差分 **230/230**。
-
-
-## 114. 切片 4BA：PrefixAndDifficultyText / StageTitleText / StageTitleShow / HideWhenDialoging / PlayerKeyText
+## 118. PrefixAndDifficultyText / StageTitleText / StageTitleShow / HideWhenDialoging / PlayerKeyText
 
 五个新组件 + 一个助手：`prefix_and_difficulty_text`（args[0] 前缀；`on_start` 读前缀，`on_resume` 订
 `on_dataset_change` 并立即写 `"<前缀> (<难度名>)"`，`on_pause` 退订）、`stage_title_text`（订世界
@@ -9370,9 +8224,7 @@ C++ `regist_one` 需对 `Picture` 巨两次（`Picture`/`Image`）。180. `image
 `sphase` / `sfield`（进阶段 / 就地改当前舞台数据字段）、`dialpush` / `dialnext` / `dialclear`、
 `stevt`（手发舞台回调）、`pkeye`（`set_key(..., emit=true)`）。
 
-**测试**：用例 `cases/lfw/titles.txt` **137 行**；变异 `lfw_titles.mjs` **38/38 全杀**；全量差分 **231/231**。
-
-## 115. 切片 4BB：TextInput / PlayerNameInput / PlayerName / PlayerTeamName / FighterName / RandomVisible
+## 119. TextInput / PlayerNameInput / PlayerName / PlayerTeamName / FighterName / RandomVisible
 
 六个新组件：`text_input`（基类，只存 `_text`；`maxLength`/`defaultValue` 读 props）、`player_name_input`
 （绑玩家名：`player_id` 从节点 `values.player_id` 取（`get_value(..., true)` 会向上找）；`on_start` 订
@@ -9397,14 +8249,11 @@ C++ 侧 `randoming_default_mt()` 是懒建（`clock_now()`）——两侧台面�
 `pname <pid> <name>`（`set_name(..., true)`）、`ccall <nid> <cls> <join|quit> [text] [com] [decided]`；
 `nlife` 加 `blur`/`foucs`。
 
-**测试**：用例 `cases/lfw/menu.txt` **254 行**；变异 `lfw_menu.mjs` **39/39 全杀**；全量差分 **232/232**。
-
-
-## 116. 切片 4BC：组件回调总线 + IntegerPicker
+## 120. 组件回调总线 + IntegerPicker
 
 **回调总线改版**：TS 里 `UIComponent` 基类挂着 `callbacks: IUICompnentCallbacks`（各组件再扩自己的接口
 `IIntegerPickerCallbacks`）。C++ 侧删掉基类那份 `UIComponentCallbacks`/成员，改成**每个组件自带**
-一份带类型的总线：组件头里定义载荷结构（如 `IntegerPickerCallbackArgs{curr, prev, self}`）+ 
+一份带类型的总线：组件头里定义载荷结构（如 `IntegerPickerCallbackArgs{curr, prev, self}`）+
 `using IntegerPickerCallbacks = CallbacksT<IntegerPickerCallbackArgs>;`，类里声明 `IntegerPickerCallbacks callbacks;`。
 `CallbacksT::on(key, fn)` 返 `Remover`，`call(key, {args})` 派发。
 
@@ -9435,9 +8284,7 @@ bug；写 `MAX` 反而"更对"但是错的）。205. `props_holder.strs('trigger
 `ibus <nid>`（挂 `on_min_changed`/`on_max_changed`/`on_val_changed` 三个探针，打印
 `ibus|<kind>|<curr>|<prev>|<self==组件?1:0>`）、`iput <nid> <min|max|val> <n>`（调 setter）。
 
-**测试**：用例 `cases/lfw/picker.txt` **125 行**；变异 `lfw_picker.mjs` **36/36 全杀**；全量差分 **233/233**。
-
-## 117. 切片 4BD：Alignment / Players / Sounds
+## 121. Alignment / Players / Sounds
 
 三个「周边」组件 + 一组台面 op。
 
@@ -9471,9 +8318,7 @@ bug；写 `MAX` 反而"更对"但是错的）。205. `props_holder.strs('trigger
 台面新 op：`algn <nid>`（打 `f/l/r/t/b` 节点引用、四个 align 值、四个 offset、`once`、`has`）、
 `apl <nid> <join|leave|read> [pid]`、`scall <nid> <start|stop|replay|read>`。
 
-**测试**：用例 `cases/lfw/ui_misc.txt` **103 行**；变异 `lfw_ui_misc.mjs` **41/41 全杀**；全量差分 **234/234**。
-
-## 118. 切片 4BE：StageTransitions / LabelButton / PlayerCtrlType
+## 122. StageTransitions / LabelButton / PlayerCtrlType
 
 **`stage_transitions`**：`ILFWCallback` 的空壳（只订 `on_enter_next_stage`）。TS 的
 `callbacks.add(this)` 靠 `Set` 去重 ⇒ 端口用「已有订阅就不重订」的 `Remover` 守卫表达（重复
@@ -9499,10 +8344,7 @@ disable_color, text}`（前三者是 UINode 引用）；`checked: boolean | null
 台面新 op：`tsn`（打 `on_enter_next_stage` 的订阅数）、`lbk <nid> [set <文本> | checked <null|0|1>]`、
 `pct <pid>`、`pset <pid> <n> <emit>`（`emit=1` 会真发 `on_ctrl_changed`，用来验"暂停后不再响应"）。
 
-**测试**：用例 `cases/lfw/ui_widgets.txt` **144 行**；变异 `lfw_ui_widgets.mjs` **36/36 全杀**；
-全量差分 **235/235**。
-
-## 119. 切片 4BF：WeaponRain / FighterHead / FighterThumb
+## 123. WeaponRain / FighterHead / FighterThumb
 
 **`weapon_rain`**：props `{oids, groups, chance, interval, power, limit}`；默认 0.08 / 1200 / 1.5 / 3
 （`kDefaultInterval` 挪进头文件接到 `Times timer{0, …}` 上，TS 的 `DEFAULT_INTERVAL` 也是这么用的）。
@@ -9548,10 +8390,7 @@ disable_color, text}`（前三者是 UINode 引用）；`checked: boolean | null
 "门槛公式 / oids 解析 / warn 文案" 挂锚点；用例里的 wr5～wr15 已经把 RNG 流位置和 timer 行为
 钉住了，等台面补上武器数据夹具，直接往这些行上挂锚点即可。
 
-**测试**：用例 `cases/lfw/ui_faces.txt` **183 行**；变异 `lfw_ui_faces.mjs` **32/32 全杀**；
-全量差分 **236/236**。
-
-## 120. 切片 4BG：ComponentsPlayer / StageSwitcher / BackgroundSwitcher
+## 124. ComponentsPlayer / StageSwitcher / BackgroundSwitcher
 
 **`UIComponent` 的 IPlayable 面**：`is_playable() const → false` / `start()` / `stop()` / `replay()`
 四个虚函数（TS 的 `IPlayable`）；`Sounds`、`OpacityFlash` 覆写成真实现 + `is_playable() → true`
@@ -9594,10 +8433,7 @@ disable_color, text}`（前三者是 UINode 引用）；`checked: boolean | null
 开关；`setcheat` op 只排队 cmd，在台面上是死的。索引文件（`backgrounds`/`stages` 描述符）由
 DatMgr **从 zip 里读**，`imp` 只喂索引里引用的具体文件；stage 文件是**列表**（一项也算一层）。
 ⚠ `change_bg` 在本台面**无痕**（无输出、无日志）⇒ stage→背景查询、`VOID_BG` 回落、两个空列表
-分支都测不到，本切片没有对应锚点（等台面给 `change_bg` 加输出再补）。
-
-**测试**：用例 `cases/lfw/switchers.txt` **230 行**（trace 行数；case 文件 162 行）；变异 `lfw_switchers.mjs` **51/51 全杀**；
-全量差分 **237/237**。
+分支都测不到，本单元没有对应锚点（等台面给 `change_bg` 加输出再补）。
 
 ⚠ 观测前提（写锚点时踩到的）：①`if (ids.empty()) return;` 是**等效代码**——节点构造时 `components`
 就是空的、props 建完不可变，去掉早退结果一样（没挂锚点）；②`local` / “从树根搜”只能在**有真父节点**
@@ -9608,7 +8444,7 @@ bg 列表 3 项）的状态上；④`on_resume` 的重复订阅守卫要靠**连
 才测得到：双订阅后每次广播会走两格，在长列表上就露馅；⑤stage 夹具的 `srd` 必须带 `is_starting`，
 否则 Dev 筛与“未开场”筛叠在一起，删掉 Dev 筛也看不出区别。
 
-## 121. 切片 4BH：Flex / Jalousie
+## 125. Flex / Jalousie
 
 **`flex`**：props `{direction, gap, row_gap, col_gap, align, fit, fit_w, fit_h, padding}`。
 缺省/回落：`direction` → `row`、`align` → `start`（两者都带白名单校验）、`gap` → 0、
@@ -9642,10 +8478,7 @@ bg 列表 3 项）的状态上；④`on_resume` 的重复订阅守卫要靠**连
 只写一个轴（`column` 写 y 缩放、否则写 x）。`on_show` 只做 `_anim.calc()` + `update_children()`；
 `on_stop` 清回调（**不**停动画，台面上 stop 后 `cupd` 仍会推进）。
 
-**测试**：用例 `cases/lfw/flex.txt` **148 行**（trace 行数；case 文件 252 行）；变异 `lfw_flex.mjs` **73/73 全杀**；
-全量差分 **238/238**。
-
-## 122. 切片 4BI：Dialogs
+## 126. Dialogs
 
 **`dialogs`**：props `{head_node, text, talker}` 都是 `UINode` 引用（端口 `prop_instance` +
 `ref_to_node`；引用查不到 ⇒ nullptr）。组件里三件东西：`_listner`（`StageDialogListener`，
@@ -9658,19 +8491,18 @@ bg 列表 3 项）的状态上；④`on_resume` 的重复订阅守卫要靠**连
 `set_visible(false)` 并清 `_hiding` → 把 transform 的缩放写回节点；`set_dialog`：真值走 show、
 否则 hide，最后 `world.transform.move_to(0, dialog ? 60 : 0, 0)`（对白上浮）。
 
-⚠ **`warn_async` 缝（本切片新增）**：TS 的 `UIImgLoader` 是 promise，`.catch(e => Ditto.warn(...))`
+⚠ **`warn_async` 缝**：TS 的 `UIImgLoader` 是 promise，`.catch(e => Ditto.warn(...))`
 要到**微任务**才落地；端口同步 ⇒ 行序会不一致。给 `ILfwHost` 加了 `warn_async(args)`（缺省直接
 转 `warn`），`Dialogs`/`Picture` 的 loader catch 都走它；差分台面把它跟 `img:pin` **同一个队列**
 排队，flush 点（`nlife` 收尾）一起吐 ⇒ 两边行序对齐。以后凡是从 promise/微任务里发的告警都该走它。
 
 ⚠ **台面观测盲区**：夹具里的 fighter **不能带 `head`**——端口的数据预处理不落图片加载任务
-（DESIGN §66），带 head 的话 TS 侧会多一行 `img:load` 直接漂移；所以“头像真的换上了”这条分支
+（DESIGN §70），带 head 的话 TS 侧会多一行 `img:load` 直接漂移；所以“头像真的换上了”这条分支
 在台面上测不到（没有锚点），只测到“路径为空 ⇒ 走 `set_img('')` ⇒ 出告警”。
 
 **测试**：用例 `cases/lfw/dialogs.txt` **107 行**（trace 行数；case 文件 97 行）；变异
-`lfw_dialogs.mjs` **32/32 全杀**；全量差分 **239/239**。
 
-## 123. 切片 4BJ：PlayerKeyEdit
+## 127. PlayerKeyEdit
 
 **`player_key_edit`**：继承 `PlayerKeyText`。三块逻辑：
 - `on_start`：节点 style 写 `17px Arial`；把「点父节点」回调挂到 `node.parent().callbacks.on_click`
@@ -9678,7 +8510,7 @@ bg 列表 3 项）的状态上；④`on_resume` 的重复订阅守卫要靠**连
   `e.stop_immediate_propagation()`。
 - `on_foucs`：`on_key_changed()` → 注册指针回调 `r` → 注册键盘回调 `l`；`on_blur` 同序反注册
   （TS 的 `super.on_foucs?.()` 在 `PlayerKeyText` 上没有实现，是 no-op，端口省掉）。
-- `on_key_changed`（本切片改成虚函数）：写 `key_code()` 到文本；聚焦 ⇒ `#5555FF`，否则
+- `on_key_changed`（改成虚函数）：写 `key_code()` 到文本；聚焦 ⇒ `#5555FF`，否则
   `key_code() == "None"` ⇒ `gray`，否则 `white`。
 - 键盘 `l.on_key_down`：没聚焦直接丢；`escape` 跳过写键；否则 `player != null` 才
   `set_key(key_name, e.key, true)` + `save()`（TS 的链式 `.save()`；玩家空 ⇒ 两个都不发生）→
@@ -9688,7 +8520,7 @@ bg 列表 3 项）的状态上；④`on_resume` 的重复订阅守卫要靠**连
 - 指针 `r.on_click`：`_click_me` 真 ⇒ 吃掉并返回（同一次点击的 UI 事件已经处理过）；否则
   `node.focused = false`。
 
-⚠ **新缝：键盘 / 指针回调表**（本切片新增）。TS 里 `lfw.keyboard.callback` / `lfw.pointings.callback`
+⚠ **新缝：键盘 / 指针回调表**。TS 里 `lfw.keyboard.callback` / `lfw.pointings.callback`
 是宿主平台的 `NoEmitCallbacks` 表（LFW 自己 ctor 里 `add(this)`；组件按需 add/del 回调对象）。
 端口把**注册表放在宿主**：`ILfwHost::keyboard_callback_add/del`、`pointings_callback_add/del`，
 `LFW` 上四个同名转发方法。接口按 TS 形状端口化：`LfwKeyboardCallback`（`on_key_down/on_key_up`）、
@@ -9700,15 +8532,14 @@ TS：add **去重**（Set）、del 删除、按插入序**对快照**分发（�
 ⚠ **台面**：`kbdown`/`kbup` 改为**过键盘回调表分发**（不再是直呼 `lfw.on_key_down`；老用例不受
 影响——列表第一项仍是 LFW 自己）；新增 `ptclick <btn>`（平台级点击，走指针回调表）；fake 的
 `add`/`del` 打 `kbd_cbadd`/`kbd_cbdel` / `pt_cbadd`/`pt_cbdel`。`nrd` 新增 `style` 读法：直接渲染
-节点 `style.data`（`fill_style` 这类字段的**取值**只有它能看见；`nrd text` 只给 Style 版本号）。
+节点 `style.data`（`fill_style` 这类字段的**取值**只有它能看`nrd text` 只给 Style 版本号）。
 
 ⚠ **写用例注意**：编辑格的 `player()` 是**查表不建**（先 `player <id>`）；父节点 `on_click` 在端口是
 单槽 ⇒ 一个父节点只挂一个编辑格（TS 是回调表可以叠多个——多格共用父节点会漂移，用例避开）。
 
 **测试**：用例 `cases/lfw/key_edit.txt` **208 行**（trace 行数；case 文件 133 行）；变异
-`lfw_key_edit.mjs` **37/37 全杀**；全量差分 **240/240**。
 
-## 124. 切片 4BK：ComponentFSMState / ModeState / GameModeFSMState
+## 128. ComponentFSMState / ModeState / GameModeFSMState
 
 **`component_fsm_state` / `game_mode_fsm_state`**：模式 FSM 的基础设施（`FSM` 本体在 4 段早期
 就移植了，`Stage` 一直在用）。
@@ -9735,9 +8566,8 @@ TS：add **去重**（Set）、del 删除、按插入序**对快照**分发（�
 只测到 `"end"` 分支与 `== 'win'` 判断本身。
 
 **测试**：用例 `cases/lfw/fsm.txt` **79 行**（trace 行数；case 文件 74 行）；变异 `lfw_fsm.mjs`
-**21/21 全杀**；全量差分 **241/241**。
 
-## 125. 切片 4BL：BGMSwitcher
+## 129. BGMSwitcher
 
 **`bgm_switcher`**：`args[0]` 是循环偏移。`which()` = `_which || lfw.sounds.bgm() || "Silent"`；
 `offset()` = `num(0) ?? 0`。
@@ -9763,9 +8593,8 @@ BGMSwitcher 看不到任何变化）：`play_bgm` 带「同曲不重放」守卫
 （重写 `lfw.bgms`）、`sndbgm`（假声音状态探针 `<bgm>|<is_random>`）。
 
 **测试**：用例 `cases/lfw/bgm.txt` **80 行**（trace 行数；case 文件 69 行）；变异 `lfw_bgm.mjs`
-**23/23 全杀**；全量差分 **242/242**。
 
-## 126. 切片 4BM：UIComponentExpressionBuilder / LoadingContentText
+## 130. UIComponentExpressionBuilder / LoadingContentText
 
 **`ui_component_expression_builder`**：拼「`<id>!Tag(args)`」表达式串（`parse_call_func_expression`
 的逆；`set_id` 走 JS `trim`）。**`FadeOutOpacity::expression(duration = 1000, delay = 0)`**
@@ -9789,9 +8618,8 @@ BGMSwitcher 看不到任何变化）：`play_bgm` 带「同曲不重放」守卫
 既有 `uipg`/`rlnew`/`rlpush`/`nml`/`rlinfo`。
 
 **测试**：用例 `cases/lfw/loading.txt` **94 行**（trace 行数；case 文件 79 行）；变异
-`lfw_loading.mjs` **27/27 全杀**；全量差分 **243/243**。
 
-## 127. 切片 4BN：SliderHandle / ArrowSwitcher / SwitcherHandle
+## 131. SliderHandle / ArrowSwitcher / SwitcherHandle
 
 **`slider_handle`**：`factor`（0..1，内部真值）↔ `value = round_float(min + (max-min)*factor, precision)`
 的双向换算；三种模式（`default` 普通拖动 / `switcher` 按 items 均分 / `items_scroll_bar` 按
@@ -9832,8 +8660,8 @@ update** 让手柄缓动跨格，且要在**跨格前后的多个 update 点读 
 文本”）。
 
 **测试**：用例 `cases/lfw/slider.txt` **462 行**（trace 行数；case 文件 531 行） ；变异
-`lfw_slider.mjs` **131/131 全杀**；全量差分 **244/244**。
-## 128. 切片 4BO：ScrollView
+
+## 132. ScrollView
 
 **`scroll_view`**：props `direction`（`row`/`col` oneof，缺省 `col`）、`content`（UINode，缺省回退
 第一个 `self_visible` 子节点、再回退 `kids[0]`）、`scrollbar_thumb`（UINode）/`scrollbar`
@@ -9889,9 +8717,8 @@ spec 里换成 `view / view`、「删 `f == c` 守卫」等可杀形式；变异
 GBK 乱码，存活提取用 `TextDecoder("gbk")` 反向编码匹配。
 
 **测试**：用例 `cases/lfw/scroll.txt` **636 行**（+ `scroll2.txt` **38 行**，默认 thumb id
-回退）；变异 `lfw_scroll.mjs` **152/152 全杀**；全量差分 **246/246**。
 
-## 129. 切片 4BP：SummaryLogic / FighterStatBar / PlayerScore 族 / TeamSituationText
+## 133. SummaryLogic / FighterStatBar / PlayerScore 族 / TeamSituationText
 
 **`summary_logic`**：makers `make_sum_info`/`make_fighter_sum`/`make_player_sum`（带
 `ctrl.player_id`）/`make_team_sum_info`；三张表 `fighters`/`players`/`teams` 是**插入序
@@ -9932,19 +8759,16 @@ resume 重排）；`_style` = 队色填充 + `12px Arial`；`rr()` 文案
 `Man: N　HP: X(　Reserve: M)`、同文不刷；`update` 节拍 `fmod(game_time, 30) == 0`。端口把
 `_sum` 指针改为 **`_sum_logic` + `_sum_team`**（每次 `rr` 经 `team_sum` 重取引用）。
 
-⚠ **端口修正（随本切片）**：`World::add_entities` 不再用会**建表**的 `player()`，改走新的
-`IWorldLfw::players_get`（同 TS `players.get`）；共替换 4 处调用点（world 两处、
-`cmd_set_puppet`、本切片组件）。
+⚠ **端口修正（随本单元）**：`World::add_entities` 不再用会**建表**的 `player()`，改走新的
+`cmd_set_puppet`、本单元组件）。
 
 ⚠ **台面必需**：`dataset atom_time` 不设 ⇒ 实体 `lifetime`/`world.game_time` 恒 0（Healing
 相位、TST 节拍全部空转、变异天生存活）；首轮世界更新会**重排 `w.entities`**（含新生实体）⇒
 按索引绑定/编辑必须排在一次「洗牌」`wdt` 之后，且洗牌后不再增删实体（`elist` 钉序）。
 
-**测试**：用例 `cases/lfw/score.txt` **725 行**；变异 `lfw_score.mjs` **151/151 全杀**（剔除 5
 条数学等效：FSB 名字缓存×2、Cell 缓存×2、`fall/mp 上限/血上限` 目标反——线性同速归零时比率
-或值不可观测）；全量差分 **247/247**。
 
-## 130. 切片 4BQ：CameraCtrl / EndingPageLogic / MainMenuLogic / SettingsLogic / VsModeLogic
+## 134. CameraCtrl / EndingPageLogic / MainMenuLogic / SettingsLogic / VsModeLogic
 
 **`camera_ctrl`**：`auto_`（TS `auto`，关键字改名）；六个按键 `j/d/L/R/U/D`，`LR = R−L`、
 `UD = U−D`（按住态 = `!is_end()`）。三分支：`j` 按住 ⇒ `auto_=true` + `is_start` 触发
@@ -9992,12 +8816,10 @@ fighter 非空玩家数；2 人 ⇒ `starts_with("_1v1_fighter_stat_")`，否则
 `root()==layer->ui()`）。⚠ 台面 `nid` 是**台面变量名**（`g_nodes`/`tnodes` 键），不是
 `id s "..."`；用错键 `.at` 直接崩。
 
-**测试**：用例 `cases/lfw/page_logic.txt` **756 行**；变异 `lfw_page_logic.mjs` **88/88 全杀**（剔除
 10 条等效：`entity_at` 三守卫（空列表被第二守卫兜住）、focus `candidates`×2、zoom 回退×2、
 `set_staring` 同值早退、MainMenu `reachable_group` 类判、`_stat` 后缀长度——均台面不可观测）；
-全量差分 **248/248**。
 
-## 131. 切片 4BR：StageModeLogic / MiscSettingsLogic / DemoModeLogic
+## 135. StageModeLogic / MiscSettingsLogic / DemoModeLogic
 
 **`stage_mode_logic`**：`on_start` 置 `playrate=1`/`infinity_mp=0`、`listen_stage(world().stage())`、
 扫 `FighterStatBar`（`pN_stat` 手扫 `/p\d_stat/`）、订阅世界 `on_stage_change`；`on_resume`
@@ -10047,12 +8869,9 @@ FSM Running + `set_open(true)`；`on_requrie_goto_next_stage` ⇒ 关帘；`on_k
 
 **测试**：用例 `cases/lfw/modes.txt` **1089 行**（demo 情景抽签 = **袋抽（`random_take`
 不重复）** ⇒ 抽满 23 次必覆盖全部情景，含两个带 oids 的尾项）；变异 `lfw_modes.mjs`
-**139/139 全杀**（首轮基线干净 94/50；补探针后 128/11；再补夹具/端口对齐后全杀。剔除 4 条
 等效/未抽中：`bg_oth` 覆盖、`clearup` 不清世界（台面等效）、两条「首队改 2」变体（对应
-表项从未被抽中））；全量差分 **249/249**。
 
-
-## 132. 切片 4BS：CharMenuHead / CharMenuLogic / GamePrepareLogic
+## 136. CharMenuHead / CharMenuLogic / GamePrepareLogic
 
 **`char_menu_logic`**：选角菜单主逻辑（FSM 五态 `Player` / `CountingDown` /
 `ComNumberSel` / `Computer` / `GameSetting`；状态对象持 `CharMenuLogic&`，`IState::name`
@@ -10140,7 +8959,6 @@ blinking/invulnerable；survival hp/mp 2000/1000；stage hp/mp 走难度表
 事件、`setcheat` 走 push_cmd 队列=死）、`dgrp <group>`（列某分组的斗士 id）、
 `fsuse`（直接切 FSM 态）。⚠ **任何走 `load` 的用例必须 `imp data/spark.obj.json5 spk`**：
 `load_data` 会请求内置 `Defines.kSpark`——漏掉整包加载失败（`dcnt fighters=` 空），
-池/开赛类变异批量假存活（本轮首跑 176 条里 80 条假红的根因）；连带 `idg2c` 引用的
 lfa/lfb/f51/f50/lfc/lfd/lfe/lfj/lfz、`swf` 引用的 bg·st 文件都要 imp。夹具：
 `lfc/lfd/lfe`（group `1000`；lfd 挂 `hidden`、lfe 挂 `Dev`）、`lfj`（id **`"2"`** =
 ∈`SurvivalRankOids`，`base.head = null`、`bg_face = !sprite/RFACE@4x.png` 探「头像回退/
@@ -10151,10 +8969,9 @@ lfa/lfb/f51/f50/lfc/lfd/lfe/lfj/lfz、`swf` 引用的 bg·st 文件都要 imp。
 成乱码 `\u00e5…`，与 TS 的 `\u5168…` 不符——4BS 用例首跑的第二处漂移）。
 
 **测试**：用例 `cases/lfw/char_menu.txt` **3416 行**（trace 行数）；
-变异 `lfw_char_menu.mjs` **169 条（169/169 全杀）**；全量差分
 **250/250**。
 
-## 133. 切片 4BT：LaunchPageLogic
+## 137. LaunchPageLogic
 
 **`launch_page_logic`**（`TAGS=["LaunchPage"]`）：启动页四态 FSM
 `TapHints` → `Introduction` → `GoToEntry` → `End`。props：`entry`(string) /
@@ -10194,10 +9011,8 @@ lfa/lfb/f51/f50/lfc/lfd/lfe/lfj/lfz、`swf` 引用的 bg·st 文件都要 imp。
 `nset <nid> update` 只更新本节点组件（动画观察要在 `nset lp update` 递归后读）。
 
 **测试**：用例 `cases/lfw/launch_page.txt` **159 行**（trace 行数）；
-变异 `lfw_launch_page.mjs` **48 条（48/48 全杀）**（剔 1 条等效：`TAGS()` 列表）；
-全量差分 **251/251**。
 
-## 134. 切片 4BU：LittleFunnyAutoGame / ActionDirector
+## 138. LittleFunnyAutoGame / ActionDirector
 
 **`action_director`**：定时工作队列（`insert/repeat/offset/wait/sort/times` 入表，`update`
 按「当前指针 + 一次性 `min(end_time, time)` 窗口」分发，`_lifetime` 到点 `fmod` 回卷；
@@ -10220,9 +9035,8 @@ work 打 `adw|<tag>`）、`lfgp` 全量探针（`lr/ox/wp/b1|b2(含 hp/hr/hm/fr/
 夹具 `lf3a~lf3d`（3000 组，ce=1/2/3/无）；击杀用 `ehp`，`eteam` 造「榜内改 3 队再杀」场景。
 
 **测试**：用例 `cases/lfw/lfag.txt` **1303 行**（trace 行数）；
-变异 `lfw_lfag.mjs` **54 条（54/54 全杀）**（剔 3 条死代码等效：`freeguys` 复用族）；
-全量差分 **252/252**。
-## 135. 切片 4BV：DanmuGameLogic
+
+## 139. DanmuGameLogic
 
 **`danmu_game_logic`**（`TAGS=["DanmuGameLogic"]`，props `mode: "ffa"|"teams8"|"coop"` 缺省 ffa）：
 弹幕互动三模式。
@@ -10275,239 +9089,14 @@ work 打 `adw|<tag>`）、`lfgp` 全量探针（`lr/ox/wp/b1|b2(含 hp/hr/hm/fr/
 * `eteam` 改队不会触发 `on_fighter_del`；`_teams` 只在 fighter 增删时重算。
 
 **测试**：用例 `cases/lfw/danmu.txt` **808 行**（trace 行数）；
-变异 `lfw_danmu.mjs` **99 条（99/99 全杀）**（剔 5 条等效/不可观察：`untrack` 的两处回调摘除在出列路径上不可达——`Entity::release()` 同轮紧跟清 callbacks、summary 按实体 id 建键且 id 不复用；`update_bg` 相机段的左右 clamp 只在 gameover 重开那一帧执行、gcount 300 帧远超台面观察窗，无法构造稳定命中场景。另：`TEAMS8_TEAM_CAP` 变异锚点从 `.h` 改到 cpp 引用点——头部单独改动不会触发 ninja 重编，首条 `.h` 变异会假存活）；
-全量差分 **253/253**。
 
-## 136. 切片 4BW：碰撞/状态视图的帧几何与 attach 缝（+ 4L 遗留核对）
+## 140. 宿主（`native/host/`，M1 headless 入口）
 
-**背景**：4L/4Q 时 `EntityCollisionView` / `EntityStateView` 的注释写着「帧几何那一层还没搬」
-「`attach` 要 `world.add_entities` / 渲染层」——两条都已过时：帧几何的读法就是
-`Buff.ts` 的 `const { centery = 0, height = 0, pic } = victim.frame` 与 `pic?.h ?? 0`；
-`Entity::attach`（含 `enter_frame(AUTO)` / `add_entities` / ghost 语义）早在 opoint / spawn
-那一刀就落地了。本刀把四条缝接上真实现，并补上台面观测与变异：
-
-* `EntityCollisionView::frame_centery/frame_height/frame_pic_h`：缺省 `0`、`NaN` 保留
-  （`field_or` + `is_missing`）；`pic?.h` 的 `?? 0` 链在视图内（`||` 链留在 `Buff` 侧）。
-* `EntityCollisionView::attach(bool)` / `EntityStateView::attach(bool)`：
-  `_e.attach(Value(on))`。`state/` 层没有调用者（`IStateEntity` 这四条只有 buff 缝在用、
-  buff 走 collision 视图）⇒ 两份实现同构、只给 collision 视图写变异。
-* `WorldCollisionHost::collision_view` 从 private 提到 public（台面探针与分发共用）。
-* 语义点（都用变异锁住）：`attach(true)` 的 ghosted=1 ⇒ 实体进 **`ghosts`** 而不是
-  `entities`；`_mounted` 门挡重复 attach；`attach(false)` 走非幽灵支。
-
-**台面**：`wgeom <label>`（经视图回显 `cy/ht/ph`；TS 侧按同一读法直接读 `e.frame`）、
-`wattach <label> <1|0>`（回显 `mounted/n/g`）。用例 `cases/world/attach.txt` **43 行**：
-三字段齐（25/60/42 值互不相同）／缺 centery+height／无 pic／attach 双支 + 门挡 + 离地。
-⚠ 帧几何探针必须在 `attach` 之后：`wmk` 出来的实体帧是 None，`attach` 里那句
-`enter_frame(Defines.NEXT_FRAME_AUTO)` 才是进数据帧的时机（`fr="0"`）。
-变异 `world_attach.mjs` **11 条（11/11 全杀）**：三缝各「回退 0 / 缺省丢 / 取错字段」+
-attach「不转发 / ghost 反 / ghost 丢」。
-
-**4L 遗留核对结论**（`§78.6` / `§78.7` 的逐条结算）：
-
-| 项 | 现状 |
-| --- | --- |
-| `john_shield` / `ball_frozen` / `weapon_is_hit` / `healing` / `whirlwind` / `ball_hit_other` | 实现 + 用例都已落地（`collision_handlers*` / `collision_ball_frozen` / …）；4L 备注里的「还差」已闭环 |
-| `arest` 进 dump | 已做（`collision_handlers` / `collision_handlers4` / `entity` 探针均带 `arest=`） |
-| `create_buff` 缝 | 已接（`WorldCollisionHost::create_buff` → `LFW::create_buff` → `Factory::create_buff`） |
-| 帧几何三缝 / `attach(bool)` | **本刀接上**（见上） |
-| `get_bounding` 四字段 | `collision.txt` 第 12 组「部分重叠」已锁；`near/far`（z 框）仍对称不可分，保留 |
-| `_core.dataset` 恒空 | 保持（4L 已实测等价） |
-| `tester_debug` 恒 `undefined` | 保持（`Expression` 无 `stringify_expr_debug` 渲染层；只影响 `Ditto.DEV` 日志） |
-| `set_prop` 白名单 | 保持（数据面至今未出现 `SET_PROP`；白名单 16 条覆盖 handlers 用例用法） |
-| `collision_to_snapshot/from_snapshot` 宿主往返 | TS 侧**无调用者**（只有定义）⇒ 无行为差，保留实现待网络层 |
-| `hit_sounds` / `play_sound` 台面日志 | 保持（台面不记 sound 日志） |
-| buff 特效**真链路**（真 `Entity` + `DatMgr` 的 effect oid） | 仍未覆盖：`Buff::show_effect` 走 `find_data` → DatMgr，需数据包加载链；本刀的 `wgeom`/`wattach` 已为这条链路备好两组缝的观测，等 `load` 类用例接入 |
-
-**测试**：全量差分 **254/254**（新增 `world/attach`）；lint **9776 ok / 0 bad anchors**。
-
-## 137. 切片 4BX：视图面合一（EntityViewBase）与 velocity_x/ground_y 统一
-
-**背景**：4BW 收口后，`EntityCollisionView` 与 `EntityStateView` 各自复制同一批
-`buff::IBuffEntity` 面（14 纯虚 + 20 默认虚），差异只在“转发到哪个宿主读法”；
-而 TS 侧 `Entity.ts` 本就是一个类（视图语义 = 实体自身）。本刀按 Plan A 收敛：
-抽公共基类 `EntityViewBase`（持 `Entity& _e`），两个视图改为“状态/碰撞专属方法 +
-继承来的 buff 面”；`buff::IBuffEntity` 接口**保留**（台面假实体仍按接口写造假件）。
-
-**跨族签名冲突结算**（面合一的前提；两族接口机器差分 7 处冲突）：
-* 5 处可重载消解（`enter_frame` 参数名、`enter_frame_by_id`、`play_sound`、
-  `set_invulnerable`、`set_motionless`；独立链各留一行 final overrider 或 `using`）。
-* **2 处硬冲突（同参不同返回）统一为 `double`**：
-  - `velocity_x()`：`IHandlerEntity`(Value) 与 `IStateEntity`(Value) 收口为
-    `double`（TS 侧本就是 `number`；`this.velocity.x` 直读）。
-  - `ground_y()`：同上；`EntityStateView` 此前**漏实现**（落地判定 `py > ground_y`
-    读到默认值 ⇒ 恒 `NaN`）——本刀一并改为实读 `_e.ground_y()`（顺带补上潜在缺口）。
-
-**结构**：
-* 新增 `lfw/entity/entity_view_base.{h,cpp}`：
-  - `class EntityViewBase : public virtual buff::IBuffEntity`，`explicit
-    EntityViewBase(Entity& e)`，`protected: Entity& _e;`；
-  - 纯虚 14 个：id / position / set_position / 帧几何三缝（frame_centery /
-    frame_height / frame_pic_h）/ set_frame / buffs_set / buffs_delete /
-    set_outline_alpha / set_outline_width / set_outline_color / enter_frame_by_id /
-    attach；
-  - 默认虚 20 个：data / state / mp / set_mp / mp_max / dataset / hp / hp_r /
-    set_hp / set_hp_r / set_toughness / data_type / velocity_y / set_velocity /
-    team / set_team / data_indexes_in_the_skys / marks_get / marks_set /
-    marks_delete。
-* `EntityStateView : public state::IStateEntity, public EntityViewBase`；
-  `state::IStateEntity` 改 `public virtual buff::IBuffEntity`（否则菱形下两个
-  `IBuffEntity` 子对象）。保留状态专属成员：assign_position / velocity_x /
-  velocity_z / ground_y / hp_max / motionless / set_motionless / shaking /
-  frame_info / prev_frame / is_on_ground / jumping_x / dismiss_fusion /
-  world_puppets / world_dataset / facing / enter_frame / drop_holding /
-  handle_ground_velocity_decay ×2。
-* `EntityCollisionView : … , public EntityViewBase`：两条**独立虚链**的
-  final overrider 各自保留（`data_type` 转 `base_type` 的 override + 其余一行
-  转发；重叠面触发 C4250 dominance 警告，胜出者为 `EntityViewBase` 版，行为经
-  差分锁定）。
-
-**调用点适配（lfw 内 37+ 处）**：
-* `velocity_x()` 读数全面改 `double`：`character_state_basic`（running 的拖拽带）
-  / `character_state_dash`（三向分支与 next_vx 初值）/ `character_state_falling`
-  （融合速度、朝向判定）/ `character_state_burning`（truthy(Value(vx)) 保
-  NaN-falsy）/ `character_state_caught_rowing`（prev_vx ≥ 0）/ `weapon_state_misc`
-  （0.6 缩放进/进地阻尼）。
-* `ground_y()` 比较去 `to_number` 包裹：basic 站立、dash、jump、lying、walking。
-* `state::clamp_velocity` 增加 `double` 重载（Value 版保留给 `velocity_z`）。
-* **`nan_to_null(double)`**（`character_state_basic` / `state_base` 各一个匿名
-  助手）：实体“无值”（TS `undefined`）读回 `NaN`，直传 `set_velocity` 时还原为
-  `Value()`——两处 dump 漂移（`character_state_basic/main`、`state_base/main`
-  的 `set_velocity:nNaN:nan:…` vs `u`）由此修复；`value` 语义与 4BX 前一致。
-
-**台面适配（22 处假实体）**：`Value velocity_x()/ground_y()` →
-`double`（`lfw::to_number(字段)` 读回；`Value()` 常量改 `to_number` 包回）。
-`wgeom`/`wattach` 输出不变（经继承走同一份 `EntityViewBase` 实现）。
-
-**测试**：全量差分 **254/254**（含上述 2 处漂移修复）；lint **9776 ok / 0 bad
-anchors**（实现迁址 + 签名变更共 71 条锚点重指：`entity_view_base.cpp` 新址、
-double 文本、`nan_to_null`）；变异 **11 枚 spec 共 507 条全杀**：`world_attach.mjs`
-11/11、`weapon_state_misc.mjs` 61/61、`state_base.mjs` 37/37、`character_state_basic`
-37/37 / `burning` 37/37 / `caught_rowing` 39/39 / `dash` 42/42 / `falling` 77/77 /
-`jump` 48/48 / `lying` 84/84 / `walking` 34/34。`state_base` 补了一条用例场景
-（"z 轴正速度超限"进入 Value 版 clamp 上限分支，`main.txt` 46→50 行）。
-
-## 138. 切片 4BY：`buff::IBuffEntity` 退役（buff 以 `lfw::Entity` 为准入）
-
-**背景**：4BX 让 `EntityViewBase` 去实现 `buff::IBuffEntity`（14 纯虚 + 20 默认虚），
-于是「实体面」有三份说法：`Entity` 自己、`EntityViewBase`（转发给 `Entity`）、以及
-两条视图链（`EntityCollisionView` / `EntityStateView`）。TS 侧只有一个 `Entity` 类
-（`Buff.ts` 收到的就是它）⇒ 本刀把窄接口整个删掉，`buff` 直接以 `lfw::Entity` 为准入。
-
-**lfw 侧**：
-* `buff::IBuffEntity`（含其 34 个方法）删除；`BuffEnv::find_entity` / `create_entity`、
-  `Buff::attacter/set_attacker_entity/set_victim/add_victim/del_victim/place_effect(_center)/
-  show_effect/on_*`、`grant_buff`、`MagicFluteEnv::summary_apply_damage` 全部改收/返回
-  `Entity*`。`Buff::place_effect` 从 `victim->position(x,y,z)` 改为直读
-  `victim->position.x/y/z`（TS 就是直读字段）。
-* `Entity` 吸收实体面：新增 `data_indexes_of(key)`，把 `frame_centery/frame_height/
-  frame_pic_h`、`data_type`、`data_indexes_falling`、`data_indexes_in_the_skys`、
-  `set_fallinjury`、`set_wait`、`velocity_y`、`marks_get/set/delete` 收进实体，并把
-  `buffs_set` / `buffs_delete` **改虚**（同面的其它条目都是虚的；台面假实体要观测这两条
-  调用）。
-* 4BX 的 `EntityViewBase` 保留为「纯转发实现」（不再是接口实现类）；`EntityCollisionView`
-  本来就逐条重写家族链（实现见 .cpp），保持不动。
-* **`EntityStateView` 必须逐条补 `IStateEntity` 的实体面重写（本刀最大的一处静默回归）**：
-  4BX 时这些槽的 final overrider 是 `EntityViewBase` —— 它靠 `IBuffEntity` 那条虚链顶上去；
-  接口退役后 `IStateEntity` 自带的默认体赢了（`hp()` 读回 `undefined`、`position()` 恒
-  `0/0/0`、`team()` 空串 …），共 21 条。差分 `entity/main`、`entity/spawn`、
-  `entity/update` 三份当场抓出（`hp=u` vs `n20` 之类）。补法是显式 `override` +
-  `EntityViewBase::xxx()` 转发。
-* `state::IStateEntity`：删掉 14 条实体面（`id` / 帧几何 / `set_frame` / `buffs_*` /
-  描边 / `attach`），新增桥 `virtual Entity* entity_self()`（缺省空）——`buff` 侧只认
-  `Entity`，状态侧要给实体时走它。
-* `State_Base::leave`：HealSelf 分支经 `entity_self()` 取实体再
-  `grant_buff`；`Buff_Healing::duration_of` 从（4BY 中途的）头文件模板**回到 .cpp**、
-  收 `const Entity&`，与 `Buff_MpHealing::duration_of` 同型 —— 9 条「时长公式」变异
-  锚点也随落在 `.cpp` 上，不受下面那条「头文件变异」坑的影响。
-
-**台面（29 个 subject）**：假实体从窄接口改成**真 `Entity`（或其派生）**。
-* 新增 `tests/differential/subjects/entity_fixture.h`：
-  - `fx::Host`：最小 `IEntityHost`（`new_id` 脚本化，其余走默认）；
-  - `fx::shared_host()`：Meyers 单例。**名字里的 `shared_` 是刻意的**：`lfw::Entity`
-    自己有一个成员 `IEntityHost& host() const { return *host_; }`，在 `Entity` 派生类的
-    构造初始化列表里裸写 `host()` 会解析到那个成员 —— 在 `host_` 尚未赋值时解引用它，
-    崩在 `access=0xFFFFFFFFFFFFFFFF`（本刀踩过一次，台面 `state_base_proxy` 三条线索
-    ——`sizeof(Entity)=5840`、成员 vs 独立构造、错地址每次不同——才定位到）；
-  - `fx::StubEntity`：`dataset` 转回调的最小 `Entity` 派生（`buff` 侧对宿主的唯一读面
-    就是 `dataset`）。
-* `buff` 家族（`buff` / `buff_marks` / `buff_electroshock` / `buff_healing` /
-  `buff_magic_flute`）：假实体改为 `lfw::Entity` 派生，观测点落在实体面（`set_position` /
-  `set_frame` / 帧几何 / `buffs_*` / 描边 / `enter_frame_by_id` / `attach` / `marks_*`），
-  日志逐字照抄 TS 侧假件。**实体面上有具体类型的字段**（`hp/hp_r/mp/mp_max/toughness` 是
-  `double`、`team` 是 `u16string` —— TS 侧是 `number`/`string`）用 (值, 是否设过) 两件套承载
-  TS 台面的「没设过 ⇒ 显示 `u`」；`hp/wait` 这类「没设过就参与算术」的，实体面读回 `NaN`
-  （与 TS 的 `undefined` 同义）。
-* 碰撞家族 8 个 subject：`FakeBuff`（原先 14 个空方法的空壳）收成
-  `struct FakeBuff : lfw::Entity { explicit FakeBuff(id) : Entity(fx::shared_host(), Value()) … }`，
-  `buff_entity()` 改 `Entity*`；`collision_healing` 的那个空壳保留 `dataset` 转发。
-* state / 其它 13 个 subject：删掉已退役的 10 条 shim 覆写（`id` / 帧几何 / `set_frame` /
-  `buffs_*` / `set_outline_alpha/width` / `attach`），`BuffEnv` lambda 改 `Entity*`。
-  `state_base` / `state_base_proxy` 额外给 `entity_self()` 一个实体：前者是 `BuffStub`
-  （`dataset`/`buffs_*`/`marks_*` 全带日志 —— `Buff_Healing::mount` 落 mark、读 ticks 都要
-  看得见），后者只是把 `fx::StubEntity` 交出去（`create_buff` 返回空，只用它的 `id`）。
-* `entity.cpp`（大 subject）：`IStateEntity&` 上已经拿不到 `id` / `set_frame` ⇒ 加
-  `self_of(e)` = `*e.entity_self()`（台面里发到状态钩子的就是实体自己的
-  `EntityStateView`，必非空）。
-
-**用例/文档**：`cases/buff_magic_flute/main.txt` 的 `env ateam` / `env vteam` 由数值改为
-字符串（`Entity.team` 是 `string`：TS `get team(): string`、`set team` 里还有
-`this.variant = Number(this._team) || 0`；数值 team 在实体面上过不了往返回合）。文件头的
-op 说明同步改写。
-
-**变异档（6 枚 spec 共 51 条锚点重指）**：`...->id()` → `->id`（`id` 成了字段）、
-`IBuffEntity*` → `Entity*`、`victim->wait()` → `victim->wait`、
-`effect->set_position(x, y, z + 0.5)` → 直读字段的写法、double setter 上的 `Value(...)`
-包装摘掉（`set_hp(Value(min(` → `set_hp(min(`）、`set_wait(Value(to_number(victim->wait()) + 1))`
-→ `set_wait(Value(victim->wait + 1))`、`duration_of` 锚点回 `.cpp`、`state_base` 的
-`grant_buff` 三处改 `victim` / `duration`。重指之外还修了运行器自身的两个坑（见文末）：
-「头文件变异顶台面 mtime」与「测试段 60s 上限」。
-
-**测试**：全量差分 **254/254**（本刀所有验证都做在 `rm -rf build/msvc-x64` 后的**全量重编**
-上 —— 见下面的坑）。lint **9776 ok / 0 bad anchors**（实现迁址 + 签名变更共 51 条锚点重指）。
-coverage 不变（1 条 `text-enum?` 提示是既有）。变异：本刀涉及的 6 枚 spec 共 **250 条全杀**
-（`buff` 61/61、`buff_electroshock` 22/22、`buff_healing` 42/42、`buff_magic_flute` 58/58、
-`buff_marks` 30/30、`state_base` 37/37）。
-
-**⚠ 环境坑（本刀必须记一笔）**：本机 `build/msvc-x64/build.ninja` 里的编译规则是
-`CXX_COMPILER__lfw_core_unscanned_Release` —— **既没有 `deps = msvc` 也没有 `/showIncludes`**
-（CMake 3.28+ 对 MSVC 默认开模块扫描，扫描只挂在 `CXX_SCAN__*` 规则上，普通编译那条就
-不记依赖了）⇒ ninja 不记头文件依赖、**改头文件不会触发重编**，`ninja -t deps …` 恒为
-`#deps 0`。
-
-症状（本刀踩了两次）：改完 `entity_state_view.h` 后 `native.mjs build` 声称成功、`.obj`
-时间戳也新，但运行行为还是旧的；`rm -rf build/msvc-x64` 后全量重编才现出 21 条丢掉的
-重写。所以本刀所有验证都做在**全量重编**上。
-
-第二处是变异运行时的**假存活**：头文件变异（`has_on_tick()`/`has_on_update()`/`State_Base`
-的构造）改的是台面源文件里**内联/实例化**的东西 —— MSVC 把 vtable 与内联体以 COMDAT 放在
-台面的 `.obj` 里，链接时又排在库前面赢得挑选，不重编台面就看不见改动（实测：`buff_electroshock.h`
-的 `has_on_tick()` 改 `false`，单独重编 `buff_electroshock.cpp` + 链接后仍**通过**；再把
-`tests/differential/subjects/buff_electroshock.cpp` 的 mtime 顶一下重编，同一条变异立刻
-在第 13 行 drift 上被杀）。修法落在运行器上（不是构建系统）：`mutate.mjs` 在头文件变异时
-`touch` 台面源文件（`.cpp` 变异不用 —— 运行器每条变异后都会把 spec 提到的文件写回一遍，
-顺带顶新它们的 mtime，那些 `.cpp` 自然每轮重编）。修完 5 条 `has_on_*` + `state_base.h`
-的构造锚点全部由「假存活」变「被杀」。
-
-顺带修的第二处：**测试段没有时限**。`buff` 的 `del_id 删除判定取反` / `del_id 不截断`
-两条变异会让台面转不停（4 分钟以上），原来的 `killed` 是人手动杀进程杀出来的 —— 现在
-`mutate.mjs` 给测试段加了 60s 上限（超时记 `killed (timeout)`，并在超时后 `taskkill` 掉
-卡住的台面 exe，免得它占着 `bin/lfw_trace_<subject>.exe` 让下一条变异的链接变成假
-`compile-error`）。顺带 `buff` 那枚 spec 从 650s 缩到 270s。
-
-（顺手记下根治方向，本刀不改：`-DCMAKE_CXX_SCAN_FOR_MODULES=OFF` 之后普通编译规则会带上
-`deps = msvc` + `/showIncludes`；但 ninja 只认英文前缀，本机 cl 输出的是
-`注意: 包含文件:` ⇒ 还得给 `build.ninja` 补一行 `msvc_deps_prefix = 注意: 包含文件:`。
-在 `native/build/dep-probe` 里验过：补上之后 `ninja -t deps` 能列出 `../../lfw/core/js_num.h`。）
-## 139. 切片 4宿主（M1：headless 可运行入口）
-
-**背景**：到 4BY 为止 `lfw` 侧已经齐了——`core` / `utils` / `defines` / `dat_translator` /
 `loader` / `entity` / `collision` / `buff` / `state` / `controller` / `bot` / `World` / `LFW` /
 `datas` / `ui` 都有实现，但它们只被差分台面驱动过（`tests/differential/subjects/*`，自带假
-实体、假宿主、脚本化数据）。**真数据、真时间轴、真实体表**从来没跑过。本刀把宿主缝接上，
 目标不大但真：装包 → 起世界 → 推帧 → 可复现摘要。
 
-### 139.1 新增 `native/host/`（三件）
+### 140.1. 新增 `native/host/`（三件）
 
 * **`fs_zip.{h,cpp}`** —— 目录当 zip 用（`IZip` / `IZipObject` 的读盘实现）：条目名 = 相对
   `root` 的路径（`/` 分隔、字典序），`file(path)` 直查索引、`file_regex(pattern)` 复用
@@ -10532,73 +9121,14 @@ coverage 不变（1 条 `text-enum?` 提示是既有）。变异：本刀涉及�
   摘要」，结尾打实体表快照与宿主统计。摘要 = 实体表（按 id 排序）的
   `position/hp/mp/team/state` 做 FNV-1a（`core/state_hash`）。
 
-### 139.2 顺带修掉的两处移植缺口（**只有真跑才现形**）
-
-1. **`Entity.ts` 底部的模块级注册没有对应物**：TS 里 `Entity.ts` 最后四句
-   `Factory.register_entity(EntityEnum.{Ball,Weapon,Entity,Fighter}, common_creator)` 是
-   **模块副作用**，所以 `lfw.factory.create_entity*` 在 TS 永远有创建器；端口只搬了
-   `Factory::register_entity` 这个 API，**没人调用** ⇒ `create_entity_with_bot` 恒回
-   `nullptr`（差分台面自己注册假的，所以一直没露）。修法：`entity/entity.{h,cpp}` 加
-   `regist_entities()` + `common_creator`（先 `lfw.acquire_entity(type)` 取复用，拿不到才
-   `new Entity(world->host(), data, states)`），并在 `entity.cpp` 里用一次**静态初始化**顶
-   「模块副作用」——顺序很重要：台面（`subjects/lfw.cpp` 的 `main`）在这之后再注册自己的
-   带日志版本覆盖掉，与 TS 的「先模块副作用、后台面代码」一致。
-2. **`IWorldLfw` 缺 `acquire_entity` 缝**：TS 的 `common_creator` 第一句就是
-   `world.lfw.factory.acquire_entity(data.type)`。补
-   `virtual Entity* acquire_entity(const Value&)` + `LFW::acquire_entity` 转发
-   `factory.acquire_entity`；两份台面假 LFW 给「恒 nullptr」（台面自己 `new`）。
-
-⚠ **坑（本刀踩实了）**：往 `IWorldLfw` **中间**插虚函数会挪 vtable 槽位，而本机 ninja 不记
-头文件依赖（见 §138）⇒ 只有被碰过的 `.cpp` 重编，**28 个 subject 带着旧 vtable 跑**（症状是
-一堆 `world/*`「C++ failed」与 `cmds/*` drift，看着像逻辑坏了）。`rm -rf build/msvc-x64` 全量
-重编后 254/254。⇒ 改接口（尤其虚函数表）**必须全量重编**，这也是 §138 那条建议的价值所在。
-
-另外两处小改：`subjects/factory.cpp` 在开头 `Factory::entity_creators().clear()`——TS 侧那份
-台面只 import `Factory.ts`（没引 `Entity.ts`）所以表是空的，C++ 侧 `entity.cpp` 一定被链进来
-⇒ 台面自己清一遍对齐。`subjects/world.cpp` / `subjects/cmds.cpp` 的假 LFW 补 `acquire_entity`。
-
-### 139.3 实测
-
-```
-lfw_run --root dist --zip build/host-data/prel --frames 300 --every 100
-  loaded: fighters=1 weapons=0 balls=0 entities=1 stages=2 bg=3
-  spawn p1 gim …；spawn p2 gim … → stage=tutorial bg=ash_forest entities=2
-  [frame 299] entities=2 ghosts=0 hp=1000.0 digest=d9b00db799724a2b
-  done: frames=300 ups=60 digest=d9b00db799724a2b warns=0 errors=0 ignored_images=283
-```
-
-* **逐位可复现**：同参数连跑三次摘要一致（时钟手动、`MersenneTwister` 种子 = `--time`）。
-* 舞台相位真的在走：`tutorial` 的 `end_test: cur_phase_time>240` 在第 240 帧把相位推到 1。
-* 两个 gim 都走到了舞台脚本指定的落点（`bound: 900` ⇒ `x=900`），但**没有互相伤害** ——
-  `gim` 是 Dev 用的占位角色（两套图、没有真 bot 数据），要验真对打得等完整数据包。
-* 回归：差分 **254/254**、lint **9776 ok / 0 bad anchors**。
-
-### 139.4 偏差与限制（同时登记在 README 的偏差表）
-
-1. 宿主不渲染 / 不出声 / 不解图 / 不接指针：`ui_image_load` 给零尺寸占位并计数，`md5` 是
-   占位哈希，`Ditto.Cache` 只在内存里，`zip_*`（下载 / 读 blob / 缓存）一律「没有」——
-   所以只走 `ZipItem{path, IZip*}` 这条**对象**加载路，不走 `load_zip_from_url`。
-2. ~~`ToolXML::parse` 未搬 ⇒ `xml_parse` 恒失败~~ **已由 §140 补上**（本刀当时因此装不了带
-   `.xml` 的完整数据包）。
-3. `--zip` 必须给**已解包**目录（README 里给了 `Expand-Archive` 两行），压缩包本体留到
-   后面那刀。
-
-### 139.5 下一刀
-
-**`ToolXML::parse`（XML 文本 → `IXMLElement` 树）** —— **已做，见 §140**：完整数据包现在能装
-（26 fighters / 28 stages / 16 bg），`lfw_run` 一行都没改（它走的就是
-`host.xml_parse → ToolXML::parse`）。再往下的入口见 §140.6：给 `parse` 加一条专门的对拍
-用例、或走「喂输入」把真对打跑起来。
-
-## 140. 切片 4XML：`ToolXML::parse`（XML 文本 → `IXMLElement`）
+## 141. `ToolXML::parse`（XML 文本 → `IXMLElement`）
 
 **背景**：`I.Ditto.XML.parse` 是**宿主服务**（浏览器 `DOMParser` / Node 侧 fast-xml-parser），
 端口早先只搬了「用 `create` / `from_*` 搭树」那条路，`ToolXML::parse` 一直是 `nullptr`
-（`i_xml.h` 记着「读真实文件的那条路等 parse 的刀」）。§139 的 headless 入口一装完整
+（`i_xml.h` 记着「读真实文件的那条路等 parse 的刀」）。§140 的 headless 入口一装完整
 `data.zip` 就撞上它：包里有 12 个 `.xml`（7 个 bg、5 把武器），`DatMgr` 对加载失败是**致命**的
-（照抄 TS 的 `throw`）⇒ 读到第一个 `basketball.obj.xml` 整包失败。本刀把 parse 搬掉。
 
-### 140.1 口径从哪来
+### 141.1. 口径从哪来
 
 TS 侧是 `tool/src/xml/ToolXML.ts`：
 
@@ -10617,7 +9147,7 @@ parse(text) { const data = parser.parse(text.replace(/<!--[\s\S]*?-->/g, ''))
 元素树」这个映射的全部巧妙处都在 fast-xml-parser 的**形状**里：元素只有直接文本时它是**裸
 字符串**、有属性时才出现 `#text`、空白**保留**、`ns:` 前缀去掉、无值属性是布尔 `true`。
 
-### 140.2 形状口径（在真机上用 fast-xml-parser 探针测出来的）
+### 141.2. 形状口径（在真机上用 fast-xml-parser 探针测出来的）
 
 | 输入 | fxp 输出 | 端口对应 |
 |---|---|---|
@@ -10636,1427 +9166,17 @@ parse(text) { const data = parser.parse(text.replace(/<!--[\s\S]*?-->/g, ''))
 DOCTYPE/闭合/开标签），属性值解命名实体，`convert()` 按 `_convert` 的顺序铺（属性 → 文本 →
 子元素）。一个顶层元素都没有 ⇒ `nullptr`（TS 是 `throw`），宿主把它转成失败。
 
-### 140.3 宿主侧
+### 141.3. 宿主侧
 
 `HeadlessHost::xml_parse` 原来在 `root == nullptr` 时报「parse 没搬」；现在改成
 `ToolXML::_xml.parse()` + `marker = Value(true)`（`Resources::import_xml` 判的就是这个真值，
 等价 TS 的 `if (!root) throw ...`）。台面（差分 subject）本来就把 `xml_parse` 脚本化成
 「按文本查 `xtree`」，不受影响。
 
-### 140.4 实测
+### 141.4. 还没验的
 
-```
-lfw_run --root dist --zip build/host-data/prel --zip build/host-data/data \
-        --fighter 1 --fighter 4 --stage 1 --frames 900 --every 300
-  loaded: fighters=26 weapons=19 balls=24 entities=5 stages=28 bg=16
-  spawn p1 1 @(-80,0,0) team=1；spawn p2 4 @(80,0,0) team=2
-  stage=1 bg=bg_2 entities=6
-  [frame 899] entities=6 hp=1200.0 digest=eeecc812075e8b74
-```
-
-* **完整数据包能装了**：26 个 fighters、19 weapons、24 balls、5 entities、28 stages、16 bg，
-  12 个 `.xml`（含 `basketball.obj.xml` 这种带 `dataset/value` 嵌套的）全部过。
-* 舞台实体也起来了：`stage=1` 时 `entities=6`（2 个玩家 + 4 个 `team_13` 的关卡兵）。
-* 逐位可复现：同参数连跑三次「表数量 + 摘要」一致。
-* 回归：差分 **254/254**、lint **9776 ok / 0 bad anchors**。
-
-### 140.5 偏差
-
-1. 只解五个命名实体（见 140.2 的表）——数字引用照抄，与 fast-xml-parser 相同。
-2. 命名空间只做「去 `ns:` 前缀」，没有 `xmlns` 语义（真实数据不用命名空间）。
-3. 宽容度：闭合标签与栈顶不同名 ⇒ 忽略这次闭合（fxp 本身宽容）；`<!DOCTYPE …>` 跳到下一个
-   `>`（数据里没有）。畸形输入下的行为可能与 fxp 不同，格式良好的输入一致。
-
-### 140.6 还没验的
-
-* 现在没有**专门**对拍 `parse` 的差分用例（现有 `xml` 相关 subject 都把 `xml_parse` 脚本化成
-  「按文本查 `xtree`」）。本刀的对齐证据是「12 个真实 `.xml` 全部解析成功、且下游
-  `xml_2_bg_data` / `xml_2_entity_data` 产出的数据能驱动世界跑 900 帧」。要把它钉死的话，
-  下一刀可以加一个 `xml_parse` subject：喂同一份 XML，两侧打印树。**要不要加，按当前
-  「少测试、多实现」的口径由作者定。**
 * 真对打（掉血）还没看到：数据其实是齐的（`bots=22`、`moves=24` 都装进来了，`stage=1` 也起来了
   4 个 `team_13` 的关卡兵），但两个 bot 战士只是**走到敌人旁边站着**（`state` 停在 0/2、双方
   血量不动）。下一步要么顺着 `BotController` 查「为什么不出招」，要么改走「喂键盘输入」那条
   路（`LocalController` + `Keys`）——后者还能顺手把「可复现的对打录像」立起来。
 
-## 141. 切片 4CE：碰撞族窄接口退役（`I*Entity` → `Entity`）
-
-### 141.1 为什么
-
-TS 里碰撞的两边**就是** `Entity`（`collision.attacker: Entity` / `collision.victim: Entity`）。
-端口在 4Q 那一刀建了一整套窄接口（`IHandlerEntity` / `IFallEntity` / …）+ `EntityCollisionView`
-适配层，把同一个 `Entity` 按「碰撞层用得到的那几条」重新拼一遍。那是**只有端口有**的一层：
-TS 从来没有这些接口，`collision/*.ts` 读的就是实体字段。这一刀把这层退役 ——
-与 4BY 退役 `buff::IBuffEntity` 是同一个口径：**实体面只写一遍，谁要就用 `lfw::Entity`**。
-
-### 141.2 删掉的（`native/lfw/` 净减 ~620 行：+540 / −1161）
-
-| 东西 | 位置 |
-| --- | --- |
-| 10 个窄接口 | `collision/{handlers2,fall,weapon_is_hit,n_bdy_normal,n_bdy_defend,action_handlers,handlers3,handlers4,ball_frozen,healing}.h` |
-| `ICollisionViewHost` + `EntityCollisionView` | `entity/entity_collision_view.{h,cpp}`（整文件删除） |
-| 视图宿主那半边 | `WorldCollisionHost` 不再是视图宿主：去掉 `handler_view` / `weapon_view` / `action_view` / `buff_view` / `entity_by_id` / `entity_of_handler` / `collision_view` / `mt_range`，以及视图缓存与「虚基指针 → 实体」反向表 |
-| 缝里的实体类型 | `collision/` 的 10 个 Env（`Handlers2Env` / `ActionEnv` / `Handlers3Env` / `Handlers4Env` / `FallEnv` / `NbdyNormalEnv` / `NbdDefendEnv` / `WeaponIsHitEnv` / `BallFrozenEnv` / `HealingEnv`）的 `find_entity` / `is_fighter` / `is_ball` / `is_weapon` / `is_ally` / `summary_apply_damage` / `handle_ball_frozen` / `run_action` 一律收 `lfw::Entity*` / `Entity&`（`buff::BuffEnv` 自 4BY 起已是 `Entity*`） |
-
-顺带消失的两处历史包袱：`IFallEntity::velocity_x()` 与 `IActionEntity::velocity_x()` 的
-「同名同参不同返回」冲突（那是视图被迫合并三接口才有的问题），以及 4Q 记在 DESIGN 里的
-`-fno-rtti` 反向表。
-
-### 141.3 收进 `Entity` 的实体面
-
-**新增读面**（原实现只在视图里）：`marks_has` / `data_base_hit_sounds` / `data_id` / `frame_id` /
-`cpoint_backhurtact` / `cpoint_fronthurtact` / `data_in_the_skys_first` / `holding_base_type` /
-`fuse_bys_of` / `play_sound(sounds)` + `play_sound(sounds, pos)` / `spark_point(a, b, x, y, z)` /
-`set_prop(name, value)`（`A_SET_PROP` / `V_SET_PROP` 的白名单写入，从视图原样搬来）。
-
-**新增写面**：`set_fuse_bys` / `set_dismiss_time` / `set_dropping` / `set_shaking` /
-`set_motionless` / `set_catcher` / `set_velocity_x` / `set_facing`。
-
-**加 `virtual`（零调用点改动）**：写面 `set_resting` / `set_fall_value` / `set_defend_value` /
-`set_arest` / `set_catch_time` / `set_catching` / `set_invisible` / `set_invulnerable` /
-`enter_frame` / `set_fuse_bys` / `set_dismiss_data` / `set_dismiss_time` / `set_prop` /
-`leave_ground`；读面 `resting` / `fall_value` / `fall_value_max` / `defend_value` /
-`defend_value_max` / `defend_ratio` / `toughness` / `toughness_max` / `catch_time_max` / `hp_max` /
-`arest` / `weight` / `base_type` / `ground_y` / `group` / `spark_point`（`const` 虚）。
-
-为什么要虚：差分台面的假实体从「实现窄接口」改成「派生真 `Entity`」（见 141.4），
-台面要**逐字复刻** TS 侧的 setter 日志与「没设过 ⇒ `u`」的读法，就得能拦这几条。
-这个口径与 4BY 给 `buffs_set` 加的注释是同一句：*台面假实体要观测这几条调用*。
-
-### 141.4 差分台面的形状
-
-台面假实体不再实现接口，而是派生真 `Entity`（`struct Fake : lfw::Entity`，构造用
-`Entity(fx::shared_host(), Value())` 再把 `this->id` 钉上），按 TS 台面的 `get/set` 对覆写实体面。
-`env <side> <field>` 的走法与 TS 的 `walkSide` 一致：**直接写后备字段**（因此不产生日志，
-与 TS 侧绕开自有 setter 的行为逐字对应），库里的写入则落在被覆写的 setter 上打日志。
-`u`（TS 的 `undefined`）用「设过没有」的小标记表示（同 `buff_healing.cpp` 的 `Stat`）。
-
-### 141.5 偏差
-
-1. `is_bot_ctrl` 由「视图方法」改成自由函数 `entity::is_bot_ctrl(const controller::BaseController*)`
-   —— TS 的 `type_check.ts` 本来就是自由函数（读 `ctrl.__is_bot_ctrl__`），接线一起改成
-   `entity::is_bot_ctrl(e.ctrl())`。
-2. `facing` / `shaking` / `motionless` / `catching` / `catcher` 在 `Entity` 上仍是**字段**（TS 也是
-   字段），不做成虚方法：字段写在状态层/实体层有几十处，只在碰撞层换成方法会留下两套写法。
-   碰撞层这一侧统一走 `set_shaking` / `set_motionless` / `set_catcher` / `set_facing`（为了台面
-   能观测），实体内部继续直写字段。
-3. `Entity::spark_point` 走 `host().mt()`（`World::mt()` → `LFW::_mt`，永远非空），
-   与原视图的 `mt_range` / `mt_mark` 缝等价；缝随之删除。
-
-### 141.6 实测与回归
-
-```
-node native/tools/native.mjs build      # rm -rf build/msvc-x64 后的全量干净重编（全部目标 + host）
-node native/tools/native.mjs test       # differential: 254/254 passed
-node native/tools/native.mjs lint       # 840 clean / 0 failed / 9 warnings + 9772 ok / 0 bad anchors
-node native/tools/native.mjs coverage   # coverage: OK（`suffix_map` 仍是既有待定项）
-```
-
-宿主端到端（`lfw_run`，与 §139 / §140 记录**逐位**一致）：
-
-```
-lfw_run --root dist --zip native\build\host-data\prel --frames 300 --every 100
-  → done: frames=300 digest=d9b00db799724a2b            （§139 同值）
-lfw_run --root dist --zip …\prel --zip …\data --fighter 1 --fighter 4 --stage 1 --frames 900 --every 300
-  → done: frames=900 digest=eeecc812075e8b74            （§140 同值；warns=1 仍是既有的 id duplicated）
-```
-
-即这一刀是**纯结构**改动：差分逐字不变、宿主摘要逐位不变、lint 计数只少了随代码消失的锚点。
-
-⚠ 构建陷阱（本刀每次改 `Entity` 虚表都复现）：`build.ninja` 没有 `deps = msvc`，头文件改动
-**不触发重编** ⇒ 改虚表后必须 `rm -rf native/build/msvc-x64` 全量重编（退一步：删
-`lfw/CMakeFiles/lfw_core.dir` + `lfw_core.lib` 并逐个碰 subject `.cpp`），否则会同时出现
-`LNK2001`（新旧名字对不上）与「旧 vtable 的 exe 静默跑错」两种假象。
-
-### 141.7 白名单补漏与台面适配的已知缺口
-
-1. `set_prop` 的白名单本刀补上 `team`：TS 侧 `A_SET_PROP`/`V_SET_PROP` 是
-   `entity[name] = value`，`collision_action_handlers` 的 case 里就有 `name "team"`，
-   原来的白名单没有这一支 ⇒ 库里是 no-op（DESIGN §78 记的白名单偏差中的一个真漏）。
-   现在走 `set_team(to_string(v))`，与 TS 的动态写入对齐（顺带让台面能观测到 `set_team`）。
-2. `Entity::set_team(std::u16string)` 抹掉了值的类型：TS 的 `team` 可以是 number（case 里有
-   `team n 3`）⇒ 台面从「来源实体的镜像」把 number 还原回来，日志文本才对得上。
-3. `Entity::spawn(opoint, offset_velocity, facing)` 保持非虚（TS 的 `spawn` 本体也是走
-   `lfw.factory.create_entity_with_bot`）⇒ 台面经宿主缝观测它；`collision_ball_frozen` 的
-   「spawn 失败」分支因此依赖上一个成功 spawn 记下的 opoint（当前 case 满足）。
-
-## 142. 切片 4CF：状态族窄接口退役（`IStateEntity` → `Entity`）
-
-### 142.1 为什么
-
-TS 的状态钩子收的就是实体本身（`this._state?.on_dead?.(this)` / `update(e: Entity)`），端口却把
-实体的读面重新拼了一遍成 `state::IStateEntity`（155 个成员，其中 ~100 条是 `return Value();`
-的占位），再让 `EntityStateView` 把真实体转发上去、让 `EntityViewBase` 给状态/碰撞两条链共用。
-4CE 把碰撞族那套退役之后，这层就是**最后一个「窄接口 + 视图」**。本刀按同一口径清掉：
-**实体面只写一遍，谁要就用 `lfw::Entity`**。
-
-### 142.2 删掉的
-
-| 东西 | 位置 |
-| --- | --- |
-| `IStateEntity`（155 成员） | `state/state_base.h` |
-| `EntityStateView` | `entity/entity_state_view.{h,cpp}`（整文件删除） |
-| `EntityViewBase`（状态/碰撞两视图共用的实体面转发） | `entity/entity_view_base.{h,cpp}`（整文件删除） |
-| `Entity::state_view_` 成员与 `EntityStateView` 前向声明 | `entity/entity.{h,cpp}`（钩子改成把 `*this` 递出去） |
-| 状态层签名与调用点 | `state/*`（41 文件 2479 行）：126 处 `IStateEntity&` → `Entity&`；~180 处调用点按原生口径改（`to_number(e.hp())` → `e.hp()`、`e.facing()` → `e.facing`、`data_indexes_X()` → `data_indexes_of(u"X")`、`e.position(x,y,z)` → 三个字段读、`set_X(Value)` → 原生参/`to_string`） |
-
-### 142.3 收进 `Entity` 的
-
-**新增**（签名与默认体照搬接口）：`velocity_x` / `velocity_z`（原生 `double`）、
-`frame_on_landing` / `frame_behavior` / `data_base` / `data_frames` / `has_data_indexes`、
-`frame_info`、`jumping_x/y/z/t` 与对应写入、`set_bounced` / `set_throwinjury` /
-`set_drop_hurted` / `set_dead_join` / `set_wakeup_invuln` / `set_lying_a|d|c_count`、
-`assign_position`、holding 一族（`has_holding` / `holding_drink` / `holding_set_hp` /
-`holding_set_hp_r` / `holding_set_velocity` / `holding_set_team` / `holding_mt_mark` /
-`holding_mt_range` / `holding_is_weapon`）、`has_catcher` / `catcher_drop_catching` /
-`has_bearer` / `bearer_motionless` / `set_bearer_motionless`、`world_entities` / `world_etc` /
-`world_callbacks_call`、`ground_segment` / `ground_y(segment, x, z)`、`ref_*`
-（`is_fighter_ref` / `is_self_ref` / `is_ally_ref` / `ref_hp` / `ref_position_x` /
-`ref_position_z` / `ref_set_velocity`）、`lfw_new_team`、`ctrl_*`（`ud` / `lr` / `is_bot` /
-`is_end` / `reset_key_list`）、`datas_find` / `datas_find_fighter`，以及
-`apply_opoints(const std::vector<Value>&)` 重载。
-
-**转虚**（台面假实体要覆写）：`find_auto_frame` / `get_sudden_death_frame` /
-`get_caught_end_frame`，以及上面新增的那些（与 4BY/4CE 同款理由）。
-
-### 142.4 仍然是占位的（本刀只搬不改语义）
-
-`frame_on_landing` / `frame_behavior` / `data_base` / `data_frames` / `has_data_indexes`、
-holding 一族、`world_*` / `ref_*` / `ctrl_*` / `datas_find*`、`ground_segment` /
-`ground_y(segment, …)`、`catcher_drop_catching`、`bearer_motionless` / `set_bearer_motionless`
-—— 默认体**逐字照搬**接口（TS 那边是实体字段/世界查询，端口还没接线；台面上由假实体覆写，
-差分背书）。落实它们属于**功能**、不属于本重构 ⇒ 留作下一刀（`状态面占位落实`）。
-
-### 142.5 口径与偏差
-
-1. `velocity_x` / `velocity_z` 由 `Value` 统一成 `double`（4BX 已给 `velocity_x` 定调，
-   `velocity_z` 跟上）。
-2. 与 `Entity` **字段同名**的读面（`facing` / `wait` / `motionless` / `shaking` / `bounced` /
-   `is_on_ground` / `position` / `dead_join` / `dead_gone` / `wakeup_invuln` / `drop_hurted` /
-   `lying_*_count`）在状态层改成**直接用字段**（方法不能与同名字段共存）；写入仍走虚 setter
-   （台面要观测）。
-3. `set_position(double, double, double)` 的调用点改成三参 `Value(...)`（实体面的位置写入本来
-   就是「按轴可选」语义）。
-4. `entity_self()` 消失（钩子拿到的就是实体自己）；`enter_frame_by_id_fallback(id, fb)` 消失
-   （用 `enter_frame_by_id(Value(id), fb)`）。
-5. 钩子里的 `Entity::mutable_self()`（内部 `const_cast`）：`get_gravity()` / `get_auto_frame()`
-   这些读点本身是 `const` 成员，而钩子体会改实体 —— 旧实现经 `state_view_`（非 const 引用）
-   达到同样效果，口径不变。
-6. `lying_a_count` / `lying_d_count` / `lying_c_count`：`double` → **`Value`**。TS 声明成
-   `number`，但状态层是 `js_add(this.lying_a_count, 1)`，`"3" + 1 === "31"` 是能出现的
-   （`character_state_lying` 的用例就故意喂了字符串）。同款 `set_lying_*_count` 改成**原样存**
-   （去 `to_number`），快照的写/读也照 TS 改成直接赋值（TS：`nums[NSlot.LYING_A_COUNT] =
-   this.lying_a_count`）。这是台面翻出来的**真差异**，不是为了让测试变绿而改口径。
-7. `data_id()`：默认体从读私有 `_data` 改成读**虚的** `data()`（TS 里所有调用点都是
-   `this.data.id`）。台面会替换 `data`；不这样改，`CharacterState_Falling` 的弹跳帧缓存会
-   按 `"undefined"` 做键，永远缓存不上。同一处 `Entity::snapshot` 的 `SSlot::DATA_ID` 一并跟上。
-8. `drop_holding` / `transform` / `transfrom_to_another` / `handle_wait_flag` /
-   `handle_ground_velocity_decay` / `update_velocity` / `dismiss_fusion` / `blink_and_gone` /
-   `blink_and_respawn` / `get_prev_frame` / `holding_base_type` / `set_hp_max` / `set_mp_max` /
-   `set_reserve`：**加 `virtual`**（默认体一字未改）。它们在 `IStateEntity` 上本来就是虚的，
-   状态台面的假实体按旧签名覆写；不加虚，这些覆写要么编不过、要么观测不到。
-   `get_prev_frame()` 只是为了让台面能在读点上打日志（行为仍由 `set_prev_frame` 决定）。
-9. `State_Base::on_restrict`：`velocity_z()` 变 `double` 之后丢了「未设置」信号
-   （TS `clamp(undefined)` 返回 `undefined`）。X 分支早已用 `nan_to_null(...)` 还原，Z 分支
-   漏了 —— 本刀补齐（`V1:set_velocity:u:z:u` ↔ `vel=[u:u]` 这条就是它）。
-
-### 142.6 实测与回归
-
-差分台面：本刀动了 17 个状态 subject 的假实体与 9 个变异 spec 的锚点。
-
-| 项 | 结果 |
-| --- | --- |
-| 全量差分 | **254/254**（一次干净重编后跑整套；状态族 17 个 subject 逐行 byte-exact） |
-| include 分层 lint | `check_lfw_cpp_includes.mjs`：**836 clean / 0 failed / 9 warnings**（9 条是既有告警） |
-| 变异锚点 lint | `check_mutation_anchors.mjs`：**9764 ok / 0 bad anchors（0 unrunnable spec）** |
-| defines 覆盖 | `check_defines_coverage.mjs`：**OK**（schemas 11/11、enum 组 52 条对上） |
-| 宿主行为 | `lfw_run --root dist --zip native\build\host-data\prel --frames 300 --every 100` → **`d9b00db799724a2b`**（与 §139/§140/§141 逐位一致）；`… --zip prel --zip data --fighter 1 --fighter 4 --stage 1 --frames 900 --every 300` → **`eeecc812075e8b74`**（warns=1，同既有） |
-
-台面侧的收尾（两把工具、四个坑）：
-
-1. **老对象是这刀最大的噪声源**：`build.ninja` 没有 `deps = msvc`，改头文件不会触发重编
-   ⇒ 链上的旧 `.obj` 会拿着旧 vtable/旧符号去连新库：轻则 `LNK2019`/`LNK1120`
-   （`QEAA…` 非虚 vs `UEAA…` 虚），重则静默跑着**旧 vtable**（`0xC0000005` 或错行）。
-   可靠做法：删 `native/build/msvc-x64/lfw/CMakeFiles/lfw_core.dir/**/*.obj`
-   （**目录要留着**，删掉会 `C1083`）+ `lfw\lfw_core.lib`，再重编；
-   **别忘了 subject/host 自己的 `.obj`**（`bin\lfw_run.exe` 就因为 `set_hp_max`/`set_mp_max`
-   转虚后没重编而 `LNK2019` 过）。
-2. 并发构建会撞上共享 ninja 目录：`opening deps log/build log: Permission denied` /
-   `LNK1104` / `LNK1181` ⇒ `Start-Sleep 45` 重试即可（不是代码问题）。
-3. `host-data` 目录要**重新解包**：`dist\data.zip` 里没有 `data/spark.obj.json5`（那是
-   `prel.zip` 的条目），两个包都要 `Expand-Archive` 到 `native\build\host-data\{prel,data}`；
-   解包残留会让 `lfw_run` 报 `import_as_json not found: data/spark.obj.json5`。
-4. 我这刀的**自伤**：两次用 PowerShell 的 `@{ k = @(@('a','b')) }` 做批量替换，PS 把内层数组
-   摊平 ⇒ `$pair[0]` 索引的是字符串首字符，`.Replace('e','l')` 一次性毁掉 9–11 个状态文件。
-   后来改成 `git show HEAD:<path>` 逐文件还原 + Node 重放变换。**教训：多文件文本替换一律用
-   Node，别用 PowerShell 的哈希表套数组。**
-
-### 142.7 留给下一刀（不是缺口，是待落实的功能）
-
-`Entity` 上这些状态面成员**默认体仍逐字照搬 `IStateEntity` 的占位**（台面覆写、差分背书，
-宿主数据跑不到那些分支）：`frame_on_landing` / `frame_behavior` / `data_base` / `data_frames` /
-`has_data_indexes`、holding 一族、`world_entities` / `world_etc` / `world_callbacks_call`、
-`ground_segment` / `ground_y(segment, x, z)`、`catcher_drop_catching`、`bearer_motionless` /
-`set_bearer_motionless`、`ref_*`、`lfw_new_team`、`ctrl_*`、`datas_find*`。
-落实它们属**功能**（`状态面占位落实`），与本次纯重构分开。
-另外两条「非虚但台面靠别的缝观测」的现状（如需统一：`frame_id()` 读字段、`world_dataset`
-走宿主缝）已在 PROTOCOL §6.9.183 记明。
-
-## 143. 切片 4CG：状态面占位落实（第一段：输入面 / 帧面 / 持有物面）
-
-### 143.1 为什么
-
-4CF 把 `IStateEntity` 收进 `Entity` 时，那些「宿主/后面的切片回答」的成员是**逐字照搬的占位**
-（`return Value();` / `return false;` …）。占位不影响差分（台面假实体会覆写），但真数据下就等于
-「实体面没有输入、没有帧、没有持有物」。这一刀按**「真数据里跑得到的先做」**把它们落实。
-
-落实前的定位（全是只读勘察核对出来的端口调用点）：
-
-- 输入面：`CharacterState_Walking.cpp:28` 的 `!e.ctrl_ud() && !e.ctrl_lr()` **恒真**（两条占位都回 0）
-  ⇒ 走路状态每帧重进 `enter_frame_by_id(default)`；`CharacterState_Jump.cpp:99-100` 拿 `0/0` 当输入；
-  `CharacterState_Jump.cpp:70` 的 `ctrl_is_bot` 恒假 ⇒ bot 走**人类**分支；`CharacterState_Jump.cpp:75-95`
-  与 `CharacterState_Lying.cpp:90,100` 的 `ctrl_is_end` 恒真 ⇒ 人类分支里每条按键判定都成立；
-  `CharacterState_Falling.cpp:82` / `CharacterState_Lying.cpp:58` 的 `ctrl_reset_key_list` 是空实现。
-- 帧面：`CharacterState_Base.cpp:52`（`frame_on_landing`）、`CharacterState_Base.cpp:70`
-  （`data_frames`：`csb_get_auto_frame` 按索引取帧）。
-- 持有物面：`CharacterState_Drink.cpp:41-56`（喝东西：mt 打标、设 hp / 速度）、
-  `CharacterState_Lying.cpp:19` 与 `CharacterState_Basic.cpp:29`、`CharacterState_CaughtRowing.cpp:21`
-  （`holding_set_team`）、`CharacterState_Walking.cpp:29`（`holding_is_weapon`）。
-- 背人 / 被抱：`weapon_state_misc`（`bearer_motionless`）、`CharacterState_Falling.cpp:21`
-  （`catcher_drop_catching`）。
-
-### 143.2 落实了什么
-
-| 成员 | TS 原文 |
-| --- | --- |
-| `frame_on_landing` | `const { on_landing } = e.frame`（`state/CharacterState_Base.ts:13`） |
-| `frame_behavior` | `c.victim.frame.behavior`（`defines/CollisionVal.ts:54`） |
-| `data_base` / `data_frames` / `has_data_indexes` | `const { base, indexes } = e.data` / `e.data.frames[fid]` / `if (!indexes) return void 0`（`state/CharacterState_Base.ts:25`、`WeaponState_Base.ts:9,22,32`） |
-| `ctrl_ud` / `ctrl_lr` | `this.ctrl.UD` / `.LR`（`controller/BaseController.ts:56-65`） |
-| `ctrl_is_bot` | `is_bot_ctrl(this.ctrl)`（`entity/type_check.ts:29`） |
-| `ctrl_is_end` | `!!this.keys[k]?.is_end()`（`controller/BaseController.ts:186`） |
-| `ctrl_reset_key_list` | `this.keys.reset_key_list()`（`controller/BaseController.ts:102`） |
-| `holding_drink` | `e.holding?.drink`（`state/CharacterState_Drink.ts:14`） |
-| `holding_set_hp` / `holding_set_hp_r` | `holding.hp = holding.hp_r = 1`（同文件 `:42`） |
-| `holding_set_velocity` | `holding.set_velocity(vx, vy, 0)`（同文件 `:45`） |
-| `holding_set_team` | `holding.team = e.team`（`state/CharacterState_Lying.ts:19`） |
-| `holding_is_weapon` | `is_weapon(e.holding)`（`state/CharacterState_Walking.ts:29`） |
-| `catcher_drop_catching` | `e.catcher?.drop_catching()`（`state/CharacterState_Falling.ts:21`） |
-| `bearer_motionless` / `set_bearer_motionless` | `e.bearer.motionless`（`weapon_state_misc`） |
-| `lfw_new_team` | `` team_${++this.__team} ``（`LFW.ts:299`，走 `IEntityHost::new_team`） |
-| `datas_find` | `this.lfw.datas.find(oid)`（`buff/Buff.ts:109`，走 `IEntityHost::find_data`） |
-
-### 143.3 实测
-
-| 项 | 结果 |
-| --- | --- |
-| 库编译 | 通过。两处口径修正：`field_or` 只在 `.cpp` 可见 ⇒ 帧面五条从内联挪到 `entity.cpp`；`set_hp/set_hp_r` 收 `double` ⇒ 走 `to_number` |
-| 全量差分 | **254/254**（台面覆写了这些成员 ⇒ 这同时是「真实现不破坏台面」的回归） |
-| 变异锚点 | **9764 ok / 0 bad** |
-| include 分层 | 836 clean / 0 failed / 9 warnings（既有） |
-| defines 覆盖 | OK |
-| 宿主摘要 | 与 4CF **逐位一致**：`d9b00db799724a2b`（prel 300）、`eeecc812075e8b74`（prel+data 900，warns=1 既有） |
-
-⚠ **诚实说明**：宿主摘要**一点没变** ⇒ 这一刀在「两个 bot 对打 stage 1」这个场景里**没有改变
-可观测行为**：勘察里标「live」的状态分支（walking / jump / dash / lying）在这局里根本没被走到
-（两个战士全程停在 `state=0/2`，只靠速度滑行）。这一刀的价值是**把前置面补齐**（帧链一旦正常
-推进，这些面立刻是必需的），**不是**直接修好「bot 不攻击」。
-
-### 143.4 留给下一刀
-
-1. **判帧器（`__judger`）没接线 —— 「帧链不走」的主要嫌疑。** TS 的
-   `loader/preprocess_next_frame.ts` 会给带 `expression` 的下帧挂 `__judger = new Expression(...)`；
-   端口的 `native/lfw/loader/preprocess_next_frame.cpp` 只递归数组、**不编译任何表达式**，转而指望
-   宿主缝 `IEntityHost::has_next_frame_judge` / `next_frame_judge`（`entity.h:188/195`），而
-   `native/host` **没有实现那两条** ⇒ 带判定器的下帧在真游戏里**永不触发**。
-   端口其实已有这一层所需的一切：`base/expression.h` + `val_expression.h`，以及两条**已经接线**的
-   先例 —— `bot_controller.cpp:961`（`Ctx = BotController`）、`world_collision.cpp:195`（碰撞 ctx）
-   ⇒ 下一刀按同一条「编译进表 + `run(ctx)`」的约定把 `next` 的判定器接上（函数对象不塞 `Value`）。
-2. `world_entities` / `world_etc` / `world_callbacks_call` / `ground_segment` / `ground_y(seg, x, z)`：
-   宿主只有 `list_entities` / `puppets` / `ground_step`，缺这几条缝。
-3. `ref_*`（含写面 `ref_set_velocity`）：引用现在是 `Value` 浅拷贝，写面要身份 ⇒ 引用得带可查的 `id`。
-4. `datas_find_fighter`：`IEntityHost` 只有 `find_data`，没有只查战士表的那条缝。
-5. `holding_mt_mark` / `holding_mt_range`：`mt` 缝有了，缺 `MersenneTwister::mark` / `range` 那一层。
-
-## 144. 切片 4CG 第二段：判帧器（`__judger`）按 TS 接线
-
-### 144.1 为什么 / 之前错在哪
-
-「两个 bot 走近却不攻击」有两条闸门。第一段（§143）补了状态面；这一段处理第二条：
-**带 `expression` 的下帧从未被判定过**。
-
-TS 的做法（`loader/preprocess_next_frame.ts:9-16`）是**加载期**挂载：
-
-```ts
-if (typeof nf.expression !== "string") return nf;
-nf.__judger = new Expression(nf.expression, get_val_getter_from_entity);
-```
-
-而它只在这些地方被调用（就是「挂载作用域」）：`preprocess_frame.ts` 的
-`next` / `on_dead` / `on_exhaustion` / `on_landing` / `on_restrict` / `on_x|y|z_restrict` 以及
-`hit` / `hold` / `key_down` / `key_up` 的每一项、`preprocess_action.ts:28`（`action.data`）、
-`preprocess_entity_data.ts` 的 `on_dead` / `on_exhaustion` 等、`preprocess_itr.ts:29-30`
-（`catchingact` / `caughtact`）。运行时只有两句（`Entity.ts:2185/2198`）：
-数组分支 `if (!nf.__judger) { remains.push(nf); continue; }`、单项
-`const judger = which.__judger; if (judger && !judger.run(this)) return void 0;`。
-
-端口原来把这一层**整个外包**给了宿主缝 `IEntityHost::has_next_frame_judge` /
-`next_frame_judge`，而 `native/host` 两条都没实现 ⇒ 判定器永不生效。
-第一版改动（已回退）把「有没有判定器」实现成「**任何**带字符串 `expression` 的对象」——
-比 TS 宽得多（TS 只在上面那些调用点挂），真数据下撞出**间歇性**内存破坏
-（一次 `--fighter 1 --fighter 4` 加载失败并打出乱码 prefab 名，同命令另一次又正常）。
-
-### 144.2 现在的做法（照 TS 的门）
-
-| 环节 | TS | 端口 |
-| --- | --- | --- |
-| 挂载 | `preprocess_next_frame` 里 `nf.__judger = new Expression(nf.expression, get_val_getter_from_entity)` | `loader::preprocess_next_frame(Value&)` 在**同一个门**（`expression` 是字符串）里登记：`Expression<Entity>` 存进「对象身份 → 判定器」表（`Value` 的对象是 `shared_ptr`，身份跨拷贝稳定；端口不往 `Value` 里塞函数对象，§4.40） |
-| 作用域 | 只有 TS 调用 `preprocess_next_frame` 的位置 | 完全相同：端口的 `preprocess_frame` / `preprocess_action` / `preprocess_entity_data` / `preprocess_itr` 一一对应那些调用点 |
-| 运行时 | `!!nf.__judger` / `nf.__judger?.run(this)` | `Entity::has_next_frame_judge` = `loader::judger_of(nf) != nullptr`；`Entity::next_frame_judge` = `judger->run(*this)` |
-| 宿主缝 | —— | 两条宿主缝**删除**（`IEntityHost` 不再有 `has_/next_frame_judge`），`Entity::get_next_frame` 直接调自己 |
-
-查表用「对象指针 + 源串也相同」双重确认：指针被释放后复用也不会认错；登记用
-`insert_or_assign`（复用地址的新对象会**覆盖**旧登记 —— 这条是被台面翻出来的真缺陷：
-原来 `emplace` 不覆盖 ⇒ 新对象的判定器会被旧登记顶掉、静默丢失，`entity` subject 的一个用例
-（30 个判定器对象分配/释放后再来一个不同源串的）复现了它）。
-
-### 144.3 实测
-
-| 项 | 结果 |
-| --- | --- |
-| 库编译 | 通过（`Expression<Entity>` 需要 `Entity` 完整类型 ⇒ `preprocess_next_frame.cpp` include `entity.h`；`judger_of` 返回非 const 指针（`Expression::run` 写自己的 `result`，与 TS 每次 `run` 同一实例一致）） |
-| 全量差分 | **254/254**（`entity` subject 8/8：假宿主的旧缝覆写消失，改为在 `parseValue` 处调 `loader::preprocess_next_frame`，与孪生挂载点对称；用例补了 `expression s "1==1"` / `s "0==1"` 让真引擎有源串可编） |
-| 变异锚点 | **9764 ok / 0 bad**（`entity.mjs` ×2 与 `loader_actions.mjs` ×1 按新源文重指） |
-| include 分层 / defines 覆盖 | 836 clean / 0 failed / 9 warnings；OK |
-| 宿主摘要 | **与 4CF/4CG 第一段逐位一致**：`d9b00db799724a2b`（prel 300）、`eeecc812075e8b74`（prel+data 900，warns=1 既有）；`--fighter 1 --fighter 4 --stage 1` 连跑 3 次全部通过（此前启用旧版判定器时有过一次加载期乱码失败） |
-
-⚠ **诚实说明**：这一刀**仍然没有修好「bot 不攻击」**。摘要逐位不差说明：在这局里判定器要么没被
-走到、要么它的判定结果与「本来就没有判定器」同解。它的价值是**把 TS 的那层逻辑真正接上**
-（真数据加载期会登记、运行时可判定、台面有孪生对照的用例），并且**修掉了两个真缺陷**
-（作用域过宽导致的偶发内存破坏、登记表陈旧项导致的判定器静默丢失）。
-「不攻击」还差哪一步，需要新的证据：下一步建议给宿主加**帧链跟踪**（每帧打印 `enter_frame` /
-`get_next_frame` 的结果与来源），先在真数据里看清战士卡在哪一帧、`next` 被怎么解析。
-
-## 145. 切片 4CH：bot 目标喂养断裂 —— 「两个 bot 贴身却不攻击」的真正根因
-
-### 145.1 现象与定位过程
-
-VS 模式（TS 口径场景）下两个互为敌人的 bot 跑到同一位置后站定，900 帧零掉血、从不进入攻击状态。
-按顺序排除掉了：
-
-1. **状态机**（`bot/state/**`）：逐函数与 TS 一致（35 个 dataset 键名/默认值全同，键序/`click`/`hold_*`
-   序列逐行对齐，连 TS 的两处小 bug 都忠实照抄）—— 且贴脸时 `x_ok`/`z_ok`/`desire < r_atk_desire`
-   恒真 ⇒ 状态机**必然**会 `click(a)`，不可能是它。
-2. **控制器**（`BotController`）：成员逐一对照同样一致；`should_chase` 对同点敌人恒真。
-3. **场景构造**：补上 `--vs`（见 §146）按 TS 的 `GamePrepareMode` 分支构造后，症状**照样复现** ⇒
-   不是宿主手搓场景的问题。
-4. **`mounted`/`ghosted` 守卫**：运行时打印 `m=1 g=0`，排除。
-5. **决定性观测**（宿主的 `[   bots]` 决策转储）：所有 bot 每帧都是
-   `n_chase=0 n_avoid=0 n_defend=0`，**目标名单永远是空的** —— 而同一帧 `should_chase(102)=1`。
-   即：`should_chase` 说「该追」，`chasings` 却是空的 ⇒ 问题在 `lookup()` 没把目标加进去。
-
-### 145.2 根因：两种「实体引用」被搞混了
-
-| 生成处 | 内容 | 谁在用 |
-| --- | --- | --- |
-| `Entity::ref()` | **只有 `{id}`** | TS 的 `ref` 就是这个薄东西（台面 `run get ref` 一字不差地对它）；`get_val_from_entity` 的 `ref` 读点也用它 |
-| `lfw::ref_of(const Entity&)`（`entity_ref.h`） | 完整视图：`id/position/velocity/frame/team/hp/type/ghosted/data/facing/mounted/invisible/invulnerable/toughness/arest/wakeup_invuln/resting/ground_y/is_on_ground` + 四个关系浅引用 | 「控制器/碰撞/机器人看到的实体」—— `entity_ref.h` 明写**唯一生成处**、别处不许手搭 |
-
-而 `LFW::ctrl_update_lookup`（`lfw.cpp`）给 `BotController::update_lookup` 喂的是 **`e->ref()`（薄）** ✗。
-于是 `BotController::lookup(other_ref)` 里的 `entity::is_fighter/is_weapon/is_ball(other_ref)`（都读
-`data`）**全部恒假** ⇒ 三条分支一个都不进 ⇒ `chasings/avoidings/defends` 永远是空 ⇒
-`BotState_Chasing` 一进来 `if (!en) return Idle` ⇒ **永不攻击**。
-
-这也解释了同时观察到的其它怪事：`should_chase` 用缺失的 `position` 当 0 算距离（所以同点敌人返回真，
-而 102→101 因 `cornered` 判成 1）、`item.cpp`/`stage.cpp` 里那一片 `is_fighter(e->ref())` 同样恒假。
-
-### 145.3 修法与口径
-
-- **`Entity::ref()` 保持薄引用**（先改成 `ref_of` 是错的：台面 `entity/main` 立刻漂移
-  —— TS 那行就是 `{"id":s"e15"}`，把它改胖等于改数据口径）。
-- **调用点改成 `ref_of`**：`LFW::ctrl_update_lookup` 里 `e->ref()` → `lfw::ref_of(*e)`
-  （TS 的 `update_lookup(me, entities)` 收的是**活实体**，`ref_of` 才是它在端口的对应物）。
-- 两处都加了注释，写明「薄引用 vs 控制器视图」别混。
-
-### 145.4 实测（保真度修复 ⇒ 摘要**必然变化**，记为新基线）
-
-| 项 | 修复前 | 修复后 |
-| --- | --- | --- |
-| 全量差分 | 254/254 | **255/255**（多的一条是新增 `cases/bot/attack_window.txt`） |
-| 变异锚点 | 9764 ok / 0 bad | **9764 ok / 0 bad** |
-| include / coverage | 836 clean / 0 failed / 9 warnings；OK | 同 |
-| 宿主 `lfw_run` prel 300 帧 | `d9b00db799724a2b` | **`7335aa25f4e1ce86`** |
-| 宿主 `lfw_run` prel+data fighter 1+4 stage 1 900 帧 | `eeecc812075e8b74` | **`0f07fb23756600f2`**（⇒ 再被 §145.7 更新） |
-| 宿主 `--vs --stage 0 --fighter 1 --fighter 4` 600 帧 | 总血量恒 1100（零掉血） | **1100 → 976（掉血）**，`n_chase=1`，状态进入 3/5/7/8/15 攻击/受击态，`renderer(+-)=13/9`（⇒ 摘要再被 §145.7 更新） |
-
-**「两个 bot 走到一起却不攻击」到此闭环。**
-
-### 145.5 台面补强与遗留
-
-- 新增 `cases/bot/attack_window.txt`：把敌人放进攻击窗口（`rx∈[-8,50]`、`rz∈[-15,15]`）覆盖
-  Standing/Walking/Running 三条 `click(a)` 路径 + 窗口外反例。**此前所有 bot 用例的敌人都在
-  `x=80/120/160`（`> w_atk_f_x=50`）**，贴脸路径 0 覆盖 —— 这是差分没抓到这个 bug 的原因。
-- 遗留（同源但未动）：`item.cpp` / `stage.cpp` / `lfw.cpp` 里那批 `entity::is_fighter(e->ref())`
-  在 TS 里吃的是活实体 ⇒ 同样应该走 `ref_of`。它们现在恒假（静默失效），改动会影响关卡/道具行为，
-  单独一刀评估 ⇒ **见 §145.6（已偿还）**。
-
-
-### 145.6 遗留偿还：`IItemEntity::ref()` 与 `LFW` 直调点
-
-穷举同源点后只有 **三处**（比预估少）：`stage.cpp` / `item.cpp` 读的都不是 `Entity*`，而是两个桥接
-适配器，只有一个薄：
-
-| 位置 | 语义 | 处理 |
-| --- | --- | --- |
-| `world.cpp:107`（`IStageEntity` 适配器，`world.entities()`/`puppets()` 供的视图） | 已经是 `ref_of(_e)` | **本就正确** ⇒ `stage.cpp` 那一批 `is_fighter(e->ref())` 从未失效 |
-| `entity_item.h`（`IItemEntity` 适配器，`item.cpp` 走这条） | 原来是 `_e.ref()` ⇒ 薄 ⇒ `item.cpp` 的 `is_fighter`/`is_weapon` 恒假 | **`ref_of(_e)`** + 注释写明语义（`IItemEntity::ref()` 的契约就是「喂 `is_fighter/is_weapon/is_ball` 的实体视图」） |
-| `lfw.cpp:614` / `lfw.cpp:1107`（直接持 `Entity*`/`Entity&`） | 薄 `e->ref()` / `target.ref()` | **`ref_of(*e)` / `ref_of(target)`** |
-
-⚠ 端口里「实体视图」有**两个**产出点（适配器两处 + `Entity::ref()` 薄），这类 bug 的根因是**同一个
-函数名承载两种语义**；注释已把契约钉在声明处（`entity_item.h`、`entity_ref.h`）。
-
-### 145.7 实测（第二次保真度修复 ⇒ 摘要再次变化）
-
-差分 **255/255**；锚点 9764/0；include 836 clean/0/9；coverage OK。宿主摘要：
-
-| 项 | `145.4` 之后 | 本刀之后 |
-| --- | --- | --- |
-| `lfw_run` prel 300 帧 | `7335aa25f4e1ce86` | **`7335aa25f4e1ce86`**（未变：prel 无道具路径） |
-| `lfw_run` prel+data fighter 1+4 stage 1 900 帧 | `0f07fb23756600f2` | **`e4a9437292047044`** |
-| `lfw_run --vs --stage 0 --fighter 1 --fighter 4` 600 帧 | `074c5b15e7d1c963`（1100 → 976） | **`f29d3bb1ea330c32`**（1100 → 930） |
-
-变化原因（逐帧核对，非回归）：道具/武器分支转活 ⇒ `Item.ts` 里按 `is_weapon(e)` 决定 `y_default`
-（300 vs 0）与按 `is_fighter(e)` 决定 `outline_color`/`stat_bar`/`name`/初始帧的分支开始生效；900 帧里
-出现 `state=1000/1002`、`hp=1000`、`y≠0` 的**投掷物**（id `201→234`，旧的那只死亡后新生成），
-fighter `101` 血量 500 → 339 → 288 说明**阶段模式也在真打**。`warns=1` 是同时挂 `prel.zip`+`data.zip`
-时 `DatMgr::_add_obj id duplicated`（加载期、与本次改动无关；只挂 prel 时 `warns=0`）。
-
-
----
-
-## 146. `IEntityHost` 退役：`Entity` 直接持 `World`（切片 4CJ）
-
-### 146.1 问题
-
-`IEntityHost` 是「World/LFW 还没移植」年代的脚手架：`Entity` 通过 30 条缝向一个**假宿主**问
-`world.dataset[key]` / `world.lfw.new_id` / `world.restrict(this)` / `lfw.mt` 这些事。真
-`World`/`LFW` 落地后，`world.cpp` 里就一直挂着一个 `WorldEntityHost` 纯转发类（123 行），
-把每条缝原样转给 `_world.X()`——一层只为历史存在的间接。TS 里没有这层：`Entity` 就是
-`this.world.*` / `this.lfw.*` 直读。
-
-### 146.2 改法（逐条映射，不改行为）
-
-- `Entity` 的成员 `IEntityHost* host_` → `World* world_`；ctor `Entity(World&, Value[, States*])`
-  （与 TS 的 `constructor(world, …)` 同形）；访问口 `world()` 与 `lfw()`。
-  `entity.h` 只前置声明 `World`/`IWorldLfw`（`world.h` 要 include `entity.h`，反过来会成环）。
-- 30 条缝里**绝大多数退化成直调**（同名方法早就在 `World`/`LFW` 上）：
-  `find_entity` / `add_entities` / `del_entity` / `game_time` / `restrict` / `get_bound` /
-  `list_entities` / `mark_players_alive` / `has_players_alive`（成员）/ `ground.step` 走 `World`；
-  `new_id` / `new_team` / `mt` / `is_cheat` / `survival_rank_mode` / `survival_rank_available` /
-  `broadcast` / `create_ctrl` / `create_entity` / `acquire_invalid_ctrl` / `release_ctrl` /
-  `find_bot` / `datas_find` 走 `lfw()`；`world.dataset[key]` 直接读 `World::dataset` 成员。
-- 只有 8 条不属于「已有方法的直调」，落到 `World` 上（语义与旧缝逐字一致）：
-  `bg_dataset` / `stage_value` / `bg_value` / `entity_count` / `puppets_values` /
-  `player_value`（玩家表仍未移植 ⇒ 空 `Value`，与旧缝同口径）/ `gen_field` / `play_sound`。
-  其中 `gen_field` / `play_sound` 是**宿主回答型**（表达式字段、音频），保持 `virtual` 供台面挂钩。
-- `WorldEntityHost` 整个删除；`World::host()` / `host_` 删除；`Entity` 里
-  `IEntityHost::world_restrict` 的「无宿主就不夹紧」默认实现随之消失（真 `World` 恒在）。
-- 台面影响：凡是实现假宿主的用例，改成**构造真 `World`**（喂假 `lfw` + 假 renderer）并挂
-  `TestWorld` 上的脚本钩子（`native/tests/differential/subjects/world_fixture.h`）。共享假件
-  （假 `IWorldLfw` / 假 renderer / 假玩家宿主）从 `cmds.cpp` 提到该头文件，25 个用
-  `fx::shared_host()` 的用例机械换成 `fx::shared_world()`。
-
-### 146.3 为什么值得
-
-- **少一层假抽象**：89 处 `host_->X()` 变成 `world().X()` / `world().lfw().X()`，调用点读起来就是
-  TS 那一行；`WorldEntityHost` 那 123 行转发消失。
-- **假宿主曾经掩盖真 bug**：实体侧「视图/服务」来源从此只有一个（真 `World`），4CH/4CI 那类
-  「薄引用 vs 完整视图」的分裂不再有第二处可藏。
-- **顺带解锁**：`Entity::refresh_ctrl_env` 里 `env.world_etc` / `team_come|stay|move|follow`
-  五条一直是 `nullptr`（注释写着「上游其实已经搬好」），现在 `Entity` 手里就有 `World*`，
-  接下这五条只需一行 lambda —— 留在后续刀（会改行为，需实测）。
-
-### 146.4 保真度约束
-
-这是**纯重构**：差分必须仍 **255/255**、宿主摘要必须**逐字节不变**。任何漂移都按 bug 处理
-（改的是「谁回答」，不是「回答什么」）。台面里那些脚本化假宿主的行为逐条搬成
-`dataset.set` / `TestWorld` 钩子，语义一一对应。
-
-### 146.5 台面落位（把 §146.2 的「假宿主」拆干净）
-
-旧假宿主是**每实体一个**（`Collision_ball_frozen` / `entity` 等用例甚至每边一个）⇒ 拆的时候
-分两类落：
-
-- **真 `World` + `TestWorld` 钩子**（`entity/*` / `world/*` / `cmds/*` / `state_*` / `buff_*` /
-  `collision_*` / `helpers` / `factory` / `action_handlers`）：假实体一律 `fx::shared_world()`
-  或自建 `fx::TestWorld`，脚本化的面挂 `on_*` 钩子。为了挂钩子，`bg_dataset` / `stage_value` /
-  `bg_value` / `entity_count` / `puppets_values` / `player_value` / `find_entity` /
-  `add_entities` / `get_bound` / `mark_players_alive` / `restrict` / `game_time` 都加了
-  `virtual`（纯 vtable 变化，不改行为）；`add_entities` 的钩子由「真实现 + 回调」改成
-  「钩子整条接管」，因为 TS 台面同样把 `world.add_entities` 换成只打日志的桩件。
-- **每实例一个假 `lfw`**（`entity` / `state_base_proxy` / `collision_ball_frozen`）：旧宿主上那批
-  `lfw.*` 面（`new_id` / `new_team` / `mt` / `datas.find` / `create_ctrl` / `create_entity` /
-  `broadcast` / `is_cheat`）现在从 `world().lfw()` 走，台面各自派生 `fx::FakeLfw` 接住；
-  `TestWorld` 因此多了一个「自带 `lfw` / renderer / states」的构造函数。
-- `world.ground.step` 是 TS 台面唯一用 `defineProperty` 换掉的只读字段 ⇒ `Ground` 加了个
-  `set_step`（纯写口，不改逻辑）。
-- 两处台面**没在** §146.2 清单里、但同样写了 `world.host()`：`subjects/lfw.cpp`（4 处）与
-  `subjects/world.cpp`（5 处，含 `world.cpp` 头注释），一并按「实体直接收 `World&`」改掉。
-- 变异档（`tests/differential/mutations/*.mjs`）有 56 条锚点仍写着 `host_->X()` /
-  `e.host().X()`；逐条按新拼写重指（`entity.mjs` 50 条、`get_val.mjs` 4 条、
-  `collision_val.mjs` 2 条、`world_attach.mjs` 1 条），另 2 条因 `Entity::transform` 的
-  `create_ctrl(...)` 从三行折成一行而重取锚文本。锚点总数不变：**9764 ok / 0 bad**。
-
-### 146.6 实测（本刀是纯重构 ⇒ 摘要必须逐字节不变）
-
-| 项 | 值 | 与 4CI 相比 |
-| --- | --- | --- |
-| 全量差分 | **255/255 passed** | 不变 |
-| 变异锚点 | **9764 ok / 0 bad**（166 档） | 不变（56 条锚点按新拼写重指） |
-| include lint | **836 clean / 0 failed / 9 warnings** | 不变 |
-| coverage | **OK** | 不变 |
-| 宿主 prel 300 帧 | `7335aa25f4e1ce86` | **逐字节不变** |
-| 宿主 stage 1 900 帧 | `e4a9437292047044` | **逐字节不变** |
-| 宿主 `--vs` 600 帧 | `f29d3bb1ea330c32` | **逐字节不变** |
-
-三条宿主摘要是本刀最硬的证据：换掉「谁回答」之后，900/600 帧的实体表哈希一字不差 ⇒
-30 条缝的直调映射与原转发语义等价。
-
-### 146.7 遗留
-
-- `Entity::spawn` 里仍写 `lfw().create_entity(world(), data)`（原 `WorldEntityHost::create_entity_with_bot`
-  的简化）；TS 那边走 `factory.create_entity_with_bot("", this.world, data)`。属**既有**偏差，
-  不在本刀范围（台面现在把它记为 `create_entity_with_bot:…` 以便后续对齐）。
-- `Entity::refresh_ctrl_env` 的 `env.world_etc` / `team_come|stay|move|follow` 五条仍是
-  `nullptr`（见 §146.3）：现在 `Entity` 手里就有 `World*`，一行 lambda 即可接上，但会改行为 ⇒ 独立刀。
-- 同类「上游已存在、缝还没接」的面：`holding_mt_mark` / `mt_range`（要 `MersenneTwister::mark/range`）、
-  `datas_find_fighter`（`LFW::datas_fighters_find`）、`env.lfw_player`（`LFW::players_get`）、
-  玩家表（`World::player_value` 仍是空值）。
-
----
-
-## 147. 缝家族退役（1/5）：`ICameraWorld`（切片 4CK-1）
-
-### 147.1 背景与判据
-
-`IEntityHost`（§146）之后，端口里还剩十个同性质的「老脚手架」接口：
-`IWorldLfw` / `IStageLfw` / `IStageWorld` / `ICameraWorld` / `IItemHost` / `IDatMgrHost` /
-`IKeysLfw` / `IHelperLfw` / `IUiHelperLfw` / `IWorldUi`。它们与 `IEntityHost` 同源：
-**开口时为「对面那个类还没移植」，现在真类都在了**。
-
-退役判据两条，缺一不可：
-
-1. **真实现已存在**（不是只有假件）—— 例如 `ICameraWorld` 由 `World` 直接实现；
-2. **台面假件的替代成本可接受** —— 这点把家族劈成两半：
-
-| 组 | 成员 | 台面假件在哪 | 处理 |
-| --- | --- | --- | --- |
-| A | `ICameraWorld` / `IWorldUi` / `IStageWorld` / `IItemHost` / `IDatMgrHost` | **端口里**（`camera.cpp` / `world.cpp` / `stage.cpp` / `dat_mgr.cpp` 各带一个 no-op 兜底）+ 个别 subject | 先退 |
-| B | `IWorldLfw` / `IStageLfw` / `IHelperLfw` / `IUiHelperLfw` / `IKeysLfw` | **台面唯一的假 `LFW` 手段**（`world_fixture.h` 的 `FakeLfw` 就是 `: IWorldLfw`） | 后退：要先给台面一条「造得出真 `LFW`」的路（`ILfwHost` 64 条纯虚要么桩掉、要么想别的办法） |
-
-⚠ 另一条独立判据：`IKeysLfw` **没有真实现**（`LFW` 没接 `keys` 那一面）⇒ 它不是「退役」而是
-「待移植」，归到功能欠账里，不在这五刀内。
-
-### 147.2 本刀（A 组第一个，最小面）
-
-`ICameraWorld` 只有三条：`world_stage()` / `world_bg()` / `world_dataset()`（TS 里就是
-`this.world.stage` / `.bg` / `.dataset` 三次属性读，给 `Value` 是为了保住 JS 的强转与
-「读了几次」的可观测性）。
-
-- `camera.h`：删接口；`Camera` 改持真 `World*`（`camera.h` 只前置声明 `World`，`camera.cpp` include `world.h`）。
-- `world.h`：`class World {`（不再有基类）；那三条方法从 `override` 变成本类的 `virtual`
-  （语义一字不改，加 `virtual` 是为了让相机台面仍旧能脚本化）；`~World()` 顺手去掉 `override`
-  （没有基类了，MSVC C3668）。
-- 台面：`subjects/camera.cpp` 的 `FakeWorld : ICameraWorld` 改成 `: lfw::World`（走
-  `world_fixture.h` 的假 `lfw`/renderer/states 供起），三个 bag 与三条日志一字不动。
-
-### 147.3 实测（仍是纯重构）
-
-差分 **255/255**；锚点 **9764 ok / 0 bad**（无需重指）；include 836 clean/0/9；coverage OK；
-宿主三条摘要 **逐字节不变**（`7335aa25f4e1ce86` / `e4a9437292047044` / `f29d3bb1ea330c32`）。
-
-### 147.4 工作流教训（写下来省下一次踩坑）
-
-`build.ninja` **没有头依赖**：删掉/改掉一个被广泛 include 的头（`world.h`、`camera.h` 这种）之后，
-只删 `lfw_core.dir` 的 obj 不够 —— **台面目录的 obj 也会陈旧**，表现是链接期「找不到
-`Camera::Camera(ICameraWorld*)`」或「找不到 `World::~World`」，看着像真 bug。可靠姿势：
-`Get-ChildItem -Recurse -File <build> -Include *.obj,*.lib,*.exe | Remove-Item`（**保留目录**）再编。
-
----
-
-## 148. 解锁性先决条件：台面能构造真 `LFW`（切片 4CL）
-
-### 148.1 为什么需要
-
-`IEntityHost`（§146）与 `ICameraWorld`（§147）退得掉，是因为它们的**真实现是 `World`**，而 `World`
-在台面里造得出来（它的入参 `IWorldLfw` / `IWorldRenderer` / `States` 都是可以假的东西）。剩下的
-家族成员不满足这一点：
-
-| 缝 | 真实现 | 真实现要什么 | 台面能造吗 |
-| --- | --- | --- | --- |
-| `IWorldUi` / `IUiLayers` | `ui::UILayers` | 具体 `LFW&` | ✗ |
-| `IDatMgrHost` | `LFW`（`DatMgr` 是它的一部分） | 具体 `LFW&` | ✗ |
-| `IWorldLfw` / `IStageLfw` / `IHelperLfw` / `IUiHelperLfw` | `LFW` | 具体 `LFW&` | ✗（且它本身就是台面当前假 `LFW` 的手段） |
-
-⇒ 全部卡在同一件事上：**台面造不出真 `LFW`**。而 `LFW` 只要一个 `ILfwHost`（53 条纯虚）——
-这正是 §147 判据里「台面替代成本可接受吗」那条的实质。
-
-4CK-2（`IWorldUi` + `IUiLayers`）的实际尝试就停在这里：真 `ui::UILayers::UILayers(LFW&)` 要具体
-`LFW&`，`UILayer`/`UINode` 同理；port 侧改完了也编不过台面，于是**整刀回滚**（没有留下半成品）。
-
-### 148.2 做法：复用 headless 宿主，别新写桩件
-
-端口里**本来就有**一个 `ILfwHost` 的最小可用实现：`native/host/headless_host.h/.cpp` 的
-`lfw::host::HeadlessHost`（手推时钟 `ManualClock` + 空 renderer `NullWorldRenderer` + 内存存档 +
-不读盘）。所以这一刀不写新桩件，只做三件事：
-
-1. **测试目标链接 `headless_host.cpp`**（`tests/differential/CMakeLists.txt` 新增静态库
-   `lfw_headless_host`，编译标志与 `lfw_core` / `lfw_run` 一致：`/GR-` + `_HAS_EXCEPTIONS=0` ——
-   开关不一致会让两边各自实例化 `std::variant` 同名模板）。
-2. **台面通路**（`subjects/world_fixture.h`）：
-   - `fx::StubHost : lfw::host::HeadlessHost` —— 只把 `warn/error/log/debug_msg` **静音**
-     （case 的输出是差分比较对象，不能被宿主日志污染），其它一字不改；
-   - `fx::shared_real_lfw()` —— 进程内共享的真 `LFW`（Meyers 单例，首次用到才构造，不读盘）；
-   - `fx::shared_real_lfw_world()` —— 挂在真 `LFW` 上的 `TestWorld`（用它的三参构造）。
-3. ⚠ **纯增量**：老的假 `lfw` 通路（`fx::shared_world()` + `FakeLfw`）一字未动 —— 25 个用例的行为
-   因此完全不变（摘要逐字节不变就是证据）。
-
-### 148.3 证据（一次性探针，跑完删除）
-
-写了个临时 `subjects/zz_spike_real_lfw.cpp` 实测（不进提交）：
-
-```
-P1 lfw/world constructed
-P2 ui_layers dynamic type == ui::UILayers: yes, length=1.0, top=y
-P3 after push_layer: all=2 bottom=y
-P4 update_ui over real layers ok
-P5 layer ui=n
-P6 new_id=(set) new_team=(set)
-```
-
-即：台面能构造真 `LFW` + 真 `World`；`LFW::ui_layers()`（静态类型还是 `IUiLayers*`）的**动态类型
-就是 `ui::UILayers`**；`World::update_ui` 能走真层；真 `new_id` / `new_team` 可用。
-
-### 148.4 实测（本刀是纯增量 ⇒ 一切照旧）
-
-差分 **255/255**；锚点 **9764 ok / 0 bad**；include **836 clean / 0 failed / 9 warnings**；
-coverage OK；宿主 prel 300 = `7335aa25f4e1ce86`、`--vs` 600 = `f29d3bb1ea330c32`（**逐字节不变**）。
-
-### 148.5 解锁了什么
-
-- **ck2**：`IUiLayers` / `IWorldUi` 可退 —— `IUiLayers::layer_uis()`（以及 `IWorldLfw` 上那条同名面）
-  改成给真 `ui::UILayers*`，`UILayers::UiAdapter` 删除，`World::update_ui` 直接倒序遍历真层。
-- **ck5**：`IDatMgrHost` 可退（`DatMgr` 直读真 `LFW`）。
-- **ck6（B 组）**：`IWorldLfw` / `IStageLfw` / `IHelperLfw` / `IUiHelperLfw` 可退 —— 台面那些假
-  `lfw` 改成**派生真 `LFW`**（用「覆写原假件那几个面、对它们不调真基类」的复现法，同 §147.2 的
-  相机台面）。这也是 `player_info.cpp` 用 `IPlayerInfoHost` 桩住平台边界那套范式的同一招。
-- 仍然独立的一条：**`IKeysLfw` 没有真实现**（`LFW` 没接 keys 面）⇒ 它是「待移植」，不是退役。
-
----
-
-## 149. 缝家族退役（2/5）：跨过 `LFW` 这座桥（切片 4CM 起）
-
-### 149.1 4CM：台面假 `lfw` 变成真 `LFW` 的派生类
-
-`IWorldLfw` / `IStageLfw` / `IHelperLfw` / `IUiHelperLfw` 这一族（以及靠它们才退得掉的
-`IUiLayers` / `IWorldUi` / `IDatMgrHost`）有一个共同前提：**真实现都以具体 `LFW&` 为入参**。
-所以退役的第一步是让**台面也能造出 `LFW`**：
-
-- 复用端口现成的 `host::HeadlessHost`（`ILfwHost` 的最小可用实现，4CL 已经把它链接进测试目标）；
-- `fx::StubHost : host::HeadlessHost` 只静音 `warn/error/log/debug_msg`（case 的 stdout 是差分
-  比较对象）；
-- `fx::FakeLfw`（258 行、51 个覆写）由 `: lfw::IWorldLfw` 改为 **`: lfw::LFW`**（宿主 =
-  `fx::shared_stub_host()`），覆写面**一字不改**、一律不调真基类 ⇒ 语义与改前等价。
-
-测下来正是如此：差分 **255/255**、宿主摘要（prel 300 = `7335aa25f4e1ce86`、`--vs` 600 =
-`f29d3bb1ea330c32`）**逐字节不变**，一次编过（51 个覆写的签名与 `LFW` 的虚函数完全对上）。
-
-⚠ 一个排查记录：验证时见过一次 `prel 300 warns=1`（平时 0），重跑同命令即恢复 0 —— 是加载期
-`DatMgr::_add_obj id duplicated` 那种宿主告警的**瞬时**表现（同 digest），不是本刀引入的。
-
----
-
-## 150. 构建修复：`namespace {` 里 include 头文件（切片 4CP）
-
-### 150.1 症状与真因
-
-从干净构建目录重编时，凡 include `world_fixture.h` 的 subject 都炸 ✗，两种表现：
-
-1. 93 条 `__msvc_heap_algorithms.hpp` 里 `_Iter_diff_t` / `_Val` 的内建错误；
-2. `factory.h` / `i_zip_object.h` 里 `标识符"Value"` 未知（81 条）。
-
-**真因（第二条）**：`subjects/cmds.cpp` 把 `#include "world_fixture.h"` 写在了 **`namespace {` 里面**
-（4CJ 迁移时为了让 `using namespace fx;` 认得它）。头文件里的 `namespace lfw { ... }` 因此落在匿名
-命名空间里 ⇒ 造出一个**新的、空的** `lfw` ✗，把真的 `lfw::Value` 遮住 ⇒ 后续所有 `Value` 都报未声明。
-
-**真因（第一条）**：`world_fixture.h` 直接 include 了 `host/headless_host.h` ⇒ 每个 subject 的 TU 都会
-预处理 `<filesystem>` / `<algorithm>`，而 subject 的 RTTI/异常开关与 `lfw_core` / headless 目标不一致，
-MSVC 在这套组合下会崩出内建错误。
-
-⚠ 这两个 bug 从 4CJ/4CL 起就存在，一直被**陈旧 obj** 掩盖：`build.ninja` 没有头依赖，改了头不会触发重编
-⇒ 之前那些「绿」有一部分是跑在旧二进制上的。删掉整个 `build/msvc-x64` 才暴露出来。
-
-### 150.2 修法
-
-- `cmds.cpp`：include 挪到文件顶部的头文件区（匿名命名空间**外**）。
-- `world_fixture.h`：不再 include 宿主头；`StubHost` 类体、`shared_stub_host()`、`shared_real_lfw()`、
-  `shared_real_lfw_world()` 的实现全部搬到新的 `tests/differential/world_fixture.cpp`（编进
-  `lfw_headless_host` 目标）⇒ subject 的 TU 再也看不到 `<filesystem>`；头里只留 `class StubHost;` 与
-  `lfw::ILfwHost& shared_stub_host();`（只给基类引用，不需要完整类型）。
-- 三处漏 `inline` 的顶层定义补上（`g_player_map` / `make_ctrl` / `new_fake_entity`）——`world_fixture.cpp`
-  会与每个 subject 一起链 ⇒ 不 `inline` 就是 LNK2005 多重定义。
-- subject 目标的编译开关与 `lfw_core` 对齐（`/GR-` + `_HAS_EXCEPTIONS=0`）。
-- `FakeLfw`（现在是真 `LFW` 的派生类）的构造里**清空** `Factory` 的全局表：`LFW` 的构造会跑
-  `regist_buffs()` / `regist_components()`（表级单次登记），而 4CM 之前的假件是「什么都没注册」的状态、
-  TS 侧假件同样没有 ⇒ 不清空的话 `factory/all` 这种 dump 全局表的用例会漂移（这条是真 bug 修复）。
-
-### 150.3 实测（干净构建目录 + 全量清 obj）
-
-差分 **255/255**；锚点 **9764 ok / 0 bad**；include 836 clean / 0 failed / 9 warnings；coverage OK；
-宿主 prel 300 = `7335aa25f4e1ce86`、stage 1 900 = `e4a9437292047044`、`--vs` 600 = `f29d3bb1ea330c32`
-—— 三条**逐字节不变**（这一刀没碰端口逻辑）。
-
-### 150.4 教训（下次别再踩）
-
-- **不要在任何命名空间里 include 头文件**（尤其是定义 `namespace lfw` 的这种）——`cmds.cpp` 那个写法
-  会让头里的命名空间变成嵌套的，报出来的错和真因毫无关系。
-- 改了**被广泛 include 的头**之后，必须**整树清 obj**（`*.obj,*.lib,*.exe`，保留目录）再编；只清
-  `lfw_core.dir` 不够 —— subject 的 obj 同样会陈旧。
-- 想让 subject 的 TU 干净，就别让它们看到宿主/平台头：把实现挪进 `.cpp`（本刀的 `world_fixture.cpp`）。
-
----
-
-## 149. 缝家族退役（3/5）：四族 LFW 侧缝（切片 4CO）
-
-### 149.1 退役对象
-
-| 缝 | 面数 | 真实现 | 原持有者 | 现在 |
-| --- | --- | --- | --- | --- |
-| `IWorldLfw` | 45 | `LFW` | `World::lfw_` | `World` 直接持 `LFW*` |
-| `IStageLfw` | 13 | `LFW` | `Stage::_lfw` | `Stage` 直接持 `LFW*` |
-| `IHelperLfw` | 12 | `LFW` | `ObjectsHelper::_lfw` | `ObjectsHelper` 直接持 `LFW*` |
-| `IUiHelperLfw` | 2 | `LFW` | `UIHelper::_lfw` | `UIHelper` 直接持 `LFW*` |
-
-它们的开口理由都是「`LFW` 未移植」，而 `LFW` 早已是实现方：`LFW : public IWorldLfw, ... helper::IHelperLfw,
-public helper::IUiHelperLfw`（基类列表本身就是证据）。4CL（台面能造真 `LFW`）+ 4CM（台面假 `lfw` 变成真
-`LFW` 的派生类）之后，台面侧已经没有任何理由保留它们。
-
-### 149.2 改法与两个坑
-
-- 删掉四个缝；`LFW` 的基类列表只剩 `loader::IDatMgrHost` / `IResourcesHost` / `IKeysLfw` /
-  `IPlayerInfoHost` / `LfwKeyboardCallback`；原来靠基类纯虚才「虚」的那批方法，在 `LFW` 里改成
-  **`virtual`**（不是简单去掉 `override` —— 去掉就变非虚，台面的覆写会全部失败 C3668）。
-  补 `virtual` 用「HEAD 版本的 `lfw.h` 里带 `override` 的行号」驱动，避免误插到注释上（误插过一次，
-  症状是 `__msvc_heap_algorithms` 的诡异级联，见 §150）。
-- 持有者一律改成具体类型；`world.h` / `stage.h` / `helper/*.h` 只**前置声明** `LFW`（`world.h` 会被
-  `lfw.h` include，反着来会成环）。
-- 因为 `stage.h` 里几个 inline 转发体要 `LFW` 的完整定义才能编译，把它们**搬到 `stage.cpp`**；
-  9 个 `cmd_*.cpp` / `loader/*.cpp` 补 `#include "lfw/lfw.h"`。
-- 台面三处直接实现这些缝的假件（`subjects/world.cpp` 的 `FakeLfw`、`subjects/stage.cpp` 的
-  `FakeStageLfw`、`subjects/helpers.cpp` 的 `FakeLfw` / `FakeUiLfw`）改成**派生真 `lfw::LFW`**
-  （宿主用 `fx::shared_stub_host()`），覆写的面一字不改、一律不调真基类 ⇒ 语义等价。
-
-### 149.3 实测（纯重构 ⇒ 摘要必须逐字节不变）
-
-差分 **255/255**；锚点 **9764 ok / 0 bad**；include 836 clean / 0 failed / 9 warnings；coverage OK；
-宿主 prel 300 = `7335aa25f4e1ce86`、stage 1 900 = `e4a9437292047044`、`--vs` 600 = `f29d3bb1ea330c32`
-—— 三条**逐字节不变**。
-
-### 149.4 还没退的同类缝
-
-`IUiLayers`(6) / `IWorldUi`(2) —— 真实现是 `ui::UILayers`（ck2，之前卡在「台面造不出 `LFW`」，
-4CL 已解锁）；`IDatMgrHost`(6)（ck5）；`IStageWorld`(9) / `IItemHost`(9)（ck3/ck4，真实现是
-`World`/`Stage`，本来就没有先决障碍）；`IStageEntity`(18) / `IItemEntity`(22)（仿实体，真实现就是
-`Entity`，适配器是 `StageEntityView` / `EntityItem`）；`IKeysLfw`(3) / `IResourcesHost`(6) 里
-`IKeysLfw` **没有真实现** ⇒ 属待移植，不是退役。
-
-### 149.5 缝家族退役（4/5）：`IDatMgrHost`（切片 4CQ / ck5）
-
-`IDatMgrHost`(6 面：`resources` / `mt_ref` / `load_img` / `emit_progress` / `warn` / `error`) 的真实现
-就是 `LFW` 自己（`class LFW : public loader::IDatMgrHost` —— 基类列表即证据），开口理由同样是
-「`LFW` 未移植」。本刀：
-
-- 删掉 `IDatMgrHost`；`DatMgr` 改持 **`LFW*`**（`dat_mgr.h` 只前置声明，`dat_mgr.cpp` include `lfw.h`）；
-- `LFW` 基类列表去掉它；原本靠它「虚」的 4 条（`resources` / `load_img` / `warn` / `error`）改成
-  `virtual`；另两条（`mt_ref` / `emit_progress`）本来在别的段里、4CO 去了 `override` 之后变成非虚
-  ⇒ 一并补回 `virtual`（台面假宿主还要覆写它们）；
-- 台面 `subjects/dat_mgr.cpp` 的假宿主 `FakeMgrHost` 从「实现窄缝」改成**派生真 `lfw::LFW`**
-  （宿主用 `fx::shared_stub_host()`），覆写面一字不改；按 4CP 的教训在构造里清空 `Factory` 的全局表
-  （真 `LFW` 的 ctor 会 `regist_buffs()` / `regist_components()`）。
-
-实测（纯重构）：差分 **255/255**；锚点 9764 ok/0 bad；include 836 clean/0 failed/9 warnings；
-coverage OK；宿主 prel 300 = `7335aa25f4e1ce86`、`--vs` 600 = `f29d3bb1ea330c32` —— 逐字节不变。
-
-### 149.6 缝家族退役（5/5）：`IStageWorld`（切片 4CR / ck3）
-
-`IStageWorld`(9 面：`world_ptr` / `bg` / `set_bg` / `stage` / `entities` / `puppets` /
-`del_entities` / `difficulty` / `camera_jump_x`) 的真实现就是 `World` 自己；适配器是 `world.cpp` 里
-那个 63 行的 `WorldStageView`（它同时持有 `views_` / `entity_view_` / `puppet_view_` 三个投影缓存）。
-这几面本来就没有先决障碍（`World` 早就能构造），只是当年 `Stage` 只被喂了窄缝。
-
-- 删掉 `IStageWorld` 与 `WorldStageView`；`Stage` 改持 **`World*`**（`stage.h` 里 `World` 是完整类型，
-  因为它 include 了 `stage/stage.h` 的反向 —— 实际是 `stage.h` 前置声明 `World`、`stage.cpp` include
-  `lfw/world.h`）；`stage.h` 里两个 inline 体（`bg` / `difficulty`）需要完整 `World` ⇒ 搬进 `stage.cpp`。
-- 投影缓存从视图类搬成 `World` 的私有成员，`view_of` / `entity_of` 变成匿名命名空间里的自由函数
-  （多带一个 `views&` 参数 —— 它们要用只有 `world.cpp` 看得见的私有 `StageEntityView`）。
-- **改名的坑**：`IStageWorld::entities()` / `puppets()` 与 `World` 的**数据成员** `entities` /
-  `puppets`（TS 里的两个真数组）同名 —— C++ 里成员函数不能与数据成员同名 ⇒ 这两条投影入口改名成
-  `entity_views()` / `puppet_views()`（`Stage` 侧 11 处调用点跟着改）。`del_entities` 则天然是重载
-  （收 `IStageEntity*` 投影 vs 收真 `Entity*`），保留两条、投影那条先还原成真实体再转发。
-- 台面 `subjects/stage.cpp` 的 `FakeStageWorld` 从「实现窄缝」改成**派生真 `lfw::World`**（`LFW` 用
-  台面自己的 `FakeStageLfw` + `fx::g_renderer` + `fx::g_states`），覆写面一字不改、一律不调真基类 ⇒
-  语义等价；构造顺序上 `FakeStageWorld` 的构造函数体必须**写到类外**（放在 `g_slfw` 之后），否则
-  类内引用还没声明的全局 `g_slfw` 编不过（C2065）。
-- **真 `World` 的 ctor 有副作用**：全局构造期它会经 `FakeStageLfw` 触发 `h:bgfind=` / `h:newteam=`
-  两条挂钩日志，并**消耗掉一次 `new_team` 计数**。旧假件不碰 `LFW`、TS 孪生也没有这两行 ⇒ 用例开跑前
-  `g_log.clear()` + `team_counter = 0` 还原（否则 `stage/stage` 首处漂移：`team_2` vs `team_1`）。
-- `world.h` 里原先已有一条 `world_ptr()`（`Background` 构造要用），4CR 新加的同类方法重复 ⇒ 删重复项。
-- 变异锚点里有 5 条文本引用了 `_world->world_ptr()` / `_world->entities()` 等 ⇒ 同步更新（`stage_main.mjs`
-  4 条 + `world.mjs` 1 条）。
-
-实测（纯重构）：差分 **255/255**；锚点 **9764 ok / 0 bad**；include 836 clean / 0 failed / 9 warnings；
-coverage OK；宿主 prel 300 = `7335aa25f4e1ce86`、stage 1 900 = `e4a9437292047044`、`--vs` 600 =
-`f29d3bb1ea330c32` —— 三条**逐字节不变**。
-
-### 149.7 缝家族退役（6/6）：`IItemHost`（切片 4CS / ck4）
-
-`IItemHost`(9 面：`far_plane` / `near_plane` / `team` / `all_boss_dead` / `difficulty` / `mt` /
-`datas_find` / `datas_randoming_by_group` / `create_entity_with_bot`) 的真实现就是 `Stage` 自己
-（`class Stage : public IItemHost` 即证据）。这一族是「A 组」里最后一条：假件在端口里当 no-op 兜底，
-真实现本来就在 ⇒ 没有先决障碍。
-
-- 删掉 `IItemHost`；`Item` 改持 **`Stage*`**。⚠ `stage.h` **include** `item.h`（`Stage` 要
-  `std::unique_ptr<Item>`）⇒ 反向不能成环 ⇒ `item.h` 只前置声明 `class Stage;`，`item.cpp` include
-  `stage.h`；`Item` 用到 `Stage` 的地方都在 `.cpp` 里。
-- `Stage` 的 9 条 `override` 改成 `virtual`（台面假件仍要覆写；只去 `override` 会变非虚 ⇒ 覆写全废）。
-- 台面 `subjects/stage.cpp` 的 `FakeItemHost` 从「实现窄缝」改成**派生真 `lfw::stage::Stage`**
-  （`&g_sworld` / `&g_slfw`），覆写面一字不改。两个顺序坑：① `g_host` 的定义必须排在
-  `g_slfw` / `g_sworld` 之后（静态初始化顺序，否则 `Stage` 的 ctor 拿到没构造的 `LFW`/`World`）；
-  ② `FakeStageLfw::datas_find` / `datas_randoming_by_group` / `create_entity_with_bot` 三个方法
-  **转发到 `g_host`**，所以在 `FakeItemHost` 类后面补一条 `extern FakeItemHost g_host;` 声明。
-- `Stage` 的 ctor 在静态初始化期会走 `change_bg`（⇒ `world.bg()` / `world.set_bg` / `bgfind`）与
-  `new_team()` ⇒ 日志由 `main` 开头的 `g_log.clear()` 清掉、`team_counter` 复位（4CR 已在做）。
-
-实测（纯重构）：差分 **255/255**；锚点 **9764 ok / 0 bad**；include 836 clean / 0 failed / 9 warnings；
-coverage OK；宿主 prel 300 = `7335aa25f4e1ce86`、stage 1 900 = `e4a9437292047044`、`--vs` 600 =
-`f29d3bb1ea330c32` —— 三条**逐字节不变**。
-
-### 149.8 缝家族退役（7/7）：`IUiLayers` + `IWorldUi`（切片 4CT / ck2）
-
-这一族是「A 组」最后的两条，也是唯一需要动**真类**（而不是只换持有类型）的一刀：
-
-- `IWorldUi`(2 面：`disabled` / `update`) 的真实现是 `ui::UILayers` 里那个私有适配器
-  `UILayers::UiAdapter`（把 `ui::UINode` 包成缝）。删缝 + 删适配器 ⇒ `World::update_ui` 直接遍历
-  **真 `UINode`**（这正是 TS 的写法：`lfw.layers.at(i)?.ui` 就是节点本身）。
-- `IUiLayers`(6 面：`push` / `set_page` / `push_page` / `dispose` / `ui` / `layer_uis`) 的真实现就是
-  `ui::UILayers`。删缝 ⇒ `UILayers` 变成普通具体类（六面留在本类上，`layer_uis()` 改名
-  `layer_nodes()` 并直接返回 `ui::UINode*`）；`LFW::_layers`（`_layers_own` 的别名）删掉，
-  `ui_layers()` 直接 `_layers_own.get()`、`LFW::layer_uis()` → `layer_nodes()`。
-- `UINode::disabled()` / `update(double)` 加 **`virtual`**：不是为了让真实现走虚表，而是台面要脚本化
-  这两条（旧假件 `IWorldUi` 就是这两面）。全仓 `ui/*.h` 里那些 `void update(double dt) override;`
-  覆写的是 `UIComponent::update`，与 `UINode` 无关 ⇒ 加 `virtual` 不改变任何既有行为。
-- ⚠ **踩到的坑（干净构建才暴露）**：`UILayer` 的 `_pages` / `_trash` 是 `unique_ptr<UINode>`，而
-  `uilayer.h` 只前置声明 `UINode` ⇒ `~UILayer` 的隐式实例化要完整类型。以前这条被缝的排列掩盖，
-  本刀把它逼出来（`error C2027 + static_assert 'can't delete an incomplete type'`，一堆 `lfw_core`
-  TU 一起报）⇒ 给 `UILayer` 加**声明在头、定义在 .cpp** 的析构函数；另 `scroll_view.cpp` 用
-  `ui_layers()->ui()` 需要 `ui::UILayers` 完整类型 ⇒ 补 `#include "lfw/ui/uilayer.h"`。
-- 台面 `subjects/world.cpp` 的 `FakeUi` 改成**派生真 `lfw::ui::UINode`**（构造体写在 `g_lfw` 之后，
-  同 4CS 的 C2065 教训），`FakeLfw` 的 `layer_uis()` → `layer_nodes()`；`world_fixture.h` 的假 `lfw`
-  同样改名。真 `UINode` 的 ctor 不打印、不抽随机（只读字段）⇒ 台面输出逐字节不变。
-- 变异锚点：`world.mjs` 2 条（`IWorldUi* const ui = uis[...]`）+ `lfw.mjs` 1 条（`_layers->set_page`）
-  同步更新。
-
-实测（纯重构）：差分 **255/255**；锚点 **9764 ok / 0 bad**；include 836 clean / 0 failed / 9 warnings；
-coverage OK；宿主 prel 300 = `7335aa25f4e1ce86`、stage 1 900 = `e4a9437292047044`、`--vs` 600 =
-`f29d3bb1ea330c32` —— 三条**逐字节不变**。
-
-### 149.9 缝家族退役（8/8）：`IStageEntity`（切片 4CU / ck7）
-
-`IStageEntity`(18 面) 的真实现就是 `Entity`，适配器是 `world.cpp` 里那个私有 `StageEntityView`
-（它还负责 4CI 定下的那件事：视图的 `ref()` 给**完整控制器视图** `ref_of(_e)`，而不是 `Entity::ref()`
-的薄 `{id}`）。这一刀把投影整个删掉：
-
-- `Stage` 现在直接吃真 `Entity*`：`_world->entity_list()`（就是真 `entities` 数组）与
-  `_world->puppet_list()`（`puppets` 的 `Entity*` 投影缓存）；`World::del_entities` 加 `virtual`
-  （`Stage::dispose` 那一次删除要给台面脚本化），投影视图重载、`views_` / `entity_view_` /
-  `puppet_view_` / `view_of` / `entity_of` 全删。
-- 18 面的落点（`stage.cpp` 10 处调用点）：`e->ref()` → `ref_of(*e)`；`e->team()` → `Value(e->team())`
-  （真 `Entity::team()` 给 `u16string`）；`e->ctrl()` → **新的 `Entity::ctrl_view()`**（TS 里 `e.ctrl`
-  是对象、`is_bot_ctrl(ctrl)` / `ctrl.player_id` 都读它；原来那个投影函数 `ctrl_value` 从 `world.cpp`
-  的匿名命名空间挪成 `entity::ctrl_view_of`，放在 `entity_type_check.{h,cpp}` 里与 `is_bot_ctrl` 做伴）；
-  `e->position_x()` → `e->position.x`；`e->bearer()` → `e->bearer`（真字段）；`e->mounted()` →
-  `truthy(Value(e->mounted()))`（给 `mounted()` 补 `virtual`：`Stage::ce` 读它、台面要脚本化）。
-- 台面 `subjects/stage.cpp` 的假实体改成**派生真 `lfw::Entity`**（`FakeStageEntity`），18 面的覆写
-  改成同名虚函数覆写（getter 静默、setter 打日志不变），影子字段遮蔽基类私有同名成员但不影响行为。
-  两个坑：① `g_host`（item 侧）那一套顺序规则照旧 —— 假实体的 `Entity` 基类构造要一个 `World&`；
-  ② **`Entity` 的 ctor 有副作用**（`reset()` ⇒ 读 `data` / 抽 `new_id` / 找帧数据）：若用台面的
-  `g_sworld`，走假 `lfw` 会打出一堆 `h:` 行，而 TS 孪生里假实体是纯对象 ⇒ 用一套与用例无关的
-  「静音世界」（真 `LFW`（静音宿主）+ 不打日志的 renderer `QuietRenderer`）把 ctor 副作用挡在外面。
-  另外台面自己的两个实体表改名（`entity_pool` / `puppet_pool`）：`entity_list` / `puppet_list`
-  这两个名字被 `World` 的新访问器占了。
-- 变异锚点：`stage_main.mjs` 10 处跟随改写。⚠ **教训**：一刀切的全量替换会误伤 `kill_*` 那几行 ——
-  它们的 `e->ref()` / `e->team()` 属于**另一条缝**（`IItemEntity`，`o->objects()` 的元素）⇒ 那两条
-  锚点必须还原（lint 用 `count=0` 精确指出了这一点）。
-- ⚠ **结构坑**：删除投影块时把匿名命名空间的收尾 `}` 一起删掉了（MSVC 容忍「在匿名命名空间里定义
-  成员函数」这个扩展 ⇒ 只报一个 `LNK2001`，症状是 `World::play_sound` 之类的成员定义落进了匿名
-  命名空间）⇒ 收尾 `}` 与 `World::play_sound` 一起还原到正确位置。
-
-实测（纯重构）：差分 **255/255**（一次过）；锚点 **9764 ok / 0 bad**；include 836 clean / 0 failed /
-9 warnings；coverage OK；宿主 prel 300 = `7335aa25f4e1ce86`、stage 1 900 = `e4a9437292047044`、
-`--vs` 600 = `f29d3bb1ea330c32` —— 三条**逐字节不变**。
-
-### 149.11 缝家族退役（9/9 收官）：`IItemEntity`（切片 4CV / ck8）
-
-`IItemEntity`(22 面) 的真实现就是 `Entity`，适配器是 `stage/entity_item.h` 里那个 `EntityItem`
-（纯粹为了「`attach` 返回引用/带默认参数、`team()` 类型不同」而存在）+ `LFW::entity_items_` 缓存。
-删掉适配器与缓存，`LFW::create_entity_with_bot` 直接返回工厂造的真实体：
-
-- `Item` 改持真 `Entity*`（`objects()` / `Watch::e` / `forget(Entity*)` / `_objects`）；`Stage::kill_*`
-  的 `o->objects()` 同样按真 `Entity` 写。
-- 面的落点：`ref()` → `ref_of(*e)`（同一口径，见 §149.6 的 4CI）；`team()` → `Value(e->team())`；
-  `callbacks()` → **字段** `e->callbacks`；`set_team(Value)` → `set_team(to_string(v))`；
-  `set_wakeup_invuln(double)` → `set_wakeup_invuln(Value(v))`；`set_reserve(Value)` →
-  `set_reserve(to_number(v))`；`attach()` → `attach(Value(false))`（真实现返回 `Entity&`，调用点丢弃）；
-  `enter_frame*` → 真实现返回 `EnterFrameResult`（同样丢弃）。
-- `Entity` 侧补了四条「台面脚本化」的虚函数（默认实现就是原来的写法）：`set_name` 加 `virtual`，
-  新增 `virtual set_stat_bar(double)` / `virtual set_dead_gone(double)`（生产路径就是字段写），以及
-  **`virtual set_outline_color_raw(const Value&)`**：TS 里 `e.outline_color = v` 是**属性写**（原值不
-  强制成字符串），端口原有的 `set_outline_color(u16string)` 在边界做了 `to_string` ⇒ 台面观测到的
-  就不是原值了（`stage/item` 漂移：`e26:outline=s"7"` vs 孪生的 `n7`）⇒ 单开一条收 `Value` 的入口，
-  默认实现与删掉的 `EntityItem` 适配器一字不差（`to_string` 强制）。
-- 台面 `subjects/stage.cpp`：`FakeItemEntity` 改成派生真 `lfw::Entity`（用 §149.9 那套「静音世界」
-  构造，ctor 副作用同样挡掉），22 面按真签名重写覆写（`set_outline_color_raw` / `set_team(u16string)`
-  / `attach(const Value&)` / `enter_frame*(..., bool)`），`callbacks` 用继承下来的真字段。
-  「静音世界」的定义跟着上移到 Item 侧之前（两个假实体都要用）。
-- 变异锚点：`stage.mjs` 6 处 + `stage_main.mjs` 2 处（`kill_*`，`IItemEntity` 那条缝没了）。⚠ 其中
-  「fighter 的兜底描边色」那条在 `_raw` 之后**不可观察**（现有 case 都给了显式 `outline_color`）⇒
-  撤换成「显式 `outline_color` 被固定色覆盖」（可观察）。
-- ⚠ **再次踩陈旧 obj**：加了虚函数 ⇒ vtable 变了，而不重编的 TU 会拿到旧布局 ⇒ 台面进程
-  `0xC0000005` 崩溃、`stage/item` 与 `stage/stage` 报「C++ failed」（**没有**任何 diff 输出，症状与
-  漂移完全不同）⇒ 全量清 `*.obj,*.lib,*.exe` 重编即恢复。
-
-实测（纯重构）：差分 **255/255**；锚点 **9764 ok / 0 bad**；include 835 clean / 0 failed / 9 warnings
-（少一个文件：`entity_item.h` 删了）；coverage OK；宿主 prel 300 = `7335aa25f4e1ce86`、
-stage 1 900 = `e4a9437292047044`、`--vs` 600 = `f29d3bb1ea330c32` —— 三条**逐字节不变**。
-
-### 149.12 缝家族清账
-
-「仿 lfw / world / entity / stage 的窄缝」到此**全部退完**：`IBuffEntity`、`IActionEntity`、
-`IFrozenEntity`、`IHandlerEntity`、`IStateEntity`、`IEntityHost`、`ICameraWorld`、`IWorldLfw`、
-`IStageLfw`、`IHelperLfw`、`IUiHelperLfw`、`IUiLayers`、`IWorldUi`、`IStageWorld`、`IItemHost`、
-`IDatMgrHost`、`IStageEntity`、`IItemEntity` 都已删除，`stage/entity_item.h` 整个文件消失。
-
-**仍在册的（都是真·宿主边界，不是窄缝）**：`ILfwHost`（TS 的 `Ditto` 平台包）、`IWorldRenderer`、
-`IPlayerInfoHost`、`IXML`/`IXMLElement`、`IBuffCreator`/`IComponentCreator`/`ICtrlCreator`、
-`IExpression`、`IUIEvent`、`IUIImgLoaderNode`、`IState`、`ITickerOptions`。
-
-### 149.13 `IKeysLfw` 退役（切片 4CW / ck9）—— 缝家族**真正**收官
-
-⚠ 先更正一条：`IKeysLfw` 一直被记成「没有真实现 ⇒ 属待移植」，其实 `LFW` **早就实现了全部三面**
-（`lifetime()` → `world_->lifetime()`、`regist_keys` 带 TS `array_del` 的怪癖、`recycle_keys`），
-`keys.h` 里那句「`LFW` 未移植 ⇒ 宿主缝」是过期注释。所以这一刀仍是**纯重构**：
-
-- 删 `IKeysLfw`；`Keys` 改持真 `LFW*`（`keys.h` 只前置声明 + `LFW& lfw() const` / `double time() const`
-  声明，两个体搬进 `keys.cpp`，那里 include `lfw/lfw.h` 与 `lfw/world.h`）；`time()` 就是 TS 的
-  `lfw.world.lifetime`（端口拼写 `_lfw->lifetime()`，`virtual` ⇒ 台面可脚本化）。
-- `LFW` 的基类列表去掉它；`regist_keys` / `recycle_keys` / `lifetime` 变本类方法并补 `virtual`
-  （台面假件要覆写）。
-- 台面 `subjects/helpers.cpp` 的 `FakeKeysLfw` 从「实现窄缝」改成**派生真 `lfw::LFW`**
-  （宿主用 `fx::shared_stub_host()`；按 4CP 的教训清空 `Factory` 全局表），覆写的三面一字不改、
-  返回值也一致（`lifetime()` 仍回 33.0）⇒ 输出逐字节不变。
-- 变异锚点：`helpers.mjs` 的「Keys.time：不读 world.lifetime」跟着换文件与文本（体从 `keys.h`
-  搬到 `keys.cpp`）。
-
-实测（纯重构）：差分 **255/255**；锚点 **9764 ok / 0 bad**；include 835 clean / 0 failed / 9 warnings；
-coverage OK；宿主三条摘要**逐字节不变**。
-
-### 149.14 缝家族总账（收官）
-
-**已删除的窄缝**（18 族）：`IBuffEntity`、`IActionEntity`、`IFrozenEntity`、`IHandlerEntity`、
-`IStateEntity`、`IEntityHost`、`ICameraWorld`、`IWorldLfw`、`IStageLfw`、`IHelperLfw`、
-`IUiHelperLfw`、`IUiLayers`、`IWorldUi`、`IStageWorld`、`IItemHost`、`IDatMgrHost`、`IStageEntity`、
-`IItemEntity`，外加 `IKeysLfw`。`stage/entity_item.h` 整个文件消失，`WorldStageView` /
-`StageEntityView` / `EntityItem` / `UiAdapter` 这些适配器一并删除。
-
-**仍在册的都是真·宿主/平台边界**：`ILfwHost`（TS 的 `Ditto` 包：sounds/images/keyboard/pointings/
-zip/renderer）、`IWorldRenderer`、`IPlayerInfoHost`、`IXML`/`IXMLElement`、`IBuffCreator` /
-`IComponentCreator` / `ICtrlCreator`、`IExpression`、`IUIEvent`、`IUIImgLoaderNode`、`IState`、
-`ITickerOptions`。
-
-### 149.15 玩家表接线（切片 4CX）—— 第一笔功能欠账
-
-缝家族清完后，`lfw.players` 是唯一还在「假装」的运行时数据面：表本身（`LFW::_players`，播种
-`"1"`..`"8"`、`player()` 按需建、`players_get/has/delete`）早就搬好了，缺的是**把它接到消费者**：
-
-- **绑定**：TS 在 `BaseController` 的**构造**与 `reset` 里各做一次
-  `this.player = lfw.players.get(player_id)`（`Factory.acquire_ctrl` 是唯一入口）。端口原来给了一条
-  `BaseController::bind_player()` + `CtrlEnv::lfw_player` 缝，但**没有任何调用点** ⇒ `ctrl.player`
-  永远是空 `Value` ⇒ `Entity::player_name()` 恒走 `"Player " + id` 兜底、`World` 里那句
-  `ctrl.player.mine` 恒假。本刀把绑定收到 `Factory::acquire_ctrl`（造与复用两个分支各一次，
-  `entity == nullptr` 的 `InvalidController` 不绑，与 TS 一致）——这是 TS 的**同一时机**，不是环境缝。
-- **投影**：新增 `player_view_of(const PlayerInfo*)`（`player_info.{h,cpp}`）：TS 那边
-  `players.get(id)` 给的是 `PlayerInfo` **实例**，端口把它的读面投影成对象 —— `_info` 的插入序
-  （`id`/`name`/`keys`/`version`/`ctrl`）之后跟实例字段（`local`/`mine`/`is_com`）。
-- **随作废的缝**：`CtrlEnv::lfw_player`、`BaseController::bind_player()`、`World::player_value()`
-  全部删除（前者没有调用点；后者是 4CJ 那刀为这条缝开的 Value 面，TS 的 `World` 里没有这个方法）。
-
-**验证（这一次不是「逐字节不变」，是「行为对齐」）**：差分仍 **255/255** —— 注意这一点很关键：
-`world` subject 的假 `lfw.players.get` **会打日志**（`world.ts:278` / `world_fixture.h:199`），
-而 TS 的真 `BaseController` 构造里就会调它 ⇒ 两边 trace 里的 `h:player=` 行**数量与位置必须一致**：
-`world/step` 两侧各 **380** 行，且每行都紧跟在实体创建（`ent|eN|pid` ⇒ `h:player=s"…"` ⇒
-`h:radd=`）之后 ⇒ 绑定确实落在 TS 的同一时机上。宿主三条摘要**逐字节不变**
-（`lfw_run` 的 headless 路径不读 `player`，所以摘要看不出差异；锚点 9764/0、include 835 clean/0/9、
-coverage OK）。
-
-### 149.16 剩下的功能欠账（与缝无关）
-
-渲染 / 音频的宿主实现（`IWorldRenderer` / `IUINodeRenderer` / sounds 只到宿主缝）。玩家表（4CX）、
-指针命令（4CY）、`F4`/`KEY_EVENT`（4CZ）、招式表演台 `MoveTableLogic`（4D0）都已结清；§149.17/§149.18/
-§149.19 记的三处**覆盖缺口**也在 §149.21（4D2）补完（只剩 3 个够不到的小分支，见那节末）。
-
-### 149.17 `POINTER_*` 命令移植（切片 4CY）—— 第二笔功能欠账
-
-`src/LFW/cmds/CMD_POINTER_EVENTS.ts`（410 行）是「TS 侧尚未搬」清单里的第一项：端口**有**枚举名
-（`defines/cmd.h` 的 `kPOINTER_DOWN`…`kPOINTER_LEAVE`），但注册表里一条都没登记（`cmds.cpp` 的
-`put(...)` 只有 27 条），也没有 `get_pointer_cursors` / `set_local_cursor`。本刀补齐：
-
-- **新文件** `cmds/cmd_pointer_events.{h,cpp}`：7 条命令 + 3 个导出面（`IPointerCursor`、
-  `get_pointer_cursors`、`set_local_cursor`），逐行照 TS。
-- **形状差**（代码里都有注释）：TS 的 `WeakMap<World, IPointerState>` → `std::unordered_map<const
-  World*, IPointerState>`（普通表：`World` 长命 ⇒ 表项不回收，无弱语义）；TS 的 `Set<UINode>` →
-  本地 `UiSet`（数组 + 线性查重 —— **迭代次序 = 插入次序**是 TS 语义，`std::set` 的指针序不确定
-  会改 `POINTER_MOVE` 的 leave 次序）；`Ditto.Clock.now()` → `clock_now()`（`base/clock.h` 的时钟槽）；
-  `Ditto.warn` → `lfw().warn()`；`Number(s)` → `string_to_number`、`Number.isInteger` →
-  `is_js_integer`（`NaN`/`±Inf` 假、`-0` 真）、`Number.isFinite` → `std::isfinite`；
-  `page.id !== page_id` → `strict_equals(page->id(), Value(page_id))`；`ui.pointer_down` /
-  `ui.click_flag` 的布尔 getter → `!= 0`。**唯一的行为偏差**：TS 的 `for (const ui of set)` 是**活
-  迭代**，端口对快照迭代（要在 `on_pointer_*` 回调里重入命令才看得见，实际不可达）。
-- **登记**：7 条按 `cmds/index.ts` 的次序插在 `LOCK_CAM` 与 `SET_DIFFICULTY` 之间（27 → 34 条；
-  仍未搬的只剩 `F4` / `KEY_EVENT`）。
-- **用例**：新增 `cases/cmds/pointer.txt`（32 行输出两侧全等）—— 覆盖 7 条注册（含大小写）、
-  `read_targets` 的每条告警（`--paths`/`--pages` 数不齐、`--points` 数不齐、路径非法 4 种、空
-  page id、点非 3 元 / 非有限、跨页）、`read_button` 的两种告警，以及 `POINTER_CANCEL --b=2` 这条
-  **走通到状态层**的静默路径（⇒ `read_button` 成功分支、`state_of`/`cursor_for`、取消循环都真跑了）。
-- ⚠ **覆盖缺口（记在案）**：用例**刻意只走**「在 `read_page` 之前就返回」的路径 —— 两侧台面的 UI
-  层栈不同构：C++ 侧 `cmds` 台面的假 `lfw` 派生自**真 `LFW`** ⇒ 构造里已经 `push_layer()` 并设了
-  底页 ⇒ `read_page` 会告「page changed…」；TS 侧假 `lfw` 是对象字面量、**没有 `layers`** ⇒
-  `layers.at()` 会 `TypeError`。⇒ `read_page` / `read_child` 与**命中派发**（`on_pointer_*` /
-  `on_click`）暂无差分；要吃它得先把两侧台面 UI 做成同构（`lfw` subject 已经 UI-同构，或给 `cmds`
-  的假 `lfw` 补 `layers` + 同样的底页）。
-
-**验证**：差分 **256/256**（多的一条就是 `cmds/pointer`）、锚点 9764/0、include 837 clean/0/9、
-coverage OK、宿主三条摘要**逐字节不变**（`7335aa25f4e1ce86` / `e4a9437292047044` /
-`f29d3bb1ea330c32` —— 指针命令不在 headless 宿主的路径上）。
-
-### 149.18 `F4` + `KEY_EVENT` 命令与 `validate_ui_img_operation_crop`（切片 4CZ）—— cmds 表收官
-
-`cmds/index.ts` 那张表剩下的两条 + 一条「待确认」的 `loader/` 模块：
-
-- **`cmd_f4.{h,cpp}`**：TS 是「从顶层往下找第一个能弹的层，弹一页就停」。端口照抄，
-  两处形状差：`UILayer::pop(const UIPopPageOpts&)` 没有默认参数 ⇒ 传 `UIPopPageOpts{}`
-  （TS 的 `layer.pop()`）；`all()` 里的**洞**是 `nullptr`（`Array.from` 保留洞 ⇒ TS 的
-  `undefined`）。TS 的 `lfw.layers` 一定存在，端口对假件留了一条 `nullptr` 空路。
-- **`cmd_key_event.{h,cpp}`**：TS 的三段（UI 层自顶向下第一个未禁用的收下 → 所有
-  `mounted_keys` → 该玩家真人控制器）。要点：
-  * `LFWKeyEvent(player, pressed, game_key, key)` 的**参数顺序**：第三个是 game_key、
-    第四个才是键盘 key（TS 的 `key_name as GK`）。
-  * `ks[gk].hit()` / `.end()` 没有实参 ⇒ 端口用 `KeyStatus::hit(Value(), ks->time())`
-    （`hit` 的第一个参数是 TS 默认参数 `t = this.ctrl.time` 的 `Value` 形）+ `end(ks->time())`。
-  * `gk` 不在按键表里：TS 是 `undefined.hit()` 抛，端口 `Keys::get()` 给 `nullptr` ⇒ 跳过
-    （偏差，记在这里）。
-  * `c.world.lfw.world`（**不是** `c.world`）⇔ 端口 `lfw.world()`；`is_human_ctrl` 收
-    `Value` ⇒ 用 `fighter->ctrl_view()`；`ctrl.start(gk)` 在端口是
-    `start(std::vector<std::u16string>)`（TS 的 `BaseController.start(ks: string[])`）⇒ 传
-    `{gk}`。
-- **`loader/validate_ui_img_operation_crop.{h,cpp}`**：路径照 TS（`LFW/loader/`）。调用方是
-  **平台层**的 `ImageMgr`（`src/ditto/**` = 宿主边界）⇒ 端口侧暂无调用点，`errors` 收可空
-  向量指针（与 `validate_ui_img_info` 同款）。偏差：TS 对 `null` 入参走 `typeof null ===
-  'object'` 那支、随后读 `v.type` 时 TypeError；端口一律算校验失败。连带在
-  `utils/type_check.h` 补了它要的三个谓词（`is_positive_int` / `is_non_nagative_int` /
-  `is_undefined_or_number` —— 后者是**宽松** `== void 0` ⇒ `null` 也算；`is_num.ts` 里其余
-  谓词端口没用到，不搬）。
-- **结清一条旧账**：`dat_translator/get_the_next.ts` 其实**早就搬了**（`get_next_frame_by_raw_id`
-  + `cook_next_frame_cost`，多个 caller）⇒ 不是缺口。
-- **登记表**：27 → 34（4CY）→ **36**（本刀）⇒ `cmds/index.ts` 全表登记完毕；`cmds.h` 里
-  「`F4`/`KEY_EVENT` 未移植」的旧注已删。
-- **台面（两侧同构的又一步）**：`cmds.ts` 的假 `lfw` 补了 `layers`（`new UILayers(null as
-  never)` ⇒ **空**层栈）、`world`（getter，真 `World` 晚于字面量建）、`mounted_keys: []` ——
-  不补的话 `F4` 会 `undefined.all`、`KEY_EVENT` 会 `undefined.length` 抛。新用例
-  `cases/cmds/f4.txt`（2 条注册 + 2 条**空跑**：TS 空层栈 / 端口底页 `pages().size() <= 1 &&
-  i == 0` ⇒ 两侧同样什么都不做）与 `cases/cmds/key_event.txt`（2 条注册 + 4 条告警 + 1 条
-  **裸 `--p --c --n`**：三个 flag 都算「在场」的字符串 ⇒ 一路走完 UI 层循环（空）/`mounted_keys`
-  （空）/`control_disabled`/`puppets` 查表 —— 除 UI 派发外的整条路径都真跑了）。
-- ⚠ **覆盖缺口（与 §149.17 同源）**：`KEY_EVENT` 的 UI 派发（`on_key_down`/`on_key_up`）与
-  `mounted_keys` 实拍、`F4` 的真弹页都还没有差分（两侧台面 UI 不同构；`layers` 现在是空栈 ⇒
-  循环空转）。
-
-**验证**：差分 **258/258**（多两条就是 `f4` 与 `key_event`）、锚点 9764/0、include **843**
-clean/0/9、coverage OK、宿主三条摘要 `7335aa25f4e1ce86`（prel 300）/ `e4a9437292047044`
-（prel+data 900）/ `f29d3bb1ea330c32`（`--vs` 600）。
-
-⚠ **本刀顺带发现一个既有缺陷（与本刀无关，未修）**：`lfw_run` 的 `--vs` 数据装载**偶发**失败 ——
-同一二进制、同一数据连跑 3 次：第 1 次 `preprocess_itr: "book_red" itr references missing prefab:
-"throw껫擔㙧老/>`（**乱码**）、第 2/3 次正常（摘要一致）。4CY 那次也见过同类
-（`IUIImgInfo.w must be positive integer, but got NaN`）。⇒ 装载路径（`preproc*/dat/lz` 一线）有
-**不确定**的内存/时序问题：报错内容每次不同 ⇒ 与代码路径改动无关 ⇒ 既有缺陷，待单独定位。
-**实践含义**：宿主摘要三元组要**重跑确认**再当成回归（本次已重跑到稳定通过）。
-
-### 149.19 `MoveTableLogic` 招式表演台（切片 4D0）—— 最后一笔功能欠账
-
-`src/LFW/ui/component/MoveTable/MoveTableLogic.ts`（439 行）是「TS 侧尚未搬」清单里的最后一项：
-页面 `ui/move_table_page.ui.json5` 早在包里、`component: ["MoveTableLogic"]` 一直没人认领。
-
-- **新文件** `ui/component/move_table/move_table_logic.{h,cpp}` + 注册
-  （`component_registry.cpp` 的 `regist_one<MoveTableLogic>(u"MoveTableLogic")` + CMake 一行）。
-- **没有类型可依**：TS 的 `IMoveListData` / `IMoveInfo` / `IMoveStep` / `IMoveDemoEntity` 在端口
-  **不存在**（`defines/` 也没有对应 schema）⇒ 招式表按**未定型 `Value`** 读（`DatMgr::moves()` /
-  `find_moves()`），字段名照 TS 接口写、一律 `field_of` / `field_or` 现读；候选表与步骤里的 `spec`
-  存同一份 `Value`（共享对象）。这是本刀最大的形状差，也解释了它为什么一直没被搬。
-- 其它形状差：`LGK` ⇒ `std::u16string`（`parse_keys` 回 `std::vector`，`ctrl.click/key_down/key_up`
-  收 vector 而不是可变参数）；`??` ⇒ 本地 `nullish_field` / `nullish_num_or` / `nullish_str_or`
-  （`0` / `""` **不算**空，与 `field_or` 的「缺就给默认」不同）；`bg.near/far` ⇒
-  `Background::near_plane()/far_plane()`；`set_position(x, 0, z)` ⇒ 三个 `Value`；`row.callbacks.add`
-  ⇒ `row->callbacks.on_click = …`；`this.warn(...)` 在端口是空转 ⇒ 告警走 `lfw().warn(...)`。
-- **`lfw.load(...zips).then(ok, err)` 没有 promise**：`load_lists` 先挂 `on_loading_end` /
-  `on_loading_failed` 再调**同步**的 `load`（同 `LoadingContentText::on_resume`），两个 remover 存在
-  成员里、`on_stop` 摘掉。差别只是 `.then` 的微任务延迟没了。
-- **排序**：`_steps` 用 `std::stable_sort` —— README 早把 `MoveTableLogic._steps.sort` 列为雷
-  （TS 的 `Array.prototype.sort` 自 ES2019 起稳定；`std::sort` 会把同一 `at` 上的 Up/Down/Click
-  次序打乱 ⇒ 演出结果会变）。
-- **lint 抓到一条**：`std::round` 与 JS `Math.round` 在**负半值**上不同 ⇒ 必须用 `js_round()`
-  （`utils/math/base.h` 里的 `round` 就是它的转发）。
-- 另记一处「照抄的瑕疵」：`spawn_entities` 里实体下标用的是**本批**下标（TS 也这样）⇒ 依赖
-  `rebuild_scene` 每次清空 `_entities` / `_entity_specs`，别在别处再调它。
-
-**验证**：差分 **258/258**（新组件不在任何差分台面上 ⇒ 只验证不回归）、锚点 9764/0、include
-**845** clean / 0 failed / 9 warnings、coverage OK、宿主三条摘要**逐字节不变**
-（`7335aa25f4e1ce86` / `e4a9437292047044` / `f29d3bb1ea330c32`）—— headless 宿主不开这一页。
-
-⚠ **覆盖缺口**：这一页真要跑起来得开菜单（`LFW.load` 第二个包 + 页面切换）⇒ 差分台面够不着
-（同 §149.17/§149.18 的 UI 不同构问题）。最省的入口是 `lfw` subject（已 UI-同构）：加一条
-「载入第二个 zip + `push_page(move_table_page)`」的 op，两侧同写。
-
-⚠ 再记一次 §149.18 的**既有**装载缺陷：本轮 4 次 `--vs` / `--stage 1` 运行里又有 1 次
-`preprocess_itr ... missing prefab: "throwing阘᫇儾老`（乱码）失败 ⇒ 频次不低，值得单独一刀。
-（→ 已定位并修掉：§149.20。）
-
-### 149.20 装载偶发失败的根因：`ToolXML` 把 `strip_comments` 的**临时**绑到引用成员（切片 4D1）
-
-§149.18 记的那个「同二进制、同数据、偶发乱码/NaN」的缺陷，定位结果是**悬垂引用（UAF）**：
-
-```cpp
-class XmlReader {                     // ditto/xml/tool_xml.cpp:102
-  explicit XmlReader(const std::u16string& text) : _t(text) {}
-  ...
-  const std::u16string& _t;           // :224  引用成员
-  size_t _i = 0;
-};
-...
-XmlReader reader(strip_comments(text));   // :242  ← `strip_comments` **按值返回**，
-                                          //         临时在语句末就析构 ⇒ 整个 `parse_first()`
-                                          //         （每个 `_t[...]` / `find` / `substr`）
-                                          //         都在读已释放的缓冲区
-```
-
-**证据链**（两位子代理独立复现）：
-- 失败率 **14/100**（`prel+data`）、**1/50**（只 `prel`）⇒ 与「解析量」同向，与 `data` 包无关。
-- 症状形态**只能**由「缓冲区事后被写过」解释：值的前半截完好、中间**恰好 8 字节**的洞（一个堆字宽，
-  例如 `t<8B>ing`、`in_t<8B>ky`、`builtin_d<8B>launch/main_text_button.ui.json`），随后接上**文件更后
-  面的原文**（`</frame>`、`<frame id="`）——纯误解析产生不出这种「完好前缀 + 8 字节洞 + 完好后缀」。
-- 属性值扫描 `while (_i < _t.size() && _t[_i] != quote) avalue.push_back(...)`（`:195`）只认到**下一个引号**
-  为止、不认 `<` ⇒ 洞落在引号上时就一路吞到后面的标记。
-- NaN 那条同源：数字属性被打了洞 ⇒ `string_to_number` 见非数字文本给 NaN ⇒ `read_nums` 直接判失败
-  （`got 200,NaN` 正是 `size="200,22"` 在逗号处断成两段、其中一段带洞）。
-- 磁盘数据是稳定的：`book_red.obj.xml` 17 685 B / SHA256 `B203F6A2…`、`entry_page.ui.xml` SHA256
-  `D13B220B…`（多次一致）⇒ 变量在**内存**不在盘。
-- 反汇编（`dumpbin` 看 `lfw_core.dir\ditto\xml\tool_xml.cpp.obj`）里能直接看到
-  `mov [rsp+28h],rax`（`reader._t = &temp`）紧跟着 `call operator delete`，然后才
-  `call parse_first` ⇒ 读的就是被释放的那块。
-- 另一条更隐蔽的旁证：成功运行里也出现过**静默腐蚀**（摘要逐字节相同、但 `warns` 1→2）⇒ 这不是
-  「偶尔报错」，而是「偶尔**悄悄**读错」。
-- 引入点：`git blame` → `860a5a3fb`（2026-10-13 的「4XML」切片）⇒ 是**最近一刀**带进来的回归。
-
-**修法**（最小 + 防复发，`860a5a3fb` 之后的形状）：
-1. 调用点先落到具名变量：`const std::u16string stripped = strip_comments(text); XmlReader reader(stripped);`
-2. `XmlReader(std::u16string&&) = delete;` —— 让「临时当实参」变成**编译错误**，而不是运行期 UAF。
-3. 同类隐患一并上锁：`core/json5.cpp` 的 `Parser`（同样是引用成员 `src`）加同款 `= delete`；
-   `core/json.cpp` 的 `Parser` 是聚合（加 ctor 会破坏聚合初始化）⇒ 改成在引用成员上写注释警告。
-   （全仓「引用成员」只这三处，其余都安全。）
-
-**验证**：
-- 复现口径：`lfw_run … --fighter 1 --fighter 4 --stage 1 --frames 1`（单次 ~0.55 s）
-  ⇒ 修复后 **200/200 成功、`failures=0`、`warns` 直方图 `1x200`、digest 只有 1 种**
-  （修前同口径 8/200；`prel+data` 全量口径 14/100）。
-- 规范三元组连跑：`--vs` 600 **5/5**、`prel` 300 **3/3**、`prel+data` 900 **3/3** 全部 exit 0，
-  摘要**逐字节不变**（`7335aa25f4e1ce86` / `e4a9437292047044` / `f29d3bb1ea330c32`）。
-- 差分 **258/258**、锚点 9764/0、include 845 clean/0/9、coverage OK。
-
-⇒ §149.18/§149.19 里「摘要三元组要重跑确认、偶发失败别当回归」那条**实践约定作废**：
-现在偶发失败**就是**回归（同一个 bug 已经堵掉）。
-
-### 149.21 命中/按键派发的差分覆盖（切片 4D2）—— 覆盖缺口清账
-
-§149.17/§149.18/§149.19 记的三处覆盖缺口（`POINTER_*` 命中派发、`KEY_EVENT` 的 UI 派发/按键挂载、
-`F4` 真弹页）一次性补上。**业务代码零改动**，只动差分台面。
-
-- **为什么不在 `cmds` 台面补**（原计划）：盘点发现那边代价太高 —— C++ 的假 `lfw`
-  （`world_fixture.h` 的 `FakeLfw`）构造里**清空了 `Factory::components()`**，TS 假件则是对象字面量、
-  连 `Ditto.UINodeRenderer` / `uis` / `images` / `factory.create_components` 都没有（建节点就抛）
-  ⇒ 在那儿重建 UI 树等于重写半个台面。
-- **改用在 `lfw` 台面**（本来就 UI-同构：真 `UILayers`/真页面 + 会打日志的 `FakeComp` +
-  两侧都自带的 `FakeUINodeRenderer` + `keysgo` 挂按键），它只缺**调用命令**的入口 ⇒ 两侧各加一个
-  `cmd <字符串>` op（C++ `CMDS::handle(world, {str})` / TS `CMDS.handle(world, [str])`）。
-- 顺带补的台面 op（都为这组用例服务）：`flpage`（按「层/页/子路径」定位 `lfw.ui_layers()` 里的页 ——
-  命令作用于那条**真层栈**，而原来的 `rl*` 读的是台面自己那份 `g_real_layers`）、`ptcur`（读指针
-  光标表）、`kkey`（按键事件）、`ctrlq`（直接打印 `is_human_ctrl(ctrl_view())` 判定），以及
-  `flset`/`flpush` 的可选层号。
-- **一处台面 bug（顺手修）**：C++ 的 `nrd` 读 `g_nodes`，而 `npg` 写的是 `g_alias_nodes` ⇒ 改走
-  `pick_node`（TS 侧一直如此）—— 台面不对称，不是端口问题。
-- **新用例**（`cases/lfw/`）：`cmd_pointer.txt`（130 行）、`cmd_key_event.txt`（140 行）、
-  `cmd_f4.txt`（87 行）。覆盖到的点：
-  * `POINTER_*`：近到远次序、`visible 0` / `disabled 1` 跳过、enter→stay→leave 差推导、
-    `pointer_down` / `click_flag` 的真假两支、UP 尾巴的 cancel、CANCEL、CLICK 的 `stop_click` 早退、
-    ENTER/LEAVE（含**省略 `--paths` 的全体 leave**）、四种告警（含 **page changed**），以及
-    `--from` 走通的 `move_cursor` / `cursor_for` / `get_pointer_cursors` 光标表。
-  * `KEY_EVENT`：必填参数告警、自顶向下选**第一个未禁用的层**（含跳过被禁用的下层）、按下自根到子 /
-    抬起自子到根、`stop_key` 短路、**挂载按键真的被 `hit`/`end`**（用 `lifetime` 时间戳非 0 证明）、
-    真人控制器队列的 `start`/`end`、非真人/无傀儡分支。
-  * `F4`：层 0 单页 ⇒ 不弹；两页 ⇒ 弹一页并带层回调（`on_ui_changed` / pause-stop-resume）；
-    层 1 单页 ⇒ 照弹（`i != 0` 例外）；空层 ⇒ `length <= 0` 分支。
-- **仍然够不到的 3 处**（记在案）：`POINTER_DOWN`/`POINTER_UP` 的 `event.stopped()` 早退
-  （`bench::FakeComp` 只在 `on_click` 上停）、`set_local_cursor` 的写面（平台层调用，无 op 驱动，
-  且不在本三命令范围内）、`KEY_EVENT` 的 `stage.control_disabled` 早退（要翻 stage phase）。
-
-**验证**：差分 **261/261**（258 + 3）；`lfw` 台面 **49/49**；锚点 9764/0；include 845 clean/0/9；
-coverage OK；宿主三条摘要**逐字节不变**（`7335aa25f4e1ce86` / `e4a9437292047044` /
-`f29d3bb1ea330c32`）—— 本刀零端口改动，三条都是**一次通过**，也再次佐证 §149.20 的修复成立。
-
-### 149.22 「假货清单」（切片 4D3）—— 按「改真货」的可行性分级
-
-起于「各种假货要改真货」。一次全仓盘点（端口 `native\lfw\**` + 宿主 `native\host\**` + 台面
-`native\tests\differential\**`，对位 TS 是 `src\LFW\**` / `src\DittoImpl\**`）按四类分桶：
-
-**K1 端口里「只为台面存在」的钩子**（最多的一堆；覆写者**只在** `native\tests\**`）
-
-- `ui\uinode.h:189-190` `virtual bool disabled()`、`:266` `virtual void update(double)` —— 注释自己写着
-  「`virtual` 只为台面脚本化」；TS 对位 `UINode.ts:254/721`；**全仓唯一的 `UINode` 子类**是台面的
-  `fx::FakeUi`（`subjects\world.cpp:207-209`）。
-- `world.h:123` 的 7 个宿主面（`bg_dataset` / `stage_value` / `bg_value` / `entity_count` /
-  `puppets_values` / `gen_field` / `play_sound`）、`world.h:172/194/196/213/232/251`（`game_time` /
-  `world_stage` / `bg_value` / `del_entities` / `add_entities` 一族 / `find_entity` / `on_step_error`）
-  —— 覆写者 `TestWorld`（`world_fixture.h:426-529`）与 `camera.cpp:51` / `helpers.cpp` / `stage.cpp:604`。
-- `entity.h:157/176/181/214-216`（`set_outline_color_raw` / `mounted` / `set_reserve` / `set_name` /
-  `set_stat_bar` / `set_dead_gone`）+ ~30 个 `virtual` 取值面；覆写者 `stage.cpp` / `buff.cpp` /
-  `entity_fixture.h`。
-- `lfw.h:470/478-483`（`regist_keys` / `recycle_keys` / `resources` / `load_img` / `warn` / `error`）。
-- 只读观测面（非虚）：`world.h:175/264/272`、`uinode.h:87`。
-- **关键性质**：这些**不能单独删**（删了台面覆写就编译不过）⇒ 只能「真宿主建起来之后**顺带**退掉」。
-  反例（**不是**假货）：`ui_component.h:101 update()` 有 45 个**真**组件覆写、`ui_event.h:17 stopped()`
-  有真实现。
-
-**K2 空转/桩的真实现**（每条挂 TS 对位，看真实现多大）
-
-- ~~`ui_component.h:125-129` `debug/warn/log` 空转 + `make_debugging` 未移植~~ **已结清（切片 4D4，
-  见 §149.23）**：`base/debugging.{h,cpp}` 装上真闭包体、走 `lfw().host()` 的 `debug|warn|log` 缝，
-  改道过的告警也归位（`move_table_logic.cpp` 的 `warn(...)`）。TS 对位 `UIComponent.ts:53-57` +
-  `base\Debugging.ts:10-29`。**S**（~30 行）
-- `headless_host.cpp:146` `md5`（注释自认「不是真 MD5」）⇔ `DittoImpl\md5.ts`(19)；`ui_load_img` 的键用它。**S**
-- `sounds_play*`（`headless_host.cpp:191-205` 只计数）+ `world.cpp:142` `play_sound` 默认空转 ⇔
-  `Sounds.ts`122 + `Modern.ts`307 + `Fallback.ts`171。**L**
-- `NullWorldRenderer`（`headless_host.h:37-46` 只计数）⇔ `WorldRenderer.ts`392 + `EntityMainRender.ts`757。**L**
-- `ManualClock::add→0` / `NoopTimeout::add→0`（`headless_host.h:20-34`）⇔ `Clock.ts`33 / `Timeout.ts`9 /
-  `Interval.ts`9 ⇒ `Ticker` 不自驱、台面手工推帧。**S–M**
-- `IUINodeRenderer` 渲染面未移植（`ui_node_renderer.h:9`）；`create_ui_node_renderer` 默认 **nullptr**
-  （`lfw.h:179-182`，`uinode.cpp:106` 用它）⇔ `UINodeRenderer.ts`530。**L**
-- `image_bitmap` 明确拒绝（`fs_zip.cpp:94-98`）+ `import_as_image_bitmap`（`headless_host.cpp:318-324`）⇔
-  `ImageMgr.ts`404 + `handle_image_operation.ts`67。**L**
-- `FsZip` 只认**解包目录**、无 DEFLATE/中央目录（`fs_zip.h:15`）⇔ `DittoImpl\Zip.ts`154。**M**
-- `measure_text` 近似（`headless_host.cpp:211`）⇔ `ImageMgr` / `TextMesh.ts`276（`UINode.ts:438/470` 用）。**M**
-- 细项：`dat_mgr.cpp:227` 跳过逐地形告警、`preprocess_entity_data.cpp:264` 不收集错误、
-  `fighter_thumb.h:16` `on_show` 桩（`PlayerScore` 已搬、只是没接线）、`world.h:135 gen_field`。**S–M**
-
-**K3 台面假件**（`native\tests\differential\subjects\**` —— 17 个类跨 11 个 subject **已经派生真类**，
-退役缝的老配方已是常态）
-
-- `bench::FakeComp`（`lfw.cpp:844`，经**真** `Factory::register_component` 注册）派生真 `ui::UIComponent`
-  ⇒ **换成真组件**即可解锁 §149.21 记的两条够不到分支；`FakeUINodeRenderer`（`lfw.cpp:1021`）实现
-  `IUINodeRenderer`（全空默认）。
-- `FakeLfw`（`world_fixture.h:151` 等 6 处）派生真 `LFW` 但覆写 ~50 面；`TestWorld` / `FakeWorld` /
-  `FakeStageWorld` 派生真 `World`。
-- **从头实现**（不是派生）：`FakeHost : IResourcesHost`（`dat_mgr.cpp:116` / `resources.cpp:129`）、
-  `FakeZip` / `FakeZipObject` / `LoadZip*`（`zip_mgr.cpp:53` 等）⇒ 真货分别是 `HeadlessHost` 与 `FsZip`；
-  `FakeRenderer` / `QuietRenderer` 实现 `IWorldRenderer`（要真渲染器，L）。
-- TS 侧的对象字面量假 `lfw`（`bot.ts:148` / `collision_handlers.ts:71`）与 8 处 `Ditto.setup({...})`
-  用的是**真扩展点**（`Instance.ts:79`）⇒ 属「诚实的平台注入」，不列进待退名单。
-
-**K4 真·宿主边界**（别当假货改）：`ILfwHost`（`lfw.h:135`，~80 纯虚）、`IWorldRenderer`、
-`IUINodeRenderer`、`IPlayerInfoHost`、`IResourcesHost`、`IClock`/`ITimeout`、`IRenderScheduler`、
-`ITickerOptions`、`IXML`/`IXMLElement`、`IZip`/`IZipObject`、`ditto` 包。headless 实现分三档：
-**忠实的什么都不做**（`images_init` / `keyboard_init` / `pointings_*` / `*_dispose`，`headless_host.h:83-160`）、
-**偷工减料**（就是 K2 那张表）、**忠实且完整**（`IXML` 293+517 行 vs TS 274+62、JSON/JSON5、文件 I/O、
-`FsZip` 索引）。
-
-**依赖顺序（省到贵，括号=成本）**
-
-1. ~~`make_debugging`（S）~~ **已结清（切片 4D4，见 §149.23）** —— 真 `Ditto.debug/warn/Log` 路由
-   已恢复，改道过的告警已归位。
-2. 真 MD5（S）—— 抹掉一条自认的谎；真图片/zip 键的前提。
-3. 真 `IClock`/`ITimeout`/`IRenderScheduler`（S–M）—— `Ticker` 自驱，台面不必手推帧。
-4. 真 `IPlayerInfoHost` 缓存（S，`HeadlessHost` 已有真实现）—— 删掉 `FakePlayerHost` 及其 K1 覆写。
-5. 真 `IZip`（DEFLATE + 中央目录，M）—— 与第 10 步配对，`FakeZip*` 才能退。
-6. `IXML` 根元素 `data`（S–M）—— `resources.h:18-46` 自己记了「脚本化标记」的偏差。
-7. `IUINodeRenderer` + 真 `UINodeRenderer`（L）—— **必须与第 8 步同刀**；之后 `UINode::update` 才不必是虚。
-8. 真 `IWorldRenderer`（L，新子系统）—— **必须早于「台面用真组件」**；退掉 `FakeRenderer`/`QuietRenderer`，
-   `add_entities`/`del_entities` 这些钩子才可能真。
-9. sounds 宿主（L）—— 退掉 sounds 那一簇与 `World::play_sound` 默认。
-10. images（L）—— 在第 5+8 步之后；退掉 `import_as_image_bitmap`/`ui_image_load`/`measure_text`。
-11. 批量退 K1 钩子（各 S）—— 顺序**被迫**：只要台面还在覆写，`virtual` 就摘不掉。
-12. 台面换真组件（S–M，在第 7/8 之后）—— 替掉 `bench::FakeComp`，让 `POINTER_DOWN/UP` 的
-    `event.stopped()` 早退与 `KEY_EVENT` 的 `stage.control_disabled` 可真覆盖；`set_local_cursor`
-    还要等光标渲染路径（`CursorRender.ts` 250）⇒ 在第 8/10 之后。
-
-**本刀已复核**（抽查）：`headless_host.cpp` 的 `md5` 注释自认「不是真 MD5」✓；
-`create_ui_node_renderer` 默认 `nullptr`（`lfw.h:179-182`）✓；`FakeComp` 派生真 `UIComponent` 且经真
-`Factory::register_component` 注册 ✓。
-
-**未复核（清单自注）**：`entity.h` 那 ~30 个 `virtual` 取值面只**抽样**追踪了「只在测试里覆写」，
-没逐条核过；sounds/images 的规模是按 LOC 估的，没逐行读实现。
-
-### 149.23 `make_debugging` + 组件日志改真（切片 4D4）—— §149.22 顺序表第 1 步
-
-`UIComponent::debug/warn/log` 原本是三个**空转模板**，`make_debugging` 根本没搬 ⇒ 端口里组件的日志/告警
-**全被吞**（`move_table_logic` 就是因此被迫改道 `lfw().warn(...)`）。
-
-**TS 的真实语义**（`base\Debugging.ts:9-29`，逐条核过原文）：
-- `make_debugging(obj)` 在**构造末尾**装三个闭包（`LFW.ts:370` / `UINode.ts:426` / `UIComponent.ts:104`
-  ⇒ 每个组件都装一遍），并当场捕获 `cls = Object.getPrototypeOf(obj).constructor`、取 `cls.TAG`
-  （= `TAGS[0]`）。
-- 调用时读 `obj.id` 与 `obj.__debugging`：**只有 `debug` 检查 `__debugging`**（假就 `return`）；
-  `warn`/`log` **不检查** ⇒ 端口照此（⇒ `MoveTableLogic` 那三条错误告警关掉调试时**照样打**，与 TS 一致）。
-- 前缀：`[D]`/`[W]`/`[I]` + `id` 非空时 `<id>` + `[<TAG>::<func>]`，其余实参原样跟在后面，落到
-  `Ditto.debug/warn/Log`。
-
-**端口做法**：新增 `base/debugging.{h,cpp}`（`IDebugging` / `make_debugging` / `debugging_write`），
-`UIComponent : public IDebugging`，实现四个取值面 + `debugging_out(level, args)`（走**既有**的
-`lfw().host().debug|warn|log` 宿主缝 ⇒ 不另造通道）；**空转模板删掉**，三个方法改成
-`(func, std::vector<Value>)`（C++ 没有方法表可替换 ⇒ `make_debugging` 的活就是「装过的标记」）。
-偏差：`cls.TAG` 改成调用时经 `props_tag()` 取（基类构造里的虚调用会取到 `UIComponent` 自己的 tag；
-每个实例的 tag 不变 ⇒ 结果等价）。
-
-**归位的告警**（原本为绕开空转而改道）：`move_table_logic.cpp` ×3 恢复 `warn(...)`、`ui_component.cpp`
-的 `nums` 三处、`fade_out_opacity.cpp` 的 `debug(u"update", …)`。**只报告未改**：
-`DemoModeLogic.ts:204,220` / `StageModeLogic.ts:47,71` / `LaunchPageLogic.ts:160`（实参是
-`Stage`/phase/事件对象，装不进 `Value`）、`LaunchPageLogic.ts:165` 的 `debug('on_click')`
-（**本身可恢复**，但那行是变异锚点 ⇒ 要动 `native/tests`，本刀不碰）、`Jalousie.ts:53`（台面早就约定
-不打，`PROTOCOL.md:5044-5047`）、`UINode.ts:426` / `LFW.ts:370`（`LFW` 已有真 `lfw_debug/warn/log`；
-`UINode` 在 TS 侧没有调用点）。
-
-**验证**：差分 **261/261**（**无一行变化** —— 台面把 `warn/log/debug_msg` 静音了 ⇒ 日志本身不进 trace）；
-锚点 9764/0；include **847** clean / 0 failed / 9 warnings；宿主三条摘要**逐字节不变**
-（`7335aa25f4e1ce86` / `e4a9437292047044` / `f29d3bb1ea330c32`；`warns=1` 是既有的
-`DatMgr::_add_obj id duplicated…`）。因为台面静音看不出效果，另用**会话内探针**（不进仓库）链
-`lfw_core.lib` 打真宿主输出：`[host:warn] [W]<pc>[ProbeComp::hello]`、
-`[host:debug] [D]<pc>[ProbeComp::visible]`（且**只在** `__debugging=true` 之后出现）、
-`[host:log] [I]<pc>[ProbeComp::info]`，以及 `nums` 那三条告警 —— 全对。
-
-⇒ §149.22 依赖顺序表**第 1 步结清**。
