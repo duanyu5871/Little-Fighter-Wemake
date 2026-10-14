@@ -5650,3 +5650,19 @@ harness op：
 - ⚠ `UILayer` 的析构**定义在 `uilayer.cpp`**：头里只前置声明 `UINode`，而 `_pages` / `_trash` 是
   `unique_ptr<UINode>` ⇒ 头里隐式析构会撞 `can't delete an incomplete type`。新增「持有
   `unique_ptr<UINode>`」的头时同样要这么处理。
+
+### 6.9.194 `IStageEntity` 退役 ⇒ 台面假实体派生真 `Entity`（4CU）
+
+- `IStageEntity`(18 面) 已删除；`Stage` 直接吃真 `Entity*`（`world.entity_list()`＝真 `entities`，
+  `world.puppet_list()`＝`Entity*` 投影缓存）。想脚本化这些面，就**派生真 `lfw::Entity`**
+  （见 `subjects/stage.cpp` 的 `FakeStageEntity`），覆写同名虚函数（`data` / `team` / `hp*` / `mp*` /
+  `set_hp*` / `set_facing` / `set_position` / `mounted` / `ctrl_view`）。
+  ⚠ 引用判定用 `ref_of(*e)`（完整控制器视图），不是 `Entity::ref()` 的薄 `{id}`；
+  `e.ctrl` 的 `Value` 视图是 `Entity::ctrl_view()`；`e.position.x` / `e.bearer` 是真字段。
+- ⚠ **`Entity` 的 ctor 有副作用**（`reset()` ⇒ 读 `data`、抽 `new_id`、找帧数据）：拿台面的假 `lfw`
+  构造会打出一堆 `h:` 行（TS 孪生里假实体是纯对象）⇒ 台面另备一套「静音世界」（真 `LFW`
+  （静音宿主）+ 不打日志的 `QuietRenderer`）专门用来构造假实体。
+- ⚠ 台面自己的成员名别与 `World` 的访问器撞（`entity_list` / `puppet_list` 已被占 ⇒ 台面用
+  `entity_pool` / `puppet_pool`）。
+- ⚠ `kill_all` / `kill_soliders` / `kill_boss` / `kill_others` 遍历的是 `Item::objects()`（`IItemEntity`），
+  与 `Stage` 的实体表不是一回事 —— 改 `stage.cpp` 的实体面时别顺手改到那几行。

@@ -196,13 +196,13 @@ export default {
       note: "set_phase：puppets 不参与队伍表",
       file: "native/lfw/stage/stage.cpp",
       from: `    std::vector<Value> teams;
-    for (IStageEntity* f : _world->puppet_views()) set_add(teams, f->team());
-    for (IStageEntity* f : _world->entity_views()) {
-      if (!entity::is_fighter(f->ref()) || !set_has(teams, f->team())) continue;`,
+    for (Entity* const f : _world->puppet_list()) set_add(teams, Value(f->team()));
+    for (Entity* const f : _world->entity_list()) {
+      if (!entity::is_fighter(ref_of(*f)) || !set_has(teams, Value(f->team()))) continue;`,
       to: `    std::vector<Value> teams;
-    for (IStageEntity* f : _world->puppet_views()) set_add(teams, f->team());
-    for (IStageEntity* f : _world->entity_views()) {
-      if (!entity::is_fighter(f->ref())) continue;`,
+    for (Entity* const f : _world->puppet_list()) set_add(teams, Value(f->team()));
+    for (Entity* const f : _world->entity_list()) {
+      if (!entity::is_fighter(ref_of(*f))) continue;`,
     },
     {
       note: "set_phase：hp<=0 的门写成 `< 0`",
@@ -534,12 +534,12 @@ void Stage::clear_dialogs() {`,
     {
       note: "ce：puppets 的 ce 缺省写成 0",
       file: "native/lfw/stage/stage.cpp",
-      from: `  for (IStageEntity* c : _world->puppet_views()) {
+      from: `  for (Entity* const c : _world->puppet_list()) {
     const Value base = field_or(c->data(), u"base");
     const Value ce_v = field_or(base, u"ce");
     count += is_nullish(ce_v) ? 1.0 : to_number(ce_v);
   }`,
-      to: `  for (IStageEntity* c : _world->puppet_views()) {
+      to: `  for (Entity* const c : _world->puppet_list()) {
     const Value base = field_or(c->data(), u"base");
     const Value ce_v = field_or(base, u"ce");
     count += is_nullish(ce_v) ? 0.0 : to_number(ce_v);
@@ -549,9 +549,9 @@ void Stage::clear_dialogs() {`,
       note: "ce：`if (!count)` 的反向（有 count 也去累加实体）",
       file: "native/lfw/stage/stage.cpp",
       from: `  if (!truthy(Value(count))) {
-    for (IStageEntity* e : _world->entity_views()) {`,
+    for (Entity* const e : _world->entity_list()) {`,
       to: `  if (truthy(Value(count))) {
-    for (IStageEntity* e : _world->entity_views()) {`,
+    for (Entity* const e : _world->entity_list()) {`,
     },
     {
       note: "ce：count 为 0 时不兜底成 1",
@@ -568,14 +568,14 @@ void Stage::clear_dialogs() {`,
     {
       note: "ce：只看 Team_1 那条去掉",
       file: "native/lfw/stage/stage.cpp",
-      from: `      if (!strict_equals(e->team(), Value(std::u16string(team_enum::kTeam_1)))) continue;`,
+      from: `      if (!strict_equals(Value(e->team()), Value(std::u16string(team_enum::kTeam_1)))) continue;`,
       to: `      (void)e;`,
     },
     {
       note: "ce：不判 mounted",
       file: "native/lfw/stage/stage.cpp",
-      from: `      if (!entity::is_fighter(e->ref()) || !e->mounted() || e->hp() <= 0.0) continue;`,
-      to: `      if (!entity::is_fighter(e->ref()) || e->hp() <= 0.0) continue;`,
+      from: `      if (!entity::is_fighter(ref_of(*e)) || !truthy(Value(e->mounted())) || e->hp() <= 0.0) {`,
+      to: `      if (!entity::is_fighter(ref_of(*e)) || e->hp() <= 0.0) {`,
     },
     // ---------------------------------------------------------------- spawn
     {
@@ -679,14 +679,14 @@ void Stage::kill_soliders() {`,
     {
       note: "dispose：玩家队伍的角色也删",
       file: "native/lfw/stage/stage.cpp",
-      from: `    if (entity::is_fighter(e->ref()) && set_has(player_teams, e->team())) continue;`,
+      from: `    if (entity::is_fighter(ref_of(*e)) && set_has(player_teams, Value(e->team()))) continue;`,
       to: `    if (false) continue;`,
     },
     {
       note: "dispose：玩家持有的武器也删",
       file: "native/lfw/stage/stage.cpp",
-      from: `    if (entity::is_weapon(e->ref()) && e->bearer() != nullptr &&
-        set_has(player_teams, e->bearer()->team())) {
+      from: `    if (entity::is_weapon(ref_of(*e)) && e->bearer != nullptr &&
+        set_has(player_teams, Value(e->bearer->team()))) {
       continue;
     }`,
       to: `    (void)0;`,
@@ -812,14 +812,14 @@ void Stage::kill_soliders() {`,
     {
       note: "should_goto_next_stage：不跳过无血的",
       file: "native/lfw/stage/stage.cpp",
-      from: `    if (e->hp() <= 0.0) continue;                  // 无血，不判断`,
+      from: `    if (e->hp() <= 0.0) continue;                   // 无血，不判断`,
       to: `    if (false) continue;`,
     },
     {
       note: "should_goto_next_stage：右边界比较用 `>`",
       file: "native/lfw/stage/stage.cpp",
-      from: `    if (e->position_x() >= cam_r) continue;        // 已达右侧，不判断`,
-      to: `    if (e->position_x() > cam_r) continue;`,
+      from: `    if (e->position.x >= cam_r) continue;           // 已达右侧，不判断`,
+      to: `    if (e->position.x > cam_r) continue;`,
     },
     {
       note: "should_goto_next_stage：不跳过 Bot",

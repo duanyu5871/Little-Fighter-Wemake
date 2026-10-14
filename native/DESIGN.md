@@ -11570,12 +11570,48 @@ coverage OK；宿主 prel 300 = `7335aa25f4e1ce86`、stage 1 900 = `e4a943729204
 coverage OK；宿主 prel 300 = `7335aa25f4e1ce86`、stage 1 900 = `e4a9437292047044`、`--vs` 600 =
 `f29d3bb1ea330c32` —— 三条**逐字节不变**。
 
-### 149.9 剩下的同类缝
+### 149.9 缝家族退役（8/8）：`IStageEntity`（切片 4CU / ck7）
 
-`IStageEntity`(18) / `IItemEntity`(22)（仿实体，真实现就是 `Entity`，适配器同 4CR 的
-`StageEntityView` / `EntityItem`）；`IKeysLfw`(3) **没有真实现** ⇒ 属待移植而不是退役。
-A 组（`ICameraWorld` / `IWorldUi` / `IStageWorld` / `IItemHost` / `IDatMgrHost`）与 B 组的
-`IUiLayers` 到此全部退完：`IUiLayers` / `IWorldUi` / `IStageWorld` / `IItemHost` / `IDatMgrHost` /
-`ICameraWorld` / `IWorldLfw` / `IStageLfw` / `IHelperLfw` / `IUiHelperLfw` / `IEntityHost` /
-`IBuffEntity` / `IStateEntity` 只剩两组仿实体在册。
+`IStageEntity`(18 面) 的真实现就是 `Entity`，适配器是 `world.cpp` 里那个私有 `StageEntityView`
+（它还负责 4CI 定下的那件事：视图的 `ref()` 给**完整控制器视图** `ref_of(_e)`，而不是 `Entity::ref()`
+的薄 `{id}`）。这一刀把投影整个删掉：
+
+- `Stage` 现在直接吃真 `Entity*`：`_world->entity_list()`（就是真 `entities` 数组）与
+  `_world->puppet_list()`（`puppets` 的 `Entity*` 投影缓存）；`World::del_entities` 加 `virtual`
+  （`Stage::dispose` 那一次删除要给台面脚本化），投影视图重载、`views_` / `entity_view_` /
+  `puppet_view_` / `view_of` / `entity_of` 全删。
+- 18 面的落点（`stage.cpp` 10 处调用点）：`e->ref()` → `ref_of(*e)`；`e->team()` → `Value(e->team())`
+  （真 `Entity::team()` 给 `u16string`）；`e->ctrl()` → **新的 `Entity::ctrl_view()`**（TS 里 `e.ctrl`
+  是对象、`is_bot_ctrl(ctrl)` / `ctrl.player_id` 都读它；原来那个投影函数 `ctrl_value` 从 `world.cpp`
+  的匿名命名空间挪成 `entity::ctrl_view_of`，放在 `entity_type_check.{h,cpp}` 里与 `is_bot_ctrl` 做伴）；
+  `e->position_x()` → `e->position.x`；`e->bearer()` → `e->bearer`（真字段）；`e->mounted()` →
+  `truthy(Value(e->mounted()))`（给 `mounted()` 补 `virtual`：`Stage::ce` 读它、台面要脚本化）。
+- 台面 `subjects/stage.cpp` 的假实体改成**派生真 `lfw::Entity`**（`FakeStageEntity`），18 面的覆写
+  改成同名虚函数覆写（getter 静默、setter 打日志不变），影子字段遮蔽基类私有同名成员但不影响行为。
+  两个坑：① `g_host`（item 侧）那一套顺序规则照旧 —— 假实体的 `Entity` 基类构造要一个 `World&`；
+  ② **`Entity` 的 ctor 有副作用**（`reset()` ⇒ 读 `data` / 抽 `new_id` / 找帧数据）：若用台面的
+  `g_sworld`，走假 `lfw` 会打出一堆 `h:` 行，而 TS 孪生里假实体是纯对象 ⇒ 用一套与用例无关的
+  「静音世界」（真 `LFW`（静音宿主）+ 不打日志的 renderer `QuietRenderer`）把 ctor 副作用挡在外面。
+  另外台面自己的两个实体表改名（`entity_pool` / `puppet_pool`）：`entity_list` / `puppet_list`
+  这两个名字被 `World` 的新访问器占了。
+- 变异锚点：`stage_main.mjs` 10 处跟随改写。⚠ **教训**：一刀切的全量替换会误伤 `kill_*` 那几行 ——
+  它们的 `e->ref()` / `e->team()` 属于**另一条缝**（`IItemEntity`，`o->objects()` 的元素）⇒ 那两条
+  锚点必须还原（lint 用 `count=0` 精确指出了这一点）。
+- ⚠ **结构坑**：删除投影块时把匿名命名空间的收尾 `}` 一起删掉了（MSVC 容忍「在匿名命名空间里定义
+  成员函数」这个扩展 ⇒ 只报一个 `LNK2001`，症状是 `World::play_sound` 之类的成员定义落进了匿名
+  命名空间）⇒ 收尾 `}` 与 `World::play_sound` 一起还原到正确位置。
+
+实测（纯重构）：差分 **255/255**（一次过）；锚点 **9764 ok / 0 bad**；include 836 clean / 0 failed /
+9 warnings；coverage OK；宿主 prel 300 = `7335aa25f4e1ce86`、stage 1 900 = `e4a9437292047044`、
+`--vs` 600 = `f29d3bb1ea330c32` —— 三条**逐字节不变**。
+
+### 149.10 剩下的同类缝
+
+`IItemEntity`(22)（`Item` 直接吃 `Entity`，适配器同 4CU 删掉的 `StageEntityView`；`kill_*` 那批
+`o->objects()` 的元素就是它）；`IKeysLfw`(3) **没有真实现** ⇒ 属待移植而不是退役。
+
+至此缝家族只剩这一条「仿实体」在册：`IUiLayers` / `IWorldUi` / `IStageWorld` / `IItemHost` /
+`IDatMgrHost` / `ICameraWorld` / `IWorldLfw` / `IStageLfw` / `IHelperLfw` / `IUiHelperLfw` /
+`IEntityHost` / `IBuffEntity` / `IStateEntity` / `IActionEntity` / `IFrozenEntity` /
+`IHandlerEntity` / `IStageEntity` 都已删除。
 

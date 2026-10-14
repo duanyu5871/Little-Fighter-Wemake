@@ -27,11 +27,15 @@ bool is_object_data(const Value& v);
 bool is_bg_data(const Value& v);
 bool is_base_ctrl(const Value& v);
 bool is_bot_ctrl(const Value& v);
+// `e.ctrl` 的 `Value` 视图：TS 里控制器是对象（`ctrl.player_id` / `is_bot_ctrl(ctrl)` 都读它），
+// 端口把这几面投影成 `Value`。原来长在 `world.cpp` 的匿名命名空间里（供 `IStageEntity` 投影用），
+// 切片 4CU（ck7）挪进来给 `Entity::ctrl_view()` 与 `Stage` 共用。
 bool is_human_ctrl(const Value& v);
 bool is_ball_ctrl(const Value& v);
 // `is_bot_ctrl(v: any): v is BotController`（TS 的 `type_check.ts` 读 `v?.__is_bot_ctrl__`）：
 // 端口里控制器是对象 ⇒ 这一条直接收对象（`Value` 形状的那条按 `__is_bot_ctrl__` 字段读）。
 bool is_bot_ctrl(const controller::BaseController* ctrl);
+Value ctrl_view_of(const controller::BaseController* ctrl);
 
 }
 }

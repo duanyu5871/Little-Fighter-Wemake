@@ -88,55 +88,7 @@ void gones_add(std::vector<Entity*>& v, Entity* const e) {
 
 Value obj_of() { return Value(std::make_shared<Object>()); }
 
-// `e.ctrl` 的 `Value` 视图（TS 里控制器是对象，`is_bot_ctrl(ctrl)` / `ctrl.player_id` 都读它）。
-Value ctrl_value(const controller::BaseController* const ctrl) {
-  if (ctrl == nullptr) return Value();
-  auto o = std::make_shared<Object>();
-  o->set(u"__is_base_ctrl__", Value(true));
-  o->set(u"__is_bot_ctrl__", Value(ctrl->is_bot()));
-  o->set(u"__is_human_ctrl__", Value(ctrl->is_human()));
-  o->set(u"__is_ball_ctrl__", Value(ctrl->is_ball_ctrl()));
-  o->set(u"player_id", Value(ctrl->player_id));
-  o->set(u"player", ctrl->player);
-  return Value(o);
-}
-
-// `Stage` 要的实体面（`IStageEntity`）：把 `Entity` 直接抬上来。
-class StageEntityView : public stage::IStageEntity {
- public:
-  explicit StageEntityView(Entity& e) : _e(e) {}
-
-  Value ref() const override { return ref_of(_e); }
-  const Value& data() const override { return _e.data(); }
-  Value team() const override { return Value(_e.team()); }
-  Value ctrl() const override { return ctrl_value(_e.ctrl()); }
-  Value facing() const override { return Value(_e.facing); }
-  void set_facing(const Value& v) override { _e.facing = to_number(v); }
-  double hp() const override { return _e.hp(); }
-  void set_hp(double v) override { _e.set_hp(v); }
-  double hp_max() const override { return _e.hp_max(); }
-  double hp_r() const override { return _e.hp_r(); }
-  void set_hp_r(double v) override { _e.set_hp_r(v); }
-  double mp() const override { return _e.mp(); }
-  void set_mp(double v) override { _e.set_mp(v); }
-  double mp_max() const override { return _e.mp_max(); }
-  bool mounted() const override { return truthy(Value(_e.mounted())); }
-  double position_x() const override { return _e.position.x; }
-  void set_position(const Value& x, const Value& y, const Value& z) override {
-    _e.set_position(x, y, z);
-  }
-  IStageEntity* bearer() const override { return _bearer_view; }
-
-  void set_bearer_view(StageEntityView* v) { _bearer_view = v; }
-
- private:
-  Entity& _e;
-  StageEntityView* _bearer_view = nullptr;
-};
-
-
-
-}
+}  // namespace
 
 // TS 里 `Entity` 直接读的 `this.world.*` 面（切片 4CJ：`IEntityHost` 退役后并入 `World`）。
 Value World::bg_dataset(const std::u16string& key) const {
@@ -193,55 +145,22 @@ std::optional<Value> World::gen_field(const Value& holder, const std::u16string&
   return std::nullopt;
 }
 
-// ---- `Stage` 侧的实体投影（4CR：原 `WorldStageView` 的成员搬成自由函数）----
-stage::IStageEntity* view_of(Entity* const e,
-                             std::map<Entity*, std::unique_ptr<stage::IStageEntity>>& views) {
-  const std::map<Entity*, std::unique_ptr<stage::IStageEntity>>::iterator it = views.find(e);
-  if (it != views.end()) return it->second.get();
-  std::unique_ptr<StageEntityView> view = std::make_unique<StageEntityView>(*e);
-  stage::IStageEntity* const raw = view.get();
-  views.emplace(e, std::move(view));
-  return raw;
-}
-
-Entity* entity_of(stage::IStageEntity* const view,
-                  std::map<Entity*, std::unique_ptr<stage::IStageEntity>>& views) {
-  for (const std::pair<Entity* const, std::unique_ptr<stage::IStageEntity>>& kv : views) {
-    if (kv.second.get() == view) return kv.first;
-  }
-  return nullptr;
-}
-
+// `this.play_sound(...)`：音频切片未移植 ⇒ 宿主缝（`World::play_sound` 的默认实现空转）。
 void World::play_sound(const Value& sounds, const Value& pos) {
   (void)sounds;
   (void)pos;
 }
 
 // ---- `Stage` 要的 `world.*` 面（4CR：`IStageWorld` 退役后并入本类）----
-std::vector<stage::IStageEntity*>& World::entity_views() {
-  entity_view_.clear();
-  for (Entity* const e : entities) entity_view_.push_back(view_of(e, views_));
-  return entity_view_;
-}
+// 切片 4CU（ck7）：`IStageEntity` 投影退役 ⇒ 这两条直接给真 `Entity*`。
+std::vector<Entity*>& World::entity_list() { return entities; }
 
-std::vector<stage::IStageEntity*>& World::puppet_views() {
-  puppet_view_.clear();
+std::vector<Entity*>& World::puppet_list() {
+  puppet_list_.clear();
   for (const std::pair<std::u16string, Entity*>& kv : puppets) {
-    puppet_view_.push_back(view_of(kv.second, views_));
+    puppet_list_.push_back(kv.second);
   }
-  return puppet_view_;
-}
-
-// ⚠ 与 `del_entities(const std::vector<Entity*>&)` 是**两个重载**：这条收的是 `Stage` 拿到的
-// `IStageEntity*` 投影，先还原成真 `Entity*` 再交给下面那条（原 `WorldStageView` 的语义）。
-void World::del_entities(const std::vector<stage::IStageEntity*>& es) {
-  std::vector<Entity*> list;
-  list.reserve(es.size());
-  for (stage::IStageEntity* const e : es) {
-    Entity* const real = entity_of(e, views_);
-    if (real != nullptr) list.push_back(real);
-  }
-  del_entities(list);
+  return puppet_list_;
 }
 
 void World::camera_jump_x(const Value& x) { camera().jump_x(to_number(x)); }

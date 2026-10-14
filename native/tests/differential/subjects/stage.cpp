@@ -302,16 +302,38 @@ void dump_item() {
 
 // ---------------------------------------------------------------- Stage 侧
 
-// 假实体：`IStageEntity` 正好是 `Stage` 用到的那一面。**getter 静默**（TS 那边都是属性读）、
-// **setter 打日志**（`hp = hp_r = …` 这类赋值顺序与次数才是可比量）。
-class FakeStageEntity : public lfw::stage::IStageEntity {
+// 假实体：切片 4CU（ck7）`IStageEntity` 退役 ⇒ **派生真 `lfw::Entity`**，覆写 `Stage` 用到的
+// 那几面（**getter 静默**：TS 那边都是属性读；**setter 打日志**：赋值顺序与次数才是可比量）。
+//
+// 为什么不拿 `g_sworld` 构造：`Entity` 的 ctor 会 `reset()`（读 `data` / 抽 `new_id` / 找帧数据），
+// 走台面的假 `lfw` 会打出一堆 `h:` 行 —— TS 孪生里假实体是纯对象、没有这些读取 ⇒ 用一套与用例
+// 无关的「静音世界」（真 `LFW`（静音宿主）+ 不打日志的 renderer）把 ctor 的副作用挡在外面。
+//
+// ⚠ 影子字段（`_hp` / `_data` …）与 `Entity` 的私有同名成员**遮蔽**但不影响：台面读的全是虚
+// 函数（`hp()` / `data()` …），基类那些字段只在真实现里用。
+class QuietRenderer : public lfw::IWorldRenderer {
  public:
-  explicit FakeStageEntity(std::string label) : _label(std::move(label)) {}
+  void add_entity(lfw::Entity&) override {}
+  void del_entity(lfw::Entity&) override {}
+  void render(double) override {}
+  void dispose() override {}
+};
+
+lfw::World& quiet_world() {
+  static QuietRenderer renderer;
+  static lfw::World w(fx::shared_real_lfw(), renderer, &fx::g_states);
+  return w;
+}
+
+class FakeStageEntity : public lfw::Entity {
+ public:
+  explicit FakeStageEntity(std::string label)
+      : lfw::Entity(quiet_world(), lfw::Value(), &fx::g_states), _label(std::move(label)) {}
 
   const std::string& label() const { return _label; }
 
   void set_data(const lfw::Value& v) { _data = v; }
-  void set_team(const lfw::Value& v) { _team = v; }
+  void set_team(const lfw::Value& v) { _team = lfw::to_string(v); }
   void set_ctrl(const lfw::Value& v) { _ctrl = v; }
   void set_hp_value(double v) { _hp = v; }
   void set_hp_max(double v) { _hp_max = v; }
@@ -319,18 +341,12 @@ class FakeStageEntity : public lfw::stage::IStageEntity {
   void set_mp_value(double v) { _mp = v; }
   void set_mp_max(double v) { _mp_max = v; }
   void set_mounted(double v) { _mounted = v; }
-  void set_x(double v) { _x = v; }
-  void set_bearer(FakeStageEntity* v) { _bearer = v; }
+  void set_x(double v) { position.x = v; }
+  void set_bearer(FakeStageEntity* v) { bearer = v; }
 
-  lfw::Value ref() const override {
-    auto o = std::make_shared<lfw::Object>();
-    o->set(u"data", _data);
-    return lfw::Value(o);
-  }
   const lfw::Value& data() const override { return _data; }
-  lfw::Value team() const override { return _team; }
-  lfw::Value ctrl() const override { return _ctrl; }
-  lfw::Value facing() const override { return lfw::Value(_facing); }
+  const std::u16string& team() const override { return _team; }
+  lfw::Value ctrl_view() const override { return _ctrl; }
   void set_facing(const lfw::Value& v) override {
     _facing = lfw::to_number(v);
     push(_label + ":facing=" + vstr(v));
@@ -352,17 +368,15 @@ class FakeStageEntity : public lfw::stage::IStageEntity {
     push(_label + ":mp=" + num(v));
   }
   double mp_max() const override { return _mp_max; }
-  bool mounted() const override { return lfw::truthy(lfw::Value(_mounted)); }
-  double position_x() const override { return _x; }
+  double mounted() const override { return _mounted; }
   void set_position(const lfw::Value& x, const lfw::Value& y, const lfw::Value& z) override {
     push(_label + ":pos=" + vstr(x) + "," + vstr(y) + "," + vstr(z));
   }
-  lfw::stage::IStageEntity* bearer() const override { return _bearer; }
 
  private:
   std::string _label;
   lfw::Value _data;
-  lfw::Value _team = lfw::Value(std::u16string());
+  std::u16string _team = std::u16string();
   lfw::Value _ctrl;
   double _facing = 1.0;
   double _hp = 0.0;
@@ -371,8 +385,6 @@ class FakeStageEntity : public lfw::stage::IStageEntity {
   double _mp = 0.0;
   double _mp_max = 0.0;
   double _mounted = 0.0;
-  double _x = 0.0;
-  FakeStageEntity* _bearer = nullptr;
 };
 
 // 假表达式：`run` 的脚本来自 phase / dialog 数据里的 `__test` 数组（`Expressions` 的游标
@@ -539,8 +551,9 @@ class FakeStageWorld : public lfw::World {
 
   std::unique_ptr<lfw::Background> bg_value;
   lfw::stage::Stage* self = nullptr;
-  std::vector<lfw::stage::IStageEntity*> entity_list;
-  std::vector<lfw::stage::IStageEntity*> puppet_list;
+  // ⚠ 不能叫 `entity_list` / `puppet_list`：那两个名字被 `World` 的虚访问器占了（同名遮蔽）。
+  std::vector<lfw::Entity*> entity_pool;
+  std::vector<lfw::Entity*> puppet_pool;
   lfw::Value diff_value = lfw::Value(2.0);
   double cam_x = 0.0;
 
@@ -564,19 +577,19 @@ class FakeStageWorld : public lfw::World {
     return self;
   }
 
-  std::vector<lfw::stage::IStageEntity*>& entity_views() override {
-    push("h:ents=" + std::to_string(entity_list.size()));
-    return entity_list;
+  std::vector<lfw::Entity*>& entity_list() override {
+    push("h:ents=" + std::to_string(entity_pool.size()));
+    return entity_pool;
   }
 
-  std::vector<lfw::stage::IStageEntity*>& puppet_views() override {
-    push("h:pupts=" + std::to_string(puppet_list.size()));
-    return puppet_list;
+  std::vector<lfw::Entity*>& puppet_list() override {
+    push("h:pupts=" + std::to_string(puppet_pool.size()));
+    return puppet_pool;
   }
 
-  void del_entities(const std::vector<lfw::stage::IStageEntity*>& es) override {
+  void del_entities(const std::vector<lfw::Entity*>& es) override {
     std::string names;
-    for (const lfw::stage::IStageEntity* e : es) {
+    for (const lfw::Entity* e : es) {
       if (!names.empty()) names += ",";
       names += static_cast<const FakeStageEntity*>(e)->label();
     }
@@ -952,18 +965,18 @@ int main(int argc, char** argv) {
       if (e == nullptr) return 2;
       e->set_bearer(stage_entity(t[i++]));
     } else if (op == "sentities") {
-      g_sworld.entity_list.clear();
+      g_sworld.entity_pool.clear();
       while (i < t.size()) {
         FakeStageEntity* const e = stage_entity(t[i++]);
         if (e == nullptr) return 2;
-        g_sworld.entity_list.push_back(e);
+        g_sworld.entity_pool.push_back(e);
       }
     } else if (op == "spuppets") {
-      g_sworld.puppet_list.clear();
+      g_sworld.puppet_pool.clear();
       while (i < t.size()) {
         FakeStageEntity* const e = stage_entity(t[i++]);
         if (e == nullptr) return 2;
-        g_sworld.puppet_list.push_back(e);
+        g_sworld.puppet_pool.push_back(e);
       }
     } else if (op == "sdata") {
       g_stage_data = parse_value(t, i);

@@ -76,6 +76,19 @@ bool is_base_ctrl(const Value& v) { return flag_is_true(v, u"__is_base_ctrl__");
 
 bool is_bot_ctrl(const Value& v) { return flag_is_true(v, u"__is_bot_ctrl__"); }
 
+// `e.ctrl` 的 `Value` 视图（原 `world.cpp` 匿名的 `ctrl_value`，切片 4CU 挪到这里）。
+Value ctrl_view_of(const controller::BaseController* const ctrl) {
+  if (ctrl == nullptr) return Value();
+  auto o = std::make_shared<Object>();
+  o->set(u"__is_base_ctrl__", Value(true));
+  o->set(u"__is_bot_ctrl__", Value(ctrl->is_bot()));
+  o->set(u"__is_human_ctrl__", Value(ctrl->is_human()));
+  o->set(u"__is_ball_ctrl__", Value(ctrl->is_ball_ctrl()));
+  o->set(u"player_id", Value(ctrl->player_id));
+  o->set(u"player", ctrl->player);
+  return Value(o);
+}
+
 // `v?.__is_bot_ctrl__ === true`：端口侧的控制器对象只有 `is_bot()` 这一个等价读点
 // （`BaseController` 的 `_is_bot` 就是那个标记），`nullptr` 对应 TS 的 `undefined`。
 bool is_bot_ctrl(const controller::BaseController* ctrl) {

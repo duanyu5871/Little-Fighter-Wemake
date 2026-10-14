@@ -109,12 +109,11 @@ class World {
   IWorldRenderer& renderer() const { return *renderer_; }
   Camera& camera() const { return *camera_; }
   // ---- `Stage` 要的 `world.*` 面（切片 4CR：`IStageWorld` 退役后并入本类）----
-  // `world.entities` / `world.puppets`：TS 里是两个真数组，端口把 `Entity*` 投影成
-  // `IStageEntity*`。**每次读到同一份投影**（同一个 `vector` 对象、同样的顺序），与 TS 的
-  // 「同一个数组」等价。
-  virtual std::vector<stage::IStageEntity*>& entity_views();
-  virtual std::vector<stage::IStageEntity*>& puppet_views();
-  virtual void del_entities(const std::vector<stage::IStageEntity*>& es);
+  // `world.entities` / `world.puppets`（切片 4CU / ck7：`IStageEntity` 退役 ⇒ 直接给真
+  // `Entity*`）。`entity_list()` 就是那个真数组；`puppet_list()` 是 `puppets` 的投影缓存
+  // （**每次读到同一份投影**：同一个 `vector` 对象、同样的顺序，与 TS 的「同一个数组」等价）。
+  virtual std::vector<Entity*>& entity_list();
+  virtual std::vector<Entity*>& puppet_list();
   // `world.dataset.difficulty`
   virtual Value difficulty() const { return dataset.get(u"difficulty"); }
   // `world.camera.jump_x(x)`
@@ -213,7 +212,8 @@ class World {
   virtual const std::vector<Entity*>& list_entities(const std::u16string& name,
                                             const std::function<bool(Entity&)>& predicate);
   void del_entity(Entity& e);
-  void del_entities(const std::vector<Entity*>& list);
+  // 切片 4CU：`Stage::dispose` 要脚本化这一次删除 ⇒ 加 `virtual`（语义不变）。
+  virtual void del_entities(const std::vector<Entity*>& list);
   double fps_value() const;
   void stop_render();
   void start_render();
@@ -289,9 +289,8 @@ class World {
   std::unique_ptr<Background> bg_;
   // `Stage` 侧的实体投影缓存（切片 4CR：`IStageWorld` 退役后从 `WorldStageView` 搬进来）。
   // 存基类指针 ⇒ 不必把 `world.cpp` 内部的 `StageEntityView` 暴露到头文件。
-  std::map<Entity*, std::unique_ptr<stage::IStageEntity>> views_;
-  std::vector<stage::IStageEntity*> entity_view_;
-  std::vector<stage::IStageEntity*> puppet_view_;
+  // `Stage` 读的 `puppets` 投影缓存（切片 4CU：投影元素变成真 `Entity*`，视图类已删）。
+  std::vector<Entity*> puppet_list_;
   std::unique_ptr<Stage> stage_;
   std::unique_ptr<Camera> camera_;
   std::unique_ptr<WorldCollisionHost> collision_host_;

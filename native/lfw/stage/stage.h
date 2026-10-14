@@ -24,32 +24,6 @@ namespace stage {
 
 class Stage;
 
-// `Stage` 用到的实体面（`world.entities` 与 `world.puppets` 的元素）。`Item` 那刀已经为
-// 「物件刷出来的实体」开了 `IItemEntity`，这里是同一个实体的另一组面（`Stage` 会直接改
-// `hp` / `hp_r` / `mp` / `facing` / 位置），所以另开一条缝。
-class IStageEntity {
- public:
-  virtual ~IStageEntity() = default;
-  virtual Value ref() const = 0;           // `is_fighter(e)` / `is_weapon(e)` 的入参
-  virtual const Value& data() const = 0;   // `c.data.base.ce`
-  virtual Value team() const = 0;          // `e.team === this.team`
-  virtual Value ctrl() const = 0;          // `is_bot_ctrl(e.ctrl)` / `e.ctrl.player_id`
-  virtual Value facing() const = 0;
-  virtual void set_facing(const Value& v) = 0;
-  virtual double hp() const = 0;
-  virtual void set_hp(double v) = 0;
-  virtual double hp_max() const = 0;
-  virtual double hp_r() const = 0;
-  virtual void set_hp_r(double v) = 0;
-  virtual double mp() const = 0;
-  virtual void set_mp(double v) = 0;
-  virtual double mp_max() const = 0;
-  virtual bool mounted() const = 0;        // `!e.mounted`
-  virtual double position_x() const = 0;   // `e.position.x >= this.cam_r`
-  virtual void set_position(const Value& x, const Value& y, const Value& z) = 0;
-  virtual IStageEntity* bearer() const = 0;  // 武器持有者（`e.bearer`）
-};
-
 // `Callbacks<IStageCallbacks>` 的端口替身。TS 的回调第一个/最后一个参数是 `Stage` 本身，
 // 而 `Value` 装不下 C++ 对象 ⇒ 给一个专用 payload（同 `FSM` 用 `CallbacksT<FSM*>` 的先例）：
 // `stage` 一律是「触发这次回调的 Stage」，`a` / `b` 放那两个值参数

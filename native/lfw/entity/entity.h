@@ -168,7 +168,8 @@ class Entity {
   virtual const Value& data() const { return _data; }
   std::u16string origin_data_id() const;
   virtual Value group() const;
-  double mounted() const { return _mounted; }
+  // 切片 4CU（ck7）：`virtual` 只为台面脚本化（`Stage::ce` 读它）。
+  virtual double mounted() const { return _mounted; }
   double ghosted() const { return _ghosted; }
   void set_ghosted(double v) { _ghosted = v; }
   double reserve() const { return _reserve; }
@@ -217,6 +218,7 @@ class Entity {
   virtual void set_hp_max(double v);
   virtual const std::u16string& team() const { return _team; }
   virtual void set_team(std::u16string v);
+  virtual Value ctrl_view() const;
   const std::u16string* src_emitter() const;
   const std::u16string* emitter() const;
   double blinking() const { return _blinking; }
@@ -227,6 +229,9 @@ class Entity {
   virtual void set_invulnerable(double v);
   Value bot_ignore() const;
   controller::BaseController* ctrl() const { return ctrl_; }
+  // `e.ctrl` 的 `Value` 视图（`is_bot_ctrl(e.ctrl)` / `e.ctrl.player_id`）：TS 里控制器是
+  // 对象，端口把它的读面投影成 `Value`（见 `ctrl_view_of`）。切片 4CU（ck7）：`IStageEntity`
+  // 退役后由实体自己回答；`virtual` 只为台面脚本化（假实体直接给一个 `Value`）。
   void set_ctrl(controller::BaseController* v);
   // `this.world` / `this.lfw` 的取用口：`loader/get_val_from_entity` 这类自由函数要问
   // `lfw.is_cheat` / `world.lfw.survival_rank_available`。

@@ -163,6 +163,8 @@ Entity::Entity(World& world, Value data, state::States* states) {
 // `this.lfw`（TS 的字段读；`World` 的完整定义在 world.h，这里才 include 得进来）。
 LFW& Entity::lfw() const { return world_->lfw(); }
 
+Value Entity::ctrl_view() const { return entity::ctrl_view_of(ctrl()); }
+
 Entity::~Entity() = default;
 
 void Entity::reset(Value data) { reset(std::move(data), &state::entity_states()); }
