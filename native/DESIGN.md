@@ -11605,13 +11605,51 @@ coverage OK；宿主 prel 300 = `7335aa25f4e1ce86`、stage 1 900 = `e4a943729204
 9 warnings；coverage OK；宿主 prel 300 = `7335aa25f4e1ce86`、stage 1 900 = `e4a9437292047044`、
 `--vs` 600 = `f29d3bb1ea330c32` —— 三条**逐字节不变**。
 
-### 149.10 剩下的同类缝
+### 149.11 缝家族退役（9/9 收官）：`IItemEntity`（切片 4CV / ck8）
 
-`IItemEntity`(22)（`Item` 直接吃 `Entity`，适配器同 4CU 删掉的 `StageEntityView`；`kill_*` 那批
-`o->objects()` 的元素就是它）；`IKeysLfw`(3) **没有真实现** ⇒ 属待移植而不是退役。
+`IItemEntity`(22 面) 的真实现就是 `Entity`，适配器是 `stage/entity_item.h` 里那个 `EntityItem`
+（纯粹为了「`attach` 返回引用/带默认参数、`team()` 类型不同」而存在）+ `LFW::entity_items_` 缓存。
+删掉适配器与缓存，`LFW::create_entity_with_bot` 直接返回工厂造的真实体：
 
-至此缝家族只剩这一条「仿实体」在册：`IUiLayers` / `IWorldUi` / `IStageWorld` / `IItemHost` /
-`IDatMgrHost` / `ICameraWorld` / `IWorldLfw` / `IStageLfw` / `IHelperLfw` / `IUiHelperLfw` /
-`IEntityHost` / `IBuffEntity` / `IStateEntity` / `IActionEntity` / `IFrozenEntity` /
-`IHandlerEntity` / `IStageEntity` 都已删除。
+- `Item` 改持真 `Entity*`（`objects()` / `Watch::e` / `forget(Entity*)` / `_objects`）；`Stage::kill_*`
+  的 `o->objects()` 同样按真 `Entity` 写。
+- 面的落点：`ref()` → `ref_of(*e)`（同一口径，见 §149.6 的 4CI）；`team()` → `Value(e->team())`；
+  `callbacks()` → **字段** `e->callbacks`；`set_team(Value)` → `set_team(to_string(v))`；
+  `set_wakeup_invuln(double)` → `set_wakeup_invuln(Value(v))`；`set_reserve(Value)` →
+  `set_reserve(to_number(v))`；`attach()` → `attach(Value(false))`（真实现返回 `Entity&`，调用点丢弃）；
+  `enter_frame*` → 真实现返回 `EnterFrameResult`（同样丢弃）。
+- `Entity` 侧补了四条「台面脚本化」的虚函数（默认实现就是原来的写法）：`set_name` 加 `virtual`，
+  新增 `virtual set_stat_bar(double)` / `virtual set_dead_gone(double)`（生产路径就是字段写），以及
+  **`virtual set_outline_color_raw(const Value&)`**：TS 里 `e.outline_color = v` 是**属性写**（原值不
+  强制成字符串），端口原有的 `set_outline_color(u16string)` 在边界做了 `to_string` ⇒ 台面观测到的
+  就不是原值了（`stage/item` 漂移：`e26:outline=s"7"` vs 孪生的 `n7`）⇒ 单开一条收 `Value` 的入口，
+  默认实现与删掉的 `EntityItem` 适配器一字不差（`to_string` 强制）。
+- 台面 `subjects/stage.cpp`：`FakeItemEntity` 改成派生真 `lfw::Entity`（用 §149.9 那套「静音世界」
+  构造，ctor 副作用同样挡掉），22 面按真签名重写覆写（`set_outline_color_raw` / `set_team(u16string)`
+  / `attach(const Value&)` / `enter_frame*(..., bool)`），`callbacks` 用继承下来的真字段。
+  「静音世界」的定义跟着上移到 Item 侧之前（两个假实体都要用）。
+- 变异锚点：`stage.mjs` 6 处 + `stage_main.mjs` 2 处（`kill_*`，`IItemEntity` 那条缝没了）。⚠ 其中
+  「fighter 的兜底描边色」那条在 `_raw` 之后**不可观察**（现有 case 都给了显式 `outline_color`）⇒
+  撤换成「显式 `outline_color` 被固定色覆盖」（可观察）。
+- ⚠ **再次踩陈旧 obj**：加了虚函数 ⇒ vtable 变了，而不重编的 TU 会拿到旧布局 ⇒ 台面进程
+  `0xC0000005` 崩溃、`stage/item` 与 `stage/stage` 报「C++ failed」（**没有**任何 diff 输出，症状与
+  漂移完全不同）⇒ 全量清 `*.obj,*.lib,*.exe` 重编即恢复。
+
+实测（纯重构）：差分 **255/255**；锚点 **9764 ok / 0 bad**；include 835 clean / 0 failed / 9 warnings
+（少一个文件：`entity_item.h` 删了）；coverage OK；宿主 prel 300 = `7335aa25f4e1ce86`、
+stage 1 900 = `e4a9437292047044`、`--vs` 600 = `f29d3bb1ea330c32` —— 三条**逐字节不变**。
+
+### 149.12 缝家族清账
+
+「仿 lfw / world / entity / stage 的窄缝」到此**全部退完**：`IBuffEntity`、`IActionEntity`、
+`IFrozenEntity`、`IHandlerEntity`、`IStateEntity`、`IEntityHost`、`ICameraWorld`、`IWorldLfw`、
+`IStageLfw`、`IHelperLfw`、`IUiHelperLfw`、`IUiLayers`、`IWorldUi`、`IStageWorld`、`IItemHost`、
+`IDatMgrHost`、`IStageEntity`、`IItemEntity` 都已删除，`stage/entity_item.h` 整个文件消失。
+
+**仍在册的（都是真·宿主边界，不是窄缝）**：`ILfwHost`（TS 的 `Ditto` 平台包）、`IWorldRenderer`、
+`IPlayerInfoHost`、`IXML`/`IXMLElement`、`IBuffCreator`/`IComponentCreator`/`ICtrlCreator`、
+`IExpression`、`IUIEvent`、`IUIImgLoaderNode`、`IState`、`ITickerOptions`。
+
+**功能欠账（不是退役）**：`IKeysLfw`(3) —— `LFW` 的 keys 面还没实现，得真写出来；`LFW::keys` 的
+消费者目前由宿主回答。
 

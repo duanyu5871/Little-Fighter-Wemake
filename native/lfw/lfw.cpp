@@ -22,7 +22,6 @@
 #include "lfw/entity/entity_ref.h"
 #include "lfw/entity/entity_type_check.h"
 #include "lfw/loader/stage_val_getters.h"
-#include "lfw/stage/entity_item.h"
 #include "lfw/ui/component/component_registry.h"
 #include "lfw/ui/cook_ui_info.h"
 #include "lfw/ui/uilayer.h"
@@ -972,14 +971,10 @@ std::shared_ptr<Randoming> LFW::datas_randoming_by_group(const Value& oid) {
   return datas_->get_randoming_by_group(to_string(oid));
 }
 
-stage::IItemEntity* LFW::create_entity_with_bot(const Value& data) {
-  Entity* const e = factory.create_entity_with_bot(std::u16string(), world_.get(), data,
-                                                   _states.get());
-  if (e == nullptr) return nullptr;
-  auto item = std::make_unique<stage::EntityItem>(*e);
-  stage::EntityItem* const ret = item.get();
-  entity_items_.push_back(std::move(item));
-  return ret;
+Entity* LFW::create_entity_with_bot(const Value& data) {
+  // 切片 4CV（ck8）：`IItemEntity` 退役 ⇒ 直接给真实体（原来包一层 `EntityItem` 适配器 +
+  // `entity_items_` 缓存；实体本来就由工厂/世界持有，适配器没有别的用途）。
+  return factory.create_entity_with_bot(std::u16string(), world_.get(), data, _states.get());
 }
 
 Value LFW::get_random_bg(const std::vector<Value>& groups) {

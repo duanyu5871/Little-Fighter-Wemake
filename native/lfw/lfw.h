@@ -42,7 +42,6 @@ class IUINodeRenderer;
 }  // namespace ui
 
 namespace stage {
-class EntityItem;
 }  // namespace stage
 
 class LFW;
@@ -532,7 +531,7 @@ class LFW : public IResourcesHost,
   virtual const std::vector<std::u16string>& broadcasts_list() { return broadcasts; }
   virtual Value datas_find(const Value& oid);
   virtual std::shared_ptr<Randoming> datas_randoming_by_group(const Value& oid);
-  virtual stage::IItemEntity* create_entity_with_bot(const Value& data);
+  virtual Entity* create_entity_with_bot(const Value& data);
 
   // ---- `lfw.*` 的实体/世界面（4CO：`IWorldLfw` 退役后并入本类）----
   virtual PlayerInfo* player(const Value& player_id);
@@ -601,7 +600,6 @@ class LFW : public IResourcesHost,
   std::unique_ptr<helper::UIHelper> uis_;
 
   std::vector<std::pair<std::u16string, std::unique_ptr<PlayerInfo>>> _players;
-  std::vector<std::unique_ptr<stage::EntityItem>> entity_items_;
   // `load_data` 里 `zips.add({zip, info})` 的 info 所有权（`ZipMgr` 存指针 ⇒ 这里给稳定地址）。
   std::vector<std::unique_ptr<IDataInfo>> _owned_infos;
 

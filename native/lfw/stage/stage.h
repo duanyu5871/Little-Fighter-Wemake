@@ -64,7 +64,7 @@ class Stage {
   virtual MersenneTwister* mt();
   virtual Value datas_find(const Value& oid);
   virtual std::shared_ptr<Randoming> datas_randoming_by_group(const Value& oid);
-  virtual IItemEntity* create_entity_with_bot(const Value& data);
+  virtual Entity* create_entity_with_bot(const Value& data);
 
   Value title() const;
   bool is_stage_finish() const { return _is_stage_finish; }

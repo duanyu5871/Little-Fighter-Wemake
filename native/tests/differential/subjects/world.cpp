@@ -391,7 +391,7 @@ class FakeLfw : public lfw::LFW {
     (void)oid;
     return nullptr;
   }
-  lfw::stage::IItemEntity* create_entity_with_bot(const Value& data) override {
+  lfw::Entity* create_entity_with_bot(const Value& data) override {
     (void)data;
     return nullptr;
   }

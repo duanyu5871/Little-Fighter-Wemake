@@ -463,8 +463,8 @@ export default {
     {
       note: "Item: weapon 缺省 y 不是 300",
       file: "native/lfw/stage/item.cpp",
-      from: `  const double y_default = entity::is_weapon(e->ref()) ? 300.0 : 0.0;`,
-      to: `  const double y_default = entity::is_weapon(e->ref()) ? 0.0 : 0.0;`,
+      from: `  const double y_default = entity::is_weapon(ref_of(*e)) ? 300.0 : 0.0;`,
+      to: `  const double y_default = entity::is_weapon(ref_of(*e)) ? 0.0 : 0.0;`,
     },
     {
       note: "Item: max_y 用 range_x",
@@ -481,15 +481,15 @@ export default {
     {
       note: "Item: 空 outline_color 不是空串",
       file: "native/lfw/stage/item.cpp",
-      from: `  e->set_outline_color(is_nullish(outline_color) ? Value(std::u16string()) : outline_color);`,
-      to: `  e->set_outline_color(is_nullish(outline_color) ? Value(std::u16string(u"#000000"))
-                                                  : outline_color);`,
+      from: `  e->set_outline_color_raw(is_nullish(outline_color) ? Value(std::u16string()) : outline_color);`,
+      to: `  e->set_outline_color_raw(is_nullish(outline_color) ? Value(std::u16string(u"#000000"))
+                                                       : outline_color);`,
     },
     {
-      note: "Item: fighter 的兜底描边色改了",
+      note: "Item: 显式 outline_color 被固定色覆盖",
       file: "native/lfw/stage/item.cpp",
-      from: `    e->set_outline_color(is_nullish(outline_color) ? Value(std::u16string(u"#FF0000"))`,
-      to: `    e->set_outline_color(is_nullish(outline_color) ? Value(std::u16string(u"#00FF00"))`,
+      from: `  e->set_outline_color_raw(is_nullish(outline_color) ? Value(std::u16string()) : outline_color);`,
+      to: `  e->set_outline_color_raw(is_nullish(outline_color) ? Value(std::u16string()) : Value(std::u16string(u"#123456")));`,
     },
     {
       note: "Item: dead_gone 不是 1",
@@ -500,8 +500,8 @@ export default {
     {
       note: "Item: reserve 的缺省不是 0",
       file: "native/lfw/stage/item.cpp",
-      from: `  e->set_reserve(is_nullish(reserve) ? Value(0.0) : reserve);`,
-      to: `  e->set_reserve(is_nullish(reserve) ? Value(1.0) : reserve);`,
+      from: `  e->set_reserve(to_number(is_nullish(reserve) ? Value(0.0) : reserve));`,
+      to: `  e->set_reserve(to_number(is_nullish(reserve) ? Value(1.0) : reserve));`,
     },
     {
       note: "Item: hp 的赋值顺序反了（hp 先写）",

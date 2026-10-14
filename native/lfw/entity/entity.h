@@ -151,6 +151,10 @@ class Entity {
   double render_effect_time() const { return _render_effect_time; }
   std::u16string outline_color() const;
   virtual void set_outline_color(std::u16string v);
+  // 切片 4CV（ck8）：`Item` 对 `outline_color` 的赋值在 TS 里是**属性写**（原值不强制成字符串），
+  // 台面要按原值观测（旧缝的假实体就是在它上面打日志）⇒ 单开一条收 `Value` 的入口；
+  // 默认实现与原来 `EntityItem` 适配器一字不差（`to_string` 强制）。
+  virtual void set_outline_color_raw(const Value& v) { set_outline_color(to_string(v)); }
   double outline_alpha() const { return _outline_alpha; }
   virtual void set_outline_alpha(double v);
   double outline_width() const { return _outline_width; }
@@ -205,7 +209,11 @@ class Entity {
   void set_defend_ratio(double v);
 
   Value name() const;
-  void set_name(const Value& v);
+  // 切片 4CV（ck8）：`IItemEntity` 退役 ⇒ 这三条收成虚函数（默认实现就是原来的写法，
+  // 只为台面脚本化 —— 旧缝的假实体在它们上面打日志）。
+  virtual void set_name(const Value& v);
+  virtual void set_stat_bar(double v) { stat_bar = v; }
+  virtual void set_dead_gone(double v) { dead_gone = v; }
   virtual double mp() const { return _mp; }
   virtual void set_mp(double v);
   virtual double hp_r() const { return _hp_r; }

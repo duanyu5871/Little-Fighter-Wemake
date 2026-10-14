@@ -5666,3 +5666,18 @@ harness op：
   `entity_pool` / `puppet_pool`）。
 - ⚠ `kill_all` / `kill_soliders` / `kill_boss` / `kill_others` 遍历的是 `Item::objects()`（`IItemEntity`），
   与 `Stage` 的实体表不是一回事 —— 改 `stage.cpp` 的实体面时别顺手改到那几行。
+
+### 6.9.195 `IItemEntity` 退役 ⇒ 台面假实体派生真 `Entity`（4CV）
+
+- `IItemEntity`(22 面) 与适配器 `stage/entity_item.h`（`EntityItem`）都已删除；`Item` 直接吃真
+  `Entity*`，`LFW::create_entity_with_bot` 返回工厂造的真实体。
+- 台面要脚本化这些面：**派生真 `lfw::Entity`**（见 `subjects/stage.cpp` 的 `FakeItemEntity`），
+  覆写同名虚函数 —— 注意真签名与旧缝不同：`set_team(std::u16string)`、`set_wakeup_invuln(const Value&)`、
+  `set_reserve(double)`、`set_outline_color_raw(const Value&)`、`attach(const Value&) -> Entity&`、
+  `enter_frame*` 返回 `EnterFrameResult`、`callbacks` 是**继承下来的字段**（不是方法）、
+  引用判定用 `ref_of(*e)`。
+- ⚠ 「`outline_color` 的原值」只有 `set_outline_color_raw`（收 `Value`）看得到：真
+  `set_outline_color` 收 `u16string` 并在边界 `to_string` ⇒ 想观测原值就用 `_raw` 那条。
+- ⚠ 构造假实体同样走「静音世界」（真 `LFW` + 不打日志的 renderer），理由见 6.9.194。
+- ⚠ 记录一笔踩坑：**给真类加虚函数后必须全量清 obj 重编** —— `build.ninja` 没有头依赖，旧 TU 的
+  vtable 布局与新 TU 不一致，症状是台面进程 `0xC0000005`、差分报「C++ failed」（**不是** diff）。

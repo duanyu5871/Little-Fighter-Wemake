@@ -152,7 +152,7 @@ Value Stage::datas_find(const Value& oid) { return _lfw->datas_find(oid); }
 std::shared_ptr<Randoming> Stage::datas_randoming_by_group(const Value& oid) {
   return _lfw->datas_randoming_by_group(oid);
 }
-IItemEntity* Stage::create_entity_with_bot(const Value& data) {
+Entity* Stage::create_entity_with_bot(const Value& data) {
   return _lfw->create_entity_with_bot(data);
 }
 
@@ -520,8 +520,8 @@ void Stage::spawn(const Value& phase, const Value& obj, double count) {
 
 void Stage::kill_all() {
   for (const std::unique_ptr<Item>& o : items) {
-    for (IItemEntity* e : o->objects()) {
-      if (entity::is_fighter(e->ref()) && strict_equals(e->team(), Value(_team))) e->set_hp(0.0);
+    for (Entity* const e : o->objects()) {
+      if (entity::is_fighter(ref_of(*e)) && strict_equals(Value(e->team()), Value(_team))) e->set_hp(0.0);
     }
   }
 }
@@ -529,8 +529,8 @@ void Stage::kill_all() {
 void Stage::kill_soliders() {
   for (const std::unique_ptr<Item>& o : items) {
     if (!truthy(field_or(o->info(), u"is_soldier"))) continue;
-    for (IItemEntity* e : o->objects()) {
-      if (entity::is_fighter(e->ref()) && strict_equals(e->team(), Value(_team))) e->set_hp(0.0);
+    for (Entity* const e : o->objects()) {
+      if (entity::is_fighter(ref_of(*e)) && strict_equals(Value(e->team()), Value(_team))) e->set_hp(0.0);
     }
   }
 }
@@ -538,8 +538,8 @@ void Stage::kill_soliders() {
 void Stage::kill_boss() {
   for (const std::unique_ptr<Item>& o : items) {
     if (!truthy(field_or(o->info(), u"is_boss"))) continue;
-    for (IItemEntity* e : o->objects()) {
-      if (entity::is_fighter(e->ref()) && strict_equals(e->team(), Value(_team))) e->set_hp(0.0);
+    for (Entity* const e : o->objects()) {
+      if (entity::is_fighter(ref_of(*e)) && strict_equals(Value(e->team()), Value(_team))) e->set_hp(0.0);
     }
   }
 }
@@ -549,8 +549,8 @@ void Stage::kill_others() {
     if (truthy(field_or(o->info(), u"is_boss")) || truthy(field_or(o->info(), u"is_soldier"))) {
       continue;
     }
-    for (IItemEntity* e : o->objects()) {
-      if (entity::is_fighter(e->ref()) && strict_equals(e->team(), Value(_team))) e->set_hp(0.0);
+    for (Entity* const e : o->objects()) {
+      if (entity::is_fighter(ref_of(*e)) && strict_equals(Value(e->team()), Value(_team))) e->set_hp(0.0);
     }
   }
 }

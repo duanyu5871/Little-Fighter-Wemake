@@ -145,58 +145,91 @@ void dump_layer(double index) {
 
 // ---------------------------------------------------------------- Item 侧
 
-// 假实体：`IItemEntity` 正好是 `Item` 用到的那一面 ⇒ 只把每次设置记进日志。
-class FakeItemEntity : public lfw::stage::IItemEntity {
+// 为什么不拿 `g_sworld` 构造：`Entity` 的 ctor 会 `reset()`（读 `data` / 抽 `new_id` / 找帧数据），
+// 走台面的假 `lfw` 会打出一堆 `h:` 行 —— TS 孪生里假实体是纯对象、没有这些读取 ⇒ 用一套与用例
+// 无关的「静音世界」（真 `LFW`（静音宿主）+ 不打日志的 renderer）把 ctor 的副作用挡在外面。
+//
+// ⚠ 影子字段（`_hp` / `_data` …）与 `Entity` 的私有同名成员**遮蔽**但不影响：台面读的全是虚
+// 函数（`hp()` / `data()` …），基类那些字段只在真实现里用。
+class QuietRenderer : public lfw::IWorldRenderer {
+ public:
+  void add_entity(lfw::Entity&) override {}
+  void del_entity(lfw::Entity&) override {}
+  void render(double) override {}
+  void dispose() override {}
+};
+
+lfw::World& quiet_world() {
+  static QuietRenderer renderer;
+  static lfw::World w(fx::shared_real_lfw(), renderer, &fx::g_states);
+  return w;
+}
+
+// 假实体：切片 4CV（ck8）`IItemEntity` 缝退役 ⇒ **派生真 `lfw::Entity`**，只把每次设置记进日志
+// （getter 静默、`team()` 的值由 `set_team` 记下）。构造用上面的「静音世界」。
+class FakeItemEntity : public lfw::Entity {
  public:
   FakeItemEntity(std::string label, lfw::Value data)
-      : _label(std::move(label)), _data(std::move(data)) {
-    auto ref = std::make_shared<lfw::Object>();
-    ref->set(u"data", _data);  // `is_fighter(e)` / `is_weapon(e)` 读的是 `e.data`
-    _ref = lfw::Value(ref);
-  }
+      : lfw::Entity(quiet_world(), lfw::Value(), &fx::g_states),
+        _label(std::move(label)),
+        _data(std::move(data)) {}
 
   const std::string& label() const { return _label; }
 
-  lfw::Value ref() const override { return _ref; }
   const lfw::Value& data() const override { return _data; }
   // `Stage::kill_*` 会读 `e.team`（TS 里是属性读，故台面**不打日志**）；值由 `set_team` 记下。
-  lfw::Value team() const override { return _team; }
-  lfw::Callbacks& callbacks() override { return _callbacks; }
+  const std::u16string& team() const override { return _team; }
 
-  void set_outline_color(const lfw::Value& v) override { push(_label + ":outline=" + vstr(v)); }
+  void set_outline_color_raw(const lfw::Value& v) override {
+    push(_label + ":outline=" + vstr(v));
+  }
   void set_stat_bar(double v) override { push(_label + ":stat_bar=" + num(v)); }
-  void set_wakeup_invuln(double v) override { push(_label + ":wakeup_invuln=" + num(v)); }
+  void set_wakeup_invuln(const lfw::Value& v) override {
+    push(_label + ":wakeup_invuln=" + num(lfw::to_number(v)));
+  }
   void set_dead_gone(double v) override { push(_label + ":dead_gone=" + num(v)); }
-  void set_reserve(const lfw::Value& v) override { push(_label + ":reserve=" + vstr(v)); }
+  void set_reserve(double v) override { push(_label + ":reserve=" + vstr(lfw::Value(v))); }
   void set_hp(double v) override { push(_label + ":hp=" + num(v)); }
   void set_hp_r(double v) override { push(_label + ":hp_r=" + num(v)); }
   void set_hp_max(double v) override { push(_label + ":hp_max=" + num(v)); }
   void set_mp(double v) override { push(_label + ":mp=" + num(v)); }
   void set_mp_max(double v) override { push(_label + ":mp_max=" + num(v)); }
   void set_name(const lfw::Value& v) override { push(_label + ":name=" + vstr(v)); }
-  void set_team(const lfw::Value& v) override {
-    _team = v;
-    push(_label + ":team=" + vstr(v));
+  void set_team(std::u16string v) override {
+    _team = std::move(v);
+    push(_label + ":team=" + vstr(lfw::Value(_team)));
   }
   void set_facing(const lfw::Value& v) override { push(_label + ":facing=" + vstr(v)); }
-  void set_dead_join(lfw::Value v) override { push(_label + ":dead_join=" + vstr(v)); }
+  void set_dead_join(const lfw::Value& v) override { push(_label + ":dead_join=" + vstr(v)); }
   void set_position(const lfw::Value& x, const lfw::Value& y, const lfw::Value& z) override {
     push(_label + ":pos=" + vstr(x) + "," + vstr(y) + "," + vstr(z));
   }
-  void attach() override { push(_label + ":attach"); }
-  void enter_frame_by_id(const lfw::Value& v) override { push(_label + ":frame_id=" + vstr(v)); }
-  void enter_frame(const lfw::Value& v) override { push(_label + ":frame=" + vstr(v)); }
+  lfw::Entity& attach(const lfw::Value& ghost = lfw::Value(false)) override {
+    (void)ghost;
+    push(_label + ":attach");
+    return *this;
+  }
+  lfw::EnterFrameResult enter_frame_by_id(const lfw::Value& v, bool fallback = false) override {
+    (void)fallback;
+    push(_label + ":frame_id=" + vstr(v));
+    return lfw::EnterFrameResult::Gone;
+  }
+  lfw::EnterFrameResult enter_frame(const lfw::Value& v, bool fallback = false) override {
+    (void)fallback;
+    push(_label + ":frame=" + vstr(v));
+    return lfw::EnterFrameResult::Gone;
+  }
 
   // 台面自己触发那两件事（`Item` 靠它们出列）。
-  void fire_dead() { _callbacks.call(u"on_dead", {_ref}); }
-  void fire_team_changed() { _callbacks.call(u"on_team_changed", {_ref, lfw::Value(), lfw::Value()}); }
+  void fire_dead() { callbacks.call(u"on_dead", {lfw::Value()}); }
+  void fire_team_changed() {
+    callbacks.call(u"on_team_changed", {lfw::Value(), lfw::Value(), lfw::Value()});
+  }
 
  private:
   std::string _label;
   lfw::Value _data;
-  lfw::Value _ref;
-  lfw::Value _team = lfw::Value(std::u16string());
-  lfw::Callbacks _callbacks;
+  std::u16string _team = std::u16string();
 };
 
 // 切片 4CS（ck4）：`IItemHost` 退役 ⇒ 这个假件改成**派生真 `lfw::stage::Stage`**（`Stage` 的
@@ -262,7 +295,7 @@ class FakeItemHost : public lfw::stage::Stage {
     return lfw::Randoming::create(key, {}, &mt_value);
   }
 
-  lfw::stage::IItemEntity* create_entity_with_bot(const lfw::Value& data) override {
+  lfw::Entity* create_entity_with_bot(const lfw::Value& data) override {
     const std::string label = "e" + std::to_string(entities.size());
     push("h:create=" + vstr(data));
     entities.push_back(std::make_unique<FakeItemEntity>(label, data));
@@ -290,7 +323,7 @@ void dump_item() {
     return;
   }
   std::string objs;
-  for (const lfw::stage::IItemEntity* e : g_item->objects()) {
+  for (const lfw::Entity* e : g_item->objects()) {
     if (!objs.empty()) objs += ",";
     objs += static_cast<const FakeItemEntity*>(e)->label();
   }
@@ -305,25 +338,6 @@ void dump_item() {
 // 假实体：切片 4CU（ck7）`IStageEntity` 退役 ⇒ **派生真 `lfw::Entity`**，覆写 `Stage` 用到的
 // 那几面（**getter 静默**：TS 那边都是属性读；**setter 打日志**：赋值顺序与次数才是可比量）。
 //
-// 为什么不拿 `g_sworld` 构造：`Entity` 的 ctor 会 `reset()`（读 `data` / 抽 `new_id` / 找帧数据），
-// 走台面的假 `lfw` 会打出一堆 `h:` 行 —— TS 孪生里假实体是纯对象、没有这些读取 ⇒ 用一套与用例
-// 无关的「静音世界」（真 `LFW`（静音宿主）+ 不打日志的 renderer）把 ctor 的副作用挡在外面。
-//
-// ⚠ 影子字段（`_hp` / `_data` …）与 `Entity` 的私有同名成员**遮蔽**但不影响：台面读的全是虚
-// 函数（`hp()` / `data()` …），基类那些字段只在真实现里用。
-class QuietRenderer : public lfw::IWorldRenderer {
- public:
-  void add_entity(lfw::Entity&) override {}
-  void del_entity(lfw::Entity&) override {}
-  void render(double) override {}
-  void dispose() override {}
-};
-
-lfw::World& quiet_world() {
-  static QuietRenderer renderer;
-  static lfw::World w(fx::shared_real_lfw(), renderer, &fx::g_states);
-  return w;
-}
 
 class FakeStageEntity : public lfw::Entity {
  public:
@@ -495,7 +509,7 @@ class FakeStageLfw : public lfw::LFW {
   std::shared_ptr<lfw::Randoming> datas_randoming_by_group(const lfw::Value& oid) override {
     return g_host.datas_randoming_by_group(oid);
   }
-  lfw::stage::IItemEntity* create_entity_with_bot(const lfw::Value& data) override {
+  lfw::Entity* create_entity_with_bot(const lfw::Value& data) override {
     return g_host.create_entity_with_bot(data);
   }
 };

@@ -656,13 +656,13 @@ void Stage::clear_dialogs() {`,
     {
       note: "kill_*：血量写 1（不是 0）",
       file: "native/lfw/stage/stage.cpp",
-      from: `      if (entity::is_fighter(e->ref()) && strict_equals(e->team(), Value(_team))) e->set_hp(0.0);
+      from: `      if (entity::is_fighter(ref_of(*e)) && strict_equals(Value(e->team()), Value(_team))) e->set_hp(0.0);
     }
   }
 }
 
 void Stage::kill_soliders() {`,
-      to: `      if (entity::is_fighter(e->ref()) && strict_equals(e->team(), Value(_team))) e->set_hp(1.0);
+      to: `      if (entity::is_fighter(ref_of(*e)) && strict_equals(Value(e->team()), Value(_team))) e->set_hp(1.0);
     }
   }
 }
