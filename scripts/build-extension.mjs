@@ -13,7 +13,7 @@
  */
 
 import { execSync } from 'child_process';
-import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { dirname, join, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { zip_dir } from './zip-dir.mjs';
@@ -54,6 +54,20 @@ for (const f of ['lfw.full.zip']) {
     rmSync(fp);
   }
 }
+
+let removed_maps = 0;
+const remove_maps = (dir) => {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const p = join(dir, entry.name);
+    if (entry.isDirectory()) remove_maps(p);
+    else if (entry.name.endsWith('.map')) {
+      rmSync(p);
+      removed_maps++;
+    }
+  }
+};
+remove_maps(EXT_DIST);
+console.log(`[ext] Removed ${removed_maps} source map file(s)`);
 
 // Step 5: Copy Chrome extension manifest + background.js + icons
 console.log('[ext] Copying extension files...');
