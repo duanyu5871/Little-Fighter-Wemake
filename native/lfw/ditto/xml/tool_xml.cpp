@@ -102,6 +102,9 @@ std::u16string strip_comments(const std::u16string& text) {
 class XmlReader {
  public:
   explicit XmlReader(const std::u16string& text) : _t(text) {}
+  // 防悬垂：`XmlReader reader(strip_comments(text))` 会把**临时**绑到引用成员上，临时在语句末
+  // 就析构 ⇒ 解析全程读已释放的缓冲区（症状：偶发乱码/NaN，见 DESIGN §149.20）。
+  XmlReader(std::u16string&&) = delete;
 
   // 文档里若干顶层节点（TS 取 `Object.keys(data)[0]` ⇒ 只要第一个）。
   std::unique_ptr<XmlNode> parse_first() {
@@ -239,7 +242,9 @@ std::shared_ptr<ToolXMLElement> convert(const XmlNode& node) {
 std::shared_ptr<IXMLElement> ToolXML::parse(const std::u16string& text) {
   // TS：`parser.parse(text.replace(/<!--[\s\S]*?-->/g, ''))` 后取**第一个**顶层键；
   // 一个顶层元素都没有 ⇒ 抛 `No root element found in XML`（端口给 `nullptr`，宿主转成失败）。
-  XmlReader reader(strip_comments(text));
+  // `strip_comments` 回的是**临时** ⇒ 先落到具名变量再交给 `XmlReader`（它的 `_t` 是引用成员）。
+  const std::u16string stripped = strip_comments(text);
+  XmlReader reader(stripped);
   const std::unique_ptr<XmlNode> root = reader.parse_first();
   if (root == nullptr) return nullptr;
   return convert(*root);

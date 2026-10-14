@@ -11838,4 +11838,59 @@ clean/0/9、coverage OK、宿主三条摘要 `7335aa25f4e1ce86`（prel 300）/ `
 
 ⚠ 再记一次 §149.18 的**既有**装载缺陷：本轮 4 次 `--vs` / `--stage 1` 运行里又有 1 次
 `preprocess_itr ... missing prefab: "throwing阘᫇儾老`（乱码）失败 ⇒ 频次不低，值得单独一刀。
+（→ 已定位并修掉：§149.20。）
+
+### 149.20 装载偶发失败的根因：`ToolXML` 把 `strip_comments` 的**临时**绑到引用成员（切片 4D1）
+
+§149.18 记的那个「同二进制、同数据、偶发乱码/NaN」的缺陷，定位结果是**悬垂引用（UAF）**：
+
+```cpp
+class XmlReader {                     // ditto/xml/tool_xml.cpp:102
+  explicit XmlReader(const std::u16string& text) : _t(text) {}
+  ...
+  const std::u16string& _t;           // :224  引用成员
+  size_t _i = 0;
+};
+...
+XmlReader reader(strip_comments(text));   // :242  ← `strip_comments` **按值返回**，
+                                          //         临时在语句末就析构 ⇒ 整个 `parse_first()`
+                                          //         （每个 `_t[...]` / `find` / `substr`）
+                                          //         都在读已释放的缓冲区
+```
+
+**证据链**（两位子代理独立复现）：
+- 失败率 **14/100**（`prel+data`）、**1/50**（只 `prel`）⇒ 与「解析量」同向，与 `data` 包无关。
+- 症状形态**只能**由「缓冲区事后被写过」解释：值的前半截完好、中间**恰好 8 字节**的洞（一个堆字宽，
+  例如 `t<8B>ing`、`in_t<8B>ky`、`builtin_d<8B>launch/main_text_button.ui.json`），随后接上**文件更后
+  面的原文**（`</frame>`、`<frame id="`）——纯误解析产生不出这种「完好前缀 + 8 字节洞 + 完好后缀」。
+- 属性值扫描 `while (_i < _t.size() && _t[_i] != quote) avalue.push_back(...)`（`:195`）只认到**下一个引号**
+  为止、不认 `<` ⇒ 洞落在引号上时就一路吞到后面的标记。
+- NaN 那条同源：数字属性被打了洞 ⇒ `string_to_number` 见非数字文本给 NaN ⇒ `read_nums` 直接判失败
+  （`got 200,NaN` 正是 `size="200,22"` 在逗号处断成两段、其中一段带洞）。
+- 磁盘数据是稳定的：`book_red.obj.xml` 17 685 B / SHA256 `B203F6A2…`、`entry_page.ui.xml` SHA256
+  `D13B220B…`（多次一致）⇒ 变量在**内存**不在盘。
+- 反汇编（`dumpbin` 看 `lfw_core.dir\ditto\xml\tool_xml.cpp.obj`）里能直接看到
+  `mov [rsp+28h],rax`（`reader._t = &temp`）紧跟着 `call operator delete`，然后才
+  `call parse_first` ⇒ 读的就是被释放的那块。
+- 另一条更隐蔽的旁证：成功运行里也出现过**静默腐蚀**（摘要逐字节相同、但 `warns` 1→2）⇒ 这不是
+  「偶尔报错」，而是「偶尔**悄悄**读错」。
+- 引入点：`git blame` → `860a5a3fb`（2026-10-13 的「4XML」切片）⇒ 是**最近一刀**带进来的回归。
+
+**修法**（最小 + 防复发，`860a5a3fb` 之后的形状）：
+1. 调用点先落到具名变量：`const std::u16string stripped = strip_comments(text); XmlReader reader(stripped);`
+2. `XmlReader(std::u16string&&) = delete;` —— 让「临时当实参」变成**编译错误**，而不是运行期 UAF。
+3. 同类隐患一并上锁：`core/json5.cpp` 的 `Parser`（同样是引用成员 `src`）加同款 `= delete`；
+   `core/json.cpp` 的 `Parser` 是聚合（加 ctor 会破坏聚合初始化）⇒ 改成在引用成员上写注释警告。
+   （全仓「引用成员」只这三处，其余都安全。）
+
+**验证**：
+- 复现口径：`lfw_run … --fighter 1 --fighter 4 --stage 1 --frames 1`（单次 ~0.55 s）
+  ⇒ 修复后 **200/200 成功、`failures=0`、`warns` 直方图 `1x200`、digest 只有 1 种**
+  （修前同口径 8/200；`prel+data` 全量口径 14/100）。
+- 规范三元组连跑：`--vs` 600 **5/5**、`prel` 300 **3/3**、`prel+data` 900 **3/3** 全部 exit 0，
+  摘要**逐字节不变**（`7335aa25f4e1ce86` / `e4a9437292047044` / `f29d3bb1ea330c32`）。
+- 差分 **258/258**、锚点 9764/0、include 845 clean/0/9、coverage OK。
+
+⇒ §149.18/§149.19 里「摘要三元组要重跑确认、偶发失败别当回归」那条**实践约定作废**：
+现在偶发失败**就是**回归（同一个 bug 已经堵掉）。
 

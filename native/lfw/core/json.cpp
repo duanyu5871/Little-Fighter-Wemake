@@ -106,6 +106,8 @@ bool is_json_ws(char16_t c) {
 }
 
 struct Parser {
+  // ⚠ 引用成员：实参必须活得比 parser 久 —— 别把临时喂进来（同 `ditto/xml/tool_xml.cpp` 的坑，
+  // 见 DESIGN §149.20）。
   const std::u16string& s;
   size_t i = 0;
   bool ok = true;

@@ -148,6 +148,8 @@ LexState lex_state_of(ParseState s) {
 
 struct Parser {
   explicit Parser(const std::u16string& text) : src(text) {}
+  // 同上：`src` 是引用成员 ⇒ 挡住「临时当实参」（同 `ditto/xml/tool_xml.cpp` 的坑）。
+  Parser(std::u16string&&) = delete;
 
   const std::u16string& src;
   size_t pos = 0;
