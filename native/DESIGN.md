@@ -11711,9 +11711,9 @@ coverage OK）。
 ### 149.16 剩下的功能欠账（与缝无关）
 
 渲染 / 音频的宿主实现（`IWorldRenderer` / `IUINodeRenderer` / sounds 只到宿主缝）、TS 侧尚未搬的
-其它模块。玩家表（4CX）、指针命令（4CY）已结清；仍缺 **`ui/component/MoveTable/MoveTableLogic.ts`**
-（439 行的 UIComponent）与 `cmds/CMD_KEY_EVENTS.ts` / `CMD_F4.ts`（`KEY_EVENT` / `F4`）—— 另有
-§149.17 末记的「指针命中派发」覆盖缺口（实现已齐，缺的是差分用例）。
+其它模块。玩家表（4CX）、指针命令（4CY）、`F4`/`KEY_EVENT`（4CZ）已结清；仍缺
+**`ui/component/MoveTable/MoveTableLogic.ts`**（439 行的 UIComponent）—— 另有 §149.17/§149.18 记的
+「命中派发」覆盖缺口（实现已齐，缺的是差分用例）。
 
 ### 149.17 `POINTER_*` 命令移植（切片 4CY）—— 第二笔功能欠账
 
@@ -11748,4 +11748,57 @@ coverage OK）。
 **验证**：差分 **256/256**（多的一条就是 `cmds/pointer`）、锚点 9764/0、include 837 clean/0/9、
 coverage OK、宿主三条摘要**逐字节不变**（`7335aa25f4e1ce86` / `e4a9437292047044` /
 `f29d3bb1ea330c32` —— 指针命令不在 headless 宿主的路径上）。
+
+### 149.18 `F4` + `KEY_EVENT` 命令与 `validate_ui_img_operation_crop`（切片 4CZ）—— cmds 表收官
+
+`cmds/index.ts` 那张表剩下的两条 + 一条「待确认」的 `loader/` 模块：
+
+- **`cmd_f4.{h,cpp}`**：TS 是「从顶层往下找第一个能弹的层，弹一页就停」。端口照抄，
+  两处形状差：`UILayer::pop(const UIPopPageOpts&)` 没有默认参数 ⇒ 传 `UIPopPageOpts{}`
+  （TS 的 `layer.pop()`）；`all()` 里的**洞**是 `nullptr`（`Array.from` 保留洞 ⇒ TS 的
+  `undefined`）。TS 的 `lfw.layers` 一定存在，端口对假件留了一条 `nullptr` 空路。
+- **`cmd_key_event.{h,cpp}`**：TS 的三段（UI 层自顶向下第一个未禁用的收下 → 所有
+  `mounted_keys` → 该玩家真人控制器）。要点：
+  * `LFWKeyEvent(player, pressed, game_key, key)` 的**参数顺序**：第三个是 game_key、
+    第四个才是键盘 key（TS 的 `key_name as GK`）。
+  * `ks[gk].hit()` / `.end()` 没有实参 ⇒ 端口用 `KeyStatus::hit(Value(), ks->time())`
+    （`hit` 的第一个参数是 TS 默认参数 `t = this.ctrl.time` 的 `Value` 形）+ `end(ks->time())`。
+  * `gk` 不在按键表里：TS 是 `undefined.hit()` 抛，端口 `Keys::get()` 给 `nullptr` ⇒ 跳过
+    （偏差，记在这里）。
+  * `c.world.lfw.world`（**不是** `c.world`）⇔ 端口 `lfw.world()`；`is_human_ctrl` 收
+    `Value` ⇒ 用 `fighter->ctrl_view()`；`ctrl.start(gk)` 在端口是
+    `start(std::vector<std::u16string>)`（TS 的 `BaseController.start(ks: string[])`）⇒ 传
+    `{gk}`。
+- **`loader/validate_ui_img_operation_crop.{h,cpp}`**：路径照 TS（`LFW/loader/`）。调用方是
+  **平台层**的 `ImageMgr`（`src/ditto/**` = 宿主边界）⇒ 端口侧暂无调用点，`errors` 收可空
+  向量指针（与 `validate_ui_img_info` 同款）。偏差：TS 对 `null` 入参走 `typeof null ===
+  'object'` 那支、随后读 `v.type` 时 TypeError；端口一律算校验失败。连带在
+  `utils/type_check.h` 补了它要的三个谓词（`is_positive_int` / `is_non_nagative_int` /
+  `is_undefined_or_number` —— 后者是**宽松** `== void 0` ⇒ `null` 也算；`is_num.ts` 里其余
+  谓词端口没用到，不搬）。
+- **结清一条旧账**：`dat_translator/get_the_next.ts` 其实**早就搬了**（`get_next_frame_by_raw_id`
+  + `cook_next_frame_cost`，多个 caller）⇒ 不是缺口。
+- **登记表**：27 → 34（4CY）→ **36**（本刀）⇒ `cmds/index.ts` 全表登记完毕；`cmds.h` 里
+  「`F4`/`KEY_EVENT` 未移植」的旧注已删。
+- **台面（两侧同构的又一步）**：`cmds.ts` 的假 `lfw` 补了 `layers`（`new UILayers(null as
+  never)` ⇒ **空**层栈）、`world`（getter，真 `World` 晚于字面量建）、`mounted_keys: []` ——
+  不补的话 `F4` 会 `undefined.all`、`KEY_EVENT` 会 `undefined.length` 抛。新用例
+  `cases/cmds/f4.txt`（2 条注册 + 2 条**空跑**：TS 空层栈 / 端口底页 `pages().size() <= 1 &&
+  i == 0` ⇒ 两侧同样什么都不做）与 `cases/cmds/key_event.txt`（2 条注册 + 4 条告警 + 1 条
+  **裸 `--p --c --n`**：三个 flag 都算「在场」的字符串 ⇒ 一路走完 UI 层循环（空）/`mounted_keys`
+  （空）/`control_disabled`/`puppets` 查表 —— 除 UI 派发外的整条路径都真跑了）。
+- ⚠ **覆盖缺口（与 §149.17 同源）**：`KEY_EVENT` 的 UI 派发（`on_key_down`/`on_key_up`）与
+  `mounted_keys` 实拍、`F4` 的真弹页都还没有差分（两侧台面 UI 不同构；`layers` 现在是空栈 ⇒
+  循环空转）。
+
+**验证**：差分 **258/258**（多两条就是 `f4` 与 `key_event`）、锚点 9764/0、include **843**
+clean/0/9、coverage OK、宿主三条摘要 `7335aa25f4e1ce86`（prel 300）/ `e4a9437292047044`
+（prel+data 900）/ `f29d3bb1ea330c32`（`--vs` 600）。
+
+⚠ **本刀顺带发现一个既有缺陷（与本刀无关，未修）**：`lfw_run` 的 `--vs` 数据装载**偶发**失败 ——
+同一二进制、同一数据连跑 3 次：第 1 次 `preprocess_itr: "book_red" itr references missing prefab:
+"throw껫擔㙧老/>`（**乱码**）、第 2/3 次正常（摘要一致）。4CY 那次也见过同类
+（`IUIImgInfo.w must be positive integer, but got NaN`）。⇒ 装载路径（`preproc*/dat/lz` 一线）有
+**不确定**的内存/时序问题：报错内容每次不同 ⇒ 与代码路径改动无关 ⇒ 既有缺陷，待单独定位。
+**实践含义**：宿主摘要三元组要**重跑确认**再当成回归（本次已重跑到稳定通过）。
 

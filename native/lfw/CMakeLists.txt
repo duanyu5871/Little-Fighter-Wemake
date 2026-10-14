@@ -12,6 +12,8 @@ add_library(lfw_core STATIC
   cmds/cmd_cheat.cpp
   cmds/cmd_entity.cpp
   cmds/cmd_f.cpp
+  cmds/cmd_f4.cpp
+  cmds/cmd_key_event.cpp
   cmds/cmd_kill.cpp
   cmds/cmd_pointer_events.cpp
   cmds/cmd_scene.cpp
@@ -181,6 +183,7 @@ add_library(lfw_core STATIC
   loader/preprocess_entity_data.cpp
   loader/check_stage_info.cpp
   loader/dat_mgr.cpp
+  loader/validate_ui_img_operation_crop.cpp
   base/predicate.cpp
   utils/math/mersenne_twister.cpp
   utils/math/normalize_plane.cpp

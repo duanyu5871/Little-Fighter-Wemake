@@ -5722,3 +5722,16 @@ harness op：
   用例。
 - 光标表对宿主可见：`get_pointer_cursors(World&)` 给的是**活表**（`nullptr` = 还没建过状态，
   对应 TS 的 `undefined`）；平台层画光标用它，`set_local_cursor()` 是它的写面。
+
+### 6.9.199 `F4` + `KEY_EVENT` 命令与 `validate_ui_img_operation_crop`（4CZ）
+
+- 假 `lfw` 现在有 `layers`（**空**层栈，`new UILayers(null as never)`）、`world`（getter）与
+  `mounted_keys: []` —— TS 的真 `LFW` 构造里就有这些，`F4`/`KEY_EVENT`/`POINTER_*` 会直接读。
+  **别再假件里省它们**（省了就是 `undefined.all` / `undefined.length` 抛）。
+- `KEY_EVENT` 的 UI 派发（`on_key_down`/`on_key_up`）与 `mounted_keys` 实拍、`F4` 的真弹页
+  仍**没有差分**（两侧台面 UI 不同构：空层栈 ⇒ 循环空转）。写这类用例前先确认能跑到哪一步。
+- `KEY_EVENT` 的裸 flag（`--p` 不带值）在两侧都算「在场的空字符串」⇒ **不会**被必填校验拦下，
+  会一路走到 UI 层/`mounted_keys`（`key_event.txt` 最后一条就是这个走通路径）。
+- ⚠ 宿主 `lfw_run` 的**装载偶发失败**（`--vs` 数据包反复跑会出现乱码 / `IUIImgInfo.w … NaN`，
+  同二进制同数据）；报错内容每次不同 ⇒ 既有缺陷（DESIGN §149.18 记了证据）。⇒ **摘要三元组要
+  重跑确认**：偶发失败别当回归，稳定复现才是回归。

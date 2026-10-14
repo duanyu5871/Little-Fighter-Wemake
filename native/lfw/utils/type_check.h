@@ -37,6 +37,18 @@ inline bool is_int(const Value& v) {
   return d != nullptr && is_int(*d);
 }
 
+// `is_num.ts` 的整数档（切片 4CZ：用到哪几个搬哪几个）：
+// `is_int(v) && v > 0` / `is_int(v) && v >= 0`。
+inline bool is_positive_int(const Value& v) { return is_int(v) && to_number(v) > 0; }
+
+inline bool is_non_nagative_int(const Value& v) { return is_int(v) && to_number(v) >= 0; }
+
+// `v == void 0`：**宽松相等** ⇒ `null` 也算（TS 的 `==`，不是 `===`）。
+inline bool is_undefined_or_number(const Value& v) {
+  return std::holds_alternative<std::monostate>(v) || std::holds_alternative<NullTag>(v) ||
+         is_num(v);
+}
+
 inline bool is_str(const Value& v) { return std::holds_alternative<std::u16string>(v); }
 
 inline bool is_non_empty_str(const Value& v) { return truthy(v) && is_str(v); }

@@ -8,6 +8,8 @@
 #include "lfw/cmds/cmd_cheat.h"
 #include "lfw/cmds/cmd_entity.h"
 #include "lfw/cmds/cmd_f.h"
+#include "lfw/cmds/cmd_f4.h"
+#include "lfw/cmds/cmd_key_event.h"
 #include "lfw/cmds/cmd_kill.h"
 #include "lfw/cmds/cmd_pointer_events.h"
 #include "lfw/cmds/cmd_scene.h"
@@ -54,6 +56,7 @@ void register_defaults() {
   put(cmd::kF1, cmd_f1_help(), cmd_f1);
   put(cmd::kF2, cmd_f2_help(), cmd_f2);
   put(cmd::kF3, cmd_f3_help(), cmd_f3);
+  put(cmd::kF4, cmd_f4_help(), cmd_f4);
   put(cmd::kF5, cmd_f5_help(), cmd_f5);
   put(cmd::kF6, cmd_f6_help(), cmd_f6);
   put(cmd::kF7, cmd_f7_help(), cmd_f7);
@@ -62,6 +65,7 @@ void register_defaults() {
   put(cmd::kF10, cmd_f10_help(), cmd_f10);
   put(cmd::kGIM_INK, cmd_gim_ink_help(), cheat_code_handler);
   put(cmd::kHERO_FT, cmd_hero_ft_help(), cheat_code_handler);
+  put(cmd::kKEY_EVENT, cmd_key_event_help(), cmd_key_event);
   put(cmd::kKILL, cmd_kill_help(), cmd_kill);
   put(cmd::kKILL_BOSS, cmd_kill_boss_help(), cmd_kill_boss);
   put(cmd::kKILL_ENEMIES, cmd_kill_enemies_help(), cmd_kill_enemies);

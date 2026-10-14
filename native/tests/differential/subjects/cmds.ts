@@ -11,6 +11,7 @@ import { LocalController } from "../../../../src/LFW/controller/LocalController"
 import { PlayerInfo } from "../../../../src/LFW/PlayerInfo";
 import { States } from "../../../../src/LFW/state/States";
 import { MersenneTwister } from "../../../../src/LFW/utils/math/MersenneTwister";
+import { UILayers } from "../../../../src/LFW/ui/UILayer";
 import { World } from "../../../../src/LFW/World";
 
 import { esc, keyOf, numHex, parseValue, readCaseLines, renderValue, splitWs } from "./trace_util";
@@ -222,6 +223,16 @@ const fakeLfw: Bag = {
   // `IWorldLfw::warn` / `IWorldLfw::debug` 的两面（`Ditto.warn` 单参 / `Ditto.debug`）。
   warn: (...args: unknown[]) => log.push(`h:warn=${esc(String(args[0]))}`),
   debug: (msg: unknown) => log.push(`h:debug=${String(msg)}`),
+  // TS 的真 `LFW` 构造里就有 `layers`（`F4` / `KEY_EVENT` / `POINTER_*` 直接读）⇒ 假件也得有，
+  // 否则命令会 `undefined.at(...)` 抛。这里给一份**空**的层栈（端口侧假 `lfw` 派生真 `LFW`，
+  // 它有一层但页数 ≤ 1 ⇒ 两侧同样什么都不做）。
+  layers: new UILayers(null as never),
+  // 同理：`KEY_EVENT` 还会读 `lfw.world` 与 `lfw.mounted_keys`。`world` 用 getter（真 `World`
+  // 晚于本字面量建）；`mounted_keys` 给空表（端口侧的假 `lfw` 没有挂载过按键）。
+  get world(): World {
+    return world;
+  },
+  mounted_keys: [] as unknown[],
   sounds: {
     play_bgm: (m: unknown) => {
       log.push(`h:playbgm=${vstr(m)}`);

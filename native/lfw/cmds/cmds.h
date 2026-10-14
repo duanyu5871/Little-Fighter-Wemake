@@ -26,10 +26,9 @@ inline bool starts_with_dash(const std::u16string& s) {
 // Mirrors `src/LFW/cmds/CMDS.ts`：命令调度器（词法解析 + 静态注册表）。
 //
 // 形状差异：
-//   * TS 在模块加载期用 `CMDS.register(...)` 登记 32 条命令；端口没有加载期 ⇒ 首次用到
-//     注册表时一次性登记**已移植**的命令（表在 `cmds.cpp`，次序照 `index.ts`）。未移植的
-//     命令（`F4` / `KEY_EVENT`）查不到 handler（`handler()` 给 `nullptr`）——TS 那边它们
-//     是登记着的，差分台面不碰这些词。
+//   * TS 在模块加载期用 `CMDS.register(...)` 登记命令；端口没有加载期 ⇒ 首次用到注册表时
+//     一次性登记**已移植**的命令（表在 `cmds.cpp`，次序照 `index.ts`）。切片 4CZ 起
+//     `index.ts` 那张表已全部登记（`F4` / `KEY_EVENT` 也在内）。
 //   * `handle` 里的 `this.inst.words[0].toLowerCase()`：命令全是空白时 TS 会 `TypeError`
 //     （`words[0]` 是 `undefined`）——端口无异常，直接跳过这一步。
 //   * `args` 是 JS 对象字面量：取不存在的键给 `undefined`；`constructor` 这种撞原型的键
