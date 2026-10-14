@@ -46,6 +46,9 @@ struct BuffEnv {
 
 class Buff {
  public:
+  // `virtual`：端口有 7 个 buff 子类，台面按 `std::unique_ptr<Buff>` 持有派生对象 ⇒ 非虚析构
+  // 会让派生析构永不执行（clang 只在编译到删除点时才报；删除点在台面里）。
+  virtual ~Buff() = default;
   Buff(const BuffEnv* env, const std::u16string& id, const Value& kind);
 
   const std::u16string& id() const { return _id; }

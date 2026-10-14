@@ -45,7 +45,9 @@ class Stage {
   static void warn(const std::u16string& where, const std::u16string& text);
 
   Stage(World* world, LFW* lfw, Value data);
-  ~Stage();
+  // `virtual`：台面 `fx::FakeItemHost` 派生自本类，而 `World::stage_` 是 `unique_ptr<Stage>`
+  // （`set_stage` 收 `unique_ptr<Stage>`）⇒ 经基类指针删除需要虚析构。
+  virtual ~Stage();
 
   World* world() const { return _world; }
   LFW* lfw() const { return _lfw; }

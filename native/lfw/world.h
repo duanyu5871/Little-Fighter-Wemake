@@ -78,7 +78,9 @@ class World {
   static constexpr const char* TAG = "World";
 
   World(LFW& lfw, IWorldRenderer& renderer, state::States* states);
-  ~World();
+  // `virtual`：台面 `fx::TestWorld` / `FakeWorld` / `FakeStageWorld` 派生自本类，而 `LFW::world_`
+  // 是 `unique_ptr<World>`（经基类指针删除）⇒ 非虚析构是 UB。
+  virtual ~World();
 
   World(const World&) = delete;
   World& operator=(const World&) = delete;

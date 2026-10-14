@@ -26,6 +26,9 @@ class ObjectsHelper {
   static constexpr const char* TAG = "ObjectsHelper";
 
   explicit ObjectsHelper(LFW& lfw);
+  // `virtual`：`BallsHelper` / `CharactersHelper` / `WeaponsHelper` 派生自本类，且 `all()` /
+  // `add()` 已是虚函数 ⇒ 经 `ObjectsHelper*` 删除派生对象需要虚析构（写法同 `UIComponent`）。
+  virtual ~ObjectsHelper() = default;
 
   LFW& lfw() const { return *_lfw; }
   RandomingT<Value>& team_randoming() { return _team_randoming; }

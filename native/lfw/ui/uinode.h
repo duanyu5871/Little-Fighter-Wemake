@@ -55,7 +55,10 @@ class UINode {
 
   UINode(LFW& lfw, const Value& data, UINode* parent = nullptr, UILayer* layer = nullptr);
   // 定义在 .cpp：`_owned_components` 里的 `unique_ptr<UIComponent>` 需要完整类型才能析构。
-  ~UINode();
+  // `virtual`：本类是台面 `fx::FakeUi` 之类的多态基，而 `_owned_children` 与 `UILayer` 的
+  // `unique_ptr<UINode>` 都经基类指针删除 ⇒ 非虚析构会漏掉派生析构（clang
+  // `-Wdelete-non-abstract-non-virtual-dtor`）。写法与 `UIComponent` 一致。
+  virtual ~UINode();
 
   LFW& lfw() { return *_lfw; }
   const Value& data() const { return _data; }

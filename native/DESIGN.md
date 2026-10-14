@@ -510,7 +510,9 @@ XmlReader reader(strip_comments(text));   // :242  ← `strip_comments` **按值
    `core/json.cpp` 的 `Parser` 是聚合（加 ctor 会破坏聚合初始化）⇒ 改成在引用成员上写注释警告。
    （全仓「引用成员」只这三处，其余都安全。）
 
-- **clang 会报 MSVC 不报的告警**（WASM 编译暴露，77 条，**当前未修**）：其中 8 条 `-Wdelete-non-abstract-non-virtual-dtor` —— **通过基类指针 `delete` `lfw::ui::UINode`**，潜在 UB，UI 层待查；其余为 16 条 `-Woverloaded-virtual`、16 条 `-Wunused-function`、13 条 `-Wunused-but-set-variable`、6 条 `-Winconsistent-missing-override`（多为噪声）。
+- **经基类指针删除派生对象，基类必须有虚析构**（clang `-Wdelete-non-abstract-non-virtual-dtor`，**MSVC 从不报**）：本刀给 7 个类补了 `virtual ~`——`ui::UINode`（`UINode::_owned_children` 与 `UILayer::_pages/_trash` 两处删除点）、`World`（`LFW::world_`）、`stage::Stage`（`World::stage_`）、`helper::ObjectsHelper`（连带 `CharactersHelper`/`WeaponsHelper`/`BallsHelper` 三个子类）、`buff::Buff`（7 个 buff 子类的**台面**删除点：`unique_ptr<Buff>` 存派生对象）。改的是析构 ⇒ **vtable 变更** ⇒ 需全量重建。
+  ⚠ **仍有两处「潜在」未动**（当前没有删除点，所以不是活 UB，要动得单独一刀）：`IResourcesHost`（只作非拥有 `IResourcesHost*` 用；顺带一提，全仓其它接口都写了 `virtual ~X() = default;`，它是唯一漏的）、`controller::BaseController`（所有 `unique_ptr<BaseController>` 存的都是**精确类型**）。
+- **clang 会报 MSVC 不报的其它告警**（WASM 编译暴露；修完虚析构后剩 **69** 条）：`-Woverloaded-virtual` 16、`-Wunused-function` 16、`-Wunused-but-set-variable` 13、`-Winconsistent-missing-override` 6，多为噪声。
 - **`summary_logic.h` 的两个 `private` 别名被派生类用了**：MSVC 放行、clang 报错 ⇒ 已把 `ValuePayloads`/`WorldPayloads` 从 `private` 移进 `protected`（**只动可见性**）。先试过改调用点，但那会踩 4 个字节锁定的变异锚点，所以改可见性。
 
 ## 7. 假货与宿主缺口
