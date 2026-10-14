@@ -53,9 +53,13 @@ struct GodotDrawItem {
   // 纹理：`path` 是解析出来的**资源条目名**（空 ⇒ 宿主画占位色块）。
   std::string path;
   double tex_scale = 1.0;  // `@Nx` 倍数：裁剪矩形乘它才是纹理像素
-  // 图集裁剪（一倍图逻辑像素）与水平镜像。
+  // 图集裁剪（一倍图逻辑像素）与镜像。
   double sx = 0, sy = 0, sw = 0, sh = 0;
   bool flip_x = false;
+  bool flip_y = false;
+  // 纯色块（UI 的覆盖色 / `background` / `foreground`）：直接拿 `r/g/b/a` 填矩形 —— 不去查纹理，
+  // 也不画"取不到图"的占位色块（占位色块是实体那一遍的诊断）。
+  bool flat = false;
   // 颜色（0..1）：`r/g/b` 是 `modulate`、`a` 是不透明度（影子用它）。
   double r = 1, g = 1, b = 1, a = 1;
   // 换色（`mix_color` + `mix_strength`）：`mix_a > 0` ⇒ 宿主再叠一遍 `modulate`
@@ -68,6 +72,19 @@ struct GodotDrawItem {
   std::string kind;
   std::string tag;
   double depth = 0;
+  // ---- UI 那一遍（DESIGN D4；`lfw_godot_ui_renderer.{h,cpp}` 填这几条）----
+  // 五遍次序里 UI 占两遍（D1(a)：**UI 背景 → 背景/实体/前景 → UI 前景**）⇒ 每一遍记一个
+  // pass，`_draw()` 按 pass 三趟扫（同一趟内保持收集次序）。
+  //   `-1` = UI 背景（节点 `z < 0`）、`0` = 世界（背景层 / 实体 / 前景层）、`+1` = UI 前景。
+  int pass = 0;
+  // 文字（非空 ⇒ 这一项是文字，不是 blit）：字符串 / 字号（逻辑像素）/ 0=左 1=中 2=右。
+  std::string text;
+  double font_size = 0;
+  int text_align = 0;
+  // UI 的裁剪（祖先 `clip_children` 求交；`has_clip` 为假即不裁）。⚠ `_draw()` 只能整项取舍
+  //（CanvasItem 的 `draw_*` 没有逐项裁剪）⇒ 部分越界的项照画（见报告）。
+  bool has_clip = false;
+  double clip_x0 = 0, clip_y0 = 0, clip_x1 = 0, clip_y1 = 0;
 };
 
 // 一帧的绘制项（按绘制次序排好：先画的在前）。
@@ -94,6 +111,19 @@ struct GodotFrame {
   std::string outline_probe;          // 第一条描边的 `#rrggbb@alpha,width`（诊断）
 };
 
+// UI 那一遍的观测面（D4 第二半的诊断；不进三条摘要）。逐帧清零。
+struct GodotUIStats {
+  long long layers = 0;       // `ui_begin_layer` 的次数（= 有页的层数）
+  long long nodes = 0;        // 走到的节点数
+  long long drawn = 0;        // 真的出了绘制项的节点数
+  long long hidden = 0;       // 不可见（整棵子树跳过）
+  long long empty = 0;        // 可见但没有可画的东西（无图/无色/无字/尺寸为 0）
+  long long clipped = 0;      // 被祖先 `clip_children` 裁掉（整项在裁剪矩形外）
+  long long missing_img = 0;  // 有图但路径解析不出来
+  long long texts = 0;        // 文字项
+  long long items = 0;        // 绘制项总数
+};
+
 // Godot 宿主的 `IWorldRenderer`。
 class GodotWorldRenderer : public IWorldRenderer {
  public:
@@ -113,6 +143,34 @@ class GodotWorldRenderer : public IWorldRenderer {
   // 资源字节：条目名（`/` 分隔）→ 字节。先查已加载的数据包、再查 `--root` 的根目录。
   // 宿主侧纹理缓存用它（`lfw_godot_textures.{h,cpp}`）。
   bool read_resource(const std::string& path, std::string& out) const;
+
+  // 一个素材键解析出来的东西（逐帧复用；`files[tex]` 一变就重建）。
+  struct Resolved {
+    std::string path;  // 命中条目名（空 ⇒ 没找到）
+    double scale = 1;  // `@Nx`
+    double img_w = 0, img_h = 0;  // 一倍图逻辑尺寸（PNG 头）
+  };
+
+  // 路径 → 命中条目名 / 倍数 / 一倍图尺寸（与实体的 `resolve_path` 同一张回退表：`@Nx`、
+  // `.webp`）。UI 那一遍用它（`lfw_godot_ui_renderer.cpp` 的图片节点）。
+  const Resolved& probe_path(const std::string& path) { return resolve_path(path); }
+
+  // ---- UI 渲染面（D4 第二半）----
+  // `GodotUINodeRenderer` 一个层一次 `begin`/`end`：中间把 UI 节点翻成的绘制项 `append` 进来，
+  // `end` 按 (pass, z, 收集序) 稳定排序后并进**正在写的那一帧**（`render()` 已经建好的 `_pending`）。
+  // 于是 UI 背景那一批排在世界之前、UI 前景那一批排在世界之后 —— 正是 D1(a) 的五遍次序。
+  void ui_begin_layer();
+  void ui_append(GodotDrawItem item);
+  void ui_end_layer();
+
+  // 观测面（诊断行）：UI 那一遍的计数（`GodotUINodeRenderer` 填）。
+  GodotUIStats& ui_stats() { return _ui_stats; }
+  const GodotUIStats& ui_stats() const { return _ui_stats; }
+
+  // `--ui-dump`：把**最后一帧**每个 UI 节点的一行事实留在 `ui_dump_lines()`（宿主打完就退）。
+  void set_ui_dump(bool on) { _ui_dump_on = on; }
+  bool ui_dump_on() const { return _ui_dump_on; }
+  std::vector<std::string>& ui_dump_lines() { return _ui_dump_lines; }
 
   // ---- 观测面（与 `NullWorldRenderer` 同口径，摘要行要用）----
   long long added() const { return _added; }
@@ -135,13 +193,6 @@ class GodotWorldRenderer : public IWorldRenderer {
     double s0s = 1, s1s = 1, s0o = 1, s1o = 1;
   };
 
-  // 一个素材键解析出来的东西（逐帧复用；`files[tex]` 一变就重建）。
-  struct Resolved {
-    std::string path;  // 命中条目名（空 ⇒ 没找到）
-    double scale = 1;  // `@Nx`
-    double img_w = 0, img_h = 0;  // 一倍图逻辑尺寸（PNG 头）
-  };
-
   Live* find_live(const Entity* e);
   // 素材键 → 命中的条目名 / 倍数 / 一倍图尺寸（走 `files[key].variants` + `@Nx` 回退）。
   const Resolved& resolve_key(const Entity& e, const std::string& key, double variant);
@@ -162,6 +213,10 @@ class GodotWorldRenderer : public IWorldRenderer {
   GodotFrame _shown;    // `_draw()` 读
   std::map<std::string, Resolved> _resolved;   // "data_id|key" → 解析结果
   std::map<std::string, std::vector<std::string>> _variant_keys;  // 素材变体表
+  std::vector<GodotDrawItem> _ui_buf;  // 本层收集中的 UI 绘制项（`ui_begin/end_layer` 之间）
+  GodotUIStats _ui_stats;
+  bool _ui_dump_on = false;
+  std::vector<std::string> _ui_dump_lines;
   int _render_count = 0;
   // `dfactor` 的帧内状态（TS `WorldRenderer.utime/dtime/dfactor/dirty`）。
   double _utime = 0, _dtime = 0, _dfactor = 1;

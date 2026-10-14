@@ -5,14 +5,17 @@
 //   `_process()` → 按 §G3 的固定步长累加器推帧；每步之后按 `lfw_thin` 的口径补一次
 //                  `World::render_once`（本宿主不装 `IRenderScheduler` ⇒ 世界自己不会渲染）
 //                  → `queue_redraw()`；推够 `--frames`（或到了 `--shot-frame`）就打摘要并 `quit()`
-//   `_draw()`    → 把世界渲染器组好的 `GodotDrawItem` 变成 `draw_*`（**唯一**碰引擎绘制的地方）
+//   `_draw()`    → 把世界渲染器组好的 `GodotDrawItem` 变成 `draw_*`（**唯一**碰引擎绘制的地方）：
+//                  按 `pass` 三趟扫（-1 UI 背景 → 0 世界 → +1 UI 前景 = D1(a) 的五遍次序），
+//                  纯色块 / 图片 blit / 文字（`draw_string`，字体是引擎的默认字体）
 //
 // 引擎侧只有这一个类 + 一个注册函数（`register_types.cpp`）：所有 Godot 类型都止步于此
 //（§G5「只在边界转换」）。命令行参数与 `lfw_run` 同名（`--root` / `--zip` / `--fighter` /
-// `--stage` / `--players` / `--frames` / `--every` / `--time` / `--vs`），另加三条：
+// `--stage` / `--players` / `--frames` / `--every` / `--time` / `--vs`），另加五条：
 //   * `--delta`：**只覆盖节拍**（`_process` 的 `delta` 从哪来），从不改变固定步长 —— 默认仍是 Godot
 //     给的真 `delta`，headless 验收用它把「15 秒虚拟时间」压成几百个 Godot 帧；
 //   * `--screenshot <png>` + `--shot-frame N`：画到第 N 帧后存一张视口 PNG（⚠ 别加 `--headless`）。
+//   * `--ui-page <id>` + `--ui-dump`：装载后把某一页设到第 0 层（拍 UI 用）/ 逐 UI 节点打一行事实。
 #pragma once
 
 #include <filesystem>
@@ -20,6 +23,7 @@
 #include <string>
 #include <vector>
 
+#include <godot_cpp/classes/font.hpp>
 #include <godot_cpp/classes/node2d.hpp>
 
 #include "host/fs_zip.h"
@@ -70,15 +74,20 @@ class LfwGodot : public Node2D {
     bool vs = false;
     std::filesystem::path screenshot;  // 空 = 不截图
     int shot_frame = -1;               // < 0 = 缺省（有截图时取 120）
+    bool ui_dump = false;              // `--ui-dump`：最后一帧逐 UI 节点打一行事实
+    std::u16string ui_page;             // `--ui-page <id>`：装载后把这一页设到第 0 层（等价点进去）
   };
 
   static const char* usage();
   static std::vector<std::string> user_args();
   bool parse_args(const std::vector<std::string>& argv, Args& out) const;
   bool setup();  // 装包 + `LFW` + `boot_scene`；失败时已经把错误打出去了
+  // 文字度量（D4：「字体度量在宿主」）：引擎的默认字体算 `w/h`，装进 `LfwGodotHost`。
+  void install_text_metrics();
   void report_frame(int frame) const;
   void render_world_frame(long long renders_before);  // 每步补一次 `render_once` + `take_frame`
   void draw_item(const GodotDrawItem& item);
+  void draw_text_item(const GodotDrawItem& item);
   bool capture_screenshot();       // 视口 → PNG
   void finish();
   void quit_with(int code) const;
@@ -88,6 +97,7 @@ class LfwGodot : public Node2D {
   std::vector<std::unique_ptr<FsZip>> _zips;
   std::unique_ptr<lfw::LFW> _lfw;
   std::unique_ptr<GodotTextureCache> _textures;
+  godot::Ref<godot::Font> _font;  // 引擎的默认字体（文字度量 + `_draw` 的 `draw_string`）
   bool _running = false;
   int _frames = 0;
   bool _capture_pending = false;  // 这一帧要截图（上一帧的绘制已经落进视口）

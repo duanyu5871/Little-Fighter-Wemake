@@ -15,6 +15,7 @@
 #include <godot_cpp/classes/os.hpp>
 #include <godot_cpp/classes/rendering_server.hpp>
 #include <godot_cpp/classes/scene_tree.hpp>
+#include <godot_cpp/classes/theme_db.hpp>
 #include <godot_cpp/classes/viewport.hpp>
 #include <godot_cpp/classes/viewport_texture.hpp>
 #include <godot_cpp/variant/color.hpp>
@@ -26,6 +27,7 @@
 #include "host/common/lfw_boot.h"
 #include "lfw/base/clock.h"
 #include "lfw/core/value.h"
+#include "lfw/utils/container_help/field_or.h"
 #include "lfw/utils/utf8.h"
 #include "lfw/world.h"
 
@@ -74,14 +76,16 @@ const char* LfwGodot::usage() {
   return "usage: <godot> --path native/host/godot/project -- --root <dir> --zip <dir>\n"
          "               [--zip <dir> ...] [--fighter <id>] [--stage <id>] [--players N]\n"
          "               [--frames N] [--every N] [--time ms] [--delta seconds] [--vs]\n"
-         "               [--screenshot <file.png>] [--shot-frame N]\n"
+         "               [--screenshot <file.png>] [--shot-frame N] [--ui-dump]\n"
          "  --root     import 根目录（含 builtin_data/…），可重复；缺省 `.`\n"
          "  --zip      数据包目录（已解包），可重复；按给定顺序 load\n"
          "  --fighter  指定出场的角色 id，可重复（缺省用数据包里的前 `--players` 个）\n"
          "  --delta    只覆盖 `_process` 的节拍（秒），不改固定步长（默认用 Godot 给的 delta）\n"
          "  --screenshot  画到第 `--shot-frame` 帧后存一张 PNG（**别加 --headless**：headless\n"
          "                没有渲染，存出来是空白）；给绝对路径\n"
-         "  --shot-frame  截图的帧号（缺省 120）\n";
+         "  --shot-frame  截图的帧号（缺省 120）\n"
+         "  --ui-dump     最后一帧逐 UI 节点打一行事实（诊断，不进摘要）\n"
+         "  --ui-page     装载后把这一页设到第 0 层（id 取自烹饪好的 UI 表；缺省用首页 `init`）\n";
 }
 
 std::vector<std::string> LfwGodot::user_args() {
@@ -138,6 +142,11 @@ bool LfwGodot::parse_args(const std::vector<std::string>& argv, Args& out) const
       out.shot_frame = std::atoi(v.c_str());
     } else if (a == "--vs") {
       out.vs = true;
+    } else if (a == "--ui-dump") {
+      out.ui_dump = true;
+    } else if (a == "--ui-page") {
+      if (!need(i, v)) return false;
+      out.ui_page = from_utf8(v);
     } else {
       return false;
     }
@@ -175,6 +184,9 @@ void LfwGodot::_ready() {
 
 bool LfwGodot::setup() {
   _host = std::make_unique<LfwGodotHost>(_args.roots, false);
+  // ⚠ 文字度量必须在 `LFW::load` **之前**装好：UI 数据（`cook_ui_info` 的 `txt_info`）在装载期
+  // 就按度量定尺寸（`lfw.host().measure_text`），装晚了整页的文本节点都是 0 尺寸。
+  install_text_metrics();
   // 时钟 / 定时器在手（`ManualClock::add → 0`）⇒ 端口自己的 `Ticker` 不自驱（§G3 第 2 条）。
   // 必须在 `LFW` 构造**之前**装好：`host.now()` 给 `MersenneTwister` 播种（§G9）。
   lfw::set_clock(&_host->clock());
@@ -246,6 +258,29 @@ bool LfwGodot::setup() {
     print_line(buf);
   }
 
+  // ---- `--ui-page <id>`：装载后把这一页设到第 0 层（与 TS 里"点进这一页"等价的一次
+  // `UILayers.set_page`；不传就用数据自己的首页 `init`）。id 必须真在烹饪好的 UI 表里 ——
+  // 否则 `set_page` 会静默建一个空页（`UILayer::create_page` 找不到 id 时回 nullptr）。
+  if (!_args.ui_page.empty()) {
+    bool found = false;
+    for (const Value& v : _lfw->ui_helper().all()) {
+      const Value id = lfw::field_or(v, u"id");
+      const std::u16string* const s = std::get_if<std::u16string>(&id);
+      if (s != nullptr && *s == _args.ui_page) {
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      print_error("[godot] --ui-page: no such page id: " + to_utf8(_args.ui_page));
+      return false;
+    }
+    auto opts = std::make_shared<lfw::Object>();
+    opts->set(u"id", Value(_args.ui_page));
+    _lfw->set_page(Value(std::move(opts)), 0.0);
+    print_line("[godot] ui page: " + to_utf8(_args.ui_page));
+  }
+
   // 固定步长来自数据本身（`dataset.UPS`），与 `lfw_run` 同一口径。
   lfw::World& world = _lfw->world();
   const double ups = num_field(world.dataset.get(u"UPS"), 60.0);
@@ -260,7 +295,82 @@ bool LfwGodot::setup() {
       return renderer != nullptr && renderer->read_resource(path, out);
     });
   }
+  if (_host->world_renderer() != nullptr) _host->world_renderer()->set_ui_dump(_args.ui_dump);
   return true;
+}
+
+// 文字度量：D4 把字体度量划给宿主（"允许宿主差异"），这一份用**引擎自己的默认字体**算。
+// 口径与 TS 的 `ImageMgr.measure_text` 对齐：返回 `{text, style, w, h, scale}`，核心的
+// `auto_size_by_text` 读 `w/h/scale` 定节点尺寸（`uinode.cpp:193-203`）。
+// ⚠ 字体与浏览器不同（TS 是 canvas 的 Arial）⇒ **同一台机器上稳定、与 TS 不逐位同宽**；
+// 取不到字体时落回零尺寸（等于 headless 桩）。
+void LfwGodot::install_text_metrics() {
+  if (_host == nullptr) return;
+  godot::ThemeDB* const db = godot::ThemeDB::get_singleton();
+  if (db != nullptr) _font = db->get_fallback_font();
+  if (_font.is_null()) {
+    print_line("[godot] ui text metrics: no fallback font (零尺寸桩)");
+  } else {
+    char buf[160];
+    std::snprintf(buf, sizeof(buf), "[godot] ui text metrics: engine fallback font (%s)",
+                  _font->get_font_name().utf8().get_data());
+    print_line(buf);
+  }
+  _host->set_measure_text([this](const Value& text_v, const Value& style_v) -> Value {
+    const std::u16string s = lfw::to_string(text_v);
+    const std::string utf8 = to_utf8(s);
+    double font_size = 9.0;
+    const lfw::Object* const style = lfw::as_object(style_v);
+    if (style != nullptr) {
+      const Value* const font = style->get(u"font");
+      if (font != nullptr) {
+        const std::u16string* const f = std::get_if<std::u16string>(font);
+        if (f != nullptr) {
+          const std::string fs = to_utf8(*f);
+          for (std::size_t i = 0; i + 1 < fs.size(); ++i) {
+            if (fs[i] != 'p' || fs[i + 1] != 'x') continue;
+            std::size_t k = i;
+            while (k > 0 && (std::isdigit(static_cast<unsigned char>(fs[k - 1])) != 0 ||
+                             fs[k - 1] == '.')) {
+              --k;
+            }
+            if (k == i) continue;
+            const double n = std::strtod(fs.substr(k, i - k).c_str(), nullptr);
+            if (n > 0.0) font_size = n;
+            break;
+          }
+        }
+      }
+    }
+    double w = 0.0;
+    double h = 0.0;
+    if (!_font.is_null()) {
+      const int size = static_cast<int>(std::lround(font_size));
+      const int px = size > 0 ? size : 1;
+      // 逐行：`w` 取最宽的一行、`h` 累加（TS `split_text_to_lines` 同一口径）。
+      std::size_t start = 0;
+      int lines = 0;
+      while (true) {
+        const std::size_t nl = utf8.find('\n', start);
+        const std::string line = utf8.substr(start, nl == std::string::npos ? std::string::npos
+                                                                            : nl - start);
+        const godot::Vector2 sz = _font->get_string_size(String::utf8(line.c_str()),
+                                                        godot::HORIZONTAL_ALIGNMENT_LEFT, -1.0f, px);
+        if (static_cast<double>(sz.x) > w) w = static_cast<double>(sz.x);
+        ++lines;
+        if (nl == std::string::npos) break;
+        start = nl + 1;
+      }
+      h = static_cast<double>(_font->get_height(px)) * static_cast<double>(lines);
+    }
+    auto info = std::make_shared<lfw::Object>();
+    info->set(u"text", text_v);
+    info->set(u"style", style_v);
+    info->set(u"w", Value(w));
+    info->set(u"h", Value(h));
+    info->set(u"scale", Value(1.0));
+    return Value(info);
+  });
 }
 
 void LfwGodot::_process(double p_delta) {
@@ -311,13 +421,59 @@ void LfwGodot::render_world_frame(long long renders_before) {
 }
 
 // 引擎侧唯一一处把 `GodotDrawItem` 变成像素的地方（§G5「只在边界转换」）。
+//
+// 三趟扫：`pass` -1 = UI 背景、0 = 世界、+1 = UI 前景 —— 这是 D1(a) 的五遍次序
+//（UI 背景 → 背景/实体/前景 → UI 前景）。同一趟内保持收集次序（世界那一趟是画家次序，
+// UI 那两趟已按 (z, 树序) 排好）。
 void LfwGodot::_draw() {
   GodotWorldRenderer* const renderer = _host != nullptr ? _host->world_renderer() : nullptr;
   if (renderer == nullptr) return;
   const GodotFrame& frame = renderer->take_frame();
   if (!frame.valid) return;
-  for (const GodotDrawItem& item : frame.items) {
-    draw_item(item);
+  static const int kPasses[3] = {-1, 0, 1};
+  for (const int pass : kPasses) {
+    for (const GodotDrawItem& item : frame.items) {
+      if (item.pass != pass) continue;
+      if (!item.text.empty()) {
+        draw_text_item(item);
+      } else {
+        draw_item(item);
+      }
+    }
+  }
+}
+
+// UI 文字（`UITextRenderer` / `TextMesh` 的口径）：字号来自 `style.font`、颜色来自 `fill_style`、
+// 对齐来自 `text_align`、左上各 2 像素内边距（`UITextRenderer._normalize_style`）。逐行画
+//（TS 也是在画布上逐行 `fillText`），基线用字体的 ascent。
+void LfwGodot::draw_text_item(const GodotDrawItem& item) {
+  if (item.text.empty()) return;
+  godot::Ref<godot::Font> font = _font;
+  if (font.is_null()) return;
+  const int size = static_cast<int>(std::lround(item.font_size > 0.0 ? item.font_size : 9.0));
+  const int font_size = size > 0 ? size : 1;
+  const Color color(static_cast<float>(item.r), static_cast<float>(item.g),
+                    static_cast<float>(item.b), static_cast<float>(item.a));
+  const godot::HorizontalAlignment align =
+      item.text_align == 1   ? godot::HORIZONTAL_ALIGNMENT_CENTER
+      : item.text_align == 2 ? godot::HORIZONTAL_ALIGNMENT_RIGHT
+                             : godot::HORIZONTAL_ALIGNMENT_LEFT;
+  const float pad = 2.0f;
+  const float width = static_cast<float>(item.w);
+  const float line_h = font->get_height(font_size);
+  float y = static_cast<float>(item.y) + pad;
+  std::size_t start = 0;
+  while (start <= item.text.size()) {
+    const std::size_t nl = item.text.find('\n', start);
+    const std::string line = item.text.substr(start, nl == std::string::npos ? std::string::npos
+                                                                            : nl - start);
+    if (!line.empty()) {
+      draw_string(font, Vector2(static_cast<float>(item.x) + pad, y + font->get_ascent(font_size)),
+                  String::utf8(line.c_str()), align, width, font_size, color);
+    }
+    if (nl == std::string::npos) break;
+    y += line_h;
+    start = nl + 1;
   }
 }
 
@@ -331,6 +487,12 @@ void LfwGodot::draw_item(const GodotDrawItem& item) {
   const float alpha = static_cast<float>(item.a);
   const Color color(static_cast<float>(item.r), static_cast<float>(item.g),
                     static_cast<float>(item.b), alpha);
+  // UI 的纯色块（覆盖色 / `background` / `foreground`）：直接填，不去查纹理、也不画
+  //「取不到图」的占位色块（那是实体那一遍的诊断）。
+  if (item.flat) {
+    draw_rect(Rect2(x, y, w, h), color, true);
+    return;
+  }
   godot::Ref<godot::ImageTexture> tex;
   if (_textures != nullptr && !item.path.empty()) tex = _textures->get(item.path);
   if (tex.is_null()) {
@@ -461,6 +623,18 @@ void LfwGodot::finish() {
     if (_textures != nullptr && !_textures->last_error().empty()) {
       print_line("[godot] last texture error: " + _textures->last_error());
     }
+    // UI 那一遍（D4 第二半，本切片新增的观测量；不进三条摘要）。
+    const GodotUIStats& ui = renderer->ui_stats();
+    std::snprintf(buf, sizeof(buf),
+                  "[godot] ui: layers=%lld nodes=%lld drawn=%lld items=%lld texts=%lld hidden=%lld "
+                  "empty=%lld clipped=%lld missing_img=%lld total_items=%zu",
+                  ui.layers, ui.nodes, ui.drawn, ui.items, ui.texts, ui.hidden, ui.empty,
+                  ui.clipped, ui.missing_img, f.items.size());
+    print_line(buf);
+  }
+  // `--ui-dump`：最后一帧逐 UI 节点的一行事实（诊断；不进摘要）。
+  if (_args.ui_dump && renderer != nullptr) {
+    for (const std::string& line : renderer->ui_dump_lines()) print_line(line);
   }
   quit_with(0);
 }

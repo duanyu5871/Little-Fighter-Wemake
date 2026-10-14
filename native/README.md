@@ -167,10 +167,14 @@ native/
     common/lfw_boot.{h,cpp}          宿主无关的装配（选 stage/bg → 造战士）+ 一帧摘要：两宿主共用
     godot/                           ★ Godot 宿主（GDExtension；见「Godot 宿主」节）
       lfw_godot_host.{h,cpp}         `LfwGodotHost : HeadlessHost`：注入虚拟时钟 + 固定步长累加器
-                                     + `create_world_renderer`（覆写那处空实现）
+                                     + `create_world_renderer` / `create_ui_node_renderer`（覆写那两处空实现）
+                                     + `set_measure_text`（宿主侧文字度量的装入口）
       lfw_godot_renderer.{h,cpp}     `IWorldRenderer` 的实现：契约数据 → **引擎无关**的绘制项（无 Godot 类型）
+                                     + UI 那一遍的落点（`ui_begin/append/end_layer` + `probe_path`）
+      lfw_godot_ui_renderer.{h,cpp}  `IUINodeRenderer` 的实现：UI 模型树 → 同一批**引擎无关**的绘制项
       lfw_godot_textures.{h,cpp}     资源路径 → `ImageTexture` 缓存（字节走数据包，解码走引擎的 PNG 解码器）
       lfw_godot_node.{h,cpp}         `LfwGodot : Node2D`：命令行 → `boot_scene` → 推帧 → `_draw()`（引擎类型只到这里）
+      shots/                         跑出来的画面存档（世界 + UI；见「画面存档」节）
       register_types.cpp             扩展入口（`lfw_godot_library_init`，`.gdextension` 的 entry_symbol）
       CMakeLists.txt                 链 `godot-cpp` + `lfw_core` + headless 宿主源码 → `project/bin/lfw_godot.dll`
       project/                       Godot 工程：`project.godot` / `lfw_godot.gdextension` / `main.tscn`
@@ -386,11 +390,13 @@ node native/web/smoke.mjs --profile 1 --live
 ## Godot 宿主（端口在 Godot 里真跑）
 
 GDExtension 骨架（DESIGN §G1 骨架 / §G2(a) 的同进程路线）：**Godot 自己当宿主**，端口零改动。
-**世界已经真画出来了**（§G2 第二半）：`LfwGodot` 是 `Node2D`，`_draw()` 把核心的绘制契约变成像素
+**世界与 UI 都真画出来了**（§G2 第二半）：`LfwGodot` 是 `Node2D`，`_draw()` 把核心的绘制契约变成像素
 ——相机 / 背景层 / 影子 / 逐流体（按 `crop` 裁剪的真 PNG、`facing` 镜像、队伍色描边、`mix` 换色、
-按 z 的绘制次序）；UI 那一半仍是空实现（`create_ui_node_renderer → nullptr`）。头文件与实现都在
-`native/host/godot/**`（`lfw_godot_renderer.{h,cpp}` 只产出**引擎无关**的绘制项，`lfw_godot_node.cpp`
-的 `_draw()` 是唯一碰引擎类型的地方，见 §G5）。
+按 z 的绘制次序），以及 UI 那一遍（页面的锚点矩形 / 父子坐标系 / `z` 次序 / 图片裁剪 + 平铺 +
+UV 动画 / 文字 / `clip_children` 裁剪；`create_ui_node_renderer` 覆写，每个节点一份渲染器）。
+头文件与实现都在
+`native/host/godot/**`（`lfw_godot_renderer.{h,cpp}` 与 `lfw_godot_ui_renderer.{h,cpp}` 只产出
+**引擎无关**的绘制项，`lfw_godot_node.cpp` 的 `_draw()` 是唯一碰引擎类型的地方，见 §G5）。
 下文 `<godot-console>` = `Godot_v4.7.1-stable_win64_console.exe`（本机在桌面；**固定 4.7.1**）。
 
 `LfwGodotHost` 是 `HeadlessHost` 的**子类** —— 装载 / `IZip` / 存档 / XML / `import_as_*` 复用同一批
@@ -398,9 +404,15 @@ GDExtension 骨架（DESIGN §G1 骨架 / §G2(a) 的同进程路线）：**Godo
 （`ManualClock::add → 0` ⇒ 端口自己的 `Ticker` 不自驱；这正是 wasm 那边「一帧走两步」的坑）。
 `_process(delta)` 只把 `delta` 当**节拍**喂进累加器，够一个步长才
 `clock.advance(step)` + `world.update_once(step)`；`--delta` 只换节拍，不换步长。
-它同时覆写 `create_world_renderer`（`LfwGodotHost::create_world_renderer`）返回 Godot 的世界渲染器；
+它同时覆写 `create_world_renderer`（`LfwGodotHost::create_world_renderer`）返回 Godot 的世界渲染器，
+与 `create_ui_node_renderer`（每个 `UINode` 一份 `GodotUINodeRenderer`，所有权归节点）——
+后者把 UI 模型树翻成**同一批**绘制项，落进世界渲染器"正在写的那一帧"（`ui_begin/append/end_layer`，
+按 `pass = -1|0|+1` 落位 = D1(a) 的五遍次序）；
 `_process` 每个 step 之后按 `lfw_thin` 的同一口径补一次 `World::render_once`（本宿主不装
 `IRenderScheduler`，`render_add` 回 0 ⇒ 世界自己**不会**渲染），再 `queue_redraw()`。
+文字度量（D4/D5-10 划给宿主的那一格）由 `ThemeDB` 的默认字体算，在 `LFW::load` **之前**装进宿主
+（UI 数据在装载期就按度量定文本节点尺寸）⇒ 与 headless 的零尺寸桩不同，**代价是布局与 TS 的
+浏览器字体不逐位同宽**。
 
 一次性准备（godot-cpp 与 API dump 都放在仓库外 / 构建目录，不进仓库）：
 
@@ -474,18 +486,19 @@ $R = (Get-Location).Path; $P = "native\host\godot\project"
     --zip "$R\native\build\host-data\prel" --zip "$R\native\build\host-data\data" `
     --stage 0 --fighter 1 --fighter 4 --vs --frames 600 --every 600 --delta 0.017
 # [godot] done: frames=300 ups=60 digest=7335aa25f4e1ce86 warns=0 errors=0 ignored_images=311 renderer(+-)=2/0 clock=5000.0ms
-# [godot] UI render calls: 300 (unhandled: 300)
+# [godot] UI render calls: 300 (unhandled: 0)
 # [godot] done: frames=900 ups=60 digest=e4a9437292047044 warns=1 errors=0 ignored_images=313 renderer(+-)=37/30 clock=15000.0ms
-# [godot] UI render calls: 900 (unhandled: 900)
+# [godot] UI render calls: 900 (unhandled: 0)
 # [godot] done: frames=600 ups=60 digest=f29d3bb1ea330c32 warns=1 errors=0 ignored_images=313 renderer(+-)=28/24 clock=10000.0ms
-# [godot] UI render calls: 600 (unhandled: 600)
+# [godot] UI render calls: 600 (unhandled: 0)
 ```
 
-`warns=1` 是既有的 `DatMgr::_add_obj id duplicated…`（不是新告警）。⚠ `UI render calls: N (unhandled: N)`
+`warns=1` 是既有的 `DatMgr::_add_obj id duplicated…`（不是新告警）。⚠ `UI render calls: N (unhandled: M)`
 两份宿主一个口径：谁**补**了 `render_once` 谁就有 N（`lfw_run` 是 0；Godot 与 `lfw_thin` 是帧数）。
-`unhandled == calls` 是**对的**：世界渲染器现在真画（§G2 第二半），UI 渲染器还是 `nullptr`
-（`create_ui_node_renderer` 默认实现）⇒ 每帧每次都记一次"没人画"。`render:` 那一行是本切片新增的
-观测面（绘制项 / 背景层 / 实体 / 纹理成败），**不进三条摘要**。
+**Godot 宿主现在是 `unhandled: 0`**（`create_ui_node_renderer` 覆写、UI 真画，§G2「UI 那一遍」）；
+另外两份宿主仍回 `nullptr` ⇒ 那一份的 `unhandled == calls`（"没人画"是**有数**的）。`render:` 那一行是
+世界那一遍的观测面（绘制项 / 背景层 / 实体 / 纹理成败），**不进三条摘要**；UI 那一遍对应的是
+`[godot] ui:` 那一行（层数 / 节点 / 出项 / 文字 / 隐藏 / 空 / 裁掉 / 取不到图 —— 同样不进摘要）。
 差分/变异/覆盖的跑法与判据见
 `tests/differential/PROTOCOL.md`；**装载偶发乱码/NaN 那一类不确定失败已修**（根因与护栏见 DESIGN
 「雷区」一节）⇒ 现在偶发失败**就是**回归，别再"重跑一次凑数"。
@@ -510,6 +523,11 @@ $R = (Get-Location).Path; $P = "native\host\godot\project"
 
 `textures=N ok/0 fail` = 宿主侧纹理缓存：字节经 `FsZipObject::read` 从数据包读出来（`@Nx` 回退由
 `get_import_fallbacks` 给），解码用引擎自己的 `Image::load_png_from_buffer` —— **核心一个字节都不碰**
+
+UI 那一遍另有两个诊断开关（都不进摘要）：`--ui-page <id>`（装载后把这一页设到第 0 层，等价于"点进这一页"；
+id 取自烹饪好的 UI 表，缺省用数据自己的首页 `init`）与 `--ui-dump`（最后一帧**逐 UI 节点**打一行：
+`pass` / 屏幕盒子 / 可见 / 累计 z / alpha / 图片与裁剪 / 平铺 / 文字长度）。看 UI 画面时先跑
+`--ui-dump`，一眼就知道哪个节点没出项、哪张图没解析到。
 （契约 D2 的分账）。
 
 ## 移植进度
@@ -743,6 +761,40 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
 
 跑出来的截图留在 `native/host/godot/shots/`，便于直接打开查看（生成命令见下）：
 
-- `shot-stage1.png` / `shot-vs-stage0.png` —— 狮林 bg_2，两名角色（含武器与影子）
+- `shot-stage1.png` / `shot-vs-stage0.png` —— 世界那一遍：狮林 bg_2，两名角色（含武器与影子）
+- `ui-launch-early.png`（第 30 帧）/ `ui-launch.png`（第 300 帧）—— UI 那一遍：启动页（`init`）。
+  第 30 帧那张还带着**加载指示器**（`SMALL_LOADING` 的 `ImgLoop` 换格）与 `loading: …` 状态文字；
+  第 300 帧指示器已被逻辑隐藏。两张都是：整页底色（`rgb(16,32,108)`）+ 平铺背景（`launch/bg.png`，
+  `repeatX=20 repeatY=11`）+ 6 条文本（`CLICK ANYWHERE TO CONTINUE` / 警告 / 版本号 / 桌面提示 / …）。
+- `ui-main-menu.png`（第 400 帧）—— 主页 `main_page`：标题图（`sprite/MENU_CLIP.png` 裁剪 496×80）、
+  左右两张角色大图（`sprite/MENU_BACK8/9.png`，`RandomVisible` 选一张）、12 个按钮的文字
+  （`VS Mode` / `Stage Mode` / `Demo Mode` / `Move List` / `Tests Mode` / `Quit`；被选中的那个用
+  `style_hover` 的白色 + 下划线，其余是 `style_normal` 的 `#5A73D6`）。
+- `ui-char-select.png`（第 300 帧）—— 八人框 `char_menu`：8 个玩家槽（`CMA@4x.png` 的提示图 +
+  `Player/Fighter/Team` 标签），**背景里是世界那一遍**（山景 + 角色），
+  说明 UI 与世界两半在同一个宿主里叠在一条绘制序上。
 
-开窗截图的跑法：`<godot> --path native\host\godot\project -- --root dist --zip native\build\host-data\prel --zip native\build\host-data\data --fighter 1 --fighter 4 --stage 1 --frames 900 --delta 0.017 --screenshot <png> --shot-frame 300`
+开窗截图的跑法（**别加 `--headless`**；`--ui-page` 是"装载后点进这一页"，缺省就是数据自己的首页 `init`）：
+
+```
+$R = (Get-Location).Path; $g = "C:\Users\Gim\Desktop\Godot_v4.7.1-stable_win64_console.exe"
+# 启动页（世界那一遍不用 --ui-page）
+& $g --path native\host\godot\project -- --root "$R\dist" --root "$R\dist\builtin_data" `
+    --zip "$R\native\build\host-data\prel" --frames 200 --every 200 --delta 0.017 `
+    --screenshot "$R\native\host\godot\shots\ui-launch-early.png" --shot-frame 30
+# 主页 / 八人框
+& $g --path native\host\godot\project -- --root "$R\dist" --root "$R\dist\builtin_data" `
+    --zip "$R\native\build\host-data\prel" --ui-page main_page --frames 400 --every 400 `
+    --delta 0.017 --screenshot "$R\native\host\godot\shots\ui-main-menu.png" --shot-frame 400
+# 世界那一遍的老跑法不变（`--zip data` + `--fighter/--stage`）
+& $g --path native\host\godot\project -- --root "$R\dist" `
+    --zip "$R\native\build\host-data\prel" --zip "$R\native\build\host-data\data" `
+    --fighter 1 --fighter 4 --stage 1 --frames 900 --delta 0.017 `
+    --screenshot "$R\native\host\godot\shots\shot-stage1.png" --shot-frame 300
+```
+
+⚠ **两条第二个 `--root` 的理由**：启动页/主页都引用 `!launch/bg.png`，而**全仓库没有这个文件**
+（`dist/` 的包、`dist\prel.zip`、`dist\lfw.full.zip`、`lf2s\origin\prel_data\` 里都没有；只有
+`dist\builtin_data\launch\bg.png`）⇒ 把 `dist\builtin_data` 也当一个 import 根之后它才解析得到。
+不加这颗 root 时那两张图就少一层背景平铺（宿主会把它记进 `ui: … missing_img=1`），其余画面不变；
+TS 那边这条引用同样取不到文件（`ImageMgr` 会走失败分支）——**是数据里的漏，不是宿主的**。

@@ -33,6 +33,7 @@ add_library(lfw_godot SHARED
   lfw_godot_node.cpp
   lfw_godot_renderer.cpp
   lfw_godot_textures.cpp
+  lfw_godot_ui_renderer.cpp
   register_types.cpp
 )
 

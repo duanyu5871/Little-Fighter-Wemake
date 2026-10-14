@@ -610,8 +610,9 @@ zip/renderer）、`IWorldRenderer`、`IPlayerInfoHost`、`IXML`/`IXMLElement`、
 4. 真 `IPlayerInfoHost` 缓存（S，`HeadlessHost` 已有真实现）—— 删掉 `FakePlayerHost` 及其 K1 覆写。
 5. 真 `IZip`（DEFLATE + 中央目录，M）—— 与第 10 步配对，`FakeZip*` 才能退。
 6. `IXML` 根元素 `data`（S–M）—— `resources.h:18-46` 自己记了「脚本化标记」的偏差。
-7. ~~`IUINodeRenderer` 的接口面 + 每层调用点~~ **已结清**（D4）；剩下的**会画的
-   `UINodeRenderer` 实现**（L）—— **必须与第 8 步同刀**；真画出来之后 `UINode::update` 才不必是虚。
+7. ~~`IUINodeRenderer` 的接口面 + 每层调用点~~ **已结清**（D4）；**会画的 `UINodeRenderer` 实现**
+   也已落地（Godot 宿主，§G2「UI 那一遍」）—— 与真 `IWorldRenderer` 分成了**两刀**（原先写"必须同刀"，
+   实测不必：两半各自独立、都在核心之外）。真画出来之后 `UINode::update` 才不必是虚。
 8. 真 `IWorldRenderer`（L，新子系统）—— **必须早于「台面用真组件」**；退掉 `FakeRenderer`/`QuietRenderer`，
    `add_entities`/`del_entities` 这些钩子才可能真。
 9. sounds 宿主（L）—— 退掉 sounds 那一簇与 `World::play_sound` 默认。
@@ -1796,8 +1797,10 @@ WASM 宿主已经用同一招证明过自己 —— `native/README.md:310`：**�
   这跟 Godot 的场景树天然同构（进世界 = 建节点、出世界 = 删节点、每帧遍历重读属性）⇒ 比 W5 那套"WASM 内
   遍历、每帧攒一批绘制指令、JS 只读缓冲"**简单一档**（同进程 ⇒ `Entity&` 是同一块内存，不用序列化）。
 - **前置条件已满足**：`IUINodeRenderer` 的**渲染面已移植**（接口面 + 每层一次的调用点，G1 那张表 /
-  D4）⇒ 顺序上"先补端口、再写 Godot 渲染器"的前半已经做完，剩下的是写实现。DESIGN §7.2 的
-  "依赖顺序"把这条与真 `IWorldRenderer` 绑成"**必须与第 8 步同刀**"（第 7 条），理由一样。
+  D4）⇒ 顺序上"先补端口、再写 Godot 渲染器"的前半已经做完。DESIGN §7.2 的
+  "依赖顺序"把这条与真 `IWorldRenderer` 绑成"**必须与第 8 步同刀**"（第 7 条）——实测**不必**：
+  两半都落定之后（世界在 G2 第二半、UI 在本节），两刀各自独立、都在核心之外，唯一真正共享的是
+  "绘制项 + `_draw()`"这一层。
 - **契约必须引擎中立**，而且这件事是**可证伪**的：同一个接口现在已经有**两份**宿主实现在跑
   （headless + WASM），`native/README.md` 的 DESIGN 摘录写着「WASM 宿主与它是**同一批接口的两个实现**，
   不许互相依赖」（`DESIGN.md:1532`）。Godot 一来就是**第三份** ⇒ 只要有一份实现被迫写"只有 Godot 才需要"
@@ -1851,7 +1854,8 @@ WASM 宿主已经用同一招证明过自己 —— `native/README.md:310`：**�
 | 7 | **光标**：端口能读出指针状态（`get_pointer_cursors`，`lfw/cmds/cmd_pointer_events.cpp:362-365`），但**渲染路径没有**（`MouseShadow` 那一支；§7.2 依赖顺序第 12 条也记着 `set_local_cursor` 要等光标渲染路径） | `TextureRect` / `Node2D` 画光标（需验证） | 跟 G4 的契约走：**先有 UI 渲染面，再谈光标** |
 
 ⚠ **顺序约束**（照 §7.2 那张"省到贵"表）：真 MD5 是**真图片 / zip 键的前提**；`IUINodeRenderer` 与真
-`IWorldRenderer` **必须同刀**；sounds 与 images 排在渲染之后。**别按"哪条最容易"排期。**
+`IWorldRenderer` 当年写成"**必须同刀**"（第 7 条）——**已实测可拆**（Godot 宿主先落世界、后落 UI，
+两次都没动核心）；sounds 与 images 排在渲染之后。**别按"哪条最容易"排期。**
 
 ### G8. 切片与验收
 
@@ -1873,8 +1877,7 @@ WASM 宿主已经用同一招证明过自己 —— `native/README.md:310`：**�
   本 target **不许 `/GR-`**（`Object::cast_to<T>` 走 `dynamic_cast`，见 §G9 第 1 条）；
   扩展**不写进 `.godot/extension_list.cfg` 就静默不加载**（首跑要 `<godot> --headless --import`）。
 - **G2 绘制契约**：端口 `IUINodeRenderer` 的渲染面**已补齐**（`native/lfw/ui/ui_node_renderer.h:32-70`，
-  属 G0 允许的"引擎通用缺口"；调用点在 `world.cpp` 的 `render_ui_layers`）→ 剩写 Godot 的
-  `IUINodeRenderer`。
+  属 G0 允许的"引擎通用缺口"；调用点在 `world.cpp` 的 `render_ui_layers`）。
   - **第二半（世界那一遍）已落定**：`native/host/godot/lfw_godot_renderer.{h,cpp}`（`IWorldRenderer`
     的实现：帧级上下文 + 逐实体 + 逐背景层 → **引擎无关**的绘制项）+ `lfw_godot_textures.{h,cpp}`
     （资源字节 → `Image::load_png_from_buffer` → `ImageTexture` 缓存）+ `LfwGodot : Node2D` 的
@@ -1882,11 +1885,18 @@ WASM 宿主已经用同一招证明过自己 —— `native/README.md:310`：**�
     回退解析出条目名，字节经 `FsZipObject::read` 从数据包读（`image_bitmap` 那条拒绝路**没动**，
     核心一个字节都不碰）；三份 bg/角色/影子都是**贴了图的**（`textures=18 ok/0 fail`）。
     次序照 `WorldRenderer.render_layers`（背景层 → 影子 → 实体按组 z 远→近 → 前景层）。
+  - **UI 那一遍已落定**：`native/host/godot/lfw_godot_ui_renderer.{h,cpp}`（`IUINodeRenderer` 的实现：
+    锚点矩形 / 父子坐标系累计 / `z` 升序 / 可见与递归 / 图片裁剪 + `@Nx` + 平铺 + UV 动画 / 文字 /
+    `clip_children` 求交 / `background|foreground` 两遍叠加 → 同一批**引擎无关**的绘制项，按
+    `pass = -1|0|+1` 落进五遍次序的 UI 那两遍）+ `LfwGodotHost::create_ui_node_renderer` 覆写
+    （每节点一份，所有权归节点）+ 宿主侧文字度量（`ThemeDB` 的默认字体；见 D5-10）。
+    统计行 `UI render calls: N (unhandled: 0)`。**没画的**：九宫格、逐像素描边、`clip_children` 的
+    部分越界（`draw_*` 没有逐项裁剪 ⇒ 整项取舍）、文字的下划线/阴影/描边、3D 模型。
   - **验收**：差分台面与 lint 不退化（`npm run native all`）+ **三条摘要逐位不变**（渲不渲染都不许动
     模拟：`7335aa25f4e1ce86` / `e4a9437292047044` / `f29d3bb1ea330c32`，`renderer(±)` / `ignored_images`
     也逐位相同）+ **目视**：`--screenshot <png> --shot-frame N`（窗口跑，别加 `--headless`）存一张
-    794×450 的图 —— 见 `native/README.md`「截图」。⚠ 目视仍**无自动化判据**（"画得对不对"这一条
-    记**未定**）；没画的：3D 模型帧、名字/血条、调试指标层、`greyscale`、逐图旋转、UI 那一遍。
+    794×450 的图 —— 见 `native/README.md`「画面存档」。⚠ 目视仍**无自动化判据**（"画得对不对"这一条
+    记**未定**）；世界那一遍没画的：3D 模型帧、名字/血条、调试指标层、`greyscale`、逐图旋转。
 - **G3 音频/图片/zip/MD5/文本度量**：G7 那张表。
   **验收**：MD5 与 `md5.ts` 逐位一致（可自动化）；zip 能装真包；**三条摘要仍逐位一致** —— 换宿主最容易
   在这一步翻车。
@@ -2199,7 +2209,8 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
 **一句话结论**：契约 = **每帧一份记录**（帧级上下文 + 逐实体 + 逐 UI 节点）**加上每条字段的语义**；
 宿主只做"把数据变成像素"。这份契约里**世界那一遍已经有第二份、而且是会画的实现**
 （`native/host/godot/lfw_godot_renderer.{h,cpp}`：`host/thin/**` 只证字段面，它证"画得出来"，还带一张
-794×450 的截图），**UI 那一遍仍然一份都没有**（三份在册宿主的 `create_ui_node_renderer` 都回空）。
+794×450 的截图），**UI 那一遍也有一份会画的了**（`native/host/godot/lfw_godot_ui_renderer.{h,cpp}`，
+同一批绘制项、同一条 `_draw()`；四张 UI 截图在 `native/host/godot/shots/`）。
 
 **读法**：下文每条"端口事实"都给了 `path:line`，都是从本仓库读出来的；TS 对位同样给行号。凡
 **这个仓库读不出来**的（引擎/库自己的 API、字体度量、位图解码格式）一律标 `需验证`。
@@ -2219,9 +2230,10 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
 | **谁说了算** | 模拟与布局、命中测试、焦点、时钟语义**一律在核心**；字体度量、图片解码、缩放与设备像素**在宿主**（W11 那张表已经分过账，这里不重列） |
 
 ⚠ **没有实现就没有证据**：`IWorldRenderer` 只有 4 个成员（`lfw/world.h:61-68`），`IUINodeRenderer`
-的渲染面**已建形、调用点也在核心**（D4）——**世界那一遍**现在有一份会画的实现（Godot 宿主，
+的渲染面**已建形、调用点也在核心**（D4）——**世界那一遍**有一份会画的实现（Godot 宿主，
 `native/host/godot/lfw_godot_renderer.{h,cpp}`；它按下面这张表逐条落，产物是一张 794×450 的 PNG），
-**UI 那一遍**仍然一份都没有；"契约写得对不对"今天能拿到的证据是：`host/thin/**` 的字段面 +
+**UI 那一遍**也有了一份会画的（同一个宿主，`native/host/godot/lfw_godot_ui_renderer.{h,cpp}`）；
+"契约写得对不对"今天能拿到的证据是：`host/thin/**` 的字段面 +
 Godot 那一份的画面。
 ⚠ **别把它读成"字段清单"**：录制器的字段表是**探针**，不是契约的上限（D3 末尾那条）。
 
@@ -2348,8 +2360,8 @@ Godot 这一支做到了，**headless / thin 仍然没有位图**。契约层面
 `visible` / `clip_children` / `global_opacity` / `color` / `background` / `foreground` / `outline*` /
 `image` / `text` / `z`；布局、命中测试、焦点、指针链全在 `lfw/ui/**`。
 
-**渲染面曾经是一个"编译器看不见的空洞"**（S1 点过一次，这里换成契约视角）——**现状：接口面与调用点都已
-落在核心侧，"画"仍然是空的**：
+**渲染面曾经是一个"编译器看不见的空洞"**（S1 点过一次，这里换成契约视角）——**现状：接口面、调用点与
+一份会画的实现都在了**（Godot 宿主，§G2「UI 那一遍」的验收行是 `UI render calls: N (unhandled: 0)`）：
 
 - 端口的 `IUINodeRenderer` 现在有 **17 个虚函数**：9 个生命周期/焦点转发 + 7 个渲染面
   （`render(dt, df)` / `add` / `del` / `parent` / `x` / `y` / `visible`），外加数据成员 `ui`
@@ -2365,9 +2377,17 @@ Godot 这一支做到了，**headless / thin 仍然没有位图**。契约层面
   ⚠ **次序差一段**：TS 那一行在**世界渲染器内部**（实体那遍之后、五遍绘制之前，D1(a)），而端口的
   世界渲染器缝（`IWorldRenderer::render(dt)`）是原子的 ⇒ 调用只能贴着它、每帧一次（`render_once` 里，
   同一个 `dt` 与 `dfactor`，且仍在 `render_cost` 量到的那段里）。五遍次序本身不受影响。
-- 仍然空的：**绘制实现**（`create_ui_node_renderer` 默认回 `nullptr`，`lfw.h:179-182`，
-  `HeadlessHost` 也没有覆写它 ⇒ `UINode` 拿到空指针，`uinode.cpp:106-109`；之后每处调用都带判空，
-  `uinode.cpp:560-730`）与**递归/可见规则**（TS 两份实现的规则并不一样 ⇒ 留给实现方，端口不预设）。
+- 已经会画的（**Godot 宿主，本仓库唯一一份**）：`lfw_godot_ui_renderer.{h,cpp}` +
+  `LfwGodotHost::create_ui_node_renderer`（每节点一份，所有权归节点）+ 宿主侧文字度量
+  （`ThemeDB` 的默认字体，装进 `LfwGodotHost::set_measure_text`；D5-10 那条"允许宿主差异"）。
+  按下面那张语义表落的：锚点矩形 / 父子坐标系累计 / `z` 升序（同 z 保模型树序）/ 可见与递归 /
+  图片裁剪 + `@Nx` + `repeatX×repeatY` 平铺 + `offsetAnim*` 的 UV 动画 / 文字 / `clip_children`
+  求交 / 位置与缩放的指数平滑 / `lifetime` 一变同步一次 / `global_opacity` 的 0.5 缓动 /
+  `z<0` 落 UI 背景（`pass=-1`，`_draw()` 三趟扫 = 五遍次序）。
+  仍然空的：`create_ui_node_renderer` 的**默认实现**仍是 `nullptr`（`lfw.h:179-182`，`HeadlessHost`
+  也没覆写 ⇒ 另外两份宿主的 UI 依旧不画）、九宫格 / 逐像素描边 / `clip_children` 的部分越界 /
+  文字的下划线阴影描边 —— 以及**递归/可见规则**只按 TS 那份"会画"的实现落（`HeadlessUINodeRenderer`
+  的规则不同，端口不预设）。
 - ⇒ 这一条属 G0 允许的"**引擎通用缺口**"：接口面与调用点**都在核心侧**补，与"将来挂哪一份宿主"
   无关，**不是**宿主污染。
 
@@ -2402,7 +2422,7 @@ Godot 这一支做到了，**headless / thin 仍然没有位图**。契约层面
 | 6 | **`bpoint` 吐血点的画法** | 残血表现（`hp < 33%`） | 需验证：真需求 ⇒ 公式进契约 | TS 有实现（`EntityMainRender.ts:803-815`）；端口只把它当数据 |
 | 7 | **受击抖动的方向 + 电击 buff 抖动 + 治疗 buff 变色** | 受击 / 电击 / 治疗的观感 | **核心接口**（折成"抖动偏移"与"血条颜色"两个值），或宿主读 `buffs`/`marks` | 两份宿主是否都愿意读 buff 表；公式 `floor(shaking/2) % 2` 要进契约 |
 | 8 | **影子贴图 + 影子缩放/不透明度公式** | 立体感；影子是**背景**给的图 | 宿主推导（读 `bg.data.base.shadow/shadow_w/shadow_h`） | 端口 `bg` 上这几个键取得到吗；换背景时影子要不要重取 |
-| 9 | ~~**UI 渲染面（7 个成员）+ 每层调用点**~~ **已补**：接口面 17 个虚函数（9 生命周期/焦点 + 7 渲染面 + 数据成员 `ui`）与每层一次的调用点（`world.cpp` 的 `render_ui_layers`）；仍未补的是**绘制实现** | 整个 UI 画不出来（"没人调"已不再静默：统计行 `UI render calls: N (unhandled: M)`） | 剩：**宿主**（照 D4 的语义表画） | 补完之后 `UINode::update` 不必再是虚（§7.2 顺序第 7 条）；两份宿主的 UI 快照一致 |
+| 9 | ~~**UI 渲染面（7 个成员）+ 每层调用点**~~ **已补**：接口面 17 个虚函数（9 生命周期/焦点 + 7 渲染面 + 数据成员 `ui`）与每层一次的调用点（`world.cpp` 的 `render_ui_layers`）；**绘制实现也已落地**（Godot 宿主，§G2「UI 那一遍」） | 整个 UI 画不出来（"没人调"已不再静默：统计行 `UI render calls: N (unhandled: M)`） | 剩下的是**别的宿主**要照同一张语义表画（`create_ui_node_renderer` 的默认实现仍回 `nullptr`） | `UINode::update` 不必再是虚的前提已具备（§7.2 顺序第 7 条）；两份宿主的 UI 快照一致**仍待**第二份会画的实现 |
 | 10 | **文字度量的宿主差异** | UI 布局（`auto_size_by_text`） | 宿主（**允许**差异，同设备同版本内稳定） | 差异会不会渗进三条摘要（S6 的跨宿主告警，今天未验证） |
 | 11 | **图片解码 / 图集字节** | 一切画面 | 宿主（核心那两个入口仍未开；**Godot 宿主已解**：`lfw_godot_textures.{h,cpp}`，见 §G2 第二半） | §7.2 第 10 条；真 MD5（第 2 条）是它的前提 |
 | 12 | **图片的 pin / unpin 生命周期** | 换页 / 换场景时会不会闪 | 宿主（照 TS 的挂载/卸载口径） | "实体活着 ⇒ 图一定在"这条不变量怎么验 |
@@ -2414,8 +2434,8 @@ Godot 这一支做到了，**headless / thin 仍然没有位图**。契约层面
 
 **(a) 契约必须能被 ≥2 份独立宿主满足。** G4 的证伪判据原样适用：只要有一份实现被迫写"只有它才
 需要"的字段，契约就已经被那一份实现了。⚠ 这条**今天只能算"过了一半"**：世界那一遍有**一份**会画的
-实现（Godot，§G2 第二半）加一份只会记录的参照实现（`host/thin/**`）—— "**两份都能画**"还没达到，
-判据要等**第二份会画的实现**；UI 那一遍仍然**一份都没有**（三份宿主的 `create_ui_node_renderer` 都回空）。
+实现（Godot，§G2 第二半）加一份只会记录的参照实现（`host/thin/**`），UI 那一遍同样只有**一份**会画的
+（同一个 Godot 宿主，共用同一批绘制项）—— "**两份都能画**"还没达到，判据要等**第二份会画的实现**。
 ⚠ 已知的第一次"被迫自己写"就在 Godot 这一份里：`dfactor` 与 `p0/p1` 那一对（D1(c)）与影子那一族
 （D5-8）都是**宿主自留**的 —— 两份独立实现能不能只靠契约把这两条对齐，是下一份实现要回答的问题。
 

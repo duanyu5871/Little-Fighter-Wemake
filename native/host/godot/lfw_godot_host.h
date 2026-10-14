@@ -16,15 +16,17 @@
 #pragma once
 
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <vector>
 
 #include "host/godot/lfw_godot_renderer.h"
+#include "host/godot/lfw_godot_ui_renderer.h"
 #include "host/headless_host.h"
 
 namespace lfw {
 class World;
-}  // namespace lfw
+}  // namespace lfw
 
 namespace lfw::host {
 
@@ -59,11 +61,29 @@ class LfwGodotHost : public HeadlessHost {
   }
   GodotWorldRenderer* world_renderer() const { return _renderer.get(); }
 
+  // ---- UI 渲染器（D4 第二半）----
+  // `LFW` 构造里每个 `UINode` 的 `new Ditto.UINodeRenderer(node)` 那一处（`uinode.cpp` 的 ctor）。
+  // 所有权归节点；绘制项落进世界渲染器"正在写的那一帧"（`GodotWorldRenderer::ui_append`）。
+  // ⚠ `_renderer` 一定已经在（`create_world_renderer` 在 `LFW` ctor 里先跑）。
+  ui::IUINodeRenderer* create_ui_node_renderer(ui::UINode& node) override {
+    static_cast<void>(node);
+    if (_renderer == nullptr) return nullptr;
+    return new GodotUINodeRenderer(*_renderer);
+  }
+
+  // ---- 文字度量（D4 的"允许宿主差异"那一格）----
+  // 字体只有引擎那一侧有（§G5）⇒ 度量函数由 `lfw_godot_node.cpp` 装进来；没装就退回
+  // `HeadlessHost` 的零尺寸桩（布局照算，只是文字挤在一起）。
+  using MeasureTextFn = std::function<Value(const Value& text, const Value& style)>;
+  void set_measure_text(MeasureTextFn fn) { _measure_text = std::move(fn); }
+  Value measure_text(const Value& text, const Value& style) override;
+
  private:
   double _step_ms = 1000.0 / 60.0;
   double _accumulator_ms = 0.0;
   long long _steps = 0;
   std::unique_ptr<GodotWorldRenderer> _renderer;
+  MeasureTextFn _measure_text;
 };
 
 }  // namespace lfw::host

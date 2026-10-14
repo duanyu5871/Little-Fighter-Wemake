@@ -184,23 +184,21 @@ const GodotWorldRenderer::Resolved& GodotWorldRenderer::resolve_path(const std::
   std::vector<std::u16string> fallbacks;
   std::u16string suffix;
   // 与 TS 同一张回退表（`native/lfw/loader/get_import_fallbacks`）：`@Nx` / `@Nx/` / `.webp`。
+  // ⚠ 一个候选算数要**字节真的读得出来**：包（`--zip`）与根目录（`--root`）都认
+  //（UI 的图片路径是相对 root 的：`builtin_data/launch/bg.png` 在 `dist/` 里，不在任何包里）。
   if (!path.empty() && lfw::loader::get_import_fallbacks(Value(from_utf8(path)), fallbacks, suffix)) {
     for (const std::u16string& cand : fallbacks) {
-      const std::vector<IZipResult> hits = _lfw->zips().find({cand}, true);
-      if (hits.empty()) continue;
-      res.path = to_utf8(cand);
-      break;
-    }
-  }
-  if (!res.path.empty()) {
-    res.scale = scale_of_path(res.path);
-    std::string bytes;
-    if (read_resource(res.path, bytes)) {
+      const std::string candidate = to_utf8(cand);
+      std::string bytes;
+      if (!read_resource(candidate, bytes)) continue;
+      res.path = candidate;
+      res.scale = scale_of_path(res.path);
       double w = 0, h = 0;
       if (png_size(bytes, w, h)) {
         res.img_w = w / res.scale;
         res.img_h = h / res.scale;
       }
+      break;
     }
   }
   return _resolved.emplace(ck, std::move(res)).first->second;
@@ -425,11 +423,40 @@ void GodotWorldRenderer::emit_entity_shadow(const World& world, GodotFrame& fram
   frame.items.push_back(std::move(it));
 }
 
+// ---------------------------------------------------------------- UI 那一遍（D4）
+
+// 一个层开始收集：清缓冲。`end` 里按 (pass, z, 收集序) 稳定排好后并进 `_pending`。
+void GodotWorldRenderer::ui_begin_layer() {
+  if (_disposed) return;
+  _ui_buf.clear();
+  ++_ui_stats.layers;
+}
+
+void GodotWorldRenderer::ui_append(GodotDrawItem item) { _ui_buf.push_back(std::move(item)); }
+
+void GodotWorldRenderer::ui_end_layer() {
+  if (_disposed) {
+    _ui_buf.clear();
+    return;
+  }
+  // `z`（`GodotDrawItem::depth`）：three.js 的透明排序按到相机的距离 —— 相机在 z=100 看向 -z
+  // ⇒ 本地 z 越大越近、越后画 ⇒ 升序即画家次序；同 z 保持模型树的递归序（`stable_sort`）。
+  // `pass` 是五遍次序（UI 背景 / 世界 / UI 前景），先按它分堆。
+  std::stable_sort(_ui_buf.begin(), _ui_buf.end(), [](const GodotDrawItem& a, const GodotDrawItem& b) {
+    if (a.pass != b.pass) return a.pass < b.pass;
+    return a.depth < b.depth;
+  });
+  for (GodotDrawItem& item : _ui_buf) _pending.items.push_back(std::move(item));
+  _ui_buf.clear();
+}
+
 // ---------------------------------------------------------------- 每帧
 
 void GodotWorldRenderer::render(double dt) {
   if (_disposed) return;
   ++_render_count;
+  _ui_stats = GodotUIStats{};
+  _ui_dump_lines.clear();
   World& world = _lfw->world();
   GodotFrame frame;
   frame.valid = true;
