@@ -6,11 +6,16 @@
 // 用法：
 //   lfw_thin --root <dir> --zip <dir> [--zip <dir> ...] [--stage <id>] [--frames 600]
 //            [--players 2] [--fighter <id>] [--time <ms>] [--every 60] [--dev] [--vs]
-//            [--dump <file>] [--sample 3]
+//            [--dump <file>] [--sample 3] [--sync-render <档>] [--sub-render N]
 //   --root / --zip / --stage / --frames / --players / --fighter / --time / --every / --dev /
 //   --vs     与 `lfw_run` 同义（`--vs` = TS 的对战模式口径）
 //   --dump <file>   把**整条记录**（每帧帧头 + 每个活体一行）写到文件
 //   --sample <n>    `--every` 那几行后面顺带打几条 `E` 记录（缺省 3，0 = 不打）
+//   --sync-render <Unlimited|Half|Sync|FPS_60|FPS_120|0..4>   boot 后设 `dataset.sync_render`
+//                   （缺省 = 数据里那份 `FPS_60`）。设成 `FPS_120`（或 `Unlimited`）才有
+//                   `world.FPS > dataset.UPS` ⇒ 插值那条路（见录制器文件头 + DESIGN D1(c)）
+//   --sub-render N  一个 tick 里渲染 N 次，每次 `dt / N`（缺省 1 = 老口径）。要真跑插值，
+//                   两个一起用：`--sync-render FPS_120 --sub-render 4` ⇒ `df = 0 / .25 / .5 / .75`
 //
 // 输出（stdout）：
 //   [thin] ...                  装配日志（与 lfw_run 同格式，便于对拍）
@@ -23,6 +28,7 @@
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "host/common/lfw_boot.h"
@@ -48,10 +54,30 @@ struct Args {
   int players = 2;
   int every = 60;
   int sample = 3;
+  int sub_render = 1;
   double time = 0;
+  double sync_render = -1;  // < 0 = 不动 `dataset.sync_render`（用数据里的那份）
   bool dev = false;
   bool vs = false;
 };
+
+// `--sync-render` 的取值：枚举名（`defines/sync_render_enum.h`）或裸数字。
+bool parse_sync_render(const char* s, double& out) {
+  static const std::pair<const char*, double> names[] = {
+    {"Unlimited", 0}, {"Half", 1}, {"Sync", 2}, {"FPS_60", 3}, {"FPS_120", 4},
+  };
+  for (const auto& kv : names) {
+    if (std::strcmp(s, kv.first) == 0) {
+      out = kv.second;
+      return true;
+    }
+  }
+  char* end = nullptr;
+  const double v = std::strtod(s, &end);
+  if (end == s || *end != '\0') return false;
+  out = v;
+  return true;
+}
 
 std::string to_utf8(const std::u16string& s) {
   const std::vector<uint8_t> buf = lfw::encode_utf8(s);
@@ -72,11 +98,13 @@ void usage() {
   std::printf(
       "usage: lfw_thin --root <dir> --zip <dir> [--zip <dir> ...] [--stage <id>] [--frames N]\n"
       "                [--players N] [--fighter <id>] [--time ms] [--every N] [--dev] [--vs]\n"
-      "                [--dump <file>] [--sample N]\n"
+      "                [--dump <file>] [--sample N] [--sync-render <档>] [--sub-render N]\n"
       "  --root    import 根目录（含 builtin_data/…），可重复\n"
       "  --zip     数据包目录（已解包），可重复；按给定顺序 load\n"
       "  --fighter 指定出场的角色 id，可重复（缺省用数据包里的前几个）\n"
-      "  --dump    把整条绘制记录写到文件（字段表见 host/thin/recording_world_renderer.h）\n");
+      "  --dump    把整条绘制记录写到文件（字段表见 host/thin/recording_world_renderer.h）\n"
+      "  --sync-render  boot 后设 dataset.sync_render（Unlimited/Half/Sync/FPS_60/FPS_120 或 0..4）\n"
+      "  --sub-render   一个 tick 渲染几次（每次 dt/N）；跑插值要配上 FPS_120/Unlimited\n");
 }
 
 bool parse_args(int argc, char** argv, Args& out) {
@@ -126,6 +154,13 @@ bool parse_args(int argc, char** argv, Args& out) {
       const char* v = need(i);
       if (v == nullptr) return false;
       out.time = std::atof(v);
+    } else if (a == "--sub-render") {
+      const char* v = need(i);
+      if (v == nullptr) return false;
+      out.sub_render = std::atoi(v);
+    } else if (a == "--sync-render") {
+      const char* v = need(i);
+      if (v == nullptr || !parse_sync_render(v, out.sync_render)) return false;
     } else if (a == "--dev") {
       out.dev = true;
     } else if (a == "--vs") {
@@ -232,13 +267,20 @@ int main(int argc, char** argv) {
               to_utf8(booted.bg_id).c_str(), world.entities.size(),
               world.entities.size() == static_cast<std::size_t>(rec->retained_count()) ? 1 : 0);
 
+  // 渲染档位：只改 `dataset.sync_render`（帧内比例那一步的输入），不动模拟。缺省不碰。
   const double ups = num_field(world.dataset.get(u"UPS"), 60.0);
+  if (args.sync_render >= 0) {
+    world.dataset.set(u"sync_render", Value(args.sync_render));
+    std::printf("[thin] sync_render=%.0f (FPS=%.0f) ups=%.0f sub_render=%d\n", args.sync_render,
+                world.fps_value(), ups, args.sub_render > 0 ? args.sub_render : 1);
+  }
   const double dt = 1000.0 / (ups > 0 ? ups : 60.0);
   const int every = args.every > 0 ? args.every : 60;
+  const int sub_render = args.sub_render > 1 ? args.sub_render : 1;
   std::string digest;
   for (int frame = 0; frame < args.frames; ++frame) {
     clock.advance(dt);
-    host.step_frame(world, dt);
+    host.step_frame(world, dt, sub_render);
     if (frame % every == 0 || frame == args.frames - 1) {
       digest = lfw::host::frame_digest(world, frame);
       std::printf("[frame %6d] entities=%zu ghosts=%zu hp=%.1f digest=%s renders=%d rec=%zu\n",
@@ -264,9 +306,11 @@ int main(int argc, char** argv) {
 
   std::printf(
       "[thin] done: frames=%d ups=%.0f digest=%s renders=%d added=%lld removed=%lld "
-      "dup_add=%lld stray_del=%lld mismatch_frames=%lld disposed=%d\n",
+      "dup_add=%lld stray_del=%lld mismatch_frames=%lld disposed=%d ents_rec=%lld df01=%lld "
+      "interp=%lld moved=%lld\n",
       args.frames, ups, digest.c_str(), rec->render_count(), rec->added(), rec->removed(),
       rec->duplicate_adds(), rec->stray_removes(), rec->mismatched_frames(),
-      rec->disposed() ? 1 : 0);
+      rec->disposed() ? 1 : 0, rec->entity_records(), rec->df_between_records(),
+      rec->interpolated_records(), rec->moving_records());
   return 0;
 }

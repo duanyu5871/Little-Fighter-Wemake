@@ -161,7 +161,7 @@ native/
     headless_host.{h,cpp}            `ILfwHost` 的最小可用实现 + 手动时钟/定时器 + 空渲染器
     thin/                            录制型薄宿主：headless 的超集，只把世界渲染器换成「录制」
       recording_world_renderer.{h,cpp}  `IWorldRenderer` 的录制实现（逐帧快照字段表见文件头）
-      thin_host.{h,cpp}                 `ThinHost`（覆写 `create_world_renderer`）+ 一帧一次的推帧口
+      thin_host.{h,cpp}                 `ThinHost`（覆写 `create_world_renderer`）+ 推帧口（一 tick N 次）
       lfw_thin.cpp                      `lfw_thin`：与 `lfw_run` 同参数，打印/落盘绘制记录
     lfw_run.cpp                      `lfw_run`：装数据包 → 起世界 → 推帧（每 N 帧打摘要）
     common/lfw_boot.{h,cpp}          宿主无关的装配（选 stage/bg → 造战士）+ 一帧摘要：两宿主共用
@@ -296,8 +296,29 @@ native\build\msvc-x64\bin\lfw_thin.exe --root dist ^
 
 `--dump <file>` 落整条记录（每帧一行 `FRAME` 帧头 + 每个活体一行 `E`）；字段序与全部字段名
 写在 `host/thin/recording_world_renderer.h` 的头部注释里，`--sample N` 控制每帧顺带打几条。
-`renders` 必须等于帧数（宿主保证一帧恰好一次 `render`）；`match=0` 或 `dup_add` / `stray_del`
+`renders` 必须等于帧数（缺省一 tick 一次 `render`）；`match=0` 或 `dup_add` / `stray_del`
 非零说明保留式记账（`add_entity` / `del_entity`）与 `world.entities + ghosts` 对不上。
+
+#### 插值那条路（`--sync-render` + `--sub-render`）
+
+缺省装配（`sync_render = FPS_60` + `UPS = 60`）里 `world.FPS <= dataset.UPS` ⇒ **`dfactor ≡ 1`**、
+一 tick 一渲染 ⇒ 逐实体插值**一次都没跑过**；而 `E` 行的 `pos` / `prev` 是 TS 的那对
+`p1` / `p0`（两个 tick 端点，一个 tick 只刷一次），只在一 tick 渲染多次时才不等于彼此。
+把档位换成 `FPS_120`（或 `Unlimited`）、一 tick 渲染 N 次就能真跑：
+
+```
+native\build\msvc-x64\bin\lfw_thin.exe --root dist ^
+  --zip native\build\host-data\prel --zip native\build\host-data\data ^
+  --fighter 1 --fighter 4 --stage 1 --frames 900 --every 900 ^
+  --sync-render FPS_120 --sub-render 4 --dump native\build\thin-interp.dump
+# [thin] done: frames=900 … digest=e4a9437292047044 renders=3600 … ents_rec=23420 df01=17565 interp=4791 …
+#   帧头 df=0/0.25/0.5/0.75 各 900 帧；23420 条实体记录里 17565 条 0<dfactor<1、6388 条 p0!=p1
+#   E id=101 … pos=52.2500,0.0000,-91.6000 prev=48.0000,0.0000,-90.0000 … lerp=49.0625,0.0000,-90.4000
+```
+
+`df01` = `0 < dfactor < 1` 的记录条数、`interp` = 其中 `p0 != p1` 的（真在插）、`moved` = `p0 != p1`。
+⚠ **换档位不算改模拟**：上面这条命令的三条摘要与 `lfw_run` 同参数**逐位相同**（渲染档位只是
+"宿主算 `dfactor` 的输入"，`--sync-render FPS_120` 单独用（一 tick 仍只渲染一次）只会得到 `df=0`）。
 
 ---
 

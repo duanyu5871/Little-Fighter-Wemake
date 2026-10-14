@@ -2109,7 +2109,8 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
 
 **(a) 摘要逐位复现**：上面三条命令在薄宿主里跑出同样的 digest 与 warns；`npm run native all`
 （configure → build → lint → test，`native/README.md:178-183`）不退化。
-（录制版薄宿主已实测过这一条：`lfw_thin` 与 `lfw_run` 同参数下三条摘要逐位相同。）
+（录制版薄宿主已实测过这一条：`lfw_thin` 与 `lfw_run` 同参数下三条摘要逐位相同；⚠ **渲染档位不算
+模拟**：把 `sync_render` 换成 `FPS_120`、一个 tick 渲染 4 次之后，三条摘要**仍然逐位相同**。）
 
 **(b) 目视 —— 这是第一次"能看见绘制契约"**：前两份宿主都没画过东西 —— headless 是只计数的
 `NullWorldRenderer`（`headless_host.h:39-50`），WASM 宿主这一刀只装了时钟 + 日志
@@ -2133,7 +2134,7 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
 
 | 切片 | 做什么 | 验收 |
 |---|---|---|
-| **S1 骨架 + 假渲染器** | 起 `LFW`、收一个 `ILfwHost` 实现；时钟用 `ManualClock` 的形状、世界渲染器先用计数版（`NullWorldRenderer`）；装配照 `host/common/lfw_boot.cpp:43`（`boot_scene`）、推帧照 `lfw_run.cpp:289-295`。**已落地**：`native/host/thin/**`（`lfw_thin`）就是这一片 —— 同一批源文件 + 覆写 `create_world_renderer`，渲染器换成**录制版**（不计数、也不画） | **三条摘要逐位一致** —— 唯一能证明"宿主接对了"的硬指标（录制版已实测） |
+| **S1 骨架 + 假渲染器** | 起 `LFW`、收一个 `ILfwHost` 实现；时钟用 `ManualClock` 的形状、世界渲染器先用计数版（`NullWorldRenderer`）；装配照 `host/common/lfw_boot.cpp:43`（`boot_scene`）、推帧照 `lfw_run.cpp:289-295`。**已落地**：`native/host/thin/**`（`lfw_thin`）就是这一片 —— 同一批源文件 + 覆写 `create_world_renderer`，渲染器换成**录制版**（不计数、也不画）；它已经按 D1(c) 自己算 `dfactor`、自己留 `p0/p1`，`--sync-render FPS_120 --sub-render N` 能把插值那条路跑起来 | **三条摘要逐位一致** —— 唯一能证明"宿主接对了"的硬指标（录制版已实测；换渲染档位 + 一 tick 多渲染之后仍逐位一致） |
 | **S2 真 2D 绘制** | 先补端口 `IUINodeRenderer` 的渲染面（**引擎通用缺口，属核心侧**：`ui_node_renderer.h:8-12` 自述 `render` / `add` / `del` / `parent` / `x` / `y` / `visible` 未移植）→ 再写薄宿主的 `IWorldRenderer` / `IUINodeRenderer` | 差分台面 + lint 不退化 + **目视**一帧 UI 与世界（判据**未定**） |
 | **S3 文字度量 / 音频 / 真 zip / MD5 / 光标** | 换掉 headless 那批假货里"桌面必需"的几个：`measure_text`（`lfw.h:242`）、`sounds_*`（`lfw.h:208-232`）、真 zip、真 MD5（`lfw.h:193`）、光标（S3 表里"光标表"那一行） | MD5 与 `DittoImpl/md5.ts` **逐位一致**（可自动化）；真包能装；**三条摘要仍逐位一致** —— 换宿主最容易在这一步翻车 |
 | **S4 打包** | 把薄宿主做成"双击能跑"的东西 | **需验证**：静态 / 动态链接、许可、Windows 与 Linux 的产物形态 |
@@ -2162,8 +2163,10 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
 
 **一句话结论**：契约 = **每帧一份记录**（帧级上下文 + 逐实体 + 逐 UI 节点）**加上每条字段的语义**；
 宿主只做"把数据变成像素"。这份契约今天**只落在纸面上**：三份在册宿主（headless / WASM / 上一节
-那份）**一份都不画**（S1 第一段），唯一在跑的录制实现（`native/host/thin/**`）只证明了**字段面的
-一半**，而且只在"每 tick 恰好渲染一次"（`dfactor ≡ 1`）那条路上成立（D1(c) 的 ⚠）。
+那份）**一份都不画**（S1 第一段），唯一在跑的录制实现（`native/host/thin/**`）证明的是**字段面**
+（缺哪个字段、哪个字段端口里根本没有），而且**只证明到字段这一层** —— 它今天两条档位都跑过
+（`dfactor ≡ 1` 与 `0 < dfactor < 1`，D1(c)），但那两个比例与插值那一对是**宿主自己算的**，
+"画得对不对"仍要第二份实现的目视。
 
 **读法**：下文每条"端口事实"都给了 `path:line`，都是从本仓库读出来的；TS 对位同样给行号。凡
 **这个仓库读不出来**的（引擎/库自己的 API、字体度量、位图解码格式）一律标 `需验证`。
@@ -2207,6 +2210,7 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
 | `bg`：`id` / `layer_data_index` / `update_times` | 背景的**当前状态**；背景自己的图层参数在 `bg.data.base`（`shadow` / `shadow_w/h` / `zoom_x` / `far` 都从那里读） | 录制器 `bg=` / `layer=` / `upd=` 三个字段；TS `EntityShadowRender.ts:38-57`、`EntityRenderer.ts:99-101` |
 | `dataset.entity_flags` / `bg_flags` | **调试指标位**（实体：frame/bdy/itr/ft/opoint/wpoint/cpoint/bpoint/ctrl；背景：terrain/layer）。缺省 `0` ⇒ 一位都不画 | `world_dataset.cpp:131-132`；TS `INDICATINGS.ts:3-17` |
 | **五遍的次序** | UI 背景 → 背景(+指标) → 实体(+覆盖层) → 前景 → UI 前景。**次序是契约的一部分**（谁压谁、遍与遍之间的纵深关系） | TS `WorldRenderer.ts:256-290`；W5 的 `BEGIN_PASS` 是同一件事 |
+| **帧内比例一族**（派生量，不是核心递的） | `dfactor` + 它的中间量 `dtime` / `dirty`（tick 边界），输入是上面那四个（`lifetime` / `TU` / `fps_value()` / `UPS`）；录制器的帧头就把这七个数并在一起（`df=` `dtime=` `dirty=` `tu=` `fps=` `ups=`） | `WorldRenderer.ts:187-204`；录制器 `FrameDrawRecord` |
 
 **（b）逐实体**：契约真正要定的是**坐标与语义**，不是字段名。
 
@@ -2228,17 +2232,19 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
 - **插值对象**：位置与相机都用**同一个** `dfactor` 在 `上一 tick 值 → 本 tick 值` 之间线性插
   （`EntityRenderer.ts:95-131`、`WorldRenderer.ts:205-211`）。
 - **tick 边界怎么认**：看 `world.lifetime` 变没变（TS 的 `dirty` 就是这个），**不是**拿 `dt` 累加去猜。
-- ⚠ **"上一 tick 的值"，今天核心没给**：`Entity::prev_position`（`entity.h:80`）看着像，但它在**每次
-  tick 末尾被写成当次的 `position`**（`entity.cpp:2914`，`Entity::update()` 的最后一行）⇒ **渲染时刻它
-  恒等于 `position`**，不能当插值起点。相机那一对（`上一 tick / 本 tick`）更是只活在 TS 渲染器里
-  （`WorldRenderer.ts:69-70`、`:205-211`）。
-- ⚠ **录制基线的边界**：`host/thin` 的 `prev` 是"上一次 `render()` 看到的 `pos`"，而且**每次 render
-  都无条件刷新**（`recording_world_renderer.cpp:184-187`）⇒ 在一个 tick 里渲染多次的档位上，**第二次
-  及以后的渲染**里 `prev` 会等于当前值（插值退化成静止）。而缺省装配正好是 `sync_render = FPS_60`
-  （`world_dataset.cpp:90`）+ `UPS = 60`（`:133`）⇒ `dfactor ≡ 1`、一 tick 一渲染 ⇒ **插值这条路今天
-  一次也没被跑过**（`lfw_thin` 还得自己补一次 `render_once`：`host/thin/thin_host.h:36`）。
-- ⇒ **两条出路**（都在 D5 第 1/2 行）：宿主自己按 `lifetime` 判定边界、留一份 `prev`；或核心补一条
-  能拿到的接口。**两条都要在两份宿主上验**。
+- ✅ **"上一 tick 的值"**核心不用给 —— 它在 TS 里也不是核心给的：`p0/p1` 活在 `EntityRenderer` 自己身上
+  （`EntityRenderer.ts:25-26`、`:109-110`），相机那一对活在 `WorldRenderer` 身上（`WorldRenderer.ts:69-70`、
+  `:205-211`）⇒ 宿主按 `dirty` 自留一对就够（D5 第 1 行）。**已实测**：录制器照这条落
+  （`recording_world_renderer.cpp` 的 `_dirty` 门控 + `p0/p1` + `dfactor`），`--sync-render FPS_120
+  --sub-render 4` 跑 900 tick ⇒ `dfactor` 直方图 `0 / 0.25 / 0.5 / 0.75` 各 900 帧、23420 条实体记录里
+  **17565 条 `0 < dfactor < 1`**、`p0 != p1` 的 6388 条，而三条摘要一字不变（README 验收段）。
+  ⚠ 缺省装配（`sync_render = FPS_60`，`world_dataset.cpp:90`；`UPS = 60`，`:133`）**走不到这条路**：
+  `FPS <= UPS` ⇒ `dfactor ≡ 1`，一 tick 一渲染 ⇒ 要跑插值必须换档位 + 一个 tick 渲染多次。
+- ⚠ `Entity::prev_position`（`entity.h:80`）**仍不能当插值起点**：它在**每次 tick 末尾被写成当次的
+  `position`**（`entity.cpp:2914`，`Entity::update()` 的最后一行）⇒ 渲染时刻它恒等于 `position`。
+- ⚠ **这条结论的适用边界**：录制器持 `World&`，`TU` / `fps_value()` / `lifetime` / `dataset.UPS` 四个
+  输入读得到（D5 第 3 行）。将来按 W5 那条"宿主只读帧头"的路走时，这四个字段**必须进帧头**，否则第二
+  份宿主算不出 `dfactor`。⚠ 换 `sync_render` 是**渲染档位**、不是模拟参数（摘要三条实测不变）。
 - ⚠ **"每帧一次"这个假设不成立**：`sync_render == Sync / Half` 时 `World::update_once` 自己就会渲染
   一次（`world.cpp:1038-1050`），`start_render` 注册的回调也会渲染一次（`:570-599`）⇒ 宿主必须自带
   "写入中的那帧不被读"的双缓冲（W5 已经为这条定了双缓冲，那里写了理由）。
@@ -2342,9 +2348,9 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
 
 | # | 今天没有的数据 | 影响什么 | 谁来补 | 需要验证什么 |
 |---|---|---|---|---|
-| 1 | **上一 tick 的位置**（插值起点） | `FPS > UPS` 时的位置插值（今天一次没跑过） | **核心接口**，或宿主自留 + 按 `lifetime` 判边界 | 两份宿主在 `Unlimited`/`FPS_120` 下画面一致；`Entity::prev_position` 不能顶替（D1(c)） |
-| 2 | **上一 tick 的相机位置** | 镜头跟随的平滑 | 宿主推导（TS 就是渲染器自留） | 同上；两份宿主的镜头轨迹逐帧一致 |
-| 3 | **`TU` / `fps_value()` / `lifetime` / `UPS` 进帧头** | W5 那条"宿主只读命令缓冲"的路上，宿主**拿不到 `World`** ⇒ 算不出 `dfactor` | **核心接口**（帧头字段） | W5 的帧头草案（`DESIGN.md:1292-1296`）里**没有**这四个字段 ⇒ 要补；补了 W5 与 G4 两条路才能并存 |
+| 1 | **上一 tick 的位置**（插值起点） | `FPS > UPS` 时的位置插值 | **宿主自留** + 按 `lifetime` 判边界（**已实测**：`host/thin` 的 `--sync-render FPS_120 --sub-render 4` ⇒ D1(c) 的直方图）；**核心接口**只在"宿主拿不到 `World&`"那条路上才要 | 两份宿主在 `Unlimited`/`FPS_120` 下画面一致；`Entity::prev_position` 不能顶替（D1(c)） |
+| 2 | **上一 tick 的相机位置** | 镜头跟随的平滑 | 宿主推导（TS 就是渲染器自留；录制器 `camp0`/`camp1`/`caml` 三个字段就是它） | 同上；两份宿主的镜头轨迹逐帧一致 |
+| 3 | **`TU` / `fps_value()` / `lifetime` / `UPS` 进帧头** | W5 那条"宿主只读命令缓冲"的路上，宿主**拿不到 `World`** ⇒ 算不出 `dfactor` | **核心接口**（帧头字段）；持 `World&` 的宿主（录制器）自己读得到 | W5 的帧头草案（`DESIGN.md:1292-1296`）里**没有**这四个字段 ⇒ 要补；补了 W5 与 G4 两条路才能并存 |
 | 4 | **逐实体不透明度（alpha）** | 淡入淡出、半透明的表现力 | 待定（先确认 TS 是否也**永远**只有开关量） | 录制器字段表里没有 alpha 是真的；"TS 也不需要"这条**需验证** |
 | 5 | **逐图旋转 / 原点偏移 / 图层锚点**（`rad`/`deg`/`__cos_r`/`__sin_r`/`ox`/`oy`/`pics[].cx,cy`） | 旋转的武器、倾斜的物件、多图层对齐 | 宿主推导（**数据已在 `frame.pic` 里**，`loader/preprocess_pic.cpp:27-40`）；录制器顺手补字段 | 端口的 `frame.pic` 搬运链是否真带 `rad`；`pics[]` 是否带 `cx/cy` |
 | 6 | **`bpoint` 吐血点的画法** | 残血表现（`hp < 33%`） | 需验证：真需求 ⇒ 公式进契约 | TS 有实现（`EntityMainRender.ts:803-815`）；端口只把它当数据 |
@@ -2365,8 +2371,9 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
 判据只能等"真画画的第二份"。
 
 **(b) 录制器是参照生产者，不是判据。** `host/thin/**` 证明的是**字段面**（"核心确实每帧把这些交
-出来"），它**不证明**画面正确（目视那一条在 S6(b) 已经记"未定"），而且它的 `prev` 只在 `dfactor ≡ 1`
-时正确（D1(c)）。
+出来"），它**不证明**画面正确（目视那一条在 S6(b) 已经记"未定"）。⚠ 它今天**两条档位都跑过**
+（`dfactor ≡ 1` 与 `0 < dfactor < 1`，D1(c)），但 `dfactor` 与那一对 `p0/p1` 是**宿主自己算/自己留的**
+（TS 也在渲染器里），所以这是"契约够不够"的证据，不是"画面对不对"的证据 —— 后者仍要第二份实现的目视。
 
 **(c) 换宿主不许动模拟。** 三条摘要（`native/README.md:323-339`）逐位一致是**硬指标** —— 契约里的
 每一项都必须能在"摘要不变"的前提下落地；反过来，**任何需要改摘要才能画的字段，都是契约问错了**。

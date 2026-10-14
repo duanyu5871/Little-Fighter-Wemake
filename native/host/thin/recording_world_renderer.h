@@ -3,7 +3,8 @@
 // 为什么要有它：`native/lfw/**` 里的 `IWorldRenderer`（`lfw/world.h:61-68`）是**保留式**的
 // —— `add_entity` / `del_entity` 只在实体进出世界时各调一次，`render(dt)` 每帧调一次，而且
 // 拿的是**活实体的引用**（节点/精灵在真实渲染器里长期持有）。所以「一帧要画什么」这件事
-// 只有渲染器自己知道 —— 它必须**每帧**从它持有的活实体上取一份当前值。
+// 只有渲染器自己知道 —— 它必须**每帧**从它持有的活实体上取一份当前值（唯一例外是插值那一对
+// `p0/p1`：它**一个 tick 只刷一次**，见文件末）。
 //
 // 这一份就是那份快照：字段全部来自 `Entity` 现有的公开面（`native/lfw/entity/entity.h`），
 // **没有一个是编的**；缺什么在报告里点出来（例如没有逐实体 `alpha`，只有 `invisible` /
@@ -14,7 +15,10 @@
 //   FRAME <n> dt=<ms> life=<lifetime> ret=<记录器持有的活体数> live=<world.entities+ghosts>
 //         match=<ret==live> cam=<x>,<y> bg=<bg.id> layer=<layer_data_index> upd=<update_times>
 //         xform=<x>,<y>,<z> scale=<sx>,<sy>,<sz> screen=<w>,<h> ents=<本帧记录条数>
-//   E id=<entity.id> data=<data.id> type=<data.type> pos=<x>,<y>,<z> prev=<上次快照的 pos>
+//         df=<帧内比例 dfactor> dtime=<帧内累计 ms> dirty=<本帧刷没刷 p0/p1>
+//         tu=<一个 tick 的目标时长 ms> fps=<目标渲染率> ups=<dataset.UPS>
+//         camp0=<x>,<y> camp1=<x>,<y> caml=<相机按 df 插出来的位置>
+//   E id=<entity.id> data=<data.id> type=<data.type> pos=<p1> prev=<p0>
 //     facing=<±1> wait=<帧内计时> frame=<frame.id> state=<frame.state> pf=<prev_frame.id>
 //     tex=<frame.pic.tex 素材 id> crop=<x>,<y>,<w>,<h> pics=<frame.pics 层数>
 //     c=<frame.centerx>,<centery>
@@ -24,15 +28,24 @@
 //     shake=<受击抖动> life=<实体存活帧数> mix=<mix_color>@<mix_strength> grey=<greyscale>
 //     outline=<outline_color>@<outline_alpha>,<outline_width> ol_en=<outline_enabled>
 //     fx=<render_effect_time> ghost=<ghosted> mount=<mounted>
+//     lerp=<p0 → p1 按 df 插出来的位置>
 //
 // 数字一律 `%.4f`（位置/速度都落在 1/1000 格点上，四位足够且逐位可复现）；取不到的字符串
-// 字段落成 `-`。`prev` / 相机那条要留意：`p0` 那一半在真渲染器里也是**自己留的**（见下）。
+// 字段落成 `-`。
 //
-// ⚠ **`prev=<...>` 是记录器自己上一次 `render()` 看到的 `pos`**，就是 TS `EntityRenderer.p0/p1`
-// 的那对（`src/DittoImpl/renderer/EntityRenderer.ts` 的 `update_position` / `render(dt, df)`）：
-// 逐实体插值靠「渲染器留一份上次值」+ 一个帧内比例。端口 `IWorldRenderer::render(double dt)`
-// **不传那个比例**（TS 的 `dfactor` 是渲染器自己用 `world.TU` / `lifetime` / `FPS` 现算的），
-// 所以这里只记 `pos` / `prev` 一对原始值，不猜比例。
+// ⚠ **`pos` / `prev` 是插值那一对（TS 的 `p1` / `p0`），不是"相邻两次 `render()` 的差"**：
+// `src/DittoImpl/renderer/EntityRenderer.ts:95-128` 里 `p0.copy(p1); p1 = 当前值` 只在
+// `owner.dirty` 为真时发生，而 `owner.dirty` 就是"tick 边界"（`WorldRenderer.ts:187-204` 用
+// `world.lifetime` 变没变判的）⇒ 一对 `(p0, p1)` = **两个 tick 端点的位置**，一个 tick 里
+// **只刷一次**；同一 tick 内的后续 `render()` 只把 `dfactor` 往前推。
+// ⇒ 记录器照抄这条（`dirty` 门控 + `dfactor` 逐字来自 `WorldRenderer.ts` 的算法），
+// 而不是"每次 `render()` 都刷新 prev"（那样一个 tick 里渲染多次时 `prev` 会退化成当前值，
+// 插值整条路等于没跑过）。`--sync-render FPS_120 --sub-render N` 能把这条路真跑起来。
+//
+// ⚠ 记录的是**模型空间**的 `Entity::position`：TS 画之前还要过一遍 `(x, y − z/2, z)` 的纵深
+// 投影、`StateEnum.Message` 的横向夹取、以及挂载者（`bearer`/`catcher`）那一路父坐标系
+// （`EntityRenderer.ts:99-134`）—— 那几步录制器**不做**（契约的坐标语义见 DESIGN D1(b)），
+// 所以 `lerp=` 是模型空间的插值结果，不是最终落点。
 #pragma once
 
 #include <cstddef>
@@ -49,9 +62,11 @@ struct EntityDrawRecord {
   std::string id;
   std::string data_id;  // 画哪套素材
   double type = 0;      // data.type（0 = 角色，1 = 武器，2 = 球…）
-  // 位置与「记录器上次看到的同一实体的位置」。
+  // 插值那一对：`p1` = 本 tick 端点的位置（打印成 `pos=`），`p0` = 上一 tick 端点的位置
+  // （打印成 `prev=`），外加按本帧 `dfactor` 插出来的 `lerp`（打印成 `lerp=`）。
   double x = 0, y = 0, z = 0;
   double px = 0, py = 0, pz = 0;
+  double lx = 0, ly = 0, lz = 0;
   double facing = 1;  // +1 朝右 / -1 朝左（精灵翻面）
   double wait = 0;    // 帧内计时（当前动作帧走到哪儿）
   std::string frame_id;
@@ -85,9 +100,20 @@ struct EntityDrawRecord {
 
 // 一帧的绘制记录：帧级上下文（相机 / 背景 / 世界变换 / 屏幕尺寸）+ 本帧每条活体。
 struct FrameDrawRecord {
-  int index = 0;       // 记录器第几次 `render()`（从 1 起；宿主每帧只推一次 ⇒ 与帧号同序）
+  int index = 0;       // 记录器第几次 `render()`（从 1 起）
   double dt = 0;       // 传进来的 dt（毫秒）
-  double lifetime = 0;
+  double lifetime = 0;  // `world.lifetime`（= TS 的 `utime`；tick 边界就是它变没变）
+  // ---- `dfactor` 一族（逐字照抄 TS `WorldRenderer.ts:187-204`，见文件头）----
+  double dfactor = 1;   // 本帧的帧内比例
+  double dtime = 0;     // 帧内累计的 dt（ms）
+  bool dirty = false;   // 本帧是不是 tick 边界（刷新了 p0/p1；= TS 的 `dirty`）
+  double tu = 0;        // `world.TU`：一个 tick 的目标时长（ms）
+  double fps = 0;       // `world.fps_value()`（TS 的 `world.FPS`）
+  double ups = 0;       // `dataset.UPS`
+  // 相机那一对（TS `WorldRenderer.cam_p0/cam_p1`，同一次 `dirty` 刷新）+ 插出来的位置。
+  double cam_p0_x = 0, cam_p0_y = 0;
+  double cam_p1_x = 0, cam_p1_y = 0;
+  double cam_lerp_x = 0, cam_lerp_y = 0;
   int retained = 0;    // `add_entity` / `del_entity` 维护出来的活体数
   int world_live = 0;  // `world.entities + world.ghosts`（对拍：保留式记账有没有漏）
   bool retained_matches_world = true;
@@ -128,23 +154,41 @@ class RecordingWorldRenderer : public IWorldRenderer {
   long long stray_removes() const { return _stray_removes; }
   long long mismatched_frames() const { return _mismatched_frames; }
   bool disposed() const { return _disposed; }
+  // 插值那条路真跑没跑过（CLI 的 `[thin] done` 行）：逐实体记录里
+  // `df01` = `0 < dfactor < 1` 的条数、`interp` = 再要求 `p0 != p1`、`moved` = `p0 != p1`。
+  long long entity_records() const { return _entity_records; }
+  long long df_between_records() const { return _df_between; }
+  long long interpolated_records() const { return _interpolated; }
+  long long moving_records() const { return _moving; }
 
  private:
-  // 记录器持有的活体 + 上一次 `render()` 看到的位置（`p0` 的替身）。
+  // 记录器持有的活体 + 插值那一对（TS `EntityRenderer.p0` / `p1` 的替身）。
   struct Live {
     Entity* e = nullptr;
-    double px = 0, py = 0, pz = 0;
+    double p0x = 0, p0y = 0, p0z = 0;
+    double p1x = 0, p1y = 0, p1z = 0;
   };
 
   LFW* _lfw = nullptr;
   std::vector<Live> _live;  // 插入序；`render()` 里按 id 排序后记录
   std::vector<FrameDrawRecord> _frames;
   int _render_count = 0;
+  // `dfactor` 的帧内状态（TS `WorldRenderer.utime/dtime/dfactor/dirty` 的初值，`:182-186`）。
+  double _utime = 0;
+  double _dtime = 0;
+  double _dfactor = 1;
+  bool _dirty = false;
+  double _cam_p0_x = 0, _cam_p0_y = 0;
+  double _cam_p1_x = 0, _cam_p1_y = 0;
   long long _added = 0;
   long long _removed = 0;
   long long _duplicate_adds = 0;
   long long _stray_removes = 0;
   long long _mismatched_frames = 0;
+  long long _entity_records = 0;
+  long long _df_between = 0;
+  long long _interpolated = 0;
+  long long _moving = 0;
   bool _disposed = false;
 };
 
