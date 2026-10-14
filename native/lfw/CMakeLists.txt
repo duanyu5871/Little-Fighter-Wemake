@@ -185,6 +185,7 @@ add_library(lfw_core STATIC
   loader/dat_mgr.cpp
   loader/validate_ui_img_operation_crop.cpp
   base/predicate.cpp
+  base/debugging.cpp
   utils/math/mersenne_twister.cpp
   utils/math/normalize_plane.cpp
   utils/math/calc_plane.cpp

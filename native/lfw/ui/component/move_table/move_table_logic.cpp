@@ -239,8 +239,8 @@ void MoveTableLogic::load_lists() {
   removers.push_back(
       lfw().callbacks.on(u"on_loading_failed", [this](const LfwCallbacks::Payloads& p) {
         _loading = false;
-        lfw().warn(u"[MoveTableLogic] failed to load data zips: " +
-                   (p.empty() ? std::u16string() : to_string(p[0].value)));
+        warn(u"[MoveTableLogic] failed to load data zips: " +
+             (p.empty() ? std::u16string() : to_string(p[0].value)));
       }));
   _load_remover = [removers]() {
     for (const std::function<void()>& r : removers) r();
@@ -552,7 +552,7 @@ Entity* MoveTableLogic::spawn_actor(const Value& list_v, const Value& move) {
   const Value oid = field_or(list_v, u"oid");
   const Value* const data = lfw().datas().find(oid);
   if (data == nullptr) {
-    lfw().warn(u"[MoveTableLogic] fighter data not found: " + to_string(oid));
+    warn(u"[MoveTableLogic] fighter data not found: " + to_string(oid));
     return nullptr;
   }
   Entity* const entity = lfw().create_entity(world(), *data);
@@ -620,7 +620,7 @@ void MoveTableLogic::spawn_entity(const Value& s, size_t index) {
   const Value oid = field_or(s, u"oid");
   const Value* const data = lfw().datas().find_object(oid);
   if (data == nullptr) {
-    lfw().warn(u"[MoveTableLogic] demo entity data not found: " + to_string(oid));
+    warn(u"[MoveTableLogic] demo entity data not found: " + to_string(oid));
     return;
   }
   Entity* const entity = lfw().create_entity(world(), *data);

@@ -70,6 +70,11 @@ long index_of(const std::vector<UINode*>& list, UINode* node) {
   return -1;
 }
 
+// TS `nums` 告警里的 `args[${idx}]`（`Number` 的字符串化走 `number_to_string`）。
+std::u16string arg_at(size_t idx) {
+  return u"args[" + number_to_string(static_cast<double>(idx)) + u"]";
+}
+
 // `new UIProps({ ...info.props, ...info.properties }, this)` 的展开语义（键序同 JS）。
 Value merge_props(const Value& info) {
   const Value merged(std::make_shared<Object>());
@@ -123,6 +128,32 @@ UIComponent::UIComponent(UINode& layout, const std::u16string& f_name_in, const 
   if (const std::u16string* const s = std::get_if<std::u16string>(&id_v)) id = *s;
   const Value& name_v = field(info, u"name");
   if (const std::u16string* const s = std::get_if<std::u16string>(&name_v)) name = *s;
+  make_debugging(*this);
+}
+
+// TS `make_debugging(this)` 装上的三条闭包（`base/Debugging.ts`）：闭包体在
+// `lfw/base/debugging.h:debugging_write`，落点见 `debugging_out`。
+void UIComponent::debug(const std::u16string& func, const std::vector<Value>& args) {
+  debugging_write(*this, DebugLevel::Debug, func, args);
+}
+
+void UIComponent::warn(const std::u16string& func, const std::vector<Value>& args) {
+  debugging_write(*this, DebugLevel::Warn, func, args);
+}
+
+void UIComponent::log(const std::u16string& func, const std::vector<Value>& args) {
+  debugging_write(*this, DebugLevel::Log, func, args);
+}
+
+void UIComponent::debugging_out(DebugLevel level, const std::vector<Value>& args) {
+  // TS 是全局 `Ditto.debug` / `Ditto.warn` / `Ditto.Log`；端口用同一条宿主缝
+  // （`LFW::lfw_debug/warn/log` 也走 `host()`）。
+  ILfwHost& sink = lfw().host();
+  switch (level) {
+    case DebugLevel::Debug: sink.debug_msg(args); break;
+    case DebugLevel::Warn: sink.warn(args); break;
+    case DebugLevel::Log: sink.log(args); break;
+  }
 }
 
 bool UIComponent::ensure_props() {
@@ -225,7 +256,15 @@ std::optional<std::vector<double>> UIComponent::nums(size_t idx, size_t length) 
   }
   const Array* const list = as_array(raw);
   NumsCache& cache = _nums_caches[key];
-  if (list == nullptr || list->size() < length) {
+  if (list == nullptr) {
+    warn(u"nums", {Value(arg_at(idx) + u" got " + to_string(raw_v) + u", can not parse to num2")});
+    cache.set = true;
+    cache.failed = true;
+    return std::nullopt;
+  }
+  if (list->size() < length) {
+    warn(u"nums", {Value(arg_at(idx) + u".length < " +
+                   number_to_string(static_cast<double>(length)) + u"!")});
     cache.set = true;
     cache.failed = true;
     return std::nullopt;
@@ -235,6 +274,8 @@ std::optional<std::vector<double>> UIComponent::nums(size_t idx, size_t length) 
   for (size_t i = 0; i < length; ++i) {
     const double n = to_number(list->at(i));
     if (!is_num(n)) {
+      warn(u"nums", {Value(arg_at(idx) + u"[" + number_to_string(static_cast<double>(i)) +
+                          u"] is not a number, but got " + to_string(list->at(i)))});
       cache.set = true;
       cache.failed = true;
       return std::nullopt;

@@ -44,6 +44,7 @@ void FadeOutOpacity::on_start() {
 void FadeOutOpacity::update(double dt) {
   _anim.update(dt);
   node.set_opacity(_anim.value());
+  debug(u"update", {Value(u"opacity = " + number_to_string(_anim.value()))});
   if (_anim.done()) set_enabled(false);
 }
 

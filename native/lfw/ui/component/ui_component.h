@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 
+#include "lfw/base/debugging.h"
 #include "lfw/core/value.h"
 #include "lfw/defines/i_vector3.h"
 #include "lfw/ui/component/ui_props.h"
@@ -33,8 +34,10 @@ class UINode;
 //   * JS 的 `props` getter 在失败时抛 `[UIComponent.props] failed`；端口不抛 ⇒ `ensure_props()`
 //     返回 bool，失败后 `props()` 为 nullptr、`props_errors()` 给出错误表（同 TS 的 `e.errors`）。
 //   * `find_node` 的 `Number(...)` 口径按整数实现（用例只走整数距离）。
-//   * `debug/warn/log` 与 `make_debugging` 是空转（TS 也只有写日志时才有可见差异）。
-class UIComponent {
+//   * `debug/warn/log` 是 TS 那三条闭包（`base/Debugging.ts` 的 `make_debugging`）的实现，
+//     与 TS 同款：`debug` 看 `__debugging`，`warn` / `log` 不看；参数在端口是
+//     `(func, std::vector<Value>)`，不是 JS 的可变参数。
+class UIComponent : public IDebugging {
  public:
   static constexpr const char* TAG = "UIComponent";
   static const ClazzTag* class_tag();
@@ -121,12 +124,19 @@ class UIComponent {
   virtual FSM* fsm() { return nullptr; }
 
   bool __debugging = false;
-  template <typename... A>
-  void debug(A&&...) {}
-  template <typename... A>
-  void warn(A&&...) {}
-  template <typename... A>
-  void log(A&&...) {}
+  // `src/LFW/base/Debugging.ts:make_debugging` 装上的三条日志（`IDebugging` 的四条取值 /
+  // 落点见 `lfw/base/debugging.h`）。
+  void debug(const std::u16string& func, const std::vector<Value>& args = {}) override;
+  void warn(const std::u16string& func, const std::vector<Value>& args = {}) override;
+  void log(const std::u16string& func, const std::vector<Value>& args = {}) override;
+
+  // ---- `IDebugging`（`make_debugging(*this)` 在构造函数里接上）----
+  bool debugging_enabled() const override { return __debugging; }
+  const std::u16string& debugging_id() const override { return id; }
+  // TS 闭包捕获的 `cls.TAG`；端口在调用时取，等价（见 `base/debugging.h` 文件头第 2 条）。
+  const std::u16string& debugging_tag() const override { return props_tag(); }
+  // TS 的全局 `Ditto.debug` / `Ditto.warn` / `Ditto.Log`。
+  void debugging_out(DebugLevel level, const std::vector<Value>& args) override;
 
  private:
   struct NumsCache {

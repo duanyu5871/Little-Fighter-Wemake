@@ -12020,3 +12020,42 @@ coverage OK；宿主三条摘要**逐字节不变**（`7335aa25f4e1ce86` / `e4a9
 
 **未复核（清单自注）**：`entity.h` 那 ~30 个 `virtual` 取值面只**抽样**追踪了「只在测试里覆写」，
 没逐条核过；sounds/images 的规模是按 LOC 估的，没逐行读实现。
+
+### 149.23 `make_debugging` + 组件日志改真（切片 4D4）—— §149.22 顺序表第 1 步
+
+`UIComponent::debug/warn/log` 原本是三个**空转模板**，`make_debugging` 根本没搬 ⇒ 端口里组件的日志/告警
+**全被吞**（`move_table_logic` 就是因此被迫改道 `lfw().warn(...)`）。
+
+**TS 的真实语义**（`base\Debugging.ts:9-29`，逐条核过原文）：
+- `make_debugging(obj)` 在**构造末尾**装三个闭包（`LFW.ts:370` / `UINode.ts:426` / `UIComponent.ts:104`
+  ⇒ 每个组件都装一遍），并当场捕获 `cls = Object.getPrototypeOf(obj).constructor`、取 `cls.TAG`
+  （= `TAGS[0]`）。
+- 调用时读 `obj.id` 与 `obj.__debugging`：**只有 `debug` 检查 `__debugging`**（假就 `return`）；
+  `warn`/`log` **不检查** ⇒ 端口照此（⇒ `MoveTableLogic` 那三条错误告警关掉调试时**照样打**，与 TS 一致）。
+- 前缀：`[D]`/`[W]`/`[I]` + `id` 非空时 `<id>` + `[<TAG>::<func>]`，其余实参原样跟在后面，落到
+  `Ditto.debug/warn/Log`。
+
+**端口做法**：新增 `base/debugging.{h,cpp}`（`IDebugging` / `make_debugging` / `debugging_write`），
+`UIComponent : public IDebugging`，实现四个取值面 + `debugging_out(level, args)`（走**既有**的
+`lfw().host().debug|warn|log` 宿主缝 ⇒ 不另造通道）；**空转模板删掉**，三个方法改成
+`(func, std::vector<Value>)`（C++ 没有方法表可替换 ⇒ `make_debugging` 的活就是「装过的标记」）。
+偏差：`cls.TAG` 改成调用时经 `props_tag()` 取（基类构造里的虚调用会取到 `UIComponent` 自己的 tag；
+每个实例的 tag 不变 ⇒ 结果等价）。
+
+**归位的告警**（原本为绕开空转而改道）：`move_table_logic.cpp` ×3 恢复 `warn(...)`、`ui_component.cpp`
+的 `nums` 三处、`fade_out_opacity.cpp` 的 `debug(u"update", …)`。**只报告未改**：
+`DemoModeLogic.ts:204,220` / `StageModeLogic.ts:47,71` / `LaunchPageLogic.ts:160`（实参是
+`Stage`/phase/事件对象，装不进 `Value`）、`LaunchPageLogic.ts:165` 的 `debug('on_click')`
+（**本身可恢复**，但那行是变异锚点 ⇒ 要动 `native/tests`，本刀不碰）、`Jalousie.ts:53`（台面早就约定
+不打，`PROTOCOL.md:5044-5047`）、`UINode.ts:426` / `LFW.ts:370`（`LFW` 已有真 `lfw_debug/warn/log`；
+`UINode` 在 TS 侧没有调用点）。
+
+**验证**：差分 **261/261**（**无一行变化** —— 台面把 `warn/log/debug_msg` 静音了 ⇒ 日志本身不进 trace）；
+锚点 9764/0；include **847** clean / 0 failed / 9 warnings；宿主三条摘要**逐字节不变**
+（`7335aa25f4e1ce86` / `e4a9437292047044` / `f29d3bb1ea330c32`；`warns=1` 是既有的
+`DatMgr::_add_obj id duplicated…`）。因为台面静音看不出效果，另用**会话内探针**（不进仓库）链
+`lfw_core.lib` 打真宿主输出：`[host:warn] [W]<pc>[ProbeComp::hello]`、
+`[host:debug] [D]<pc>[ProbeComp::visible]`（且**只在** `__debugging=true` 之后出现）、
+`[host:log] [I]<pc>[ProbeComp::info]`，以及 `nums` 那三条告警 —— 全对。
+
+⇒ §149.22 依赖顺序表**第 1 步结清**。

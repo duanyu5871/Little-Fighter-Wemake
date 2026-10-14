@@ -33,7 +33,8 @@ class UINode;
 //   * `lfw.load(...zips)` 在端口是**同步** `bool` + 回调总线 ⇒ `load_lists` 先挂
 //     `on_loading_end` / `on_loading_failed`（同 `LoadingContentText::on_resume`），
 //     没有 `.then` 的微任务延迟。
-//   * `this.warn(...)` 在端口是空转（`UIComponent::warn`）⇒ 告警改走 `lfw().warn(...)`。
+//   * `this.warn(...)` 是 TS 那三条闭包（`make_debugging`）的实现，端口已对齐 ⇒ 告警直接
+//     走 `warn(...)`（`func` 参数就是 TS 传的整条消息）。
 //   * 控制器是 `click/key_down/key_up(std::vector<std::u16string>)`，不是可变参数。
 class MoveTableLogic : public UIComponent {
  public:
