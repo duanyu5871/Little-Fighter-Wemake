@@ -1653,6 +1653,271 @@ const m = await createLfw({ locateFile: (f) => `/wasm/${f}` })
   每帧写「帧头 + UI/世界指令」进 wasm 侧双缓冲，JS 用 `lfw_cmd_buffer_ptr/len` 取字节画到 `<canvas>`。
   ⚠ **`native/lfw/**` 只留接口与逻辑，不许落任何平台实现**（硬规则见 README「硬规则」节）。
 
+## ★ Godot 当作 Ditto：宿主方案
+
+**这一节回答一个问题**：把 `native/lfw/` 的 C++ 端口挂到 Godot 上（把它当成**第三份 `DittoImpl`**）
+该怎么接。
+
+**一句话结论**：Godot 与端口**同进程、同 C++ ABI** ⇒ 上一节为了"过沙箱边界"发明的函数指针表 /
+命令缓冲 / `cb_id` 反向调用**整批用不上**；真正要解决的只有一件事 —— **谁拥有主循环**（G3）。
+
+下文每一条"端口事实"都给了 `path:line`；凡涉及 Godot 引擎自己的 API（`ZIPReader` / `ImageTexture` /
+`HashingContext` / `String` 内部编码 / 构建开关 / GDExtension ABI 策略…）**一律标 `需验证`** —— 那些
+从这个仓库里读不出来，不当事实写。
+
+### G0. 定位与边界
+
+- **Godot = 宿主实现 #3**，与 `native/host/headless_host.{h,cpp}`（headless，测试用）、
+  `native/host/wasm/**`（浏览器，WASM）**平级**。Godot 的全部代码放 `native/host/godot/**`。
+- `native/lfw/**` 只许增加**引擎通用**的缺口。当前在册的只有一条：`IUINodeRenderer` 的**渲染面未移植**
+  （`native/lfw/ui/ui_node_renderer.h:13-25`，文件头注释自述 `render` / `add` / `del` / `parent` / `x` /
+  `y` / `visible` 属渲染面）。**不许**因为 Godot 而往核心加任何东西。
+- **硬规则原文**（`native/README.md:16-30`）：「**平台实现一律不许落在 `native/lfw/**`**：渲染、音频、
+  图片、输入、时钟、wasm/ABI 这些**具体实现**只放 `native/host/**`（C++ 侧）与 `native/web/**`
+  （JS 侧）；核心只留**接口**与**逻辑**。`lfw.h` 里与平台相关的东西只允许是"**宿主工厂**"
+  （`create_world_renderer` / `create_ui_node_renderer` 这种"向宿主索要实现"的钩子）。」同一条规则的
+  意图在那句「**让核心不可撤销地保持平台无关**」（`native/README.md:24`）。
+  ⇒ `#include <godot_cpp/…>`、`emscripten.h`、`<windows.h>`、`SDL*` **一个都不许**出现在
+  `native/lfw/**` 下（机检见 G10）。
+- **文档层同样成立**：绘制契约本身必须保持**引擎中立** —— 契约文本里不许出现 `Node2D` / `Sprite2D` /
+  `CanvasItem` / `Control` 这类 Godot 词汇。Godot 的节点只能出现在 `native/host/godot/**` 里，作为
+  这些接口的**实现**。（这与 W5 是同一件事的两种落法：一边"把绘制描述成数据"，一边"把绘制描述成节点"——
+  接口必须两边都装得下。）
+
+### G1. 要实现的清单（宿主面 → Godot）
+
+下面每一条都是**端口里真有的**接口（行号已读）。"Godot 侧"一列是**建议映射**，凡涉 Godot 具体 API
+的一律 `需验证`。
+
+| 宿主面 | 端口位置（已读） | Godot 侧（需验证） |
+|---|---|---|
+| `ILfwHost` | `lfw/lfw.h:135-288`。~80 个纯虚 + 4 个**有默认体**的：`pointings_grab`（`:155-160` 回 `false`）、`pointings_ungrab`（`:161-165` 空）、`pointings_grabbing`（`:166-170` 回 `nullptr`）、`create_ui_node_renderer`（`:179-182` 回 `nullptr`）、`is_desktop`（`:171` 回 `false`）。**没有"未移植的成员"**——它全是纯虚，写不写得出真货是**实现方**的事 | 一个 `LfwGodotHost : ILfwHost`（+ `IResourcesHost`，见下），成员是 Godot 侧句柄 |
+| `IClock` / `ITimeout` | `lfw/base/clock.h:11-28`；注入走全局槽 `set_clock`/`set_timeout`（`:31-46`） | **注入虚拟时钟**（G3），不是 Godot 的真实时间 |
+| `IRenderScheduler` | `lfw/base/render_scheduler.h:15-19`；槽 `set_render_scheduler`（`:21-25`） | **故意不装**（槽空 ⇒ `render_add` 回 0，`:29-31`） |
+| `IWorldRenderer` | `lfw/world.h:61-68`：`add_entity(Entity&)` / `del_entity(Entity&)` / `render(double dt)` / `dispose()` | 一棵 Godot 节点树 + 每实体一个节点（需验证） |
+| `IEntityRenderer` | `lfw/entity/entity.h:34-37` —— 是 `struct`，只有一个 `render(double dt, double dfactor)` | 每实体一个渲染对象（需验证） |
+| `IUINodeRenderer` | `lfw/ui/ui_node_renderer.h:13-25`。已移植的只有生命周期/焦点转发（`del_self` / `on_start` / `on_stop` / `on_resume` / `on_pause` / `on_show` / `on_hide` / `on_foucs` / `on_blur`），而它们**全是有空体的非纯虚**（不实现也能编过）；**渲染面（`render`/`add`/`del`/`parent`/`x`/`y`/`visible`）未移植** | 每个 `UINode` 一个 `Control`/`CanvasItem`（需验证）；**得先把渲染面补进端口**（G4） |
+| `IResourcesHost` | `lfw/resources.h:30-49`（`import_as_json` / `blob_url` / `array_buffer` / `image_bitmap` / `text` + `xml_parse`）。⚠ 与 `ILfwHost` 是**两个**接口，`LFW` 同时继承它（`lfw.h:297-299`） | `import_as_*` 走 Godot 文件 API（需验证）；`image_bitmap` 得先有真解码（G7） |
+| `IPlayerInfoHost` | `lfw/player_info.h:45-56`（`cache_get` / `cache_del` / `cache_put` + `warn`） | `user://` 存档（需验证）；headless 的真实现是内存 map（`host/headless_host.cpp:221-239`） |
+| `IZip` / `IZipObject` | `lfw/ditto/zip/i_zip.h:15-31`（`name` / `file(string)` / `file(regex)` / `md5`）、`i_zip_object.h:16-29`（`name` / `json` / `text` / `blob_url` / `array_buffer` / `image_bitmap`） | 需要一个**能读 zip 的 IO 层**（Godot 侧候选：`ZIPReader`，需验证）。现在只有"目录当 zip"（G6） |
+| `IXML` / `IXMLElement` | `lfw/ditto/xml/i_xml.h:16`、`i_xml_element.h:35` | **不需要 Godot**：端口已有纯逻辑 `ToolXML`（`native/lfw/ditto/xml/tool_xml.*`），headless 就是这么接的（`host/headless_host.cpp:327`） |
+| `IUIEvent` | `lfw/ui/ui_event.h:14-18`（`stopped()` / `stop_propagation()` / `stop_immediate_propagation()`） | **不需要 Godot**：纯状态类（同文件 `LFWUIEvent` / `LFWPointerEvent` / `LFWKeyEvent`），输入事件在 `native/host/godot/**` 里翻译成它 |
+| `IUIImgLoaderNode` | `lfw/ui/ui_img_loader.h:20-28`（`lfw()` / `set_image(Value)` / `resize(w,h)`） | **不需要 Godot**：端口内已有 `UINodeImgAdapter`（同文件 `:72`） |
+
+⚠ 两个容易踩的点：
+
+1. **`IClock` / `ITimeout` / `IRenderScheduler` 不走 `ILfwHost`**，走的是 `lfw::set_clock` /
+   `set_timeout` / `set_render_scheduler` 三个全局槽（`base/clock.h:31-46`、
+   `base/render_scheduler.h:21-25`）。WASM 宿主就是这么接的（W15「跨界只有两块：时钟 + 日志」）。
+2. **`IUINodeRenderer` 的"未移植"在类型上看不出来**：那些方法有默认空体，Godot 实现可以一行不写却
+   编得过 —— 所以"渲染面没搬"这件事只能靠**文档 + 机检**钉住，别指望编译器。
+
+### G2. 两种集成形态
+
+**(a) GDExtension（推荐）**：Godot 拥有进程与主循环，端口编成静态库 `lfw_core`
+（`native/lfw/CMakeLists.txt:1`）链进扩展，宿主在 `_process` 里驱动。
+
+- 同进程、同编译器的 C++ ABI ⇒ **不需要** W4 的函数指针表、W5 的命令缓冲、W8 的 `cb_id` 反向调用。
+  `ILfwHost` 就是普通虚接口；`IWorldRenderer::add_entity(Entity&)` 拿到的 `Entity&` 就是内存里的真对象
+  （在 WASM 里这恰恰是最贵的东西，见 W5 第一张表）。
+- 代价/含义：**已经为 WASM 做的 C ABI 工作在这一路径上一点用不上**（`native/host/wasm/lfw_platform.h`
+  那 12 槽表仍然是 WASM 的必需品，不是"跨宿主中间层"）。它的存在理由是**过边界**；边界在进程内时，
+  函数表只是白加一层。
+
+**(b) 进程外 / 命令流**：把 `native/host/wasm/lfw_platform.h` 那套（函数表 + 帧命令 + 反向回调）推广成
+"宿主语言无关的 C ABI"，Godot 侧只当消费者。只在**真需要进程隔离**（崩溃隔离、许可证）或想同时挂多份
+实现时才选；代价 = W4–W11 的全部复杂度 + 每帧过界一次。
+
+**建议 (a)**。真正要担心的不是过界，是 G3。
+
+### G3. 主循环所有权（唯一的真冲突）
+
+**端口事实**（已读）：
+
+- `LFW` 的**构造函数**里就自己起了世界：`native/lfw/lfw.cpp:246` `world_->start_update();`（下一行
+  `start_render()`）；`World::start_update` 在 `native/lfw/world.cpp:1104`。
+- 驱动它的是端口自己的 `Ticker`（`native/lfw/base/ticker.h:23`）。**但 Ticker 不会自己动**：它靠
+  `Ticker::schedule()` 里的 `clock_add` / `timeout_add`（`ticker.h:113-124`）排下一跳 ⇒ **槽是空的时候它
+  就是死的**（headless 的 `ManualClock::add→0` / `NoopTimeout::add→0`，`host/headless_host.h:20-34`，
+  于是台面手工推帧）。
+  ⇒ 准确的说法是：**端口"起了"自己的 Ticker，它是否"自驱"取决于宿主装不装时钟槽。**
+
+**已经踩过的坑**（README 原话记录）：`native/README.md:314` —— 「⚠ **一条必须记住的坑**：`LFW` 构造里会
+`world.start_update()` ⇒ **端口自己的 Ticker 也在推帧**。宿主要么**只**实现时钟槽、让 Ticker 自己走
+（`--live`），要么**只**手动调 `lfw_frame`（`--profile *`）；**两边都做 ⇒ 一帧走两步**（`lifetime` 翻倍）。
+手动模式才是与 `lfw_run` 对拍的那条路。」（W15 记了同一句。）
+
+⇒ **Godot 宿主规定**（等价于 `--profile` 手动模式）：
+
+1. **不装** `IRenderScheduler`（槽空 ⇒ `render_add` 回 0）。
+2. 装一个**固定步长的 `IClock`**：`now()` 只回"已推进的虚拟时间"，`add()` **回 0**（照抄
+   `ManualClock` 的形状，`host/headless_host.h:20-30`）；`ITimeout::add` 同样回 0。
+3. Godot 的 `_process(delta)` **只做一件事**：把 `delta` 累加进 accumulator，够一个步长就调一次
+   `World::update_once(step)`。**`delta` 与任何真实时间都不许进模拟** —— `now()` 只回虚拟时间，否则
+   一切从 `clock_now()` 派生的量（`Ticker`、`MersenneTwister` 播种…）都会漂。
+4. 绝不接 `Ticker` 的启动路径，也绝不把 `_process` 接到 `IRenderScheduler` 上 —— 那就是"两边都做"。
+
+**验收后果（硬指标）**：三条摘要与 MSVC `lfw_run` **逐位一致**，命令与值在
+`native/README.md:323-338`：
+
+```
+native\build\msvc-x64\bin\lfw_run.exe --root dist ^
+  --zip native\build\host-data\prel --frames 300 --every 300
+  ⇒ digest=7335aa25f4e1ce86（warns=0）
+
+… --zip native\build\host-data\prel --zip native\build\host-data\data ^
+  --fighter 1 --fighter 4 --stage 1 --frames 900 --every 900
+  ⇒ digest=e4a9437292047044（warns=1）
+
+… --zip native\build\host-data\prel --zip native\build\host-data\data ^
+  --stage 0 --fighter 1 --fighter 4 --vs --frames 600 --every 600
+  ⇒ digest=f29d3bb1ea330c32（warns=1）
+```
+
+（`digest` 口径见 `native/README.md:260`：「实体表（按 id 排序）的位置/血量/队/状态」的 FNV-1a。
+WASM 宿主已经用同一招证明过自己 —— `native/README.md:310`：**三条摘要与 MSVC 的 `lfw_run` 逐位一致**。）
+
+### G4. 渲染契约
+
+- `IWorldRenderer`（`lfw/world.h:61-68`）是**保留式**的：`add_entity(Entity&)` / `del_entity(Entity&)`
+  把**活对象**交给宿主，之后每帧只调一次 `render(dt)`，宿主**自己**去读实体当前状态。
+  这跟 Godot 的场景树天然同构（进世界 = 建节点、出世界 = 删节点、每帧遍历重读属性）⇒ 比 W5 那套"WASM 内
+  遍历、每帧攒一批绘制指令、JS 只读缓冲"**简单一档**（同进程 ⇒ `Entity&` 是同一块内存，不用序列化）。
+- **前置条件**：`IUINodeRenderer` 的**渲染面还没移植**（G1 那张表）。⇒ 顺序是
+  **先补端口、再写 Godot 渲染器**，不能反。DESIGN §7.2 的"依赖顺序"把这条与真 `IWorldRenderer`
+  绑成"**必须与第 8 步同刀**"（第 7 条），理由一样。
+- **契约必须引擎中立**，而且这件事是**可证伪**的：同一个接口现在已经有**两份**宿主实现在跑
+  （headless + WASM），`native/README.md` 的 DESIGN 摘录写着「WASM 宿主与它是**同一批接口的两个实现**，
+  不许互相依赖」（`DESIGN.md:1532`）。Godot 一来就是**第三份** ⇒ 只要有一份实现被迫写"只有 Godot 才需要"
+  的空函数，契约就已经被 Godot 化了。
+  落 Godot 特有需求时优先在 `native/host/godot/**` 里消化（组合 / 适配器）；接口只加**引擎通用**的缺口
+  —— 这类缺口至少要能说清"headless 与 WASM 分别怎么实现"，说不清就不是通用缺口。
+
+### G5. 字符串与内存
+
+- 核心重仓 `std::u16string`（UTF-16），`Value`（`lfw/core/value.h`）是 JS 值模型
+  （`Undefined/Null/Bool/Number/String/Array`，见 §9.1）。Godot 的 `String` 内部是 UTF-32（**需验证**）。
+- **规矩**：**只在边界转换**。
+  - Godot 的 `String` / `StringName` / `Node` 等引擎类型**不许出现在 `native/lfw/**` 的任何签名里**；
+  - **`Value` 永不过界**：不进 Godot API，也不由 Godot API 产出。`Value` 只活在 `native/lfw/**` 与
+    `native/host/**` 的接口之间（这正是"同进程"的最大红利，WASM 的 W7 得为此发明 scratch）。
+- 转换函数集中放 `native/host/godot/**`（一对 `u16 <-> Godot String` 的 helper），别散进业务代码。
+  转换要处理**非 BMP**（`char16_t` 代理对 ⟷ UTF-32 码点），这块得**真写测试**，不能靠"看着像"。
+
+### G6. 资源与 IO
+
+- 端口的**所有**文件/包访问都走 `ILfwHost`（`import_as_*` / `load_img` / `zip_*`）与 `IZip`/`IZipObject`
+  —— 核心自己**不碰 IO**（硬规则「零宿主 · 零 IO · 零线程 · 零异常 · 零 RTTI」（`native/README.md:29-44`）
+  把 `<filesystem>` / `<fstream>` / `<cstdio>` 全禁了）。
+- **两边的目录模型不一样**：
+  - 端口/headless：`--root <dist>` 下读 `builtin_data/…`；`--zip <目录>` 指的是**已经解开**的包目录
+    （`native/README.md:235-243`：`native\build\host-data\prel`、`native\build\host-data\data`）。
+  - Godot：`res://`（只读资源）/ `user://`（可写）/ 外部数据目录（需验证）三套模型，导出后 `res://`
+    在 pck 里（需验证）。
+- ⚠ **现在的 `native/host/fs_zip.{h,cpp}` 只是"目录当 zip 用"**：`fs_zip.h:15-17` 自述「只支持「已解包的
+  包」——压缩包本体（中央目录 / DEFLATE）留到宿主 zip 那一刀」；README 的偏差表也记着
+  （`native/README.md:436`：`host/FsZip` 只吃「已解包」的目录）。`image_bitmap` 明确拒绝
+  （`host/fs_zip.cpp:94-98`）。
+  ⇒ **真 zip 就在 Godot 这一刀换掉**（G7 第 5 行）；Godot 侧有现成的 zip 读法（候选 `ZIPReader`，
+  需验证），不必自己写 DEFLATE。
+- 数据怎么进宿主：WASM 那套是"JS 先灌 MEMFS，**端口零改动**"（`native/README.md:318-319`）。Godot 同款
+  思路：把**解包目录或 zip** 放到 Godot 读得到的地方，`FsZip` / 新的 zip 实现照旧按条目名读 ⇒ **核心零改动**。
+
+### G7. 逐个把假货换成真货
+
+端口现在那批"自认的假货"总账在 **§7.2「假货清单」**（K1–K4 四桶 + "省到贵"的依赖顺序 1–12），
+这里**不重复**，只列 **Godot 这一刀能顺手换掉、且能换出真货**的那些。每一行的"现状"都是**读过代码**的。
+
+| # | 假货（现状，已核对代码） | Godot 侧候选（需验证） | "done" 的判据 |
+|---|---|---|---|
+| 1 | **MD5**：`host/headless_host.cpp:146-147` 注释自认「⚠ 不是真 MD5：只保证「同输入同输出」」 | 需要一份 MD5（候选 `HashingContext`，需验证） | 与 `DittoImpl/md5.ts`（SparkMD5）**逐位一致** —— DESIGN 的 W11 表把 `md5` 标成"**必须逐位**"（`DESIGN.md:1529`，理由是 `ui_load_img.cpp:65-68` 用它拼图片 key） |
+| 2 | **sounds**：`host/headless_host.cpp:186-209` 只计数（`sounds_play` / `sounds_play_bgm` / `sounds_load`…）；`World::play_sound` 默认空转（§7.2 K2） | `AudioStreamPlayer` / `AudioStreamPlayer2D`（需验证） | `ILfwHost` 注释里那套语义（音量 clamp / 同值早退 / 变更发 `on_*_volume_changed`，`lfw.h:222-256`）落地；`sounds_play_bgm` 回一个**真能停** BGM 的闭包 |
+| 3 | **images**：`import_as_image_bitmap` 明确拒绝（`host/headless_host.cpp:318-324`）、`fs_zip.cpp:94-98` 同 | `Image` / `ImageTexture`（需验证） | `ui_image_load` 的 w/h/scale 口径对得上（`@nX` 缩放）；DESIGN 允许与 TS 有设备差，但**同设备同版本内必须稳定**（`DESIGN.md:1527`） |
+| 4 | **文本度量**：`measure_text` 近似（`host/headless_host.cpp:211`） | `Font` 度量（需验证） | 允许偏差（`DESIGN.md:1526`：允许字体/设备相关，**同设备同版本内必须稳定**）；`auto_size_by_text` 有 key 缓存（`uinode.cpp:176-201`），别每帧重算 |
+| 5 | **zip**：`FsZip` 只认解包目录、无 DEFLATE/中央目录（`host/fs_zip.h:15-17`、`native/README.md:436`） | zip 读取（候选 `ZIPReader`，需验证） | 真包（`dist/*.zip`）直接能装；`file_regex` 那 4 条固定模式（`lfw/ditto/zip/i_zip.h:33-56`）行为不变 |
+| 6 | **时钟/定时器**：`ManualClock::add→0` / `NoopTimeout::add→0`（`host/headless_host.h:20-34`） | **不换！** | 换真货 = 改成"固定步长 + 注入虚拟时钟"（G3 第 2/3 条），**不是**接 Godot 的真实时间 |
+| 7 | **光标**：端口能读出指针状态（`get_pointer_cursors`，`lfw/cmds/cmd_pointer_events.cpp:362-365`），但**渲染路径没有**（`MouseShadow` 那一支；§7.2 依赖顺序第 12 条也记着 `set_local_cursor` 要等光标渲染路径） | `TextureRect` / `Node2D` 画光标（需验证） | 跟 G4 的契约走：**先有 UI 渲染面，再谈光标** |
+
+⚠ **顺序约束**（照 §7.2 那张"省到贵"表）：真 MD5 是**真图片 / zip 键的前提**；`IUINodeRenderer` 与真
+`IWorldRenderer` **必须同刀**；sounds 与 images 排在渲染之后。**别按"哪条最容易"排期。**
+
+### G8. 切片与验收
+
+仓库的纪律（`native/README.md:178-190`）：`npm run native all` = configure → build → lint → test；
+**差分台面 + lint + 三条宿主摘要 + 文档**，四样齐了才算完。⚠ Godot 这一支**不许污染既有的
+`msvc-x64` 验收** —— 别把 Godot 的头文件路径塞进 `lfw_core` 的 `target_include_directories`。
+
+- **G1 骨架**（宿主立起来，**渲染用假/空实现**）：`native/host/godot/**` 建
+  `LfwGodotHost : ILfwHost, IResourcesHost`（**两个**接口，G1 的 ⚠ 第 1 条的兄弟项）；IO 走 Godot 文件
+  API（需验证）；`ManualClock` 同款虚拟时钟 + 固定步长（G3）；`IWorldRenderer` 先给计数版
+  （照抄 `NullWorldRenderer`，`host/headless_host.h:37-46`）。
+  **验收**：在 Godot 里复现 **G3 那三条摘要** —— 这是唯一能证明"宿主换对了"的硬指标。
+- **G2 绘制契约**：补端口 `IUINodeRenderer` 的渲染面（`native/lfw/ui/ui_node_renderer.h`，属 G0 允许的
+  "引擎通用缺口"）→ 写 Godot 的 `IWorldRenderer` / `IUINodeRenderer`。
+  **验收**：差分台面与 lint 不退化（`npm run native all`）+ 目视一帧 UI 与世界都画出来（**目视无自动化
+  判据，记"未定"**）。
+- **G3 音频/图片/zip/MD5/文本度量**：G7 那张表。
+  **验收**：MD5 与 `md5.ts` 逐位一致（可自动化）；zip 能装真包；**三条摘要仍逐位一致** —— 换宿主最容易
+  在这一步翻车。
+- **G4 `.gdextension` / 编辑器工作流 / 打包 / 热重载**：G2(b) 那个选项的真正存在意义也在这里（热重载、
+  进程隔离），需验证。
+  **验收**：导出模板里能跑起来；文档补一节"怎么在 Godot 里跑"（照 README 那几节的写法）。
+
+### G9. 风险与未知
+
+- **构建开关冲突（第一天就会撞上）**：核心是**零异常 / 零 RTTI**（`native/lfw/CMakeLists.txt:366-369`：
+  MSVC `/GR-` + `_HAS_EXCEPTIONS=0`，clang/GCC `-fno-exceptions -fno-rtti`；硬规则见
+  `native/README.md:29-44`）。Godot 自己的构建用不用异常/RTTI、与关掉这两个开关的 `lfw_core` 能不能混编
+  ⇒ **需验证**。先做这个实验，再排期。
+- **GDExtension 的 ABI/版本锁定与热重载**：需验证（对你打算用的 Godot 版本，确认 GDExtension 的兼容
+  承诺与绑定生成方式）。
+- **只编 `lfw_core`**：`native/lfw/CMakeLists.txt:1` 是 `add_library(lfw_core STATIC …)`，但同一套 CMake 的
+  `all` 里有 **117 个可执行文件**（`lfw_run` + 116 个 `lfw_trace_*`，`native/README.md:290`）⇒
+  **只编 `lfw_core`**，别把 117 个 target 拖进扩展构建。
+- **`_process` 抖动**：Godot 的帧率不是常数 ⇒ **绝对不能**用 `delta` 直接推世界（G3）。固定步长
+  accumulator 是唯一对拍得上的做法。
+- **线程 / 异步**：端口的装载面是**同步返回 + `Value` 传 blob/md5** 的形状（`zip_download` /
+  `zip_read_blob` / `import_as_*`，`lfw.h:259-288`、`resources.h:30-49`）⇒ Godot 侧**别真开线程**去做
+  解码/解压，保持同线程同步返回；否则 `Value` 与 `Entity&` 的借用期约定会被打破（W7 在 WASM 那边为
+  此定了很细的规矩，同进程时没必要再引入一次）。
+- **`is_desktop`**：`ILfwHost::is_desktop`（`lfw.h:171`，默认 `false`）在桌面 Godot 上应为 `true`
+  —— 启动页靠它隐藏操作提示（`lfw.h:164` 注释）。**别用默认值。**
+- **`now()` 与可复现性的张力**：`ILfwHost::now()`（`lfw.h:198`）给 `MersenneTwister` 播种
+  （`lfw.cpp:216` `_mt(host.now())`）。DESIGN 的 W11 表允许它取墙钟（`DESIGN.md:1524`），但一旦接
+  真时间，**摘要就不可复现** ⇒ 必须留一个"固定 `now()`"的开关（`lfw_run` 的对位是 `--time`，
+  `native/README.md:261-262`），且 G1 骨架的验收**必须**跑固定值那条。
+- **Godot 的输入语义 vs 端口的 `IUIEvent`**：端口里指针事件是被攒成命令的
+  （`cmds/cmd_pointer_events.*`，W10 讨论了"hit test 要不要搬"）。Godot 侧别在 `host/godot/**` 里**另做
+  一套命中测试**再去和端口的几何打架 —— 端口已经有几何与 `UINode::hit`（W10 的论证）。
+
+### G10. 机检
+
+G0 那条硬规则**已经有**一条机检在跑：`native/tools/check_lfw_cpp_includes.mjs`（入口
+`npm run native lint`，`native/README.md:46`）。它按白名单检查 `native/lfw/**` 的 `#include`，
+禁表里已有 `filesystem` / `fstream` / `iostream` / `thread` / `chrono` / `regex` / `windows.h` 等
+（`check_lfw_cpp_includes.mjs:26-54`），并额外禁 `throw/try/catch/typeid/dynamic_cast`
+（同文件 `:61-67`）。
+
+**它现在抓不到 Godot**，而且是**只在一种写法上漏**（读过代码）：
+
+- 任何**尖括号**形式的非白名单头（`<godot_cpp/…>`、`<emscripten.h>`、`<SDL.h>`）都会落到
+  `is not whitelisted` ⇒ **报错**（`check_lfw_cpp_includes.mjs:127-136`）。所以这几种是**已经被挡住**的。
+- **引号**形式只检查"解析后有没有跑出 `native/lfw`"（同文件 `:140-146`，`escapes native/lfw`）
+  ⇒ `#include "godot_cpp/godot.hpp"` 从 `native/lfw/ui/` 解析成 `native/lfw/ui/godot_cpp/godot.hpp`，
+  **仍在 `native/lfw` 里 ⇒ 静默通过**。这是唯一的洞，也正是最可能被写出来的那种写法。
+
+⇒ **要加的检查**（**加在 `check_lfw_cpp_includes.mjs` 里**，不新建脚本文件名 —— `native/tools/` 下现有
+17 个脚本，这个是 include 规则的既有归属）：给引号分支加一份"**显式点名**"的目标名规则，命中即 error，
+报错信息直接引用硬规则：
+
+- 目标名以 `godot_cpp/` 开头 ⇒ `platform implementation must live in native/host/godot (README 硬规则)`；
+- 目标名等于 `emscripten.h` ⇒ 同上（`native/host/wasm`）；
+- 目标名匹配 `/^SDL/i` ⇒ `platform implementation must live in native/host`；
+- 顺带把尖括号侧 `windows.h` 那条从"精确文件名"放宽成 `/^windows/i`（`<Windows.h>`、`<windowsx.h>`）。
+
+判据：`npm run native lint` 仍然 **0 failed**（现在 `native/lfw` 是干净的）；加完规则后故意写一行
+`#include "godot_cpp/godot.hpp"` 应当**报错**。
+
 ## 9. `Value` / 解析 / 装载层的现行要点
 
 ### 9.1. `Value`
