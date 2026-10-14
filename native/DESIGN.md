@@ -11931,3 +11931,92 @@ XmlReader reader(strip_comments(text));   // :242  ← `strip_comments` **按值
 coverage OK；宿主三条摘要**逐字节不变**（`7335aa25f4e1ce86` / `e4a9437292047044` /
 `f29d3bb1ea330c32`）—— 本刀零端口改动，三条都是**一次通过**，也再次佐证 §149.20 的修复成立。
 
+### 149.22 「假货清单」（切片 4D3）—— 按「改真货」的可行性分级
+
+起于「各种假货要改真货」。一次全仓盘点（端口 `native\lfw\**` + 宿主 `native\host\**` + 台面
+`native\tests\differential\**`，对位 TS 是 `src\LFW\**` / `src\DittoImpl\**`）按四类分桶：
+
+**K1 端口里「只为台面存在」的钩子**（最多的一堆；覆写者**只在** `native\tests\**`）
+
+- `ui\uinode.h:189-190` `virtual bool disabled()`、`:266` `virtual void update(double)` —— 注释自己写着
+  「`virtual` 只为台面脚本化」；TS 对位 `UINode.ts:254/721`；**全仓唯一的 `UINode` 子类**是台面的
+  `fx::FakeUi`（`subjects\world.cpp:207-209`）。
+- `world.h:123` 的 7 个宿主面（`bg_dataset` / `stage_value` / `bg_value` / `entity_count` /
+  `puppets_values` / `gen_field` / `play_sound`）、`world.h:172/194/196/213/232/251`（`game_time` /
+  `world_stage` / `bg_value` / `del_entities` / `add_entities` 一族 / `find_entity` / `on_step_error`）
+  —— 覆写者 `TestWorld`（`world_fixture.h:426-529`）与 `camera.cpp:51` / `helpers.cpp` / `stage.cpp:604`。
+- `entity.h:157/176/181/214-216`（`set_outline_color_raw` / `mounted` / `set_reserve` / `set_name` /
+  `set_stat_bar` / `set_dead_gone`）+ ~30 个 `virtual` 取值面；覆写者 `stage.cpp` / `buff.cpp` /
+  `entity_fixture.h`。
+- `lfw.h:470/478-483`（`regist_keys` / `recycle_keys` / `resources` / `load_img` / `warn` / `error`）。
+- 只读观测面（非虚）：`world.h:175/264/272`、`uinode.h:87`。
+- **关键性质**：这些**不能单独删**（删了台面覆写就编译不过）⇒ 只能「真宿主建起来之后**顺带**退掉」。
+  反例（**不是**假货）：`ui_component.h:101 update()` 有 45 个**真**组件覆写、`ui_event.h:17 stopped()`
+  有真实现。
+
+**K2 空转/桩的真实现**（每条挂 TS 对位，看真实现多大）
+
+- `ui_component.h:125-129` `debug/warn/log` 空转 + `make_debugging` **未移植**（全仓只在注释
+  `ui_component.h:36` 里出现）⇒ TS 对位 `UIComponent.ts:53-57` + `base\Debugging.ts:10-29`（装真
+  `Ditto.debug/warn/Log`）；今天调用点已被改道走 `lfw().warn(...)`（`move_table_logic.h:36`）。**S**（~30 行）
+- `headless_host.cpp:146` `md5`（注释自认「不是真 MD5」）⇔ `DittoImpl\md5.ts`(19)；`ui_load_img` 的键用它。**S**
+- `sounds_play*`（`headless_host.cpp:191-205` 只计数）+ `world.cpp:142` `play_sound` 默认空转 ⇔
+  `Sounds.ts`122 + `Modern.ts`307 + `Fallback.ts`171。**L**
+- `NullWorldRenderer`（`headless_host.h:37-46` 只计数）⇔ `WorldRenderer.ts`392 + `EntityMainRender.ts`757。**L**
+- `ManualClock::add→0` / `NoopTimeout::add→0`（`headless_host.h:20-34`）⇔ `Clock.ts`33 / `Timeout.ts`9 /
+  `Interval.ts`9 ⇒ `Ticker` 不自驱、台面手工推帧。**S–M**
+- `IUINodeRenderer` 渲染面未移植（`ui_node_renderer.h:9`）；`create_ui_node_renderer` 默认 **nullptr**
+  （`lfw.h:179-182`，`uinode.cpp:106` 用它）⇔ `UINodeRenderer.ts`530。**L**
+- `image_bitmap` 明确拒绝（`fs_zip.cpp:94-98`）+ `import_as_image_bitmap`（`headless_host.cpp:318-324`）⇔
+  `ImageMgr.ts`404 + `handle_image_operation.ts`67。**L**
+- `FsZip` 只认**解包目录**、无 DEFLATE/中央目录（`fs_zip.h:15`）⇔ `DittoImpl\Zip.ts`154。**M**
+- `measure_text` 近似（`headless_host.cpp:211`）⇔ `ImageMgr` / `TextMesh.ts`276（`UINode.ts:438/470` 用）。**M**
+- 细项：`dat_mgr.cpp:227` 跳过逐地形告警、`preprocess_entity_data.cpp:264` 不收集错误、
+  `fighter_thumb.h:16` `on_show` 桩（等未移植的 `PlayerScore`）、`cmd_f.h:9`、`world.h:135 gen_field`。**S–M**
+
+**K3 台面假件**（`native\tests\differential\subjects\**` —— 17 个类跨 11 个 subject **已经派生真类**，
+退役缝的老配方已是常态）
+
+- `bench::FakeComp`（`lfw.cpp:844`，经**真** `Factory::register_component` 注册）派生真 `ui::UIComponent`
+  ⇒ **换成真组件**即可解锁 §149.21 记的两条够不到分支；`FakeUINodeRenderer`（`lfw.cpp:1021`）实现
+  `IUINodeRenderer`（全空默认）。
+- `FakeLfw`（`world_fixture.h:151` 等 6 处）派生真 `LFW` 但覆写 ~50 面；`TestWorld` / `FakeWorld` /
+  `FakeStageWorld` 派生真 `World`。
+- **从头实现**（不是派生）：`FakeHost : IResourcesHost`（`dat_mgr.cpp:116` / `resources.cpp:129`）、
+  `FakeZip` / `FakeZipObject` / `LoadZip*`（`zip_mgr.cpp:53` 等）⇒ 真货分别是 `HeadlessHost` 与 `FsZip`；
+  `FakeRenderer` / `QuietRenderer` 实现 `IWorldRenderer`（要真渲染器，L）。
+- TS 侧的对象字面量假 `lfw`（`bot.ts:148` / `collision_handlers.ts:71`）与 8 处 `Ditto.setup({...})`
+  用的是**真扩展点**（`Instance.ts:79`）⇒ 属「诚实的平台注入」，不列进待退名单。
+
+**K4 真·宿主边界**（别当假货改）：`ILfwHost`（`lfw.h:135`，~80 纯虚）、`IWorldRenderer`、
+`IUINodeRenderer`、`IPlayerInfoHost`、`IResourcesHost`、`IClock`/`ITimeout`、`IRenderScheduler`、
+`ITickerOptions`、`IXML`/`IXMLElement`、`IZip`/`IZipObject`、`ditto` 包。headless 实现分三档：
+**忠实的什么都不做**（`images_init` / `keyboard_init` / `pointings_*` / `*_dispose`，`headless_host.h:83-160`）、
+**偷工减料**（就是 K2 那张表）、**忠实且完整**（`IXML` 293+517 行 vs TS 274+62、JSON/JSON5、文件 I/O、
+`FsZip` 索引）。
+
+**依赖顺序（省到贵，括号=成本）**
+
+1. `make_debugging`（S）—— 恢复真 `Ditto.debug/warn/Log` 路由，把改道过的告警归位。
+2. 真 MD5（S）—— 抹掉一条自认的谎；真图片/zip 键的前提。
+3. 真 `IClock`/`ITimeout`/`IRenderScheduler`（S–M）—— `Ticker` 自驱，台面不必手推帧。
+4. 真 `IPlayerInfoHost` 缓存（S，`HeadlessHost` 已有真实现）—— 删掉 `FakePlayerHost` 及其 K1 覆写。
+5. 真 `IZip`（DEFLATE + 中央目录，M）—— 与第 10 步配对，`FakeZip*` 才能退。
+6. `IXML` 根元素 `data`（S–M）—— `resources.h:18-46` 自己记了「脚本化标记」的偏差。
+7. `IUINodeRenderer` + 真 `UINodeRenderer`（L）—— **必须与第 8 步同刀**；之后 `UINode::update` 才不必是虚。
+8. 真 `IWorldRenderer`（L，新子系统）—— **必须早于「台面用真组件」**；退掉 `FakeRenderer`/`QuietRenderer`，
+   `add_entities`/`del_entities` 这些钩子才可能真。
+9. sounds 宿主（L）—— 退掉 sounds 那一簇与 `World::play_sound` 默认。
+10. images（L）—— 在第 5+8 步之后；退掉 `import_as_image_bitmap`/`ui_image_load`/`measure_text`。
+11. 批量退 K1 钩子（各 S）—— 顺序**被迫**：只要台面还在覆写，`virtual` 就摘不掉。
+12. 台面换真组件（S–M，在第 7/8 之后）—— 替掉 `bench::FakeComp`，让 `POINTER_DOWN/UP` 的
+    `event.stopped()` 早退与 `KEY_EVENT` 的 `stage.control_disabled` 可真覆盖；`set_local_cursor`
+    还要等光标渲染路径（`CursorRender.ts` 250）⇒ 在第 8/10 之后。
+
+**本刀已复核**（抽查）：`ui_component.h:125-129` 三个空转 ✓；`make_debugging` 全仓只出现在注释
+`ui_component.h:36` ✓（⇒ 确实未移植）；`headless_host.cpp` 的 `md5` 注释自认「不是真 MD5」✓；
+`create_ui_node_renderer` 默认 `nullptr`（`lfw.h:179-182`）✓；`FakeComp` 派生真 `UIComponent` 且经真
+`Factory::register_component` 注册 ✓。
+
+**未复核（清单自注）**：`entity.h` 那 ~30 个 `virtual` 取值面只**抽样**追踪了「只在测试里覆写」，
+没逐条核过；sounds/images 的规模是按 LOC 估的，没逐行读实现。
