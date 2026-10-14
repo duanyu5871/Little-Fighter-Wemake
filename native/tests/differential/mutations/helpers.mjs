@@ -446,8 +446,8 @@ export default {
     },
     {
       note: "Keys.time：不读 world.lifetime",
-      file: "native/lfw/keys.h",
-      from: `  double time() const { return _lfw->lifetime(); }`,
+      file: "native/lfw/keys.cpp",
+      from: `double Keys::time() const { return _lfw->lifetime(); }`,
       to: `  double time() const { return 0.0; }`,
     },
   ],

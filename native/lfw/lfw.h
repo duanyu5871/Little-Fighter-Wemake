@@ -290,13 +290,12 @@ class ILfwHost {
 // TS `src/LFW/LFW.ts`（门面）。
 //
 // 本刀（4AB）范围：静态面 / 构造 / 玩家 / 按键 / 作弊码 / 命令与广播 / 语言 / 生存排行字段 /
-// 宿主缝实现（`IKeysLfw` / `IResourcesHost` / `IPlayerInfoHost` /
+// 宿主缝实现（`IResourcesHost` / `IPlayerInfoHost` /
 // `IResourcesHost` / `IPlayerInfoHost`）/ `end_testers` 编译。
 // **下一刀（4AC）**：`load` / `load_data` / `load_ui` / `load_builtin_ui` / `_load_zip_*` /
 // `_pick_zip_info` / `collect_data_infos` / `dispose_guard` 等加载流程。
 class LFW : public IResourcesHost,
-            public IKeysLfw,
-            public IPlayerInfoHost,
+                      public IPlayerInfoHost,
             public LfwKeyboardCallback {
  public:
   static constexpr const char* TAG = "LFW";
@@ -467,13 +466,14 @@ class LFW : public IResourcesHost,
   void ui_changed(ui::UINode* curr, ui::UINode* prev);
 
   Keys* create_keys();
-  void regist_keys(Keys& keys) override;
-  void recycle_keys(Keys& keys) override;
+  // 切片 4CW（ck9）：`IKeysLfw` 退役（真实现本来就是本类）⇒ 这三条是本类的方法，
+  // `virtual` 只为台面脚本化。
+  virtual void regist_keys(Keys& keys);
+  virtual void recycle_keys(Keys& keys);
   collision::Collision* acquire_collision();
   void recycle_collision(collision::Collision* c);
 
-  // ---- IKeysLfw ----
-  double lifetime() override;
+  virtual double lifetime();
 
   // ---- `DatMgr` 的宿主面（4CQ：`IDatMgrHost` 退役后并入本类；`virtual` 供台面覆写）----
   virtual Resources& resources() { return *resources_; }

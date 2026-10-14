@@ -5681,3 +5681,13 @@ harness op：
 - ⚠ 构造假实体同样走「静音世界」（真 `LFW` + 不打日志的 renderer），理由见 6.9.194。
 - ⚠ 记录一笔踩坑：**给真类加虚函数后必须全量清 obj 重编** —— `build.ninja` 没有头依赖，旧 TU 的
   vtable 布局与新 TU 不一致，症状是台面进程 `0xC0000005`、差分报「C++ failed」（**不是** diff）。
+
+### 6.9.196 `IKeysLfw` 退役 ⇒ 台面假件派生真 `LFW`（4CW）
+
+- `IKeysLfw`(3 面：`lifetime` / `regist_keys` / `recycle_keys`) 已删除 —— `LFW` 本来就是真实现。
+  `Keys` 现在持真 `LFW*`；想脚本化 `Keys` 看出去的 `lfw` 面，就**派生真 `lfw::LFW`**
+  （见 `subjects/helpers.cpp` 的 `FakeKeysLfw`：`lifetime()` / `regist_keys` / `recycle_keys`）。
+- ⚠ `keys.h` 只前置声明 `LFW` ⇒ `Keys::lfw()` / `Keys::time()` 的**体在 `keys.cpp`**（那里 include
+  `lfw/lfw.h` 与 `lfw/world.h`）。新增「持有 `LFW*` 的头」时照此办理（同 `stage.h` 的 4CO 处理）。
+- ⚠ `keys.h` 里那句「`LFW` 未移植 ⇒ 宿主缝」曾是**过期注释**，害得 `IKeysLfw` 被误记成「待移植」；
+  判断某条缝该不该退，先看真类有没有现成的实现，别信注释。

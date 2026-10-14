@@ -1,7 +1,7 @@
 // `helper/` 家族 + `Keys` + `JoinQueue` 的 C++ 侧台面，op 与 `subjects/helpers.ts` 一一对应。
 //
 // 实体是真的 `Entity`（挂 `fx::shared_world()`：`on_add_entities` 钩子出 `attach|<id>|<team>`
-// 日志，对应 TS 侧假件 `attach()` 的日志）；`lfw.*` 那几族缝（4CO 退役，假件派生真 `LFW`）与 `IKeysLfw`
+// 日志，对应 TS 侧假件 `attach()` 的日志）；`lfw.*` 那几族缝（4CO/4CW 退役，假件派生真 `LFW`）与
 // 全是脚本化假件。`mt` 固定种子 12345。
 //
 // op 一览：
@@ -177,8 +177,16 @@ class FakeLfw : public lfw::LFW {
   }
 };
 
-class FakeKeysLfw : public lfw::IKeysLfw {
+// 切片 4CW（ck9）：`IKeysLfw` 退役 ⇒ 假件改成**派生真 `lfw::LFW`**，覆写面一字不改。
+class FakeKeysLfw : public lfw::LFW {
  public:
+  FakeKeysLfw() : lfw::LFW(fx::shared_stub_host(), false) {
+    // 与其它假件同口径（DESIGN §149.2）：真 `LFW` 的构造会跑 `regist_buffs()` 等表级登记。
+    lfw::Factory::buff_groups().clear();
+    lfw::Factory::buff_creators().clear();
+    lfw::Factory::components().clear();
+  }
+
   double lifetime() override {
     push("lifetime");
     return 33.0;

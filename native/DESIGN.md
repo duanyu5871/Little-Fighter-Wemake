@@ -11650,6 +11650,39 @@ stage 1 900 = `e4a9437292047044`、`--vs` 600 = `f29d3bb1ea330c32` —— 三条
 `IPlayerInfoHost`、`IXML`/`IXMLElement`、`IBuffCreator`/`IComponentCreator`/`ICtrlCreator`、
 `IExpression`、`IUIEvent`、`IUIImgLoaderNode`、`IState`、`ITickerOptions`。
 
-**功能欠账（不是退役）**：`IKeysLfw`(3) —— `LFW` 的 keys 面还没实现，得真写出来；`LFW::keys` 的
-消费者目前由宿主回答。
+### 149.13 `IKeysLfw` 退役（切片 4CW / ck9）—— 缝家族**真正**收官
+
+⚠ 先更正一条：`IKeysLfw` 一直被记成「没有真实现 ⇒ 属待移植」，其实 `LFW` **早就实现了全部三面**
+（`lifetime()` → `world_->lifetime()`、`regist_keys` 带 TS `array_del` 的怪癖、`recycle_keys`），
+`keys.h` 里那句「`LFW` 未移植 ⇒ 宿主缝」是过期注释。所以这一刀仍是**纯重构**：
+
+- 删 `IKeysLfw`；`Keys` 改持真 `LFW*`（`keys.h` 只前置声明 + `LFW& lfw() const` / `double time() const`
+  声明，两个体搬进 `keys.cpp`，那里 include `lfw/lfw.h` 与 `lfw/world.h`）；`time()` 就是 TS 的
+  `lfw.world.lifetime`（端口拼写 `_lfw->lifetime()`，`virtual` ⇒ 台面可脚本化）。
+- `LFW` 的基类列表去掉它；`regist_keys` / `recycle_keys` / `lifetime` 变本类方法并补 `virtual`
+  （台面假件要覆写）。
+- 台面 `subjects/helpers.cpp` 的 `FakeKeysLfw` 从「实现窄缝」改成**派生真 `lfw::LFW`**
+  （宿主用 `fx::shared_stub_host()`；按 4CP 的教训清空 `Factory` 全局表），覆写的三面一字不改、
+  返回值也一致（`lifetime()` 仍回 33.0）⇒ 输出逐字节不变。
+- 变异锚点：`helpers.mjs` 的「Keys.time：不读 world.lifetime」跟着换文件与文本（体从 `keys.h`
+  搬到 `keys.cpp`）。
+
+实测（纯重构）：差分 **255/255**；锚点 **9764 ok / 0 bad**；include 835 clean / 0 failed / 9 warnings；
+coverage OK；宿主三条摘要**逐字节不变**。
+
+### 149.14 缝家族总账（收官）
+
+**已删除的窄缝**（18 族）：`IBuffEntity`、`IActionEntity`、`IFrozenEntity`、`IHandlerEntity`、
+`IStateEntity`、`IEntityHost`、`ICameraWorld`、`IWorldLfw`、`IStageLfw`、`IHelperLfw`、
+`IUiHelperLfw`、`IUiLayers`、`IWorldUi`、`IStageWorld`、`IItemHost`、`IDatMgrHost`、`IStageEntity`、
+`IItemEntity`，外加 `IKeysLfw`。`stage/entity_item.h` 整个文件消失，`WorldStageView` /
+`StageEntityView` / `EntityItem` / `UiAdapter` 这些适配器一并删除。
+
+**仍在册的都是真·宿主/平台边界**：`ILfwHost`（TS 的 `Ditto` 包：sounds/images/keyboard/pointings/
+zip/renderer）、`IWorldRenderer`、`IPlayerInfoHost`、`IXML`/`IXMLElement`、`IBuffCreator` /
+`IComponentCreator` / `ICtrlCreator`、`IExpression`、`IUIEvent`、`IUIImgLoaderNode`、`IState`、
+`ITickerOptions`。
+
+**已知功能欠账（与缝无关）**：`lfw.players` 玩家表（`World::player_value` 目前回空 `Value`）、
+渲染/音频的宿主实现、以及 TS 侧尚未搬的其它模块。
 
