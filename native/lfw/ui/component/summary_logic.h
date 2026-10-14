@@ -65,11 +65,17 @@ class SummaryLogic : public UIComponent {
   Entity* entity_of(const Value& ref);
   static std::u16string data_id_of(const Entity& e);
 
+ protected:
+  // emscripten: 派生类的监听器（`danmu_game_logic.cpp` 里那几个 lambda）要写出这两个
+  // payload 类型。MSVC 放行「从派生类里用基类的 private 别名」，clang 拒绝
+  //（error: 'ValuePayloads' is a private member of 'lfw::ui::SummaryLogic'）⇒ 移到
+  // protected（只放宽可见性，不动行为）。
+  using ValuePayloads = NoEmitCallbacksT<Value>::Payloads;
+  using WorldPayloads = NoEmitCallbacksT<WorldCallbackArgs>::Payloads;
+
  private:
   using ValueListener = NoEmitCallbacksT<Value>::Listener;
-  using ValuePayloads = NoEmitCallbacksT<Value>::Payloads;
   using WorldListener = NoEmitCallbacksT<WorldCallbackArgs>::Listener;
-  using WorldPayloads = NoEmitCallbacksT<WorldCallbackArgs>::Payloads;
 
   struct WorldListenerT : WorldListener {
     explicit WorldListenerT(SummaryLogic* o);

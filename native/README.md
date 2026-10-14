@@ -110,7 +110,7 @@ C++ 侧映射成 `std::optional` 的 `nullopt`。
 native/
   CMakeLists.txt                     确定性开关（FMA / 异常 / RTTI）
   CMakePresets.json                  msvc-x64 / wasm
-  cmake/toolchains/emscripten.cmake  WASM（⚠ 未验证，需要 emsdk）
+  cmake/toolchains/emscripten.cmake  WASM（已验证：编出 liblfw_core.a；见「WASM 构建」节）
   lfw/                               ★ 纯核心
     core/                            JS 语义地基（TS 侧无对应物）
       js_num.{h,cpp}                 js_round / js_to_uint32 / f64_bits
@@ -269,6 +269,27 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
 （`--dump` 会打印各表前两条与全部 id，挑 `--fighter` / `--stage` 用。）
 
 ---
+
+## WASM 构建（已验证）
+
+端口核心能编成 wasm：`lfw_core` 编过 **0 错误**（62 s / `-j 16`），产物 `native/build/wasm/lfw/liblfw_core.a`
+**19.3 MiB**（357 个成员）。需要 emsdk（本机装在仓库外 `%USERPROFILE%\emsdk`，SDK 6.0.12 / clang 24）。
+
+```
+cd native
+# 先让 emcc 在 PATH 上（emsdk_env.bat，或手写 PATH 加上 emsdk 与 upstream\emscripten）
+cmake --preset wasm
+cmake --build build\wasm --target lfw_core -j 16     # ⚠ 必须限定 target
+```
+
+⚠ **一定要带 `--target lfw_core`**：这个预设的 `all` 里有 **117 个可执行文件**（`lfw_run` + 116 个
+`lfw_trace_*`），不限定就会去链 117 个 wasm 可执行文件（未验证，且不是这一阶段要的东西）。
+
+两条已知前提（都已落进 `cmake/toolchains/emscripten.cmake`）：VS 捆绑的 CMake **没有**
+`Modules/Platform/Emscripten.cmake` ⇒ 工具链文件改为优先 `include` emsdk 自带的那份（拿不到才退回手写设置）；
+`-msimd128=off` clang 不认 ⇒ 改成 `-mno-simd128`。**链接期开关仍是空白**：`-sMODULARIZE` /
+`-sALLOW_MEMORY_GROWTH` / `-sEXPORTED_FUNCTIONS` 这些要等真链接（写 JS 宿主那一步）再定，见 DESIGN
+「宿主层与 WASM 对接设计」W12。
 
 ## 验收：宿主三条摘要（改完必跑）
 
