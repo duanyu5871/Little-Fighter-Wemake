@@ -12,6 +12,19 @@ config/features=PackedStringArray("4.7")
 
 paths=["res://lfw_godot.gdextension"]
 
+[display]
+
+; 逻辑视口就是数据里的 `dataset.screen_w × screen_h`（794×450）⇒ 窗口默认按它开，
+; 1 世界单位 = 1 像素（截图出来的 PNG 也就是 794×450，不需要再裁）。
+; ⚠ 截图（`--screenshot`）必须**不加** `--headless`：headless 没有渲染，视口纹理是空的。
+window/size/viewport_width=794
+window/size/viewport_height=450
+
+[rendering]
+
+; 世界之外的底色（背景层没盖住时看到的就是它）。
+environment/defaults/default_clear_color=Color(0.06, 0.07, 0.1, 1)
+
 [debug]
 
 ; headless 验收要拿得到完整输出：Godot 的 print / 引擎报错都写一份到 user://

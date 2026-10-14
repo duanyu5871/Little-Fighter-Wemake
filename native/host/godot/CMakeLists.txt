@@ -31,6 +31,8 @@ add_subdirectory("${LFW_GODOT_CPP_DIR}" godot-cpp)
 add_library(lfw_godot SHARED
   lfw_godot_host.cpp
   lfw_godot_node.cpp
+  lfw_godot_renderer.cpp
+  lfw_godot_textures.cpp
   register_types.cpp
 )
 

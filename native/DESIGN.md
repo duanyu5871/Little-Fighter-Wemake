@@ -1862,8 +1862,10 @@ WASM 宿主已经用同一招证明过自己 —— `native/README.md:310`：**�
 - **G1 骨架**（宿主立起来，**渲染用假/空实现**）：`native/host/godot/**` 建
   `LfwGodotHost`（`HeadlessHost` 的**子类** ⇒ 复用装载 / `IZip` / 存档 / XML / `import_as_*` 那批
   源文件；**这一刀没走 Godot 文件 API**：数据仍由 `FsZip` 按目录名读，同 §G6 的口径）+
-  `LfwGodot : Node`（命令行 → `host/common/lfw_boot.h` 的共享装配 → §G3 的固定步长推帧 → 摘要）。
-  虚拟时钟 + 固定步长（G3）；`IWorldRenderer` 就是 `HeadlessHost` 的 `NullWorldRenderer`（计数版）。
+  `LfwGodot : Node`（第二半起改成 `Node2D`，为的是 `_draw()`；命令行 → `host/common/lfw_boot.h` 的
+  共享装配 → §G3 的固定步长推帧 → 摘要）。
+  虚拟时钟 + 固定步长（G3）；⚠ `IWorldRenderer` 当时就是 `HeadlessHost` 的 `NullWorldRenderer`（计数版）
+  —— **G2 第二半已把它换成会画的那一份**（`LfwGodotHost::create_world_renderer`）。
   **验收**：✅ **已落定** —— Godot 4.7.1 headless 里三条摘要与 `lfw_run` **逐位一致**
   （`7335aa25f4e1ce86` / `e4a9437292047044` / `f29d3bb1ea330c32`；连 `warns` / `ignored_images` /
   `renderer(±)` / `clock=` 也对得上）。跑法见 `native/README.md`「Godot 宿主」。
@@ -1872,9 +1874,19 @@ WASM 宿主已经用同一招证明过自己 —— `native/README.md:310`：**�
   扩展**不写进 `.godot/extension_list.cfg` 就静默不加载**（首跑要 `<godot> --headless --import`）。
 - **G2 绘制契约**：端口 `IUINodeRenderer` 的渲染面**已补齐**（`native/lfw/ui/ui_node_renderer.h:32-70`，
   属 G0 允许的"引擎通用缺口"；调用点在 `world.cpp` 的 `render_ui_layers`）→ 剩写 Godot 的
-  `IWorldRenderer` / `IUINodeRenderer`。
-  **验收**：差分台面与 lint 不退化（`npm run native all`）+ 目视一帧 UI 与世界都画出来（**目视无自动化
-  判据，记"未定"**）。
+  `IUINodeRenderer`。
+  - **第二半（世界那一遍）已落定**：`native/host/godot/lfw_godot_renderer.{h,cpp}`（`IWorldRenderer`
+    的实现：帧级上下文 + 逐实体 + 逐背景层 → **引擎无关**的绘制项）+ `lfw_godot_textures.{h,cpp}`
+    （资源字节 → `Image::load_png_from_buffer` → `ImageTexture` 缓存）+ `LfwGodot : Node2D` 的
+    `_draw()`（唯一一处 `draw_*`）。**真图**：`files[tex]` 的变体表 + `get_import_fallbacks` 的 `@Nx`
+    回退解析出条目名，字节经 `FsZipObject::read` 从数据包读（`image_bitmap` 那条拒绝路**没动**，
+    核心一个字节都不碰）；三份 bg/角色/影子都是**贴了图的**（`textures=18 ok/0 fail`）。
+    次序照 `WorldRenderer.render_layers`（背景层 → 影子 → 实体按组 z 远→近 → 前景层）。
+  - **验收**：差分台面与 lint 不退化（`npm run native all`）+ **三条摘要逐位不变**（渲不渲染都不许动
+    模拟：`7335aa25f4e1ce86` / `e4a9437292047044` / `f29d3bb1ea330c32`，`renderer(±)` / `ignored_images`
+    也逐位相同）+ **目视**：`--screenshot <png> --shot-frame N`（窗口跑，别加 `--headless`）存一张
+    794×450 的图 —— 见 `native/README.md`「截图」。⚠ 目视仍**无自动化判据**（"画得对不对"这一条
+    记**未定**）；没画的：3D 模型帧、名字/血条、调试指标层、`greyscale`、逐图旋转、UI 那一遍。
 - **G3 音频/图片/zip/MD5/文本度量**：G7 那张表。
   **验收**：MD5 与 `md5.ts` 逐位一致（可自动化）；zip 能装真包；**三条摘要仍逐位一致** —— 换宿主最容易
   在这一步翻车。
@@ -2185,11 +2197,9 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
 声明**哪些数据与语义、宿主**只许**拿这些去光栅化，边界落在哪。
 
 **一句话结论**：契约 = **每帧一份记录**（帧级上下文 + 逐实体 + 逐 UI 节点）**加上每条字段的语义**；
-宿主只做"把数据变成像素"。这份契约今天**只落在纸面上**：三份在册宿主（headless / WASM / 上一节
-那份）**一份都不画**（S1 第一段），唯一在跑的录制实现（`native/host/thin/**`）证明的是**字段面**
-（缺哪个字段、哪个字段端口里根本没有），而且**只证明到字段这一层** —— 它今天两条档位都跑过
-（`dfactor ≡ 1` 与 `0 < dfactor < 1`，D1(c)），但那两个比例与插值那一对是**宿主自己算的**，
-"画得对不对"仍要第二份实现的目视。
+宿主只做"把数据变成像素"。这份契约里**世界那一遍已经有第二份、而且是会画的实现**
+（`native/host/godot/lfw_godot_renderer.{h,cpp}`：`host/thin/**` 只证字段面，它证"画得出来"，还带一张
+794×450 的截图），**UI 那一遍仍然一份都没有**（三份在册宿主的 `create_ui_node_renderer` 都回空）。
 
 **读法**：下文每条"端口事实"都给了 `path:line`，都是从本仓库读出来的；TS 对位同样给行号。凡
 **这个仓库读不出来**的（引擎/库自己的 API、字体度量、位图解码格式）一律标 `需验证`。
@@ -2209,8 +2219,10 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
 | **谁说了算** | 模拟与布局、命中测试、焦点、时钟语义**一律在核心**；字体度量、图片解码、缩放与设备像素**在宿主**（W11 那张表已经分过账，这里不重列） |
 
 ⚠ **没有实现就没有证据**：`IWorldRenderer` 只有 4 个成员（`lfw/world.h:61-68`），`IUINodeRenderer`
-的渲染面**已建形、调用点也在核心**（D4），但**一份会画的实现都没有** ⇒ "契约写得对不对"今天唯一能
-拿到的证据，是 `native/host/thin/**` 在真装配、真数据下落下来的那串记录（S7 的 S1 切片）。
+的渲染面**已建形、调用点也在核心**（D4）——**世界那一遍**现在有一份会画的实现（Godot 宿主，
+`native/host/godot/lfw_godot_renderer.{h,cpp}`；它按下面这张表逐条落，产物是一张 794×450 的 PNG），
+**UI 那一遍**仍然一份都没有；"契约写得对不对"今天能拿到的证据是：`host/thin/**` 的字段面 +
+Godot 那一份的画面。
 ⚠ **别把它读成"字段清单"**：录制器的字段表是**探针**，不是契约的上限（D3 末尾那条）。
 
 ### D1. 世界侧：每帧输入
@@ -2289,9 +2301,13 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
 **宿主必须做的**：把 `(tex, variant)` 解析成**像素源**，按 `(x,y,w,h)` 取裁剪，按 `w/h` 摆尺寸，按
 `scale` 决定像素密度。**核心不许**碰文件、字节与解码 —— 资源**只从宿主来**（硬规则 + W 章的资源表）。
 
-⚠ **今天这条边界是"明确拒绝"的**：`IZipObject::image_bitmap` 拒绝（`host/fs_zip.cpp:93-99`），
-`ILfwHost::import_as_image_bitmap` 也拒绝（`host/headless_host.cpp:318-324`）⇒ 真图片解码是 §7.2
-"省到贵"清单的**第 10 条**（排在真 zip 第 5、真世界渲染器第 8 之后）。契约层面这件事只有一句话：
+⚠ **今天这条边界是"核心拒绝、宿主自己解"的**：`IZipObject::image_bitmap` 拒绝（`host/fs_zip.cpp:93-99`），
+`ILfwHost::import_as_image_bitmap` 也拒绝（`host/headless_host.cpp:318-324`）⇒ **核心侧那两个入口仍然没开**；
+**Godot 宿主**改走宿主自己的解：`get_import_fallbacks` 解析条目名 + `FsZipObject::read` 取字节 +
+引擎的 PNG 解码器（`Image::load_png_from_buffer` → `ImageTexture`，缓存在
+`native/host/godot/lfw_godot_textures.{h,cpp}`）—— 这正是这一条要的落法（§G2 第二半已落定）。
+真图片解码本来在 §7.2 "省到贵"清单的**第 10 条**（排在真 zip 第 5、真世界渲染器第 8 之后）：
+Godot 这一支做到了，**headless / thin 仍然没有位图**。契约层面这件事只有一句话：
 **图集与图片的解析权在宿主，核心只给 id 与裁剪矩形**（`ui_load_img.cpp:66-90` 的 key 拼法说明连
 "同一张图"的判等都在宿主侧）。
 ⚠ **图片的生命周期也属宿主，但契约要写一条不变量**：实体活着 ⇒ 它的图必须一直取得到。TS 是挂载时
@@ -2388,7 +2404,7 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
 | 8 | **影子贴图 + 影子缩放/不透明度公式** | 立体感；影子是**背景**给的图 | 宿主推导（读 `bg.data.base.shadow/shadow_w/shadow_h`） | 端口 `bg` 上这几个键取得到吗；换背景时影子要不要重取 |
 | 9 | ~~**UI 渲染面（7 个成员）+ 每层调用点**~~ **已补**：接口面 17 个虚函数（9 生命周期/焦点 + 7 渲染面 + 数据成员 `ui`）与每层一次的调用点（`world.cpp` 的 `render_ui_layers`）；仍未补的是**绘制实现** | 整个 UI 画不出来（"没人调"已不再静默：统计行 `UI render calls: N (unhandled: M)`） | 剩：**宿主**（照 D4 的语义表画） | 补完之后 `UINode::update` 不必再是虚（§7.2 顺序第 7 条）；两份宿主的 UI 快照一致 |
 | 10 | **文字度量的宿主差异** | UI 布局（`auto_size_by_text`） | 宿主（**允许**差异，同设备同版本内稳定） | 差异会不会渗进三条摘要（S6 的跨宿主告警，今天未验证） |
-| 11 | **图片解码 / 图集字节** | 一切画面 | 宿主（两个入口今天都明确拒绝） | §7.2 第 10 条；真 MD5（第 2 条）是它的前提 |
+| 11 | **图片解码 / 图集字节** | 一切画面 | 宿主（核心那两个入口仍未开；**Godot 宿主已解**：`lfw_godot_textures.{h,cpp}`，见 §G2 第二半） | §7.2 第 10 条；真 MD5（第 2 条）是它的前提 |
 | 12 | **图片的 pin / unpin 生命周期** | 换页 / 换场景时会不会闪 | 宿主（照 TS 的挂载/卸载口径） | "实体活着 ⇒ 图一定在"这条不变量怎么验 |
 | 13 | **队伍颜色表** | 名字与血条的颜色 | **核心已有**：`base/team_color.h`（`get_team_text_color` / `get_team_outline_color`） | 端口实现与 TS 的 `TeamInfoMap` 逐项一致（可机械化） |
 | 14 | **调试指标位的画法** | 开发期排障 | 宿主**可选**（缺省 `0` ⇒ 全不画） | 位值与 `INDICATINGS` 逐位一致；指标层不许混进常规画面 |
@@ -2397,14 +2413,19 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
 ### D6. 验收
 
 **(a) 契约必须能被 ≥2 份独立宿主满足。** G4 的证伪判据原样适用：只要有一份实现被迫写"只有它才
-需要"的字段，契约就已经被那一份实现了。⚠ 这条**今天无法判定** —— 三份在册宿主一份都不画（S1），
-判据只能等"真画画的第二份"。
+需要"的字段，契约就已经被那一份实现了。⚠ 这条**今天只能算"过了一半"**：世界那一遍有**一份**会画的
+实现（Godot，§G2 第二半）加一份只会记录的参照实现（`host/thin/**`）—— "**两份都能画**"还没达到，
+判据要等**第二份会画的实现**；UI 那一遍仍然**一份都没有**（三份宿主的 `create_ui_node_renderer` 都回空）。
+⚠ 已知的第一次"被迫自己写"就在 Godot 这一份里：`dfactor` 与 `p0/p1` 那一对（D1(c)）与影子那一族
+（D5-8）都是**宿主自留**的 —— 两份独立实现能不能只靠契约把这两条对齐，是下一份实现要回答的问题。
 
 **(b) 录制器是参照生产者，不是判据。** `host/thin/**` 证明的是**字段面**（"核心确实每帧把这些交
-出来"），它**不证明**画面正确（目视那一条在 S6(b) 已经记"未定"）。⚠ 它今天**两条档位都跑过**
+出来"）；**画面**的第一份证据在 Godot 那一份（`--screenshot`，§G2 第二半 / `native/README.md`「截图」），
+而"画得对不对"**仍然没有自动化判据**（目视那一条在 S6(b) 记"未定"）。⚠ 录制器今天**两条档位都跑过**
 （`dfactor ≡ 1` 与 `0 < dfactor < 1`，D1(c)），但 `dfactor` 与那一对 `p0/p1` 是**各自算/自己留的**
 （TS 也在渲染器里；核心那份只喂 UI 渲染面，D4），所以这是"契约够不够"的证据，不是"画面对不对"的证据
-—— 后者仍要第二份实现的目视。
+—— 后者仍要**另一份**实现的目视（Godot 那一份已经给出第一张图，但"两份独立实现画出同一画面"这条
+还没验过）。
 
 **(c) 换宿主不许动模拟。** 三条摘要（`native/README.md:323-339`）逐位一致是**硬指标** —— 契约里的
 每一项都必须能在"摘要不变"的前提下落地；反过来，**任何需要改摘要才能画的字段，都是契约问错了**。

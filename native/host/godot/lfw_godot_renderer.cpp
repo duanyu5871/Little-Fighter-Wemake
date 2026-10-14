@@ -1,0 +1,671 @@
+#include "host/godot/lfw_godot_renderer.h"
+
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+#include <cstring>
+#include <fstream>
+#include <functional>
+#include <iterator>
+#include <string>
+#include <system_error>
+#include <vector>
+
+#include "host/fs_zip.h"
+#include "host/headless_host.h"
+#include "lfw/bg/background.h"
+#include "lfw/bg/layer.h"
+#include "lfw/camera.h"
+#include "lfw/core/value.h"
+#include "lfw/defines/state_enum.h"
+#include "lfw/entity/entity.h"
+#include "lfw/loader/get_import_fallbacks.h"
+#include "lfw/transform.h"
+#include "lfw/utils/container_help/field_or.h"
+#include "lfw/utils/utf8.h"
+
+namespace lfw::host {
+namespace {
+
+std::string to_utf8(const std::u16string& s) {
+  const std::vector<uint8_t> buf = lfw::encode_utf8(s);
+  return std::string(buf.begin(), buf.end());
+}
+
+std::u16string from_utf8(const std::string& s) {
+  return decode_utf8(std::vector<uint8_t>(s.begin(), s.end()));
+}
+
+// 取不到的字段一律落回 `fallback`（与 TS 的 `?? 0` 同口径）。
+double num_or(const Value& holder, const char16_t* key, double fallback = 0.0) {
+  const Value v = lfw::field_or(holder, key);
+  if (std::holds_alternative<std::monostate>(v) || std::holds_alternative<NullTag>(v)) {
+    return fallback;
+  }
+  const double n = lfw::to_number(v);
+  return std::isnan(n) ? fallback : n;
+}
+
+double num_at(const Value& v, double fallback = 0.0) {
+  if (std::holds_alternative<std::monostate>(v) || std::holds_alternative<NullTag>(v)) {
+    return fallback;
+  }
+  const double n = lfw::to_number(v);
+  return std::isnan(n) ? fallback : n;
+}
+
+const std::u16string* as_str(const Value& v) { return std::get_if<std::u16string>(&v); }
+
+std::string str_or(const Value& v, const std::string& fallback) {
+  const std::u16string* const s = as_str(v);
+  return s != nullptr ? to_utf8(*s) : fallback;
+}
+
+// `#rgb` / `#rrggbb` / `#rrggbbaa`（数据里写的就是这一种；其它写法落回白）。
+bool parse_color(const std::string& text, double& r, double& g, double& b) {
+  if (text.size() < 4 || text[0] != '#') return false;
+  auto hex = [](char c) -> int {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+  };
+  const std::string body = text.substr(1);
+  if (body.size() == 3 || body.size() == 4) {
+    const int h[3] = {hex(body[0]), hex(body[1]), hex(body[2])};
+    if (h[0] < 0 || h[1] < 0 || h[2] < 0) return false;
+    r = h[0] / 15.0;
+    g = h[1] / 15.0;
+    b = h[2] / 15.0;
+    return true;
+  }
+  if (body.size() >= 6) {
+    const int h[6] = {hex(body[0]), hex(body[1]), hex(body[2]),
+                      hex(body[3]), hex(body[4]), hex(body[5])};
+    for (const int d : h) {
+      if (d < 0) return false;
+    }
+    r = (h[0] * 16 + h[1]) / 255.0;
+    g = (h[2] * 16 + h[3]) / 255.0;
+    b = (h[4] * 16 + h[5]) / 255.0;
+    return true;
+  }
+  return false;
+}
+
+// PNG 的 IHDR（宽/高各 4 字节大端，偏移 16/20）：只要有头就够，不解码。
+bool png_size(const std::string& bytes, double& w, double& h) {
+  static const char sig[8] = {'\x89', 'P', 'N', 'G', '\r', '\n', '\x1a', '\n'};
+  if (bytes.size() < 24) return false;
+  if (std::memcmp(bytes.data(), sig, 8) != 0) return false;
+  if (std::memcmp(bytes.data() + 12, "IHDR", 4) != 0) return false;
+  const auto be32 = [&](std::size_t at) {
+    return (static_cast<std::uint32_t>(static_cast<unsigned char>(bytes[at])) << 24) |
+           (static_cast<std::uint32_t>(static_cast<unsigned char>(bytes[at + 1])) << 16) |
+           (static_cast<std::uint32_t>(static_cast<unsigned char>(bytes[at + 2])) << 8) |
+           static_cast<std::uint32_t>(static_cast<unsigned char>(bytes[at + 3]));
+  };
+  w = static_cast<double>(be32(16));
+  h = static_cast<double>(be32(20));
+  return true;
+}
+
+// 命中名里的倍数（`ImageMgr.get_img_scale` 的两条正则：`@Nx.png` / `@Nx/…`）。
+double scale_of_path(const std::string& path) {
+  const std::size_t at = path.find('@');
+  if (at == std::string::npos || at + 2 >= path.size()) return 1.0;
+  const char digit = path[at + 1];
+  if (digit < '0' || digit > '9') return 1.0;
+  const char x = path[at + 2];
+  if (x != 'x' && x != 'X') return 1.0;
+  const double n = static_cast<double>(digit - '0');
+  return n >= 1.0 ? n : 1.0;
+}
+
+double clamp01(double v) { return v < 0.0 ? 0.0 : (v > 1.0 ? 1.0 : v); }
+
+}  // namespace
+
+// ---------------------------------------------------------------- 生命期
+
+void GodotWorldRenderer::add_entity(Entity& e) {
+  // 计数与 `NullWorldRenderer` 同口径（摘要行的 `renderer(+-)` 要逐位一致）：每次调用都算一次。
+  ++_added;
+  for (const Live& l : _live) {
+    if (l.e == &e) {
+      ++_duplicate_adds;  // TS `mount_renderer` 对已挂载的实体提前返回
+      return;
+    }
+  }
+  Live l;
+  l.e = &e;
+  // TS `EntityRenderer.mount`：`p1` 与 `p0` 都设成挂载时的位置（投影后）。
+  const double y = e.position.y - e.position.z / 2.0;
+  l.p0x = l.p1x = e.position.x;
+  l.p0y = l.p1y = y;
+  l.p0z = l.p1z = e.position.z;
+  l.s0x = l.s1x = e.position.x;
+  l.s0y = l.s1y = e.ground_y() - e.position.z / 2.0;
+  l.s0z = l.s1z = e.position.z;
+  _live.push_back(l);
+}
+
+void GodotWorldRenderer::del_entity(Entity& e) {
+  ++_removed;
+  for (std::size_t i = 0; i < _live.size(); ++i) {
+    if (_live[i].e != &e) continue;
+    _live.erase(_live.begin() + static_cast<std::ptrdiff_t>(i));
+    return;
+  }
+  ++_stray_removes;
+}
+
+void GodotWorldRenderer::dispose() {
+  _disposed = true;
+  _live.clear();
+  _order.clear();
+  _shown = GodotFrame{};
+}
+
+GodotWorldRenderer::Live* GodotWorldRenderer::find_live(const Entity* e) {
+  for (Live& l : _live) {
+    if (l.e == e) return &l;
+  }
+  return nullptr;
+}
+
+// ---------------------------------------------------------------- 资源
+
+const GodotWorldRenderer::Resolved& GodotWorldRenderer::resolve_path(const std::string& path) {
+  const std::string ck = "path|" + path;
+  const auto found = _resolved.find(ck);
+  if (found != _resolved.end()) return found->second;
+  Resolved res;
+  std::vector<std::u16string> fallbacks;
+  std::u16string suffix;
+  // 与 TS 同一张回退表（`native/lfw/loader/get_import_fallbacks`）：`@Nx` / `@Nx/` / `.webp`。
+  if (!path.empty() && lfw::loader::get_import_fallbacks(Value(from_utf8(path)), fallbacks, suffix)) {
+    for (const std::u16string& cand : fallbacks) {
+      const std::vector<IZipResult> hits = _lfw->zips().find({cand}, true);
+      if (hits.empty()) continue;
+      res.path = to_utf8(cand);
+      break;
+    }
+  }
+  if (!res.path.empty()) {
+    res.scale = scale_of_path(res.path);
+    std::string bytes;
+    if (read_resource(res.path, bytes)) {
+      double w = 0, h = 0;
+      if (png_size(bytes, w, h)) {
+        res.img_w = w / res.scale;
+        res.img_h = h / res.scale;
+      }
+    }
+  }
+  return _resolved.emplace(ck, std::move(res)).first->second;
+}
+
+const GodotWorldRenderer::Resolved& GodotWorldRenderer::resolve_key(const Entity& e,
+                                                                   const std::string& key,
+                                                                   double variant) {
+  const Value base = e.data_base();
+  const Value files = lfw::field_or(base, u"files");
+  std::string chosen = key;
+  // 变体表：TS `file_variants.get(tex)?.at(variant)` = `[tex, ...files[tex].variants][variant]`。
+  const int vi = static_cast<int>(variant);
+  if (vi > 0) {
+    const Value entry = lfw::field_or(files, from_utf8(key).c_str());
+    const Value variants_v = lfw::field_or(entry, u"variants");
+    const Array* const variants = lfw::as_array(variants_v);
+    if (variants != nullptr && static_cast<std::size_t>(vi) <= variants->size()) {
+      const std::u16string* const alt = as_str(variants->at(static_cast<std::size_t>(vi) - 1));
+      if (alt != nullptr) chosen = to_utf8(*alt);
+    }
+  }
+  const std::string ck = str_or(e.data_id(), "-") + "|" + std::to_string(vi) + "|" + chosen;
+  const auto found = _resolved.find(ck);
+  if (found != _resolved.end()) return found->second;
+  const Value entry = lfw::field_or(files, from_utf8(chosen).c_str());
+  const std::string path = str_or(lfw::field_or(entry, u"path"), "");
+  const Resolved& by_path = resolve_path(path);
+  Resolved res = by_path;
+  return _resolved.emplace(ck, std::move(res)).first->second;
+}
+
+bool GodotWorldRenderer::read_resource(const std::string& path, std::string& out) const {
+  if (path.empty()) return false;
+  if (_lfw != nullptr) {
+    const std::vector<IZipResult> hits = _lfw->zips().find({from_utf8(path)}, /*exact=*/true);
+    for (const IZipResult& hit : hits) {
+      // 包对象是 `FsZipObject`（目录当包用）⇒ 字节直接读得出来；`image_bitmap` 那条路
+      // 故意拒绝（DESIGN D2），宿主自己解码。
+      if (auto* const fs = dynamic_cast<FsZipObject*>(hit.file)) {
+        std::u16string error;
+        if (fs->read(out, error)) return true;
+      }
+    }
+  }
+  if (_host != nullptr) {
+    const std::filesystem::path p = _host->resolve(from_utf8(path));
+    if (!p.empty()) {
+      std::ifstream in(p, std::ios::binary);
+      if (in) {
+        out.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+// ---------------------------------------------------------------- 背景
+
+void GodotWorldRenderer::build_background(const World& world, GodotFrame& frame, bool foreground) {
+  const Background* const bg = world.bg();
+  if (bg == nullptr) return;
+  const Value base = lfw::field_or(bg->data(), u"base");
+  const double zoom_x = num_or(base, u"zoom_x", 1.0);
+  const double zoom_y = num_or(base, u"zoom_y", 1.0);
+  // ⚠ `bg_width` 是 **stage** 的宽度（TS `const { width: bg_width } = world`；
+  // 端口 `World::width()` = `stage_->width`），不是 `bg.width()`。
+  const double bg_width = world.width();
+  struct One {
+    double z = 0;
+    GodotDrawItem item;
+  };
+  std::vector<One> picked;
+  for (const std::shared_ptr<Layer>& layer : bg->layers()) {
+    if (layer == nullptr || !layer->visible()) continue;
+    const Value& info = layer->info();
+    const double z = num_or(info, u"z");
+    if ((z > 0.0) != foreground) continue;
+    const std::string file = str_or(lfw::field_or(info, u"file"), "");
+    const Resolved& res = file.empty() ? resolve_path("") : resolve_path(file);
+    const bool has_pic = !res.path.empty();
+    // 目标尺寸：有图 ⇒ `dw ?? 一倍图宽`；无图（纯色层）⇒ `w`/`width`。
+    const double layer_width = num_or(info, u"width");
+    const double dst_w = has_pic ? num_or(info, u"dw", res.img_w) : num_or(info, u"w", layer_width);
+    const double dst_h = has_pic ? num_or(info, u"dh", res.img_h) : num_or(info, u"h", 0.0);
+    if (!(dst_w > 0.0) || !(dst_h > 0.0)) continue;
+    // 视差：`BgLayerRender.render`（非 absolute 层按相机平移）。
+    const double cam_x = frame.cam_x;
+    const double parallax = bg_width > frame.screen_w
+                                ? (bg_width - layer_width) * cam_x / (bg_width - frame.screen_w)
+                                : (bg_width - layer_width) * cam_x;
+    const bool absolute = lfw::truthy(lfw::field_or(info, u"absolute"));
+    const double world_x = (absolute ? 0.0 : num_or(info, u"x") + (absolute ? 0.0 : parallax));
+    const double world_y = num_or(info, u"y");
+    // 背景层画在**自己那套**节点里（`BgRender.render`：`root.position = cam * (1 - zoom)`、
+    // 节点自身不缩放）⇒ 映射与实体不同：整体乘 `zoom`。缺省 `zoom = 1` 时两者一致。
+    GodotDrawItem it;
+    it.kind = foreground ? "fg" : "bg";
+    it.tag = str_or(lfw::field_or(info, u"name"), str_or(bg->id(), "bg"));
+    it.depth = z;
+    it.x = world_x - cam_x * zoom_x;
+    it.y = frame.screen_h - (world_y - frame.cam_y * zoom_y);
+    it.w = dst_w;
+    it.h = dst_h;
+    it.path = res.path;
+    it.tex_scale = res.scale;
+    it.sw = res.img_w;
+    it.sh = res.img_h;
+    const std::string color = str_or(lfw::field_or(info, u"color"), "");
+    double cr = 1, cg = 1, cb = 1;
+    if (parse_color(color, cr, cg, cb)) {
+      it.r = cr;
+      it.g = cg;
+      it.b = cb;
+    }
+    if (has_pic || !color.empty()) picked.push_back(One{z, it});
+  }
+  // 同一遍内 z 远→近（画家次序）。
+  std::stable_sort(picked.begin(), picked.end(),
+                   [](const One& a, const One& b) { return a.z < b.z; });
+  for (const One& one : picked) {
+    frame.items.push_back(one.item);
+    ++frame.bg_layers;
+  }
+}
+
+// ---------------------------------------------------------------- 逐实体
+
+void GodotWorldRenderer::emit_sprite(GodotFrame& frame, const Entity& e, const Value& pic,
+                                     double world_x, double world_y, double anchor_x,
+                                     double anchor_y, const Resolved& res,
+                                     const std::string& kind) {
+  const double pw = num_or(pic, u"w");
+  const double ph = num_or(pic, u"h");
+  if (!(pw > 0.0) || !(ph > 0.0)) return;
+  GodotDrawItem it;
+  it.kind = kind;
+  it.tag = to_utf8(e.id);
+  it.x = frame.tx + frame.scale_x * (world_x + anchor_x - frame.cam_x);
+  it.y = frame.screen_h - frame.ty - frame.scale_y * (world_y + anchor_y - frame.cam_y);
+  it.w = pw * frame.scale_x;
+  it.h = ph * frame.scale_y;
+  it.path = res.path;
+  it.tex_scale = res.scale;
+  it.sx = num_or(pic, u"x");
+  it.sy = num_or(pic, u"y");
+  it.sw = pw;
+  it.sh = ph;
+  it.flip_x = e.facing < 0;
+  if (it.path.empty()) ++frame.unnamed_textures;
+  // 换色（`mix_color` + `mix_strength`）：宿主用第二遍 `modulate` 叠出来（见 `_draw`）。
+  const double mix = e.mix_strength();
+  if (mix > 0.0) {
+    double cr = 1, cg = 1, cb = 1;
+    if (parse_color(to_utf8(e.mix_color()), cr, cg, cb)) {
+      it.mix_r = cr;
+      it.mix_g = cg;
+      it.mix_b = cb;
+      it.mix_a = clamp01(mix);
+    }
+  }
+  // 描边：`outline_color && outline_alpha && outline_enabled`（TS `update_outline`）。
+  const std::string oc = to_utf8(e.outline_color());
+  const double oa = e.outline_alpha();
+  const double ow = e.outline_width();
+  if (!oc.empty() && oa > 0.0 && lfw::truthy(e.outline_enabled()) && ow > 0.0) {
+    double cr = 0, cg = 0, cb = 0;
+    if (parse_color(oc, cr, cg, cb)) {
+      it.outline_r = cr;
+      it.outline_g = cg;
+      it.outline_b = cb;
+      it.outline_a = oa;
+      // ⚠ `outline_width` 是**逻辑像素**的扩张量：TS 里乘 `img.scale` 是给着色器算 texel 用的
+      //（`texel = outlineWidth / textureSize`，@2x 时正好折回 1 逻辑像素）⇒ 画的时候不要乘。
+      it.outline_w = ow;
+      ++frame.outline_items;
+      if (frame.outline_probe.empty()) {
+        char buf[96];
+        std::snprintf(buf, sizeof(buf), "%s@%.2f,%.1f", oc.c_str(), oa, it.outline_w);
+        frame.outline_probe = buf;
+      }
+    }
+  }
+  frame.items.push_back(std::move(it));
+}
+
+void GodotWorldRenderer::emit_entity_shadow(const World& world, GodotFrame& frame,
+                                            const Entity& e, const Live& live) {
+  const Background* const bg = world.bg();
+  if (bg == nullptr) return;
+  const Value base = lfw::field_or(bg->data(), u"base");
+  const std::string shadow = str_or(lfw::field_or(base, u"shadow"), "");
+  if (shadow.empty()) return;
+  if (lfw::truthy(lfw::field_or(e.frame, u"no_shadow"))) return;
+  const Resolved& res = resolve_path(shadow);
+  if (res.path.empty()) return;
+  const double w = num_or(base, u"shadow_w", res.img_w);
+  const double h = num_or(base, u"shadow_h", res.img_h);
+  if (!(w > 0.0) || !(h > 0.0)) return;
+  // TS `EntityShadowRender.render`：位置 / 缩放 / 不透明度三对各自 `p0 → p1` 按 df 插。
+  const double df = frame.dfactor;
+  const double px = live.s0x + (live.s1x - live.s0x) * df;
+  const double py = live.s0y + (live.s1y - live.s0y) * df;
+  const double s = live.s0s + (live.s1s - live.s0s) * df;
+  const double o = live.s0o + (live.s1o - live.s0o) * df;
+  GodotDrawItem it;
+  it.kind = "shadow";
+  it.tag = to_utf8(e.id);
+  it.depth = num_at(live.s1z);
+  // 几何是**居中**的（TS `get_static_plane_geometry(w, h)` 不带平移）。
+  it.x = frame.tx + frame.scale_x * (px - frame.cam_x) - w * s * frame.scale_x / 2.0;
+  it.y = frame.screen_h - frame.ty - frame.scale_y * (py - frame.cam_y) - h * s * frame.scale_y / 2.0;
+  it.w = w * s * frame.scale_x;
+  it.h = h * s * frame.scale_y;
+  it.path = res.path;
+  it.tex_scale = res.scale;
+  it.sw = res.img_w;
+  it.sh = res.img_h;
+  it.a = clamp01(o);
+  if (it.path.empty()) ++frame.unnamed_textures;
+  frame.items.push_back(std::move(it));
+}
+
+// ---------------------------------------------------------------- 每帧
+
+void GodotWorldRenderer::render(double dt) {
+  if (_disposed) return;
+  ++_render_count;
+  World& world = _lfw->world();
+  GodotFrame frame;
+  frame.valid = true;
+  frame.index = _render_count;
+  frame.dt = dt;
+  frame.lifetime = world.lifetime();
+  frame.tu = world.TU;
+  frame.fps = world.fps_value();
+  frame.ups = num_at(world.dataset.get(u"UPS"), 60.0);
+  // 帧内比例：TS `WorldRenderer.render`（`WorldRenderer.ts:187-204`）逐字照抄。
+  if (frame.fps <= frame.ups) {
+    _utime = frame.lifetime;
+    _dtime = frame.tu;
+    _dfactor = 1.0;
+    _dirty = true;
+  } else if (_utime != frame.lifetime) {
+    _utime = frame.lifetime;
+    _dtime = 0.0;
+    _dfactor = 0.0;
+    _dirty = true;
+  } else {
+    _dtime = std::min(_dtime + dt, frame.tu);
+    _dfactor = std::min(_dtime / frame.tu, 1.0);
+  }
+  frame.dfactor = _dfactor;
+  frame.dtime = _dtime;
+  frame.dirty = _dirty;
+
+  const Camera& cam = world.camera();
+  if (_dirty) {
+    _cam_p0_x = _cam_p1_x;
+    _cam_p0_y = _cam_p1_y;
+    _cam_p1_x = cam.position.x;
+    _cam_p1_y = cam.position.y;
+  }
+  frame.cam_p0_x = _cam_p0_x;
+  frame.cam_p0_y = _cam_p0_y;
+  frame.cam_p1_x = _cam_p1_x;
+  frame.cam_p1_y = _cam_p1_y;
+  frame.cam_x = _cam_p0_x + (_cam_p1_x - _cam_p0_x) * _dfactor;
+  frame.cam_y = _cam_p0_y + (_cam_p1_y - _cam_p0_y) * _dfactor;
+
+  frame.tx = world.transform.x();
+  frame.ty = world.transform.y();
+  frame.scale_x = world.transform.scale_x();
+  frame.scale_y = world.transform.scale_y();
+  frame.screen_w = num_at(world.dataset.get(u"screen_w"), 794.0);
+  frame.screen_h = num_at(world.dataset.get(u"screen_h"), 450.0);
+  if (const Background* const bg = world.bg()) {
+    frame.bg_id = str_or(bg->id(), "-");
+  }
+  frame.retained = static_cast<int>(_live.size());
+  frame.world_live = static_cast<int>(world.entities.size() + world.ghosts.size());
+
+  // ---- 1) 背景层（`z <= 0` 那些）----
+  build_background(world, frame, /*foreground=*/false);
+
+  // ---- 2) 位置那一对 & 次序 ----
+  for (Live& live : _live) {
+    Entity& e = *live.e;
+    if (_dirty) {
+      live.p0x = live.p1x;
+      live.p0y = live.p1y;
+      live.p0z = live.p1z;
+      const double y = e.position.y - e.position.z / 2.0;  // TS `p1.set(x, y - z/2, z)`
+      live.p1x = e.position.x;
+      live.p1y = y;
+      live.p1z = e.position.z;
+      // 影子：`(x, ground_y - z/2, min(bg.far - 1, z))` + 随离地高度的缩放/不透明度。
+      const Background* const bg = world.bg();
+      const double far = bg != nullptr ? bg->far_plane() : e.position.z;
+      live.s0x = live.s1x;
+      live.s0y = live.s1y;
+      live.s0z = live.s1z;
+      live.s0s = live.s1s;
+      live.s0o = live.s1o;
+      live.s1x = e.position.x;
+      live.s1y = e.ground_y() - e.position.z / 2.0;
+      live.s1z = std::min(far - 1.0, e.position.z);
+      const double off = 250.0 - (e.position.y - e.ground_y());
+      const double t = std::max(0.0, std::min(off, 250.0)) / 250.0;
+      live.s1s = 0.5 + 0.5 * t;
+      live.s1o = 0.3 + 0.7 * t;
+    }
+    live.has_r = false;
+  }
+
+  _order.clear();
+  std::vector<Live*> roots;
+  for (Live& live : _live) {
+    Entity& e = *live.e;
+    const Entity* const holder = e.bearer != nullptr ? e.bearer : e.catcher;
+    if (holder == nullptr || find_live(holder) == nullptr) roots.push_back(&live);
+  }
+  // 组按代表实体的 z 远→近（TS `by_group_z` = 升序）。
+  std::stable_sort(roots.begin(), roots.end(), [](const Live* a, const Live* b) {
+    return a->p1z < b->p1z;
+  });
+  // 组内：持有者 → 被持有 → 被抓住（TS `EntityRenderer.render` 尾部那三行），
+  // 然后按**各自**的 z 升序排一遍（TS 组内走的是真深度测试 ⇒ 画家次序要按 z）。
+  std::vector<Live*> group;
+  const std::function<void(Live*, int)> push_chain = [&](Live* live, int depth) {
+    if (live == nullptr || live->has_r || depth > 4) return;
+    live->has_r = true;
+    group.push_back(live);
+    Entity& e = *live->e;
+    push_chain(find_live(e.holding), depth + 1);
+    push_chain(find_live(e.catching), depth + 1);
+  };
+  for (Live* const root : roots) {
+    group.clear();
+    push_chain(root, 0);
+    std::stable_sort(group.begin(), group.end(),
+                     [](const Live* a, const Live* b) { return a->p1z < b->p1z; });
+    for (Live* const member : group) _order.push_back(member);
+  }
+  for (Live& live : _live) {  // 环/孤儿兜底：剩下的按插入序补在后面
+    if (!live.has_r) {
+      live.has_r = true;
+      _order.push_back(&live);
+    }
+  }
+
+  // ---- 3) 位置：根按 `p0 → p1` 插值、被持有者跟随持有者的位移 ----
+  for (Live* const live : _order) {
+    Entity& e = *live->e;
+    const Entity* const holder = e.bearer != nullptr ? e.bearer : e.catcher;
+    Live* const hl = holder != nullptr ? find_live(holder) : nullptr;
+    if (hl == nullptr) {
+      // TS：`entity.lifetime === 0 && (df = 1)`（出生那一帧不插）。
+      const double df = e.lifetime() == 0.0 ? 1.0 : _dfactor;
+      live->rx = live->p0x + (live->p1x - live->p0x) * df;
+      live->ry = live->p0y + (live->p1y - live->p0y) * df;
+      live->rz = live->p0z + (live->p1z - live->p0z) * df;
+    } else {
+      // TS：`position = p1 - (holder.p1 - holder.position)`。
+      live->rx = live->p1x - (hl->p1x - hl->rx);
+      live->ry = live->p1y - (hl->p1y - hl->ry);
+      live->rz = live->p1z - (hl->p1z - hl->rz);
+    }
+  }
+
+  // ---- 4) 影子（TS 的 shadow_batch：所有影子在实体之前一遍画掉）----
+  for (Live* const live : _order) {
+    const Entity& e = *live->e;
+    if (e.invisible() > 0.0) continue;
+    emit_entity_shadow(world, frame, e, *live);
+  }
+
+  // ---- 5) 实体（组已排好序）----
+  for (Live* const live : _order) {
+    Entity& e = *live->e;
+    const Value frame_id = e.frame_id();
+    const Value state = e.state();
+    const std::string frame_id_s = str_or(frame_id, "");
+    const std::string state_s = str_or(state, "");
+    const bool gone = frame_id_s == "gone" || state_s == "Gone" || state_s == "gone";
+    const double blinking = e.blinking();
+    const bool visible = !gone && e.invisible() <= 0.0 &&
+                         !(blinking > 0.0 && std::fmod(std::floor(blinking / 4.0), 2.0) != 0.0);
+    if (!visible) {
+      ++frame.hidden_entities;
+      continue;
+    }
+    // 锚点：TS `facing === 1 ? -centerx : centerx - width`；抖动是同一条公式上的水平偏移。
+    const Value top = e.frame;
+    const double centerx = num_or(top, u"centerx");
+    const double centery = num_or(top, u"centery");
+    const double width = num_or(top, u"width");
+    const double shaking = num_at(e.shaking);
+    const double shaking_x =
+        shaking > 0.0 ? e.facing * (std::fmod(std::floor(shaking / 2.0), 2.0) != 0.0 ? 1.0 : -1.0)
+                      : 0.0;
+    const double base_anchor_x = e.facing == 1.0 ? -centerx : centerx - width;
+    const Value pic = lfw::field_or(top, u"pic");
+    int drawn = 0;
+    bool had_tex = false;
+    if (!std::holds_alternative<std::monostate>(pic) &&
+        !std::holds_alternative<NullTag>(pic)) {
+      const std::string tex = str_or(lfw::field_or(pic, u"tex"), "");
+      if (!tex.empty()) {
+        had_tex = true;
+        const Resolved& res = resolve_key(e, tex, e.variant);
+        emit_sprite(frame, e, pic, live->rx, live->ry, base_anchor_x + shaking_x, centery, res,
+                    "entity");
+        ++drawn;
+      }
+    }
+    const Value pics_v = lfw::field_or(top, u"pics");
+    if (const Array* const pics = lfw::as_array(pics_v)) {
+      for (std::size_t i = 0; i < pics->size(); ++i) {
+        const Value& one = pics->at(i);
+        const std::string tex = str_or(lfw::field_or(one, u"tex"), "");
+        if (tex.empty()) continue;
+        const double pw = num_or(one, u"w");
+        // 每层可用 `cx/cy` 覆盖锚点（TS `EntityMainRender.render` 的 `pics` 循环）。
+        const Value cx_v = lfw::field_or(one, u"cx");
+        const double anchor_x =
+            (std::holds_alternative<std::monostate>(cx_v) ||
+             std::holds_alternative<NullTag>(cx_v))
+                ? base_anchor_x
+                : (e.facing == 1.0 ? -num_at(cx_v) : num_at(cx_v) - pw);
+        const Value cy_v = lfw::field_or(one, u"cy");
+        const double anchor_y =
+            (std::holds_alternative<std::monostate>(cy_v) ||
+             std::holds_alternative<NullTag>(cy_v))
+                ? centery
+                : num_at(cy_v);
+        const Resolved& res = resolve_key(e, tex, e.variant);
+        emit_sprite(frame, e, one, live->rx, live->ry, anchor_x + shaking_x, anchor_y, res,
+                    "entity");
+        ++drawn;
+      }
+    }
+    if (drawn > 0) {
+      ++frame.drawn_entities;
+    } else if (had_tex) {
+      ++frame.no_file_entities;  // 有素材键但没解出文件（素材表里没这个键 / 包里没这张图）
+    } else {
+      ++frame.no_pic_entities;  // 这一帧根本没有 2D 精灵（例如纯 3D 模型帧）
+    }
+  }
+
+  // ---- 6) 前景层（`z > 0` 那些）----
+  build_background(world, frame, /*foreground=*/true);
+
+  _dirty = false;
+  _pending = std::move(frame);
+}
+
+const GodotFrame& GodotWorldRenderer::take_frame() {
+  if (_pending.valid) {
+    _shown = std::move(_pending);
+    _pending = GodotFrame{};
+  }
+  return _shown;
+}
+
+}  // namespace lfw::host

@@ -1,0 +1,174 @@
+// Godot 侧的 `IWorldRenderer`（DESIGN §G2 第二半）：把「核心每帧交给渲染器的契约数据」翻成
+// **屏幕空间**的绘制项（`GodotDrawItem`），本文件**一个引擎类型都不碰** —— 真正的 `draw_*`
+// 调用在 `lfw_godot_node.cpp` 的 `_draw()`（§G5「只在边界转换」）。
+//
+// 数据来源与会话语义逐条对齐 DESIGN「★ 绘制契约（引擎无关）」：
+//   * 帧级上下文：相机（含插值那一对）/ `world.transform` / `dataset.screen_*` / `world.bg()`；
+//   * 帧内比例 `dfactor`：逐字照抄 `WorldRenderer.ts:187-204`（与 `host/thin` 同一份算法）；
+//   * 逐实体：`host/thin/recording_world_renderer.h` 那份字段表（它证明字段面，这里真画）。
+//
+// 屏幕空间：逻辑视口 = `dataset.screen_w × screen_h`（缺省 794×450），**原点左上、y 向下**；
+// 一个世界单位 = 一个逻辑像素。世界 → 屏幕（TS `WorldRenderer.ts:222-227` 的 ortho 相机 +
+// 世界节点变换推出来的）：
+//     sx = transform.x + scale_x * (wx - cam_x)
+//     sy = screen_h - transform.y - scale_y * (wy - cam_y)
+// ⚠ `scale_*`（= `bg.zoom_*`）、`cam_*`（插值后的相机位置）、`transform.*` 三者都从世界上读，
+// 不写死。
+//
+// 与 TS 的对应关系（`src/DittoImpl/renderer/**`）：
+//   * 位置：`EntityRenderer.update_position/render`（`p1 = (x, y - z/2, z)`、`p0/p1` 按 `dfactor`
+//     插值、`lifetime === 0` 时 `df = 1`、被持有者不做自己的插值而是减去持有者的位移）；
+//   * 主图：`EntityMainRender.render/update_texture/update_mesh_material`（锚点镜像
+//     `facing === 1 ? -centerx : centerx - width`、`mesh.scale = (pic.w, pic.h)`、裁剪
+//     `(pic.x, pic.y, pic.w, pic.h)`、`flip_x = facing`）；
+//   * 多图层：`frame.pics[i-1]` 各自 `cx/cy` 覆盖 + `0.05 * i` 的纵深偏置；
+//   * 次序：`WorldRenderer.render_layers`（背景层 → 实体 → 前景层）+ `collect_entity_groups`
+//     的「组按代表实体的 z 远→近」；
+//   * 资源：`files[tex]` 的 `variants` 变体表 + `get_import_fallbacks` 的 `@Nx` 回退
+//     （`native/lfw/loader/get_import_fallbacks`，与 TS 同一张表）。
+//
+// **没画的**（数据在、实现没做，见报告）：3D 模型帧（`frame.model`）、名字/血条（要字体度量）、
+// 调试指标层（`entity_flags`，缺省 0）、九宫格/UV 动画、`greyscale`（要逐像素着色器）、逐图旋转
+// （`pic.rad`）。⚠ 两处**近似**：① 描边用"同图八向偏移叠加"（**形状对、颜色是乘性的**，TS 是着色器
+// 按 alpha 边缘扩纯色）；② `mix_color` 用第二遍 `modulate` 叠（对最常见的"受击闪白"等价，别的颜色
+// 偏暗）。`UI` 那一遍（`IUINodeRenderer`）本宿主仍回 `nullptr`。
+#pragma once
+
+#include <cstddef>
+#include <map>
+#include <string>
+#include <vector>
+
+#include "lfw/lfw.h"
+#include "lfw/world.h"
+
+namespace lfw::host {
+
+class HeadlessHost;
+
+// 一条绘制项。字段全部是通用图形名词（矩形 / 裁剪 / 纹理路径 / 颜色 / 次序）。
+struct GodotDrawItem {
+  // 目标矩形（逻辑屏幕像素，左上原点、y 向下）。
+  double x = 0, y = 0, w = 0, h = 0;
+  // 纹理：`path` 是解析出来的**资源条目名**（空 ⇒ 宿主画占位色块）。
+  std::string path;
+  double tex_scale = 1.0;  // `@Nx` 倍数：裁剪矩形乘它才是纹理像素
+  // 图集裁剪（一倍图逻辑像素）与水平镜像。
+  double sx = 0, sy = 0, sw = 0, sh = 0;
+  bool flip_x = false;
+  // 颜色（0..1）：`r/g/b` 是 `modulate`、`a` 是不透明度（影子用它）。
+  double r = 1, g = 1, b = 1, a = 1;
+  // 换色（`mix_color` + `mix_strength`）：`mix_a > 0` ⇒ 宿主再叠一遍 `modulate`
+  //（TS 是着色器里的 `mix(color.rgb, mixColor, strength)`；两遍叠加对最常见的"受击闪白"
+  // 逐位等价，其它颜色的结果会偏暗 —— 见报告）。
+  double mix_r = 1, mix_g = 1, mix_b = 1, mix_a = 0;
+  // 描边（`outline_*`；宽度已乘图片倍数）。
+  double outline_r = 0, outline_g = 0, outline_b = 0, outline_a = 0, outline_w = 0;
+  // 诊断：来源（"bg" / "fg" / "shadow" / "entity"）与标记（实体 id / 图层名）。
+  std::string kind;
+  std::string tag;
+  double depth = 0;
+};
+
+// 一帧的绘制项（按绘制次序排好：先画的在前）。
+struct GodotFrame {
+  bool valid = false;
+  long long index = 0;
+  double dt = 0, lifetime = 0;
+  // 帧内比例一族（与 `host/thin` 的帧头同一份口径）。
+  double dfactor = 1, dtime = 0, tu = 0, fps = 0, ups = 0;
+  bool dirty = false;
+  // 相机（`camp0`/`camp1` 就是 TS `WorldRenderer.cam_p0/cam_p1`）+ 插出来的位置。
+  double cam_p0_x = 0, cam_p0_y = 0, cam_p1_x = 0, cam_p1_y = 0;
+  double cam_x = 0, cam_y = 0;
+  double tx = 0, ty = 0, scale_x = 1, scale_y = 1;
+  double screen_w = 794, screen_h = 450;
+  std::string bg_id;
+  std::vector<GodotDrawItem> items;
+  // 诊断（宿主打印一行；不影响画面）。
+  int retained = 0, world_live = 0;
+  int drawn_entities = 0, hidden_entities = 0, no_pic_entities = 0, no_file_entities = 0;
+  int bg_layers = 0;
+  int unnamed_textures = 0;
+  int outline_items = 0;              // 带描边的绘制项（诊断；描边本身还没画对）
+  std::string outline_probe;          // 第一条描边的 `#rrggbb@alpha,width`（诊断）
+};
+
+// Godot 宿主的 `IWorldRenderer`。
+class GodotWorldRenderer : public IWorldRenderer {
+ public:
+  GodotWorldRenderer(LFW& lfw, HeadlessHost& host) : _lfw(&lfw), _host(&host) {}
+
+  // ---- IWorldRenderer（保留式）----
+  void add_entity(Entity& e) override;
+  void del_entity(Entity& e) override;
+  void render(double dt) override;
+  void dispose() override;
+
+  // 宿主 `_draw()` 取最近一次 `render()` 组好的那一帧（与写入中的那一帧双缓冲：
+  // 「一个 tick 里渲染多次」时读的那份永远是完整的）。
+  const GodotFrame& take_frame();
+  bool has_frame() const { return _shown.valid; }
+
+  // 资源字节：条目名（`/` 分隔）→ 字节。先查已加载的数据包、再查 `--root` 的根目录。
+  // 宿主侧纹理缓存用它（`lfw_godot_textures.{h,cpp}`）。
+  bool read_resource(const std::string& path, std::string& out) const;
+
+  // ---- 观测面（与 `NullWorldRenderer` 同口径，摘要行要用）----
+  long long added() const { return _added; }
+  long long removed() const { return _removed; }
+  long long renders() const { return _render_count; }
+  long long live() const { return static_cast<long long>(_live.size()); }
+  long long duplicate_adds() const { return _duplicate_adds; }
+  long long stray_removes() const { return _stray_removes; }
+
+ private:
+  // 记录器持有的活体 + 插值那一对（TS `EntityRenderer.p0/p1` 的替身；投影后的坐标）。
+  struct Live {
+    Entity* e = nullptr;
+    double p0x = 0, p0y = 0, p0z = 0;  // 上一个 tick 端点（投影后：`(x, y - z/2, z)`）
+    double p1x = 0, p1y = 0, p1z = 0;  // 本 tick 端点
+    double rx = 0, ry = 0, rz = 0;     // 本帧画到哪儿（`p0 → p1` 按 df 插，或跟随持有者）
+    bool has_r = false;
+    // 影子自己那一对（TS `EntityShadowRender._p0/_p1`：位置与缩放/不透明度各自一对）。
+    double s0x = 0, s0y = 0, s0z = 0, s1x = 0, s1y = 0, s1z = 0;
+    double s0s = 1, s1s = 1, s0o = 1, s1o = 1;
+  };
+
+  // 一个素材键解析出来的东西（逐帧复用；`files[tex]` 一变就重建）。
+  struct Resolved {
+    std::string path;  // 命中条目名（空 ⇒ 没找到）
+    double scale = 1;  // `@Nx`
+    double img_w = 0, img_h = 0;  // 一倍图逻辑尺寸（PNG 头）
+  };
+
+  Live* find_live(const Entity* e);
+  // 素材键 → 命中的条目名 / 倍数 / 一倍图尺寸（走 `files[key].variants` + `@Nx` 回退）。
+  const Resolved& resolve_key(const Entity& e, const std::string& key, double variant);
+  // 直接给路径（背景层 / 影子的 `file` / `shadow`）。
+  const Resolved& resolve_path(const std::string& path);
+  void build_background(const World& world, GodotFrame& frame, bool foreground);
+  // 一条精灵：`world_x/world_y` 是实体**画到**的位置（已经是 `y - z/2` 之后的模型空间 y）。
+  void emit_sprite(GodotFrame& frame, const Entity& e, const Value& pic, double world_x,
+                   double world_y, double anchor_x, double anchor_y, const Resolved& res,
+                   const std::string& kind);
+  void emit_entity_shadow(const World& world, GodotFrame& frame, const Entity& e, const Live& live);
+
+  LFW* _lfw = nullptr;
+  HeadlessHost* _host = nullptr;
+  std::vector<Live> _live;  // 插入序
+  std::vector<Live*> _order;  // 本帧的绘制次序（借用 `_live` 的元素）
+  GodotFrame _pending;  // `render()` 写
+  GodotFrame _shown;    // `_draw()` 读
+  std::map<std::string, Resolved> _resolved;   // "data_id|key" → 解析结果
+  std::map<std::string, std::vector<std::string>> _variant_keys;  // 素材变体表
+  int _render_count = 0;
+  // `dfactor` 的帧内状态（TS `WorldRenderer.utime/dtime/dfactor/dirty`）。
+  double _utime = 0, _dtime = 0, _dfactor = 1;
+  bool _dirty = false;
+  double _cam_p0_x = 0, _cam_p0_y = 0, _cam_p1_x = 0, _cam_p1_y = 0;
+  long long _added = 0, _removed = 0, _duplicate_adds = 0, _stray_removes = 0;
+  bool _disposed = false;
+};
+
+}  // namespace lfw::host

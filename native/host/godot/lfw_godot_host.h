@@ -16,8 +16,10 @@
 #pragma once
 
 #include <filesystem>
+#include <memory>
 #include <vector>
 
+#include "host/godot/lfw_godot_renderer.h"
 #include "host/headless_host.h"
 
 namespace lfw {
@@ -49,10 +51,19 @@ class LfwGodotHost : public HeadlessHost {
   double residual_ms() const { return _accumulator_ms; }
   long long steps() const { return _steps; }
 
+  // ---- 世界渲染器（§G2 第二半）----
+  // `LFW` 构造里 `new Ditto.WorldRender(world)` 那一处：每次新建一份（一个 `LFW` 一份）。
+  IWorldRenderer* create_world_renderer(LFW& lfw) override {
+    _renderer = std::make_unique<GodotWorldRenderer>(lfw, *this);
+    return _renderer.get();
+  }
+  GodotWorldRenderer* world_renderer() const { return _renderer.get(); }
+
  private:
   double _step_ms = 1000.0 / 60.0;
   double _accumulator_ms = 0.0;
   long long _steps = 0;
+  std::unique_ptr<GodotWorldRenderer> _renderer;
 };
 
 }  // namespace lfw::host

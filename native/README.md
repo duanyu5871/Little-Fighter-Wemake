@@ -167,7 +167,10 @@ native/
     common/lfw_boot.{h,cpp}          宿主无关的装配（选 stage/bg → 造战士）+ 一帧摘要：两宿主共用
     godot/                           ★ Godot 宿主（GDExtension；见「Godot 宿主」节）
       lfw_godot_host.{h,cpp}         `LfwGodotHost : HeadlessHost`：注入虚拟时钟 + 固定步长累加器
-      lfw_godot_node.{h,cpp}         `LfwGodot : Node`：命令行 → `boot_scene` → 推帧 → 摘要（引擎类型只到这里）
+                                     + `create_world_renderer`（覆写那处空实现）
+      lfw_godot_renderer.{h,cpp}     `IWorldRenderer` 的实现：契约数据 → **引擎无关**的绘制项（无 Godot 类型）
+      lfw_godot_textures.{h,cpp}     资源路径 → `ImageTexture` 缓存（字节走数据包，解码走引擎的 PNG 解码器）
+      lfw_godot_node.{h,cpp}         `LfwGodot : Node2D`：命令行 → `boot_scene` → 推帧 → `_draw()`（引擎类型只到这里）
       register_types.cpp             扩展入口（`lfw_godot_library_init`，`.gdextension` 的 entry_symbol）
       CMakeLists.txt                 链 `godot-cpp` + `lfw_core` + headless 宿主源码 → `project/bin/lfw_godot.dll`
       project/                       Godot 工程：`project.godot` / `lfw_godot.gdextension` / `main.tscn`
@@ -382,9 +385,12 @@ node native/web/smoke.mjs --profile 1 --live
 
 ## Godot 宿主（端口在 Godot 里真跑）
 
-GDExtension 骨架（DESIGN §G1 骨架 / §G2(a) 的同进程路线）：**Godot 自己当宿主**，端口零改动、
-渲染仍是空实现（`NullWorldRenderer` + `create_ui_node_renderer → nullptr`；UI 渲染面与每层一次的
-调用点已经在核心侧，见 `native/README.md` 的移植进度与 DESIGN D4）。
+GDExtension 骨架（DESIGN §G1 骨架 / §G2(a) 的同进程路线）：**Godot 自己当宿主**，端口零改动。
+**世界已经真画出来了**（§G2 第二半）：`LfwGodot` 是 `Node2D`，`_draw()` 把核心的绘制契约变成像素
+——相机 / 背景层 / 影子 / 逐流体（按 `crop` 裁剪的真 PNG、`facing` 镜像、队伍色描边、`mix` 换色、
+按 z 的绘制次序）；UI 那一半仍是空实现（`create_ui_node_renderer → nullptr`）。头文件与实现都在
+`native/host/godot/**`（`lfw_godot_renderer.{h,cpp}` 只产出**引擎无关**的绘制项，`lfw_godot_node.cpp`
+的 `_draw()` 是唯一碰引擎类型的地方，见 §G5）。
 下文 `<godot-console>` = `Godot_v4.7.1-stable_win64_console.exe`（本机在桌面；**固定 4.7.1**）。
 
 `LfwGodotHost` 是 `HeadlessHost` 的**子类** —— 装载 / `IZip` / 存档 / XML / `import_as_*` 复用同一批
@@ -392,6 +398,9 @@ GDExtension 骨架（DESIGN §G1 骨架 / §G2(a) 的同进程路线）：**Godo
 （`ManualClock::add → 0` ⇒ 端口自己的 `Ticker` 不自驱；这正是 wasm 那边「一帧走两步」的坑）。
 `_process(delta)` 只把 `delta` 当**节拍**喂进累加器，够一个步长才
 `clock.advance(step)` + `world.update_once(step)`；`--delta` 只换节拍，不换步长。
+它同时覆写 `create_world_renderer`（`LfwGodotHost::create_world_renderer`）返回 Godot 的世界渲染器；
+`_process` 每个 step 之后按 `lfw_thin` 的同一口径补一次 `World::render_once`（本宿主不装
+`IRenderScheduler`，`render_add` 回 0 ⇒ 世界自己**不会**渲染），再 `queue_redraw()`。
 
 一次性准备（godot-cpp 与 API dump 都放在仓库外 / 构建目录，不进仓库）：
 
@@ -420,12 +429,16 @@ $root  = (Get-Location).Path               # 仓库根
     --frames 300 --every 300 --delta 0.017
 ```
 
-⚠ 两条实测容易踩的：
+⚠ 三条实测容易踩的：
 **① Godot 跑工程时会把 cwd 切到工程目录**（`--path` 的副作用；实测 `cwd=native/host/godot/project`）
 ⇒ `--root` / `--zip` 给**绝对路径**最省事（相对路径是相对工程目录，报错行里会连 cwd 一起打出来）。
 **② 这一支不许 `/GR-`**：`Object::cast_to<T>` 走 `dynamic_cast`（`godot-cpp/include/godot_cpp/core/object.hpp:129`），
 关掉 RTTI 后扩展一加载就把进程带走（实测退出码 `0xE06D7363`）⇒ 本 target **保留 RTTI**，只关
 `_HAS_EXCEPTIONS`（RTTI 不改任何 `std::` 类型的布局，与 `/GR-` 的 `lfw_core` 混编对 `Value` 这条边界安全）。
+**③ 改了 `host/godot/**` 的**头文件**就当"全量"重编**：ninja 这边**没有头文件依赖**（改 header 不触发
+依赖它的 `.o` 重编）⇒ 类的布局/虚表一半新一半旧，表现是**退出时** `signal 11`（实测：跑得好好的、
+摘要也照旧，一 `quit()` 就崩）。实测过的做法是先删 `native\build\godot\host\godot\CMakeFiles\lfw_godot.dir`
+再 `npm run native godot`（`native\build\msvc-x64` 那边同一类坑照老规矩办：删 `.obj`/`.lib`/`.exe`）。
 
 三条摘要与 `lfw_run` **逐位一致**（连 `warns` / `ignored_images` / `renderer(±)` / `clock=` 都对得上）
 —— 见下一节。
@@ -461,21 +474,43 @@ $R = (Get-Location).Path; $P = "native\host\godot\project"
     --zip "$R\native\build\host-data\prel" --zip "$R\native\build\host-data\data" `
     --stage 0 --fighter 1 --fighter 4 --vs --frames 600 --every 600 --delta 0.017
 # [godot] done: frames=300 ups=60 digest=7335aa25f4e1ce86 warns=0 errors=0 ignored_images=311 renderer(+-)=2/0 clock=5000.0ms
-# [godot] UI render calls: 0 (unhandled: 0)
+# [godot] UI render calls: 300 (unhandled: 300)
 # [godot] done: frames=900 ups=60 digest=e4a9437292047044 warns=1 errors=0 ignored_images=313 renderer(+-)=37/30 clock=15000.0ms
-# [godot] UI render calls: 0 (unhandled: 0)
+# [godot] UI render calls: 900 (unhandled: 900)
 # [godot] done: frames=600 ups=60 digest=f29d3bb1ea330c32 warns=1 errors=0 ignored_images=313 renderer(+-)=28/24 clock=10000.0ms
-# [godot] UI render calls: 0 (unhandled: 0)
+# [godot] UI render calls: 600 (unhandled: 600)
 ```
 
-`warns=1` 是既有的 `DatMgr::_add_obj id duplicated…`（不是新告警）。⚠ 新增的那行
-`UI render calls: 0 (unhandled: 0)` 是**对的**（`lfw_run` 与 Godot 都如此）：这两份宿主不装
-`IRenderScheduler`（`render_add` 回 0，`world.cpp:656`）⇒ 世界渲染器（连同 UI 渲染面那一段）
-一次都不跑 —— 页面确实在（`ignored_images=311` 就是它们要的图），但没人调 `render`。要看非 0 的
-UI 调用数去 `lfw_thin`（它自己补 `render_once`）：`UI render calls: 300 (unhandled: 300)`。
+`warns=1` 是既有的 `DatMgr::_add_obj id duplicated…`（不是新告警）。⚠ `UI render calls: N (unhandled: N)`
+两份宿主一个口径：谁**补**了 `render_once` 谁就有 N（`lfw_run` 是 0；Godot 与 `lfw_thin` 是帧数）。
+`unhandled == calls` 是**对的**：世界渲染器现在真画（§G2 第二半），UI 渲染器还是 `nullptr`
+（`create_ui_node_renderer` 默认实现）⇒ 每帧每次都记一次"没人画"。`render:` 那一行是本切片新增的
+观测面（绘制项 / 背景层 / 实体 / 纹理成败），**不进三条摘要**。
 差分/变异/覆盖的跑法与判据见
 `tests/differential/PROTOCOL.md`；**装载偶发乱码/NaN 那一类不确定失败已修**（根因与护栏见 DESIGN
 「雷区」一节）⇒ 现在偶发失败**就是**回归，别再"重跑一次凑数"。
+
+### 截图（看一眼画面）
+
+`--screenshot <file.png> --shot-frame N`：推够 N 帧后把视口存成 PNG（`--shot-frame` 缺省 120）。
+⚠ **不加 `--headless`** —— headless 没有渲染，存出来是空白（`Viewport::get_texture()->get_image()`
+拿到空图）。⚠ 路径写**绝对路径**（cwd = 工程目录，见上面 ⚠①）。窗口与逻辑视口都是 794×450
+（`project/project.godot` 的 `display/window/size/viewport_*`）⇒ 存出来的 PNG 就是 1:1 的逻辑像素。
+
+```
+$R = (Get-Location).Path; $P = "native\host\godot\project"
+& $godot --path $P -- --root "$R\dist" `
+    --zip "$R\native\build\host-data\prel" --zip "$R\native\build\host-data\data" `
+    --fighter 1 --fighter 4 --stage 1 --frames 900 --delta 0.017 `
+    --screenshot "$R\native\build\shot-stage1.png" --shot-frame 300
+# [godot] screenshot: D:/projects/lfj/native/build/shot-stage1.png 794x450 err=0 frame=300 life=300
+# [godot] render: bg=bg_2 cam=41.5,0.0 scale=1.00,1.00 df=1.000 items=57 bg_layers=45 ents=6 hidden=0
+#   no_pic=0 no_file=0 unnamed_tex=0 outline=6[#FF0000@0.80,1.0] textures=18 ok/0 fail
+```
+
+`textures=N ok/0 fail` = 宿主侧纹理缓存：字节经 `FsZipObject::read` 从数据包读出来（`@Nx` 回退由
+`get_import_fallbacks` 给），解码用引擎自己的 `Image::load_png_from_buffer` —— **核心一个字节都不碰**
+（契约 D2 的分账）。
 
 ## 移植进度
 
