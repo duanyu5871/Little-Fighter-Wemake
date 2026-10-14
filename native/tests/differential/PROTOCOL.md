@@ -5735,3 +5735,15 @@ harness op：
 - ⚠ 宿主 `lfw_run` 的**装载偶发失败**（`--vs` 数据包反复跑会出现乱码 / `IUIImgInfo.w … NaN`，
   同二进制同数据）；报错内容每次不同 ⇒ 既有缺陷（DESIGN §149.18 记了证据）。⇒ **摘要三元组要
   重跑确认**：偶发失败别当回归，稳定复现才是回归。
+
+### 6.9.200 `MoveTableLogic` 招式表演台（4D0）
+
+- 新组件 `ui/component/move_table/move_table_logic.{h,cpp}`，注册名 `MoveTableLogic`
+  （页面 `ui/move_table_page.ui.json5` 里挂的就是它）⇒ 之前那一页会「认不出组件名」。
+- ⚠ 招式表是**未定型 `Value`**（`lfw().datas().moves()`）：写用例时字段靠 `field_of` 现读，
+  别指望有 `IMoveListData` 那样的类型。`??` 语义用 `nullish_field` / `nullish_num_or`
+  （`0`、`""` 不算空），与 `field_or` 的「缺就给默认」不同。
+- ⚠ `_steps` 的排序是 `std::stable_sort`（TS 的 `sort` 稳定）—— 改动它会让同 `at` 的
+  Up/Down/Click 次序变化，演出结果随之变。
+- ⚠ 这一页要「第二个 zip + 页面切换」才跑得到，差分台面目前够不着（同 §149.17/§149.18 的
+  UI 不同构问题）。要补覆盖率，用 `lfw` subject（已 UI-同构）加 op 最省。

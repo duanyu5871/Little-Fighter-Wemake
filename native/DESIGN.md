@@ -11710,10 +11710,9 @@ coverage OK）。
 
 ### 149.16 剩下的功能欠账（与缝无关）
 
-渲染 / 音频的宿主实现（`IWorldRenderer` / `IUINodeRenderer` / sounds 只到宿主缝）、TS 侧尚未搬的
-其它模块。玩家表（4CX）、指针命令（4CY）、`F4`/`KEY_EVENT`（4CZ）已结清；仍缺
-**`ui/component/MoveTable/MoveTableLogic.ts`**（439 行的 UIComponent）—— 另有 §149.17/§149.18 记的
-「命中派发」覆盖缺口（实现已齐，缺的是差分用例）。
+渲染 / 音频的宿主实现（`IWorldRenderer` / `IUINodeRenderer` / sounds 只到宿主缝）。玩家表（4CX）、
+指针命令（4CY）、`F4`/`KEY_EVENT`（4CZ）、招式表演台 `MoveTableLogic`（4D0）都已结清；剩下的仍是
+§149.17/§149.18/§149.19 记的**覆盖缺口**（实现齐了，缺的是差分用例，要先把两侧台面 UI 做成同构）。
 
 ### 149.17 `POINTER_*` 命令移植（切片 4CY）—— 第二笔功能欠账
 
@@ -11801,4 +11800,42 @@ clean/0/9、coverage OK、宿主三条摘要 `7335aa25f4e1ce86`（prel 300）/ `
 （`IUIImgInfo.w must be positive integer, but got NaN`）。⇒ 装载路径（`preproc*/dat/lz` 一线）有
 **不确定**的内存/时序问题：报错内容每次不同 ⇒ 与代码路径改动无关 ⇒ 既有缺陷，待单独定位。
 **实践含义**：宿主摘要三元组要**重跑确认**再当成回归（本次已重跑到稳定通过）。
+
+### 149.19 `MoveTableLogic` 招式表演台（切片 4D0）—— 最后一笔功能欠账
+
+`src/LFW/ui/component/MoveTable/MoveTableLogic.ts`（439 行）是「TS 侧尚未搬」清单里的最后一项：
+页面 `ui/move_table_page.ui.json5` 早在包里、`component: ["MoveTableLogic"]` 一直没人认领。
+
+- **新文件** `ui/component/move_table/move_table_logic.{h,cpp}` + 注册
+  （`component_registry.cpp` 的 `regist_one<MoveTableLogic>(u"MoveTableLogic")` + CMake 一行）。
+- **没有类型可依**：TS 的 `IMoveListData` / `IMoveInfo` / `IMoveStep` / `IMoveDemoEntity` 在端口
+  **不存在**（`defines/` 也没有对应 schema）⇒ 招式表按**未定型 `Value`** 读（`DatMgr::moves()` /
+  `find_moves()`），字段名照 TS 接口写、一律 `field_of` / `field_or` 现读；候选表与步骤里的 `spec`
+  存同一份 `Value`（共享对象）。这是本刀最大的形状差，也解释了它为什么一直没被搬。
+- 其它形状差：`LGK` ⇒ `std::u16string`（`parse_keys` 回 `std::vector`，`ctrl.click/key_down/key_up`
+  收 vector 而不是可变参数）；`??` ⇒ 本地 `nullish_field` / `nullish_num_or` / `nullish_str_or`
+  （`0` / `""` **不算**空，与 `field_or` 的「缺就给默认」不同）；`bg.near/far` ⇒
+  `Background::near_plane()/far_plane()`；`set_position(x, 0, z)` ⇒ 三个 `Value`；`row.callbacks.add`
+  ⇒ `row->callbacks.on_click = …`；`this.warn(...)` 在端口是空转 ⇒ 告警走 `lfw().warn(...)`。
+- **`lfw.load(...zips).then(ok, err)` 没有 promise**：`load_lists` 先挂 `on_loading_end` /
+  `on_loading_failed` 再调**同步**的 `load`（同 `LoadingContentText::on_resume`），两个 remover 存在
+  成员里、`on_stop` 摘掉。差别只是 `.then` 的微任务延迟没了。
+- **排序**：`_steps` 用 `std::stable_sort` —— README 早把 `MoveTableLogic._steps.sort` 列为雷
+  （TS 的 `Array.prototype.sort` 自 ES2019 起稳定；`std::sort` 会把同一 `at` 上的 Up/Down/Click
+  次序打乱 ⇒ 演出结果会变）。
+- **lint 抓到一条**：`std::round` 与 JS `Math.round` 在**负半值**上不同 ⇒ 必须用 `js_round()`
+  （`utils/math/base.h` 里的 `round` 就是它的转发）。
+- 另记一处「照抄的瑕疵」：`spawn_entities` 里实体下标用的是**本批**下标（TS 也这样）⇒ 依赖
+  `rebuild_scene` 每次清空 `_entities` / `_entity_specs`，别在别处再调它。
+
+**验证**：差分 **258/258**（新组件不在任何差分台面上 ⇒ 只验证不回归）、锚点 9764/0、include
+**845** clean / 0 failed / 9 warnings、coverage OK、宿主三条摘要**逐字节不变**
+（`7335aa25f4e1ce86` / `e4a9437292047044` / `f29d3bb1ea330c32`）—— headless 宿主不开这一页。
+
+⚠ **覆盖缺口**：这一页真要跑起来得开菜单（`LFW.load` 第二个包 + 页面切换）⇒ 差分台面够不着
+（同 §149.17/§149.18 的 UI 不同构问题）。最省的入口是 `lfw` subject（已 UI-同构）：加一条
+「载入第二个 zip + `push_page(move_table_page)`」的 op，两侧同写。
+
+⚠ 再记一次 §149.18 的**既有**装载缺陷：本轮 4 次 `--vs` / `--stage 1` 运行里又有 1 次
+`preprocess_itr ... missing prefab: "throwing阘᫇儾老`（乱码）失败 ⇒ 频次不低，值得单独一刀。
 

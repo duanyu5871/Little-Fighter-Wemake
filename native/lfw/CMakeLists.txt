@@ -276,6 +276,7 @@ add_library(lfw_core STATIC
   ui/component/demo_mode_logic.cpp
   ui/component/char_menu.cpp
   ui/component/char_menu_head.cpp
+  ui/component/move_table/move_table_logic.cpp
   ui/component/game_prepare_logic.cpp
   ui/component/launch_page_logic.cpp
   ui/component/action_director.cpp
