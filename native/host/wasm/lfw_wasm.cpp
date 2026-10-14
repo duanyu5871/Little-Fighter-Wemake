@@ -8,7 +8,7 @@
 //     完全一致（`Ticker` 自己不走，帧由 JS 显式推）⇒ 手动模式下可与 `lfw_run` 对拍。
 //  2. `WasmHost`：`HeadlessHost` 的子类，只改 `now/warn/error/log/debug_msg` 五面 ——
 //     时钟读 JS，日志写 JS；其余（装载/`IZip`/存档/XML）原样复用 headless 的实现。
-//  3. 一帧摘要 `lfw_digest()`：与 `lfw_run.cpp` 的 `frame_digest` 同一份口径。
+//  3. `lfw_digest()`：一帧摘要走 `host/common/lfw_boot.h` 的那一份（与 `lfw_run` 同一口径）。
 #include "host/wasm/lfw_platform.h"
 
 #include <algorithm>
@@ -24,6 +24,7 @@
 #include <utility>
 #include <vector>
 
+#include "host/common/lfw_boot.h"
 #include "host/fs_zip.h"
 #include "host/headless_host.h"
 #include "lfw/base/clock.h"
@@ -258,39 +259,6 @@ std::vector<lfw::LFW::ZipItem> g_items;
 uint32_t g_frames = 0;
 uint32_t g_probe_hits[3] = {0, 0, 0};
 
-const std::u16string* as_str(const Value& v) { return std::get_if<std::u16string>(&v); }
-
-// `world.dataset.get(k)` 缺省时给 TS 的缺省值（同 `lfw_run.cpp` 的 `num_field`）。
-double num_field(const Value& v, double fallback) {
-  if (std::holds_alternative<std::monostate>(v)) return fallback;
-  const double n = lfw::to_number(v);
-  return std::isnan(n) ? fallback : n;
-}
-
-// 与 `lfw_run.cpp:139-161` 同一口径的一帧摘要（跨宿主对拍用）。
-std::string frame_digest(const lfw::World& world, int frame) {
-  std::vector<const Entity*> list;
-  for (const Entity* const e : world.entities) {
-    if (e != nullptr) list.push_back(e);
-  }
-  std::sort(list.begin(), list.end(), [](const Entity* a, const Entity* b) { return a->id < b->id; });
-  lfw::StateHash h;
-  h.str("lfw_run");
-  h.i32(frame);
-  h.u32(static_cast<uint32_t>(list.size()));
-  for (const Entity* const e : list) {
-    h.str(to_utf8(e->id));
-    h.f64(e->position.x);
-    h.f64(e->position.y);
-    h.f64(e->position.z);
-    h.f64(e->hp());
-    h.f64(e->mp());
-    h.str(to_utf8(e->team()));
-    h.str(to_utf8(lfw::to_string(e->state())));
-  }
-  return h.hex();
-}
-
 }  // namespace
 
 extern "C" {
@@ -367,128 +335,42 @@ int32_t lfw_boot(uint32_t stage_h, uint32_t fighter_a_h, uint32_t fighter_b_h, u
                  uint32_t vs) {
   if (g_lfw == nullptr) return -1;
   lfw::LFW& lfw = *g_lfw;
-  lfw::World& world = lfw.world();
-  const bool is_vs = vs != 0;
 
-  const std::u16string* const stage_arg = string_at(stage_h);
-  std::u16string stage_id = stage_arg != nullptr ? *stage_arg : std::u16string();
+  // 装配（选 stage/bg → 造战士 → `change_stage`）与 `lfw_run` 共用一份
+  // （`host/common/lfw_boot.h`）：这边只把日志文本与"有错就中止"的失败策略接回去。
+  lfw::host::BootOptions options;
+  if (const std::u16string* const stage_arg = string_at(stage_h)) options.stage = *stage_arg;
+  if (const std::u16string* const a = string_at(fighter_a_h)) options.fighters.push_back(*a);
+  if (const std::u16string* const b = string_at(fighter_b_h)) options.fighters.push_back(*b);
+  options.players = static_cast<int>(players);
+  options.vs = vs != 0;
+  options.on_spawn = [](const lfw::host::SpawnInfo& s) {
+    js_log(LFW_LOG_LOG,
+           u"[wasm] spawn p" + s.player_id + u" " + s.fighter_id + (s.vs ? u" (vs)" : u""));
+  };
+  bool failed = false;
+  bool create_failed = false;
+  std::u16string failed_id;
+  options.on_failure = [&](const lfw::host::BootFailure& f) {
+    failed = true;
+    create_failed = f.create_failed;
+    failed_id = f.fighter_id;
+    return false;  // 有错就中止（等价于原来在这里 `return -4` / `return -5`）
+  };
 
-  // ---- 选舞台 / 背景（同 `lfw_run.cpp:252-286`）----
-  std::u16string bg_id;
-  if (!lfw.datas().stages().empty()) {
-    const Value* stage = nullptr;
-    for (const Value& s : lfw.datas().stages()) {
-      const Value id_v = lfw::field_or(s, u"id");
-      const std::u16string* const id = as_str(id_v);
-      if (id == nullptr) continue;
-      if (!stage_id.empty()) {
-        if (*id == stage_id) {
-          stage = &s;
-          break;
-        }
-        continue;
-      }
-      const bool starting = lfw::truthy(lfw::field_or(s, u"is_starting"));
-      if (stage == nullptr || starting) stage = &s;
-      if (starting) break;
-    }
-    if (stage == nullptr) stage = &lfw.datas().stages().front();
-    if (stage_id.empty()) {
-      const Value id_v = lfw::field_or(*stage, u"id");
-      const std::u16string* const id = as_str(id_v);
-      if (id != nullptr) stage_id = *id;
-    }
-    const Value bg_v = lfw::field_or(*stage, u"bg");
-    const std::u16string* const bg = as_str(bg_v);
-    if (bg != nullptr) bg_id = *bg;
-  }
-  if (!bg_id.empty()) lfw.change_bg(bg_id);
-
-  // ---- 出场的角色（`--fighter` 给了就用给的，否则取数据包里的前 N 个）----
-  std::vector<std::u16string> fighter_ids;
-  if (const std::u16string* const a = string_at(fighter_a_h)) fighter_ids.push_back(*a);
-  if (const std::u16string* const b = string_at(fighter_b_h)) fighter_ids.push_back(*b);
-  if (fighter_ids.empty()) {
-    for (const Value& f : lfw.datas().fighters()) {
-      const Value id_v = lfw::field_or(f, u"id");
-      const std::u16string* const id = as_str(id_v);
-      if (id != nullptr && !id->empty()) fighter_ids.push_back(*id);
-      if (static_cast<int>(fighter_ids.size()) >= static_cast<int>(players)) break;
-    }
-  }
-  if (fighter_ids.empty()) {
+  const lfw::host::BootResult booted = lfw::host::boot_scene(lfw, options);
+  if (!booted.ok) {
     set_error(u"[wasm] no fighter data in the loaded packages");
     return -3;
   }
-
-  const double begin_blink = num_field(world.dataset.get(u"begin_blink_time"), 0.0);
-  for (uint32_t i = 0; i < players; ++i) {
-    const std::u16string& fid = fighter_ids[static_cast<size_t>(i) % fighter_ids.size()];
-    const Value data = lfw.datas_fighters_find(Value(fid));
-    if (!lfw::truthy(data)) {
-      set_error(u"[wasm] fighter data not found: " + fid);
-      return -4;
-    }
-    const std::u16string player_id = lfw::number_to_string(static_cast<double>(i) + 1.0);
-    Entity* const fighter = lfw.create_entity_with_bot(player_id, world, data);
-    if (fighter == nullptr) {
-      set_error(u"[wasm] create fighter failed: " + fid);
-      return -5;
-    }
-    if (is_vs) {
-      // TS `GamePrepareLogic.start_game` 的对战模式分支（与 `lfw_run.cpp:317-352` 逐行同款）。
-      fighter->set_team(lfw.new_team());
-      fighter->stat_bar = 0;
-      const std::vector<Value> facing_options{Value(static_cast<double>(lfw::FacingFlag::Left)),
-                                              Value(static_cast<double>(lfw::FacingFlag::Right))};
-      const Value facing_pick =
-          lfw.mt()->pick_value(Value(std::make_shared<lfw::Array>(lfw::Array(facing_options))));
-      fighter->facing = num_field(facing_pick, 1.0);
-      fighter->name_visible = 1;
-      fighter->as_key_role(Value(true));
-      lfw.mt()->mark = u"gpl_fighter_x";
-      const double screen_w = lfw::defines::num(u"Defines.MODERN_SCREEN_WIDTH");
-      const double x = lfw.mt()->range(screen_w / 3.0, 2.0 * screen_w / 3.0);
-      lfw.mt()->mark = u"gpl_fighter_z";
-      const lfw::Background* const bg = world.bg();
-      const double z = bg != nullptr ? lfw.mt()->range(bg->far_plane(), bg->near_plane()) : 0.0;
-      const lfw::ITerrainInfo& seg = world.ground.segment(x, z);
-      const double y = lfw::Ground::y(seg, x, z);
-      fighter->set_position(Value(x), Value(y), Value(z));
-      fighter->set_blinking(begin_blink);
-      fighter->set_invulnerable(begin_blink);
-      fighter->set_mp(fighter->mp_max() * 2.0 / 5.0);
-      fighter->attach();
-      js_log(LFW_LOG_LOG, u"[wasm] spawn p" + player_id + u" " + fid + u" (vs)");
-    } else {
-      fighter->set_team(lfw::number_to_string(static_cast<double>(i) + 1.0));
-      fighter->stat_bar = 0;
-      fighter->facing = (i % 2 == 0) ? 1 : -1;
-      fighter->name_visible = 1;
-      fighter->as_key_role(Value(true));
-      fighter->set_hp(500);
-      fighter->set_mp(500);
-      fighter->set_mp_max(500);
-      const double x = -80.0 + 160.0 * static_cast<double>(i);
-      const double z = 0.0;
-      const lfw::ITerrainInfo& seg = world.ground.segment(x, z);
-      const double y = lfw::Ground::y(seg, x, z);
-      fighter->set_position(Value(x), Value(y), Value(z));
-      fighter->set_blinking(begin_blink);
-      fighter->set_invulnerable(begin_blink);
-      fighter->attach();
-      js_log(LFW_LOG_LOG, u"[wasm] spawn p" + player_id + u" " + fid);
-    }
+  if (failed) {
+    set_error((create_failed ? u"[wasm] create fighter failed: " : u"[wasm] fighter data not found: ") +
+              failed_id);
+    return create_failed ? -5 : -4;
   }
-
-  if (!stage_id.empty()) lfw.change_stage(stage_id);
-  if (is_vs) {
-    world.set_paused(false);
-    world.dataset.set(u"playrate", Value(1.0));
-    world.dataset.set(u"infinity_mp", Value(0.0));
-  }
-  js_log(LFW_LOG_LOG, u"[wasm] boot stage=" + stage_id + u" bg=" + bg_id + u" entities=" +
-                           lfw::number_to_string(static_cast<double>(world.entities.size())));
+  js_log(LFW_LOG_LOG, u"[wasm] boot stage=" + booted.stage_id + u" bg=" + booted.bg_id +
+                           u" entities=" +
+                           lfw::number_to_string(static_cast<double>(lfw.world().entities.size())));
   return 0;
 }
 
@@ -515,12 +397,7 @@ uint32_t lfw_ghosts(void) {
 double lfw_lifetime(void) { return g_lfw != nullptr ? g_lfw->world().lifetime() : 0.0; }
 
 double lfw_total_hp(void) {
-  if (g_lfw == nullptr) return 0.0;
-  double sum = 0;
-  for (const Entity* const e : g_lfw->world().entities) {
-    if (e != nullptr) sum += e->hp();
-  }
-  return sum;
+  return g_lfw != nullptr ? lfw::host::total_hp(g_lfw->world()) : 0.0;
 }
 
 uint32_t lfw_warn_count(void) { return g_host != nullptr ? g_host->warns() : 0; }
@@ -549,7 +426,7 @@ uint32_t lfw_digest(void) {
     return 0;
   }
   const int frame = g_frames == 0 ? 0 : static_cast<int>(g_frames) - 1;
-  const std::string hex = frame_digest(g_lfw->world(), frame);
+  const std::string hex = lfw::host::frame_digest(g_lfw->world(), frame);
   const std::u16string text = lfw::decode_utf8(std::vector<uint8_t>(hex.begin(), hex.end()));
   write_scratch(text);
   return static_cast<uint32_t>(text.size());
@@ -560,7 +437,7 @@ uint32_t lfw_dump_state(void) {
     write_scratch(u"");
     return 0;
   }
-  // 与 `lfw_run.cpp:437-451` 的 `[  state]` 行同款（`%.1f` / `%.0f` 的格式也一致）。
+  // 与 `lfw_run.cpp` 的 `[  state]` 行同款（`%.1f` / `%.0f` 的格式也一致）。
   const lfw::World& world = g_lfw->world();
   std::u16string out = u"[state]";
   char buf[64];

@@ -14,6 +14,7 @@
 #include <string>
 #include <vector>
 
+#include "host/common/lfw_boot.h"
 #include "host/fs_zip.h"
 #include "host/headless_host.h"
 #include "lfw/bg/background.h"
@@ -136,38 +137,6 @@ bool parse_args(int argc, char** argv, Args& out) {
   return true;
 }
 
-// 一帧的可复现摘要：实体表（按 id 排序）+ 位置 / 血量 / 队 / 状态。
-std::string frame_digest(const lfw::World& world, int frame) {
-  std::vector<const Entity*> list;
-  for (const Entity* const e : world.entities) {
-    if (e != nullptr) list.push_back(e);
-  }
-  std::sort(list.begin(), list.end(), [](const Entity* a, const Entity* b) { return a->id < b->id; });
-  lfw::StateHash h;
-  h.str("lfw_run");
-  h.i32(frame);
-  h.u32(static_cast<uint32_t>(list.size()));
-  for (const Entity* const e : list) {
-    h.str(to_utf8(e->id));
-    h.f64(e->position.x);
-    h.f64(e->position.y);
-    h.f64(e->position.z);
-    h.f64(e->hp());
-    h.f64(e->mp());
-    h.str(to_utf8(e->team()));
-    h.str(to_utf8(lfw::to_string(e->state())));
-  }
-  return h.hex();
-}
-
-double total_hp(const lfw::World& world) {
-  double sum = 0;
-  for (const Entity* const e : world.entities) {
-    if (e != nullptr) sum += e->hp();
-  }
-  return sum;
-}
-
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -251,131 +220,33 @@ int main(int argc, char** argv) {
 
   lfw::World& world = lfw.world();
 
-  // ---- 选舞台 / 背景（stage 数据里的 `bg`；缺省取第一个舞台）----
-  // ⚠ `field_or` **按值**返回 `Value`：`as_str(field_or(...))` 拿到的是临时对象内部的指针，
-  // 语句一结束就悬空（踩过一次：读回空串）。凡是要留指针的地方都先存进局部 `Value`。
-  std::u16string stage_id = args.stage;
-  std::u16string bg_id;
-  if (!lfw.datas().stages().empty()) {
-    const Value* stage = nullptr;
-    for (const Value& s : lfw.datas().stages()) {
-      const Value id_v = lfw::field_or(s, u"id");
-      const std::u16string* const id = as_str(id_v);
-      if (id == nullptr) continue;
-      if (!stage_id.empty()) {
-        if (*id == stage_id) {
-          stage = &s;
-          break;
-        }
-        continue;
-      }
-      const bool starting = lfw::truthy(lfw::field_or(s, u"is_starting"));
-      if (stage == nullptr || starting) stage = &s;
-      if (starting) break;
-    }
-    if (stage == nullptr) stage = &lfw.datas().stages().front();
-    if (stage_id.empty()) {
-      const Value id_v = lfw::field_or(*stage, u"id");
-      const std::u16string* const id = as_str(id_v);
-      if (id != nullptr) stage_id = *id;
-    }
-    const Value bg_v = lfw::field_or(*stage, u"bg");
-    const std::u16string* const bg = as_str(bg_v);
-    if (bg != nullptr) bg_id = *bg;
-  }
-  if (!bg_id.empty()) lfw.change_bg(bg_id);
-
-  // ---- 出场的角色（`GamePrepareLogic::start_game` 的最小版）----
-  std::vector<std::u16string> fighter_ids = args.fighters;
-  if (fighter_ids.empty()) {
-    for (const Value& f : lfw.datas().fighters()) {
-      const Value id_v = lfw::field_or(f, u"id");
-      const std::u16string* const id = as_str(id_v);
-      if (id != nullptr && !id->empty()) fighter_ids.push_back(*id);
-      if (static_cast<int>(fighter_ids.size()) >= args.players) break;
-    }
-  }
-  if (fighter_ids.empty()) {
+  // ---- 装好这场对局（选 stage/bg → 造战士 → `change_stage`）----
+  // 这段与 wasm 宿主共用 `host/common/lfw_boot.h`：日志留在宿主侧（`on_spawn` 的格式两边不同），
+  // 建不起来时也由宿主决定继续还是停手（`on_failure` 返回 true 就是原来的"记账后继续"）。
+  lfw::host::BootOptions boot;
+  boot.fighters = args.fighters;
+  boot.stage = args.stage;
+  boot.players = args.players;
+  boot.vs = args.vs;
+  boot.on_spawn = [](const lfw::host::SpawnInfo& s) {
+    std::printf("[lfw_run] spawn p%s %s @(%.1f, %.1f, %.1f) team=%s%s\n", to_utf8(s.player_id).c_str(),
+                to_utf8(s.fighter_id).c_str(), s.x, s.y, s.z, to_utf8(s.team).c_str(),
+                s.vs ? " (vs)" : "");
+  };
+  boot.on_failure = [](const lfw::host::BootFailure& f) {
+    std::fprintf(stderr,
+                 f.create_failed ? "[lfw_run] create fighter failed: %s\n"
+                                 : "[lfw_run] fighter data not found: %s\n",
+                 to_utf8(f.fighter_id).c_str());
+    return true;
+  };
+  const lfw::host::BootResult booted = lfw::host::boot_scene(lfw, boot);
+  if (!booted.ok) {
     std::fprintf(stderr, "[lfw_run] no fighter data in the loaded packages\n");
     return 3;
   }
-
-  const double begin_blink = num_field(world.dataset.get(u"begin_blink_time"), 0.0);
-  for (int i = 0; i < args.players; ++i) {
-    const std::u16string& fid = fighter_ids[static_cast<size_t>(i) % fighter_ids.size()];
-    const Value data = lfw.datas_fighters_find(Value(fid));
-    if (!lfw::truthy(data)) {
-      std::fprintf(stderr, "[lfw_run] fighter data not found: %s\n", to_utf8(fid).c_str());
-      continue;
-    }
-    const std::u16string player_id = lfw::number_to_string(i + 1);
-    Entity* const fighter = lfw.create_entity_with_bot(player_id, world, data);
-    if (fighter == nullptr) {
-      std::fprintf(stderr, "[lfw_run] create fighter failed: %s\n", to_utf8(fid).c_str());
-      continue;
-    }
-    if (args.vs) {
-      // TS `GamePrepareLogic.start_game` 的**对战模式**分支（`is_stage_mode === false`）。
-      // 队伍走 `lfw.new_team`（自增 `team_N`）；朝向是 `mt.pick([Left, Right])`；
-      // 站位 `x = mt.range(screen_w/3, 2*screen_w/3) + cam_x`（宿主没有准备页相机 ⇒ `cam_x = 0`）、
-      // `z = mt.range(far, near)`；hp/mp **不覆盖**（保持 fighter 数据里的值），
-      // 只把 `mp` 收到 `mp_max * 2 / 5`（TS 的 `if (is_vs_mode)` 那一行）。
-      fighter->set_team(lfw.new_team());
-      fighter->stat_bar = 0;
-      const std::vector<Value> facing_options{
-          Value(static_cast<double>(lfw::FacingFlag::Left)),
-          Value(static_cast<double>(lfw::FacingFlag::Right))};
-      const Value facing_pick =
-          lfw.mt()->pick_value(Value(std::make_shared<Array>(Array(facing_options))));
-      fighter->facing = num_field(facing_pick, 1.0);
-      fighter->name_visible = 1;
-      fighter->as_key_role(Value(true));
-      lfw.mt()->mark = u"gpl_fighter_x";
-      const double screen_w = lfw::defines::num(u"Defines.MODERN_SCREEN_WIDTH");
-      const double x = lfw.mt()->range(screen_w / 3.0, 2.0 * screen_w / 3.0);
-      lfw.mt()->mark = u"gpl_fighter_z";
-      const lfw::Background* const bg = world.bg();
-      const double z = bg != nullptr ? lfw.mt()->range(bg->far_plane(), bg->near_plane()) : 0.0;
-      const lfw::ITerrainInfo& seg = world.ground.segment(x, z);
-      const double y = lfw::Ground::y(seg, x, z);
-      fighter->set_position(Value(x), Value(y), Value(z));
-      fighter->set_blinking(begin_blink);
-      fighter->set_invulnerable(begin_blink);
-      fighter->set_mp(fighter->mp_max() * 2.0 / 5.0);
-      fighter->attach();
-      std::printf("[lfw_run] spawn p%s %s @(%.1f, %.1f, %.1f) team=%s (vs)\n",
-                  to_utf8(player_id).c_str(), to_utf8(fid).c_str(), x, y, z, to_utf8(fighter->team()).c_str());
-    } else {
-      fighter->set_team(lfw::number_to_string(i + 1));
-      fighter->stat_bar = 0;
-      fighter->facing = (i % 2 == 0) ? 1 : -1;
-      fighter->name_visible = 1;
-      fighter->as_key_role(Value(true));
-      fighter->set_hp(500);
-      fighter->set_hp_max(500);
-      fighter->set_mp(500);
-      fighter->set_mp_max(500);
-      const double x = -80.0 + 160.0 * i;
-      const double z = 0.0;
-      const lfw::ITerrainInfo& seg = world.ground.segment(x, z);
-      const double y = lfw::Ground::y(seg, x, z);
-      fighter->set_position(Value(x), Value(y), Value(z));
-      fighter->set_blinking(begin_blink);
-      fighter->set_invulnerable(begin_blink);
-      fighter->attach();
-      std::printf("[lfw_run] spawn p%s %s @(%.1f, %.1f, %.1f) team=%s\n", to_utf8(player_id).c_str(),
-                  to_utf8(fid).c_str(), x, y, z, to_utf8(fighter->team()).c_str());
-    }
-  }
-
-  if (!stage_id.empty()) lfw.change_stage(stage_id);
-  if (args.vs) {
-    // TS `VsModeLogic.on_start`：`world.paused = false`、`dataset.playrate = 1`、
-    // `dataset.infinity_mp = 0`（对战模式没有闯关的阶段/难度那套）。
-    world.set_paused(false);
-    world.dataset.set(u"playrate", Value(1.0));
-    world.dataset.set(u"infinity_mp", Value(0.0));
-  }
+  const std::u16string& stage_id = booted.stage_id;
+  const std::u16string& bg_id = booted.bg_id;
   std::printf("[lfw_run] stage=%s bg=%s entities=%zu\n", to_utf8(stage_id).c_str(),
               to_utf8(bg_id).c_str(), world.entities.size());
 
@@ -423,9 +294,10 @@ int main(int argc, char** argv) {
     clock.advance(dt);
     world.update_once(dt);
     if (frame % every == 0 || frame == args.frames - 1) {
-      digest = frame_digest(world, frame);
+      digest = lfw::host::frame_digest(world, frame);
       std::printf("[frame %6d] entities=%zu ghosts=%zu hp=%.1f digest=%s\n", frame,
-                  world.entities.size(), world.ghosts.size(), total_hp(world), digest.c_str());
+                  world.entities.size(), world.ghosts.size(), lfw::host::total_hp(world),
+                  digest.c_str());
       // 诊断行：各实体的 state / frame.id / 位置 + bg 运动（看帧链有没有在推进）
       std::printf("[  state]");
       for (Entity* const e : world.entities) {

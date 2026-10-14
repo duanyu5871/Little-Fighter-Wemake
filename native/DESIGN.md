@@ -1530,10 +1530,14 @@ JSZip 的 `file()` / `file()` + 正则索引是**同步**的（`Zip.ts:122-141`�
 
 **测试仍然用 headless**：差分/变异/三条摘要（`native/README.md:272-292`）跑的是
 `native/host/`。WASM 宿主与它是**同一批接口的两个实现**，不许互相依赖。为了让"两边跑同一场景"
-成为可能，建议把 `lfw_run.cpp:252-415` 里那段"装包 → 选 stage/bg → 造 `--players` 个 bot 战士 →
-`change_stage`"的装配逻辑抽成与宿主无关的 `lfw_boot(...)`（**未定**：是抽函数还是各自复制），
-并把 `core/state_hash` 的同一个摘要经 `lfw_digest()` 导出（`lfw_run.cpp:140-161` 用的就是它）
-⇒ 于是"浏览器里跑固定 dt N 帧的 digest == `lfw_run --frames N`"成为一条可执行的验收。
+成为可能，那段"选 stage/bg → 造 `--players` 个 bot 战士 → `change_stage`"的装配逻辑
+**已经抽成与宿主无关的一份**：`native/host/common/lfw_boot.h` 的 `lfw::host::boot_scene(...)`
+（**决定：抽成一份共享实现、两个宿主都调它** —— 原先记的"是抽函数还是各自复制"这条"未定"作废）。
+日志文本与"建不起来要不要停手"仍留在宿主侧（`on_spawn` / `on_failure` 两个回调把数据递回去），
+所以这一份不碰 emscripten：纯 C++ 宿主（无 JS）也能直接调。`core/state_hash` 的同一个摘要
+经 `lfw_digest()` 导出（`lfw_run` 与 `lfw_wasm` 共用 `lfw::host::frame_digest`）
+⇒ 于是"浏览器里跑固定 dt N 帧的 digest == `lfw_run --frames N`"成为一条可执行的验收
+（抽完之后三条摘要逐位未变）。
 
 ### W12. 构建
 

@@ -159,6 +159,7 @@ native/
     fs_zip.{h,cpp}                   目录当 zip 用（`IZip` / `IZipObject` 的读盘实现）
     headless_host.{h,cpp}            `ILfwHost` 的最小可用实现 + 手动时钟/定时器 + 空渲染器
     lfw_run.cpp                      `lfw_run`：装数据包 → 起世界 → 推帧（每 N 帧打摘要）
+    common/lfw_boot.{h,cpp}          宿主无关的装配（选 stage/bg → 造战士）+ 一帧摘要：两宿主共用
   ffi/lfw_c.h                        纯 C ABI 导出（尚未创建）
   DESIGN.md                          现行设计；WASM 对接方案见其中 `## ★ 宿主层与 WASM 对接设计（方案）` 一节
 ```
