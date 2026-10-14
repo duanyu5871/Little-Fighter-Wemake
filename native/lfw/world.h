@@ -132,8 +132,6 @@ class World {
   virtual double entity_count() const;
   // `world.puppets.values()`
   virtual std::vector<Entity*> puppets_values();
-  // `lfw.players.get(player_id)`：玩家表还没接，按旧缝口径给空 `Value`（TS 的 `undefined`）。
-  virtual Value player_value(const std::u16string& player_id) const;
   // `opoint.__gen_x?.get(emitter)` 这类表达式字段：函数对象不移植（DESIGN §4.57），
   // 宿主按 `(holder, kind, emitter)` 回答；`nullopt` 表示没有该字段 ⇒ 调用方回落。
   virtual std::optional<Value> gen_field(const Value& holder, const std::u16string& kind,

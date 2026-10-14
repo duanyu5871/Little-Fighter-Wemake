@@ -1,5 +1,7 @@
 #include "lfw/player_info.h"
 
+#include "lfw/utils/container_help/field_or.h"
+
 #include <cmath>
 #include <memory>
 #include <string>
@@ -147,6 +149,22 @@ void PlayerInfo::set_field(const char16_t* key, const Value& v) {
 }
 
 void PlayerInfo::warn(const std::u16string& text) { _host->warn(text); }
+
+// `lfw.players.get(id)` 的 `Value` 视图（同 `player_info.h` 的说明）。
+Value player_view_of(const PlayerInfo* const p) {
+  if (p == nullptr) return Value();
+  auto o = std::make_shared<Object>();
+  const Value& info = p->info();
+  o->set(u"id", field_or(info, u"id"));
+  o->set(u"name", field_or(info, u"name"));
+  o->set(u"keys", field_or(info, u"keys"));
+  o->set(u"version", field_or(info, u"version"));
+  o->set(u"ctrl", field_or(info, u"ctrl"));
+  o->set(u"local", p->local());
+  o->set(u"mine", p->mine());
+  o->set(u"is_com", Value(p->is_com()));
+  return Value(o);
+}
 
 PlayerInfo::PlayerInfo(IPlayerInfoHost* host, const std::u16string& id, const Value& name,
                        const Value& local, const Value& mine)

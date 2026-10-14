@@ -131,12 +131,6 @@ std::vector<Entity*> World::puppets_values() {
   return out;
 }
 
-Value World::player_value(const std::u16string& player_id) const {
-  (void)player_id;
-  // 玩家表（`lfw.players`）还没移植 ⇒ 与旧宿主缝同口径：空 `Value`。
-  return Value();
-}
-
 std::optional<Value> World::gen_field(const Value& holder, const std::u16string& kind,
                                       Entity& emitter) {
   (void)holder;

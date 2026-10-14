@@ -11683,6 +11683,33 @@ zip/renderer）、`IWorldRenderer`、`IPlayerInfoHost`、`IXML`/`IXMLElement`、
 `IComponentCreator` / `ICtrlCreator`、`IExpression`、`IUIEvent`、`IUIImgLoaderNode`、`IState`、
 `ITickerOptions`。
 
-**已知功能欠账（与缝无关）**：`lfw.players` 玩家表（`World::player_value` 目前回空 `Value`）、
-渲染/音频的宿主实现、以及 TS 侧尚未搬的其它模块。
+### 149.15 玩家表接线（切片 4CX）—— 第一笔功能欠账
+
+缝家族清完后，`lfw.players` 是唯一还在「假装」的运行时数据面：表本身（`LFW::_players`，播种
+`"1"`..`"8"`、`player()` 按需建、`players_get/has/delete`）早就搬好了，缺的是**把它接到消费者**：
+
+- **绑定**：TS 在 `BaseController` 的**构造**与 `reset` 里各做一次
+  `this.player = lfw.players.get(player_id)`（`Factory.acquire_ctrl` 是唯一入口）。端口原来给了一条
+  `BaseController::bind_player()` + `CtrlEnv::lfw_player` 缝，但**没有任何调用点** ⇒ `ctrl.player`
+  永远是空 `Value` ⇒ `Entity::player_name()` 恒走 `"Player " + id` 兜底、`World` 里那句
+  `ctrl.player.mine` 恒假。本刀把绑定收到 `Factory::acquire_ctrl`（造与复用两个分支各一次，
+  `entity == nullptr` 的 `InvalidController` 不绑，与 TS 一致）——这是 TS 的**同一时机**，不是环境缝。
+- **投影**：新增 `player_view_of(const PlayerInfo*)`（`player_info.{h,cpp}`）：TS 那边
+  `players.get(id)` 给的是 `PlayerInfo` **实例**，端口把它的读面投影成对象 —— `_info` 的插入序
+  （`id`/`name`/`keys`/`version`/`ctrl`）之后跟实例字段（`local`/`mine`/`is_com`）。
+- **随作废的缝**：`CtrlEnv::lfw_player`、`BaseController::bind_player()`、`World::player_value()`
+  全部删除（前者没有调用点；后者是 4CJ 那刀为这条缝开的 Value 面，TS 的 `World` 里没有这个方法）。
+
+**验证（这一次不是「逐字节不变」，是「行为对齐」）**：差分仍 **255/255** —— 注意这一点很关键：
+`world` subject 的假 `lfw.players.get` **会打日志**（`world.ts:278` / `world_fixture.h:199`），
+而 TS 的真 `BaseController` 构造里就会调它 ⇒ 两边 trace 里的 `h:player=` 行**数量与位置必须一致**：
+`world/step` 两侧各 **380** 行，且每行都紧跟在实体创建（`ent|eN|pid` ⇒ `h:player=s"…"` ⇒
+`h:radd=`）之后 ⇒ 绑定确实落在 TS 的同一时机上。宿主三条摘要**逐字节不变**
+（`lfw_run` 的 headless 路径不读 `player`，所以摘要看不出差异；锚点 9764/0、include 835 clean/0/9、
+coverage OK）。
+
+### 149.16 剩下的功能欠账（与缝无关）
+
+渲染 / 音频的宿主实现（`IWorldRenderer` / `IUINodeRenderer` / sounds 只到宿主缝）、TS 侧尚未搬的
+其它模块。玩家表（本节的 4CX）已结清。
 

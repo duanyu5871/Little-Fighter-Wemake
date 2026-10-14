@@ -5691,3 +5691,15 @@ harness op：
   `lfw/lfw.h` 与 `lfw/world.h`）。新增「持有 `LFW*` 的头」时照此办理（同 `stage.h` 的 4CO 处理）。
 - ⚠ `keys.h` 里那句「`LFW` 未移植 ⇒ 宿主缝」曾是**过期注释**，害得 `IKeysLfw` 被误记成「待移植」；
   判断某条缝该不该退，先看真类有没有现成的实现，别信注释。
+
+### 6.9.197 玩家表接线（4CX）
+
+- `ctrl.player` 现在由 **`Factory::acquire_ctrl`** 绑（造与复用两个分支；TS 的时机是
+  `BaseController` 的构造与 `reset`）⇒ 台面/测试替身想脚本化它，照旧直接写 `ctrl->player`
+  （`entity.ts:649` 就是这么干的）。
+- `lfw.players.get(id)` 的 `Value` 视图是 `player_view_of(PlayerInfo*)`（`player_info.h`）。
+  ⚠ 它是**只取不建**（对应 TS 的 `.get()`）；TS 的 `lfw.player(id)` 才按需建 —— 两者别混。
+- ⚠ 假 `lfw` 的 `players_get` 是**会打日志**的（`world_fixture.h` / `world.ts` 都记 `h:player=`）：
+  改动控制器创建路径时，两侧的 `h:player=` 行数与位置必须一致 —— 这是「绑定落在同一时机」的
+  判别手段（`world/step`：两侧各 380 行，紧跟实体创建）。
+- 作废的旧缝：`CtrlEnv::lfw_player`、`BaseController::bind_player()`、`World::player_value()` 已删。

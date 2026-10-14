@@ -118,4 +118,9 @@ class PlayerInfo {
   Entity* _fighter = nullptr;
 };
 
+// `lfw.players.get(id)` 的 `Value` 视图（切片 4CX）：TS 里那是 `PlayerInfo` **实例**，端口把它的
+// 读面投影成对象 —— `_info` 的插入序（`id` / `name` / `keys` / `version` / `ctrl`）之后跟实例字段
+// （`local` / `mine` / `is_com`）。拿不到（`nullptr`，即 TS 的 `undefined`）给空 `Value`。
+Value player_view_of(const PlayerInfo* p);
+
 }

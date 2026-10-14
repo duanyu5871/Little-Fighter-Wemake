@@ -5,6 +5,8 @@
 #include <vector>
 
 #include "lfw/buff/buff.h"
+#include "lfw/lfw.h"
+#include "lfw/player_info.h"
 #include "lfw/controller/creators.h"
 #include "lfw/core/value.h"
 #include "lfw/entity/entity.h"
@@ -13,6 +15,19 @@
 #include "lfw/utils/container_help/field_or.h"
 
 namespace lfw {
+
+namespace {
+
+// `BaseController` 的 `this.player = lfw.players.get(player_id)`（TS 在构造函数与 `reset` 里各做
+// 一次；切片 4CX 接玩家表时补上）。`entity == nullptr` 的 `InvalidController` 不绑（TS 的
+// `InvalidController` 走的是无参构造）。
+void bind_ctrl_player(controller::BaseController& ctrl, const std::u16string& player_id,
+                      Entity* const entity) {
+  if (entity == nullptr) return;
+  ctrl.player = player_view_of(entity->lfw().players_get(Value(std::u16string(player_id))));
+}
+
+}  // namespace
 
 namespace {
 
@@ -197,11 +212,15 @@ controller::BaseController* Factory::acquire_ctrl(const ICtrlCreator* cls,
       controller::BaseController* const ret = *taken;
       // TS 的 `reset(player_id, entity)`：端口把两者放在 env / 公开字段上（见 DESIGN）。
       ret->player_id = player_id;
+      bind_ctrl_player(*ret, player_id, entity);
       ret->reset();
       return ret;
     }
   }
   controller::BaseController* const ret = cls->create(player_id, entity);
+  // TS：`new Cls(player_id, entity)` 的构造函数里 `this.player = entity.lfw.players.get(player_id)`
+  // （`BaseController.ctor`）；端口在造好之后等价地绑一次。
+  bind_ctrl_player(*ret, player_id, entity);
   ret->set_creator(cls);
   return ret;
 }

@@ -462,10 +462,6 @@ class TestWorld : public World {
   Value bg_value(const std::u16string& key) const override {
     return on_bg_value ? on_bg_value(key) : World::bg_value(key);
   }
-  Value player_value(const std::u16string& player_id) const override {
-    (void)player_id;
-    return Value();
-  }
   Entity* find_entity(const std::u16string& id) const override {
     if (on_find_entity) return on_find_entity(id);
     return World::find_entity(id);

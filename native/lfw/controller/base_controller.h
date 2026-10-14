@@ -96,9 +96,6 @@ struct CtrlEnv {
   // `get_val_from_bot_ctrl` 的回落：`val_getter(e.entity, word, op)`（实体 getter 表；
   // 未命中时给 `word` 本身，即 TS 的 `() => word`）。由 `Entity` 在刷新时绑上。
   std::function<Value(const std::u16string&, BinOp op)> entity_val;
-  // `lfw.players.get(player_id)`（`BaseController` 的 `this.player` 绑定）。宿主给的
-  // 是玩家对象的 `Value` 视图；拿不到给空 `Value`（即 TS 的 `undefined`）。
-  std::function<Value(const std::u16string&)> lfw_player;
   // `this.entity.set_position(x, y, z)`（`lock_when_stand_and_rest`）
   std::function<void(const Value&, const Value&, const Value&)> set_position;
   // `world.bg.width` / `.near` / `.far`（`lock_when_stand_and_rest` 的落点）。
@@ -130,14 +127,9 @@ class BaseController {
   virtual bool is_ball_ctrl() const { return _is_ball; }
   // `ctrl.is_invalid_controller`（`InvalidController` 的占位标记）。
   virtual bool is_invalid_controller() const { return false; }
-  // `this.player = lfw.players.get(player_id)`（TS 在构造与 `reset` 里各做一次） 。
-  // 端口**不**自动绑：那两个时机在端口里都没有 env（构造时还没挂上，池子回收时的
-  // `reset` 甚至可能驮着上一个实体的悬挂 env），而且差分台面/测试替身习惯自己摆
-  // `player`。真正接上（`CMD_SET_PUPPET` / 游戏层）时由调用方在 env 就绪后显式调，
-  // 拿不到玩家时给空 `Value`（即 TS 的 `undefined`）。
-  void bind_player() {
-    if (_env != nullptr && _env->lfw_player) player = _env->lfw_player(player_id);
-  }
+  // `this.player = lfw.players.get(player_id)`：切片 4CX 起由 **`Factory::acquire_ctrl`** 在
+  // 造/复用控制器时绑（TS 是在 `BaseController` 的构造与 `reset` 里各做一次，端口把这两处
+  // 收在 `Factory` 那一层；`entity == nullptr` 的 `InvalidController` 不绑，同 TS）。
   // `BallController.chasing`：TS 里这个字段在子类上，端口放在基类（`spawn` 的
   // `OpointMultiEnum` 分支要在 `is_ball_ctrl` 门后写它，而端口那边只有 `BaseController*`）。
   // 值是一个**实体引用**（`entity/entity_ref.h` 的 `ref_of`），不是 `Entity*` ——

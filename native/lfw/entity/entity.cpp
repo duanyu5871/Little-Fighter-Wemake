@@ -3252,7 +3252,6 @@ void Entity::refresh_ctrl_env() {
       const ValGetter<Entity> g = loader::get_val_getter_from_entity(word);
       return g != nullptr ? g(*this, word, op) : Value(word);
     };
-    env.lfw_player = [this](const std::u16string& player_id) { return world().player_value(player_id); };
     env.set_position = [this](const Value& x, const Value& y, const Value& z) {
       set_position(x, y, z);
     };

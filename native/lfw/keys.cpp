@@ -18,7 +18,7 @@ Keys::Keys(LFW& lfw) : _lfw(&lfw) {
 LFW& Keys::lfw() const { return *_lfw; }
 
 // TS `get time() { return this.lfw.world.lifetime }`：端口的 `LFW::lifetime()` 就是这条读
-// （`virtual` ⇒ 台面可脚本化，见 6.9.1xx）。
+// （`virtual` ⇒ 台面可脚本化，见 PROTOCOL §6.9.196）。
 double Keys::time() const { return _lfw->lifetime(); }
 
 controller::KeyStatus* Keys::get(const std::u16string& key) {
