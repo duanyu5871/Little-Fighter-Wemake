@@ -1918,6 +1918,222 @@ G0 那条硬规则**已经有**一条机检在跑：`native/tools/check_lfw_cpp_
 判据：`npm run native lint` 仍然 **0 failed**（现在 `native/lfw` 是干净的）；加完规则后故意写一行
 `#include "godot_cpp/godot.hpp"` 应当**报错**。
 
+## ★ 薄宿主（SDL 路线）：绘制契约的参照实现
+
+**这一节回答一个问题**：在 headless（`native/host/headless_host.*`）、WASM（`native/host/wasm/**`）
+与 Godot（上一节）之外，**要不要再写一份"薄宿主"** —— 一个只靠最小引擎就能把 `native/lfw/**`
+跑起来、并且**真画得出画面**的宿主。
+
+**一句话结论**：要。它的价值不在"多一个平台"，而在它是**绘制契约的参照实现**：
+契约现在有**两份**实现在跑，但**两份都不画东西** —— "画得对不对"这件事至今没有人验证过。
+
+下文每一条"端口事实"都给了 `path:line`，都是在本仓库里读出来的；凡涉及**引擎/库自己的** API
+（SDL3 / SDL2 / raylib / SFML / sokol 有没有文字度量、音频、手柄、剪贴板、光标，它们的许可与
+构建模型…）**一律标 `需验证`** —— 那些从这个仓库里读不出来，不当事实写。
+
+### S0. 这份方案是什么、不是什么
+
+**是什么**：一个**薄宿主** —— 满足端口宿主表（`ILfwHost` + 时钟/定时槽 + `IWorldRenderer` +
+zip/XML）所需要的**最小引擎**。产物是 `native/host/<薄宿主>/**` 下一个能开窗、能出图、能出声的宿主。
+
+- **核心不动，只是再填一张表**：`native/lfw/**` 零改动，实现全部落在 `native/host/**`
+  （硬规则原文 `native/README.md:16-30`，G0 引的是同一条）。挂点也是现成的 —— "宿主工厂"
+  `create_world_renderer`（`lfw/lfw.h:177`）与 `create_ui_node_renderer`（`lfw/lfw.h:179-182`）。
+- **它是第 4 份实现**：G0 把 Godot 记成"宿主实现 #3"（与 headless、WASM 平级）⇒ 本方案是第 4 份。
+  多这一份不是浪费：G4 已经把论证写清楚了 —— 「同一个接口现在已经有**两份**宿主实现在跑……
+  只要有一份实现被迫写"只有它才需要"的空函数，契约就已经被那一份实现化了」。
+- **它不是**：不是引擎选型结论（选型只影响这一份实现）、不是渲染架构（架构在 W5 / G4）、
+  也不是要换掉 Godot 那一支（两者可以并存，共用 S4 说的那份共享代码）。
+
+⚠ **它与 headless 的关系**：headless 是**最薄**的宿主 —— 渲染 / 音频 / 图片 / 指针全是空实现
+（`native/host/headless_host.h:58-182`），世界渲染器是只计数的 `NullWorldRenderer`
+（`headless_host.h:39-50`）。薄宿主是它的**超集**：一样"薄"，但**真画**。所以第一版可以照抄
+headless 的形状，再把空实现逐个换掉（S7 的切片）。
+
+⚠ **注意 headless 不只是"测试用"**：WASM 宿主**直接复用**同一批源文件
+（`native/host/wasm/CMakeLists.txt` 把 `../headless_host.cpp` 与 `../fs_zip.cpp` 列进 `lfw_wasm`）
+⇒ 薄宿主如果照抄这个做法，**假 MD5、零尺寸 `measure_text` 这些也会一起被带进来**，换真货时
+要记住它们是从共享文件里来的。
+
+### S1. 为什么需要"参照实现"
+
+**说人话**：一份实现会自己长出形状，而且长得**静默**。要证明"契约是引擎中立的"，唯一的证人是
+**第二份独立实现**；要证明"契约描述的画面是对的"，唯一的证人是**一份真画画的实现**。
+
+- **中立性那一半**：G4 已经论证过（有多份实现 ⇒ 被迫写的引擎特有函数会暴露契约被污染）。
+  薄宿主补上另一半：Godot 那份用的是"节点树"（G4 第一段），薄宿主用的是"每帧自己攒批"
+  —— **两种完全不同的落法装得下同一个接口**，这才叫中立。
+- **它很便宜**：第一份实现要发明边界（W4 的函数表 / W5 的命令缓冲 / W7 的 scratch / W8 的帧纪律），
+  第二份只要"填表"。薄宿主是第 4 份 ⇒ 它该是**流水线作业**，而不是又一轮设计。
+- ⚠ **具体危险（本仓库已核对）**：`IUINodeRenderer` 的 9 个成员**全是非纯虚、空体**
+  （`native/lfw/ui/ui_node_renderer.h:16-24`：`del_self` / `on_start` / `on_stop` / `on_resume` /
+  `on_pause` / `on_show` / `on_hide` / `on_foucs` / `on_blur`）⇒ **"没搬"这件事编译器看不见**：
+  宿主一行不写也编得过，什么都不画也不会失败。现状正是如此 —— `create_ui_node_renderer` 默认回
+  `nullptr`（`lfw.h:179-182`），`HeadlessHost` **没有覆写它**（`headless_host.h` 里没有这个成员名）
+  ⇒ `UINode` 构造里拿到的是空指针（`native/lfw/ui/uinode.cpp:106-107`），之后每一处调用都带判空
+  （`uinode.cpp:558-728` 那一族 `renderer != nullptr`）⇒ **UI 渲染面可以永远为空，且没有任何东西报错。**
+- 所以 S6 里的"看得见画面"不是锦上添花，而是这条危险唯一的解药。
+
+### S2. 候选与取舍
+
+对 LFW 的**真实需求**（由 S3 那张表倒推）：2D 精灵批 + 文字与度量 + 音频 + 输入 + 定时器 + 一层
+能读文件的 IO。**不需要**的：引擎自己的控件/UI 系统、场景编辑器、3D 管线
+（TS 侧那两个 3D 用途 —— `package.json` 的 `three ^0.181.2` 与 W5 里"未定"的 `MODEL` 指令 ——
+第一版都不在薄宿主的范围里）。
+
+为什么"不需要"这件事重要：端口的 UI 是**自己的树**（`native/lfw/ui/**` 全在核心），布局、命中测试、
+焦点都在核心（W10 的论证）⇒ 引擎那套 UI 在这里**只能是负担**：它一旦好用，就会被拿去替核心做布局，
+同一套 UI 语义就劈成了两份实现 —— 这正是硬规则要防的事。
+
+| 候选 | 优点（**需验证**） | 缺点 / 代价（**需验证**） | 结论 |
+|---|---|---|---|
+| **SDL3**（默认） | 窗口 / 输入 / 音频 / 文件 IO 是否都在一份库里（**需验证**）；光标与剪贴板是否属库级设施（**需验证**）；许可文本与静态链接条件（**需验证**） | 文字度量是否要额外的库、SDL_ttf 与 SDL3 的版本关系（**需验证**）；2D 绘制是不是要自己攒批（**需验证**） | **建议默认**：它出的是一堆**设施**，不是一台**引擎**，最贴近"薄"的定义 |
+| SDL2 | 更老、生态更成熟（**需验证**） | 与 SDL3 的 API / 构建差异**需验证**；新项目选旧版得有理由 | 只有当 SDL3 在你的环境里过不去时才退 |
+| **raylib**（最快立起来） | 一装就有 2D 绘制 + 纹理 + 文字度量 + 音频（各项是否自带、有无额外依赖**需验证**） | 它更像"一个小引擎"：相机 / 字体 / 模型自带一套用法约定（**需验证**），要留心别让这套用法渗出 `native/host/**` | **建议用它做"最快看见画"的那一份**；若只留一份实现，SDL3 优先 |
+| SFML | C++ 风味、模块化（**需验证**） | 依赖面比 SDL 大（构建系统与运行时依赖**需验证**） | 备选 |
+| sokol + miniaudio | 头文件库、体积小、不背构建系统（**需验证**） | 窗口 / 输入 / 文字度量要自己拼（**需验证**）；当"参照实现"读起来更费力 | 备选；适合想要"零依赖"的人 |
+
+⚠ **选型不改变契约**：S2 只决定"谁来当第 4 份实现"。上面每一格都可能是错的 ⇒ 先花半天做一个
+"能不能开窗 + 能不能量一行字"的预演（**需验证**），再按 S7 排期。
+
+### S3. 要填的最小集合
+
+"落在哪"一列都是**端口里真有的**接口（行号已读）；"够用"一列是这个面做到什么程度算完成
+（口径照 §7.2 K2 的"假货 → 真货"，本方案只换**桌面必需**的那几个）。
+
+| 需求面 | 落在哪（端口，已读） | "够用"是什么 |
+|---|---|---|
+| **窗口 / 指针（含悬停与抓取）** | `ILfwHost::pointings_init` / `pointings_add_ui_input` / `pointings_callback_add` / `…_del`（`lfw.h:143,147,153-154`）；抓取族 `pointings_grab` / `pointings_ungrab` / `pointings_grabbing`（`lfw.h:157-170`，**都有默认体**：`false` / 空 / `nullptr`，`HeadlessHost` 一个都没覆写）；事件形状 `LfwPointingEvent`（`lfw.h:87-95`）与 `LfwPointingsCallback`（`lfw.h:98-107`，其中 `on_pointer_move` 就是悬停） | 窗口事件 → `LfwPointingEvent` → 逐个触发 `pointings.callback`；**抓取要给真语义**（组件会读 `pointings_grabbing` 的返回值）；悬停不需要额外的宿主面 |
+| **按键映射** | `LfwKeyEvent`（`lfw.h:70-76`）、`LfwKeyboardCallback`（`lfw.h:80-84`）、`keyboard_add_callback` / `keyboard_callback_add` / `…_del`（`lfw.h:145,150-151`） | 把宿主键码翻成端口认识的**字符串** `key`（核心只认字符串），按下 / 抬起各触发一次 |
+| **2D 精灵批** | `IWorldRenderer`（`world.h:61-68`：`add_entity` / `del_entity` / `render(dt)` / `dispose`），调用点 `world.cpp:391 / :454 / :1020 / :1251`；另有一层 `IEntityRenderer`（`entity.h:34-37`，只有 `render(dt, dfactor)`） | **保留式**：进世界建对象、出世界删对象、每帧在 `render(dt)` 里自己遍历活实体重读状态（G4 第一段）。⚠ `IEntityRenderer` 在**全仓没有任何实现**，`Entity::renderer` 也**没有赋值点**（只在 `entity.h:129` 初始化成 `nullptr`）⇒ 第一版**只能**靠 `IWorldRenderer` |
+| **文字与 `measure_text`** | `ILfwHost::measure_text(text, style)`（`lfw.h:242`）；调用点 `ui/cook_ui_info.cpp:607`、`ui/uinode.cpp:126`、`:191`（带 key 缓存，`uinode.cpp:176-201`） | 回一个 `{text, style, width, height}` 的 `Object`（形状照 `headless_host.cpp:211-219`）。headless 给的是**零尺寸** ⇒ 桌面宿主这里会**第一次**把真实布局撑开（见 S6 的跨宿主告警） |
+| **音频** | `lfw.h:208-232` 的 `sounds_*`（含音量 / 静音的 getter+setter）与 `LfwSoundsCallback`（`lfw.h:111-132`，变更事件） | 播放 / 停止 + BGM 停止闭包 + 音量 clamp 0..1 + 同值早退 + 变更发事件（语义逐条写在 `lfw.h` 的注释里）；headless 只计数（`headless_host.cpp:186-209`） |
+| **定时器与虚拟时钟** | `IClock` / `ITimeout`（`clock.h:11-27`）+ 全局槽 `set_clock` / `set_timeout`（`clock.h:36,45`）；`IRenderScheduler`（`render_scheduler.h:15-20`，槽在 `:29`） | **按 S5 装**：虚拟时钟 + 固定步长；`IRenderScheduler` **故意不装**（槽空 ⇒ `render_add` 回 0，`render_scheduler.h:32-34`） |
+| **文件与 zip** | `ILfwHost::import_as_*`（`lfw.h:250-259`）、`zip_*`（`lfw.h:269-287`）、`IZip` / `IZipObject`（`i_zip.h:15-25`、`i_zip_object.h:16-30`） | 第一版直接复用 `host/fs_zip.{h,cpp}`（目录当 zip，`fs_zip.h:14-17`）；**真 zip**（DEFLATE / 中央目录）留到 S7 的 S3 —— 与 G7 第 5 行是同一件事。⚠ `file_regex` 只认 4 条固定模式（`i_zip.h:30-58`），换宿主别去动它 |
+| **MD5** | `ILfwHost::md5`（`lfw.h:193`） | **必须与 TS 逐位一致**（W11 的判据，`DESIGN.md:1529`：`ui_load_img` 用它拼图片 key）。headless 是占位哈希（`headless_host.cpp:146-163`，注释自认"不是真 MD5"）⇒ 这是薄宿主**顺手就该换掉**的一条 |
+| **光标表** | `get_pointer_cursors(world)`（`cmds/cmd_pointer_events.h:42`，实现 `cmd_pointer_events.cpp:362`） | 核心能**读出**当前光标，但**没有画它**的路径（§7.2 依赖顺序第 12 条、G7 第 7 行）⇒ 顺序与 Godot 一致：**先有 UI 渲染面，再谈光标** |
+| **日志** | `warn` / `error` / `log` / `debug_msg`（`lfw.h:199-205`） | 打到 stdout / stderr。⚠ `warn` 的**条数**会进摘要行（`lfw_run.cpp:481-483`），别把日志变成噪声源 |
+
+### S4. 与 Godot / headless 共享什么
+
+**先说现状（已读，别凭印象）**：`native/host/` 下**没有**"宿主公共库" ——
+`host/CMakeLists.txt` 只建一个可执行文件 `lfw_run`（源文件就 3 个）；WASM 那边**直接复用同一批
+.cpp**：`host/wasm/CMakeLists.txt` 把 `../fs_zip.cpp` 与 `../headless_host.cpp` 列进 `lfw_wasm`。
+⇒ **现在共享的机制是"同一份源码编进两个 target"，不是抽出来的库。**
+
+**已经"天然共享"的**（因为它们就写在 headless 的宿主文件里）：
+
+- `fs_zip.{h,cpp}` —— `IZip` / `IZipObject` 的目录实现（`fs_zip.h:16-57`）；
+- `headless_host.{h,cpp}` —— `ManualClock` / `NoopTimeout`（`headless_host.h:20-37`）、
+  `NullWorldRenderer`（`:39-50`）、`ToolXML` 接线（成员在 `:164`）与整个 `HeadlessHost`。
+
+**还没共享的（薄宿主一定会撞上）**：装配 + 推帧 + 摘要 —— `lfw_run.cpp` 的"装包 → 选 stage/bg →
+造 bot → `update_once` → digest"（摘要 `:140-161`、装配 `:252-415`、循环 `:417-430`）；
+WASM 宿主把它**又写了一遍**（`host/wasm/lfw_wasm.cpp` 的 `_lfw_boot` / `_lfw_frame`，
+时钟槽在 `:314-316`、推帧在 `:498`）。W11 也把"抽成与宿主无关的 `lfw_boot(...)`"记成
+**未定**（`DESIGN.md:1533-1535`）⇒ 到薄宿主这里就是**第 3 份**装配代码。
+
+⇒ **建议**：真正该共享的、只跟"桌面宿主"有关的这几样，放 `native/host/common/**`：
+
+| 该放 `native/host/common/**`（引擎中立、桌面宿主都要） | 留在各自宿主里（换引擎就换） |
+|---|---|
+| 固定步长累加器 + 注入式虚拟时钟（`ManualClock` 的形状） | 窗口 / 输入翻译、音频后端 |
+| 真 zip 的 `IZip`（`FsZip` 的真货版）+ 路径处理 | 精灵批 / 文字度量 / 光标画法 |
+| 真 MD5（与 `DittoImpl/md5.ts` 逐位一致） | 打包与部署 |
+| 装配 + 推帧 + digest 的那段"台面"入口 | 引擎自己的事件循环 / 生命周期接入 |
+
+⚠ **为什么不能放 `native/lfw/**`**：README 硬规则（`native/README.md:16-30`）与它的机检
+（`tools/check_lfw_cpp_includes.mjs:29-49` 把 `<filesystem>` / `<fstream>` / `<cstdio>` 列进禁表）
+—— 上面这几样**必然要 IO**，进了核心就直接违反"零宿主 · 零 IO"。**核心只留接口与逻辑。**
+
+⚠ **别为了这件事去重构现有文件**：`native/host/**` 现在只有 4 个源文件 + 2 个 `CMakeLists.txt`，
+够用。新增薄宿主**照抄 WASM 的做法**（在自己的 target 里列举要复用的 `host/*.cpp`）即可；
+只有当累加器 / 虚拟时钟真出现"只有桌面宿主需要"的分支时，再把它们提到 `common/**`。
+（G9 有一条同款纪律：Godot 那一支**不许污染既有的 `msvc-x64` 验收**。）
+
+### S5. 主循环与确定性
+
+规矩与 Godot 那一支**完全相同**（G3 是权威文本，这里只说薄宿主怎么落，不重述）：
+
+1. **固定步长 + 注入虚拟时钟**：`dt` 由 UPS 算（`lfw_run.cpp:418-419` 就是这么算的），
+   `now()` 只回"已推进的虚拟时间" —— **真实时间不许进模拟**。
+2. **帧驱动只能有一处**（G3 第 4 条 / WASM 的双步陷阱：宿主推帧**又**让 Ticker 自驱 ⇒
+   `lifetime` 翻倍，`native/README.md:314-316`）。薄宿主走**手动模式**：把 `ManualClock` /
+   `NoopTimeout`（`headless_host.h:20-37`）装进 `set_clock` / `set_timeout`（`clock.h:36,45`），
+   **不装** `IRenderScheduler`，每帧自己调一次 `world.update_once(dt)`（照 `lfw_run.cpp:422-424`）。
+   ⚠ `Ticker` 会读 `clock_hidden()`（`base/ticker.h:118`）决定要不要 sleep ⇒ 桌面宿主应当把
+   "窗口不可见 / 最小化"接到 `IClock::hidden()`（`clock.h:17`；TS 对位是
+   `document.visibilityState`，`src/DittoImpl/Clock.ts:35-36`），别让它恒为 `false`。
+3. **摘要口径**：`frame_digest` 是"实体表（按 id 排序）的位置 / 血量 / 队 / 状态"的 FNV-1a
+   （`lfw_run.cpp:140-161`，口径记在 `native/README.md:260`）。
+
+**验收（硬指标）= README 的三条摘要，逐位一致**（`native/README.md:323-339`，原样引用）：
+
+```
+native\build\msvc-x64\bin\lfw_run.exe --root dist ^
+  --zip native\build\host-data\prel --frames 300 --every 300
+  ⇒ digest=7335aa25f4e1ce86（warns=0）
+
+… --zip native\build\host-data\prel --zip native\build\host-data\data ^
+  --fighter 1 --fighter 4 --stage 1 --frames 900 --every 900
+  ⇒ digest=e4a9437292047044（warns=1）
+
+… --zip native\build\host-data\prel --zip native\build\host-data\data ^
+  --stage 0 --fighter 1 --fighter 4 --vs --frames 600 --every 600
+  ⇒ digest=f29d3bb1ea330c32（warns=1）
+```
+
+（同一招 WASM 与 Godot 都用过：`native/README.md:310-312` 与 G3 的验收段。）
+
+### S6. 验收
+
+**(a) 摘要逐位复现**：上面三条命令在薄宿主里跑出同样的 digest 与 warns；`npm run native all`
+（configure → build → lint → test，`native/README.md:178-183`）不退化。
+
+**(b) 目视 —— 这是第一次"能看见绘制契约"**：前两份宿主都没画过东西 —— headless 是只计数的
+`NullWorldRenderer`（`headless_host.h:39-50`），WASM 宿主这一刀只装了时钟 + 日志
+（`DESIGN.md:1637-1639`）。⚠ **目视没有自动化判据**（与 G8 的 G2 同一条免责）：能自动化的只有
+摘要、差分台面与 lint，"画得对"这一步记**未定**。
+
+**(c) 契约文本本身不含引擎词汇**：绘制契约必须保持引擎中立（W5 的"描述成数据"、G0 / G4 的
+"不许出现 `Node2D` / `Sprite2D` / `Control`"）⇒ 薄宿主加进来之后，契约里同样不许出现 SDL / raylib
+的词汇（窗口、批次、纹理这些概念只许出现在 `native/host/**`）。⚠ 这件事**没有机检**：
+`tools/check_lfw_cpp_includes.mjs` 只扫 `native/lfw/**` 的 `#include`（`:9`），文档层面的"引擎词汇"
+要靠人看（G10 提议加的两条规则也只是 include 规则）。
+
+⚠ **跨宿主的诚实说明（必须写下来）**：`measure_text` 是**宿主给的近似值** —— headless 给零尺寸
+（§7.2 K2，`headless_host.cpp:211-219`），W11 表也允许它与设备相关（`DESIGN.md:1526`）
+⇒ **文字为主的 UI 布局本来就会随宿主不同**。至于这种差异会不会渗进 (a) 的三条摘要，
+**本方案里未验证** —— 这三条场景的 UI 文本量与 `auto_size_by_text` 的命中情况都没量过。
+
+### S7. 切片与风险
+
+按 §7.2 的"省到贵"顺序切（**别按"哪条最容易"排期**，那一节已经把依赖写清楚了）：
+
+| 切片 | 做什么 | 验收 |
+|---|---|---|
+| **S1 骨架 + 假渲染器** | 起 `LFW`、收一个 `ILfwHost` 实现；时钟用 `ManualClock` 的形状、世界渲染器先用计数版（`NullWorldRenderer`）；装配 / 推帧照 `lfw_run.cpp:417-430` | **三条摘要逐位一致** —— 唯一能证明"宿主接对了"的硬指标 |
+| **S2 真 2D 绘制** | 先补端口 `IUINodeRenderer` 的渲染面（**引擎通用缺口，属核心侧**：`ui_node_renderer.h:8-12` 自述 `render` / `add` / `del` / `parent` / `x` / `y` / `visible` 未移植）→ 再写薄宿主的 `IWorldRenderer` / `IUINodeRenderer` | 差分台面 + lint 不退化 + **目视**一帧 UI 与世界（判据**未定**） |
+| **S3 文字度量 / 音频 / 真 zip / MD5 / 光标** | 换掉 headless 那批假货里"桌面必需"的几个：`measure_text`（`lfw.h:242`）、`sounds_*`（`lfw.h:208-232`）、真 zip、真 MD5（`lfw.h:193`）、光标（S3 表里"光标表"那一行） | MD5 与 `DittoImpl/md5.ts` **逐位一致**（可自动化）；真包能装；**三条摘要仍逐位一致** —— 换宿主最容易在这一步翻车 |
+| **S4 打包** | 把薄宿主做成"双击能跑"的东西 | **需验证**：静态 / 动态链接、许可、Windows 与 Linux 的产物形态 |
+
+**风险（诚实清单）**：
+
+- **构建 / 依赖 / 许可**：核心是**零异常 / 零 RTTI**（`native/lfw/CMakeLists.txt` 的
+  `-fno-exceptions -fno-rtti` / `/GR-`，规则原文 `native/README.md:29-43`）。引擎库自己的构建
+  默认开不开这两个开关、能不能跟关掉它们的 `lfw_core` 混编 ⇒ **需验证**（G9 第一条是同一款风险，
+  只是换了个库）。
+- **Windows vs Linux 路径**：`FsZip` 用 `<filesystem>` 索引目录，条目名固定 `/` 分隔
+  （`fs_zip.h:14`、`:53`）⇒ 大小写敏感性、非 ASCII 路径、盘符差异在另一套系统上**需验证**。
+- **输入焦点**：端口**没有**"按键 / 指针失焦"的宿主面 —— `ILfwHost` 上只有指针抓取族
+  （`lfw.h:157-170`），"页面不可见"那一路走的是时钟（`clock.h:17` + `ticker.h:118`）。
+  ⇒ 窗口失焦时"松抓取 + 清按键"的责任在宿主，而这对**摘要有影响**（按键状态会进模拟）
+  ⇒ 薄宿主必须自己定一套并写下来（TS 平台层在这里怎么做的，**需验证**）。
+- **它是产品还是参照**：**假定按"参照实现"做**。理由：S1 的全部论证都建立在"它得证明契约中立"
+  之上，而一旦当产品，第一个被要求的就是"引擎特有的便利"（原生对话框、手柄、成就…），
+  契约立刻会被这一份实现塑形，参照的价值就没了 ⇒ **不追发行、不加产品功能**；真要产品化，
+  另起一份方案，别改契约。
+
 ## 9. `Value` / 解析 / 装载层的现行要点
 
 ### 9.1. `Value`
