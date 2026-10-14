@@ -23,6 +23,7 @@
 #include "lfw/defines/weapon_type.h"
 #include "lfw/entity/entity_ref.h"
 #include "lfw/entity/entity_type_check.h"
+#include "lfw/ui/uilayer.h"
 #include "lfw/ui/uinode.h"
 #include "lfw/utils/container_help/field_or.h"
 #include "lfw/utils/math/base.h"
@@ -452,9 +453,65 @@ void World::add_collision(const collision::Collision& c) {
 void World::render_once(double dt) {
   const double t0 = clock_now();
   renderer_->render(dt);
+  // TS 的 UI 渲染面入口（`WorldRenderer.ts:236-239`）在**世界渲染器内部**：实体那遍之后、
+  // 五遍绘制之前，每层一次 `layers.at(i)?.ui?.renderer.render(dt, dfactor)`。端口的世界
+  // 渲染器缝（`IWorldRenderer::render(dt)`）是原子的（五遍都在宿主里）⇒ 只能贴着它调，
+  // 每帧一次、同一个 `dt` 与 `dfactor`。位置在 `t0`/`spent` 之间：TS 的 `render_cost`
+  // 量的是含 UI 那一遍的整次 `renderer.render(dt)`。
+  render_ui_layers(dt);
   const double spent = clock_now() - t0;
   render_cost = truthy(Value(render_cost)) ? render_cost * 0.9 + spent * 0.1 : spent;
 }
+
+// `WorldRenderer.ts:187-204`：帧内比例是渲染器**自己**算的（`IWorldRenderer::render(dt)`
+// 不传它）。这里给 UI 渲染面算一份同样的 —— 输入全是核心自己的状态
+//（`TU` / `lifetime` / `fps_value()` / `UPS`），所以每一份宿主都拿得到，不必各自再算。
+double World::ui_render_dfactor(double dt) {
+  const double tu = TU;
+  const double utime = lifetime_;
+  if (fps_value() <= to_number(dataset.get(u"UPS"))) {
+    // 渲染不比 tick 快 ⇒ 不需要插值（缺省的 `sync_render = FPS_60` + `UPS = 60` 走这一支）。
+    df_utime_ = utime;
+    df_dtime_ = tu;
+    df_dfactor_ = 1.0;
+  } else if (df_utime_ != utime) {
+    // tick 边界那一帧：`dfactor = 0`。
+    df_utime_ = utime;
+    df_dtime_ = 0.0;
+    df_dfactor_ = 0.0;
+  } else {
+    df_dtime_ = std::min(df_dtime_ + dt, tu);
+    df_dfactor_ = std::min(df_dtime_ / tu, 1.0);
+  }
+  return df_dfactor_;
+}
+
+// TS `WorldRenderer.render` 里的那三行（`WorldRenderer.ts:236-239`）：
+//   for (let i = 0; i < layers.length; i++) layers.at(i)?.ui?.renderer.render(dt, dfactor)
+// 洞（`at` 为空）与没有页的层都按 TS 的 `?.` 跳过；有页的层每帧算**一次**尝试，没人接就
+// 记一次 `unhandled`（D4 的缺口：渲染面在端口是空默认体）。
+void World::render_ui_layers(double dt) {
+  const double dfactor = ui_render_dfactor(dt);
+  ui::UILayers* const layers = lfw_->ui_layers();
+  if (layers == nullptr) return;
+  ui::UINodeRenderCalls& calls = ui::ui_node_render_calls();
+  for (double i = 0; i < layers->length(); i += 1) {
+    ui::UILayer* const layer = layers->at(i);
+    if (layer == nullptr) continue;
+    ++calls.calls;
+    ui::UINode* const node = layer->ui();
+    ui::IUINodeRenderer* const r = node != nullptr ? node->renderer : nullptr;
+    if (r == nullptr) {
+      ++calls.unhandled;
+      continue;
+    }
+    r->render(dt, dfactor);
+  }
+}
+
+long long World::ui_render_calls() const { return ui::ui_node_render_calls().calls; }
+
+long long World::ui_render_unhandled() const { return ui::ui_node_render_calls().unhandled; }
 
 void World::update_camera() {
   const double old_cam_x = round(camera_->position.x);

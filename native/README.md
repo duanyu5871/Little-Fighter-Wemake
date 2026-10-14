@@ -299,12 +299,18 @@ native\build\msvc-x64\bin\lfw_thin.exe --root dist ^
 # [   draw] E id=101 data=gim type=8.0000 pos=21.0000,… frame=running_0 state=2 tex=0
 #            crop=0.0000,160.0000,79.0000,79.0000 … outline=#4f9bff@0.8000,1.0000 …
 # [thin] done: frames=300 ups=60 digest=7335aa25f4e1ce86 renders=300 added=2 removed=0 …
+# [thin] UI render calls: 300 (unhandled: 300)
 ```
 
 `--dump <file>` 落整条记录（每帧一行 `FRAME` 帧头 + 每个活体一行 `E`）；字段序与全部字段名
 写在 `host/thin/recording_world_renderer.h` 的头部注释里，`--sample N` 控制每帧顺带打几条。
 `renders` 必须等于帧数（缺省一 tick 一次 `render`）；`match=0` 或 `dup_add` / `stray_del`
 非零说明保留式记账（`add_entity` / `del_entity`）与 `world.entities + ghosts` 对不上。
+
+**`UI render calls: N (unhandled: M)`**：核心每帧对**每一层**的 UI 根节点发一次渲染面调用
+（TS `WorldRenderer.ts:236-239`），`N` = 这个宿主一共发了多少次、`M` = 其中没有人画的
+（宿主没给渲染器对象、或渲染器没覆写 `render`）。本宿主不自己画 ⇒ `M == N`；`N` 必须与
+`renders × 层数` 对得上（`unhandled` 与 `calls` 对不上，说明有渲染器接了这条缝）。
 
 #### 插值那条路（`--sync-render` + `--sub-render`）
 
@@ -377,7 +383,8 @@ node native/web/smoke.mjs --profile 1 --live
 ## Godot 宿主（端口在 Godot 里真跑）
 
 GDExtension 骨架（DESIGN §G1 骨架 / §G2(a) 的同进程路线）：**Godot 自己当宿主**，端口零改动、
-渲染仍是空实现（`NullWorldRenderer` + `create_ui_node_renderer → nullptr`）。
+渲染仍是空实现（`NullWorldRenderer` + `create_ui_node_renderer → nullptr`；UI 渲染面与每层一次的
+调用点已经在核心侧，见 `native/README.md` 的移植进度与 DESIGN D4）。
 下文 `<godot-console>` = `Godot_v4.7.1-stable_win64_console.exe`（本机在桌面；**固定 4.7.1**）。
 
 `LfwGodotHost` 是 `HeadlessHost` 的**子类** —— 装载 / `IZip` / 存档 / XML / `import_as_*` 复用同一批
@@ -454,11 +461,19 @@ $R = (Get-Location).Path; $P = "native\host\godot\project"
     --zip "$R\native\build\host-data\prel" --zip "$R\native\build\host-data\data" `
     --stage 0 --fighter 1 --fighter 4 --vs --frames 600 --every 600 --delta 0.017
 # [godot] done: frames=300 ups=60 digest=7335aa25f4e1ce86 warns=0 errors=0 ignored_images=311 renderer(+-)=2/0 clock=5000.0ms
+# [godot] UI render calls: 0 (unhandled: 0)
 # [godot] done: frames=900 ups=60 digest=e4a9437292047044 warns=1 errors=0 ignored_images=313 renderer(+-)=37/30 clock=15000.0ms
+# [godot] UI render calls: 0 (unhandled: 0)
 # [godot] done: frames=600 ups=60 digest=f29d3bb1ea330c32 warns=1 errors=0 ignored_images=313 renderer(+-)=28/24 clock=10000.0ms
+# [godot] UI render calls: 0 (unhandled: 0)
 ```
 
-`warns=1` 是既有的 `DatMgr::_add_obj id duplicated…`（不是新告警）。差分/变异/覆盖的跑法与判据见
+`warns=1` 是既有的 `DatMgr::_add_obj id duplicated…`（不是新告警）。⚠ 新增的那行
+`UI render calls: 0 (unhandled: 0)` 是**对的**（`lfw_run` 与 Godot 都如此）：这两份宿主不装
+`IRenderScheduler`（`render_add` 回 0，`world.cpp:656`）⇒ 世界渲染器（连同 UI 渲染面那一段）
+一次都不跑 —— 页面确实在（`ignored_images=311` 就是它们要的图），但没人调 `render`。要看非 0 的
+UI 调用数去 `lfw_thin`（它自己补 `render_once`）：`UI render calls: 300 (unhandled: 300)`。
+差分/变异/覆盖的跑法与判据见
 `tests/differential/PROTOCOL.md`；**装载偶发乱码/NaN 那一类不确定失败已修**（根因与护栏见 DESIGN
 「雷区」一节）⇒ 现在偶发失败**就是**回归，别再"重跑一次凑数"。
 

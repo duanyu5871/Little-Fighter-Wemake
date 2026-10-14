@@ -562,13 +562,16 @@ zip/renderer）、`IWorldRenderer`、`IPlayerInfoHost`、`IXML`/`IXMLElement`、
   改道过的告警也归位（`move_table_logic.cpp` 的 `warn(...)`）。TS 对位 `UIComponent.ts:53-57` +
   `base\Debugging.ts:10-29`。**S**（~30 行）
 - `headless_host.cpp:146` `md5`（注释自认「不是真 MD5」）⇔ `DittoImpl\md5.ts`(19)；`ui_load_img` 的键用它。**S**
-- `sounds_play*`（`headless_host.cpp:191-205` 只计数）+ `world.cpp:142` `play_sound` 默认空转 ⇔
+- `sounds_play*`（`headless_host.cpp:191-205` 只计数）+ `world.cpp:144` `play_sound` 默认空转 ⇔
   `Sounds.ts`122 + `Modern.ts`307 + `Fallback.ts`171。**L**
 - `NullWorldRenderer`（`headless_host.h:37-46` 只计数）⇔ `WorldRenderer.ts`392 + `EntityMainRender.ts`757。**L**
 - `ManualClock::add→0` / `NoopTimeout::add→0`（`headless_host.h:20-34`）⇔ `Clock.ts`33 / `Timeout.ts`9 /
   `Interval.ts`9 ⇒ `Ticker` 不自驱、台面手工推帧。**S–M**
-- `IUINodeRenderer` 渲染面未移植（`ui_node_renderer.h:9`）；`create_ui_node_renderer` 默认 **nullptr**
-  （`lfw.h:179-182`，`uinode.cpp:106` 用它）⇔ `UINodeRenderer.ts`530。**L**
+- `create_ui_node_renderer` 默认 **nullptr**（`lfw.h:179-182`，`uinode.cpp:106-109` 用它）⇒ 没有一份宿主会给真
+  渲染器；接口面已补齐（`ui_node_renderer.h:32-70`，17 个虚函数全带默认体）、调用点也在核心
+  （`world.cpp` 的 `render_ui_layers` ⇔ TS `WorldRenderer.ts:236-239`），但**绘制实现**还是空的
+  （⇔ `UINodeRenderer.ts`530；引擎无关的那一半可照 `HeadlessUINodeRenderer.ts`）。
+  统计行 `UI render calls: N (unhandled: M)`（D4）。**L**
 - `image_bitmap` 明确拒绝（`fs_zip.cpp:94-98`）+ `import_as_image_bitmap`（`headless_host.cpp:318-324`）⇔
   `ImageMgr.ts`404 + `handle_image_operation.ts`67。**L**
 - `FsZip` 只认**解包目录**、无 DEFLATE/中央目录（`fs_zip.h:15`）⇔ `DittoImpl\Zip.ts`154。**M**
@@ -607,7 +610,8 @@ zip/renderer）、`IWorldRenderer`、`IPlayerInfoHost`、`IXML`/`IXMLElement`、
 4. 真 `IPlayerInfoHost` 缓存（S，`HeadlessHost` 已有真实现）—— 删掉 `FakePlayerHost` 及其 K1 覆写。
 5. 真 `IZip`（DEFLATE + 中央目录，M）—— 与第 10 步配对，`FakeZip*` 才能退。
 6. `IXML` 根元素 `data`（S–M）—— `resources.h:18-46` 自己记了「脚本化标记」的偏差。
-7. `IUINodeRenderer` + 真 `UINodeRenderer`（L）—— **必须与第 8 步同刀**；之后 `UINode::update` 才不必是虚。
+7. ~~`IUINodeRenderer` 的接口面 + 每层调用点~~ **已结清**（D4）；剩下的**会画的
+   `UINodeRenderer` 实现**（L）—— **必须与第 8 步同刀**；真画出来之后 `UINode::update` 才不必是虚。
 8. 真 `IWorldRenderer`（L，新子系统）—— **必须早于「台面用真组件」**；退掉 `FakeRenderer`/`QuietRenderer`，
    `add_entities`/`del_entities` 这些钩子才可能真。
 9. sounds 宿主（L）—— 退掉 sounds 那一簇与 `World::play_sound` 默认。
@@ -1129,7 +1133,7 @@ tool 实现）。这些在 `native/lfw/CMakeLists.txt` 里都是 `lfw_core` 的�
 |---|---|---|
 | `ILfwHost` | `native/lfw/lfw.h:134-288` | **70**（64 纯虚 + 6 有默认体：`pointings_grab/ungrab/grabbing`、`is_desktop`、`create_ui_node_renderer`、`warn_async`） |
 | `IWorldRenderer` | `native/lfw/world.h:61-68` | 4 |
-| `IUINodeRenderer` | `native/lfw/ui/ui_node_renderer.h:13-25` | 9（全部有默认体） |
+| `IUINodeRenderer` | `native/lfw/ui/ui_node_renderer.h:32-70` | 17 + 数据成员 `ui`（全部有默认体；= TS 的 16 面，`visible` 拆成 get/set） |
 | `IPlayerInfoHost` | `native/lfw/player_info.h:45-56` | 4 |
 | `IResourcesHost` | `native/lfw/resources.h:30-48` | 6 |
 | `IZip` | `native/lfw/ditto/zip/i_zip.h:15-25` | 4（3 纯虚 + `md5()` 默认） |
@@ -1151,7 +1155,7 @@ tool 实现）。这些在 `native/lfw/CMakeLists.txt` 里都是 `lfw_core` 的�
 | 2 | 生命周期 / 回调注册 / 指针夺取 | 18 | `lfw.h:140-154,157-170,237-239` | `Sounds`/`ImageMgr`/`Keyboard.ts`/`Pointings.ts`/`ui/UIInputHandle.ts` |
 | 3 | 音频 | 18 | `lfw.h:208-232` | `sounds/Modern.ts` + `sounds/Sounds.ts`（+ `sounds/Fallback.ts`） |
 | 4 | 世界渲染 | 5 | `lfw.h:177` + `world.h:61-68` | `renderer/WorldRenderer.ts` 一族 |
-| 5 | UI 渲染 | 10 | `lfw.h:179-182` + `ui_node_renderer.h:13-25` | `renderer/UINodeRenderer.ts`（+ `HeadlessUINodeRenderer.ts` 先例） |
+| 5 | UI 渲染 | 18 | `lfw.h:179-182` + `ui_node_renderer.h:32-70` | `renderer/UINodeRenderer.ts`（+ `HeadlessUINodeRenderer.ts` 先例） |
 | 6 | 玩家信息（`Ditto.Cache`） | 3（+4 转发） | `lfw.h:245-247` / `player_info.h:45-56` | `cache/Cache.ts` + `AsyncCache.ts` |
 | 7 | 资源 / 图片（`Importer` / `ImageMgr` / `XML`） | 9（+6 转发） | `lfw.h:184-191,249-257` / `resources.h:30-48` | `Importer.ts`、`ImageMgr/ImageMgr.ts`、`handle_image_operation.ts`、`xml/XML.ts` |
 | 8 | zip（`IZip` / `IZipObject` / `Ditto.Cache`） | 17 | `lfw.h:269-287` + `i_zip.h:15-25` + `i_zip_object.h:16-30` | `Zip.ts`、`LazyZip.ts`、`download/`、`cache/` |
@@ -1178,8 +1182,8 @@ tool 实现）。这些在 `native/lfw/CMakeLists.txt` 里都是 `lfw_core` 的�
 | 1 | `lfw.h:196` `dev` / `:198` `now` / `:199,203-205` `warn/error/log/debug_msg` / `:202` `warn_async` / `:193` `md5` / `:242` `measure_text` / `:265` `lang_apply` / `:174-175` `*_forget` / `:172` `is_desktop` | `init.ts:55-61`、`md5.ts:1-6`、`ImageMgr.ts:184-190`、`cache/Cache.ts`、`download/partial_store.ts` | (a) 同步；(b) 只给日志/告警 | `warn_async` 天然是"晚一点"，端口已把它建模成另一个口（`lfw.h:200-202`），JS 侧用微任务队列即可 |
 | 2 | `lfw.h:140-154` init/callback 注册、`:237-239` dispose、`:157-170` grab/ungrab/grabbing | `sounds/Sounds.ts`、`ImageMgr.ts`、`Keyboard.ts:44-50`、`Pointings.ts:15-27`、`ui/UIInputHandle.ts` | (a) + (d) | `grab/ungrab/grabbing` 一旦 hit test 进 WASM（W10）就整支 (d) |
 | 3 | `lfw.h:208-219` 播放族、`:222-232` 音量/静音、`:234-235` 声音回调 | `sounds/Modern.ts`、`sounds/Sounds.ts` | (b) 命令缓冲 | `sounds_play_bgm` 返回 `std::function<void()>`（`lfw.h:208`）⇒ 过界时落成停止句柄，见 W6 |
-| 4 | `lfw.h:177` `create_world_renderer` + `world.h:64-67` | `renderer/WorldRenderer.ts:23` | (b) 命令缓冲 | `render(dt)` 是唯一入口（`world.cpp:452` 调 `renderer_->render(dt)`） |
-| 5 | `lfw.h:179-182` + `ui_node_renderer.h:13-25` | `renderer/UINodeRenderer.ts:36` | (b) 命令缓冲 + (d) | 端口的 `IUINodeRenderer` **没有** `render()`/`add`/`del`，所以绘制发射器必须是新写的（W5）；9 个生命周期钩子由 `UINode` 调（`uinode.cpp:558-728`），可以给一个共享空实现 |
+| 4 | `lfw.h:177` `create_world_renderer` + `world.h:64-67` | `renderer/WorldRenderer.ts:23` | (b) 命令缓冲 | `render(dt)` 是唯一入口（`world.cpp:453` 调 `renderer_->render(dt)`） |
+| 5 | `lfw.h:179-182` + `ui_node_renderer.h:32-70` | `renderer/UINodeRenderer.ts:36` | (b) 命令缓冲 + (d) | 接口面已齐（`render`/`add`/`del`/`parent`/`x`/`y`/`visible`，全带默认体）且核心已有调用点（`world.cpp` 的 `render_ui_layers`）；**绘制发射器**仍得新写（W5）——端口没有一份会画的实现，默认体只记 `unhandled` |
 | 6 | `lfw.h:245-247` / `player_info.h:49-55` | `cache/Cache.ts`、`AsyncCache.ts` | (a) 同步 | TS 侧是 `Promise`（`src/LFW/ditto/cache/ICache.ts:11`），端口是同步（`player_info.h:49-55`）⇒ 必须**预取或失败**，见 W9 |
 | 7 | `lfw.h:184` `load_img` / `:187-188` `ui_image_load` / `:191` `ui_image_pin` / `:249-256` `import_as_*` / `:257` `xml_parse` | `ImageMgr.ts:194-211`、`handle_image_operation.ts`、`Importer.ts`、`resources.h:30-48` 对应的 `Resources.import_*`（`src/LFW/Resources.ts:25-90`） | (a) + (c)：图片 = 句柄 + 异步完成回调 | `import_*` 在 TS 里是"zip 未命中才走的网络回退"（`src/LFW/Resources.ts:25-33`），而端口是同步 ⇒ 未定（W9/W14） |
 | 8 | `lfw.h:269-287` + `i_zip.h:18-22` + `i_zip_object.h:19-29` | `Zip.ts:75-163`、`LazyZip.ts`、`download/`、`cache/` | (a) 批量灌入 + (c) 下载完成 | TS 的条目读取全是 `async`（`Zip.ts:40-73`），端口的 `IZipObject` 全是同步 `bool`（`i_zip_object.h:19-29`）⇒ 必须"JS 先备好字节"，见 W9 |
@@ -1275,13 +1279,13 @@ uint64_t lfw_digest(void* lfw);           /* core/state_hash.h，用来跟 lfw_r
 | 面 | 为什么 |
 |---|---|
 | `IWorldRenderer::render`（`world.h:66`） | 一帧几百~上千次绘制；而 JS 侧**根本看不到** `World`/`Entity`（它们在 WASM 内存里），每次绘制都要回头查一次状态 ⇒ 必须改成"WASM 内遍历、一次交一批" |
-| UI 绘制（`ui_node_renderer.h` 一族） | 同上；而且端口的 `IUINodeRenderer` 连 `render()` 都没有（只有生命周期，`ui_node_renderer.h:13-25`），逐节点过界也没有接口可挂 |
+| UI 绘制（`ui_node_renderer.h` 一族） | 同上；接口面与核心的调用点（`world.cpp` 的 `render_ui_layers`）都在了，但**一份会画的实现都没有**（默认体只记 `unhandled`，`ui_node_renderer.h:59-63`）⇒ 逐节点过界今天没人接 |
 | `ILfwHost::sounds_play` / `sounds_play_bgm`（`lfw.h:208-210`） | 每帧几十次；TS 的 `Sounds` 自己带排队/去重（`src/DittoImpl/sounds/Sounds.ts`），逐次过界会把排队语义搬到 JS 而时间轴留在 WASM |
 | 输入（`lfw.h:82-106`、`:145-154`） | 一次 DOM 事件一次跨界；且 TS 里指针事件本来就先被 `UIInputHandle` 攒成 `push_cmd`（`UIInputHandle.ts:42-56`）——WASM 侧保留这个"攒"的语义，只是攒在 WASM 里 |
 
 **允许逐次过界的白名单**（便宜且低频）：`now()`、`clock_add/del/hidden`、`timeout_add/del`、
 `render_add/del`、`dev()`、`is_desktop()`、`warn/error/log/debug_msg`、`md5`、
-`measure_text`（UI 构建期，且有缓存，`uinode.cpp:176-201`）、`ui_image_load`/`ui_image_pin`
+`measure_text`（UI 构建期，且有缓存，`uinode.cpp:178-203`）、`ui_image_load`/`ui_image_pin`
 （装载/换页期）、`sounds_volume*` 等 getter/setter（用户操作才触发）。
 
 ### W5. 渲染命令缓冲格式
@@ -1308,8 +1312,8 @@ uint64_t lfw_digest(void* lfw);           /* core/state_hash.h，用来跟 lfw_r
 
 **双缓冲**：`frames[2]` + `write_index` / `ready_index`。理由不是"多线程"，而是**同一帧里
 `render` 可能被调两次**：`World::update_once` 在 `sync_render == Sync/Half` 时会自己
-`render_once(dt)`（`world.cpp:1039-1052`），而 `World::start_render` 注册的 raf 回调
-（`world.cpp:570-599`）也会 `render_once(real_dt)`。JS 在 raf 回调返回后才读 `ready` 那一块，
+`render_once(dt)`（`world.cpp:1096-1109`），而 `World::start_render` 注册的 raf 回调
+（`world.cpp:627-656`）也会 `render_once(real_dt)`。JS 在 raf 回调返回后才读 `ready` 那一块，
 所以"写入中的缓冲"永远不被读。
 
 **谁分配谁释放**：WASM 拥有缓冲（建议 `std::vector<uint8_t>`，按需 `resize`），JS 只读
@@ -1320,7 +1324,7 @@ uint64_t lfw_digest(void* lfw);           /* core/state_hash.h，用来跟 lfw_r
 
 | opcode | 负载（要点） | 依据 |
 |---|---|---|
-| `BEGIN_FRAME` | 帧头 | `world.cpp:452` 是唯一渲染入口 |
+| `BEGIN_FRAME` | 帧头 | `world.cpp:453` 是唯一渲染入口 |
 | `BEGIN_PASS` / `END_PASS` | pass id：`ui_bg` / `bg` / `entities` / `fg` / `ui_fg` | `WorldRenderer.ts:256-273` 的固定次序（`clearDepth` 分隔） |
 | `SPRITE` | tex, clip(x,y,w,h), dst(x,y,w,h), origin(ox,oy), rot(cos,sin), flip | `EntityMainRender.ts:707-747`（`pic.x/y/w/h`、`ox/oy`、`__cos_r/__sin_r`、`set_clip`） |
 | `TINT` | mix_color(handle 或 rgba), opacity | `EntityMainRender.ts:786-796`（`mixColor`、`alpha`） |
@@ -1408,7 +1412,7 @@ JS 的 `Map` = **JS 自有**（WASM 只见句柄）；`REG_STR` 是唯一"JS 往
 ```
 
 **谁驱动四个槽**：JS 实现 `IClock` / `ITimeout` / `IRenderScheduler` 三件（W4 的表），WASM 里的
-`Ticker`（`ticker.h:21-188`）与 `World::start_render`（`world.cpp:570-599`）**按 TS 原样跑**：
+`Ticker`（`ticker.h:21-188`）与 `World::start_render`（`world.cpp:627-656`）**按 TS 原样跑**：
 
 * `Clock.add` 必须是**一次性批量 flush**：TS 的 `Clock.ts:9-22` 用一个 `MessageChannel`
   在下一个宏任务里把整批跑完并清空。端口的 `render_scheduler.h:7-14` 专门记过"把它和 raf
@@ -1501,7 +1505,7 @@ JSZip 的 `file()` / `file()` + 正则索引是**同步**的（`Zip.ts:122-141`�
   three.js `Raycaster` 打网格（`UIInputHandle.ts:119-126`）算出节点路径，再
   `push_cmd(CMD.POINTER_*, '--paths=…')`（`UIInputHandle.ts:42-56,76-88`）。
 * ⇒ **把 hit test 搬进 WASM**：几何本来就在 WASM（`UINode::cross()` / `rect()` / `geo()` /
-  `hit()`，`native/lfw/ui/uinode.h:126-152`，`uinode.cpp:287-330`），WASM 宿主新写一个
+  `hit()`，`native/lfw/ui/uinode.h:126-152`，`uinode.cpp:289-332`），WASM 宿主新写一个
   `WasmUIInputHandle` 复现"DOM 事件 → 命中节点 → 组 `CMD.POINTER_*` 命令"
   （命令解析器已经全在 `native/lfw/cmds/cmd_pointer_events.cpp` 里，且 `--paths` 的读法
   `read_targets` 就在那儿）。JS 不再参与 hit test。
@@ -1628,8 +1632,8 @@ const m = await createLfw({ locateFile: (f) => `/wasm/${f}` })
     的帧上"浏览器 digest == `lfw_run` digest"**可能**分叉。**未定**：是靠"这些帧无 libm"绕开，
     还是容忍 ULP。
 11. **还没量的事**：UI 每帧的绘制指令条数、命令缓冲每帧字节数、`measure_text` 的每帧调用次数
-    （`auto_size_by_text` 有 key 缓存，`uinode.cpp:176-201`，但换语言/换页会重算）、
-    以及 `FPS`/`UPS` 两个上报回调（`world.cpp:1043-1064` 的 `on_fps_update` / `on_ups_update`）
+    （`auto_size_by_text` 有 key 缓存，`uinode.cpp:178-203`，但换语言/换页会重算）、
+    以及 `FPS`/`UPS` 两个上报回调（`world.cpp:1100-1121` 的 `on_fps_update` / `on_ups_update`）
     要不要也让 JS 看见。
 
 ---
@@ -1675,9 +1679,10 @@ const m = await createLfw({ locateFile: (f) => `/wasm/${f}` })
 
 - **Godot = 宿主实现 #3**，与 `native/host/headless_host.{h,cpp}`（headless，测试用）、
   `native/host/wasm/**`（浏览器，WASM）**平级**。Godot 的全部代码放 `native/host/godot/**`。
-- `native/lfw/**` 只许增加**引擎通用**的缺口。当前在册的只有一条：`IUINodeRenderer` 的**渲染面未移植**
-  （`native/lfw/ui/ui_node_renderer.h:13-25`，文件头注释自述 `render` / `add` / `del` / `parent` / `x` /
-  `y` / `visible` 属渲染面）。**不许**因为 Godot 而往核心加任何东西。
+- `native/lfw/**` 只许增加**引擎通用**的缺口。当前在册的只有一条，而且已经补到核心侧、没有引擎词：
+  `IUINodeRenderer` 的**渲染面**（`render` / `add` / `del` / `parent` / `x` / `y` / `visible`）与**每层一次的
+  调用点**（`world.cpp` 的 `render_ui_layers`，TS `WorldRenderer.ts:236-239`）都已移植，但**绘制实现**
+  是空的（`render` 的默认体只记 `unhandled`，见 D4）。**不许**因为 Godot 而往核心加任何东西。
 - **硬规则原文**（`native/README.md:16-30`）：「**平台实现一律不许落在 `native/lfw/**`**：渲染、音频、
   图片、输入、时钟、wasm/ABI 这些**具体实现**只放 `native/host/**`（C++ 侧）与 `native/web/**`
   （JS 侧）；核心只留**接口**与**逻辑**。`lfw.h` 里与平台相关的东西只允许是"**宿主工厂**"
@@ -1702,7 +1707,7 @@ const m = await createLfw({ locateFile: (f) => `/wasm/${f}` })
 | `IRenderScheduler` | `lfw/base/render_scheduler.h:15-19`；槽 `set_render_scheduler`（`:21-25`） | **故意不装**（槽空 ⇒ `render_add` 回 0，`:29-31`） |
 | `IWorldRenderer` | `lfw/world.h:61-68`：`add_entity(Entity&)` / `del_entity(Entity&)` / `render(double dt)` / `dispose()` | 一棵 Godot 节点树 + 每实体一个节点（需验证） |
 | `IEntityRenderer` | `lfw/entity/entity.h:34-37` —— 是 `struct`，只有一个 `render(double dt, double dfactor)` | 每实体一个渲染对象（需验证） |
-| `IUINodeRenderer` | `lfw/ui/ui_node_renderer.h:13-25`。已移植的只有生命周期/焦点转发（`del_self` / `on_start` / `on_stop` / `on_resume` / `on_pause` / `on_show` / `on_hide` / `on_foucs` / `on_blur`），而它们**全是有空体的非纯虚**（不实现也能编过）；**渲染面（`render`/`add`/`del`/`parent`/`x`/`y`/`visible`）未移植** | 每个 `UINode` 一个 `Control`/`CanvasItem`（需验证）；**得先把渲染面补进端口**（G4） |
+| `IUINodeRenderer` | `lfw/ui/ui_node_renderer.h:32-70`。接口面齐了：9 个生命周期/焦点转发（`del_self` / `on_start` / `on_stop` / `on_resume` / `on_pause` / `on_show` / `on_hide` / `on_foucs` / `on_blur`）+ 7 个渲染面（`render` / `add` / `del` / `parent` / `x` / `y` / `visible`），**全是带默认体的非纯虚**（不实现也能编过；`render` 的默认体只记 `unhandled`）。核心每帧每层调一次（`world.cpp` 的 `render_ui_layers`） | 每个 `UINode` 一个 `Control`/`CanvasItem`（需验证）；**只剩"画"没写**：递归与可见规则照 TS 哪一份实现自定（G4） |
 | `IResourcesHost` | `lfw/resources.h:30-49`（`import_as_json` / `blob_url` / `array_buffer` / `image_bitmap` / `text` + `xml_parse`）。⚠ 与 `ILfwHost` 是**两个**接口，`LFW` 同时继承它（`lfw.h:297-299`） | `import_as_*` 走 Godot 文件 API（需验证）；`image_bitmap` 得先有真解码（G7） |
 | `IPlayerInfoHost` | `lfw/player_info.h:45-56`（`cache_get` / `cache_del` / `cache_put` + `warn`） | `user://` 存档（需验证）；headless 的真实现是内存 map（`host/headless_host.cpp:221-239`） |
 | `IZip` / `IZipObject` | `lfw/ditto/zip/i_zip.h:15-31`（`name` / `file(string)` / `file(regex)` / `md5`）、`i_zip_object.h:16-29`（`name` / `json` / `text` / `blob_url` / `array_buffer` / `image_bitmap`） | 需要一个**能读 zip 的 IO 层**（Godot 侧候选：`ZIPReader`，需验证）。现在只有"目录当 zip"（G6） |
@@ -1715,8 +1720,9 @@ const m = await createLfw({ locateFile: (f) => `/wasm/${f}` })
 1. **`IClock` / `ITimeout` / `IRenderScheduler` 不走 `ILfwHost`**，走的是 `lfw::set_clock` /
    `set_timeout` / `set_render_scheduler` 三个全局槽（`base/clock.h:31-46`、
    `base/render_scheduler.h:21-25`）。WASM 宿主就是这么接的（W15「跨界只有两块：时钟 + 日志」）。
-2. **`IUINodeRenderer` 的"未移植"在类型上看不出来**：那些方法有默认空体，Godot 实现可以一行不写却
-   编得过 —— 所以"渲染面没搬"这件事只能靠**文档 + 机检**钉住，别指望编译器。
+2. **`IUINodeRenderer` 的"没实现"在类型上看不出来**：那些方法全有默认体，Godot 实现可以一行不写却
+   编得过 —— 所以"还没画"这件事只能靠**文档 + 统计行**钉住（`render` 的默认体记 `unhandled`，
+   宿主打 `UI render calls: N (unhandled: M)`），别指望编译器。
 
 ### G2. 两种集成形态
 
@@ -1741,7 +1747,7 @@ const m = await createLfw({ locateFile: (f) => `/wasm/${f}` })
 **端口事实**（已读）：
 
 - `LFW` 的**构造函数**里就自己起了世界：`native/lfw/lfw.cpp:246` `world_->start_update();`（下一行
-  `start_render()`）；`World::start_update` 在 `native/lfw/world.cpp:1104`。
+  `start_render()`）；`World::start_update` 在 `native/lfw/world.cpp:1161`。
 - 驱动它的是端口自己的 `Ticker`（`native/lfw/base/ticker.h:23`）。**但 Ticker 不会自己动**：它靠
   `Ticker::schedule()` 里的 `clock_add` / `timeout_add`（`ticker.h:113-124`）排下一跳 ⇒ **槽是空的时候它
   就是死的**（headless 的 `ManualClock::add→0` / `NoopTimeout::add→0`，`host/headless_host.h:20-34`，
@@ -1789,9 +1795,9 @@ WASM 宿主已经用同一招证明过自己 —— `native/README.md:310`：**�
   把**活对象**交给宿主，之后每帧只调一次 `render(dt)`，宿主**自己**去读实体当前状态。
   这跟 Godot 的场景树天然同构（进世界 = 建节点、出世界 = 删节点、每帧遍历重读属性）⇒ 比 W5 那套"WASM 内
   遍历、每帧攒一批绘制指令、JS 只读缓冲"**简单一档**（同进程 ⇒ `Entity&` 是同一块内存，不用序列化）。
-- **前置条件**：`IUINodeRenderer` 的**渲染面还没移植**（G1 那张表）。⇒ 顺序是
-  **先补端口、再写 Godot 渲染器**，不能反。DESIGN §7.2 的"依赖顺序"把这条与真 `IWorldRenderer`
-  绑成"**必须与第 8 步同刀**"（第 7 条），理由一样。
+- **前置条件已满足**：`IUINodeRenderer` 的**渲染面已移植**（接口面 + 每层一次的调用点，G1 那张表 /
+  D4）⇒ 顺序上"先补端口、再写 Godot 渲染器"的前半已经做完，剩下的是写实现。DESIGN §7.2 的
+  "依赖顺序"把这条与真 `IWorldRenderer` 绑成"**必须与第 8 步同刀**"（第 7 条），理由一样。
 - **契约必须引擎中立**，而且这件事是**可证伪**的：同一个接口现在已经有**两份**宿主实现在跑
   （headless + WASM），`native/README.md` 的 DESIGN 摘录写着「WASM 宿主与它是**同一批接口的两个实现**，
   不许互相依赖」（`DESIGN.md:1532`）。Godot 一来就是**第三份** ⇒ 只要有一份实现被迫写"只有 Godot 才需要"
@@ -1864,8 +1870,9 @@ WASM 宿主已经用同一招证明过自己 —— `native/README.md:310`：**�
   ⚠ 三条实测（都会让人白花一天）：Godot 跑工程时 **cwd = 工程目录**（`--path` 的副作用）⇒ 数据路径写绝对；
   本 target **不许 `/GR-`**（`Object::cast_to<T>` 走 `dynamic_cast`，见 §G9 第 1 条）；
   扩展**不写进 `.godot/extension_list.cfg` 就静默不加载**（首跑要 `<godot> --headless --import`）。
-- **G2 绘制契约**：补端口 `IUINodeRenderer` 的渲染面（`native/lfw/ui/ui_node_renderer.h`，属 G0 允许的
-  "引擎通用缺口"）→ 写 Godot 的 `IWorldRenderer` / `IUINodeRenderer`。
+- **G2 绘制契约**：端口 `IUINodeRenderer` 的渲染面**已补齐**（`native/lfw/ui/ui_node_renderer.h:32-70`，
+  属 G0 允许的"引擎通用缺口"；调用点在 `world.cpp` 的 `render_ui_layers`）→ 剩写 Godot 的
+  `IWorldRenderer` / `IUINodeRenderer`。
   **验收**：差分台面与 lint 不退化（`npm run native all`）+ 目视一帧 UI 与世界都画出来（**目视无自动化
   判据，记"未定"**）。
 - **G3 音频/图片/zip/MD5/文本度量**：G7 那张表。
@@ -1988,13 +1995,14 @@ headless 的形状，再把空实现逐个换掉（S7 的切片）—— `native
   —— **两种完全不同的落法装得下同一个接口**，这才叫中立。
 - **它很便宜**：第一份实现要发明边界（W4 的函数表 / W5 的命令缓冲 / W7 的 scratch / W8 的帧纪律），
   第二份只要"填表"。薄宿主是第 4 份 ⇒ 它该是**流水线作业**，而不是又一轮设计。
-- ⚠ **具体危险（本仓库已核对）**：`IUINodeRenderer` 的 9 个成员**全是非纯虚、空体**
-  （`native/lfw/ui/ui_node_renderer.h:16-24`：`del_self` / `on_start` / `on_stop` / `on_resume` /
-  `on_pause` / `on_show` / `on_hide` / `on_foucs` / `on_blur`）⇒ **"没搬"这件事编译器看不见**：
-  宿主一行不写也编得过，什么都不画也不会失败。现状正是如此 —— `create_ui_node_renderer` 默认回
-  `nullptr`（`lfw.h:179-182`），`HeadlessHost` **没有覆写它**（`headless_host.h` 里没有这个成员名）
-  ⇒ `UINode` 构造里拿到的是空指针（`native/lfw/ui/uinode.cpp:106-107`），之后每一处调用都带判空
-  （`uinode.cpp:558-728` 那一族 `renderer != nullptr`）⇒ **UI 渲染面可以永远为空，且没有任何东西报错。**
+- ⚠ **具体危险（本仓库已核对）**：`IUINodeRenderer` 的成员**全是非纯虚**（`native/lfw/ui/ui_node_renderer.h:41-70`）
+  ⇒ **"没搬/没实现"这件事编译器看不见**：宿主一行不写也编得过，什么都不画也不会失败。接口面与调用点
+  都已补齐（17 个虚函数 + 每层一次的调用点），但 **`render` 的默认体仍然只是记一次 `unhandled`** ——
+  也就是说"没画"这件事现在是**有数**的，而不是会失败的：现状仍是 `create_ui_node_renderer` 默认回
+  `nullptr`（`lfw.h:179-182`）、`HeadlessHost` **没有覆写它**（`headless_host.h` 里没有这个成员名）
+  ⇒ `UINode` 构造里拿到的是空指针（`native/lfw/ui/uinode.cpp:106-109`），之后每一处调用都带判空
+  （`uinode.cpp:560-730` 那一族 `renderer != nullptr`）⇒ **UI 渲染面可以永远为空，且没有任何东西报错**；
+  唯一的变化是宿主统计行会打出 `UI render calls: N (unhandled: M)`（D4）。
 - 所以 S6 里的"看得见画面"不是锦上添花，而是这条危险唯一的解药。
 - **已经先落了"不画"的那一半**：`native/host/thin/**`（`lfw_thin`）是同一个接口的**录制实现** ——
   保留式地记账（`add_entity` / `del_entity`），每帧把活实体的绘制字段快照成一条记录，落盘/打印。
@@ -2036,8 +2044,8 @@ headless 的形状，再把空实现逐个换掉（S7 的切片）—— `native
 |---|---|---|
 | **窗口 / 指针（含悬停与抓取）** | `ILfwHost::pointings_init` / `pointings_add_ui_input` / `pointings_callback_add` / `…_del`（`lfw.h:143,147,153-154`）；抓取族 `pointings_grab` / `pointings_ungrab` / `pointings_grabbing`（`lfw.h:157-170`，**都有默认体**：`false` / 空 / `nullptr`，`HeadlessHost` 一个都没覆写）；事件形状 `LfwPointingEvent`（`lfw.h:87-95`）与 `LfwPointingsCallback`（`lfw.h:98-107`，其中 `on_pointer_move` 就是悬停） | 窗口事件 → `LfwPointingEvent` → 逐个触发 `pointings.callback`；**抓取要给真语义**（组件会读 `pointings_grabbing` 的返回值）；悬停不需要额外的宿主面 |
 | **按键映射** | `LfwKeyEvent`（`lfw.h:70-76`）、`LfwKeyboardCallback`（`lfw.h:80-84`）、`keyboard_add_callback` / `keyboard_callback_add` / `…_del`（`lfw.h:145,150-151`） | 把宿主键码翻成端口认识的**字符串** `key`（核心只认字符串），按下 / 抬起各触发一次 |
-| **2D 精灵批** | `IWorldRenderer`（`world.h:61-68`：`add_entity` / `del_entity` / `render(dt)` / `dispose`），调用点 `world.cpp:391 / :454 / :1020 / :1251`；另有一层 `IEntityRenderer`（`entity.h:34-37`，只有 `render(dt, dfactor)`） | **保留式**：进世界建对象、出世界删对象、每帧在 `render(dt)` 里自己遍历活实体重读状态（G4 第一段）。⚠ `IEntityRenderer` 在**全仓没有任何实现**，`Entity::renderer` 也**没有赋值点**（只在 `entity.h:129` 初始化成 `nullptr`）⇒ 第一版**只能**靠 `IWorldRenderer` |
-| **文字与 `measure_text`** | `ILfwHost::measure_text(text, style)`（`lfw.h:242`）；调用点 `ui/cook_ui_info.cpp:607`、`ui/uinode.cpp:126`、`:191`（带 key 缓存，`uinode.cpp:176-201`） | 回一个 `{text, style, width, height}` 的 `Object`（形状照 `headless_host.cpp:211-219`）。headless 给的是**零尺寸** ⇒ 桌面宿主这里会**第一次**把真实布局撑开（见 S6 的跨宿主告警） |
+| **2D 精灵批** | `IWorldRenderer`（`world.h:61-68`：`add_entity` / `del_entity` / `render(dt)` / `dispose`），调用点 `world.cpp:392 / :455 / :1077 / :1308`；另有一层 `IEntityRenderer`（`entity.h:34-37`，只有 `render(dt, dfactor)`） | **保留式**：进世界建对象、出世界删对象、每帧在 `render(dt)` 里自己遍历活实体重读状态（G4 第一段）。⚠ `IEntityRenderer` 在**全仓没有任何实现**，`Entity::renderer` 也**没有赋值点**（只在 `entity.h:129` 初始化成 `nullptr`）⇒ 第一版**只能**靠 `IWorldRenderer` |
+| **文字与 `measure_text`** | `ILfwHost::measure_text(text, style)`（`lfw.h:242`）；调用点 `ui/cook_ui_info.cpp:607`、`ui/uinode.cpp:128`、`:193`（带 key 缓存，`uinode.cpp:178-201`） | 回一个 `{text, style, width, height}` 的 `Object`（形状照 `headless_host.cpp:211-219`）。headless 给的是**零尺寸** ⇒ 桌面宿主这里会**第一次**把真实布局撑开（见 S6 的跨宿主告警） |
 | **音频** | `lfw.h:208-232` 的 `sounds_*`（含音量 / 静音的 getter+setter）与 `LfwSoundsCallback`（`lfw.h:111-132`，变更事件） | 播放 / 停止 + BGM 停止闭包 + 音量 clamp 0..1 + 同值早退 + 变更发事件（语义逐条写在 `lfw.h` 的注释里）；headless 只计数（`headless_host.cpp:186-209`） |
 | **定时器与虚拟时钟** | `IClock` / `ITimeout`（`clock.h:11-27`）+ 全局槽 `set_clock` / `set_timeout`（`clock.h:36,45`）；`IRenderScheduler`（`render_scheduler.h:15-20`，槽在 `:29`） | **按 S5 装**：虚拟时钟 + 固定步长；`IRenderScheduler` **故意不装**（槽空 ⇒ `render_add` 回 0，`render_scheduler.h:32-34`） |
 | **文件与 zip** | `ILfwHost::import_as_*`（`lfw.h:250-259`）、`zip_*`（`lfw.h:269-287`）、`IZip` / `IZipObject`（`i_zip.h:15-25`、`i_zip_object.h:16-30`） | 第一版直接复用 `host/fs_zip.{h,cpp}`（目录当 zip，`fs_zip.h:14-17`）；**真 zip**（DEFLATE / 中央目录）留到 S7 的 S3 —— 与 G7 第 5 行是同一件事。⚠ `file_regex` 只认 4 条固定模式（`i_zip.h:30-58`），换宿主别去动它 |
@@ -2150,7 +2158,7 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
 | 切片 | 做什么 | 验收 |
 |---|---|---|
 | **S1 骨架 + 假渲染器** | 起 `LFW`、收一个 `ILfwHost` 实现；时钟用 `ManualClock` 的形状、世界渲染器先用计数版（`NullWorldRenderer`）；装配照 `host/common/lfw_boot.cpp:43`（`boot_scene`）、推帧照 `lfw_run.cpp:289-295`。**已落地**：`native/host/thin/**`（`lfw_thin`）就是这一片 —— 同一批源文件 + 覆写 `create_world_renderer`，渲染器换成**录制版**（不计数、也不画）；它已经按 D1(c) 自己算 `dfactor`、自己留 `p0/p1`，`--sync-render FPS_120 --sub-render N` 能把插值那条路跑起来 | **三条摘要逐位一致** —— 唯一能证明"宿主接对了"的硬指标（录制版已实测；换渲染档位 + 一 tick 多渲染之后仍逐位一致） |
-| **S2 真 2D 绘制** | 先补端口 `IUINodeRenderer` 的渲染面（**引擎通用缺口，属核心侧**：`ui_node_renderer.h:8-12` 自述 `render` / `add` / `del` / `parent` / `x` / `y` / `visible` 未移植）→ 再写薄宿主的 `IWorldRenderer` / `IUINodeRenderer` | 差分台面 + lint 不退化 + **目视**一帧 UI 与世界（判据**未定**） |
+| **S2 真 2D 绘制** | 端口 `IUINodeRenderer` 的渲染面**已补齐**（**引擎通用缺口，属核心侧**：`ui_node_renderer.h:32-70`；每层一次的调用点在 `world.cpp` 的 `render_ui_layers`）→ 剩写薄宿主的 `IWorldRenderer` / `IUINodeRenderer` | 差分台面 + lint 不退化 + **目视**一帧 UI 与世界（判据**未定**） |
 | **S3 文字度量 / 音频 / 真 zip / MD5 / 光标** | 换掉 headless 那批假货里"桌面必需"的几个：`measure_text`（`lfw.h:242`）、`sounds_*`（`lfw.h:208-232`）、真 zip、真 MD5（`lfw.h:193`）、光标（S3 表里"光标表"那一行） | MD5 与 `DittoImpl/md5.ts` **逐位一致**（可自动化）；真包能装；**三条摘要仍逐位一致** —— 换宿主最容易在这一步翻车 |
 | **S4 打包** | 把薄宿主做成"双击能跑"的东西 | **需验证**：静态 / 动态链接、许可、Windows 与 Linux 的产物形态 |
 
@@ -2201,8 +2209,8 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
 | **谁说了算** | 模拟与布局、命中测试、焦点、时钟语义**一律在核心**；字体度量、图片解码、缩放与设备像素**在宿主**（W11 那张表已经分过账，这里不重列） |
 
 ⚠ **没有实现就没有证据**：`IWorldRenderer` 只有 4 个成员（`lfw/world.h:61-68`），`IUINodeRenderer`
-的渲染面**一个都没移植**（D4）⇒ "契约写得对不对"今天唯一能拿到的证据，是 `native/host/thin/**`
-在真装配、真数据下落下来的那串记录（S7 的 S1 切片）。
+的渲染面**已建形、调用点也在核心**（D4），但**一份会画的实现都没有** ⇒ "契约写得对不对"今天唯一能
+拿到的证据，是 `native/host/thin/**` 在真装配、真数据下落下来的那串记录（S7 的 S1 切片）。
 ⚠ **别把它读成"字段清单"**：录制器的字段表是**探针**，不是契约的上限（D3 末尾那条）。
 
 ### D1. 世界侧：每帧输入
@@ -2216,16 +2224,16 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
 | 字段 | 含义 / 单位 | 端口出处（已读） |
 |---|---|---|
 | `lifetime` | **世界寿命**：每 step 递增一次。这是"帧号"的权威值（不是宿主自己的渲染计数） | `world.h:176`（`lifetime()`）；TS `World.ts:162` |
-| `dt` | 本次 `render(dt)` 的实参（ms）。⚠ 它是**真实经过时间**，不是固定步长 | `world.h:66`；`world.cpp:452-454`（`render_once` 原样透传） |
+| `dt` | 本次 `render(dt)` 的实参（ms）。⚠ 它是**真实经过时间**，不是固定步长 | `world.h:66`；`world.cpp:453-458`（`render_once` 原样透传） |
 | `TU` | 一个 tick 的目标时长（ms）＝ `1000 / UPS` | `world.h:105`；TS `World.ts:378` |
-| `fps_value()` | **目标渲染率**：由 `dataset.sync_render` 推出（`Unlimited→1000 / FPS_60→60 / FPS_120→120 / Sync→UPS / Half→floor(UPS/2)`），**不是**实测帧率 | `world.cpp:550-568`；TS `World.ts:255-264` |
+| `fps_value()` | **目标渲染率**：由 `dataset.sync_render` 推出（`Unlimited→1000 / FPS_60→60 / FPS_120→120 / Sync→UPS / Half→floor(UPS/2)`），**不是**实测帧率 | `world.cpp:607-625`；TS `World.ts:255-264` |
 | `dataset.UPS` / `screen_w` / `screen_h` | 逻辑分辨率（缺省 `794×450`、`UPS=60`） | `world_dataset.cpp:85-86`、`:133` |
 | `transform`（x,y,z + scale_x/y/z） | 世界的位移与缩放（缩放要参与"名字/血条被夹在视野内"那几条公式） | `world.h:93`；TS `WorldRenderer.ts:222-227` |
 | 相机 `position` | 相机在世界里的位置（x,y） | `world.h:112`、`camera.h:30` |
 | `bg`：`id` / `layer_data_index` / `update_times` | 背景的**当前状态**；背景自己的图层参数在 `bg.data.base`（`shadow` / `shadow_w/h` / `zoom_x` / `far` 都从那里读） | 录制器 `bg=` / `layer=` / `upd=` 三个字段；TS `EntityShadowRender.ts:38-57`、`EntityRenderer.ts:99-101` |
 | `dataset.entity_flags` / `bg_flags` | **调试指标位**（实体：frame/bdy/itr/ft/opoint/wpoint/cpoint/bpoint/ctrl；背景：terrain/layer）。缺省 `0` ⇒ 一位都不画 | `world_dataset.cpp:131-132`；TS `INDICATINGS.ts:3-17` |
 | **五遍的次序** | UI 背景 → 背景(+指标) → 实体(+覆盖层) → 前景 → UI 前景。**次序是契约的一部分**（谁压谁、遍与遍之间的纵深关系） | TS `WorldRenderer.ts:256-290`；W5 的 `BEGIN_PASS` 是同一件事 |
-| **帧内比例一族**（派生量，不是核心递的） | `dfactor` + 它的中间量 `dtime` / `dirty`（tick 边界），输入是上面那四个（`lifetime` / `TU` / `fps_value()` / `UPS`）；录制器的帧头就把这七个数并在一起（`df=` `dtime=` `dirty=` `tu=` `fps=` `ups=`） | `WorldRenderer.ts:187-204`；录制器 `FrameDrawRecord` |
+| **帧内比例一族**（派生量，不是核心**递**给世界渲染器的） | `dfactor` + 它的中间量 `dtime` / `dirty`（tick 边界），输入是上面那四个（`lifetime` / `TU` / `fps_value()` / `UPS`）；录制器的帧头就把这七个数并在一起（`df=` `dtime=` `dirty=` `tu=` `fps=` `ups=`）。⚠ `IWorldRenderer::render(dt)` 不传它，所以**要它的一方自己算**：录制器一份（喂 `E` 行）、核心一份（喂 UI 渲染面，`world.cpp` 的 `ui_render_dfactor` —— D4） | `WorldRenderer.ts:187-204`；录制器 `FrameDrawRecord` |
 
 **（b）逐实体**：契约真正要定的是**坐标与语义**，不是字段名。
 
@@ -2261,7 +2269,7 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
   输入读得到（D5 第 3 行）。将来按 W5 那条"宿主只读帧头"的路走时，这四个字段**必须进帧头**，否则第二
   份宿主算不出 `dfactor`。⚠ 换 `sync_render` 是**渲染档位**、不是模拟参数（摘要三条实测不变）。
 - ⚠ **"每帧一次"这个假设不成立**：`sync_render == Sync / Half` 时 `World::update_once` 自己就会渲染
-  一次（`world.cpp:1038-1050`），`start_render` 注册的回调也会渲染一次（`:570-599`）⇒ 宿主必须自带
+  一次（`world.cpp:1095-1107`），`start_render` 注册的回调也会渲染一次（`:627-656`）⇒ 宿主必须自带
   "写入中的那帧不被读"的双缓冲（W5 已经为这条定了双缓冲，那里写了理由）。
 
 ### D2. 图集与图片
@@ -2316,7 +2324,7 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
 
 - **核心已有、只是没往外说**（宿主自己从帧对象上读得到，例如逐图旋转、逐图层 `cx/cy`）⇒ 补**文档与
   录制器字段**即可；
-- **核心真的还没有**（必须加接口/加调用点，例如 D1(c) 的上一 tick 位置、D4 的 UI 渲染面）。
+- **核心真的还没有**（必须加接口/加调用点，例如 D1(c) 的上一 tick 位置；D4 的 UI 渲染面**已经加好了**）。
 
 ### D4. UI 侧
 
@@ -2324,19 +2332,26 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
 `visible` / `clip_children` / `global_opacity` / `color` / `background` / `foreground` / `outline*` /
 `image` / `text` / `z`；布局、命中测试、焦点、指针链全在 `lfw/ui/**`。
 
-**渲染面是一个"编译器看不见的空洞"**（S1 点过一次，这里换成契约视角）：
+**渲染面曾经是一个"编译器看不见的空洞"**（S1 点过一次，这里换成契约视角）——**现状：接口面与调用点都已
+落在核心侧，"画"仍然是空的**：
 
-- 端口的 `IUINodeRenderer` 只有 **9 个成员，全是非纯虚 + 空体**（`lfw/ui/ui_node_renderer.h:16-24`：
-  `del_self` / `on_start` / `on_stop` / `on_resume` / `on_pause` / `on_show` / `on_hide` / `on_foucs` /
-  `on_blur`）⇒ **一行不写也能编过**；`create_ui_node_renderer` 默认回 `nullptr`（`lfw.h:179-182`），
-  `HeadlessHost` 也没有覆写它 ⇒ `UINode` 拿到空指针（`uinode.cpp:106-107`），之后每处调用都带判空
-  （`uinode.cpp:558-728`）。
-- TS 的同一个接口还多 **7 个渲染面成员**：`render(dt, df)` / `add` / `del` / `parent` / `x` / `y` /
-  `visible`（`src/LFW/ditto/render/IUINodeRenderer.ts:4-14`）⇒ **未移植**。
-- **第二个缺口：调用点也没有**。TS 的入口是每层一次 `layers.at(i)?.ui?.renderer.render(dt, dfactor)`
-  （`WorldRenderer.ts:236-239`），再逐层从**根**递归（`UINodeRenderer.ts:393-421`）。端口里全仓 grep
-  `.renderer` 只命中两处**声明**（`entity.h:129`、`uinode.h:70`）⇒ 就算把接口补齐，**没有任何东西会
-  去调它**。
+- 端口的 `IUINodeRenderer` 现在有 **17 个虚函数**：9 个生命周期/焦点转发 + 7 个渲染面
+  （`render(dt, df)` / `add` / `del` / `parent` / `x` / `y` / `visible`），外加数据成员 `ui`
+  （`lfw/ui/ui_node_renderer.h:32-70`；TS 对位 `src/LFW/ditto/render/IUINodeRenderer.ts:3-23`）。
+  **全是带默认体的非纯虚**（一行不写也能编过），但 `render` 的默认体会记一次 `unhandled`
+  ⇒ **"一个都没画"不再静默**：`ui_node_renderer.h:15-22` 的 `UINodeRenderCalls` 由核心的调用点与
+  默认体一起填，宿主的统计行打印 `UI render calls: N (unhandled: M)`。
+- **调用点已补**（这是原先缺的第二半）：核心每帧每层一次，逐字照 TS 的那三行
+  （`WorldRenderer.ts:236-239`：`layers.at(i)?.ui?.renderer.render(dt, dfactor)`）——
+  `world.cpp` 的 `render_ui_layers`（洞与没有页的层按 `?.` 跳过）；`dfactor` 由核心按
+  `WorldRenderer.ts:187-204` 算（`world.cpp` 的 `ui_render_dfactor`：输入是 `TU` / `lifetime` /
+  `fps_value()` / `UPS` 四个核心自己的值，所以每份宿主都拿得到）。
+  ⚠ **次序差一段**：TS 那一行在**世界渲染器内部**（实体那遍之后、五遍绘制之前，D1(a)），而端口的
+  世界渲染器缝（`IWorldRenderer::render(dt)`）是原子的 ⇒ 调用只能贴着它、每帧一次（`render_once` 里，
+  同一个 `dt` 与 `dfactor`，且仍在 `render_cost` 量到的那段里）。五遍次序本身不受影响。
+- 仍然空的：**绘制实现**（`create_ui_node_renderer` 默认回 `nullptr`，`lfw.h:179-182`，
+  `HeadlessHost` 也没有覆写它 ⇒ `UINode` 拿到空指针，`uinode.cpp:106-109`；之后每处调用都带判空，
+  `uinode.cpp:560-730`）与**递归/可见规则**（TS 两份实现的规则并不一样 ⇒ 留给实现方，端口不预设）。
 - ⇒ 这一条属 G0 允许的"**引擎通用缺口**"：接口面与调用点**都在核心侧**补，与"将来挂哪一份宿主"
   无关，**不是**宿主污染。
 
@@ -2349,7 +2364,7 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
 | **父子 / z 层** | 父子关系来自**模型树**（`parent = ui.parent?.renderer`）；`z < 0` 落 **UI 背景层**，否则落 **UI 前景层**（`UINodeRenderer.ts:154-172`）—— 与 D1(a) 的五遍次序对齐 |
 | **可见** | `ui.visible`；子节点只在"自己可见 **或** 与渲染器的可见态不一致"时才被递归绘制（`UINodeRenderer.ts:412-420`）⇒ 契约要的是"不可见的子树不产生绘制" |
 | **图片** | 图片 + **裁剪**（`clip_x/y/w/h`）+ 九宫格 + **UV 动画**（`offsetAnimX/Y/R` 按 dt 积分）+ 像素密度 `scale`（`UINodeRenderer.ts:198-245`、`:369-391`） |
-| **文字** | 文本 + 样式；尺寸与基线来自**宿主的文字度量**（`measure_text`，`lfw.h:242`；调用点 `ui/uinode.cpp:126`、`:191`，带 key 缓存 `:176-201`）⚠ 这一项**允许宿主差异**（W11 表），但"同设备同版本内必须稳定" |
+| **文字** | 文本 + 样式；尺寸与基线来自**宿主的文字度量**（`measure_text`，`lfw.h:242`；调用点 `ui/uinode.cpp:128`、`:193`，带 key 缓存 `:178-203`）⚠ 这一项**允许宿主差异**（W11 表），但"同设备同版本内必须稳定" |
 | **颜色 / 不透明度** | 有图 ⇒ `color` 当**混合色 + 强度**；无图 ⇒ `color` 当**覆盖色**；`global_opacity` 是**累计**不透明度（从根算下来）（`UINodeRenderer.ts:258-286`） |
 | **裁剪（`clip_children`）** | 祖先里每个带 `clip_children` 的节点各出一个有效矩形，**求交集**；子树超出交集的部分不画（`UINodeRenderer.ts:423-470`） |
 | **两条时钟口径** | 模型的变化（图/文本/颜色/不透明度）在 `world.lifetime` 变化时**同步一次**；**位置与缩放**每帧做**指数平滑**（系数 `1 − exp(−dt / (1000/60))`）⇒ 契约要分开写，否则 UI 会抖或会顿（`UINodeRenderer.ts:393-400`、`:532-541`） |
@@ -2365,13 +2380,13 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
 |---|---|---|---|---|
 | 1 | **上一 tick 的位置**（插值起点） | `FPS > UPS` 时的位置插值 | **宿主自留** + 按 `lifetime` 判边界（**已实测**：`host/thin` 的 `--sync-render FPS_120 --sub-render 4` ⇒ D1(c) 的直方图）；**核心接口**只在"宿主拿不到 `World&`"那条路上才要 | 两份宿主在 `Unlimited`/`FPS_120` 下画面一致；`Entity::prev_position` 不能顶替（D1(c)） |
 | 2 | **上一 tick 的相机位置** | 镜头跟随的平滑 | 宿主推导（TS 就是渲染器自留；录制器 `camp0`/`camp1`/`caml` 三个字段就是它） | 同上；两份宿主的镜头轨迹逐帧一致 |
-| 3 | **`TU` / `fps_value()` / `lifetime` / `UPS` 进帧头** | W5 那条"宿主只读命令缓冲"的路上，宿主**拿不到 `World`** ⇒ 算不出 `dfactor` | **核心接口**（帧头字段）；持 `World&` 的宿主（录制器）自己读得到 | W5 的帧头草案（`DESIGN.md:1292-1296`）里**没有**这四个字段 ⇒ 要补；补了 W5 与 G4 两条路才能并存 |
+| 3 | **`TU` / `fps_value()` / `lifetime` / `UPS` 进帧头** | W5 那条"宿主只读命令缓冲"的路上，宿主**拿不到 `World`** ⇒ 算不出 `dfactor` | **核心接口**（帧头字段）；持 `World&` 的宿主（录制器）自己读得到；⚠ 核心**自己已经算了一份**（`world.cpp` 的 `ui_render_dfactor`，只为 UI 渲染面，D4）⇒ "算不出"只剩 W5 那条命令流的路 | W5 的帧头草案（`DESIGN.md:1292-1296`）里**没有**这四个字段 ⇒ 要补；补了 W5 与 G4 两条路才能并存 |
 | 4 | **逐实体不透明度（alpha）** | 淡入淡出、半透明的表现力 | 待定（先确认 TS 是否也**永远**只有开关量） | 录制器字段表里没有 alpha 是真的；"TS 也不需要"这条**需验证** |
 | 5 | **逐图旋转 / 原点偏移 / 图层锚点**（`rad`/`deg`/`__cos_r`/`__sin_r`/`ox`/`oy`/`pics[].cx,cy`） | 旋转的武器、倾斜的物件、多图层对齐 | 宿主推导（**数据已在 `frame.pic` 里**，`loader/preprocess_pic.cpp:27-40`）；录制器顺手补字段 | 端口的 `frame.pic` 搬运链是否真带 `rad`；`pics[]` 是否带 `cx/cy` |
 | 6 | **`bpoint` 吐血点的画法** | 残血表现（`hp < 33%`） | 需验证：真需求 ⇒ 公式进契约 | TS 有实现（`EntityMainRender.ts:803-815`）；端口只把它当数据 |
 | 7 | **受击抖动的方向 + 电击 buff 抖动 + 治疗 buff 变色** | 受击 / 电击 / 治疗的观感 | **核心接口**（折成"抖动偏移"与"血条颜色"两个值），或宿主读 `buffs`/`marks` | 两份宿主是否都愿意读 buff 表；公式 `floor(shaking/2) % 2` 要进契约 |
 | 8 | **影子贴图 + 影子缩放/不透明度公式** | 立体感；影子是**背景**给的图 | 宿主推导（读 `bg.data.base.shadow/shadow_w/shadow_h`） | 端口 `bg` 上这几个键取得到吗；换背景时影子要不要重取 |
-| 9 | **UI 渲染面（7 个成员）+ 每层调用点** | 整个 UI 画不出来（今天连"没人调"都是静默的） | **核心接口**（引擎通用缺口） | 补完之后 `UINode::update` 不必再是虚（§7.2 顺序第 7 条）；两份宿主的 UI 快照一致 |
+| 9 | ~~**UI 渲染面（7 个成员）+ 每层调用点**~~ **已补**：接口面 17 个虚函数（9 生命周期/焦点 + 7 渲染面 + 数据成员 `ui`）与每层一次的调用点（`world.cpp` 的 `render_ui_layers`）；仍未补的是**绘制实现** | 整个 UI 画不出来（"没人调"已不再静默：统计行 `UI render calls: N (unhandled: M)`） | 剩：**宿主**（照 D4 的语义表画） | 补完之后 `UINode::update` 不必再是虚（§7.2 顺序第 7 条）；两份宿主的 UI 快照一致 |
 | 10 | **文字度量的宿主差异** | UI 布局（`auto_size_by_text`） | 宿主（**允许**差异，同设备同版本内稳定） | 差异会不会渗进三条摘要（S6 的跨宿主告警，今天未验证） |
 | 11 | **图片解码 / 图集字节** | 一切画面 | 宿主（两个入口今天都明确拒绝） | §7.2 第 10 条；真 MD5（第 2 条）是它的前提 |
 | 12 | **图片的 pin / unpin 生命周期** | 换页 / 换场景时会不会闪 | 宿主（照 TS 的挂载/卸载口径） | "实体活着 ⇒ 图一定在"这条不变量怎么验 |
@@ -2387,8 +2402,9 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
 
 **(b) 录制器是参照生产者，不是判据。** `host/thin/**` 证明的是**字段面**（"核心确实每帧把这些交
 出来"），它**不证明**画面正确（目视那一条在 S6(b) 已经记"未定"）。⚠ 它今天**两条档位都跑过**
-（`dfactor ≡ 1` 与 `0 < dfactor < 1`，D1(c)），但 `dfactor` 与那一对 `p0/p1` 是**宿主自己算/自己留的**
-（TS 也在渲染器里），所以这是"契约够不够"的证据，不是"画面对不对"的证据 —— 后者仍要第二份实现的目视。
+（`dfactor ≡ 1` 与 `0 < dfactor < 1`，D1(c)），但 `dfactor` 与那一对 `p0/p1` 是**各自算/自己留的**
+（TS 也在渲染器里；核心那份只喂 UI 渲染面，D4），所以这是"契约够不够"的证据，不是"画面对不对"的证据
+—— 后者仍要第二份实现的目视。
 
 **(c) 换宿主不许动模拟。** 三条摘要（`native/README.md:323-339`）逐位一致是**硬指标** —— 契约里的
 每一项都必须能在"摘要不变"的前提下落地；反过来，**任何需要改摘要才能画的字段，都是契约问错了**。
@@ -9423,7 +9439,9 @@ IS 无 RTTI 的 `isUIComponentClass`/`isUINodeClass` 替代）、`ui/instance_re
 
 ## 111. UINode renderer 缝
 
-新 `ui/ui_node_renderer.h`（`IUINodeRenderer`：`del_self` + 八个 `on_*` 虚函数，默认空实现）；
+新 `ui/ui_node_renderer.h`（`IUINodeRenderer`：`del_self` + 八个 `on_*` 虚函数 + 七个渲染面
+`render` / `add` / `del` / `parent` / `x` / `y` / `visible` + 数据成员 `ui`，全部默认空实现；
+`render` 的默认体记 `unhandled`，调用点在 `World::render_once` → `render_ui_layers`）；
 `ILfwHost` 新增缝 `create_ui_node_renderer(UINode&)`（默认 nullptr；TS 是每节点 `new Ditto.UINodeRenderer(node)`）；
 `UINode` 新增公有 `renderer` 成员（节点自持 `_owned_renderer`，CTOR 末尾向宿主要），九处转发：`on_start`/
 `on_stop`/`on_resume` 在**最后**、`on_show`/`on_hide` 在 callbacks+auto_focus 之后、`on_foucs`/`on_blur` 在组件循环后、
@@ -9434,8 +9452,9 @@ IS 无 RTTI 的 `isUIComponentClass`/`isUINodeClass` 替代）、`ui/instance_re
 照抄怪癖（编号接 157 → 158）：158. `on_pause` 的 `del_self` 只给**根节点**且排在 `invoke_all_on_hide` 之后、
 actions 之前；子节点 pause 不碰 renderer。`on_show` 的 renderer 转发在 `auto_focus` **之后**（先定焦点再 show）。
 
-偏差记录：渲染未移植 ⇒ 宿主缝返 nullptr 时全部转发跳过（TS 永远有实例）；
-`render/add/del/parent/x/y/visible` 等渲染面方法未建形。
+偏差记录：渲染实现未移植 ⇒ 宿主缝返 nullptr 时全部转发跳过（TS 永远有实例）；
+`render/add/del/parent/x/y/visible` 等渲染面方法**已建形**（默认体只记 `unhandled`，`render` 的调用点
+在 `World::render_once` → `render_ui_layers`），但**没有一份会画的实现**。
 
 **测试**：用例 `cases/lfw/uicomp.txt` **149 行**（其余 lfw 用例行数同步增长：`uilayer` 199、`uinode` 165、
 

@@ -242,6 +242,11 @@ class World {
   void collect_dead_buff(buff::Buff& b);
   void add_collision(const collision::Collision& c);
   void render_once(double dt);
+  // ---- UI 渲染面（DESIGN D4）：核心每帧对每层的 UI 根节点发一次渲染面调用
+  // （TS `WorldRenderer.ts:236-239`）。渲染面在端口是空默认体 ⇒ 这两个数是「发了多少、
+  // 其中多少没人画」的探针，宿主在统计行打印（`ignored_images` 同款）。
+  long long ui_render_calls() const;
+  long long ui_render_unhandled() const;
   void update_camera();
   void spark(double x, double y, double z, const std::u16string& f);
   void etc(double x, double y, double z, const std::u16string& f);
@@ -282,6 +287,11 @@ class World {
   static void map_set(std::vector<std::pair<std::u16string, Entity*>>& m, std::u16string key,
                       Entity* value);
   static bool vec_has(const std::vector<std::u16string>& v, const std::u16string& key);
+  // `WorldRenderer.ts:187-204` 的帧内比例（`this.tu = world.TU` / `utime` / `dtime` /
+  // `dfactor`，逐字照抄；`host/thin` 的录制器另有一份，喂它自己的 `E` 行）。
+  double ui_render_dfactor(double dt);
+  // `WorldRenderer.ts:236-239` 的每层一次 UI 渲染面调用（见 `world.cpp` 里的位置说明）。
+  void render_ui_layers(double dt);
 
   LFW* lfw_ = nullptr;
   IWorldRenderer* renderer_ = nullptr;
@@ -305,6 +315,11 @@ class World {
   // `start_render` 闭包里的 `prev_time` / `fix_radio`（每次调用重新开始）。
   double render_prev_time_ = 0.0;
   double render_fix_radio_ = 1.0;
+  // UI 渲染面的帧内比例（`WorldRenderer.ts:187-204` 的 `utime` / `dtime` / `dfactor`；
+  // `dirty` 只门控 TS 那对 `cam_p0/p1`，属宿主 ⇒ 这里不存）。见 `ui_render_dfactor`。
+  double df_utime_ = 0.0;
+  double df_dtime_ = 0.0;
+  double df_dfactor_ = 1.0;
   std::unique_ptr<Ticker> update_worker_;
   // `new Ticker({step_ms, on_step})` 的那个 options 对象（`World` 持有，`Ticker` 借用）。
   std::unique_ptr<ITickerOptions> update_options_;

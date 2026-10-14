@@ -105,6 +105,8 @@ UINode::UINode(LFW& lfw, const Value& data, UINode* parent, UILayer* layer)
   if (style_v != nullptr && truthy(*style_v)) style.assign(*style_v);
   _owned_renderer.reset(lfw.host().create_ui_node_renderer(*this));
   renderer = _owned_renderer.get();
+  // TS `UINodeRenderer` 的 ctor：`this.ui = ui`（渲染面读模型要这一份）。
+  if (renderer != nullptr) renderer->ui = this;
 }
 
 void UINode::set3(Vector3& v, const Value& arr) {

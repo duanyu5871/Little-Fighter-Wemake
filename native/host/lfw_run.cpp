@@ -354,6 +354,11 @@ int main(int argc, char** argv) {
       "renderer(+-)=%lld/%lld clock=%.1fms\n",
       args.frames, ups, digest.c_str(), host.warn_count(), host.error_count(),
       host.ignored_images(), host.renderer().added, host.renderer().removed, clock.now());
+  // UI 渲染面（DESIGN D4）：核心每帧对每层的 UI 根节点发一次调用，渲染面在端口是空默认体
+  // ⇒ 这两个数就是「发了多少、其中多少没人画」。headless 宿主不装 `IRenderScheduler`
+  // （`world.cpp:656` 的 raf 槽空转）⇒ 不自己渲染，这里会是 0。
+  std::printf("[lfw_run] UI render calls: %lld (unhandled: %lld)\n", world.ui_render_calls(),
+              world.ui_render_unhandled());
   for (const Entity* const e : world.entities) {
     if (e == nullptr) continue;
     std::printf("[lfw_run] final %s team=%s pos=(%.1f, %.1f, %.1f) hp=%.1f/%.1f mp=%.1f state=%s\n",

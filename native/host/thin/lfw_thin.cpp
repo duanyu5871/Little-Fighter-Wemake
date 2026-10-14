@@ -312,5 +312,10 @@ int main(int argc, char** argv) {
       rec->duplicate_adds(), rec->stray_removes(), rec->mismatched_frames(),
       rec->disposed() ? 1 : 0, rec->entity_records(), rec->df_between_records(),
       rec->interpolated_records(), rec->moving_records());
+  // UI 渲染面（DESIGN D4）：本宿主每帧自己补 `render_once` ⇒ 这两个数非 0，且
+  // `renders` 帧数 × 层数应当与 `calls` 对得上；`unhandled` 今天必然等于 `calls`
+  //（端口没有会画的 `IUINodeRenderer` 实现）。
+  std::printf("[thin] UI render calls: %lld (unhandled: %lld)\n", world.ui_render_calls(),
+              world.ui_render_unhandled());
   return 0;
 }

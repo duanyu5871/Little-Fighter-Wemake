@@ -270,6 +270,10 @@ void LfwGodot::finish() {
                 _host->renderer().removed, _host->clock().now(), _host->residual_ms(),
                 _host->steps());
   print_line(buf);
+  // UI 渲染面（DESIGN D4）：与 `lfw_run` 同口径（本宿主也不装 `IRenderScheduler` ⇒ 0）。
+  std::snprintf(buf, sizeof(buf), "[godot] UI render calls: %lld (unhandled: %lld)",
+                world.ui_render_calls(), world.ui_render_unhandled());
+  print_line(buf);
   quit_with(0);
 }
 
