@@ -13,6 +13,7 @@ add_library(lfw_core STATIC
   cmds/cmd_entity.cpp
   cmds/cmd_f.cpp
   cmds/cmd_kill.cpp
+  cmds/cmd_pointer_events.cpp
   cmds/cmd_scene.cpp
   cmds/cmd_set_puppet.cpp
   cmds/cmd_spawn.cpp

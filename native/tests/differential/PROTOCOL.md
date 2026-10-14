@@ -5703,3 +5703,22 @@ harness op：
   改动控制器创建路径时，两侧的 `h:player=` 行数与位置必须一致 —— 这是「绑定落在同一时机」的
   判别手段（`world/step`：两侧各 380 行，紧跟实体创建）。
 - 作废的旧缝：`CtrlEnv::lfw_player`、`BaseController::bind_player()`、`World::player_value()` 已删。
+
+### 6.9.198 `POINTER_*` 命令移植（4CY）
+
+- 新增 `cmds/cmd_pointer_events.{h,cpp}`：7 条命令 + `get_pointer_cursors` / `set_local_cursor`。
+  登记插在 `LOCK_CAM` 与 `SET_DIFFICULTY` 之间（照 `cmds/index.ts` 的次序）⇒
+  `CMDS::handler(u"pointer_down")` 现在有非空结果（大小写不敏感）。
+- ⚠ 写指针命令用例时**先确认命令在 `read_page` 之前就返回**：C++ 侧 `cmds` 台面的假 `lfw` 派生自
+  真 `LFW`（构造里已 `push_layer()` + 设底页），TS 侧假 `lfw` 是对象字面量、**没有 `layers`**
+  （`layers.at()` 会 `TypeError`）⇒ 「命中派发」路径两侧**不同构**。`cases/cmds/pointer.txt`
+  只走注册/校验/告警路径（32 行）。
+- ⚠ 指针状态是**按 `World` 的全局表**（TS 的 `WeakMap<World, …>` 语义；端口是普通表、不回收）：
+  同一个 world 上连续跑多条命令会**互相看见** `down_uis` / `on_uis` / `cursors` ⇒ 用例里别假设
+  每行都无状态。`POINTER_CANCEL --b=2`（无 `--from`）也会 `state_of` 建表并走完取消循环 ⇒ 可以用来
+  确认状态层（`UiSet` 空表迭代 / `read_button` 成功分支）没崩。
+- ⚠ `--from` 缺失时 `move_cursor` **立刻返回**（与 TS 一致）⇒ 光标不会被动；反之给了 `--from`
+  就会写 `cursor.t = clock_now()`（`Ditto.Clock.now()` 的端口面）—— `t` 依赖时钟，别把它当稳定值写进
+  用例。
+- 光标表对宿主可见：`get_pointer_cursors(World&)` 给的是**活表**（`nullptr` = 还没建过状态，
+  对应 TS 的 `undefined`）；平台层画光标用它，`set_local_cursor()` 是它的写面。

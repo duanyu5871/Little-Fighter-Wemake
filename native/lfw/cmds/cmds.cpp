@@ -9,6 +9,7 @@
 #include "lfw/cmds/cmd_entity.h"
 #include "lfw/cmds/cmd_f.h"
 #include "lfw/cmds/cmd_kill.h"
+#include "lfw/cmds/cmd_pointer_events.h"
 #include "lfw/cmds/cmd_scene.h"
 #include "lfw/cmds/cmd_set_puppet.h"
 #include "lfw/cmds/cmd_spawn.h"
@@ -68,6 +69,13 @@ void register_defaults() {
   put(cmd::kKILL_SOLIDERS, cmd_kill_soliders_help(), cmd_kill_soliders);
   put(cmd::kLF2_NET, cmd_lf2_net_help(), cheat_code_handler);
   put(cmd::kLOCK_CAM, cmd_lock_cam_help(), cmd_lock_cam);
+  put(cmd::kPOINTER_DOWN, cmd_pointer_down_help(), cmd_pointer_down);
+  put(cmd::kPOINTER_MOVE, cmd_pointer_move_help(), cmd_pointer_move);
+  put(cmd::kPOINTER_UP, cmd_pointer_up_help(), cmd_pointer_up);
+  put(cmd::kPOINTER_CLICK, cmd_pointer_click_help(), cmd_pointer_click);
+  put(cmd::kPOINTER_CANCEL, cmd_pointer_cancel_help(), cmd_pointer_cancel);
+  put(cmd::kPOINTER_ENTER, cmd_pointer_enter_help(), cmd_pointer_enter);
+  put(cmd::kPOINTER_LEAVE, cmd_pointer_leave_help(), cmd_pointer_leave);
   put(cmd::kSET_DIFFICULTY, cmd_set_difficulty_help(), cmd_set_difficulty);
   put(cmd::kSET_PUPPET, cmd_set_puppet_help(), cmd_set_puppet);
   put(cmd::kSPAWN, cmd_spawn_help(), cmd_spawn);

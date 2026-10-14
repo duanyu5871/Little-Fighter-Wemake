@@ -11711,5 +11711,41 @@ coverage OK）。
 ### 149.16 剩下的功能欠账（与缝无关）
 
 渲染 / 音频的宿主实现（`IWorldRenderer` / `IUINodeRenderer` / sounds 只到宿主缝）、TS 侧尚未搬的
-其它模块。玩家表（本节的 4CX）已结清。
+其它模块。玩家表（4CX）、指针命令（4CY）已结清；仍缺 **`ui/component/MoveTable/MoveTableLogic.ts`**
+（439 行的 UIComponent）与 `cmds/CMD_KEY_EVENTS.ts` / `CMD_F4.ts`（`KEY_EVENT` / `F4`）—— 另有
+§149.17 末记的「指针命中派发」覆盖缺口（实现已齐，缺的是差分用例）。
+
+### 149.17 `POINTER_*` 命令移植（切片 4CY）—— 第二笔功能欠账
+
+`src/LFW/cmds/CMD_POINTER_EVENTS.ts`（410 行）是「TS 侧尚未搬」清单里的第一项：端口**有**枚举名
+（`defines/cmd.h` 的 `kPOINTER_DOWN`…`kPOINTER_LEAVE`），但注册表里一条都没登记（`cmds.cpp` 的
+`put(...)` 只有 27 条），也没有 `get_pointer_cursors` / `set_local_cursor`。本刀补齐：
+
+- **新文件** `cmds/cmd_pointer_events.{h,cpp}`：7 条命令 + 3 个导出面（`IPointerCursor`、
+  `get_pointer_cursors`、`set_local_cursor`），逐行照 TS。
+- **形状差**（代码里都有注释）：TS 的 `WeakMap<World, IPointerState>` → `std::unordered_map<const
+  World*, IPointerState>`（普通表：`World` 长命 ⇒ 表项不回收，无弱语义）；TS 的 `Set<UINode>` →
+  本地 `UiSet`（数组 + 线性查重 —— **迭代次序 = 插入次序**是 TS 语义，`std::set` 的指针序不确定
+  会改 `POINTER_MOVE` 的 leave 次序）；`Ditto.Clock.now()` → `clock_now()`（`base/clock.h` 的时钟槽）；
+  `Ditto.warn` → `lfw().warn()`；`Number(s)` → `string_to_number`、`Number.isInteger` →
+  `is_js_integer`（`NaN`/`±Inf` 假、`-0` 真）、`Number.isFinite` → `std::isfinite`；
+  `page.id !== page_id` → `strict_equals(page->id(), Value(page_id))`；`ui.pointer_down` /
+  `ui.click_flag` 的布尔 getter → `!= 0`。**唯一的行为偏差**：TS 的 `for (const ui of set)` 是**活
+  迭代**，端口对快照迭代（要在 `on_pointer_*` 回调里重入命令才看得见，实际不可达）。
+- **登记**：7 条按 `cmds/index.ts` 的次序插在 `LOCK_CAM` 与 `SET_DIFFICULTY` 之间（27 → 34 条；
+  仍未搬的只剩 `F4` / `KEY_EVENT`）。
+- **用例**：新增 `cases/cmds/pointer.txt`（32 行输出两侧全等）—— 覆盖 7 条注册（含大小写）、
+  `read_targets` 的每条告警（`--paths`/`--pages` 数不齐、`--points` 数不齐、路径非法 4 种、空
+  page id、点非 3 元 / 非有限、跨页）、`read_button` 的两种告警，以及 `POINTER_CANCEL --b=2` 这条
+  **走通到状态层**的静默路径（⇒ `read_button` 成功分支、`state_of`/`cursor_for`、取消循环都真跑了）。
+- ⚠ **覆盖缺口（记在案）**：用例**刻意只走**「在 `read_page` 之前就返回」的路径 —— 两侧台面的 UI
+  层栈不同构：C++ 侧 `cmds` 台面的假 `lfw` 派生自**真 `LFW`** ⇒ 构造里已经 `push_layer()` 并设了
+  底页 ⇒ `read_page` 会告「page changed…」；TS 侧假 `lfw` 是对象字面量、**没有 `layers`** ⇒
+  `layers.at()` 会 `TypeError`。⇒ `read_page` / `read_child` 与**命中派发**（`on_pointer_*` /
+  `on_click`）暂无差分；要吃它得先把两侧台面 UI 做成同构（`lfw` subject 已经 UI-同构，或给 `cmds`
+  的假 `lfw` 补 `layers` + 同样的底页）。
+
+**验证**：差分 **256/256**（多的一条就是 `cmds/pointer`）、锚点 9764/0、include 837 clean/0/9、
+coverage OK、宿主三条摘要**逐字节不变**（`7335aa25f4e1ce86` / `e4a9437292047044` /
+`f29d3bb1ea330c32` —— 指针命令不在 headless 宿主的路径上）。
 
