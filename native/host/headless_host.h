@@ -70,6 +70,7 @@ class HeadlessHost : public ILfwHost {
   const std::vector<std::u16string>& last_errors() const { return _last_errors; }
 
   // `--root` 里第一个真的存在的文件（给 import_as_* 与宿主自己的诊断用）。
+  // 按 TS `Importer.get_possible_url_list` 的口径找两档：先按原样，再补 `builtin_data/` 前缀。
   std::filesystem::path resolve(const std::u16string& path) const;
 
   // ---- ILfwHost ----

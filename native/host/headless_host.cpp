@@ -47,8 +47,18 @@ HeadlessHost::HeadlessHost(std::vector<std::filesystem::path> roots, bool dev)
 
 std::filesystem::path HeadlessHost::resolve(const std::u16string& path) const {
   std::error_code ec;
+  const std::string rel = to_utf8(path);
   for (const std::filesystem::path& root : _roots) {
-    const std::filesystem::path candidate = root / std::filesystem::path(to_utf8(path));
+    const std::filesystem::path candidate = root / std::filesystem::path(rel);
+    if (std::filesystem::is_regular_file(candidate, ec)) return candidate;
+  }
+  // TS `Ditto.Importer.get_possible_url_list` 还有第二档：`roots = ["builtin_data"]`，即路径若不带
+  // 该前缀就再试一次 `builtin_data/<路径>`。缺这一档时 `!launch/bg.png` 这类路径在 `--root dist`
+  // 下解析不到（TS 找得到），只能靠调用方多加一个 `--root dist\builtin_data` 绕过。
+  if (rel.rfind("builtin_data/", 0) == 0) return {};
+  for (const std::filesystem::path& root : _roots) {
+    const std::filesystem::path candidate =
+        root / std::filesystem::path("builtin_data") / std::filesystem::path(rel);
     if (std::filesystem::is_regular_file(candidate, ec)) return candidate;
   }
   return {};

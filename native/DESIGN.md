@@ -1827,6 +1827,9 @@ WASM 宿主已经用同一招证明过自己 —— `native/README.md:310`：**�
 - **两边的目录模型不一样**：
   - 端口/headless：`--root <dist>` 下读 `builtin_data/…`；`--zip <目录>` 指的是**已经解开**的包目录
     （`native/README.md:235-243`：`native\build\host-data\prel`、`native\build\host-data\data`）。
+    `HeadlessHost::resolve` 按 TS `Importer.get_possible_url_list` 的口径试两档：先 `<root>/<路径>`，
+    再 `<root>/builtin_data/<路径>`（`roots = ["builtin_data"]`）—— 缺第二档时 `!launch/bg.png`
+    这类路径解析不到（TS 找得到）。
   - Godot：`res://`（只读资源）/ `user://`（可写）/ 外部数据目录（需验证）三套模型，导出后 `res://`
     在 pck 里（需验证）。
 - ⚠ **现在的 `native/host/fs_zip.{h,cpp}` 只是"目录当 zip 用"**：`fs_zip.h:15-17` 自述「只支持「已解包的

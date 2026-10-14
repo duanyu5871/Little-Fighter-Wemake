@@ -200,6 +200,8 @@ npm run native build
 npm run native lint
 npm run native test                     # 或 test <subject> [<case>]
 npm run native godot                    # 编 Godot 的 GDExtension（需 GODOT_CPP_DIR；见「Godot 宿主」节）
+npm run godot                           # 跑 Godot 工程（缺 dll 先编、缺 .godot 先 import）；详见「Godot 宿主」节
+npm run godot:headless                  # 同上但 --headless（只打摘要）
 ```
 
 不需要配 PATH —— 脚本自己用 `vswhere` 找 VS 2022、自己调 `vcvars64.bat`、
@@ -398,6 +400,21 @@ UV 动画 / 文字 / `clip_children` 裁剪；`create_ui_node_renderer` 覆写�
 `native/host/godot/**`（`lfw_godot_renderer.{h,cpp}` 与 `lfw_godot_ui_renderer.{h,cpp}` 只产出
 **引擎无关**的绘制项，`lfw_godot_node.cpp` 的 `_draw()` 是唯一碰引擎类型的地方，见 §G5）。
 下文 `<godot-console>` = `Godot_v4.7.1-stable_win64_console.exe`（本机在桌面；**固定 4.7.1**）。
+
+**一条命令跑起来**（前置都在位之后；dll 缺就先编、`.godot` 缺就先 `--import`，都会自己补）：
+
+```
+npm run godot                                  # 开窗跑默认那套（`--root dist` + 两个包，`--frames 900`）
+npm run godot:headless                         # 同一条路但 `--headless`，只打摘要
+npm run godot '--' --ui-page main_page         # 透传扩展自己的参数
+```
+
+⚠ **在 PowerShell 里 `--` 必须写成 `'--'`**：PS 会把裸 `--` 当成自己的分隔符**吃掉**，npm 于是把
+后面的 `--stage` 之类当自己的配置项吃掉，参数一个都传不到（实测症状：跑的是默认值、且 `bad
+arguments` 时打印的 usage 里那串参数是"裸值"没有标志名）。`cmd` 下原样 `--` 即可；绕开 npm 用
+`node native/tools/native.mjs godot-run --stage 2` 也最省事。
+`GODOT_BIN` 可指定 Godot 可执行文件；不设就按 `PATH`（`godot4`/`godot`）→ 桌面上的
+`Godot_v*_win64*.exe`（同版本优先 `_console` 变体，Windows 上只有它会把 `[godot]` 那几行打到 stdout）。
 
 `LfwGodotHost` 是 `HeadlessHost` 的**子类** —— 装载 / `IZip` / 存档 / XML / `import_as_*` 复用同一批
 源文件（与 `lfw_run`、wasm 宿主同一份），只按 §G3 换掉「帧从哪来」：**注入的虚拟时钟 + 固定步长**
@@ -779,11 +796,11 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
 ```
 $R = (Get-Location).Path; $g = "C:\Users\Gim\Desktop\Godot_v4.7.1-stable_win64_console.exe"
 # 启动页（世界那一遍不用 --ui-page）
-& $g --path native\host\godot\project -- --root "$R\dist" --root "$R\dist\builtin_data" `
+& $g --path native\host\godot\project -- --root "$R\dist" `
     --zip "$R\native\build\host-data\prel" --frames 200 --every 200 --delta 0.017 `
     --screenshot "$R\native\host\godot\shots\ui-launch-early.png" --shot-frame 30
 # 主页 / 八人框
-& $g --path native\host\godot\project -- --root "$R\dist" --root "$R\dist\builtin_data" `
+& $g --path native\host\godot\project -- --root "$R\dist" `
     --zip "$R\native\build\host-data\prel" --ui-page main_page --frames 400 --every 400 `
     --delta 0.017 --screenshot "$R\native\host\godot\shots\ui-main-menu.png" --shot-frame 400
 # 世界那一遍的老跑法不变（`--zip data` + `--fighter/--stage`）
@@ -793,8 +810,8 @@ $R = (Get-Location).Path; $g = "C:\Users\Gim\Desktop\Godot_v4.7.1-stable_win64_c
     --screenshot "$R\native\host\godot\shots\shot-stage1.png" --shot-frame 300
 ```
 
-⚠ **两条第二个 `--root` 的理由**：启动页/主页都引用 `!launch/bg.png`，而**全仓库没有这个文件**
-（`dist/` 的包、`dist\prel.zip`、`dist\lfw.full.zip`、`lf2s\origin\prel_data\` 里都没有；只有
-`dist\builtin_data\launch\bg.png`）⇒ 把 `dist\builtin_data` 也当一个 import 根之后它才解析得到。
-不加这颗 root 时那两张图就少一层背景平铺（宿主会把它记进 `ui: … missing_img=1`），其余画面不变；
-TS 那边这条引用同样取不到文件（`ImageMgr` 会走失败分支）——**是数据里的漏，不是宿主的**。
+⚠ **关于 `!launch/bg.png`**（曾经以为"数据缺件"，**不是**）：TS 的 `Ditto.Importer.get_possible_url_list`
+带 `roots = ["builtin_data"]`，路径若不以 `builtin_data/` 开头会**再试一遍 `builtin_data/<路径>`**
+⇒ TS 找得到 `dist\builtin_data\launch\bg.png`。端口原先缺这一档（只试 `<root>/<路径>`），所以得靠
+多加一个 `--root dist\builtin_data` 绕过；**现在 `HeadlessHost::resolve` 已按同一口径补上第二档**
+（`headless_host.cpp`），`--root dist` 一处就够：`ui: … drawn=8 items=227 missing_img=0`。

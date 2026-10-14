@@ -1,13 +1,17 @@
 #!/usr/bin/env node
 
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const NATIVE = resolve(HERE, "..");
+const REPO = resolve(NATIVE, "..");
 const BUILD_DIR = join(NATIVE, "build", "msvc-x64");
+
+const GODOT_PROJECT = join(NATIVE, "host", "godot", "project");
+const HOST_DATA = join(NATIVE, "build", "host-data");
 
 const GEN_DIR = join(NATIVE, "build", "gen");
 
@@ -215,6 +219,93 @@ function cmdTest() {
   return r.status ?? 1;
 }
 
+// Godot 可执行文件：`GODOT_BIN` → PATH（`godot4`/`godot`）→ 桌面上的官方构建。
+// 同版本优先 `_console` 变体（Windows 上只有它会打 stdout，`[godot]` 那几行才看得见）。
+function findGodot() {
+  const env = process.env.GODOT_BIN;
+  if (env && existsSync(env)) return env;
+  for (const name of ["godot4", "godot"]) {
+    const r = spawnSync("where", [name], { encoding: "utf8" });
+    if (r.status === 0) {
+      const first = (r.stdout ?? "").split(/\r?\n/).find((l) => l.trim());
+      if (first) return first.trim();
+    }
+  }
+  const home = process.env.USERPROFILE ?? "";
+  const found = [];
+  for (const desk of [join(home, "Desktop"), join(home, "OneDrive", "Desktop")]) {
+    if (!existsSync(desk)) continue;
+    for (const f of readdirSync(desk)) {
+      if (/^Godot_v[\d.]+-stable_win64(_console)?\.exe$/i.test(f)) found.push(join(desk, f));
+    }
+  }
+  if (found.length === 0) return null;
+  const ver = (p) => {
+    const m = /Godot_v(\d+)\.(\d+)(?:\.(\d+))?/.exec(p);
+    return m ? Number(m[1]) * 1e6 + Number(m[2]) * 1e3 + Number(m[3] ?? 0) : 0;
+  };
+  found.sort((a, b) => {
+    if (ver(a) !== ver(b)) return ver(b) - ver(a);
+    return (/_console\.exe$/i.test(b) ? 1 : 0) - (/_console\.exe$/i.test(a) ? 1 : 0);
+  });
+  return found[0];
+}
+
+// `npm run godot [-- <扩展自己的参数>]`：编（缺则编）→ 让 Godot 认工程（缺则 import）→ 跑。
+// 数据路径由这里补成绝对路径 —— Godot 跑工程时会把 cwd 切到工程目录，相对路径会找错地方。
+function cmdGodotRun() {
+  const bin = join(GODOT_PROJECT, "bin", "lfw_godot.dll");
+  if (!existsSync(bin)) {
+    console.log(C.dim("  lfw_godot.dll 不在，先编一次（npm run native godot 的同一套）"));
+    const built = cmdGodot();
+    if (built !== 0) return built;
+  }
+  const godot = findGodot();
+  if (!godot) {
+    console.error(C.red("找不到 Godot 可执行文件；设 GODOT_BIN 或用 `npm run native godot` 只编不跑"));
+    return 2;
+  }
+  if (!existsSync(join(GODOT_PROJECT, ".godot", "extension_list.cfg"))) {
+    console.log(C.dim("  首次运行：让 Godot 认这个工程（--headless --import）"));
+    const imp = spawnSync(godot, ["--headless", "--import", "--path", GODOT_PROJECT], {
+      stdio: "inherit",
+    });
+    if (imp.status !== 0) return imp.status ?? 1;
+  }
+
+  const userArgs = process.argv.slice(3);
+  const headless = userArgs.includes("--headless");
+  const rest = userArgs.filter((a) => a !== "--headless");
+  const has = (flag) => rest.includes(flag);
+
+  const args = [];
+  if (headless) args.push("--headless");
+  args.push("--path", GODOT_PROJECT, "--");
+  if (!has("--root")) args.push("--root", join(REPO, "dist"));
+  if (!has("--zip")) {
+    args.push("--zip", join(HOST_DATA, "prel"));
+    const data = join(HOST_DATA, "data");
+    if (existsSync(data)) args.push("--zip", data);
+  }
+  if (!has("--frames")) args.push("--frames", has("--screenshot") ? "200" : "900");
+  if (!has("--delta")) args.push("--delta", "0.017");
+  for (let i = 0; i < rest.length; i++) {
+    const a = rest[i];
+    // 存盘路径按「调用处」解成绝对路径：扩展拿到的 cwd 是工程目录
+    if (a === "--screenshot" && rest[i + 1] && !isAbsolute(rest[i + 1])) {
+      args.push(a, resolve(process.cwd(), rest[i + 1]));
+      i += 1;
+      continue;
+    }
+    args.push(a);
+  }
+
+  console.log(C.dim(`  ${godot}`));
+  console.log(C.dim(`  ${args.join(" ")}`));
+  const r = spawnSync(godot, args, { stdio: "inherit", cwd: REPO });
+  return r.status ?? 1;
+}
+
 const table = {
   configure: () => step("configure", cmdConfigure),
   build: () => step("build", cmdBuild),
@@ -222,6 +313,7 @@ const table = {
   coverage: () => step("coverage", cmdCoverage),
   test: () => step("test", cmdTest),
   godot: () => step("godot", cmdGodot),
+  "godot-run": cmdGodotRun,
   all: () => {
     step("configure", cmdConfigure);
     step("build", cmdBuild);
