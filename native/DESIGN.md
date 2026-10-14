@@ -590,7 +590,8 @@ zip/renderer）、`IWorldRenderer`、`IPlayerInfoHost`、`IXML`/`IXMLElement`、
 - TS 侧的对象字面量假 `lfw`（`bot.ts:148` / `collision_handlers.ts:71`）与 8 处 `Ditto.setup({...})`
   用的是**真扩展点**（`Instance.ts:79`）⇒ 属「诚实的平台注入」，不列进待退名单。
 
-**K4 真·宿主边界**（别当假货改）：`ILfwHost`（`lfw.h:135`，~80 纯虚）、`IWorldRenderer`、
+**K4 真·宿主边界**（别当假货改）：`ILfwHost`（`lfw.h:135-288`，70 个成员面 = 64 纯虚 + 6 有默认体）、
+`IWorldRenderer`、
 `IUINodeRenderer`、`IPlayerInfoHost`、`IResourcesHost`、`IClock`/`ITimeout`、`IRenderScheduler`、
 `ITickerOptions`、`IXML`/`IXMLElement`、`IZip`/`IZipObject`、`ditto` 包。headless 实现分三档：
 **忠实的什么都不做**（`images_init` / `keyboard_init` / `pointings_*` / `*_dispose`，`headless_host.h:83-160`）、
@@ -1128,7 +1129,7 @@ tool 实现）。这些在 `native/lfw/CMakeLists.txt` 里都是 `lfw_core` 的�
 |---|---|---|
 | `ILfwHost` | `native/lfw/lfw.h:134-288` | **70**（64 纯虚 + 6 有默认体：`pointings_grab/ungrab/grabbing`、`is_desktop`、`create_ui_node_renderer`、`warn_async`） |
 | `IWorldRenderer` | `native/lfw/world.h:61-68` | 4 |
-| `IUINodeRenderer` | `native/lfw/ui/ui_node_renderer.h:19-27` | 9（全部有默认体） |
+| `IUINodeRenderer` | `native/lfw/ui/ui_node_renderer.h:13-25` | 9（全部有默认体） |
 | `IPlayerInfoHost` | `native/lfw/player_info.h:45-56` | 4 |
 | `IResourcesHost` | `native/lfw/resources.h:30-48` | 6 |
 | `IZip` | `native/lfw/ditto/zip/i_zip.h:15-25` | 4（3 纯虚 + `md5()` 默认） |
@@ -1150,7 +1151,7 @@ tool 实现）。这些在 `native/lfw/CMakeLists.txt` 里都是 `lfw_core` 的�
 | 2 | 生命周期 / 回调注册 / 指针夺取 | 18 | `lfw.h:140-154,157-170,237-239` | `Sounds`/`ImageMgr`/`Keyboard.ts`/`Pointings.ts`/`ui/UIInputHandle.ts` |
 | 3 | 音频 | 18 | `lfw.h:208-232` | `sounds/Modern.ts` + `sounds/Sounds.ts`（+ `sounds/Fallback.ts`） |
 | 4 | 世界渲染 | 5 | `lfw.h:177` + `world.h:61-68` | `renderer/WorldRenderer.ts` 一族 |
-| 5 | UI 渲染 | 10 | `lfw.h:179-182` + `ui_node_renderer.h:19-27` | `renderer/UINodeRenderer.ts`（+ `HeadlessUINodeRenderer.ts` 先例） |
+| 5 | UI 渲染 | 10 | `lfw.h:179-182` + `ui_node_renderer.h:13-25` | `renderer/UINodeRenderer.ts`（+ `HeadlessUINodeRenderer.ts` 先例） |
 | 6 | 玩家信息（`Ditto.Cache`） | 3（+4 转发） | `lfw.h:245-247` / `player_info.h:45-56` | `cache/Cache.ts` + `AsyncCache.ts` |
 | 7 | 资源 / 图片（`Importer` / `ImageMgr` / `XML`） | 9（+6 转发） | `lfw.h:184-191,249-257` / `resources.h:30-48` | `Importer.ts`、`ImageMgr/ImageMgr.ts`、`handle_image_operation.ts`、`xml/XML.ts` |
 | 8 | zip（`IZip` / `IZipObject` / `Ditto.Cache`） | 17 | `lfw.h:269-287` + `i_zip.h:15-25` + `i_zip_object.h:16-30` | `Zip.ts`、`LazyZip.ts`、`download/`、`cache/` |
@@ -1178,7 +1179,7 @@ tool 实现）。这些在 `native/lfw/CMakeLists.txt` 里都是 `lfw_core` 的�
 | 2 | `lfw.h:140-154` init/callback 注册、`:237-239` dispose、`:157-170` grab/ungrab/grabbing | `sounds/Sounds.ts`、`ImageMgr.ts`、`Keyboard.ts:44-50`、`Pointings.ts:15-27`、`ui/UIInputHandle.ts` | (a) + (d) | `grab/ungrab/grabbing` 一旦 hit test 进 WASM（W10）就整支 (d) |
 | 3 | `lfw.h:208-219` 播放族、`:222-232` 音量/静音、`:234-235` 声音回调 | `sounds/Modern.ts`、`sounds/Sounds.ts` | (b) 命令缓冲 | `sounds_play_bgm` 返回 `std::function<void()>`（`lfw.h:208`）⇒ 过界时落成停止句柄，见 W6 |
 | 4 | `lfw.h:177` `create_world_renderer` + `world.h:64-67` | `renderer/WorldRenderer.ts:23` | (b) 命令缓冲 | `render(dt)` 是唯一入口（`world.cpp:452` 调 `renderer_->render(dt)`） |
-| 5 | `lfw.h:179-182` + `ui_node_renderer.h:19-27` | `renderer/UINodeRenderer.ts:36` | (b) 命令缓冲 + (d) | 端口的 `IUINodeRenderer` **没有** `render()`/`add`/`del`，所以绘制发射器必须是新写的（W5）；9 个生命周期钩子由 `UINode` 调（`uinode.cpp:558-728`），可以给一个共享空实现 |
+| 5 | `lfw.h:179-182` + `ui_node_renderer.h:13-25` | `renderer/UINodeRenderer.ts:36` | (b) 命令缓冲 + (d) | 端口的 `IUINodeRenderer` **没有** `render()`/`add`/`del`，所以绘制发射器必须是新写的（W5）；9 个生命周期钩子由 `UINode` 调（`uinode.cpp:558-728`），可以给一个共享空实现 |
 | 6 | `lfw.h:245-247` / `player_info.h:49-55` | `cache/Cache.ts`、`AsyncCache.ts` | (a) 同步 | TS 侧是 `Promise`（`src/LFW/ditto/cache/ICache.ts:11`），端口是同步（`player_info.h:49-55`）⇒ 必须**预取或失败**，见 W9 |
 | 7 | `lfw.h:184` `load_img` / `:187-188` `ui_image_load` / `:191` `ui_image_pin` / `:249-256` `import_as_*` / `:257` `xml_parse` | `ImageMgr.ts:194-211`、`handle_image_operation.ts`、`Importer.ts`、`resources.h:30-48` 对应的 `Resources.import_*`（`src/LFW/Resources.ts:25-90`） | (a) + (c)：图片 = 句柄 + 异步完成回调 | `import_*` 在 TS 里是"zip 未命中才走的网络回退"（`src/LFW/Resources.ts:25-33`），而端口是同步 ⇒ 未定（W9/W14） |
 | 8 | `lfw.h:269-287` + `i_zip.h:18-22` + `i_zip_object.h:19-29` | `Zip.ts:75-163`、`LazyZip.ts`、`download/`、`cache/` | (a) 批量灌入 + (c) 下载完成 | TS 的条目读取全是 `async`（`Zip.ts:40-73`），端口的 `IZipObject` 全是同步 `bool`（`i_zip_object.h:19-29`）⇒ 必须"JS 先备好字节"，见 W9 |
@@ -1274,7 +1275,7 @@ uint64_t lfw_digest(void* lfw);           /* core/state_hash.h，用来跟 lfw_r
 | 面 | 为什么 |
 |---|---|
 | `IWorldRenderer::render`（`world.h:66`） | 一帧几百~上千次绘制；而 JS 侧**根本看不到** `World`/`Entity`（它们在 WASM 内存里），每次绘制都要回头查一次状态 ⇒ 必须改成"WASM 内遍历、一次交一批" |
-| UI 绘制（`ui_node_renderer.h` 一族） | 同上；而且端口的 `IUINodeRenderer` 连 `render()` 都没有（只有生命周期，`ui_node_renderer.h:19-27`），逐节点过界也没有接口可挂 |
+| UI 绘制（`ui_node_renderer.h` 一族） | 同上；而且端口的 `IUINodeRenderer` 连 `render()` 都没有（只有生命周期，`ui_node_renderer.h:13-25`），逐节点过界也没有接口可挂 |
 | `ILfwHost::sounds_play` / `sounds_play_bgm`（`lfw.h:208-210`） | 每帧几十次；TS 的 `Sounds` 自己带排队/去重（`src/DittoImpl/sounds/Sounds.ts`），逐次过界会把排队语义搬到 JS 而时间轴留在 WASM |
 | 输入（`lfw.h:82-106`、`:145-154`） | 一次 DOM 事件一次跨界；且 TS 里指针事件本来就先被 `UIInputHandle` 攒成 `push_cmd`（`UIInputHandle.ts:42-56`）——WASM 侧保留这个"攒"的语义，只是攒在 WASM 里 |
 
@@ -1428,7 +1429,7 @@ JS 的 `Map` = **JS 自有**（WASM 只见句柄）；`REG_STR` 是唯一"JS 往
 **要复现（回放 / CI / 跨宿主对拍）**：让 WASM 宿主可以切到"手动模式" —— **不装**
 Clock/Timeout 槽（`add` 回 `0` = 没有句柄，这个回落约定在 `clock.h:47-55` 写着；
 `host/headless_host.h:20-37` 的 `ManualClock`/`NoopTimeout` 就是它），由 JS 显式
-`lfw_frame(固定dt)` 推。此时 `Ticker` 自己不会走，与 `lfw_run --frames`（`host/lfw_run.cpp:419-424`）
+`lfw_frame(固定dt)` 推。此时 `Ticker` 自己不会走，与 `lfw_run --frames`（`host/lfw_run.cpp:289-295`）
 完全同构 ⇒ 可以拿两边同一个 digest 对拍（W13）。
 
 ### W9. 异步面
@@ -1695,7 +1696,7 @@ const m = await createLfw({ locateFile: (f) => `/wasm/${f}` })
 
 | 宿主面 | 端口位置（已读） | Godot 侧（需验证） |
 |---|---|---|
-| `ILfwHost` | `lfw/lfw.h:135-288`。~80 个纯虚 + 4 个**有默认体**的：`pointings_grab`（`:155-160` 回 `false`）、`pointings_ungrab`（`:161-165` 空）、`pointings_grabbing`（`:166-170` 回 `nullptr`）、`create_ui_node_renderer`（`:179-182` 回 `nullptr`）、`is_desktop`（`:171` 回 `false`）。**没有"未移植的成员"**——它全是纯虚，写不写得出真货是**实现方**的事 | 一个 `LfwGodotHost : ILfwHost`（+ `IResourcesHost`，见下），成员是 Godot 侧句柄 |
+| `ILfwHost` | `lfw/lfw.h:135-288`。70 个成员面 = **64 纯虚 + 6 有默认体**：`pointings_grab`（`:157-161` 回 `false`）、`pointings_ungrab`（`:162-165` 空）、`pointings_grabbing`（`:167-170` 回 `nullptr`）、`is_desktop`（`:172` 回 `false`）、`create_ui_node_renderer`（`:179-182` 回 `nullptr`）、`warn_async`（`:202` 转调 `warn`）。**没有"未移植的成员"**——写不写得出真货是**实现方**的事（默认体只是省事，不等于缺功能） | 一个 `LfwGodotHost : ILfwHost`（+ `IResourcesHost`，见下），成员是 Godot 侧句柄 |
 | `IClock` / `ITimeout` | `lfw/base/clock.h:11-28`；注入走全局槽 `set_clock`/`set_timeout`（`:31-46`） | **注入虚拟时钟**（G3），不是 Godot 的真实时间 |
 | `IRenderScheduler` | `lfw/base/render_scheduler.h:15-19`；槽 `set_render_scheduler`（`:21-25`） | **故意不装**（槽空 ⇒ `render_add` 回 0，`:29-31`） |
 | `IWorldRenderer` | `lfw/world.h:61-68`：`add_entity(Entity&)` / `del_entity(Entity&)` / `render(double dt)` / `dispose()` | 一棵 Godot 节点树 + 每实体一个节点（需验证） |
@@ -1955,7 +1956,8 @@ zip/XML）所需要的**最小引擎**。产物是 `native/host/<薄宿主>/**` 
 headless 的形状，再把空实现逐个换掉（S7 的切片）。
 
 ⚠ **注意 headless 不只是"测试用"**：WASM 宿主**直接复用**同一批源文件
-（`native/host/wasm/CMakeLists.txt` 把 `../headless_host.cpp` 与 `../fs_zip.cpp` 列进 `lfw_wasm`）
+（`native/host/wasm/CMakeLists.txt` 把 `host/common/lfw_boot.cpp`、`host/headless_host.cpp` 与
+`host/fs_zip.cpp` 列进 `lfw_wasm`）
 ⇒ 薄宿主如果照抄这个做法，**假 MD5、零尺寸 `measure_text` 这些也会一起被带进来**，换真货时
 要记住它们是从共享文件里来的。
 
@@ -2016,14 +2018,17 @@ headless 的形状，再把空实现逐个换掉（S7 的切片）。
 | **文件与 zip** | `ILfwHost::import_as_*`（`lfw.h:250-259`）、`zip_*`（`lfw.h:269-287`）、`IZip` / `IZipObject`（`i_zip.h:15-25`、`i_zip_object.h:16-30`） | 第一版直接复用 `host/fs_zip.{h,cpp}`（目录当 zip，`fs_zip.h:14-17`）；**真 zip**（DEFLATE / 中央目录）留到 S7 的 S3 —— 与 G7 第 5 行是同一件事。⚠ `file_regex` 只认 4 条固定模式（`i_zip.h:30-58`），换宿主别去动它 |
 | **MD5** | `ILfwHost::md5`（`lfw.h:193`） | **必须与 TS 逐位一致**（W11 的判据，`DESIGN.md:1529`：`ui_load_img` 用它拼图片 key）。headless 是占位哈希（`headless_host.cpp:146-163`，注释自认"不是真 MD5"）⇒ 这是薄宿主**顺手就该换掉**的一条 |
 | **光标表** | `get_pointer_cursors(world)`（`cmds/cmd_pointer_events.h:42`，实现 `cmd_pointer_events.cpp:362`） | 核心能**读出**当前光标，但**没有画它**的路径（§7.2 依赖顺序第 12 条、G7 第 7 行）⇒ 顺序与 Godot 一致：**先有 UI 渲染面，再谈光标** |
-| **日志** | `warn` / `error` / `log` / `debug_msg`（`lfw.h:199-205`） | 打到 stdout / stderr。⚠ `warn` 的**条数**会进摘要行（`lfw_run.cpp:481-483`），别把日志变成噪声源 |
+| **日志** | `warn` / `error` / `log` / `debug_msg`（`lfw.h:199-205`） | 打到 stdout / stderr。⚠ `warn` 的**条数**会进摘要行（`lfw_run.cpp:352-356`），别把日志变成噪声源 |
 
 ### S4. 与 Godot / headless 共享什么
 
-**先说现状（已读，别凭印象）**：`native/host/` 下**没有**"宿主公共库" ——
-`host/CMakeLists.txt` 只建一个可执行文件 `lfw_run`（源文件就 3 个）；WASM 那边**直接复用同一批
-.cpp**：`host/wasm/CMakeLists.txt` 把 `../fs_zip.cpp` 与 `../headless_host.cpp` 列进 `lfw_wasm`。
-⇒ **现在共享的机制是"同一份源码编进两个 target"，不是抽出来的库。**
+**先说现状（已读，别凭印象）**：装配 + 摘要**已经有共享的一份** —— `native/host/common/lfw_boot.{h,cpp}`
+的 `boot_scene()` / `frame_digest()` / `total_hp()`，两个宿主都调它（`lfw_run` 直接调；
+`host/wasm/lfw_wasm.cpp` 的 `lfw_boot` 现在只是薄包装：句柄 → `BootOptions`）。它的依赖只有标准头
+（`<functional>` / `<string>` / `<vector>`）+ 核心头 ⇒ **零 emscripten / 零 JS 编组**，
+进程内的纯 C++ 宿主（SDL / Godot）能直接调。**其余仍是"同一份源码编进两个 target"，不是抽出来的库**：
+`host/CMakeLists.txt` 的 `lfw_run` 与 `host/wasm/CMakeLists.txt` 的 `lfw_wasm` 各自在源文件列表里
+列 `common/lfw_boot.cpp` / `fs_zip.cpp` / `headless_host.cpp`。
 
 **已经"天然共享"的**（因为它们就写在 headless 的宿主文件里）：
 
@@ -2031,27 +2036,27 @@ headless 的形状，再把空实现逐个换掉（S7 的切片）。
 - `headless_host.{h,cpp}` —— `ManualClock` / `NoopTimeout`（`headless_host.h:20-37`）、
   `NullWorldRenderer`（`:39-50`）、`ToolXML` 接线（成员在 `:164`）与整个 `HeadlessHost`。
 
-**还没共享的（薄宿主一定会撞上）**：装配 + 推帧 + 摘要 —— `lfw_run.cpp` 的"装包 → 选 stage/bg →
-造 bot → `update_once` → digest"（摘要 `:140-161`、装配 `:252-415`、循环 `:417-430`）；
-WASM 宿主把它**又写了一遍**（`host/wasm/lfw_wasm.cpp` 的 `_lfw_boot` / `_lfw_frame`，
-时钟槽在 `:314-316`、推帧在 `:498`）。W11 也把"抽成与宿主无关的 `lfw_boot(...)`"记成
-**未定**（`DESIGN.md:1533-1535`）⇒ 到薄宿主这里就是**第 3 份**装配代码。
+**共享 / 不共享的分界（共享的止于 `lfw_boot.{h,cpp}`）**：共享的是"选 stage/bg → 造 `players` 个
+战士（vs 与闯关两支）→ `change_stage`（+ vs 的 `dataset`）"以及"实体表（按 id 排序）的位置 / 血量 /
+蓝 / 队 / 状态"那一段摘要口径。**留在宿主侧的**是：装包来源（argv 的目录 vs MEMFS）、推帧节奏与
+`dt` 来源、日志文本（`on_spawn` 只递数据、格式各宿主自己定）与建不起来时的失败策略
+（`on_failure` 回 `false` = 立刻停手，wasm 的口径；回 `true` 或不装 = 记账后继续，`lfw_run` 的口径）。
 
-⇒ **建议**：真正该共享的、只跟"桌面宿主"有关的这几样，放 `native/host/common/**`：
+⇒ **建议**：剩下的这几样才是"该放 `native/host/common/**`"的（引擎中立、桌面宿主都要）：
 
 | 该放 `native/host/common/**`（引擎中立、桌面宿主都要） | 留在各自宿主里（换引擎就换） |
 |---|---|
 | 固定步长累加器 + 注入式虚拟时钟（`ManualClock` 的形状） | 窗口 / 输入翻译、音频后端 |
 | 真 zip 的 `IZip`（`FsZip` 的真货版）+ 路径处理 | 精灵批 / 文字度量 / 光标画法 |
 | 真 MD5（与 `DittoImpl/md5.ts` 逐位一致） | 打包与部署 |
-| 装配 + 推帧 + digest 的那段"台面"入口 | 引擎自己的事件循环 / 生命周期接入 |
+| 装配 + 推帧 + digest 的那段"台面"入口（已落地：`common/lfw_boot.{h,cpp}`） | 引擎自己的事件循环 / 生命周期接入 |
 
 ⚠ **为什么不能放 `native/lfw/**`**：README 硬规则（`native/README.md:16-30`）与它的机检
 （`tools/check_lfw_cpp_includes.mjs:29-49` 把 `<filesystem>` / `<fstream>` / `<cstdio>` 列进禁表）
 —— 上面这几样**必然要 IO**，进了核心就直接违反"零宿主 · 零 IO"。**核心只留接口与逻辑。**
 
-⚠ **别为了这件事去重构现有文件**：`native/host/**` 现在只有 4 个源文件 + 2 个 `CMakeLists.txt`，
-够用。新增薄宿主**照抄 WASM 的做法**（在自己的 target 里列举要复用的 `host/*.cpp`）即可；
+⚠ **别为了这件事去重构现有文件**：`native/host/**` 现在只有 5 个源文件 + 2 个 `CMakeLists.txt`，
+够用。新增薄宿主**照抄 WASM 的做法**（在自己的 target 里列举要复用的 `host/**/*.cpp`）即可；
 只有当累加器 / 虚拟时钟真出现"只有桌面宿主需要"的分支时，再把它们提到 `common/**`。
 （G9 有一条同款纪律：Godot 那一支**不许污染既有的 `msvc-x64` 验收**。）
 
@@ -2059,17 +2064,17 @@ WASM 宿主把它**又写了一遍**（`host/wasm/lfw_wasm.cpp` 的 `_lfw_boot` 
 
 规矩与 Godot 那一支**完全相同**（G3 是权威文本，这里只说薄宿主怎么落，不重述）：
 
-1. **固定步长 + 注入虚拟时钟**：`dt` 由 UPS 算（`lfw_run.cpp:418-419` 就是这么算的），
+1. **固定步长 + 注入虚拟时钟**：`dt` 由 UPS 算（`lfw_run.cpp:289-290` 就是这么算的），
    `now()` 只回"已推进的虚拟时间" —— **真实时间不许进模拟**。
 2. **帧驱动只能有一处**（G3 第 4 条 / WASM 的双步陷阱：宿主推帧**又**让 Ticker 自驱 ⇒
    `lifetime` 翻倍，`native/README.md:314-316`）。薄宿主走**手动模式**：把 `ManualClock` /
    `NoopTimeout`（`headless_host.h:20-37`）装进 `set_clock` / `set_timeout`（`clock.h:36,45`），
-   **不装** `IRenderScheduler`，每帧自己调一次 `world.update_once(dt)`（照 `lfw_run.cpp:422-424`）。
+   **不装** `IRenderScheduler`，每帧自己调一次 `world.update_once(dt)`（照 `lfw_run.cpp:293-295`）。
    ⚠ `Ticker` 会读 `clock_hidden()`（`base/ticker.h:118`）决定要不要 sleep ⇒ 桌面宿主应当把
    "窗口不可见 / 最小化"接到 `IClock::hidden()`（`clock.h:17`；TS 对位是
    `document.visibilityState`，`src/DittoImpl/Clock.ts:35-36`），别让它恒为 `false`。
 3. **摘要口径**：`frame_digest` 是"实体表（按 id 排序）的位置 / 血量 / 队 / 状态"的 FNV-1a
-   （`lfw_run.cpp:140-161`，口径记在 `native/README.md:260`）。
+   （`host/common/lfw_boot.cpp:193-214`，口径记在 `native/README.md:260`）。
 
 **验收（硬指标）= README 的三条摘要，逐位一致**（`native/README.md:323-339`，原样引用）：
 
@@ -2116,7 +2121,7 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
 
 | 切片 | 做什么 | 验收 |
 |---|---|---|
-| **S1 骨架 + 假渲染器** | 起 `LFW`、收一个 `ILfwHost` 实现；时钟用 `ManualClock` 的形状、世界渲染器先用计数版（`NullWorldRenderer`）；装配 / 推帧照 `lfw_run.cpp:417-430` | **三条摘要逐位一致** —— 唯一能证明"宿主接对了"的硬指标 |
+| **S1 骨架 + 假渲染器** | 起 `LFW`、收一个 `ILfwHost` 实现；时钟用 `ManualClock` 的形状、世界渲染器先用计数版（`NullWorldRenderer`）；装配照 `host/common/lfw_boot.cpp:43`（`boot_scene`）、推帧照 `lfw_run.cpp:289-295` | **三条摘要逐位一致** —— 唯一能证明"宿主接对了"的硬指标 |
 | **S2 真 2D 绘制** | 先补端口 `IUINodeRenderer` 的渲染面（**引擎通用缺口，属核心侧**：`ui_node_renderer.h:8-12` 自述 `render` / `add` / `del` / `parent` / `x` / `y` / `visible` 未移植）→ 再写薄宿主的 `IWorldRenderer` / `IUINodeRenderer` | 差分台面 + lint 不退化 + **目视**一帧 UI 与世界（判据**未定**） |
 | **S3 文字度量 / 音频 / 真 zip / MD5 / 光标** | 换掉 headless 那批假货里"桌面必需"的几个：`measure_text`（`lfw.h:242`）、`sounds_*`（`lfw.h:208-232`）、真 zip、真 MD5（`lfw.h:193`）、光标（S3 表里"光标表"那一行） | MD5 与 `DittoImpl/md5.ts` **逐位一致**（可自动化）；真包能装；**三条摘要仍逐位一致** —— 换宿主最容易在这一步翻车 |
 | **S4 打包** | 把薄宿主做成"双击能跑"的东西 | **需验证**：静态 / 动态链接、许可、Windows 与 Linux 的产物形态 |
@@ -10206,7 +10211,8 @@ work 打 `adw|<tag>`）、`lfgp` 全量探针（`lr/ox/wp/b1|b2(含 hp/hr/hm/fr/
   / `set_blinking` / `set_invulnerable` / `attach()`）→ `change_stage` → 逐帧
   `clock.advance(dt)` + `world.update_once(dt)`，每 `--every` 帧打一行「实体数 / 总血量 /
   摘要」，结尾打实体表快照与宿主统计。摘要 = 实体表（按 id 排序）的
-  `position/hp/mp/team/state` 做 FNV-1a（`core/state_hash`）。
+  `position/hp/mp/team/state` 做 FNV-1a（`core/state_hash`）；这一段装配与摘要口径两个宿主
+  共享（`host/common/lfw_boot.cpp` 的 `boot_scene()` / `frame_digest()`）。
 
 ## 141. `ToolXML::parse`（XML 文本 → `IXMLElement`）
 
