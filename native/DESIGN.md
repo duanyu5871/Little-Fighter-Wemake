@@ -1629,6 +1629,28 @@ const m = await createLfw({ locateFile: (f) => `/wasm/${f}` })
 
 ---
 
+### ★ W15 落地状态
+
+- **走通了**：`lfw_core` 编 wasm（0 错误）→ 新目标 `lfw_wasm` 链成 `lfw_wasm.{mjs,wasm}`（67 KB + 2.8 MB）→
+  Node 里 `smoke.mjs` 建 `LFW`、装全量数据（26/19/24/28/21/22/24）、boot 后推 900 帧，
+  **三条摘要与 MSVC `lfw_run` 逐位一致**；`--profile 1` 两遍输出逐字节相同。
+- **跨界只有两块**：时钟（`JsClock`/`JsTimeout` 填端口既有的 `set_clock`/`set_timeout` 槽）与日志
+  （warn/log 回调）⇒ **`native/lfw/**` 零改动**；平台函数表 12 槽 / 48 B，JS 用 `addFunction` 填
+  （所以需要 `-sALLOW_TABLE_GROWTH=1`）。
+- **链接开关**（W12 留白的那批，`native/host/wasm/CMakeLists.txt`）：`--no-entry`、
+  `-sMODULARIZE=1 -sEXPORT_ES6=1 -sEXPORT_NAME=createLfwWasm`、`-sALLOW_MEMORY_GROWTH=1`（44 MB 数据 +
+  16 MiB 初始堆不够）、`-sALLOW_TABLE_GROWTH=1`、`-sSTACK_SIZE=5MB`（JSON5 递归；MSVC 侧是 1 MiB）、
+  `-sENVIRONMENT=node,web`、`-sEXPORTED_FUNCTIONS=[28 个 lfw_*]`、
+  `-sEXPORTED_RUNTIME_METHODS=[FS,addFunction,removeFunction,stringToUTF16,UTF16ToString,HEAPU8]`。
+  暂时**不用** `-sFILESYSTEM=0`：这一版还链着 `FsZip`/`HeadlessHost`（要用 `<filesystem>`/`<fstream>`）。
+- ⚠ **帧驱动只能有一处**（README 同款警告）：`LFW` 构造里 `world.start_update()` ⇒ 端口自己的 Ticker 会推帧；
+  宿主若再调 `lfw_frame` 就是**一帧两步**（`lifetime` 翻倍）。手动模式（时钟槽回 0 + 手动 `lfw_frame`）
+  才是与 `lfw_run` 对拍的那条路。
+- **数据路线**：JS 预写 MEMFS（浏览器用 `bundle.json` + `bundle.bin` 一次拉取）；`.wasm` 不带数据；端口零改动。
+- **下一步（W13 第 3 步 / W5）**：把 `RenderCommandWriter` 做成 `IWorldRenderer`/UI 绘制的汇，
+  经 `create_world_renderer` 替掉 `NullWorldRenderer`，每帧写「帧头 + `UI_BEGIN`/`UI_IMAGE`/`UI_TEXT` +
+  `SPRITE`/`TINT`/`SHADOW`/`BAR`」进 wasm 侧双缓冲，JS 用 `lfw_cmd_buffer_ptr/len` 取字节画到 `<canvas>`。
+
 ## 9. `Value` / 解析 / 装载层的现行要点
 
 ### 9.1. `Value`

@@ -21,4 +21,9 @@ endif()
 
 add_subdirectory(lfw)
 add_subdirectory(host)
+if(EMSCRIPTEN)
+  # WASM 宿主的步行骨架（DESIGN W12/W13）。守卫在这里 + 子目录里各一道：
+  # `msvc-x64` 预设下 `EMSCRIPTEN` 为假 ⇒ 不配置这个 target，`all` 里也不会多出东西。
+  add_subdirectory(host/wasm)
+endif()
 add_subdirectory(tests)

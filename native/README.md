@@ -291,6 +291,30 @@ cmake --build build\wasm --target lfw_core -j 16     # ⚠ 必须限定 target
 `-sALLOW_MEMORY_GROWTH` / `-sEXPORTED_FUNCTIONS` 这些要等真链接（写 JS 宿主那一步）再定，见 DESIGN
 「宿主层与 WASM 对接设计」W12。
 
+## WASM 宿主（端口已在 wasm 里真跑）
+
+骨架已通：**整个端口在 wasm 里跑起来**，JS 只提供**时钟 + 日志**并逐帧驱动；渲染/音频/图片仍用
+headless 那套顶着（下一步才接）。
+
+```
+node native/web/build-wasm.mjs          # 编 wasm（emsdk 须在 PATH 上；~61 s，0 错误）
+node native/web/smoke.mjs --profile 2   # Node 冒烟：装数据 → boot → 推 900 帧 → 对拍摘要
+node native/web/smoke.mjs --profile 1 --live
+```
+
+产物 `native/build/wasm/bin/lfw_wasm.{mjs,wasm}`（67 KB + 2.8 MB）。冒烟结论是硬的：**三条摘要与 MSVC 的
+`lfw_run` 逐位一致**（`7335aa25f4e1ce86` / `e4a9437292047044` / `f29d3bb1ea330c32`）；
+`fighters=26 weapons=19 balls=24 stages=28 bg=21 bots=22 moves=24` 全装进来；`--profile 1` 连跑两遍输出逐字节相同。
+
+⚠ **一条必须记住的坑**：`LFW` 构造里会 `world.start_update()` ⇒ **端口自己的 Ticker 也在推帧**。
+宿主要么**只**实现时钟槽、让 Ticker 自己走（`--live`），要么**只**手动调 `lfw_frame`（`--profile *`）；
+**两边都做 ⇒ 一帧走两步**（`lifetime` 翻倍）。手动模式才是与 `lfw_run` 对拍的那条路。
+
+数据怎么进 wasm：JS 先把解包好的包**写进 emscripten 的 MEMFS**（浏览器走 `bundle.json` + `bundle.bin`
+一次拉取），`FsZip`/`HeadlessHost` 照旧按目录读 —— **端口零改动**，`.wasm` 里不塞数据。
+
+（台面那条 WASM 构建节是 `lfw_core` 静态库；这一节是能跑起来的目标，两者并存。）
+
 ## 验收：宿主三条摘要（改完必跑）
 
 同一份数据、同一命令**逐位可复现**；三条都过才算没打破 headless 行为：
