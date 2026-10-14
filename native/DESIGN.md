@@ -11711,8 +11711,8 @@ coverage OK）。
 ### 149.16 剩下的功能欠账（与缝无关）
 
 渲染 / 音频的宿主实现（`IWorldRenderer` / `IUINodeRenderer` / sounds 只到宿主缝）。玩家表（4CX）、
-指针命令（4CY）、`F4`/`KEY_EVENT`（4CZ）、招式表演台 `MoveTableLogic`（4D0）都已结清；剩下的仍是
-§149.17/§149.18/§149.19 记的**覆盖缺口**（实现齐了，缺的是差分用例，要先把两侧台面 UI 做成同构）。
+指针命令（4CY）、`F4`/`KEY_EVENT`（4CZ）、招式表演台 `MoveTableLogic`（4D0）都已结清；§149.17/§149.18/
+§149.19 记的三处**覆盖缺口**也在 §149.21（4D2）补完（只剩 3 个够不到的小分支，见那节末）。
 
 ### 149.17 `POINTER_*` 命令移植（切片 4CY）—— 第二笔功能欠账
 
@@ -11893,4 +11893,41 @@ XmlReader reader(strip_comments(text));   // :242  ← `strip_comments` **按值
 
 ⇒ §149.18/§149.19 里「摘要三元组要重跑确认、偶发失败别当回归」那条**实践约定作废**：
 现在偶发失败**就是**回归（同一个 bug 已经堵掉）。
+
+### 149.21 命中/按键派发的差分覆盖（切片 4D2）—— 覆盖缺口清账
+
+§149.17/§149.18/§149.19 记的三处覆盖缺口（`POINTER_*` 命中派发、`KEY_EVENT` 的 UI 派发/按键挂载、
+`F4` 真弹页）一次性补上。**业务代码零改动**，只动差分台面。
+
+- **为什么不在 `cmds` 台面补**（原计划）：盘点发现那边代价太高 —— C++ 的假 `lfw`
+  （`world_fixture.h` 的 `FakeLfw`）构造里**清空了 `Factory::components()`**，TS 假件则是对象字面量、
+  连 `Ditto.UINodeRenderer` / `uis` / `images` / `factory.create_components` 都没有（建节点就抛）
+  ⇒ 在那儿重建 UI 树等于重写半个台面。
+- **改用在 `lfw` 台面**（本来就 UI-同构：真 `UILayers`/真页面 + 会打日志的 `FakeComp` +
+  两侧都自带的 `FakeUINodeRenderer` + `keysgo` 挂按键），它只缺**调用命令**的入口 ⇒ 两侧各加一个
+  `cmd <字符串>` op（C++ `CMDS::handle(world, {str})` / TS `CMDS.handle(world, [str])`）。
+- 顺带补的台面 op（都为这组用例服务）：`flpage`（按「层/页/子路径」定位 `lfw.ui_layers()` 里的页 ——
+  命令作用于那条**真层栈**，而原来的 `rl*` 读的是台面自己那份 `g_real_layers`）、`ptcur`（读指针
+  光标表）、`kkey`（按键事件）、`ctrlq`（直接打印 `is_human_ctrl(ctrl_view())` 判定），以及
+  `flset`/`flpush` 的可选层号。
+- **一处台面 bug（顺手修）**：C++ 的 `nrd` 读 `g_nodes`，而 `npg` 写的是 `g_alias_nodes` ⇒ 改走
+  `pick_node`（TS 侧一直如此）—— 台面不对称，不是端口问题。
+- **新用例**（`cases/lfw/`）：`cmd_pointer.txt`（130 行）、`cmd_key_event.txt`（140 行）、
+  `cmd_f4.txt`（87 行）。覆盖到的点：
+  * `POINTER_*`：近到远次序、`visible 0` / `disabled 1` 跳过、enter→stay→leave 差推导、
+    `pointer_down` / `click_flag` 的真假两支、UP 尾巴的 cancel、CANCEL、CLICK 的 `stop_click` 早退、
+    ENTER/LEAVE（含**省略 `--paths` 的全体 leave**）、四种告警（含 **page changed**），以及
+    `--from` 走通的 `move_cursor` / `cursor_for` / `get_pointer_cursors` 光标表。
+  * `KEY_EVENT`：必填参数告警、自顶向下选**第一个未禁用的层**（含跳过被禁用的下层）、按下自根到子 /
+    抬起自子到根、`stop_key` 短路、**挂载按键真的被 `hit`/`end`**（用 `lifetime` 时间戳非 0 证明）、
+    真人控制器队列的 `start`/`end`、非真人/无傀儡分支。
+  * `F4`：层 0 单页 ⇒ 不弹；两页 ⇒ 弹一页并带层回调（`on_ui_changed` / pause-stop-resume）；
+    层 1 单页 ⇒ 照弹（`i != 0` 例外）；空层 ⇒ `length <= 0` 分支。
+- **仍然够不到的 3 处**（记在案）：`POINTER_DOWN`/`POINTER_UP` 的 `event.stopped()` 早退
+  （`bench::FakeComp` 只在 `on_click` 上停）、`set_local_cursor` 的写面（平台层调用，无 op 驱动，
+  且不在本三命令范围内）、`KEY_EVENT` 的 `stage.control_disabled` 早退（要翻 stage phase）。
+
+**验证**：差分 **261/261**（258 + 3）；`lfw` 台面 **49/49**；锚点 9764/0；include 845 clean/0/9；
+coverage OK；宿主三条摘要**逐字节不变**（`7335aa25f4e1ce86` / `e4a9437292047044` /
+`f29d3bb1ea330c32`）—— 本刀零端口改动，三条都是**一次通过**，也再次佐证 §149.20 的修复成立。
 

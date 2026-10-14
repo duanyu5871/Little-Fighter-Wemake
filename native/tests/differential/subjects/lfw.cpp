@@ -1,4 +1,15 @@
 // `LFW`（门面 4AB）的 C++ 侧台面，op 与 `subjects/lfw.ts` 一一对应。
+//
+// 4D2 新增 op（两侧同名同义）：
+//   `cmd <字符串字面量>`  经**真命令分发器**执行一条命令：`lfw::cmds::CMDS::handle(lfw.world(), {str})`
+//                        （`POINTER_*` / `KEY_EVENT` / `F4` 这些以 `lfw` 为世界的命令都靠它）。
+//   `flpage <别名> <层号> <页下标|-1=栈顶> [子下标…]`
+//                        把 **`lfw.ui_layers()`**（命令真正作用的那一栈）的节点别名进 `g_alias_nodes`
+//                        （`npg` 只认台面私建的 `g_real_layers`），`nrd`/`nset` 等经 `pick_node` 的
+//                        op 就能直接读它；日志 `flpage|<别名>|<找到 1/0>|<该层页数>`。
+//   `ptcur <from|->`     读 `cmds::get_pointer_cursors(world)`（`--from` 写过的光标才看得见）。
+//   `kkey <游戏键>`      已挂载 `Keys` 里该键 `KeyStatus` 的 `命中时刻|抬起时刻|used`。
+//   `ctrlq <玩家号>`     `world.puppets` 里该玩家实体的控制器队列（`KEY_EVENT` 的落点）。
 #include <algorithm>
 #include <cstdio>
 #include <fstream>
@@ -7,13 +18,17 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
+#include "lfw/cmds/cmd_pointer_events.h"
+#include "lfw/cmds/cmds.h"
 #include "lfw/core/js_string.h"
 #include "lfw/core/json.h"
 #include "lfw/defines/defines_data.h"
 #include "lfw/entity/entity.h"
+#include "lfw/entity/entity_type_check.h"
 #include "lfw/factory.h"
 #include "lfw/helper/randoming.h"
 #include "lfw/lfw.h"
@@ -1861,6 +1876,96 @@ lfw::ui::UINode& pick_node(const std::string& nid) {
   const auto it = g_alias_nodes.find(nid);
   if (it != g_alias_nodes.end() && it->second != nullptr) return *it->second;
   return *g_nodes.at(nid);
+}
+
+// 4D2：`cmd`（真命令分发）与三个只读探针 —— 单开一函数，免得主 else-if 链块嵌套再超 MSVC 的
+// C1061 上限（照 `run_sum_ops` 的先例）。
+bool run_cmd_ops(lfw::LFW& lfw, FakeHost& host, const std::vector<std::string>& t, size_t& i,
+                 const std::string& op) {
+  (void)host;
+  if (op == "cmd") {
+    // 经真命令分发器跑一条命令（`POINTER_*` / `KEY_EVENT` / `F4` …）：分发器把 `world.lfw()`
+    // 当真 `LFW` 用，所以这里的层栈 / 挂载键 / 傀儡表就是命令真正看得见的那些。
+    const lfw::Value cmd_value = parse_value(t, i);
+    const std::u16string* const cmd_text = std::get_if<std::u16string>(&cmd_value);
+    std::vector<std::u16string> cmds;
+    cmds.push_back(cmd_text != nullptr ? *cmd_text : std::u16string());
+    lfw::cmds::CMDS::handle(lfw.world(), cmds);
+    return true;
+  }
+  if (op == "flpage") {
+    // 把 `lfw.ui_layers()`（命令真正作用的那一栈）的页面/子节点别名进 `g_alias_nodes`
+    //（`npg` 只认台面私建的 `g_real_layers`）：`<别名> <层号> <页下标|-1=栈顶> [子下标…]`。
+    const std::string nid = t[i++];
+    const double li = to_double(t[i++]);
+    const double pi = to_double(t[i++]);
+    lfw::ui::UILayer* const l = lfw.ui_layers() != nullptr ? lfw.ui_layers()->at(li) : nullptr;
+    lfw::ui::UINode* node = l != nullptr ? (pi < 0.0 ? l->ui() : l->at(pi)) : nullptr;
+    while (node != nullptr && i < t.size()) {
+      const size_t idx = static_cast<size_t>(to_double(t[i++]));
+      node = idx < node->children().size() ? node->children()[idx] : nullptr;
+    }
+    g_alias_nodes[nid] = node;
+    push("flpage|" + nid + "|" + (node != nullptr ? "1" : "0") + "|" +
+         num(l != nullptr ? static_cast<double>(l->pages().size()) : 0.0));
+    return true;
+  }
+  if (op == "ptcur") {
+    const std::string tok = t[i++];
+    const std::u16string from = tok == "-" ? std::u16string() : key_of(tok);
+    std::unordered_map<std::u16string, lfw::cmds::IPointerCursor>* const cursors =
+        lfw::cmds::get_pointer_cursors(lfw.world());
+    if (cursors == nullptr) {
+      push("ptcur|u");
+    } else if (cursors->find(from) == cursors->end()) {
+      push("ptcur|" + to_ascii(from) + "|none");
+    } else {
+      const lfw::cmds::IPointerCursor& c = (*cursors)[from];
+      push("ptcur|" + to_ascii(from) + "|" + num(c.x) + "|" + num(c.y) + "|" +
+           (c.down ? "1" : "0") + "|" + (c.hidden ? "1" : "0"));
+    }
+    return true;
+  }
+  if (op == "kkey") {
+    // 已挂载 `Keys` 里某个游戏键的 `KeyStatus`（`KEY_EVENT` 的 `hit`/`end` 落点）。
+    const std::u16string key = key_of(t[i++]);
+    std::string line = "kkey|" + to_ascii(key);
+    for (lfw::Keys* const ks : lfw.mounted_keys) {
+      lfw::controller::KeyStatus* const st = ks->get(key);
+      if (st == nullptr) {
+        line += "|u";
+        continue;
+      }
+      line += "|" + num(st->time()) + "|" + num(st->u_time()) + "|" + num(st->used());
+    }
+    push(line);
+    return true;
+  }
+  if (op == "ctrlq") {
+    // `world.puppets` 里该玩家实体的控制器队列（`KEY_EVENT` 落 `start`/`end` 的地方）。
+    const std::u16string pid = key_of(t[i++]);
+    lfw::Entity* e = nullptr;
+    for (const std::pair<std::u16string, lfw::Entity*>& kv : lfw.world().puppets) {
+      if (kv.first == pid) {
+        e = kv.second;
+        break;
+      }
+    }
+    // 只打 `KEY_EVENT` 真正用来放行的那个判定（`is_human_ctrl(ctrl_view)`）：端口侧「没控制器」
+    // 是个 InvalidController 对象、TS 侧是 undefined，直接比对象存在性会不同构。
+    const bool human = e != nullptr && lfw::entity::is_human_ctrl(e->ctrl_view());
+    lfw::controller::BaseController* const c = e != nullptr ? e->ctrl() : nullptr;
+    std::string line = "ctrlq|" + to_ascii(pid) + "|" + (human ? "h" : "b");
+    if (human && c != nullptr) {
+      line += "|" + std::to_string(c->queue.size());
+      for (const std::pair<lfw::controller::Status, std::u16string>& q : c->queue) {
+        line += "|" + num(static_cast<double>(q.first)) + ":" + to_ascii(q.second);
+      }
+    }
+    push(line);
+    return true;
+  }
+  return false;
 }
 
 bool run_comp_ops(lfw::LFW& lfw, FakeHost& host, const std::vector<std::string>& t, size_t& i,
@@ -4279,7 +4384,8 @@ int main(int argc, char** argv) {
     } else if (op == "nrd") {
       const std::string nid = t[i++];
       const std::string what = t[i++];
-      lfw::ui::UINode& n = *g_nodes.at(nid);
+      // 4D2：走 `pick_node`（与 TS 侧 `tnodes` 同义：别名表优先）⇒ `flpage`/`npg` 的别名也能读。
+      lfw::ui::UINode& n = pick_node(nid);
       if (what == "pos" || what == "scale" || what == "size" || what == "center") {
         const lfw::Vector3& v = what == "pos"     ? n.pos
                                 : what == "scale" ? n.scale
@@ -4532,8 +4638,9 @@ int main(int argc, char** argv) {
         push("cfind|" + nid + "|" + cid + "|" + to_ascii(which) + "|" +
              (r != nullptr ? node_ref(r) : std::string("u")));
       }
-    } else if (run_comp_ops(lfw, host, t, i, op) || run_sum_ops(lfw, host, t, i, op) ||
-               run_lfag_ops(lfw, host, t, i, op) || run_danmu_ops(lfw, host, t, i, op)) {
+    } else if (run_cmd_ops(lfw, host, t, i, op) || run_comp_ops(lfw, host, t, i, op) ||
+               run_sum_ops(lfw, host, t, i, op) || run_lfag_ops(lfw, host, t, i, op) ||
+               run_danmu_ops(lfw, host, t, i, op)) {
     } else if (op == "ird") {
       const std::string nid = t[i++];
       lfw::ui::UINode& n = *g_nodes.at(nid);
@@ -4597,9 +4704,11 @@ int main(int argc, char** argv) {
       g_real_layers = std::make_unique<lfw::ui::UILayers>(lfw);
     } else if (op == "flset" || op == "flpush") {
       const std::u16string id = key_of(t[i++]);
+      // 4D2：可选层号（缺省 0，照旧）；给了就能把页放到 `lfw.ui_layers()` 的第 N 层上。
+      const double li = i < t.size() ? to_double(t[i++]) : 0.0;
       const lfw::Value opts = id_opts_value(id);
-      if (op == "flset") lfw.set_page(opts, 0.0);
-      else lfw.push_page(opts, 0.0);
+      if (op == "flset") lfw.set_page(opts, li);
+      else lfw.push_page(opts, li);
     } else if (op == "rlpush") {
       g_real_layers->push_layer();
     } else if (op == "rlset" || op == "rlpushp") {

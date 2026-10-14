@@ -1,8 +1,14 @@
 // `LFW`（门面 4AB）的 TS 侧台面，op 与 `subjects/lfw.cpp` 一一对应。
 //
+// 4D2 新增 op（两侧同名同义，见 C++ 侧头注）：`cmd`（走真 `CMDS.handle`）、
+// `flpage`（把 `lfw.layers` 的节点别名进 `tnodes`）、`ptcur`（读 `get_pointer_cursors`）、
+// `kkey`（挂载键的 `KeyStatus`）、`ctrlq`（傀儡控制器队列）。
+//
 // `Ditto` 的宿主包全脚本化（Sounds/ImageMgr/Keyboard/Pointings/UIInputHandle/WorldRender/
 // Cache/Zip/Clock/Render/Timeout/…）；`Date.now` 固定成 12345（端口侧 `host.now()`）。
 import { Ditto } from "../../../../src/LFW/ditto/Instance";
+import { CMDS, get_pointer_cursors } from "../../../../src/LFW/cmds";
+import { is_human_ctrl } from "../../../../src/LFW/entity/type_check";
 import { Defines } from "../../../../src/LFW/defines";
 import { ImageInfo } from "../../../../src/LFW/ditto";
 import { Expression } from "../../../../src/LFW/base/Expression";
@@ -1840,10 +1846,53 @@ async function run_ops(): Promise<void> {
       push(
         `kstat|${gk}|${what}|cnt=${cnt}` + (what === "use" ? `|ret=${num(ret)}` : ""),
       );
+    } else if (op === "kkey") {
+      // 台面探针：已挂载 `Keys` 里某个游戏键的 `KeyStatus`（`KEY_EVENT` 的 `hit`/`end` 落点）。
+      const gk = nextKey();
+      let line = `kkey|${gk}`;
+      for (const ks of lfw.mounted_keys) {
+        const st = (ks as unknown as Rec)[gk] as
+          | { time: number; u_time: number; used: number }
+          | undefined;
+        if (!st) {
+          line += "|u";
+          continue;
+        }
+        line += `|${num(st.time)}|${num(st.u_time)}|${num(st.used)}`;
+      }
+      push(line);
     } else if (op === "cmds") {
       push("cmds|" + lfw.cmds.join(";"));
     } else if (op === "clearcmds") {
       lfw.cmds.length = 0;
+    } else if (op === "cmd") {
+      // 经真命令分发器跑一条命令（`POINTER_*` / `KEY_EVENT` / `F4` …）。
+      const text = parseValue(t, i) as string;
+      CMDS.handle(lfw.world, [String(text)]);
+    } else if (op === "flpage") {
+      // 把 `lfw.layers`（命令真正作用的那一栈）的节点别名进 `tnodes`（`npg` 只认 `real_layers`）。
+      const nid = next();
+      const li = Number(next());
+      const pi = Number(next());
+      const l = lfw.layers.at(li);
+      let node: UINode | undefined = l ? (pi < 0 ? l.ui : l.at(pi)) : undefined;
+      while (node && i[0]! < t.length) {
+        const idx = Number(t[i[0]!++]!);
+        node = idx < node.children.length ? node.children[idx] : undefined;
+      }
+      tnodes.set(nid, node as UINode);
+      push(`flpage|${nid}|${node ? 1 : 0}|${num(l ? l.pages.length : 0)}`);
+    } else if (op === "ptcur") {
+      const tok = next();
+      const from = tok === "-" ? "" : keyOf(tok);
+      const cursors = get_pointer_cursors(lfw.world);
+      if (!cursors) {
+        push("ptcur|u");
+      } else {
+        const c = cursors.get(from);
+        if (!c) push(`ptcur|${from}|none`);
+        else push(`ptcur|${from}|${num(c.x)}|${num(c.y)}|${c.down ? 1 : 0}|${c.hidden ? 1 : 0}`);
+      }
     } else if (op === "ischeat") {
       push(`ischeat|${nextKey()}|${lfw.is_cheat(nextKey()) ? 1 : 0}`);
     } else if (op === "setcheat") {
@@ -3134,8 +3183,10 @@ async function run_ops(): Promise<void> {
       real_layers.v = new UILayers(lfw);
     } else if (op === "flset" || op === "flpush") {
       const id = keyOf(next());
-      if (op === "flset") lfw.layers.set_page({ id }, 0);
-      else lfw.layers.push_page({ id }, 0);
+      // 4D2：可选层号（缺省 0，照旧）。
+      const li = i[0]! < t.length ? Number(t[i[0]!++]!) : 0;
+      if (op === "flset") lfw.layers.set_page({ id }, li);
+      else lfw.layers.push_page({ id }, li);
     } else if (op === "rlpush") {
       real_layers.v!.push();
     } else if (op === "rlset" || op === "rlpushp") {
@@ -3288,6 +3339,20 @@ async function run_ops(): Promise<void> {
       const pe = eidx >= 0 && eidx < arr.length ? arr[eidx] : undefined;
       (lfw.world.puppets as Map<string, Rec>).set(pid, pe as Rec);
       push(`ppup|${pid}|${pe ? (pe.id as string) : "none"}`);
+    } else if (op === "ctrlq") {
+      // 台面探针：`world.puppets` 里该玩家实体的控制器队列（`KEY_EVENT` 落 `start`/`end` 的地方）。
+      // 只打 `KEY_EVENT` 用来放行的 `is_human_ctrl(ctrl)`（TS 侧「没控制器」是 `undefined`）。
+      const pid = nextKey();
+      const pe = (lfw.world.puppets as Map<string, Rec>).get(pid);
+      const c = pe ? (pe["ctrl"] as Rec | undefined) : undefined;
+      const human = !!c && is_human_ctrl(c);
+      let line = `ctrlq|${pid}|${human ? "h" : "b"}`;
+      if (human && c) {
+        const q = c["queue"] as [number, string][];
+        line += `|${q.length}`;
+        for (const e of q) line += `|${num(e[0])}:${e[1]}`;
+      }
+      push(line);
     } else if (op === "bcasts") {
       push(`bcasts|${(lfw.broadcasts as string[]).join(";")}`);
     } else if (op === "edump") {

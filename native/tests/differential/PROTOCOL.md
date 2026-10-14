@@ -5760,3 +5760,18 @@ harness op：
   修后同口径 200/200 干净、`warns` 恒 1、digest 唯一。
 - 写新解析器时注意同一形状：**引用数据成员**（`const std::u16string&`）只接受活得够久的实参；
   现在全仓只有 `tool_xml.cpp`（已挡）、`json5.cpp`（已挡）、`json.cpp`（聚合，注释警告）三处。
+
+### 6.9.202 用 `lfw` 台面跑 UI 命令（4D2）
+
+- **要给「会碰 UI 的命令」写差分，就在 `lfw` 台面写**（别在 `cmds` 台面重建 UI）：`lfw` 那边
+  真 `UILayers`/真页面、节点挂的 `bench::FakeComp` 会把指针/按键事件打进日志，两侧都有
+  `FakeUINodeRenderer`，还有 `keysgo` 挂按键。`cmds` 台面缺的是**一整片**假件（TS 连
+  `Ditto.UINodeRenderer`/`uis`/`images` 都没有 ⇒ 建节点直接抛），不划算。
+- **入口 op**：`cmd <字符串>`（两侧同名）⇒ C++ `CMDS::handle(world, {str})` / TS `CMDS.handle(world, [str])`。
+  命令作用于 `lfw.ui_layers()` 的**真层栈**，所以定位页面要用 `flpage`（按 层/页/子路径），
+  不是台面自己那份 `g_real_layers` 的 `rl*`（两者是两套东西，别名表 `npg`/`nrd` 走 `pick_node`）。
+- 现成可用的探针：`ptcur`（指针光标表）、`ctrlq`（`is_human_ctrl(ctrl_view())`）、`kkey`（按键事件）。
+- 日志字符串照 `FakeComp`：`fc|<f_name>|pdown|pmove|pup|pcancel|pleave|penter|click|<button>|kdown|<gk>|kup|<gk>`
+  （节点身份 `node:<id>`、组件身份 `comp:<f_name>#<id>`）。
+- ⚠ 已知够不到的分支（别白试）：`POINTER_DOWN`/`UP` 的 `event.stopped()` 早退（`FakeComp` 只在
+  `on_click` 上停）、`set_local_cursor` 写面、`KEY_EVENT` 的 `stage.control_disabled` 早退。
