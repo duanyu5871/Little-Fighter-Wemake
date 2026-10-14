@@ -1051,6 +1051,579 @@ holding 一族、`world_*` / `ref_*` / `ctrl_*` / `datas_find*`、`ground_segmen
   （`bench::FakeComp` 只在 `on_click` 上停）、`set_local_cursor` 的写面（平台层调用，无 op 驱动，
   且不在本三命令范围内）、`KEY_EVENT` 的 `stage.control_disabled` 早退（要翻 stage phase）。
 
+## ★ 宿主层与 WASM 对接设计（方案）
+
+**这一节回答一个问题**：把 `native/lfw/` 的 C++ 端口编成 WASM 之后，怎么跟浏览器里的平台层
+（`src/DittoImpl/`，`src/DittoImpl/index.ts` 一共导出 24 个模块）对接才合适 —— 目标是**复用**
+那份平台层，而不是在 C++ 里重写一遍渲染/音频/图片。
+
+**一句话结论**：端口里那 178 个宿主面**不该按接口形状逐条过界**，而要分三类：
+
+| 类别 | 做法 | 谁说了算 |
+|---|---|---|
+| (a) 装载期 / 低频面（zip、图片、XML、日志、md5…） | 按 C ABI 的**函数表**逐条同步过界 | JS 实现，WASM 调用 |
+| (b) 每帧热路径（世界渲染、UI 渲染、音频、输入） | 在 WASM 内**攒成命令缓冲 / 输入批**，每帧只过一次界 | WASM 生产，JS 消费 |
+| (c) 平台反向事件（时钟、定时器、下载/解压/解码完成） | JS 持句柄，WASM 持 `cb_id`，JS 用一个通用出口回调进 WASM | JS 触发，WASM 实现回调 |
+
+**这是方案，不是现状**：`native/ffi/lfw_c.h` 尚未创建（`native/README.md:157`），
+`native/cmake/toolchains/emscripten.cmake` 对应的 wasm 预设标着"未验证，需要 emsdk"
+（`native/README.md:112-113`）。下文每一条"端口事实"都给了 `path:line`；凡是没有代码依据的
+判断一律标 **未定**。
+
+（178 里最大的一族是 XML 的 53 个面（`IXMLElement` 46 + `IXML` 7），本方案让它们**不过界** ——
+端口已经有纯逻辑实现，见 W2/W3。）
+
+### W1. 架构与职责划分
+
+**跑在 WASM 里的（逻辑，一份实现）**：`native/lfw/` 全部 —— `core/`（JS 语义、`Value`、
+`js_num`、`state_hash`）、`loader/`（数据表、`dat_translator/`）、`entity/`、`collision/`、
+`buff/`、`state/`、`controller/`、`bot/`、`world`（`World` 的 step/render 调度）、`stage/`、
+`bg/`、`ui/`（UI 树、布局、组件、事件）、`cmds/`、`animation/`、`ditto/`（`IXML`/`IZip` 的接口与
+tool 实现）。这些在 `native/lfw/CMakeLists.txt` 里都是 `lfw_core` 的源文件，且被
+`native/tools/check_lfw_cpp_includes.mjs` 用"零宿主 / 零 IO / 零线程 / 零异常 / 零 RTTI"的规则钉住
+（`native/README.md:16-30`）。
+
+**跑在 JS 里的（平台，复用 `src/DittoImpl/`）**：渲染（three.js：`renderer/WorldRenderer.ts`、
+`renderer/UINodeRenderer.ts`）、音频（`sounds/Modern.ts`）、图片（`ImageMgr/ImageMgr.ts` + canvas
+`handle_image_operation.ts`）、输入（`Keyboard.ts`/`Pointings.ts`）、时间（`Clock.ts`/`Timeout.ts`/
+`Render.ts`）、zip（`Zip.ts`/`LazyZip.ts`/`download/`）、缓存（`cache/Cache.ts`）、md5（`md5.ts`）。
+
+**新增的三件（WASM 侧宿主，建议放 `native/host/wasm/`）**：
+
+* `LfwPlatformHost` —— `ILfwHost`（`native/lfw/lfw.h:134-288`）的第二份实现，把每个面接到
+  `LfwPlatform` 函数表（W4）。它与现有 headless 宿主是同一条接口的两个实现，正如同 TS 侧
+  `renderer/UINodeRenderer.ts` 与 `renderer/HeadlessUINodeRenderer.ts` 的关系。
+* `RenderCommandWriter` —— `IWorldRenderer`（`native/lfw/world.h:61-68`）与 UI 绘制发射器的目标，
+  写命令缓冲（W5）。
+* `WasmUIInputHandle` —— 把 TS 的 `DittoImpl/ui/UIInputHandle.ts` 那份命中测试搬进 WASM（W10）。
+
+```
++---------------------------------------------------------------------------+
+| 浏览器页面 (TS)                                                            |
+|   DOM 事件 -> 输入队列           资源: LFW.ZIPS -> Zip.download -> 解压     |
+|   ImageMgr(解码/纹理)  Sounds(WebAudio)  WorldRenderer/UINodeRenderer(GL)   |
+|        ^                                                  ^                |
+|        | (c) 反向回调 cb_id                                | (b) 只读命令缓冲|
++--------|--------------------------------------------------|---------------+
+         |                                                  |
++--------|--------------------------------------------------|---------------+
+| WASM (C++, 单线程, 无异常/无 RTTI)                                          |
+|   LfwPlatformHost  <---- LfwPlatform 函数表(JS 填)  ----->  (a) 同步调用     |
+|   Ticker -> World::update_once -> 逻辑: 实体/碰撞/状态机/cmds/UI 树          |
+|   World::render_once -> IWorldRenderer -> RenderCommandWriter(写缓冲)        |
+|   WasmUIInputHandle -> CMD.POINTER_*(命令) -> 同一份逻辑                    |
++---------------------------------------------------------------------------+
+```
+
+### W2. 接口全景与簇划分（读码结论）
+
+把"宿主面"定义为**所有由平台实现、由核心调用（或反过来）的虚方法**。现行账：
+
+| 接口 | 文件 | 面数 |
+|---|---|---|
+| `ILfwHost` | `native/lfw/lfw.h:134-288` | **70**（64 纯虚 + 6 有默认体：`pointings_grab/ungrab/grabbing`、`is_desktop`、`create_ui_node_renderer`、`warn_async`） |
+| `IWorldRenderer` | `native/lfw/world.h:61-68` | 4 |
+| `IUINodeRenderer` | `native/lfw/ui/ui_node_renderer.h:19-27` | 9（全部有默认体） |
+| `IPlayerInfoHost` | `native/lfw/player_info.h:45-56` | 4 |
+| `IResourcesHost` | `native/lfw/resources.h:30-48` | 6 |
+| `IZip` | `native/lfw/ditto/zip/i_zip.h:15-25` | 4（3 纯虚 + `md5()` 默认） |
+| `IZipObject` | `native/lfw/ditto/zip/i_zip_object.h:16-30` | 6 |
+| `IClock` / `ITimeout` | `native/lfw/base/clock.h:11-18` / `:22-27` | 4 / 2 |
+| `IRenderScheduler` | `native/lfw/base/render_scheduler.h:15-20` | 2 |
+| `IXML` / `IXMLElement` | `native/lfw/ditto/xml/i_xml.h:16-34` / `i_xml_element.h:35-115` | 7 / **46** |
+| 回调三件 | `LfwKeyboardCallback` `lfw.h:80-84` / `LfwPointingsCallback` `lfw.h:98-107` / `LfwSoundsCallback` `lfw.h:110-131` | 2 / 6 / 6 |
+
+合计 **178 个面**（`ILfwHost` 的 70 + 其余 108）。
+
+**按"平台对象"分簇**（这是 `src/LFW/ditto/Instance.ts:36-75` 的 `IDittoPack` 的分法，
+`src/init.ts:35-74` 的 `Ditto.setup({...})` 就是这张表的实例化；端口侧
+`native/README.md:12-14` 把它列为"注入边界"的对应关系）：
+
+| # | 簇 | 面数 | 端口接口 | TS 实现 |
+|---|---|---|---|---|
+| 1 | 值 / 数据集 / 杂项（`Value` 形状的通道） | 13 | `lfw.h:172,193,196-205,242,265` + `:174-175` | `src/init.ts:55-61`（warn/error/Log/debug/DEV/IsDesktop）、`src/DittoImpl/md5.ts`、`ImageMgr.ts` 的 `measure_text` |
+| 2 | 生命周期 / 回调注册 / 指针夺取 | 18 | `lfw.h:140-154,157-170,237-239` | `Sounds`/`ImageMgr`/`Keyboard.ts`/`Pointings.ts`/`ui/UIInputHandle.ts` |
+| 3 | 音频 | 18 | `lfw.h:208-232` | `sounds/Modern.ts` + `sounds/Sounds.ts`（+ `sounds/Fallback.ts`） |
+| 4 | 世界渲染 | 5 | `lfw.h:177` + `world.h:61-68` | `renderer/WorldRenderer.ts` 一族 |
+| 5 | UI 渲染 | 10 | `lfw.h:179-182` + `ui_node_renderer.h:19-27` | `renderer/UINodeRenderer.ts`（+ `HeadlessUINodeRenderer.ts` 先例） |
+| 6 | 玩家信息（`Ditto.Cache`） | 3（+4 转发） | `lfw.h:245-247` / `player_info.h:45-56` | `cache/Cache.ts` + `AsyncCache.ts` |
+| 7 | 资源 / 图片（`Importer` / `ImageMgr` / `XML`） | 9（+6 转发） | `lfw.h:184-191,249-257` / `resources.h:30-48` | `Importer.ts`、`ImageMgr/ImageMgr.ts`、`handle_image_operation.ts`、`xml/XML.ts` |
+| 8 | zip（`IZip` / `IZipObject` / `Ditto.Cache`） | 17 | `lfw.h:269-287` + `i_zip.h:15-25` + `i_zip_object.h:16-30` | `Zip.ts`、`LazyZip.ts`、`download/`、`cache/` |
+| 9 | 时钟 / 定时 / 渲染调度 | 8 | `clock.h:10-25` + `render_scheduler.h:15-20` | `Clock.ts`、`Timeout.ts`、`Interval.ts`、`Render.ts` |
+| 10 | XML | 53 | `i_xml.h:16-34` + `i_xml_element.h:35-115` | `xml/XML.ts`（浏览器 DOM 版 `xml/XMLElement.ts`） |
+| 11 | 输入 / 事件回调 | 14 | `lfw.h:71-131` | `Keyboard.ts:55-83`、`Pointings.ts:56-90`、`__PointingEvent.ts:29-62` |
+
+**两处要点（后面反复用到）**：
+
+* 簇 6、7 的接口在端口里是**转发层**：`LFW` 自己实现了 `IResourcesHost` / `IPlayerInfoHost`
+  （`lfw.h:297-299`），实现体只是转给 `ILfwHost`（`lfw.cpp:842-890`）。⇒ 导入表里只填**叶子**
+  那一份（`ILfwHost` 上的 `import_as_*` / `xml_parse` / `player_cache_*`），别把两套都填。
+* 簇 10（53 个面，占全表 30%）在端口里**已经有纯逻辑实现**：`lfw/ditto/xml/tool_xml.{h,cpp}` /
+  `tool_xml_element.{h,cpp}` 就在核心目录里，headless 宿主也只是把它转发一下
+  （`host/headless_host.cpp:327`）。⇒ **XML 不过界**（见 W3）。
+
+### W3. 接口映射表
+
+一行一个簇。过界方式只有四种：**(a) 同步函数调用**、**(b) 命令缓冲**、**(c) 反向回调**、
+**(d) 不过界（WASM 内实现）**。
+
+| # | 端口接口（`path:line`） | TS 实现（`src/…`） | 过界方式 | 备注 |
+|---|---|---|---|---|
+| 1 | `lfw.h:196` `dev` / `:198` `now` / `:199,203-205` `warn/error/log/debug_msg` / `:202` `warn_async` / `:193` `md5` / `:242` `measure_text` / `:265` `lang_apply` / `:174-175` `*_forget` / `:172` `is_desktop` | `init.ts:55-61`、`md5.ts:1-6`、`ImageMgr.ts:184-190`、`cache/Cache.ts`、`download/partial_store.ts` | (a) 同步；(b) 只给日志/告警 | `warn_async` 天然是"晚一点"，端口已把它建模成另一个口（`lfw.h:200-202`），JS 侧用微任务队列即可 |
+| 2 | `lfw.h:140-154` init/callback 注册、`:237-239` dispose、`:157-170` grab/ungrab/grabbing | `sounds/Sounds.ts`、`ImageMgr.ts`、`Keyboard.ts:44-50`、`Pointings.ts:15-27`、`ui/UIInputHandle.ts` | (a) + (d) | `grab/ungrab/grabbing` 一旦 hit test 进 WASM（W10）就整支 (d) |
+| 3 | `lfw.h:208-219` 播放族、`:222-232` 音量/静音、`:234-235` 声音回调 | `sounds/Modern.ts`、`sounds/Sounds.ts` | (b) 命令缓冲 | `sounds_play_bgm` 返回 `std::function<void()>`（`lfw.h:208`）⇒ 过界时落成停止句柄，见 W6 |
+| 4 | `lfw.h:177` `create_world_renderer` + `world.h:64-67` | `renderer/WorldRenderer.ts:23` | (b) 命令缓冲 | `render(dt)` 是唯一入口（`world.cpp:452` 调 `renderer_->render(dt)`） |
+| 5 | `lfw.h:179-182` + `ui_node_renderer.h:19-27` | `renderer/UINodeRenderer.ts:36` | (b) 命令缓冲 + (d) | 端口的 `IUINodeRenderer` **没有** `render()`/`add`/`del`，所以绘制发射器必须是新写的（W5）；9 个生命周期钩子由 `UINode` 调（`uinode.cpp:558-728`），可以给一个共享空实现 |
+| 6 | `lfw.h:245-247` / `player_info.h:49-55` | `cache/Cache.ts`、`AsyncCache.ts` | (a) 同步 | TS 侧是 `Promise`（`src/LFW/ditto/cache/ICache.ts:11`），端口是同步（`player_info.h:49-55`）⇒ 必须**预取或失败**，见 W9 |
+| 7 | `lfw.h:184` `load_img` / `:187-188` `ui_image_load` / `:191` `ui_image_pin` / `:249-256` `import_as_*` / `:257` `xml_parse` | `ImageMgr.ts:194-211`、`handle_image_operation.ts`、`Importer.ts`、`resources.h:30-48` 对应的 `Resources.import_*`（`src/LFW/Resources.ts:25-90`） | (a) + (c)：图片 = 句柄 + 异步完成回调 | `import_*` 在 TS 里是"zip 未命中才走的网络回退"（`src/LFW/Resources.ts:25-33`），而端口是同步 ⇒ 未定（W9/W14） |
+| 8 | `lfw.h:269-287` + `i_zip.h:18-22` + `i_zip_object.h:19-29` | `Zip.ts:75-163`、`LazyZip.ts`、`download/`、`cache/` | (a) 批量灌入 + (c) 下载完成 | TS 的条目读取全是 `async`（`Zip.ts:40-73`），端口的 `IZipObject` 全是同步 `bool`（`i_zip_object.h:19-29`）⇒ 必须"JS 先备好字节"，见 W9 |
+| 9 | `clock.h:14-17`、`:25-26`、`render_scheduler.h:18-19` | `Clock.ts:1-37`、`Timeout.ts:1-9`、`Render.ts:1-22`、`Interval.ts` | (c) 反向回调 | 三个槽的语义**各不相同**（`render_scheduler.h:7-14` 记着混用出过 UAF），JS 侧不能合并实现 |
+| 10 | `i_xml.h:20-33` + `i_xmlelement.h:40-114` | `xml/XML.ts`、`xml/XMLElement.ts`（DOM 版） | (d) 不过界 | WASM 内直接用 `lfw/ditto/xml/tool_xml.*`；代价是放弃浏览器 DOM 语义（`i_xml.h:11-15` 已说明，偏差表有登记） |
+| 11 | `lfw.h:80-84`、`:98-107`、`:110-131` | `Keyboard.ts:39-50`、`Pointings.ts:15-22`、`sounds/*` | (a) POD 结构同步推入（每帧一批） | 三个结构体都是纯标量 + 字符串（`lfw.h:71-94`、`:110-131`），**不需要序列化** |
+
+**为什么 XML 走 (d) 而不是复用 JS 的 `XMLElement`**：那会把 46 个虚函数的每一次
+`attr()/as_number()/children()` 都变成一次跨界调用（`lxw` 数据包里有 12 个 `.xml`，
+`native/README.md:258` 记了 7 个 bg + 5 把武器），而且浏览器版与 tool 版语义本来就有差
+（DESIGN §84 已登记）。反过来，**渲染**必须走 (b) 而不是 (d)，因为"能不能画得跟现在一样"正是
+复用 `src/DittoImpl/renderer/` 的全部意义。
+
+### W4. 导入表形态
+
+**形态**：一张 `extern "C"` 的**函数指针表**（"platform table"），JS 在初始化时填好，WASM 侧读它
+构造 `LfwPlatformHost`。建议落在 `native/ffi/lfw_c.h`（`native/README.md:157` 已预留位置）：
+
+```c
+/* native/ffi/lfw_c.h —— 纯 C ABI：能被 JS(emscripten glue) 与将来的桌面壳共同消费 */
+#define LFW_ABI_VERSION 1u
+
+typedef struct LfwPlatform {
+  uint32_t abi_version;      /* 必须 == LFW_ABI_VERSION，否则 lfw_create 直接失败 */
+  uint32_t struct_size;      /* 结构体字节数：允许将来尾部追加字段 */
+  void*    user;             /* JS 自己的上下文（一般不用） */
+
+  /* ---- 9. 时钟 / 定时 / 渲染调度（反向回调） ---- */
+  double (*clock_now)(void* user);
+  int32_t (*clock_add)(void* user, uint32_t cb_id);      /* 返回 0 = 没有句柄（同 clock.h:47-55 的约定） */
+  void    (*clock_del)(void* user, int32_t handle);
+  int32_t (*clock_hidden)(void* user);
+  int32_t (*timeout_add)(void* user, uint32_t cb_id, double ms);
+  void    (*timeout_del)(void* user, int32_t timer_id);
+  int32_t (*render_add)(void* user, uint32_t cb_id);     /* raf，重复回调 */
+  void    (*render_del)(void* user, int32_t handle);
+
+  /* ---- 1. 日志 / 杂项 ---- */
+  void (*log)(void* user, uint32_t level, const char16_t* s, uint32_t len);
+
+  /* ---- 7/8. 资源 / 图片 / zip（同步；变长返回走 scratch） ---- */
+  int32_t (*measure_text)(void* user, const char16_t* text, uint32_t tlen,
+                          const uint16_t* style_scratch, uint32_t style_words);
+  int32_t (*ui_image_load)(void* user, const char16_t* key, uint32_t klen,
+                           const uint16_t* ops_scratch, uint32_t ops_words);
+  void    (*ui_image_pin)(void* user, const char16_t* key, uint32_t klen);
+  void    (*preload_image)(void* user, const char16_t* path, uint32_t plen);
+  /* … 其余同构；同名字段一一对应 ILfwHost 的面 … */
+} LfwPlatform;
+
+/* 导出 */
+void  lfw_platform_init(const LfwPlatform* table);      /* JS 填好表后调用一次 */
+void* lfw_create(uint32_t dev);
+int32_t lfw_load(void* lfw, const uint32_t* zip_handles, uint32_t count);
+void  lfw_frame(void* lfw, double dt_ms);
+void  lfw_boot_scene(void* lfw, /* 装配参数：stage/bg/fighters/players/vs … */);
+uint32_t lfw_cmd_buffer_ptr(void* lfw);   /* 只读：最近一帧的命令缓冲 */
+uint32_t lfw_cmd_buffer_len(void* lfw);
+uint64_t lfw_digest(void* lfw);           /* core/state_hash.h，用来跟 lfw_run 对拍 */
+```
+
+**为什么不用 embind / JS 实现的 C++ 虚类**：
+
+1. 端口的编译口径**没有异常、没有 RTTI**（`native/lfw/CMakeLists.txt` 的 `/GR-` +
+   `_HAS_EXCEPTIONS=0`、`native/cmake/toolchains/emscripten.cmake:13-14` 的 `-fno-exceptions
+   -fno-rtti`）。embind 需要异常与 RTTI，等于为了边界把核心的硬规则破掉。
+2. 端口的数据形状**没有稳定 ABI**：`Value` 是 `std::variant<std::monostate, NullTag, bool,
+   double, std::u16string, shared_ptr<Array>, shared_ptr<Object>>`（`native/lfw/core/value.h:21-22`），
+   `Object` 里是 `std::map` + `std::vector`（`value.h:42-55`）。让它出现在边界上，等于把
+   libstdc++ 的布局写进接口。
+3. `IDittoPack` 是一张**平的**表（`src/LFW/ditto/Instance.ts:36-75`）。C 侧照抄成平的函数指针表，
+   JS 侧就是 `Ditto.setup` 的镜像，语义一一对应、可机械核对。
+4. 同一份 C ABI 还能给将来 Electron/Wails 原生壳用（`native/README.md:3-4` 的目标）。
+
+**命名 / 调用约定**：所有导出与函数指针用 `lfw_` 前缀 + snake_case，`extern "C"`，
+默认 wasm32 C 调用约定（不要 `__stdcall`）；参数只用标量、`const char16_t*` + `len`、
+或 WASM 线性内存里的 scratch 指针；结构体**不按值过界**（避免 ABI 对齐分歧）。
+
+**错误 / 返回约定**（全局一条，便于写 JS 胶水）：
+
+* 返回 `int32`：`0` = 成功，`-1` = 失败。需要 `bool` 的面（`ui_image_load`、`import_as_*`、
+  `zip_read_*`）用 `0/1`。
+* 需要 `error` 出参的面（`lfw.h:187-188`、`:246`、`:270-281`）走**统一的错误 scratch**：
+  JS 把 UTF-16 消息写进 `lfw_error_scratch()` 返回的缓冲区（固定 1 KiB），并把长度写进
+  `lfw_error_len()`；WASM 侧的 shim 把它拷进 `std::u16string& error`。头文件里写死
+  "错误 scratch 只在出错时写，且长度上限是容量"，超长截断。
+* `nullptr` / `0` 句柄的既有约定照抄：`clock_add` 回 `0` = 没有句柄（`clock.h:47-55`），
+  `render_add` 回 `0`（`render_scheduler.h:31-38`），`IZip::file` 未命中回 `nullptr`
+  （`i_zip.h:20`）。
+
+**哪些面明确不许逐次过界**：
+
+| 面 | 为什么 |
+|---|---|
+| `IWorldRenderer::render`（`world.h:66`） | 一帧几百~上千次绘制；而 JS 侧**根本看不到** `World`/`Entity`（它们在 WASM 内存里），每次绘制都要回头查一次状态 ⇒ 必须改成"WASM 内遍历、一次交一批" |
+| UI 绘制（`ui_node_renderer.h` 一族） | 同上；而且端口的 `IUINodeRenderer` 连 `render()` 都没有（只有生命周期，`ui_node_renderer.h:19-27`），逐节点过界也没有接口可挂 |
+| `ILfwHost::sounds_play` / `sounds_play_bgm`（`lfw.h:208-210`） | 每帧几十次；TS 的 `Sounds` 自己带排队/去重（`src/DittoImpl/sounds/Sounds.ts`），逐次过界会把排队语义搬到 JS 而时间轴留在 WASM |
+| 输入（`lfw.h:82-106`、`:145-154`） | 一次 DOM 事件一次跨界；且 TS 里指针事件本来就先被 `UIInputHandle` 攒成 `push_cmd`（`UIInputHandle.ts:42-56`）——WASM 侧保留这个"攒"的语义，只是攒在 WASM 里 |
+
+**允许逐次过界的白名单**（便宜且低频）：`now()`、`clock_add/del/hidden`、`timeout_add/del`、
+`render_add/del`、`dev()`、`is_desktop()`、`warn/error/log/debug_msg`、`md5`、
+`measure_text`（UI 构建期，且有缓存，`uinode.cpp:176-201`）、`ui_image_load`/`ui_image_pin`
+（装载/换页期）、`sounds_volume*` 等 getter/setter（用户操作才触发）。
+
+### W5. 渲染命令缓冲格式
+
+**形状**：一帧 = 帧头 + 指令流，全部在 WASM 自有的一块连续内存里；JS 只读。
+
+```
+帧头 (定长 68B)
+  u32 magic(0x4C46574D "LFWM") | u32 frame_id | u32 instr_count | u32 flags
+  f64 dt_ms | f32 screen_w | f32 screen_h | f32 camera_x | f32 camera_y
+  f32 tf[6]  /* world.transform: x,y,z,scale_x,scale_y,scale_z —— world.h:91 的 Transform */
+  u32 indicators /* dataset.entity_flags 与 bg_flags 的调试指标位，WorldRenderer.ts:227-236 */
+
+指令 (每条) 
+  u16 op | u16 flags | u32 size | 负载(定长区 + 变长区，都对齐 4B)
+```
+
+**资源句柄而不是字符串**：`Entity` 的 `mix_color`/`outline_color` 是 `std::u16string`
+（`entity.h:164`、`entity.h:152`），`UINode::image()` 里的 `path`/`src` 也是字符串
+（`ui_load_img.cpp:47`、`picture.cpp:76`）。每帧发字符串会把边界成本变成 O(字符数 × 绘制数)。
+⇒ 新增一张**资产注册表**（WASM 内）：`tex_handle` / `audio_handle` / `font_handle` /
+`str_handle`，装载期注册一次（`REG_TEX(key)`、`REG_STR(s)` 指令或导出函数），之后指令里只带
+`u32`。`0` 保留为"无/无效"。
+
+**双缓冲**：`frames[2]` + `write_index` / `ready_index`。理由不是"多线程"，而是**同一帧里
+`render` 可能被调两次**：`World::update_once` 在 `sync_render == Sync/Half` 时会自己
+`render_once(dt)`（`world.cpp:1039-1052`），而 `World::start_render` 注册的 raf 回调
+（`world.cpp:570-599`）也会 `render_once(real_dt)`。JS 在 raf 回调返回后才读 `ready` 那一块，
+所以"写入中的缓冲"永远不被读。
+
+**谁分配谁释放**：WASM 拥有缓冲（建议 `std::vector<uint8_t>`，按需 `resize`），JS 只读
+（`lfw_cmd_buffer_ptr/len`）。变长负载（文本、名字）也放在同一块缓冲里，指令里存
+`(offset, len)`，**不要在边界上二次 malloc**。
+
+**opcode 草案（从接口与 TS 渲染器推出）**：
+
+| opcode | 负载（要点） | 依据 |
+|---|---|---|
+| `BEGIN_FRAME` | 帧头 | `world.cpp:452` 是唯一渲染入口 |
+| `BEGIN_PASS` / `END_PASS` | pass id：`ui_bg` / `bg` / `entities` / `fg` / `ui_fg` | `WorldRenderer.ts:256-273` 的固定次序（`clearDepth` 分隔） |
+| `SPRITE` | tex, clip(x,y,w,h), dst(x,y,w,h), origin(ox,oy), rot(cos,sin), flip | `EntityMainRender.ts:707-747`（`pic.x/y/w/h`、`ox/oy`、`__cos_r/__sin_r`、`set_clip`） |
+| `TINT` | mix_color(handle 或 rgba), opacity | `EntityMainRender.ts:786-796`（`mixColor`、`alpha`） |
+| `OUTLINE` | color, alpha, width, enabled | `EntityMainRender.ts:782-792`；端口字段 `entity.h:152-163` |
+| `SHADOW` | cx, cy, rx, ry, opacity | `EntityShadowRender.ts:45,91-101` |
+| `BAR` | rect, color, ratio | `Bar.ts:19-34`、`EntityStatRender.ts:187-197`（血/蓝条） |
+| `TEXT_BILLBOARD` | str_handle, style_handle, x,y,z, align | `EntityNameRender.ts:49-50`、`EntityCtrlRender.ts:46`（都用 `TextMesh`） |
+| `LINE` | 点数组(offset,len), color, width | `FrameIndicators.ts:103,205,222,240`、`TerrainIndicator.ts:91-107`、`BgLayerIndicator.ts:61-71` |
+| `MODEL` | model_handle, transform | `EntityMainRender.ts:32-95`（GLTF/GLB 是 PBR，要光：`WorldRenderer.ts:141-145`） |
+| `UI_BEGIN` / `UI_END` | node_handle, x,y,z,w,h, center_x/y, opacity, visible, color, clip_children | `HeadlessUINodeRenderer.ts:8-27` 的 `IUISnapshotItem`（文件注释直接写着"快照格式就是将来 C++ 侧要往 JS 传的那份 UI 数据"，`:34`） |
+| `UI_IMAGE` | tex, clip, nine_patch, flip_x/y | `UINodeRenderer.ts:200-233` 的 `apply()`（`set_origin_size/scale/clip`） |
+| `UI_TEXT` | str_handle, style, align, scale | `UITextRenderer.ts`（`TextMesh.ts:78-103` 用 `CanvasTexture`） |
+| `CLIP_PUSH` / `CLIP_POP` | rect | `UINodeRenderer.ts` 的 `_frame_rect`/`_clip_*`；`IUISnapshotItem.clip_children` |
+| `CURSOR` | from_handle, x, y, alpha, cursor_name | `CursorRender.ts:1,209-231`（它**读** `get_pointer_cursors`） |
+
+**未定**：`MODEL`（GLTF）在第一版是否纳入 —— 它需要 `GLTFZipLoader`（`renderer/GLTFZipLoader.ts`）
+与光照，且深度隔离策略是 per-group 的（`WorldRenderer.ts:323-380`）；建议第一版只发指令、
+JS 端"模型实体先不画"（并把这个差异写进验收）。
+
+### W6. 音频命令
+
+**命令批**（每帧一段，`op` 与 W5 同一套 `u16 opcode` 空间）：
+
+| op | 负载 | 依据 |
+|---|---|---|
+| `AUDIO_PLAY` | audio_handle, x?, y?, z?, 返回 token → 写回 `audio_tokens` 表 | `ISounds.play(name,x?,y?,z?): string`（`src/LFW/ditto/sounds/ISounds.ts`，端口面 `lfw.h:210`） |
+| `AUDIO_STOP` | token | `stop(id)`（同上） |
+| `BGM_PLAY` | audio_handle, restart | `play_bgm(name, restart?): () => void`；端口把它建模成 `std::function<void()>`（`lfw.h:208`） |
+| `BGM_STOP` | token | 上一条返回的闭包的等价物：**不把 JS 闭包搬回 WASM**，改成一个"停止句柄" |
+| `BGM_STATE` | bgm_handle / is_random | `sounds_bgm()` / `sounds_is_random()`（`lfw.h:218-219`）是 getter，JS 仍是权威 |
+| `AUDIO_LOAD` | audio_handle, src_handle | `sounds_load(name, src)`（`lfw.h:216`，启动页预载） |
+| `PLAY_WITH_LOAD` | src_handle, x, y, z | `sounds_play_with_load`（`lfw.h:214`） |
+| `SET_VOLUME` / `SET_MUTE` | kind(bgm/sound/master), value | `lfw.h:222-232` |
+
+**音量/静音的归属**：TS 里音量是**平台状态**，端口只提供 getter/setter 与变更事件
+（`lfw.h:222-232` 与 `LfwSoundsCallback` 的 `on_volume_changed` 一族，`lfw.h:118-131`）。
+⇒ 保持 JS 权威：WASM 发命令 + 收事件，**不要**在 WASM 里另存一份音量。
+**未定**：`loop` / `pan` / `rate` 这些字段在端口里没有对应物（TS 藏在实现里），第一版按
+"不暴露"处理。
+
+### W7. 字符串与内存约定
+
+**字符串：UTF-16 直传，不转 UTF-8。** 端口全程 `std::u16string`（`value.h:21`、`lfw.h` 各面），
+`char16_t` 与 JS `Uint16Array` 布局一致（小端）⇒ 过界就是 `(const char16_t*, len)`，
+JS 侧 `m.HEAPU16.subarray(ptr >> 1, (ptr >> 1) + len)` 或 `TextDecoder('utf-16le')`。
+`encode_utf8/decode_utf8` 只属于 IO 面（`host/fs_zip.cpp` 读盘用），**不要**用在边界上。
+高频字符串（路径、页面 id、按键名）走 `str_handle` 注册表（W5）。
+
+**`Value` 绝不过界**（原样）。它是递归的 `std::variant`（`value.h:21-22`）+ `Object`/`Array`
+（`value.h:24-55`）。规则两条：
+
+* **WASM → JS**：只发扁平记录（标量 + 句柄 + 字符串），照抄 TS 自己设计的
+  `IUISnapshotItem`（`HeadlessUINodeRenderer.ts:8-27`）。
+* **JS → WASM**：JS **不构造 `Value`**；它往一个共享 scratch 写"tag + 定长字段 + 变长区"，
+  WASM 侧的 shim 再把字段装进 `Value`。headless 现在就是这么做的（`headless_host.cpp:128-142`
+  手工拼 `Object`、`:211-220` 手工拼 `TextInfo`），把这段逻辑从 `host/` 挪进 WASM 宿主即可。
+* 只有两处需要"结构化"的入参：`ui_image_load` 的 `ops`（`Array<Object>`，由
+  `ui_load_img.cpp:70-83` 生成）与 `measure_text` 的 `style`（`Object`）。给它们一个共用的
+  `style_scratch`：`{ u16 kind; f64 fields[N]; u16 str_words[M]; }`，字段顺序在两份代码里写死。
+
+**scratch 缓冲**：`LfwPlatformHost` 持一块固定大小（建议 8 KiB）的 scratch，每条调用重置；
+**不许在回调里 `malloc`**（分配会破坏"指针借用期"的规则，见下）。
+
+**`HEAPU8` 增长失效规则**（`-sALLOW_MEMORY_GROWTH` 的直接后果）：
+
+* 任何一次**进入 WASM**的调用都可能触发内存增长 ⇒ JS 侧**不得跨调用缓存**
+  `HEAPU8/HEAPU16/HEAP32` 视图；每次调用后重新取。`-sALLOW_MEMORY_GROWTH` 与
+  `-sUSE_PTHREADS`（共享内存）不能共存，正好端口是单线程（`native/README.md:30`）。
+* 从 WASM 返回的**裸指针只在"下一次进入 WASM 之前"有效**（借用期 = 当前调用）。
+  命令缓冲也按这条读：`lfw_cmd_buffer_ptr()` 之后、下一次调用 `lfw_*` 之前把它读完。
+
+**所有权**：命令缓冲 / scratch / 资产注册表 = **WASM 自有**；解码后的位图、纹理、AudioBuffer、
+JS 的 `Map` = **JS 自有**（WASM 只见句柄）；`REG_STR` 是唯一"JS 往 WASM 写字符串"的口子，
+且只在装载期用。
+
+### W8. 时间与帧
+
+**一帧的顺序**（JS 的 raf 回调里）：
+
+```
+1. drain 输入队列      -> lfw_key(...) / lfw_pointer(...)        (W10)
+2. wasm.lfw_frame(dt_ms)                                        (逻辑 + 渲染)
+3. 读 ready 命令缓冲 -> three.js / WebAudio 提交                 (W5/W6)
+4. (装载期) 消化资产完成通知 -> lfw_notify_asset(...)             (W9)
+```
+
+**谁驱动四个槽**：JS 实现 `IClock` / `ITimeout` / `IRenderScheduler` 三件（W4 的表），WASM 里的
+`Ticker`（`ticker.h:21-188`）与 `World::start_render`（`world.cpp:570-599`）**按 TS 原样跑**：
+
+* `Clock.add` 必须是**一次性批量 flush**：TS 的 `Clock.ts:9-22` 用一个 `MessageChannel`
+  在下一个宏任务里把整批跑完并清空。端口的 `render_scheduler.h:7-14` 专门记过"把它和 raf
+  混用会出 `Ticker` 停掉后旧回调还在的 UAF"。
+* `Timeout.add` = `setTimeout`（`Timeout.ts:3-9`）。
+* `Render.add` = **重复** raf（`Render.ts:6-19` 在回调里再 `requestAnimationFrame`）。
+* `Ticker::schedule` 会**二选一**：离 deadline 还早且有超时槽时走 `timeout_add(delay - 1)`，
+  否则走 `clock_add`（一次性唤醒，`ticker.h:115-125`）⇒ 三个槽都得实现，缺一个就退化成
+  "只在一帧末尾步进"。
+
+**dt 是可变还是固定**：端口侧 `Ticker::step_once` 自己算
+`dt = clamp(t0 - _last_step, 0, _base * 4)`，并让 `_span` 在 `[1, max_span=2]` 间自适应
+（`ticker.h:136-160`）⇒ **可变 dt**。不改这条：TS 就是这么跑的。
+
+**确定性的说法**：一帧的输入是 `(dt, 输入批, 当前状态)`，一帧的输出是确定的；但**什么时候**
+发生（墙钟、raf 频率、隐藏标签页）不可复现 —— 与 TS 完全同构。
+
+**要复现（回放 / CI / 跨宿主对拍）**：让 WASM 宿主可以切到"手动模式" —— **不装**
+Clock/Timeout 槽（`add` 回 `0` = 没有句柄，这个回落约定在 `clock.h:47-55` 写着；
+`host/headless_host.h:20-37` 的 `ManualClock`/`NoopTimeout` 就是它），由 JS 显式
+`lfw_frame(固定dt)` 推。此时 `Ticker` 自己不会走，与 `lfw_run --frames`（`host/lfw_run.cpp:419-424`）
+完全同构 ⇒ 可以拿两边同一个 digest 对拍（W13）。
+
+### W9. 异步面
+
+需要**回到 WASM** 的三件：图片解码、zip 下载/解压、装载完成。
+
+**机制**：WASM 侧持一张 `cb_id -> std::function<void()>` 表（`uint32` 自增），JS 侧持
+`cb_id -> 自己的闭包`；JS 用一个通用导出 `lfw_invoke(cb_id, arg0, arg1)` 回调进 WASM。
+约定：
+
+* **有序**：按 JS 的完成顺序投递；WASM 侧按 **handle 匹配**，不按到达顺序。
+* **一次性**：同一 handle 只许成功或失败一次。
+* **取消**：JS 用 `AbortController`（TS 的 `download_resumable` 已经吃 `opts.aborted`，
+  `Zip.ts:95-114`）；取消后只允许回一次失败，且必须被消费一次。
+* 回调的重入点固定在**帧边界**（第 4 步），不在 `update_once` 中间。
+
+**图片是最麻烦的一件**，因为端口的接口是**同步**的：
+
+* `ILfwHost::ui_image_load` 返回 `bool` + 出参（`lfw.h:187-188`），而浏览器解码
+  （`createImageBitmap`）是异步的；端口已经把 TS 的 Promise 塌成同步，并**明确登记**了这条
+  偏差（`ui_img_loader.h:50-51`："两次 `jid !== _jid.value` 比较只在宿主重入时才可能翻转"）。
+* 更糟的是调用方**失败后只告警、不重试**：`picture.cpp:88-96` 里 `!result.ok` 只发
+  `warn_async`。所以"未命中 ⇒ 返回 false"在当前语义下等于**永久占位图**。
+* ⇒ WASM 宿主必须补一套 **miss → 完成 → 补装**：
+
+  1. 命中（JS 已解码并注册句柄）⇒ 同步返回扁平 `ImageInfo`；
+  2. 未命中 ⇒ 返回 `false`，并把 `(node, img_key, ops)` 记进宿主的 pending 表；
+  3. JS 解码完成 ⇒ `lfw_notify_asset(tex_handle, key)`；
+  4. 宿主在 pending 表里找出该 key 的所有请求，重跑 `set_image` + `resize`
+     （就是 `IUIImgLoaderNode` 的两个方法，`ui_img_loader.h:20-29`）。
+     **未定**：同一 key 多节点要不要去重（TS 的 `ImageMgr.infos.fetch` 天然去重）。
+
+**zip 同理，但可以绕开**：TS 的条目读取全是 `async`（`Zip.ts:40-73`：`text/json/blob_url/
+array_buffer/image_bitmap`），端口的 `IZipObject` 全是同步 `bool`（`i_zip_object.h:19-29`）。
+JSZip 的 `file()` / `file()` + 正则索引是**同步**的（`Zip.ts:122-141`）、`files` 索引也是
+（`Zip.ts:154-163`），只有**读条目内容**是异步的。⇒ 方案：**JS 先把条目索引 + 条目字节备好**，
+一次性灌进 WASM（见 W13 第 2 步），WASM 里用一份"内存包"实现 `IZip`/`IZipObject`
+（`array_buffer` 给字节、`text` 走 `decode_utf8`、`json` 走端口自己的 JSON5 —— 都在核心里有）。
+这样**解析留在 WASM**，只有**字节**过界。**未定**：`ZipObject.blob_url`（`Zip.ts:49-51`，
+`URL.createObjectURL`）与 zip 的 `set()/blob()` 覆写（`Zip.ts:139-144,145-153`）要不要保留 ——
+它们属于编辑器/打包路径，运行时用不到。
+
+**第一版不上线程/Worker**：解码放 Worker 要 `OffscreenCanvas`/`transferToImageBitmap`
+（`ImageMgr.ts:30-31` 已经在探测这个能力），先全在主线程。
+
+### W10. 输入
+
+**队列 → 每帧批**（关键是不让 DOM 事件的节奏进逻辑）：
+
+1. JS 在 canvas 上挂监听（`Pointings.ts:56-90` 的 8 个 + `Keyboard.ts:92-94` 的
+   `keydown/keyup/focusin`），**只做 POD 化**：`__PointingEvent.ts:29-62` 已经算好
+   `x/y/scene_x/scene_y/button/delta_x/delta_y`（含滚轮的 UI 像素换算），
+   `Keyboard.ts:55-63` 已经算好小写 `key` 与 `times`；
+2. 全部塞进一个数组（带 `now` 时间戳）；
+3. raf 的开头 drain：逐条调导出 `lfw_key(event)` / `lfw_pointer(event)`。
+
+`LfwKeyEvent`（`lfw.h:71-79`）与 `LfwPointingEvent`（`lfw.h:86-94`）都是
+**纯标量 + 字符串指针** ⇒ 不需要序列化，也不需要句柄。`LfwKeyEvent::interrupt()`
+（`lfw.h:77`）是**写回**：WASM 置 `interrupted`，JS 在调用返回后读到就
+`preventDefault/stopPropagation`（TS 的 `interrupt` 就是这三件事，`Keyboard.ts:30-34`）。
+
+**落地路径**：
+
+* 键 → `LFW::on_key_down/up`（`lfw.h:411-412`；`LFW` 自己就是 `LfwKeyboardCallback`，
+  `lfw.h:297-299`），注册走 `keyboard_add_callback`（`lfw.h:145`，TS 侧是
+  `Keyboard.ts:44-50` 的 `callback.add`）。
+* 指针 → **端口现在没有 `UIInputHandle`**：`pointings_add_ui_input` 是宿主面
+  （`lfw.h:147`，`lfw.cpp:249` 调它），TS 那份实现在 `ui/UIInputHandle.ts` 里用
+  three.js `Raycaster` 打网格（`UIInputHandle.ts:119-126`）算出节点路径，再
+  `push_cmd(CMD.POINTER_*, '--paths=…')`（`UIInputHandle.ts:42-56,76-88`）。
+* ⇒ **把 hit test 搬进 WASM**：几何本来就在 WASM（`UINode::cross()` / `rect()` / `geo()` /
+  `hit()`，`native/lfw/ui/uinode.h:126-152`，`uinode.cpp:287-330`），WASM 宿主新写一个
+  `WasmUIInputHandle` 复现"DOM 事件 → 命中节点 → 组 `CMD.POINTER_*` 命令"
+  （命令解析器已经全在 `native/lfw/cmds/cmd_pointer_events.cpp` 里，且 `--paths` 的读法
+  `read_targets` 就在那儿）。JS 不再参与 hit test。
+* 这样 `grab/ungrab/grabbing`（`lfw.h:157-170`）与 `set_local_cursor` 的**写面**
+  （`cmd_pointer_events.h:43-45`；DESIGN §8.29 记着它"平台层调用、无 op 驱动"）都变成
+  **WASM 内部**的事；JS 只**读**光标（`get_pointer_cursors`，`cmd_pointer_events.h:40-42`
+  返回活表）——读通过每帧一条 `CURSOR` 指令完成（W5 表末行），**不需要反向调用**。
+* **未定**：(1) hit test 与 three.js 射线求交的等价性 —— 旋转/缩放节点、裁剪矩形、
+  `UINodeRenderer` 的位移/透明度指数平滑（`UINodeRenderer.ts:395` 的 `SMOOTH_TAU`）
+  在 WASM 侧没有对应量；
+  (2) 指针坐标基准（TS 用 `element.getBoundingClientRect()`，`__PointingEvent.ts:30-32`，
+  与 canvas 的 CSS 尺寸/DPR 强相关）。
+
+### W11. 确定性边界
+
+原则照 `native/README.md:46-92`：**一帧内的逻辑必须确定**；WASM 宿主的职责只是把平台量喂进去。
+
+| 面 | 允许不确定？ | 依据 |
+|---|---|---|
+| 世界 / 实体 / 碰撞 / 状态机 / cmds / UI 布局 | **必须逐位**（同 dt、同输入、同种子） | 整个 `native/lfw/`；`round_float` 的 1/1000 格点（`native/README.md:82-92`） |
+| `now()`（`lfw.h:198`） | 允许（墙钟） | `new MersenneTwister(Date.now())`；`Clock.now = performance.now`（`Clock.ts:3-6`） |
+| 步进时机（raf / timeout / MessageChannel 触发） | 允许 | `Render.ts` / `Clock.ts` 本身就是墙钟 |
+| `measure_text` 的返回值（`lfw.h:242`） | 允许（字体/设备相关），但**同设备同版本内必须稳定** | `ImageMgr.ts:184-190` 走 canvas `measureText` |
+| 图片尺寸/缩放（`ui_image_load` 的 w/h/scale） | 允许 | 设备解码 + 文件名里的 `@nX` |
+| 音频、下载进度 | 允许 | 纯平台 |
+| `md5`（`lfw.h:193`） | **必须逐位**（与 SparkMD5 一致） | `ui_load_img.cpp:65-68` 用 md5 拼图片 key；`Zip.ts` 用它做缓存名 |
+
+**测试仍然用 headless**：差分/变异/三条摘要（`native/README.md:272-292`）跑的是
+`native/host/`。WASM 宿主与它是**同一批接口的两个实现**，不许互相依赖。为了让"两边跑同一场景"
+成为可能，建议把 `lfw_run.cpp:252-415` 里那段"装包 → 选 stage/bg → 造 `--players` 个 bot 战士 →
+`change_stage`"的装配逻辑抽成与宿主无关的 `lfw_boot(...)`（**未定**：是抽函数还是各自复制），
+并把 `core/state_hash` 的同一个摘要经 `lfw_digest()` 导出（`lfw_run.cpp:140-161` 用的就是它）
+⇒ 于是"浏览器里跑固定 dt N 帧的 digest == `lfw_run --frames N`"成为一条可执行的验收。
+
+### W12. 构建
+
+**第二套 toolchain 已经存在**，只是没验过：`native/cmake/toolchains/emscripten.cmake`
+（已带 `-ffp-contract=off -fno-fast-math`、`-fno-exceptions -fno-rtti`、`-msimd128=off`）
++ `native/CMakePresets.json` 的 `wasm` 预设（`binaryDir = build/wasm`）。
+`native/README.md:112-113` 明确标着"未验证，需要 emsdk"。
+
+**待加**：新 target（建议 `native/ffi/CMakeLists.txt`，把 `lfw_core` 链进来 + 上面那张 C ABI）。
+关键 flags：
+
+```
+--no-entry                       # 没有 main；入口是 lfw_* 导出
+-sMODULARIZE=1 -sEXPORT_ES6=1 -sEXPORT_NAME=createLfw   # 页面用 import() 拿实例
+-sALLOW_MEMORY_GROWTH=1          # 代价见 W7（视图失效）
+-sFILESYSTEM=0 -sENVIRONMENT=web # 核心不做 IO（硬规则），也不需要 node/fs
+-sEXPORTED_FUNCTIONS=[...]       # lfw_platform_init/create/load/frame/boot_scene/digest/…
+-sEXPORTED_RUNTIME_METHODS=['HEAPU8','HEAPU16','stringToUTF16','UTF16ToString','addFunction']
+-fno-exceptions -fno-rtti -ffp-contract=off -fno-fast-math   # 与 MSVC 侧同款（已在 toolchain 里）
+# 单线程：不开 -sUSE_PTHREADS（native/README.md:30「核心是单线程的」）
+```
+
+**产物与加载**：`lfw_wasm.mjs` + `lfw_wasm.wasm`；页面
+
+```ts
+import createLfw from './lfw_wasm.mjs'
+const m = await createLfw({ locateFile: (f) => `/wasm/${f}` })
+// 1) JS 把 LfwPlatform 结构体写进 WASM 堆（_malloc + HEAPU32/HEAPU16 填入，函数用 addFunction）
+// 2) m._lfw_platform_init(table_ptr)
+// 3) const lfw = m._lfw_create(dev ? 1 : 0)
+```
+
+**与 MSVC 那套共存**：`host/`（`lfw_run`）继续用 MSVC 编，**不要**进 wasm target ——
+它用了 `<filesystem>`/`<cstdio>`，而核心的硬规则禁止这些（`native/README.md:16-30`）。
+`native/tools/native.mjs:10` 把 `BUILD_DIR` 写死成 `build/msvc-x64`，`configure/build/test` 全走它
+（`native.mjs:128-153`）⇒ wasm 构建要么加一条 `--preset wasm` 分支、要么单独一个脚本（**未定**）。
+分层不变量：`ffi/` 与 `host/` 都**不许**被 `lfw/` include；现有 lint 只扫 `native/lfw`
+（`native/tools/check_lfw_cpp_includes.mjs:9,98`），建议再补一条"`lfw/` 里不得出现
+`ffi/`/`host/` 头"的检查（**未定/待办**）。
+
+### W13. 落地顺序 + 验收
+
+由便宜到贵，每步都有"看得见"的判据（引自 README 那套口径：同一份数据、同一命令、逐位可复现）：
+
+| 步 | 做什么 | 验收 |
+|---|---|---|
+| 1 | 打通 emscripten 构建 + `LfwPlatform` 表（先只填 clock/timeout/render/log）+ `lfw_create/frame` | 页面**能开窗跑一帧**：`lfw_frame(16)` 不崩，`now()`/`log` 回调被走到 |
+| 2 | zip 灌入（索引 + 字节）+ `lfw_boot`（stage/bg/fighters）+ `change_bg/change_stage` | **能进菜单**：装 `prel.zip` 后 `datas()` 各表数量与 `lfw_run` 一致；UI 页栈起来、`ui_loaded` 为真 |
+| 3 | 渲染命令缓冲（先 `UI_BEGIN/UI_IMAGE/UI_TEXT`，再 `SPRITE/TINT/SHADOW/BAR`） | **能出图**：屏幕上有东西；且手动 dt 下 `lfw_digest()` == `lfw_run --frames N` 的 digest（跨宿主对拍） |
+| 4 | 音频命令批（W6）+ 音量/静音事件 | **能出声**：`sounds_play/bgm` 落到 WebAudio，`on_bgm_changed` 回来 |
+| 5 | 图片异步补装（W9）+ `measure_text` | **界面完整**：头像/血条/文本都出来，且 `[Picture::set_src]` 告警消失 |
+
+顺序的理由：1 最便宜，是唯一"什么都不做也能验证胶水"的一步；2 提供后面所有面需要的**世界数据**；
+3 依赖 2 的数据与 W5 的句柄注册表；5 依赖 3 的注册表（没有 `tex_handle` 就没法补装）。
+
+### W14. 风险与未决问题
+
+1. **per-call vs 缓冲的成本**：允许 per-call 的白名单见 W4；其余一律缓冲。**未定**：每帧跨界
+   调用预算（建议 ≤ 1 次 `lfw_frame` + 1 次命令提交 + 输入条数）。
+2. **边界上的拷贝**：命令缓冲是唯一"每帧必拷"的量；zip 灌入是一次性大拷贝。
+   **未定**：两个数都没量过（`data.zip` 体积、UI 每帧指令条数）。
+3. **内存增长**：`-sALLOW_MEMORY_GROWTH` ⇒ JS 视图失效（W7）；增长时机不可控 ⇒
+   不要缓存任何裸指针（包括 `Array`/`Object` 的内部指针）。
+4. **`measure_text`**：TS 侧有**两份** canvas 文字代码 —— `ImageMgr.ts:409,437`
+   （`measure_text` 用）与 `TextMesh.ts:17,65`（真正画字用）。两份各自实现
+   `split_text_to_lines`/`apply_text_style`。⇒ "布局量到的宽度"与"画出来的宽度"本来就可能不一致，
+   WASM 宿主跨到 JS 之后这个风险**放大**（字体栈、DPR、缩放都会被带进来）。**未定**：要不要把两者
+   统一（那属于改 TS 平台层，超出本方案）。
+5. **图片格式**：`ZipObject.image_bitmap` 按扩展名猜 mime（`Zip.ts:59-73`：png/jpg/jpeg/bmp/
+   webp/gif）。WASM 宿主走 `createImageBitmap` 时沿用同一张表；**未定**：avif 等新格式的设备支持。
+6. **音频后端**：`src/DittoImpl` 同时导出 `sounds/Modern.ts` 与 `sounds/Fallback.ts`
+   （`index.ts:22`）。建议 WASM 宿主只复用 `Modern`；**未定**：`Fallback` 是否还要保留。
+7. **资源获取（`--root`/`--zip` 的浏览器等价物）**：现在是 `LFW.ZIPS = DATA_ZIP_URLS`
+   （`src/init.ts:99-100`）+ `Zip.download`（`Zip.ts:95-114`，带断点续传与 IndexedDB 缓存）
+   + `Cache`（`cache/Cache.ts`）。这套留在 JS 不动。但 `import_as_*` 的**网络回退**在 TS 里是
+   `async`（`src/LFW/Resources.ts:25-90`），而端口是同步（`resources.h:30-48`）⇒ 只能二选一：
+   (a) 未命中即失败（等价 headless 的"文件不存在"，`headless_host.cpp:241-267`）；
+   (b) 加一份"预取清单"，JS 先把可能用到的 URL 拉成字节再进 WASM。**未定**。
+8. **`IXMLElement` 的 46 个面**：本方案不让它过界（W3/W2）。代价是放弃浏览器 DOM 语义
+   （DESIGN §84 已登记 tool 版 vs 浏览器版的差异）。**未定**：如果将来非要"真 DOM 树"，
+   这一整族必须过界，且调用频次远高于渲染。
+9. **导入表里的重复面**：`import_as_*` / `xml_parse` / `player_cache_*` 在 `LFW` 自己实现
+   `IResourcesHost`/`IPlayerInfoHost` 时又转给宿主一次（`lfw.cpp:842-890`）⇒ 只填叶子那一份，
+   否则同一语义两处实现、早晚不一致。
+10. **libm 的跨宿主差**：`native/README.md:62-80` 记着 V8 用自己的 fdlibm、MSVC 用 UCRT，
+   可差 1 ULP。WASM（musl/emscripten 的 libm）会引入**第三个**实现 ⇒ 含 `pow/cos/sin/atan2`
+    的帧上"浏览器 digest == `lfw_run` digest"**可能**分叉。**未定**：是靠"这些帧无 libm"绕开，
+    还是容忍 ULP。
+11. **还没量的事**：UI 每帧的绘制指令条数、命令缓冲每帧字节数、`measure_text` 的每帧调用次数
+    （`auto_size_by_text` 有 key 缓存，`uinode.cpp:176-201`，但换语言/换页会重算）、
+    以及 `FPS`/`UPS` 两个上报回调（`world.cpp:1043-1064` 的 `on_fps_update` / `on_ups_update`）
+    要不要也让 JS 看见。
+
+---
+
 ## 9. `Value` / 解析 / 装载层的现行要点
 
 ### 9.1. `Value`
