@@ -1697,7 +1697,7 @@ const m = await createLfw({ locateFile: (f) => `/wasm/${f}` })
 
 | 宿主面 | 端口位置（已读） | Godot 侧（需验证） |
 |---|---|---|
-| `ILfwHost` | `lfw/lfw.h:135-288`。70 个成员面 = **64 纯虚 + 6 有默认体**：`pointings_grab`（`:157-161` 回 `false`）、`pointings_ungrab`（`:162-165` 空）、`pointings_grabbing`（`:167-170` 回 `nullptr`）、`is_desktop`（`:172` 回 `false`）、`create_ui_node_renderer`（`:179-182` 回 `nullptr`）、`warn_async`（`:202` 转调 `warn`）。**没有"未移植的成员"**——写不写得出真货是**实现方**的事（默认体只是省事，不等于缺功能） | 一个 `LfwGodotHost : ILfwHost`（+ `IResourcesHost`，见下），成员是 Godot 侧句柄 |
+| `ILfwHost` | `lfw/lfw.h:135-288`。70 个成员面 = **64 纯虚 + 6 有默认体**：`pointings_grab`（`:157-161` 回 `false`）、`pointings_ungrab`（`:162-165` 空）、`pointings_grabbing`（`:167-170` 回 `nullptr`）、`is_desktop`（`:172` 回 `false`）、`create_ui_node_renderer`（`:179-182` 回 `nullptr`）、`warn_async`（`:202` 转调 `warn`）。**没有"未移植的成员"**——写不写得出真货是**实现方**的事（默认体只是省事，不等于缺功能） | **已落定（G1 骨架）**：`LfwGodotHost` **继承** `host/headless_host.h` 的 `HeadlessHost` —— 那本身就是 `ILfwHost` + `IResourcesHost` + `IPlayerInfoHost` 的一份完整实现（`ZIPError` 之外的 64 个纯虚一个都不必重写），Godot 侧的差异只在「帧从哪来」与「输出」两处 |
 | `IClock` / `ITimeout` | `lfw/base/clock.h:11-28`；注入走全局槽 `set_clock`/`set_timeout`（`:31-46`） | **注入虚拟时钟**（G3），不是 Godot 的真实时间 |
 | `IRenderScheduler` | `lfw/base/render_scheduler.h:15-19`；槽 `set_render_scheduler`（`:21-25`） | **故意不装**（槽空 ⇒ `render_add` 回 0，`:29-31`） |
 | `IWorldRenderer` | `lfw/world.h:61-68`：`add_entity(Entity&)` / `del_entity(Entity&)` / `render(double dt)` / `dispose()` | 一棵 Godot 节点树 + 每实体一个节点（需验证） |
@@ -1854,10 +1854,16 @@ WASM 宿主已经用同一招证明过自己 —— `native/README.md:310`：**�
 `msvc-x64` 验收** —— 别把 Godot 的头文件路径塞进 `lfw_core` 的 `target_include_directories`。
 
 - **G1 骨架**（宿主立起来，**渲染用假/空实现**）：`native/host/godot/**` 建
-  `LfwGodotHost : ILfwHost, IResourcesHost`（**两个**接口，G1 的 ⚠ 第 1 条的兄弟项）；IO 走 Godot 文件
-  API（需验证）；`ManualClock` 同款虚拟时钟 + 固定步长（G3）；`IWorldRenderer` 先给计数版
-  （照抄 `NullWorldRenderer`，`host/headless_host.h:37-46`）。
-  **验收**：在 Godot 里复现 **G3 那三条摘要** —— 这是唯一能证明"宿主换对了"的硬指标。
+  `LfwGodotHost`（`HeadlessHost` 的**子类** ⇒ 复用装载 / `IZip` / 存档 / XML / `import_as_*` 那批
+  源文件；**这一刀没走 Godot 文件 API**：数据仍由 `FsZip` 按目录名读，同 §G6 的口径）+
+  `LfwGodot : Node`（命令行 → `host/common/lfw_boot.h` 的共享装配 → §G3 的固定步长推帧 → 摘要）。
+  虚拟时钟 + 固定步长（G3）；`IWorldRenderer` 就是 `HeadlessHost` 的 `NullWorldRenderer`（计数版）。
+  **验收**：✅ **已落定** —— Godot 4.7.1 headless 里三条摘要与 `lfw_run` **逐位一致**
+  （`7335aa25f4e1ce86` / `e4a9437292047044` / `f29d3bb1ea330c32`；连 `warns` / `ignored_images` /
+  `renderer(±)` / `clock=` 也对得上）。跑法见 `native/README.md`「Godot 宿主」。
+  ⚠ 三条实测（都会让人白花一天）：Godot 跑工程时 **cwd = 工程目录**（`--path` 的副作用）⇒ 数据路径写绝对；
+  本 target **不许 `/GR-`**（`Object::cast_to<T>` 走 `dynamic_cast`，见 §G9 第 1 条）；
+  扩展**不写进 `.godot/extension_list.cfg` 就静默不加载**（首跑要 `<godot> --headless --import`）。
 - **G2 绘制契约**：补端口 `IUINodeRenderer` 的渲染面（`native/lfw/ui/ui_node_renderer.h`，属 G0 允许的
   "引擎通用缺口"）→ 写 Godot 的 `IWorldRenderer` / `IUINodeRenderer`。
   **验收**：差分台面与 lint 不退化（`npm run native all`）+ 目视一帧 UI 与世界都画出来（**目视无自动化
@@ -1873,10 +1879,18 @@ WASM 宿主已经用同一招证明过自己 —— `native/README.md:310`：**�
 
 - **构建开关冲突（第一天就会撞上）**：核心是**零异常 / 零 RTTI**（`native/lfw/CMakeLists.txt:366-369`：
   MSVC `/GR-` + `_HAS_EXCEPTIONS=0`，clang/GCC `-fno-exceptions -fno-rtti`；硬规则见
-  `native/README.md:29-44`）。Godot 自己的构建用不用异常/RTTI、与关掉这两个开关的 `lfw_core` 能不能混编
-  ⇒ **需验证**。先做这个实验，再排期。
-- **GDExtension 的 ABI/版本锁定与热重载**：需验证（对你打算用的 Godot 版本，确认 GDExtension 的兼容
-  承诺与绑定生成方式）。
+  `native/README.md:29-44`）。**已实测**：godot-cpp 那份静态库自己就关异常
+  （`GODOTCPP_DISABLE_EXCEPTIONS=ON`，即 `_HAS_EXCEPTIONS=0`）；**但 RTTI 不能关** ——
+  `Object::cast_to<T>` 走 `dynamic_cast`（`godot-cpp/include/godot_cpp/core/object.hpp:129`），
+  `/GR-` 编出来的扩展一加载就把进程带走（退出码 `0xE06D7363`）。⇒ `host/godot` 这一支只关
+  `_HAS_EXCEPTIONS`、**保留 RTTI**；RTTI 不改任何 `std::` 类型的布局，与 `/GR-` 的 `lfw_core`
+  混编对 `Value`（`std::variant`）这条边界是安全的。
+- **GDExtension 的 ABI/版本锁定与热重载**：**4.7 那条线已在 G1 骨架里跑通**（热重载仍未验证）。
+  上游 godot-cpp **没有 4.7 线**（分支只到 4.5 + master/10.0.0）⇒ 用 4.5 的 C++ 侧，但绑定按
+  **引擎自己 dump** 的 `extension_api.json` / `gdextension_interface.h` 生成（`--dump-extension-api` /
+  `--dump-gdextension-interface`）。两版接口对比：函数指针 173 → 179、**0 个被删**，19 个结构体逐字相同
+  （4.7 新增 `GDExtensionClassCreationInfo6`）。⚠ 首跑必须 `<godot> --headless --import` 生成
+  `.godot/extension_list.cfg`，否则扩展**静默不加载**。
 - **只编 `lfw_core`**：`native/lfw/CMakeLists.txt:1` 是 `add_library(lfw_core STATIC …)`，但同一套 CMake 的
   `all` 里有 **117 个可执行文件**（`lfw_run` + 116 个 `lfw_trace_*`，`native/README.md:290`）⇒
   **只编 `lfw_core`**，别把 117 个 target 拖进扩展构建。
@@ -1912,8 +1926,8 @@ G0 那条硬规则**已经有**一条机检在跑：`native/tools/check_lfw_cpp_
   ⇒ `#include "godot_cpp/godot.hpp"` 从 `native/lfw/ui/` 解析成 `native/lfw/ui/godot_cpp/godot.hpp`，
   **仍在 `native/lfw` 里 ⇒ 静默通过**。这是唯一的洞，也正是最可能被写出来的那种写法。
 
-⇒ **要加的检查**（**加在 `check_lfw_cpp_includes.mjs` 里**，不新建脚本文件名 —— `native/tools/` 下现有
-17 个脚本，这个是 include 规则的既有归属）：给引号分支加一份"**显式点名**"的目标名规则，命中即 error，
+⇒ **已加的检查**（加在 `check_lfw_cpp_includes.mjs` 里 —— `native/tools/` 下现有 17 个脚本，
+这个是 include 规则的既有归属）：给引号分支加了一份"**显式点名**"的目标名规则，命中即 error，
 报错信息直接引用硬规则：
 
 - 目标名以 `godot_cpp/` 开头 ⇒ `platform implementation must live in native/host/godot (README 硬规则)`；
@@ -1921,8 +1935,9 @@ G0 那条硬规则**已经有**一条机检在跑：`native/tools/check_lfw_cpp_
 - 目标名匹配 `/^SDL/i` ⇒ `platform implementation must live in native/host`；
 - 顺带把尖括号侧 `windows.h` 那条从"精确文件名"放宽成 `/^windows/i`（`<Windows.h>`、`<windowsx.h>`）。
 
-判据：`npm run native lint` 仍然 **0 failed**（现在 `native/lfw` 是干净的）；加完规则后故意写一行
-`#include "godot_cpp/godot.hpp"` 应当**报错**。
+判据：`npm run native lint` 仍然 **0 failed**（`native/lfw` 是干净的：**847 clean / 0 failed /
+9 warnings**，锚点 **9764 ok / 0 bad**）；故意写一行 `#include "godot_cpp/godot.hpp"`（或 `<Windows.h>`）
+会**报错**（实测 2 failed；删掉即回到 0）。
 
 ## ★ 薄宿主（SDL 路线）：绘制契约的参照实现
 

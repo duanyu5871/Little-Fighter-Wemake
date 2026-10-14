@@ -168,6 +168,44 @@ function cmdCoverage() {
   );
 }
 
+// Godot 宿主（DESIGN §G1）：把 `lfw_core` + `host/` 编成一个 GDExtension。
+// 两份仓库外的输入走环境变量/既有目录（见 native/README.md「Godot 宿主」）：
+//   GODOT_CPP_DIR            godot-cpp 的检出目录（仓库外）
+//   native/build/godot-api/  由本机 Godot 自己 dump 的 `extension_api.json`
+// 产物：`native/host/godot/project/bin/lfw_godot.dll`（`project/bin/` 已忽略）。
+function cmdGodot() {
+  const cppDir = process.env.GODOT_CPP_DIR;
+  if (!cppDir) {
+    console.error(C.red("GODOT_CPP_DIR is not set (path to a godot-cpp checkout, outside this repo)"));
+    return 2;
+  }
+  const apiFile = join(NATIVE, "build", "godot-api", "extension_api.json");
+  if (!existsSync(apiFile)) {
+    console.error(C.red(`missing ${apiFile}`));
+    console.error("  run in that folder: <godot-console> --headless --dump-extension-api --dump-gdextension-interface");
+    return 2;
+  }
+  const dir = join(NATIVE, "build", "godot");
+  const code = runCmake([
+    "-S",
+    NATIVE,
+    "-B",
+    dir,
+    "-G",
+    "Ninja",
+    "-DCMAKE_BUILD_TYPE=Release",
+    "-DLFW_GODOT_HOST=ON",
+    `-DLFW_GODOT_CPP_DIR=${cppDir}`,
+    `-DGODOTCPP_CUSTOM_API_FILE=${apiFile}`,
+    "-DGODOTCPP_TARGET=template_debug",
+  ]);
+  if (code !== 0) return code;
+  const built = runCmake(["--build", dir, "--target", "lfw_godot"]);
+  if (built !== 0) return built;
+  console.log(C.dim(`  -> ${join(NATIVE, "host", "godot", "project", "bin", "lfw_godot.dll")}`));
+  return 0;
+}
+
 function cmdTest() {
   const r = spawnSync(
     process.execPath,
@@ -183,6 +221,7 @@ const table = {
   lint: () => step("lint", cmdLint),
   coverage: () => step("coverage", cmdCoverage),
   test: () => step("test", cmdTest),
+  godot: () => step("godot", cmdGodot),
   all: () => {
     step("configure", cmdConfigure);
     step("build", cmdBuild);

@@ -1,0 +1,58 @@
+// Godot 侧的宿主：与 WASM 宿主同一种做法 —— **继承** `HeadlessHost`
+// （`host/headless_host.{h,cpp}` + `host/fs_zip.{h,cpp}` 直接编进扩展，装载 / `IZip` / 存档 /
+// XML / `import_as_*` 一个都不重写），只把「帧从哪来」这件事按 DESIGN §G3 钉死。
+//
+// §G3 的四条规矩，这一份就是它们的落地：
+//   1. **不装** `IRenderScheduler`（槽空 ⇒ `render_add` 回 0）；本类也不碰它。
+//   2. 时钟是**注入的虚拟时钟**：`HeadlessHost` 的 `ManualClock` 的 `add` 回 0
+//      ⇒ 端口自己的 `Ticker` 永远不自驱（这正是 WASM 那边「一帧走两步」的坑）。
+//   3. 世界由宿主用**固定步长**手动推：`clock().advance(step)` + `world.update_once(step)`。
+//      Godot `_process(delta)` 的 `delta`（秒）**只当节拍**喂进累加器，绝不进模拟。
+//   4. 于是这一支与 `lfw_run` 的手动模式逐位同形 ⇒ 三条摘要可比（§G3 的硬指标）。
+//
+// ⚠ 这一层**不许**出现 Godot 类型（`godot::String` / `Node` / …）：它只做「虚拟时钟 +
+// 固定步长累加器」，引擎那一侧在 `lfw_godot_node.{h,cpp}`。分开放的理由是 §G5 的
+// 「只在边界转换」——本文件里一个转换都不需要。
+#pragma once
+
+#include <filesystem>
+#include <vector>
+
+#include "host/headless_host.h"
+
+namespace lfw {
+class World;
+}  // namespace lfw
+
+namespace lfw::host {
+
+// 固定步长 + 注入虚拟时钟的推帧器（挂在 `HeadlessHost` 上）。
+class LfwGodotHost : public HeadlessHost {
+ public:
+  LfwGodotHost(std::vector<std::filesystem::path> roots, bool dev);
+
+  // 一帧的固定步长（毫秒）：`1000 / dataset.UPS`（与 `lfw_run` 同款）。
+  void set_step_ms(double step_ms) { _step_ms = step_ms; }
+  double step_ms() const { return _step_ms; }
+
+  // 喂节拍：`delta` 是**秒**，只用来决定「这一帧推几步」，不进模拟。
+  void accumulate(double delta_seconds) { _accumulator_ms += delta_seconds * 1000.0; }
+
+  // 累加器够不够一个步长（够就 `push_frame`）。
+  bool can_step() const { return _accumulator_ms >= _step_ms; }
+
+  // 推一帧：虚拟时钟前进一个步长 + `World::update_once`。这两句必须成对出现
+  //（只推时钟不推世界 ⇒ 从 `clock_now()` 派生的量会漂；只推世界不推时钟 ⇒ 反过来）。
+  void push_frame(World& world);
+
+  // 诊断：累加器余量（毫秒）与累计推过的帧数。
+  double residual_ms() const { return _accumulator_ms; }
+  long long steps() const { return _steps; }
+
+ private:
+  double _step_ms = 1000.0 / 60.0;
+  double _accumulator_ms = 0.0;
+  long long _steps = 0;
+};
+
+}  // namespace lfw::host

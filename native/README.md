@@ -8,7 +8,7 @@ Electron 桌面壳、以及将来的原生客户端上跑同一份逻辑。
 | | TS（现状，唯一可运行实现） | C++（本目录） |
 |---|---|---|
 | 纯核心 | `src/LFW/` | `native/lfw/` |
-| 宿主实现 | `src/DittoImpl/` | `native/host/`（`common/lfw_boot` 共享装配 + headless 宿主 `FsZip`/`HeadlessHost`/`lfw_run` + `wasm/` 的 C ABI 宿主） |
+| 宿主实现 | `src/DittoImpl/` | `native/host/`（`common/lfw_boot` 共享装配 + headless 宿主 `FsZip`/`HeadlessHost`/`lfw_run` + `wasm/` 的 C ABI 宿主 + `godot/` 的 GDExtension 宿主） |
 | 前端宿主（JS 侧） | `src/DittoImpl/`（浏览器） | `native/web/`（JS 宿主 / 冒烟 / 打包 / 预演页） |
 | 注入边界 | `src/LFW/ditto/Instance.ts` 的 `IDittoPack` | 镜像到 `native/lfw/ditto/`（`IXML` / `IXMLElement` / `IZip` / `IZipObject` 等宿主服务接口） |
 
@@ -154,7 +154,7 @@ native/
     未搬（按需）：utils/container_help/{get_keys,list_fn}、utils/string_parser
   tests/differential/                ★ 两侧对拍（详见 PROTOCOL.md）
   tools/
-    native.mjs                       configure / build / lint / test
+    native.mjs                       configure / build / lint / test / godot（GDExtension）
     check_lfw_cpp_includes.mjs       分层规则检查
   host/                              ★ 宿主实现（M1：headless 可运行入口）
     fs_zip.{h,cpp}                   目录当 zip 用（`IZip` / `IZipObject` 的读盘实现）
@@ -165,6 +165,12 @@ native/
       lfw_thin.cpp                      `lfw_thin`：与 `lfw_run` 同参数，打印/落盘绘制记录
     lfw_run.cpp                      `lfw_run`：装数据包 → 起世界 → 推帧（每 N 帧打摘要）
     common/lfw_boot.{h,cpp}          宿主无关的装配（选 stage/bg → 造战士）+ 一帧摘要：两宿主共用
+    godot/                           ★ Godot 宿主（GDExtension；见「Godot 宿主」节）
+      lfw_godot_host.{h,cpp}         `LfwGodotHost : HeadlessHost`：注入虚拟时钟 + 固定步长累加器
+      lfw_godot_node.{h,cpp}         `LfwGodot : Node`：命令行 → `boot_scene` → 推帧 → 摘要（引擎类型只到这里）
+      register_types.cpp             扩展入口（`lfw_godot_library_init`，`.gdextension` 的 entry_symbol）
+      CMakeLists.txt                 链 `godot-cpp` + `lfw_core` + headless 宿主源码 → `project/bin/lfw_godot.dll`
+      project/                       Godot 工程：`project.godot` / `lfw_godot.gdextension` / `main.tscn`
   ffi/lfw_c.h                        纯 C ABI 导出（尚未创建）
   DESIGN.md                          现行设计；WASM 对接方案见其中 `## ★ 宿主层与 WASM 对接设计（方案）` 一节
 ```
@@ -186,6 +192,7 @@ npm run native configure
 npm run native build
 npm run native lint
 npm run native test                     # 或 test <subject> [<case>]
+npm run native godot                    # 编 Godot 的 GDExtension（需 GODOT_CPP_DIR；见「Godot 宿主」节）
 ```
 
 不需要配 PATH —— 脚本自己用 `vswhere` 找 VS 2022、自己调 `vcvars64.bat`、
@@ -367,6 +374,55 @@ node native/web/smoke.mjs --profile 1 --live
 
 （台面那条 WASM 构建节是 `lfw_core` 静态库；这一节是能跑起来的目标，两者并存。）
 
+## Godot 宿主（端口在 Godot 里真跑）
+
+GDExtension 骨架（DESIGN §G1 骨架 / §G2(a) 的同进程路线）：**Godot 自己当宿主**，端口零改动、
+渲染仍是空实现（`NullWorldRenderer` + `create_ui_node_renderer → nullptr`）。
+下文 `<godot-console>` = `Godot_v4.7.1-stable_win64_console.exe`（本机在桌面；**固定 4.7.1**）。
+
+`LfwGodotHost` 是 `HeadlessHost` 的**子类** —— 装载 / `IZip` / 存档 / XML / `import_as_*` 复用同一批
+源文件（与 `lfw_run`、wasm 宿主同一份），只按 §G3 换掉「帧从哪来」：**注入的虚拟时钟 + 固定步长**
+（`ManualClock::add → 0` ⇒ 端口自己的 `Ticker` 不自驱；这正是 wasm 那边「一帧走两步」的坑）。
+`_process(delta)` 只把 `delta` 当**节拍**喂进累加器，够一个步长才
+`clock.advance(step)` + `world.update_once(step)`；`--delta` 只换节拍，不换步长。
+
+一次性准备（godot-cpp 与 API dump 都放在仓库外 / 构建目录，不进仓库）：
+
+```
+# 1) godot-cpp（仓库外）。上游**没有 4.7 线**（分支只有 4.0–4.5 + master/10.0.0）⇒ 用 4.5（头 27d9dd2），
+#    绑定按下面那份 dump 生成（不是猜版本，是让引擎自己说出它的 API）
+git clone -b 4.5 https://github.com/godotengine/godot-cpp.git %USERPROFILE%\godot-cpp-4.5
+# 2) 让本机 Godot dump 它的 API / 接口头到 native\build\godot-api\
+cd native\build\godot-api
+<godot-console> --headless --dump-extension-api --dump-gdextension-interface
+# 3) 第一次让 Godot 认这个工程（生成 .godot/extension_list.cfg）
+#    ⚠ 不跑这步 Godot **静默**不加载扩展（只会在场景里报 Cannot get class 'LfwGodot'）
+<godot-console> --headless --import --path native\host\godot\project
+```
+
+编 + 跑（`npm run native godot` 自己找 VS / cmake / ninja，与其它 target 同一条路）：
+
+```
+$env:GODOT_CPP_DIR = "$env:USERPROFILE\godot-cpp-4.5"
+npm run native godot                       # 产物 native\host\godot\project\bin\lfw_godot.dll
+
+$godot = "C:\Users\Gim\Desktop\Godot_v4.7.1-stable_win64_console.exe"
+$root  = (Get-Location).Path               # 仓库根
+& $godot --headless --path native\host\godot\project -- `
+    --root "$root\dist" --zip "$root\native\build\host-data\prel" `
+    --frames 300 --every 300 --delta 0.017
+```
+
+⚠ 两条实测容易踩的：
+**① Godot 跑工程时会把 cwd 切到工程目录**（`--path` 的副作用；实测 `cwd=native/host/godot/project`）
+⇒ `--root` / `--zip` 给**绝对路径**最省事（相对路径是相对工程目录，报错行里会连 cwd 一起打出来）。
+**② 这一支不许 `/GR-`**：`Object::cast_to<T>` 走 `dynamic_cast`（`godot-cpp/include/godot_cpp/core/object.hpp:129`），
+关掉 RTTI 后扩展一加载就把进程带走（实测退出码 `0xE06D7363`）⇒ 本 target **保留 RTTI**，只关
+`_HAS_EXCEPTIONS`（RTTI 不改任何 `std::` 类型的布局，与 `/GR-` 的 `lfw_core` 混编对 `Value` 这条边界安全）。
+
+三条摘要与 `lfw_run` **逐位一致**（连 `warns` / `ignored_images` / `renderer(±)` / `clock=` 都对得上）
+—— 见下一节。
+
 ## 验收：宿主三条摘要（改完必跑）
 
 同一份数据、同一命令**逐位可复现**；三条都过才算没打破 headless 行为：
@@ -383,6 +439,23 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
 … --zip native\build\host-data\prel --zip native\build\host-data\data ^
   --stage 0 --fighter 1 --fighter 4 --vs --frames 600 --every 600
   ⇒ digest=f29d3bb1ea330c32（warns=1）
+```
+
+Godot 宿主跑**同三条**（`--delta 0.017` 只是节拍、不进模拟；绝对路径见上一节 ⚠①）：
+
+```
+$R = (Get-Location).Path; $P = "native\host\godot\project"
+& $godot --headless --path $P -- --root "$R\dist" `
+    --zip "$R\native\build\host-data\prel" --frames 300 --every 300 --delta 0.017
+& $godot --headless --path $P -- --root "$R\dist" `
+    --zip "$R\native\build\host-data\prel" --zip "$R\native\build\host-data\data" `
+    --fighter 1 --fighter 4 --stage 1 --frames 900 --every 900 --delta 0.017
+& $godot --headless --path $P -- --root "$R\dist" `
+    --zip "$R\native\build\host-data\prel" --zip "$R\native\build\host-data\data" `
+    --stage 0 --fighter 1 --fighter 4 --vs --frames 600 --every 600 --delta 0.017
+# [godot] done: frames=300 ups=60 digest=7335aa25f4e1ce86 warns=0 errors=0 ignored_images=311 renderer(+-)=2/0 clock=5000.0ms
+# [godot] done: frames=900 ups=60 digest=e4a9437292047044 warns=1 errors=0 ignored_images=313 renderer(+-)=37/30 clock=15000.0ms
+# [godot] done: frames=600 ups=60 digest=f29d3bb1ea330c32 warns=1 errors=0 ignored_images=313 renderer(+-)=28/24 clock=10000.0ms
 ```
 
 `warns=1` 是既有的 `DatMgr::_add_obj id duplicated…`（不是新告警）。差分/变异/覆盖的跑法与判据见

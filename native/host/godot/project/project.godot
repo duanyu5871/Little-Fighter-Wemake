@@ -1,0 +1,20 @@
+; Godot 宿主的最小工程（DESIGN §G1 骨架）：主场景只有一个节点，类型是扩展注册的 `LfwGodot`。
+; 跑法见 native/README.md「Godot 宿主」——`--headless --path native/host/godot/project -- …`。
+config_version=5
+
+[application]
+
+config/name="LFW (Godot host)"
+run/main_scene="res://main.tscn"
+config/features=PackedStringArray("4.7")
+
+[native_extensions]
+
+paths=["res://lfw_godot.gdextension"]
+
+[debug]
+
+; headless 验收要拿得到完整输出：Godot 的 print / 引擎报错都写一份到 user://
+; （stdout 被重定向到文件时是全缓冲的，进程异常退出会丢最后一段）。
+file_logging/enable_file_logging=true
+file_logging/log_path="user://godot.log"
