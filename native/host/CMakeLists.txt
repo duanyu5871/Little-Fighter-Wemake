@@ -22,3 +22,6 @@ endif()
 set_target_properties(lfw_run PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
 )
+
+# 录制型薄宿主（`lfw_thin`）：同一批源文件，只换世界渲染器 —— 见 `host/thin/CMakeLists.txt`。
+add_subdirectory(thin)

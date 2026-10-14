@@ -1654,7 +1654,8 @@ const m = await createLfw({ locateFile: (f) => `/wasm/${f}` })
 - **数据路线**：JS 预写 MEMFS（浏览器用 `bundle.json` + `bundle.bin` 一次拉取）；`.wasm` 不带数据；端口零改动。
 - **下一步（W13 第 3 步 / W5）**：渲染**实现一律落在宿主侧** —— `native/host/wasm/**`（C++ 侧）+ `native/web/**`
   （JS 侧）：在那儿写 `IWorldRenderer`/`IUINodeRenderer` 的"绘制汇"，经**宿主工厂**
-  `create_world_renderer`/`create_ui_node_renderer` 挂上去（现在是 `NullWorldRenderer`/`nullptr`），
+  `create_world_renderer`/`create_ui_node_renderer` 挂上去（headless 那份仍是 `NullWorldRenderer`；
+  `native/host/thin/**` 已经先把这条挂点接上了，换的是**录制**实现，不是这里的字节命令缓冲），
   每帧写「帧头 + UI/世界指令」进 wasm 侧双缓冲，JS 用 `lfw_cmd_buffer_ptr/len` 取字节画到 `<canvas>`。
   ⚠ **`native/lfw/**` 只留接口与逻辑，不许落任何平台实现**（硬规则见 README「硬规则」节）。
 
@@ -1953,7 +1954,8 @@ zip/XML）所需要的**最小引擎**。产物是 `native/host/<薄宿主>/**` 
 ⚠ **它与 headless 的关系**：headless 是**最薄**的宿主 —— 渲染 / 音频 / 图片 / 指针全是空实现
 （`native/host/headless_host.h:58-182`），世界渲染器是只计数的 `NullWorldRenderer`
 （`headless_host.h:39-50`）。薄宿主是它的**超集**：一样"薄"，但**真画**。所以第一版可以照抄
-headless 的形状，再把空实现逐个换掉（S7 的切片）。
+headless 的形状，再把空实现逐个换掉（S7 的切片）—— `native/host/thin/**` 就是照这个做法落的第一刀
+（同一批源文件 + 一个 `create_world_renderer` 覆写），只是那一刀换上去的是**录制**、还不是像素。
 
 ⚠ **注意 headless 不只是"测试用"**：WASM 宿主**直接复用**同一批源文件
 （`native/host/wasm/CMakeLists.txt` 把 `host/common/lfw_boot.cpp`、`host/headless_host.cpp` 与
@@ -1979,6 +1981,11 @@ headless 的形状，再把空实现逐个换掉（S7 的切片）。
   ⇒ `UINode` 构造里拿到的是空指针（`native/lfw/ui/uinode.cpp:106-107`），之后每一处调用都带判空
   （`uinode.cpp:558-728` 那一族 `renderer != nullptr`）⇒ **UI 渲染面可以永远为空，且没有任何东西报错。**
 - 所以 S6 里的"看得见画面"不是锦上添花，而是这条危险唯一的解药。
+- **已经先落了"不画"的那一半**：`native/host/thin/**`（`lfw_thin`）是同一个接口的**录制实现** ——
+  保留式地记账（`add_entity` / `del_entity`），每帧把活实体的绘制字段快照成一条记录，落盘/打印。
+  它不需要任何引擎、也不选型（S2 那些格子它一格都不占），却能立刻回答"契约里的字段够不够画"：
+  缺哪个字段、哪个字段在端口里根本没有，跑一次就看得见（字段表见
+  `host/thin/recording_world_renderer.h` 文件头）。⇒ S2 的选型可以晚一步再定。
 
 ### S2. 候选与取舍
 
@@ -2001,6 +2008,9 @@ headless 的形状，再把空实现逐个换掉（S7 的切片）。
 
 ⚠ **选型不改变契约**：S2 只决定"谁来当第 4 份实现"。上面每一格都可能是错的 ⇒ 先花半天做一个
 "能不能开窗 + 能不能量一行字"的预演（**需验证**），再按 S7 排期。
+⚠ **但"要不要画"这件事可以先不等选型**：录制型薄宿主（S1 末条）已经把
+`create_world_renderer` 这条挂点接通、并且**跑在真数据上**（三条摘要与 `lfw_run` 逐位一致）
+⇒ 引擎选型决定的是"怎么把记录变成像素"，而不是"记录里有没有该有的东西"。
 
 ### S3. 要填的最小集合
 
@@ -2055,8 +2065,9 @@ headless 的形状，再把空实现逐个换掉（S7 的切片）。
 （`tools/check_lfw_cpp_includes.mjs:29-49` 把 `<filesystem>` / `<fstream>` / `<cstdio>` 列进禁表）
 —— 上面这几样**必然要 IO**，进了核心就直接违反"零宿主 · 零 IO"。**核心只留接口与逻辑。**
 
-⚠ **别为了这件事去重构现有文件**：`native/host/**` 现在只有 5 个源文件 + 2 个 `CMakeLists.txt`，
-够用。新增薄宿主**照抄 WASM 的做法**（在自己的 target 里列举要复用的 `host/**/*.cpp`）即可；
+⚠ **别为了这件事去重构现有文件**：`native/host/**` 现在只有 headless 与录制薄宿主两份实现，
+每份一个 `CMakeLists.txt`，够用。新增薄宿主**照抄 WASM 的做法**（在自己的 target 里列举要复用的
+`host/**/*.cpp`）即可；
 只有当累加器 / 虚拟时钟真出现"只有桌面宿主需要"的分支时，再把它们提到 `common/**`。
 （G9 有一条同款纪律：Godot 那一支**不许污染既有的 `msvc-x64` 验收**。）
 
@@ -2098,6 +2109,7 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
 
 **(a) 摘要逐位复现**：上面三条命令在薄宿主里跑出同样的 digest 与 warns；`npm run native all`
 （configure → build → lint → test，`native/README.md:178-183`）不退化。
+（录制版薄宿主已实测过这一条：`lfw_thin` 与 `lfw_run` 同参数下三条摘要逐位相同。）
 
 **(b) 目视 —— 这是第一次"能看见绘制契约"**：前两份宿主都没画过东西 —— headless 是只计数的
 `NullWorldRenderer`（`headless_host.h:39-50`），WASM 宿主这一刀只装了时钟 + 日志
@@ -2121,7 +2133,7 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
 
 | 切片 | 做什么 | 验收 |
 |---|---|---|
-| **S1 骨架 + 假渲染器** | 起 `LFW`、收一个 `ILfwHost` 实现；时钟用 `ManualClock` 的形状、世界渲染器先用计数版（`NullWorldRenderer`）；装配照 `host/common/lfw_boot.cpp:43`（`boot_scene`）、推帧照 `lfw_run.cpp:289-295` | **三条摘要逐位一致** —— 唯一能证明"宿主接对了"的硬指标 |
+| **S1 骨架 + 假渲染器** | 起 `LFW`、收一个 `ILfwHost` 实现；时钟用 `ManualClock` 的形状、世界渲染器先用计数版（`NullWorldRenderer`）；装配照 `host/common/lfw_boot.cpp:43`（`boot_scene`）、推帧照 `lfw_run.cpp:289-295`。**已落地**：`native/host/thin/**`（`lfw_thin`）就是这一片 —— 同一批源文件 + 覆写 `create_world_renderer`，渲染器换成**录制版**（不计数、也不画） | **三条摘要逐位一致** —— 唯一能证明"宿主接对了"的硬指标（录制版已实测） |
 | **S2 真 2D 绘制** | 先补端口 `IUINodeRenderer` 的渲染面（**引擎通用缺口，属核心侧**：`ui_node_renderer.h:8-12` 自述 `render` / `add` / `del` / `parent` / `x` / `y` / `visible` 未移植）→ 再写薄宿主的 `IWorldRenderer` / `IUINodeRenderer` | 差分台面 + lint 不退化 + **目视**一帧 UI 与世界（判据**未定**） |
 | **S3 文字度量 / 音频 / 真 zip / MD5 / 光标** | 换掉 headless 那批假货里"桌面必需"的几个：`measure_text`（`lfw.h:242`）、`sounds_*`（`lfw.h:208-232`）、真 zip、真 MD5（`lfw.h:193`）、光标（S3 表里"光标表"那一行） | MD5 与 `DittoImpl/md5.ts` **逐位一致**（可自动化）；真包能装；**三条摘要仍逐位一致** —— 换宿主最容易在这一步翻车 |
 | **S4 打包** | 把薄宿主做成"双击能跑"的东西 | **需验证**：静态 / 动态链接、许可、Windows 与 Linux 的产物形态 |

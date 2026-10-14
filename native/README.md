@@ -159,6 +159,10 @@ native/
   host/                              ★ 宿主实现（M1：headless 可运行入口）
     fs_zip.{h,cpp}                   目录当 zip 用（`IZip` / `IZipObject` 的读盘实现）
     headless_host.{h,cpp}            `ILfwHost` 的最小可用实现 + 手动时钟/定时器 + 空渲染器
+    thin/                            录制型薄宿主：headless 的超集，只把世界渲染器换成「录制」
+      recording_world_renderer.{h,cpp}  `IWorldRenderer` 的录制实现（逐帧快照字段表见文件头）
+      thin_host.{h,cpp}                 `ThinHost`（覆写 `create_world_renderer`）+ 一帧一次的推帧口
+      lfw_thin.cpp                      `lfw_thin`：与 `lfw_run` 同参数，打印/落盘绘制记录
     lfw_run.cpp                      `lfw_run`：装数据包 → 起世界 → 推帧（每 N 帧打摘要）
     common/lfw_boot.{h,cpp}          宿主无关的装配（选 stage/bg → 造战士）+ 一帧摘要：两宿主共用
   ffi/lfw_c.h                        纯 C ABI 导出（尚未创建）
@@ -274,6 +278,26 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
 ```
 
 （`--dump` 会打印各表前两条与全部 id，挑 `--fighter` / `--stage` 用。）
+
+### 跑起来（录制型薄宿主，`host/thin/`）
+
+`lfw_thin` 与 `lfw_run` **同参数、同装配、同推帧路线**（共用 `host/common/lfw_boot.*`），
+只把世界渲染器从「只计数的空实现」换成 `RecordingWorldRenderer`：它不画，逐帧记下
+「核心要求渲染器画什么」。**摘要因此必须与 `lfw_run` 逐位相同** —— 对不上就是回归。
+
+```
+native\build\msvc-x64\bin\lfw_thin.exe --root dist ^
+  --zip native\build\host-data\prel --frames 300 --every 300
+# [frame    299] entities=2 ghosts=0 hp=1000.0 digest=7335aa25f4e1ce86 renders=300 rec=2
+# [   draw] E id=101 data=gim type=8.0000 pos=21.0000,… frame=running_0 state=2 tex=0
+#            crop=0.0000,160.0000,79.0000,79.0000 … outline=#4f9bff@0.8000,1.0000 …
+# [thin] done: frames=300 ups=60 digest=7335aa25f4e1ce86 renders=300 added=2 removed=0 …
+```
+
+`--dump <file>` 落整条记录（每帧一行 `FRAME` 帧头 + 每个活体一行 `E`）；字段序与全部字段名
+写在 `host/thin/recording_world_renderer.h` 的头部注释里，`--sample N` 控制每帧顺带打几条。
+`renders` 必须等于帧数（宿主保证一帧恰好一次 `render`）；`match=0` 或 `dup_add` / `stray_del`
+非零说明保留式记账（`add_entity` / `del_entity`）与 `world.entities + ghosts` 对不上。
 
 ---
 
