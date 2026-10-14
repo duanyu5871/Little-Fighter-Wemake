@@ -6,7 +6,7 @@ namespace lfw {
 namespace cmds {
 
 // `CMD_F1` / `CMD_F2` / `CMD_F3` / `CMD_F5` / `CMD_F6` / `CMD_F7` / `CMD_F8` /
-// `CMD_F9` / `CMD_F10`（同名前缀的 `CMD_F4` 未移植：要 UI 层）。
+// `CMD_F9` / `CMD_F10`（`CMD_F4` 在 `cmd_f4.{h,cpp}`：它要 UI 层，另成一对）。
 const char16_t* cmd_f1_help();
 void cmd_f1(CMDS& ctx);
 const char16_t* cmd_f2_help();

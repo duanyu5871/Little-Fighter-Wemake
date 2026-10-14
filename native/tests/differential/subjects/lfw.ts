@@ -1018,7 +1018,7 @@ function install_ditto(): void {
     error: (...args: unknown[]) =>
       push("error|" + args.map((a) => render_value(safe_render(a))).join("~")),
     Log: (...args: unknown[]) => push("Log|" + args.map((a) => render_value(safe_render(a))).join("~")),
-    // 端口里 `debug` 是空转（同 DESIGN 记录）；`warn`/`Log` 有真通道，`debug` 不收。
+    // `warn`/`Log` 走真通道；`debug` 这一侧不收（端口那条走 DESIGN §149.23 的宿主缝）。
     debug: () => undefined,
     DEV: false,
     IsDesktop: false,

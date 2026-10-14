@@ -5,8 +5,8 @@
 //  * `get_val_from_lf2` / `get_val_from_world`（`loader/get_val_from_lf2.h`、
 //    `loader/get_val_from_world.h`）恒 `nullptr` —— TS 那两个文件也是死分支
 //    （只有 `default` 的 switch），所以「把回落改成空指针」是构造上等价的，不列候选。
-//  * `IEntityHost::is_cheat` / `survival_rank_available` 的**默认实现**（返回 false）
-//    在 `entity` 用例里不被执行：宿主的两个接缝都被测试替身覆盖了，改默认值是
+//  * `LFW::is_cheat` / `LFW::survival_rank_available` 的**默认实现**（原先挂在 `IEntityHost`
+//    缝上）在 `entity` 用例里不被执行：台面假 `lfw` 覆写了这两面，改默认值是
 //    不可观察的。
 //  * TS 那边 `entity_val_getters[word]` 是**属性查找**，`word` 撞上
 //    `Object.prototype`（`constructor` / `toString` / `__proto__` …）时命中原型链、

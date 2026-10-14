@@ -1,6 +1,6 @@
 # POINTER_*：注册表 + 参数校验（`read_targets` / `read_button` 的每条告警）
 # 注意：只走「在 `read_page` 之前就返回」的路径 —— 两侧台面的 UI 层栈不同构
-# （C++ 侧是真实 `LFW` 的底页，TS 侧假 `lfw` 没有 `layers`）⇒ 命中/派发路径见 DESIGN 记的缺口。
+# （C++ 侧是真实 `LFW` 的底页，TS 侧的假 `lfw` 给的是**空**层栈）⇒ 命中/派发路径见 DESIGN 记的缺口。
 wnew
 h s "POINTER_DOWN"
 h s "POINTER_MOVE"

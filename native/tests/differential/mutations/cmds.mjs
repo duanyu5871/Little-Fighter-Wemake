@@ -1,12 +1,12 @@
-// `LFW/cmds`（CMDS 调度器 + 21 条纯世界命令）的变异档。
+// `LFW/cmds` 第一批（CMDS 调度器 + 首批纯世界命令）的变异档。
 //
 // 用例：`cases/cmds/{parse,fs,kill,puppet,handle}.txt`（任一锁住即可）。
 //
 // 有意不覆盖（不可观察 / 不建形 / 记在 DESIGN）：
 //   * 全空白命令：TS `handle` 里 `words[0].toLowerCase()` 会 TypeError，端口跳过 ⇒ 无
 //     共同可观测量（用例不碰这种命令）。
-//   * 未移植的命令（SPAWN / SET_PUPPET / cheat / KEY_EVENT / POINTER_EVENTS / F4 / F8）：
-//     TS 登记着、端口查不到 —— 调度层「handler 空指针」的分支没有对侧可比。
+//   * 后来补的命令族（cheat / SPAWN / SET_PUPPET / F8 见 `cmds2.mjs`；KEY_EVENT / POINTER_EVENTS /
+//     F4 还没有变异档）：调度层「handler 空指针」的分支没有对侧可比。
 //   * `handle` 里 `inst->world_ != &world` 的实例复用：CMDS 无跨世界可观察状态。
 //   * `F9` 的数组快照（`Array.from` 语义）：循环里 `set_hp(0)` 不同步摘实体 ⇒ 引用遍历同观。
 //   * `F7` 的 `hp_r = hp = hp_max` 写入次序 / `hp_max` 读两次：无中间读数方，同观。

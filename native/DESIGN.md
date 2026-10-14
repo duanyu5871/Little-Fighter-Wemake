@@ -11956,9 +11956,10 @@ coverage OK；宿主三条摘要**逐字节不变**（`7335aa25f4e1ce86` / `e4a9
 
 **K2 空转/桩的真实现**（每条挂 TS 对位，看真实现多大）
 
-- `ui_component.h:125-129` `debug/warn/log` 空转 + `make_debugging` **未移植**（全仓只在注释
-  `ui_component.h:36` 里出现）⇒ TS 对位 `UIComponent.ts:53-57` + `base\Debugging.ts:10-29`（装真
-  `Ditto.debug/warn/Log`）；今天调用点已被改道走 `lfw().warn(...)`（`move_table_logic.h:36`）。**S**（~30 行）
+- ~~`ui_component.h:125-129` `debug/warn/log` 空转 + `make_debugging` 未移植~~ **已结清（切片 4D4，
+  见 §149.23）**：`base/debugging.{h,cpp}` 装上真闭包体、走 `lfw().host()` 的 `debug|warn|log` 缝，
+  改道过的告警也归位（`move_table_logic.cpp` 的 `warn(...)`）。TS 对位 `UIComponent.ts:53-57` +
+  `base\Debugging.ts:10-29`。**S**（~30 行）
 - `headless_host.cpp:146` `md5`（注释自认「不是真 MD5」）⇔ `DittoImpl\md5.ts`(19)；`ui_load_img` 的键用它。**S**
 - `sounds_play*`（`headless_host.cpp:191-205` 只计数）+ `world.cpp:142` `play_sound` 默认空转 ⇔
   `Sounds.ts`122 + `Modern.ts`307 + `Fallback.ts`171。**L**
@@ -11972,7 +11973,7 @@ coverage OK；宿主三条摘要**逐字节不变**（`7335aa25f4e1ce86` / `e4a9
 - `FsZip` 只认**解包目录**、无 DEFLATE/中央目录（`fs_zip.h:15`）⇔ `DittoImpl\Zip.ts`154。**M**
 - `measure_text` 近似（`headless_host.cpp:211`）⇔ `ImageMgr` / `TextMesh.ts`276（`UINode.ts:438/470` 用）。**M**
 - 细项：`dat_mgr.cpp:227` 跳过逐地形告警、`preprocess_entity_data.cpp:264` 不收集错误、
-  `fighter_thumb.h:16` `on_show` 桩（等未移植的 `PlayerScore`）、`cmd_f.h:9`、`world.h:135 gen_field`。**S–M**
+  `fighter_thumb.h:16` `on_show` 桩（`PlayerScore` 已搬、只是没接线）、`world.h:135 gen_field`。**S–M**
 
 **K3 台面假件**（`native\tests\differential\subjects\**` —— 17 个类跨 11 个 subject **已经派生真类**，
 退役缝的老配方已是常态）
@@ -11997,7 +11998,8 @@ coverage OK；宿主三条摘要**逐字节不变**（`7335aa25f4e1ce86` / `e4a9
 
 **依赖顺序（省到贵，括号=成本）**
 
-1. `make_debugging`（S）—— 恢复真 `Ditto.debug/warn/Log` 路由，把改道过的告警归位。
+1. ~~`make_debugging`（S）~~ **已结清（切片 4D4，见 §149.23）** —— 真 `Ditto.debug/warn/Log` 路由
+   已恢复，改道过的告警已归位。
 2. 真 MD5（S）—— 抹掉一条自认的谎；真图片/zip 键的前提。
 3. 真 `IClock`/`ITimeout`/`IRenderScheduler`（S–M）—— `Ticker` 自驱，台面不必手推帧。
 4. 真 `IPlayerInfoHost` 缓存（S，`HeadlessHost` 已有真实现）—— 删掉 `FakePlayerHost` 及其 K1 覆写。
@@ -12013,8 +12015,7 @@ coverage OK；宿主三条摘要**逐字节不变**（`7335aa25f4e1ce86` / `e4a9
     `event.stopped()` 早退与 `KEY_EVENT` 的 `stage.control_disabled` 可真覆盖；`set_local_cursor`
     还要等光标渲染路径（`CursorRender.ts` 250）⇒ 在第 8/10 之后。
 
-**本刀已复核**（抽查）：`ui_component.h:125-129` 三个空转 ✓；`make_debugging` 全仓只出现在注释
-`ui_component.h:36` ✓（⇒ 确实未移植）；`headless_host.cpp` 的 `md5` 注释自认「不是真 MD5」✓；
+**本刀已复核**（抽查）：`headless_host.cpp` 的 `md5` 注释自认「不是真 MD5」✓；
 `create_ui_node_renderer` 默认 `nullptr`（`lfw.h:179-182`）✓；`FakeComp` 派生真 `UIComponent` 且经真
 `Factory::register_component` 注册 ✓。
 

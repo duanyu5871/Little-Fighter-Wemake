@@ -616,8 +616,8 @@ class Entity {
   // `BaseController.update()` 直接读 `me.frame.{hold,hit,key_down,key_up}`、
   // `me.data.{pre_hitkeys,post_hitkeys,__pre_hitkeys_map,__post_hitkeys_map}`、
   // `me.transforms?.[0]` 的同名映射、`frame.__seq_map` 与 `me.world.dataset.*`；端口把这些
-  // 收进 `CtrlEnv`，由实体负责填 —— `world.etc` / `world.team_*` 属于 World 切片（未移植），
-  // 那几个钩子留在空位（`BaseController` 调用处都做空检查）。
+  // 收进 `CtrlEnv`，由实体负责填 —— `world.etc` / `world.team_*` 上游已搬（`World::etc` /
+  // `World::team_come|stay|move|follow`），但那五条钩子还没接线 ⇒ 留在空位（调用处都做空检查）。
   void refresh_ctrl_env();
 
   // --- stat helpers ----------------------------------------------------------

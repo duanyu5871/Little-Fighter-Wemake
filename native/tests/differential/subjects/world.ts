@@ -252,7 +252,7 @@ function ctrl_id_of(c: unknown): string {
   return id === undefined ? "-1" : String(id);
 }
 
-// `lfw`：`LFW` 未移植 ⇒ 这一面全由假件回答（与端口侧 `IWorldLfw` 的方法一一对应）。
+// `lfw`：TS 侧用对象字面量假件（与端口侧台面的假 `lfw` 一一对应）。
 const fakeLfw: Bag = {
   // `Stage` 里有几处读 `this.lfw.world.*`（`dispose` 的玩家队伍表）；真 `LFW.world` 就是那个
   // 世界 ⇒ 假件把它接回来（端口侧对应 `IStageWorld` 视图）。

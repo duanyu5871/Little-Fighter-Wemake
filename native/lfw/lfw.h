@@ -260,8 +260,8 @@ class ILfwHost {
   virtual bool xml_parse(const Value& text, Value& marker, std::shared_ptr<IXMLElement>& root,
                          std::u16string& error) = 0;
 
-  // `set_lang` 的节点遍历那一半（`UINode` 未移植）。约定时序与 TS 一致：先按 `prev` 收集、
-  // 再 `lfw.i18n().set_lang(lang)`、再改写节点。
+  // `set_lang` 的节点遍历那一半（TS 里遍历 UI 节点改写文本并按 `measure_text` 重度量；headless
+  // 只切 i18n 的语言表，节点文本停在旧语言）。时序与 TS 一致：先按 `prev` 收集、再切表、再改写。
   virtual void lang_apply(LFW& lfw, const std::u16string& lang, const std::u16string& prev) = 0;
 
   // ---- `_load_zip_from_url` 的 IO 面（`I.Ditto.Zip` + `I.Ditto.Cache`）----

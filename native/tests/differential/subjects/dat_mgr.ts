@@ -52,7 +52,7 @@ const clear_at = new Set<string>();
 let clear_img = "";
 
 // `xtree` 的树字面量：`o 3 tag s "entity" attrs o <n> … kids a <n> …`（递归）。
-// 用 `create` / `set_attr` / `insert` 搭出来（`ToolXML.parse` 端口未搬，见 i_xml.h）。
+// 用 `create` / `set_attr` / `insert` 搭出来（两侧都走工厂建树，不经过 `parse`）。
 function build_el(v: unknown): unknown {
   const rec = v as Rec;
   const el = xml.create(String(rec["tag"]));

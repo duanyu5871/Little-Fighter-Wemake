@@ -3201,9 +3201,9 @@ void Entity::refresh_ctrl_env() {
   env.data_post_seq_map = field_or(_data, u"__post_hitkeys_map");
   env.seq_map = field_or(frame, u"__seq_map");
   // ⚠ 这五条缝**上游其实已经搬好**（`World::etc` / `World::team_come|stay|move|follow`，
-  // 见 `world.h`），但 `IEntityHost` 还没有对应缝、这里也就一直是 `nullptr`
-  // （旧注释写的「世界切片未移植」是过期信息）。空 `std::function` ⇒ 调用方走
-  // 「宿主没回答」那条路（TS 里这些是 `world.*` 的活调用）。要接上属于独立小刀。
+  // 见 `world.h`），但这里一直没有接线、所以恒 `nullptr`（`BaseController` 的调用点都做空
+  // 检查 ⇒ 走「宿主没回答」那条路；TS 里这些是 `world.*` 的活调用）。
+  // 要接上属于独立小刀。
   env.world_etc = nullptr;
   env.team_come = nullptr;
   env.team_stay = nullptr;

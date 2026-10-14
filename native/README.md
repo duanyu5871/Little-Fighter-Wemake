@@ -8,8 +8,8 @@ Electron 桌面壳、以及将来的原生客户端上跑同一份逻辑。
 | | TS（现状，唯一可运行实现） | C++（本目录） |
 |---|---|---|
 | 纯核心 | `src/LFW/` | `native/lfw/` |
-| 宿主实现 | `src/DittoImpl/` | `native/host/`（**尚未创建**） |
-| 注入边界 | `src/LFW/ditto/Instance.ts` 的 `IDittoPack` | 镜像到 `native/lfw/ditto/`（**尚未创建**） |
+| 宿主实现 | `src/DittoImpl/` | `native/host/`（headless 宿主：`FsZip` / `HeadlessHost` / `lfw_run`） |
+| 注入边界 | `src/LFW/ditto/Instance.ts` 的 `IDittoPack` | 镜像到 `native/lfw/ditto/`（`IXML` / `IXMLElement` / `IZip` / `IZipObject` 等宿主服务接口） |
 
 ---
 
@@ -142,10 +142,10 @@ native/
       randoming.{h,cpp}              ← helper/Randoming.ts
     state/
       spawn_ice_piece.{h,cpp}        ← state/spawn_ice_piece.ts
-    (待搬) utils/{container_help/traversal,get_keys,set_obj_field,take_number,assign,list_fn,
-           schema,string_parser,type_check,type_cast}
-           loader/ entity/ stage/ bot/ buff/ bg/ cmds/ controller/
-           collision/（非叶子：靠 entity/buff/World）
+    loader/ entity/ stage/ bot/ buff/ bg/ cmds/ controller/ ui/ animation/
+      dat_translator/ ditto/                 ← 以上均已搬（逐刀见「切片明细」）
+      collision/（非叶子：靠 entity/buff/World）
+    未搬（按需）：utils/container_help/{get_keys,list_fn}、utils/string_parser
   tests/differential/                ★ 两侧对拍（详见 PROTOCOL.md）
   tools/
     native.mjs                       configure / build / lint / test
@@ -304,9 +304,9 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
 | 3ac | `loader/preprocess_bdy` + `loader/preprocess_itr`（+ `preprocess_action` 的 `action.tester` 落地；14 个 `itr.kind` 分支的默认条件） | ✅ 通过（`loader_frames/all` 222 行；166 条变异全杀） |
 | 3ad | `loader/preprocess_frame` + `utils/read_nums`（帧装配：prefab 合并 / weapon 与 fighter 的状态默认值 / `cook_frame_indicator_info` / `fold_aabb` / `__hit_ground_*` / `center` / `pics`） | ✅ 通过（`loader_frames/all` 544 行；变异 **213/213 全杀**；顺带补上 `cook_frame_indicator_info` 的失败通道：`indicator_info` 40/40 全杀） |
 | 3ae | `loader/preprocess_entity_data`（实体数据的总装入口：四路 special / `itr_prefabs`·`bdy_prefabs` 逐条 / `base` 的图·音效 / `pre_*`·`post_hitkeys` 的 `__*_map` / `on_dead`·`on_exhaustion` / `portraits`·`frames` / `__pics` / `base.bot`） | ✅ 通过（`loader_entity` 新 subject，387 行；变异 **121/121 全杀**） |
-| 3 | `loader/get_val_*` 余下部分（`get_val_from_bot_ctrl` / `get_val_getter_from_stage` 要等 `BotController` / `Stage`） | 待做 |
+| 3 | `loader/get_val_*` 余下部分（`get_val_from_bot_ctrl` / `get_val_getter_from_stage`） | ✅ 通过（前者切片 4R、后者切片 4AB，逐刀见「切片明细」） |
 | 4r | `controller/BallController` + `helper/closer_one` | ✅ 通过（`entity/ball_ctrl` 174 行；49 条变异全杀） |
-| 4 | `entity` + `collision` + `buff` + `state` + `controller` + `bot` + `World` | 待做（**必须整块搬**，见下） |
+| 4 | `entity` + `collision` + `buff` + `state` + `controller` + `bot` + `World` | ✅ 通过（整块搬完，逐刀见「切片明细」；全量差分 **261/261**） |
 | 4宿主 | 步骤 4 **宿主接入（M1：headless 可运行）**：`host/` 的 `FsZip`（目录当 zip）+ `HeadlessHost`（`ILfwHost` 最小实现：读盘 import / `ToolXML` / 手动时钟 / 空渲染）+ `lfw_run`（装包 → 起世界 → 手动推帧 → 摘要） | ✅ 通过（`prel` 包：2 个 gim 起 `tutorial` 舞台，300 帧逐位可复现；差分 **254/254**；lint 9776/0）。顺带补上两处**只在真跑时才现形**的移植缺口：`Entity.ts` 底部那四句模块级 `Factory.register_entity` 与 `IWorldLfw::acquire_entity` 缝 |
 | 4XML | 步骤 4 **`ToolXML::parse`（XML 文本 → `IXMLElement`）**：fast-xml-parser 那套选项的形状口径（直接文本保留空白并按序拼、属性走 `String(value)`、无值属性 `"true"`、`ns:` 前缀去掉、CDATA 原样、只解五个命名实体），注释先剥、声明/PI/DOCTYPE 跳过 | ✅ 通过（完整 `data.zip` 现在能装：`fighters=26 weapons=19 balls=24 entities=5 stages=28 bg=16`；`--fighter 1 --fighter 4 --stage 1` 900 帧逐位可复现；差分 **254/254**；lint 9776/0）。细节见 DESIGN §140 |
 | 4CE | 步骤 4 **碰撞族窄接口退役**：删掉 `IHandlerEntity`/`IFallEntity`/`IWeaponIsHitEntity`/`INbdyNormalEntity`/`INdbdyDefendEntity`/`IActionEntity`/`IFrozenEntity`/`IH3Entity`/`IH4Entity`/`IHealingEntity` 十个接口与 `EntityCollisionView` + `ICollisionViewHost` 适配层；10 个碰撞 Env 缝一律收 `lfw::Entity*` / `Entity&`，实体面（`marks_has` / `data_base_hit_sounds` / `cpoint_*` / `holding_base_type` / `spark_point` / `play_sound` / `set_prop` …）收进 `Entity` | ✅ 通过（差分 **254/254**；lint 840 clean/0 failed + **9772 ok / 0 bad anchors**；宿主 `lfw_run` 摘要与 §139/§140 逐位一致）。细节见 DESIGN §141 |
@@ -333,7 +333,7 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
 | 位置 | 偏差 | 原因 |
 |---|---|---|
 | `container_help/find.h` | 只实现了“按值找”。TS 版在可迭代对象未命中后还会退到 `for...in`，把 `[key, value]` 元组喂给谓词 | 对数值数组 + 数值谓词而言两条路径等价（元组参与数值比较恒为 false），但这个差异要记住 |
-| `container_help/{traversal,get_keys,set_obj_field,take_number,assign}` + `foreach` 的对象分支 | 未移植 | 都依赖“JS 对象”这个动态类型，等 `Value`/`JsObject` 建好再搬 |
+| `container_help/get_keys` + `foreach` 的对象分支 | 未移植 | `get_keys` 在 `src/LFW` 里没有调用点（只有 `index.ts` 的 re-export）⇒ **按需不搬**；`foreach` 的对象分支（`typeof any === 'object'` ⇒ 转 `traversal`）在端口里由调用点直接改用 `traversal`（见 `dat_translator/*`）⇒ 本函数只留数组分支 |
 | `container_help/list_fn.h` | 不移植 | 整个 `src/LFW` 里唯一的真·反射，只有 `NoEmitCallbacks.add()` 一个调用点 ⇒ 改成显式注册表 |
 | `math/mersenne_twister` | `pure()` 的 `mt` 是 `uint32_t`，TS 里 `twist()` 之后是 signed int32 的**同一批位模式** | 位模式全等；差分里直接打印 `mt[i]` 的地方先 `>>> 0`（`state` 哈希一直如此） |
 | `math/mersenne_twister` | 不保留 `range(min, max, debugging)` 的**第三参** | TS 里是死参数（函数体只看 `this.debugging`） |
@@ -383,7 +383,7 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
 | `bdy` / `itr` 是**数组**时的行为 | TS 能往数组实例上挂 `__tester`；端口的 `Array` 只有元素、没有键位 ⇒ `bdy` 侧按失败处理，`itr` 侧两边都是「成功、无副作用」（实例是标量同理：`itr` 成功、`bdy` 失败） | 这类数据没有意义（`bdy` / `itr` 是对象字面量）；用例里 `itr` 侧有 `a()` / 标量，`bdy` 侧不写（DESIGN §64.4 第 1 条、§64.3 第 6 条） |
 | `preprocess_bdy` / `preprocess_itr` 的失败用 `bool` + `error` 出参 | TS 抛 `Error`（`prefab_error(...)`）；端口返回 `false`，只有 prefab 错误的文本能对上，TypeError 类的失败（`bdy` 是标量、`actions` 非数组、动作缺 `type` …）只有 `throw` 这一位可比 | 端口一律不用异常（既有约定）；harness 只打印以 `[` 开头的文本（DESIGN §64.5） |
 | `preprocess_frame` 的 `__seq_map` | TS 是 `Map`，端口用 `Object` 顶替（渲染里都是 `{k:v}`） | `core` 没有 `Map`；键序不同（JS `Map` 保插入序，`Object` 把整数键前置升序）⇒ 差分用例里的 `seqs` 键只能升序 |
-| `preprocess_frame` 不落地 `__gen_*` | `frame.opoint?.forEach(preprocess_opoint)` 的编译结果（九个 `__gen_*`）端口不写 | 同 `preprocess_opoint` 的既有约定（宿主按 `IEntityHost::gen_or(...)` 现解析）；差分两侧都剥掉 |
+| `preprocess_frame` 不落地 `__gen_*` | `frame.opoint?.forEach(preprocess_opoint)` 的编译结果（九个 `__gen_*`）端口不写 | 同 `preprocess_opoint` 的既有约定（现解析走 `Entity::gen_or` → `World::gen_field` 宿主缝）；差分两侧都剥掉 |
 | `preprocess_frame` 不落地 `frame.sound` 的加载任务 | TS 往 `jobs` 里 `push(lfw.sounds.load(...))`，端口不写 | 加载副作用不是数据（同 `A_SOUND` 的既有约定） |
 | `preprocess_frame` 的 `frame` 是标量 | TS 读标量属性不抛、第一次写（`frame.width ??= 0`）才抛；端口在入口直接 `false` | 不给标量模型挂属性；差分只比「失败」这一位，`frame` 为标量时两边都是「无副作用地失败」 |
 | `cook_frame_indicator_info` 的失败用 `bool` 返回 | V41 版是 `void`：`"w" in pic` 对原始值会抛、`?.forEach` 对非数组会抛、给标量挂 `__indicator_info` 会抛 —— 端口当时静默跳过 | 该函数只有 `preprocess_frame` 一个调用点；改成 `bool` 后两边对齐（数组目标仍算「成功」：TS 能挂属性，而渲染里看不见） |
@@ -395,7 +395,7 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
 | `make_ball_special` 对稀疏输入不抛（**3t 遗留**） | TS 在 `id "220"` 这类分支上读 `data.frames[50]` 抛；端口的 `make_ball_special(Value&)` 是 `void`（没有失败通道）⇒ `frames` 缺失时跳过 | 会在 `preprocess_entity_data` 的 ball 分支暴露（`ed` 用例挑表里能跑通的 id，见 `mutations/preprocess_entity_data.mjs` 头部）|
 | `make_fighter_special` 的 `ensure(data.base.group, …)`（**3y 遗留**） | TS 的 `ensure(output, item)` 对**非数组真值**（如 `group: 1`）会 `1.push(...)` 抛；端口 `ensure.h` 把非数组一律换成新数组 | 同上：`make_fighter_special(Value&)` 返回 `Value`、没有失败通道 ⇒ `preprocess_entity_data` 的 fighter 分支只能照端口语义走；`ed` 用例的 `group` 一律给数组 |
 | `I18N` 的三张表用 `std::map` 顶 `Map` | TS 是 `new Map()`；端口 `_words` / `_lists` / `_alias_map` 都是 `std::map` | `core` 没有 `Map`；三张表都只做「按键取」、从不迭代 ⇒ 序不可观察（同 `NestedMap` / `preprocess_entity_data` 的既有约定）。`Map` **不做** ToString（数字键 ≠ 字符串键）这条语义靠「语言必须是字符串」保住：`words_of` / `lists_of` / `alias_of` 对非字符串语言一律当查不到；词键那一边照 JS 做 `to_string`（`key_at`） |
-| `I18N` 不实现 `base_words` / `base_lists` 两个 getter | TS 里是 `this._words.get('')!` / `this._lists.get('')!` | `src/LFW` 里没有使用者（只有 `dist/*.d.ts` 的声明），差分用例也不观察；同其它未移植槽的约定 |
+| `I18N` 不实现 `base_words` / `base_lists` 两个 getter | TS 里是 `this._words.get('')!` / `this._lists.get('')!` | `src/LFW` 里没有使用者（只有 `I18N.ts` 自己的声明），差分用例也不观察；同其它未移植槽的约定 |
 | `PlayerInfo` 的字段用 `Value` | TS 的 `_info.name` 是 `string`、`local` / `mine` 是 `boolean`、`ctrl` 是 `CtrlDevice`、`keys` 是 `Record<GameKey,string>`，运行时都可能是别的 | 端口保留原值（同 `Entity::_team` 的既有约定）：构造参数 / `load` 的 JSON5 / 台面都可能给非类型值，用例专门喂 `null` / 数字 / 数组 |
 | `PlayerInfo.loaded` 是**挂起**的 | TS 构造里 `this.loaded = this.load()`：那次 load 到第一个 `await` 之后才真正生效，所以构造后立刻注册的监听者也能收到 `load` 期间的回调；端口把那次 load 挂起，第一次 `loaded()` / `load()` 才落地 | 端口没有 promise / 微任务；挂起模型与 TS 的时序等价（台面里 `new` 之后都会读一次 `loaded()`） |
 | `on_ctrl_changed` 只传两个参数 | TS 是 `(value, prev, player)`，第 3 个是 `PlayerInfo` 实例 | `Value` 装不下对象实例（§4.40）；台面只比前两个参数 |
@@ -404,15 +404,15 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
 | `Ditto` 没装好时不建模 | TS 在 `Ditto.Cache` 是 `undefined` 时会于 `get` / `del` 上抛 `TypeError`；端口假定宿主已装好 `cache_get` / `cache_del` | 台面一定装好；真实调用点（`DatMgr` / `stage`）也在装好 `Ditto` 之后才 `new PlayerInfo` |
 | JS 属性读写语义的少数档没建模 | 端口的 `Array`（`std::vector`）装不下「挂在数组上的字符串键」与超长稀疏数组（`length` / 下标上限 1e6）；数组的「洞」在端口里是显式 `undefined`；字符串只认 `length` 与下标两种自有属性 | 这些档要 `_info.keys` 不是普通对象才碰得到（`PlayerInfo` 里造不出来）；`prop_get` / `prop_set` 按 JS 语义保留，台面不喂这些输入 |
 | `to_lower_case` 只覆盖部分 Unicode | 覆盖 ASCII / Latin-1（除 `×`）/ Latin Extended-A / 希腊 / 西里尔 + `U+0130` 两码点特例；表外码点原样返回 | 键名实际只出现在这几段；`İ` 一档照抄 JS（`i` + `U+0307`），用例覆盖到了 |
-| `ditto/zip/IZip` 只建模 `name` 与 `file(string)` | TS 还有 `files` / `md5` / `set` / `blob` 与 `file(RegExp)` 重载 | 本刀只用到前两个；其余随 `Resources` 那刀与真正的加载刀再补 |
+| `ditto/zip/IZip` 只建模 `name` / `file(string)` / `file(RegExp)` / `md5` | TS 还有 `files` / `set` / `blob` | 缺的三条没有调用点 ⇒ 按需不搬；`file(RegExp)` 只认移植触及的固定模式表（`std::regex` 被 lint 禁），表外模式按「全串相等」处理 |
 | `IZip.file` 不给抛错面 | 真实 zip 是纯查表、不会抛；TS 里宿主实现若抛会往外传 | 台面不脚本化「宿主自己抛」这种情形 |
-| `IZipObject` 只有 `name` | TS 还有 `text` / `json` / `blob` / `blob_url` / `array_buffer` / `uint8_array` / `image_bitmap`（全 async） | 随 `Resources` 那刀补 |
+| `IZipObject` 不做 `blob` / `uint8_array` | TS 是八个成员（`name` / `text` / `json` / `blob` / `blob_url` / `array_buffer` / `uint8_array` / `image_bitmap`，读法全 async） | 端口有其余六个；缺的两条没有调用点 ⇒ 按需不搬（值形状偏差另见本表的 `array_buffer` / `image_bitmap` 两行） |
 | `ILoadedZip` 按**值**存进列表 | TS 的 `add(zip)` 存的是同一个对象引用（`unshift`）⇒ 宿主事后改 `{zip, info}` 在 TS 里看得见、端口看不见 | 真实调用点 `LFW.ts` 是现造现加；台面不造这种情形 |
 | `ZipMgr.md5s()` 给 `Value[]` | TS 声明 `string[]`，但实际原样返回 `info.md5`（`?? '` 只吞 `null` / `undefined`） | 端口给 `Value` 不丢信息 |
 | `IDataInfo` 只建模自有 8 个字段、且 `info` 必须非空 | TS 是普通对象（可挂别的键），`info` 为 nullish 时读 `info.md5` 会抛 `TypeError` | 台面只喂 TS 声明里的字段 |
 | `ditto::vec2` 只收数字 | TS 的 `new Vector2(x, y)` 默认参只吃 `undefined`；显式 `null` 会原样写进 `x` / `y` | `Camera` 只用无参与数字形式；台面只喂数字 |
 | `_dested` / `_locked` 的分量只能是数字 | TS 里 `_dested.x` 是 nullish 时 `?? this.destination.x` 会走后半；`jump_*` 也能把 `undefined` 写进 `position.x` | 记在偏差表；台面只喂数字 |
-| `ICameraWorld` 的三个方法必须回对象 | TS 里 `world.stage` / `bg` / `dataset` 是 nullish 时读属性会抛 `TypeError`；端口的 `field_or` 对非对象给 `undefined` | 台面只喂对象（`undefined` 字段走的是 `to_number` ⇒ NaN） |
+| `Camera` 读 `World::world_stage()` / `world_bg()` / `world_dataset()` 必须回对象 | TS 里 `world.stage` / `bg` / `dataset` 是 nullish 时读属性会抛 `TypeError`；端口的 `field_or` 对非对象给 `undefined` | 台面只喂对象（`undefined` 字段走的是 `to_number` ⇒ NaN）；这三条原来是 `ICameraWorld` 缝，切片 4CK-1 起相机直接持真 `World*` |
 | `modern_screen_height()` 找不到键时回 0 | TS 的 `Defines.MODERN_SCREEN_HEIGHT` 是模块常量（450），不可能缺 | 端口走运行时表，缺键时 `defines::num` 给 0（`to_number(undefined)` 会给 NaN） |
 | `IVector2` 只实现 `x` / `y` / `set` | TS 的 three.js `Vector2` 还有 `add` / `sub` / `length` / `clone` / `normalize` / `equals` | `Camera` 只读写两项；随用到的物理刀再补 |
 | `base/dedup.h` 是直通 | TS 的 `deduped` 用模块级 `Map<string, Promise>` 做**并发**去重（同 key 的调用共享同一次执行，settle 后删条目） | 同步端口没有交错 ⇒ 共享观察不到；连带 `dedup_key` 拼出的键字符串在端口里不参与逻辑（台面只做顺序调用） |
@@ -427,7 +427,7 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
 | `acquire_ctrl` 复用时不带参 `reset()`（`player_id` 单独写） | TS 是 `ret.reset(player_id, entity)` | 端口 `BaseController::reset()` 无参（既有约定）；顺序仍是先写 `player_id` 再 `reset()` |
 | `Factory::set_warn` 是进程级 sink | TS 是全局 `Ditto.warn` | 端口没有单例容器；机制同 `IPlayerInfoHost::warn` 等既有缝 |
 | `IEntityCreators` 是 `std::function<Entity*(World*, const Value&, state::States*)>`，`World` / `LFW` 只前置声明；`IBuffCreator::create` 返回 `buff::Buff*` | TS 是 `(world, data, states) => Entity` 与带 `static KIND` / `static GROUPS` 的类 | 本刀不构造世界；creator / 注册信息由宿主提供，端口只透传 |
-| `create_entity_with_player` / `create_components` / `register_component` / `components` / `_usedALIAS` 不移植 | 前两者要 `LocalController`（依赖 `LFW.player()`），后两者是 UI 层 | 随 `LFW` 那刀与最后一段 `ui/` 再补；`_usedALIAS` 全仓库没有调用点 |
+| `Factory._usedALIAS` 不移植 | TS 声明了 `protected static readonly _usedALIAS = new Set<string[]>()` | 全仓库没有调用点（同其它只声明不用的槽）；同族的 `create_entity_with_player` / `create_components` / `register_component` / `components` 都已搬 |
 | `stage/Expressions` 存的是**副本**（`std::vector`），不是 TS 那个数组本身 | TS 的 `_list` 就是内部数组、`reset(list)` 传回 `list()` 时靠**同一性**早退 | 端口的同一性判定改成「传进来的正是 `list()` 返回的那一份」（不能比地址：临时量可能落在同一格栈上）；对外可观察的行为一致 |
 | `stage/Expressions::index()` 是端口新增的只读口 | TS 的 `_index` 是 `protected` | 台面要观测游标；`is_first` / `is_last` 只给两位信息 |
 | `bg` 的 `info` / `data` 是 `Value` | TS 是 `IBgLayerInfo` / `IBgData`（普通对象） | 与既有约定一致；`{...info, x}` 的浅拷贝在端口要**显式复制** `Object`（`Value` 共享 `shared_ptr`） |
@@ -436,11 +436,9 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
 | `bg/Background` 读 `data.base` / `data.layers` 走 `field_or` | TS 里 `data.base` 是 nullish 时读 `info.name` 会抛 `TypeError`；`data.layers` 非数组时 `for...of` 会抛 | 端口给 `undefined` / 跳过（台面只喂「对象 base + 数组或 nullish layers」） |
 | `helper/Randoming` 模板化成 `RandomingT<T>`（`Randoming` 仍是 `RandomingT<Value>` 的别名） | TS 的 `Randoming<T>` 本来就泛型，`Item.randoming` 是 `Randoming<Randoming<IEntityData>>` | `Value` 装不下「`Randoming` 实例」⇒ 加一个 `RandomingItem<T>` 特化（元素是 `std::shared_ptr<Randoming>` 时 `taken` 的缺省与 `v != taken` 都用指针） |
 | `helper/Randoming` 的 `default_mt()` 放在 `randoming_default_mt()` 里 | TS 只有一个静态 `Randoming.mt` 实例（不随元素类型分家） | 模板静态成员会每个 `T` 一份 ⇒ 实例必须放在非模板函数里 |
-| `stage/Item` 的实体面收成 `IItemEntity` 缝、宿主面收成 `IItemHost` 缝 | TS 的 `Item` 直接吃 `Entity` 与 `LFW` / `World` / `Stage` 的具体实现 | 同 `ICameraWorld` / `IResourcesHost` 的既有写法（那些模块还没搬）；`is_fighter(e)` / `is_weapon(e)` 走 `ref()`（`{ data: … }` 形状，与 `entity::is_fighter` 的入参一致） |
 | `stage/Item` 的 `entity_callback` 按实体各建一份 | TS 是**一个**共享对象，`e.callbacks.del(this.entity_callback)` 传的是对象本身 | 端口的 `Callbacks::on()` 返回 `Remover`、监听体由容器持有 ⇒ 用「两个 `Remover` + 实体指针」记账（效果等价：`objects.delete(e)` + 不再监听 e） |
 | `stage/Item` 的析构会摘掉所有监听 | TS 里那个回调会**一直挂在实体上**（JS 对象不会被析构，实体还强引用着 `Item`） | 端口必须摘，否则实体会拿着悬空的 `this`（本刀真踩过：`dead` 之后的下一次分配就崩） |
 | `stage/Item` 的 `x` / `y` / `z` / `enemy_*` 传给 `mt.range` 前会 `to_number` | TS 的 `mt.range(min, max)` 里 `max - min` 是数值强转、`floor(...) + min` 是 JS 的 `+`（`min` 是字符串时会拼接） | 端口 `range(double, double)` 只吃数字 ⇒ 台面不喂非数字（`x z` 这种 `null` 档两边一致，已覆盖） |
-| `stage/Stage` 的实体面 / 宿主面收成 `IStageEntity` / `IStageWorld` / `IStageLfw` 三条缝 | TS 的 `Stage` 直接吃 `World` / `LFW` 的具体实现 | 同 `IItemEntity` / `ICameraWorld` 的既有写法（`World` / `LFW` 还没搬）；`world.stage` 合并成一个 `stage()` 访问器（`has_stage` + `stage_is_self` 两问并一问，读几次与 TS 的属性读一一对应） |
 | `stage/Stage` 的 `callbacks` 用 `CallbacksT<StageCallbackArgs>` | TS 是 `Callbacks<IStageCallbacks>`，回调签名里有 `Stage` 本身 | `Value` 装不下 C++ 对象 ⇒ 给一个专用 payload（`stage` + 两个值位），同 `FSM` 用 `CallbacksT<FSM*>` 的先例 |
 | `stage/Stage` 的 `phase.__end_testers` / `dialog.__end_testers` 由宿主 `IStageLfw::end_testers(owner)` 提供 | TS 里 dat 层已经把 `end_test` 编成了 `IExpression<Stage>` **实例**数组 | `Value` 装不下表达式实例 ⇒ 宿主按「那份数据」交出列表，`Stage` 只负责 `reset` / `flow`（台面把 `__test` 就地转成对象上的 `__end_testers` 序号、实例存在宿主表里 —— 与 TS 的引用语义一致，也不能拿对象**指针**当缓存键：地址会被复用） |
 | `stage/Stage` 的 `IDialogState` 用值拷贝的 `DialogState` | TS 是 `{...prev, list}` 对象字面量（每次换新对象，旧的那份留给回调） | 端口按值拷贝 ⇒ `prev` / `curr` 天然是两份；`list` 也是拷贝（TS 里 `[...prev.list, ...more]`） |
@@ -448,7 +446,6 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
 | `stage/Stage::set_phase` 的同一性早退用 `same_ref` | TS 的 `phase === this.phase` 是**引用**比较 | `strict_equals` 对对象是**深比较** ⇒ 端口单独写 `same_ref`（对象比指针） |
 | `stage/Stage` 的 `_disposers` 永远是空的 | TS 里声明了 `_disposers` 却**没有任何 push 点** | 照抄成员与 `dispose` 里的调用；这条路径不可达（记在 `mutations/stage_main.mjs` 头部） |
 | `stage/Stage::change_bg` 在 `world.bg` 为 null 时不抛 | TS 里 `prev_bg.dispose()` 没有 null 守卫（`world.bg` 为 undefined 时抛 `TypeError`） | `World` 构造里先建了 `bg` 再建 `Stage` ⇒ 该路径不可达；端口给守卫（台面只喂「有 bg」的世界） |
-| `IItemEntity` 增了 `team()` | `Item` 那边不用它；`Stage::kill_*` 要 `e.team === stage.team` | 与「`kill_*` 只认自己队伍」的语义一致；台面假实体记下 `set_team` 的值（读静默，与 TS 的属性读对齐） |
 | `World::render_worker_id_` 用 `0` 表示 TS 的 `undefined` | `Ditto.Render.add` 的句柄在端口里走 `clock_add`（槽空时回 0），TS 那边没装 Worker 就是 `undefined` | 台面把 0 打成 `u` 对齐；`stop_render` 的「有没有句柄」判断也因此按 `!= 0` 写 |
 | `World::fps_value()` 落空回 `NaN` | TS 的 `get FPS()` 在 `sync_render` 不是五个枚举值时返回 `undefined` | 端口的分量是 `double` ⇒ 用 `NaN` 顶替，台面把两者都打 `u` |
 | `World::on_step_error` 的 `Date.now()` 与 `e.errors` | TS 读全局 `Date.now()`、参数是异常对象（`Ditto.warn(e)` + `e?.errors`） | 端口把时间收进时钟槽（`clock_now()`，与 `render_once` 同一套）、把「有没有 `errors`」收成 `bool`，第二句告警文本固定 |
@@ -463,9 +460,8 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
 | `insert` 不先摘旧父；`remove` 只认直接子 | 浏览器版 `insert` 先 `child._parent?.remove(child)`、`remove` 用 DOM `contains`（祖先/后代都算） | tool 语义；端口用 `shared_ptr` 装「同一元素挂两个父」 |
 | `from_number` 写**文本**（`<number type="number">7</number>`） | 浏览器版写 `value` 属性（`from_string` 两边都写 `value`） | tool 语义；读回时 `attr('value') ?? text` 两边都能接 |
 | `stringify` 是 fast-xml-parser 的 `XMLBuilder` | 浏览器版是 `XMLSerializer` + `xml-formatter`（形状差远了） | 端口复刻 `format:true` 的全部形状：2 空格缩进、行尾 `\n`、同名子元素按标签分组、空子元素整块丢、`<x></x>` 不压成 `<x/>`、转义只有 `& < > " '` 五个（见 DESIGN §80） |
-| `IXML::parse` 给 `nullptr`（没搬） | tool 版走 fast-xml-parser `XMLParser`、浏览器版走 `DOMParser`，两边细节都不小 | LFW 的 `dat_translator/xml/*` 全走 `create` / `from_*`；真的 `parse` 调用点（`LFW.ts` / `Resources.ts`）随它们的刀再补 |
 | `ToolXMLElement::insert` / `remove` 的 `static_cast<ToolXMLElement*>` | —— | 缝上只有这一种实现；宿主换实现要另写 |
-| `CMDS` 是**惰性注册**（首次查表时登记 21 条已移植命令） | TS 在模块加载期 `CMDS.register(...)` 登记全部 32 条 | 端口没有加载期钩子；未移植的 11 条查表给 `nullptr`（TS 那边是登记着的）⇒ 差分台面不碰这些命令词 |
+| `CMDS` 是**惰性注册**（首次查表时一次性登记全部 36 条） | TS 在模块加载期按模块逐个 `CMDS.register(...)`（也是 36 条） | 端口没有加载期钩子 ⇒ 表建在 `cmds.cpp`（`register_defaults`）、次序照 `index.ts`；切片 4CZ 起两边的命令表逐条对齐 |
 | `CMDS::handle` 对全空白命令直接跳过 | TS 的 `this.inst.words[0].toLowerCase()` 会抛 `TypeError` | 端口无异常；「共同可观测量不存在」不算覆盖缺口（记在 DESIGN §85 与变异档头部） |
 | `CMDS::args` 用 `std::map` | TS 是对象字面量：撞原型键（`constructor` 等）会读到函数 | 数据不可达不建形；`eq > 0` / 末次覆盖 / 缺席给 `undefined` 三条语义照抄 |
 | `CMDS` 的默认表 + 台面 `__probe__` 都走 `register_cmd` | TS 的注册是 `CMDS.register` 静态方法 | 形状一致（键统一降格、helps 另存）；台面私货用大写键注册以暴露注册侧降格 |

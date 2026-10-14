@@ -52,7 +52,8 @@
 //    保持原值。碰撞攻击者带**数字**队伍时两边表示不同（TS 存 3、端口存 "3"）⇒ 用例里
 //    的 `run lastcollided` 只喂字符串队伍；这条偏差记录在 README 的已知偏差表。
 //  * `spawn` 失败分支里 TS 的 `Ditto.warn` + `debugger`（§4.57 约定）不移植。
-//  * `collision_clone(v)` 需要碰撞工厂（未移植）⇒ 端口按 9i 约定原样复制 vrest 记录，
+//  * `collision_clone(v)` 会向碰撞工厂要一个新 id（端口按 9i 约定原样复制 vrest 记录：
+//    这些路径只读 `aid` / `itr` / `rest`，不读 `Collision::id`），
 //    用例里 vrests 为空 ⇒ `spawn` 尾部的复制循环在本主题不可观测。
 // 9k（mt.mark 探针）不可观察项：
 //  * `drop_holding` 的 `mark = "dh_1"` 在 TS 里被紧随其后的 `enter_frame` 链覆盖
