@@ -738,3 +738,11 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
 ⚠️ 闯关模式的**站位/朝向/队伍**仍是宿主自己的口径（TS 是 `mt.range(40, 80) + cam_x`、
 `FacingFlag.Right`、`slot_info.team || new_team`），没有改 —— 一是保持 DESIGN §140/DESIGN §141 那两条摘要基线
 可比（`d9b00db799724a2b` / `eeecc812075e8b74`），二是这块要按 TS 补齐属于独立的切片。
+
+## 画面存档（Godot 宿主）
+
+跑出来的截图留在 `native/host/godot/shots/`，便于直接打开查看（生成命令见下）：
+
+- `shot-stage1.png` / `shot-vs-stage0.png` —— 狮林 bg_2，两名角色（含武器与影子）
+
+开窗截图的跑法：`<godot> --path native\host\godot\project -- --root dist --zip native\build\host-data\prel --zip native\build\host-data\data --fighter 1 --fighter 4 --stage 1 --frames 900 --delta 0.017 --screenshot <png> --shot-frame 300`
