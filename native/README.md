@@ -8,7 +8,8 @@ Electron 桌面壳、以及将来的原生客户端上跑同一份逻辑。
 | | TS（现状，唯一可运行实现） | C++（本目录） |
 |---|---|---|
 | 纯核心 | `src/LFW/` | `native/lfw/` |
-| 宿主实现 | `src/DittoImpl/` | `native/host/`（headless 宿主：`FsZip` / `HeadlessHost` / `lfw_run`） |
+| 宿主实现 | `src/DittoImpl/` | `native/host/`（`common/lfw_boot` 共享装配 + headless 宿主 `FsZip`/`HeadlessHost`/`lfw_run` + `wasm/` 的 C ABI 宿主） |
+| 前端宿主（JS 侧） | `src/DittoImpl/`（浏览器） | `native/web/`（JS 宿主 / 冒烟 / 打包 / 预演页） |
 | 注入边界 | `src/LFW/ditto/Instance.ts` 的 `IDittoPack` | 镜像到 `native/lfw/ditto/`（`IXML` / `IXMLElement` / `IZip` / `IZipObject` 等宿主服务接口） |
 
 ---
@@ -254,8 +255,8 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
 [lfw_run] loaded: fighters=1 weapons=0 balls=0 entities=1 stages=2 bg=3
 [lfw_run] spawn p1 gim @(-80.0, 0.0, 0.0) team=1
 [lfw_run] stage=tutorial bg=ash_forest entities=2
-[frame    299] entities=2 ghosts=0 hp=1000.0 digest=d9b00db799724a2b
-[lfw_run] done: frames=300 ups=60 digest=d9b00db799724a2b warns=0 errors=0 …
+[frame    299] entities=2 ghosts=0 hp=1000.0 digest=7335aa25f4e1ce86
+[lfw_run] done: frames=300 ups=60 digest=7335aa25f4e1ce86 warns=0 errors=0 …
 ```
 
 `digest` 是「实体表（按 id 排序）的位置/血量/队/状态」的 FNV-1a —— 同参数**逐位可复现**
