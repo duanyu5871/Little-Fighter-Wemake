@@ -277,18 +277,25 @@ function cmdGodotRun() {
   const headless = userArgs.includes("--headless");
   const rest = userArgs.filter((a) => a !== "--headless");
   const has = (flag) => rest.includes(flag);
+  // 两种跑法（`--play` 是岔路口）：
+  //   * `npm run godot`（一个扩展参数都不给）→ **开放模式**：不 boot_scene、不限帧数（关窗口才
+  //     结束）、真节拍、不打帧摘要 —— 就是"玩"；
+  //   * 给了参数（`npm run godot -- --frames 900 …`）或 `--headless` → 与以前一样：验收/诊断
+  //     口径，缺省 `--frames 900 --delta 0.017`（三条摘要靠这一支）。
+  const play = has("--play") || (!headless && rest.length === 0);
 
   const args = [];
   if (headless) args.push("--headless");
   args.push("--path", GODOT_PROJECT, "--");
+  if (play && !has("--play")) args.push("--play");
   if (!has("--root")) args.push("--root", join(REPO, "dist"));
   if (!has("--zip")) {
     args.push("--zip", join(HOST_DATA, "prel"));
     const data = join(HOST_DATA, "data");
     if (existsSync(data)) args.push("--zip", data);
   }
-  if (!has("--frames")) args.push("--frames", has("--screenshot") ? "200" : "900");
-  if (!has("--delta")) args.push("--delta", "0.017");
+  if (!play && !has("--frames")) args.push("--frames", has("--screenshot") ? "200" : "900");
+  if (!play && !has("--delta")) args.push("--delta", "0.017");
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i];
     // 存盘路径按「调用处」解成绝对路径：扩展拿到的 cwd 是工程目录
@@ -302,6 +309,9 @@ function cmdGodotRun() {
 
   console.log(C.dim(`  ${godot}`));
   console.log(C.dim(`  ${args.join(" ")}`));
+  if (play) {
+    console.log(C.dim("  开放模式：玩到关窗口为止（想跑验收用 `npm run godot:headless`）"));
+  }
   const r = spawnSync(godot, args, { stdio: "inherit", cwd: REPO });
   return r.status ?? 1;
 }

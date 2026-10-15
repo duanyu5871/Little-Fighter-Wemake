@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 
+#include "host/common/ui_input_handle.h"
 #include "lfw/base/clock.h"
 #include "lfw/ditto/xml/tool_xml.h"
 #include "lfw/lfw.h"
@@ -79,11 +80,18 @@ class HeadlessHost : public ILfwHost {
   void keyboard_init(LFW&) override {}
   void pointings_init(LFW&) override {}
   void keyboard_add_callback(LFW&) override {}
-  void pointings_add_ui_input(LFW&) override {}
+  // `this.pointings.callback.add(new I.Ditto.UIInputHandle(this))`（`lfw.cpp:249`）：注册本宿主的
+  // `UiInputHandle`（引擎无关的命中测试 + `POINTER_*` 命令），从此指针事件才真的进 UI。
+  void pointings_add_ui_input(LFW&) override;
   void keyboard_callback_add(LFW&, LfwKeyboardCallback* cb) override;
   void keyboard_callback_del(LFW&, LfwKeyboardCallback* cb) override;
   void pointings_callback_add(LFW&, LfwPointingsCallback* cb) override;
   void pointings_callback_del(LFW&, LfwPointingsCallback* cb) override;
+  // `this.pointings.grab(who)` / `.ungrab(who)` / `.grabbing`（TS `DittoImpl.__Pointings`：
+  // 世代 + 持有者语义，「指针按下」抬一代）。
+  bool pointings_grab(LFW& lfw, const void* who) override;
+  void pointings_ungrab(LFW& lfw, const void* who) override;
+  const void* pointings_grabbing(LFW& lfw) override;
   void cache_forget(const std::u16string& type, double version) override;
   void zip_forget_stored(const std::u16string& type, double version) override;
   IWorldRenderer* create_world_renderer(LFW&) override { return &_renderer; }
@@ -121,7 +129,8 @@ class HeadlessHost : public ILfwHost {
   void sounds_callback_del(LFW&, LfwSoundsCallback* cb) override;
   void sounds_dispose() override {}
   void keyboard_dispose() override {}
-  void pointings_dispose() override {}
+  // `__Pointings.dispose()`：清回调表 + 复位抓取（句柄本身留在宿主手里，只是被摘出回调表）。
+  void pointings_dispose() override;
   Value measure_text(const Value& text, const Value& style) override;
   void player_cache_get(const std::u16string& name, PlayerInfoCacheEntry& out) override;
   bool player_cache_del(const std::u16string& name, std::u16string& error) override;
@@ -154,6 +163,26 @@ class HeadlessHost : public ILfwHost {
   void emit_key_down(LfwKeyEvent& e);
   void emit_key_up(LfwKeyEvent& e);
 
+  // ---- 指针注入（app 侧：Godot 的 `_input` / `lfw_run --click`）----
+  // 每条都分发给已注册的 `LfwPointingsCallback`（快照迭代：回调里注销自己也不会踩迭代器）。
+  // `emit_pointer_down` 会像平台那样先抬一代抓取世代（`__Pointings._on_pointer_down`）。
+  void emit_pointer_down(LfwPointingEvent& e);
+  void emit_pointer_move(LfwPointingEvent& e);
+  void emit_pointer_up(LfwPointingEvent& e);
+  void emit_pointer_cancel(LfwPointingEvent& e);
+  void emit_click(LfwPointingEvent& e);
+  void emit_wheel(LfwPointingEvent& e);
+  // ⚠ 「指针进/出画面」这条缝（`LfwPointingsCallback` 上没有）只到 UI 句柄；别的回调收不到。
+  void emit_pointer_enter(LfwPointingEvent& e);
+  void emit_pointer_leave(LfwPointingEvent& e);
+
+  // 本宿主的 UI 输入句柄（`pointings_add_ui_input` 之前为空）。
+  UiInputHandle* ui_input() const { return _ui_input.get(); }
+
+  // 一次完整的点击：`x,y` 是 **UI 逻辑像素**（左上原点，与 `--pos` 同一套），内部反算
+  // `scene_x/scene_y`（与 `UiInputHandle` 的换算互逆）⇒ 按下 + 抬起各推一条命令。
+  void click_ui(LFW& lfw, double x, double y, double button = 0.0);
+
  private:
   bool read_file(const std::filesystem::path& path, std::string& out, std::u16string& error) const;
 
@@ -165,6 +194,11 @@ class HeadlessHost : public ILfwHost {
   ToolXML _xml;
   std::vector<LfwKeyboardCallback*> _kb_callbacks;
   std::vector<LfwPointingsCallback*> _pt_callbacks;
+  std::unique_ptr<UiInputHandle> _ui_input;
+  // TS `__Pointings` 的抓取世代（`_grab_prev_epoch` / `_grab_epoch` / `_grabbing`）。
+  long long _grab_prev_epoch = -1;
+  long long _grab_epoch = 0;
+  const void* _grabbing = nullptr;
   std::vector<LfwSoundsCallback*> _sd_callbacks;
   std::map<std::u16string, PlayerInfoCachePut> _player_cache;
   std::map<std::u16string, Value> _zip_cache;

@@ -597,7 +597,8 @@ zip/renderer）、`IWorldRenderer`、`IPlayerInfoHost`、`IXML`/`IXMLElement`、
 `IWorldRenderer`、
 `IUINodeRenderer`、`IPlayerInfoHost`、`IResourcesHost`、`IClock`/`ITimeout`、`IRenderScheduler`、
 `ITickerOptions`、`IXML`/`IXMLElement`、`IZip`/`IZipObject`、`ditto` 包。headless 实现分三档：
-**忠实的什么都不做**（`images_init` / `keyboard_init` / `pointings_*` / `*_dispose`，`headless_host.h:83-160`）、
+**忠实的什么都不做**（`images_init` / `keyboard_init` / `pointings_init` / `*_dispose`，
+`headless_host.h:83-160`）、
 **偷工减料**（就是 K2 那张表）、**忠实且完整**（`IXML` 293+517 行 vs TS 274+62、JSON/JSON5、文件 I/O、
 `FsZip` 索引）。
 
@@ -1501,15 +1502,19 @@ JSZip 的 `file()` / `file()` + 正则索引是**同步**的（`Zip.ts:122-141`�
 * 键 → `LFW::on_key_down/up`（`lfw.h:411-412`；`LFW` 自己就是 `LfwKeyboardCallback`，
   `lfw.h:297-299`），注册走 `keyboard_add_callback`（`lfw.h:145`，TS 侧是
   `Keyboard.ts:44-50` 的 `callback.add`）。
-* 指针 → **端口现在没有 `UIInputHandle`**：`pointings_add_ui_input` 是宿主面
-  （`lfw.h:147`，`lfw.cpp:249` 调它），TS 那份实现在 `ui/UIInputHandle.ts` 里用
-  three.js `Raycaster` 打网格（`UIInputHandle.ts:119-126`）算出节点路径，再
-  `push_cmd(CMD.POINTER_*, '--paths=…')`（`UIInputHandle.ts:42-56,76-88`）。
-* ⇒ **把 hit test 搬进 WASM**：几何本来就在 WASM（`UINode::cross()` / `rect()` / `geo()` /
-  `hit()`，`native/lfw/ui/uinode.h:126-152`，`uinode.cpp:289-332`），WASM 宿主新写一个
-  `WasmUIInputHandle` 复现"DOM 事件 → 命中节点 → 组 `CMD.POINTER_*` 命令"
-  （命令解析器已经全在 `native/lfw/cmds/cmd_pointer_events.cpp` 里，且 `--paths` 的读法
-  `read_targets` 就在那儿）。JS 不再参与 hit test。
+* 指针 → **端口的 `UIInputHandle` 已落地**：`host/common/ui_input_handle.{h,cpp}` 是
+  `DittoImpl/ui/HeadlessUIInputHandle.ts` 的逐条镜像（在 `UINode` 模型上做矩形命中测试、
+  组 `--paths/--pages/--points` 再 `push_cmd(CMD.POINTER_*)`，**无引擎类型**），注册点是
+  `HeadlessHost::pointings_add_ui_input`（`lfw.cpp:249` 调它）；平台事件进来的一侧见
+  `ILfwHost` 之外的注入面 `HeadlessHost::emit_pointer_*`（Godot 的 `_input` 与
+  `lfw_run --click` 都走它）。真 `UIInputHandle.ts:119-126` 那份用 three.js `Raycaster`；
+  端口按 headless 那一份的几何口径（`UINode::cross()/geo()`，`native/lfw/ui/uinode.h:126-152`、
+  `uinode.cpp:289-332`）等价实现。
+* ⇒ **WASM 直接复用同一份**：`host/common/ui_input_handle.{h,cpp}` 已经是引擎无关的（不含任何
+  引擎头，只吃 `LfwPointingEvent` + `LFW::push_cmd`）⇒ W10 那个 `WasmUIInputHandle` 不必另写，
+  只需把 DOM 事件变成 `LfwPointingEvent` 再喂 `emit_pointer_*`。
+  （命令解析器全在 `native/lfw/cmds/cmd_pointer_events.cpp` 里，`--paths` 的读法
+  `read_targets` 就在那儿。）JS 不再参与 hit test。
 * 这样 `grab/ungrab/grabbing`（`lfw.h:157-170`）与 `set_local_cursor` 的**写面**
   （`cmd_pointer_events.h:43-45`；DESIGN §8.29 记着它"平台层调用、无 op 驱动"）都变成
   **WASM 内部**的事；JS 只**读**光标（`get_pointer_cursors`，`cmd_pointer_events.h:40-42`
@@ -1714,6 +1719,7 @@ const m = await createLfw({ locateFile: (f) => `/wasm/${f}` })
 | `IZip` / `IZipObject` | `lfw/ditto/zip/i_zip.h:15-31`（`name` / `file(string)` / `file(regex)` / `md5`）、`i_zip_object.h:16-29`（`name` / `json` / `text` / `blob_url` / `array_buffer` / `image_bitmap`） | 需要一个**能读 zip 的 IO 层**（Godot 侧候选：`ZIPReader`，需验证）。现在只有"目录当 zip"（G6） |
 | `IXML` / `IXMLElement` | `lfw/ditto/xml/i_xml.h:16`、`i_xml_element.h:35` | **不需要 Godot**：端口已有纯逻辑 `ToolXML`（`native/lfw/ditto/xml/tool_xml.*`），headless 就是这么接的（`host/headless_host.cpp:327`） |
 | `IUIEvent` | `lfw/ui/ui_event.h:14-18`（`stopped()` / `stop_propagation()` / `stop_immediate_propagation()`） | **不需要 Godot**：纯状态类（同文件 `LFWUIEvent` / `LFWPointerEvent` / `LFWKeyEvent`），输入事件在 `native/host/godot/**` 里翻译成它 |
+| 指针入径（**不在 `ILfwHost` 上**，宿主侧的注入面） | `host/headless_host.h` 的 `emit_pointer_down/move/up/cancel/click/wheel` + `emit_pointer_enter/leave` + `click_ui(x,y)`（命令走 `LFW::push_cmd`）；命中测试在 `host/common/ui_input_handle.{h,cpp}`（引擎无关，镜像 `DittoImpl/ui/HeadlessUIInputHandle.ts`） | Godot 的 `_input`（`_ready` 里 `set_process_input(true)`）：`InputEventMouseButton`（含 4 向滚轮）/ `InputEventMouseMotion` / `InputEventPanGesture` → `LfwPointingEvent` → 注入面。坐标 = **逻辑屏幕像素**（与 `_draw()` 同一套；794×450 无 stretch ⇒ 视口像素 = UI 逻辑像素） |
 | `IUIImgLoaderNode` | `lfw/ui/ui_img_loader.h:20-28`（`lfw()` / `set_image(Value)` / `resize(w,h)`） | **不需要 Godot**：端口内已有 `UINodeImgAdapter`（同文件 `:72`） |
 
 ⚠ 两个容易踩的点：
@@ -1939,8 +1945,11 @@ WASM 宿主已经用同一招证明过自己 —— `native/README.md:310`：**�
   真时间，**摘要就不可复现** ⇒ 必须留一个"固定 `now()`"的开关（`lfw_run` 的对位是 `--time`，
   `native/README.md:261-262`），且 G1 骨架的验收**必须**跑固定值那条。
 - **Godot 的输入语义 vs 端口的 `IUIEvent`**：端口里指针事件是被攒成命令的
-  （`cmds/cmd_pointer_events.*`，W10 讨论了"hit test 要不要搬"）。Godot 侧别在 `host/godot/**` 里**另做
-  一套命中测试**再去和端口的几何打架 —— 端口已经有几何与 `UINode::hit`（W10 的论证）。
+  （`cmds/cmd_pointer_events.*`，W10 讨论了"hit test 要不要搬"）。命中测试**已经**在
+  `host/common/ui_input_handle.{h,cpp}`（引擎无关、镜像 `HeadlessUIInputHandle.ts`）；
+  Godot 侧只做"平台事件 → `LfwPointingEvent`"（`lfw_godot_node.cpp` 的 `_input`，
+  坐标换算与 `_draw` 用的逻辑屏幕像素同一套）⇒ **别在 `host/godot/**` 里再写一套命中测试**，
+  也别去改端口的几何。
 
 ### G10. 机检
 
@@ -2067,7 +2076,7 @@ headless 的形状，再把空实现逐个换掉（S7 的切片）—— `native
 
 | 需求面 | 落在哪（端口，已读） | "够用"是什么 |
 |---|---|---|
-| **窗口 / 指针（含悬停与抓取）** | `ILfwHost::pointings_init` / `pointings_add_ui_input` / `pointings_callback_add` / `…_del`（`lfw.h:143,147,153-154`）；抓取族 `pointings_grab` / `pointings_ungrab` / `pointings_grabbing`（`lfw.h:157-170`，**都有默认体**：`false` / 空 / `nullptr`，`HeadlessHost` 一个都没覆写）；事件形状 `LfwPointingEvent`（`lfw.h:87-95`）与 `LfwPointingsCallback`（`lfw.h:98-107`，其中 `on_pointer_move` 就是悬停） | 窗口事件 → `LfwPointingEvent` → 逐个触发 `pointings.callback`；**抓取要给真语义**（组件会读 `pointings_grabbing` 的返回值）；悬停不需要额外的宿主面 |
+| **窗口 / 指针（含悬停与抓取）** | `ILfwHost::pointings_init` / `pointings_add_ui_input` / `pointings_callback_add` / `…_del`（`lfw.h:143,147,153-154`）；抓取族 `pointings_grab` / `pointings_ungrab` / `pointings_grabbing`（`lfw.h:157-170`，默认体 `false` / 空 / `nullptr`）；事件形状 `LfwPointingEvent`（`lfw.h:87-95`）与 `LfwPointingsCallback`（`lfw.h:98-107`，其中 `on_pointer_move` 就是悬停） | **已落定**：命中测试在 `host/common/ui_input_handle.{h,cpp}`（引擎无关，镜像 `HeadlessUIInputHandle.ts`），`HeadlessHost::pointings_add_ui_input` 注册它、`emit_pointer_*` 是平台事件的注入面，抓取族在 `HeadlessHost` 里按 `__Pointings` 的**世代 + 持有者**语义实现；宿主只负责"平台事件 → `LfwPointingEvent`"（Godot 的 `_input`）。`on_enter/leave` 这条缝仍在 `LfwPointingsCallback` 之外（只有句柄认） |
 | **按键映射** | `LfwKeyEvent`（`lfw.h:70-76`）、`LfwKeyboardCallback`（`lfw.h:80-84`）、`keyboard_add_callback` / `keyboard_callback_add` / `…_del`（`lfw.h:145,150-151`） | 把宿主键码翻成端口认识的**字符串** `key`（核心只认字符串），按下 / 抬起各触发一次 |
 | **2D 精灵批** | `IWorldRenderer`（`world.h:61-68`：`add_entity` / `del_entity` / `render(dt)` / `dispose`），调用点 `world.cpp:392 / :455 / :1077 / :1308`；另有一层 `IEntityRenderer`（`entity.h:34-37`，只有 `render(dt, dfactor)`） | **保留式**：进世界建对象、出世界删对象、每帧在 `render(dt)` 里自己遍历活实体重读状态（G4 第一段）。⚠ `IEntityRenderer` 在**全仓没有任何实现**，`Entity::renderer` 也**没有赋值点**（只在 `entity.h:129` 初始化成 `nullptr`）⇒ 第一版**只能**靠 `IWorldRenderer` |
 | **文字与 `measure_text`** | `ILfwHost::measure_text(text, style)`（`lfw.h:242`）；调用点 `ui/cook_ui_info.cpp:607`、`ui/uinode.cpp:128`、`:193`（带 key 缓存，`uinode.cpp:178-201`） | 回一个 `{text, style, width, height}` 的 `Object`（形状照 `headless_host.cpp:211-219`）。headless 给的是**零尺寸** ⇒ 桌面宿主这里会**第一次**把真实布局撑开（见 S6 的跨宿主告警） |

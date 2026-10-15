@@ -11,6 +11,7 @@ endif()
 
 add_executable(lfw_thin
   "${LFW_NATIVE_ROOT}/host/common/lfw_boot.cpp"
+  "${LFW_NATIVE_ROOT}/host/common/ui_input_handle.cpp"
   "${LFW_NATIVE_ROOT}/host/fs_zip.cpp"
   "${LFW_NATIVE_ROOT}/host/headless_host.cpp"
   lfw_thin.cpp

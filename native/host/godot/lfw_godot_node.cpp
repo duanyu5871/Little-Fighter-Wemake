@@ -12,6 +12,10 @@
 
 #include <godot_cpp/classes/image.hpp>
 #include <godot_cpp/classes/engine.hpp>
+#include <godot_cpp/classes/input_event.hpp>
+#include <godot_cpp/classes/input_event_mouse_button.hpp>
+#include <godot_cpp/classes/input_event_mouse_motion.hpp>
+#include <godot_cpp/classes/input_event_pan_gesture.hpp>
 #include <godot_cpp/classes/os.hpp>
 #include <godot_cpp/classes/rendering_server.hpp>
 #include <godot_cpp/classes/scene_tree.hpp>
@@ -25,8 +29,11 @@
 #include <godot_cpp/variant/utility_functions.hpp>
 #include <godot_cpp/variant/vector2.hpp>
 #include "host/common/lfw_boot.h"
+#include "host/common/ui_input_handle.h"
 #include "lfw/base/clock.h"
+#include "lfw/core/js_string.h"
 #include "lfw/core/value.h"
+#include "lfw/ui/uilayer.h"
 #include "lfw/utils/container_help/field_or.h"
 #include "lfw/utils/utf8.h"
 #include "lfw/world.h"
@@ -76,16 +83,36 @@ const char* LfwGodot::usage() {
   return "usage: <godot> --path native/host/godot/project -- --root <dir> --zip <dir>\n"
          "               [--zip <dir> ...] [--fighter <id>] [--stage <id>] [--players N]\n"
          "               [--frames N] [--every N] [--time ms] [--delta seconds] [--vs]\n"
-         "               [--screenshot <file.png>] [--shot-frame N] [--ui-dump]\n"
+         "               [--play] [--click <x>,<y>[@<frame>]] [--click-frame N]\n"
+         "               [--screenshot <file.png>] [--shot-frame N] [--ui-dump] [--ui-page <id>]\n"
          "  --root     import 根目录（含 builtin_data/…），可重复；缺省 `.`\n"
          "  --zip      数据包目录（已解包），可重复；按给定顺序 load\n"
          "  --fighter  指定出场的角色 id，可重复（缺省用数据包里的前 `--players` 个）\n"
+         "  --play     开放模式：不 `boot_scene`（由数据入口页 `init` 驱动）、不限帧数（关窗口才\n"
+         "             结束）、缺省不打帧摘要、节拍用 Godot 的真 `delta`。= `--frames 0` + 不造场景。\n"
+         "  --frames   推这么多逻辑帧就收工并打摘要（验收模式）；`--frames 0` = 不限帧数\n"
          "  --delta    只覆盖 `_process` 的节拍（秒），不改固定步长（默认用 Godot 给的 delta）\n"
+         "  --click    在第 `--click-frame` 帧（或 `@frame`）注入一次完整点击（按下 + 抬起）；\n"
+         "             坐标是 UI 逻辑像素（左上原点、794×450 那套，与截图 1:1）。可重复。\n"
          "  --screenshot  画到第 `--shot-frame` 帧后存一张 PNG（**别加 --headless**：headless\n"
          "                没有渲染，存出来是空白）；给绝对路径\n"
          "  --shot-frame  截图的帧号（缺省 120）\n"
          "  --ui-dump     最后一帧逐 UI 节点打一行事实（诊断，不进摘要）\n"
          "  --ui-page     装载后把这一页设到第 0 层（id 取自烹饪好的 UI 表；缺省用首页 `init`）\n";
+}
+
+// `--click <x>,<y>[@<frame>]`：坐标取 `Number(...)` 口径（与 `--pos` 的解析同源）。
+bool parse_click_spec(const std::string& text, int default_frame, double& x, double& y, int& frame) {
+  const size_t at = text.find('@');
+  const std::string pos = at == std::string::npos ? text : text.substr(0, at);
+  const size_t comma = pos.find(',');
+  if (comma == std::string::npos) return false;
+  x = std::strtod(pos.substr(0, comma).c_str(), nullptr);
+  y = std::strtod(pos.substr(comma + 1).c_str(), nullptr);
+  if (!std::isfinite(x) || !std::isfinite(y)) return false;
+  frame = default_frame;
+  if (at != std::string::npos) frame = std::atoi(text.substr(at + 1).c_str());
+  return frame >= 0;
 }
 
 std::vector<std::string> LfwGodot::user_args() {
@@ -142,6 +169,16 @@ bool LfwGodot::parse_args(const std::vector<std::string>& argv, Args& out) const
       out.shot_frame = std::atoi(v.c_str());
     } else if (a == "--vs") {
       out.vs = true;
+    } else if (a == "--play") {
+      out.play = true;
+      out.frames = 0;  // 开放模式：帧数不限（窗口关掉才结束）
+    } else if (a == "--click") {
+      if (!need(i, v)) return false;
+      out.click_specs.push_back(v);
+    } else if (a == "--click-frame") {
+      if (!need(i, v)) return false;
+      out.click_frame = std::atoi(v.c_str());
+      if (out.click_frame < 0) return false;
     } else if (a == "--ui-dump") {
       out.ui_dump = true;
     } else if (a == "--ui-page") {
@@ -152,9 +189,19 @@ bool LfwGodot::parse_args(const std::vector<std::string>& argv, Args& out) const
     }
   }
   if (out.roots.empty()) out.roots.emplace_back(".");
-  if (out.every <= 0) out.every = 60;
+  // 0 = 自动：开放模式缺省静默（不打帧摘要），验收模式缺省每 60 帧一行。
+  if (out.every <= 0) out.every = out.play ? 0 : 60;
   if (!out.screenshot.empty() && out.shot_frame < 0) out.shot_frame = 120;
-  return !out.zips.empty() && out.frames > 0;
+  if (out.frames < 0) return false;
+  for (const std::string& spec : out.click_specs) {
+    Args::ClickAt click;
+    if (!parse_click_spec(spec, out.click_frame, click.x, click.y, click.frame)) {
+      print_error("[godot] bad --click value: " + spec + " (want <x>,<y>[@<frame>])");
+      return false;
+    }
+    out.clicks.push_back(click);
+  }
+  return !out.zips.empty() && (out.play || out.frames > 0);
 }
 
 void LfwGodot::_ready() {
@@ -179,6 +226,8 @@ void LfwGodot::_ready() {
     quit_with(1);
     return;
   }
+  // ⚠ GDExtension 必须显式打开输入处理，不然引擎不会调 `_input`（默认关）。
+  set_process_input(true);
   _running = true;
 }
 
@@ -228,29 +277,33 @@ bool LfwGodot::setup() {
   }
 
   // ---- 装好这场对局：与 `lfw_run` 共用 `boot_scene`（不另写一条装配路径）----
-  BootOptions boot;
-  boot.fighters = _args.fighters;
-  boot.stage = _args.stage;
-  boot.players = _args.players;
-  boot.vs = _args.vs;
-  boot.on_spawn = [](const SpawnInfo& s) {
-    char buf[320];
-    std::snprintf(buf, sizeof(buf), "[godot] spawn p%s %s @(%.1f, %.1f, %.1f) team=%s%s",
-                  to_utf8(s.player_id).c_str(), to_utf8(s.fighter_id).c_str(), s.x, s.y, s.z,
-                  to_utf8(s.team).c_str(), s.vs ? " (vs)" : "");
-    print_line(buf);
-  };
-  boot.on_failure = [](const BootFailure& f) {
-    print_error(f.create_failed ? "[godot] create fighter failed: " + to_utf8(f.fighter_id)
-                                : "[godot] fighter data not found: " + to_utf8(f.fighter_id));
-    return true;  // `lfw_run` 口径：记账后继续
-  };
-  const BootResult booted = boot_scene(*_lfw, boot);
-  if (!booted.ok) {
-    print_error("[godot] no fighter data in the loaded packages");
-    return false;
-  }
-  {
+  // ⚠ 开放模式（`--play`）**不**走这里：那是"玩"，入口是数据自己的首页 `init`（启动页 → 点
+  // 进去 → 菜单 → …），宿主不替玩家把场景摆好。验收模式（`--frames N`）才强制造场景。
+  if (_args.play) {
+    print_line("[godot] play mode: no boot_scene; the entry UI page drives (entry page: init)");
+  } else {
+    BootOptions boot;
+    boot.fighters = _args.fighters;
+    boot.stage = _args.stage;
+    boot.players = _args.players;
+    boot.vs = _args.vs;
+    boot.on_spawn = [](const SpawnInfo& s) {
+      char buf[320];
+      std::snprintf(buf, sizeof(buf), "[godot] spawn p%s %s @(%.1f, %.1f, %.1f) team=%s%s",
+                    to_utf8(s.player_id).c_str(), to_utf8(s.fighter_id).c_str(), s.x, s.y, s.z,
+                    to_utf8(s.team).c_str(), s.vs ? " (vs)" : "");
+      print_line(buf);
+    };
+    boot.on_failure = [](const BootFailure& f) {
+      print_error(f.create_failed ? "[godot] create fighter failed: " + to_utf8(f.fighter_id)
+                                  : "[godot] fighter data not found: " + to_utf8(f.fighter_id));
+      return true;  // `lfw_run` 口径：记账后继续
+    };
+    const BootResult booted = boot_scene(*_lfw, boot);
+    if (!booted.ok) {
+      print_error("[godot] no fighter data in the loaded packages");
+      return false;
+    }
     char buf[320];
     std::snprintf(buf, sizeof(buf), "[godot] stage=%s bg=%s entities=%zu",
                   to_utf8(booted.stage_id).c_str(), to_utf8(booted.bg_id).c_str(),
@@ -389,15 +442,25 @@ void LfwGodot::_process(double p_delta) {
 
   const int shot_at = _args.shot_frame > 0 ? _args.shot_frame : -1;
   bool stepped = false;
-  while (_running && _frames < _args.frames && _host->can_step()) {
+  while (_running && (unlimited() || _frames < _args.frames) && _host->can_step()) {
     GodotWorldRenderer* const renderer = _host->world_renderer();
     const long long before = renderer != nullptr ? renderer->renders() : 0;
+    const int frame = _frames;
+    // `--click`：命令先入队，接着这一步的 `World::step` 消化掉 ⇒ 打完这一帧再报页面。
+    Args::ClickAt* const clicked = inject_clicks(frame);
     _host->push_frame(_lfw->world());
     render_world_frame(before);
     stepped = true;
-    const int frame = _frames;
     ++_frames;
-    if (frame % _args.every == 0 || frame == _args.frames - 1) report_frame(frame);
+    if (clicked != nullptr) {
+      char buf[256];
+      std::snprintf(buf, sizeof(buf), "[godot] click @frame %d at=(%.1f, %.1f) pages=%s", frame,
+                    clicked->x, clicked->y, ui_pages_text().c_str());
+      print_line(buf);
+    }
+    if (_args.every > 0 && (frame % _args.every == 0 || frame == _args.frames - 1)) {
+      report_frame(frame);
+    }
     if (shot_at >= 0 && _frames >= shot_at) {
       _capture_pending = true;  // 这一帧的绘制落在本帧末尾 ⇒ 下一帧再取视口
       break;
@@ -405,7 +468,7 @@ void LfwGodot::_process(double p_delta) {
   }
   if (stepped) queue_redraw();
   if (_capture_pending) return;
-  if (_frames >= _args.frames) finish();
+  if (!unlimited() && _frames >= _args.frames) finish();
 }
 
 // 每个 step 之后补一次 `World::render_once`（§D4：`sync_render != Sync` 时世界自己**不会**
@@ -418,6 +481,148 @@ void LfwGodot::render_world_frame(long long renders_before) {
   // 世界自己渲染过（`sync_render == Sync/Half`）就不要再补一次。
   if (renderer->renders() == renders_before) world.render_once(_host->step_ms());
   renderer->take_frame();  // 双缓冲：把写好的那一帧翻给 `_draw` 读
+}
+
+// ---- 指针：平台事件 → `LfwPointingEvent` → `POINTER_*` 命令 ----
+//
+// 坐标：`_draw()` 直接按**逻辑屏幕像素**画（`GodotUINodeRenderer` 的 `_box_*`，左上原点、y 向下），
+// 而窗口/视口就是 794×450（`project/project.godot` 的 `display/window/size/viewport_*`，没有 stretch）
+// ⇒ 「视口像素 = UI 逻辑像素」，`scene(NDC)` 由 `ui_scene_of_point` 反算（与 `UiInputHandle`
+// 的 `to_ui` 互逆：`sx = x/w*2-1`、`sy = -(y/h)*2+1`）。控件（`ScrollView` 等）自己也是按这两条
+// 公式从 `scene_x/scene_y` 反算的，所以对得上。
+void LfwGodot::ui_screen_size(double& w, double& h) const {
+  const lfw::host::UiScreenSize s = lfw::host::ui_screen_size(_lfw->world());
+  w = s.w;
+  h = s.h;
+}
+
+LfwGodot::PointerKind LfwGodot::to_pointing_event(const godot::Ref<godot::InputEvent>& event,
+                                                  LfwPointingEvent& out) const {
+  double w = 794, h = 450;
+  ui_screen_size(w, h);
+
+  const godot::Ref<godot::InputEventPanGesture> pan = event;
+  if (pan.is_valid()) {
+    // 触控板双指滚动：Godot 的 `delta` 是"视口尺寸的比例"，**正 = 上/左**
+    //（与浏览器的 `deltaY` 反号）⇒ 这里取负并乘回逻辑尺寸，落到与滚轮同一套 UI 像素口径。
+    const godot::Vector2 d = pan->get_delta();
+    out.delta_x = -static_cast<double>(d.x) * w;
+    out.delta_y = -static_cast<double>(d.y) * h;
+    out.button = 0;
+    return PointerKind::wheel;
+  }
+
+  const godot::Ref<godot::InputEventMouseButton> mb = event;
+  if (mb.is_valid()) {
+    const godot::Vector2 pos = mb->get_position();
+    out.x = static_cast<double>(pos.x);
+    out.y = static_cast<double>(pos.y);
+    out.delta_x = 0;
+    out.delta_y = 0;
+    const int64_t idx = static_cast<int64_t>(mb->get_button_index());
+    // 滚轮：浏览器口径（一个齿 ≈ 100 DOM_DELTA_PIXEL），符号按 Godot 的方向 ——
+    // 上 = 内容往上走（浏览器 `deltaY < 0`），下 = 反之；左右同理。
+    if (idx == godot::MOUSE_BUTTON_WHEEL_UP || idx == godot::MOUSE_BUTTON_WHEEL_DOWN ||
+        idx == godot::MOUSE_BUTTON_WHEEL_LEFT || idx == godot::MOUSE_BUTTON_WHEEL_RIGHT) {
+      if (!mb->is_pressed()) return PointerKind::none;  // 齿只有按下那一下算
+      const double factor = std::fabs(static_cast<double>(mb->get_factor()));
+      const double notch = 100.0 * (factor > 0.0 ? factor : 1.0);
+      if (idx == godot::MOUSE_BUTTON_WHEEL_UP) {
+        out.delta_y = -notch;
+      } else if (idx == godot::MOUSE_BUTTON_WHEEL_DOWN) {
+        out.delta_y = notch;
+      } else if (idx == godot::MOUSE_BUTTON_WHEEL_LEFT) {
+        out.delta_x = -notch;
+      } else {
+        out.delta_x = notch;
+      }
+      out.button = 0;  // TS `__PointingEvent`：滚轮的 `button` 是 0
+      return PointerKind::wheel;
+    }
+    // 左/中/右：浏览器 `PointerEvent.button` 的 0/1/2（`--b` 就是这一套）。
+    out.button = idx == godot::MOUSE_BUTTON_LEFT     ? 0.0
+                 : idx == godot::MOUSE_BUTTON_MIDDLE ? 1.0
+                 : idx == godot::MOUSE_BUTTON_RIGHT  ? 2.0
+                                                     : -1.0;
+    return mb->is_pressed() ? PointerKind::down : PointerKind::up;
+  }
+
+  const godot::Ref<godot::InputEventMouseMotion> mm = event;
+  if (mm.is_valid()) {
+    const godot::Vector2 pos = mm->get_position();
+    out.x = static_cast<double>(pos.x);
+    out.y = static_cast<double>(pos.y);
+    // TS：非滚轮的 `delta_*` 是 0，移动事件的 `button` 是 -1（`mousemove` 的 DOM 口径）。
+    out.delta_x = 0;
+    out.delta_y = 0;
+    out.button = -1;
+    return PointerKind::move;
+  }
+  return PointerKind::none;
+}
+
+// 平台事件进来的唯一入口。**只**推事件、不改模拟：命令入队后由下一步的 `World::step` 消化
+//（与 `lfw_run --click` 同一条路径 ⇒ 无头脚本化点击能证明这条链是通的）。
+void LfwGodot::_input(const godot::Ref<godot::InputEvent>& p_event) {
+  if (!_running || _host == nullptr || _lfw == nullptr || p_event.is_null()) return;
+  LfwPointingEvent e;
+  const PointerKind kind = to_pointing_event(p_event, e);
+  if (kind == PointerKind::none) return;
+  ui_scene_of_point(_lfw->world(), e.x, e.y, e.scene_x, e.scene_y);
+  switch (kind) {
+    case PointerKind::down:
+      _host->emit_pointer_down(e);
+      break;
+    case PointerKind::up:
+      _host->emit_pointer_up(e);
+      break;
+    case PointerKind::move:
+      _host->emit_pointer_move(e);
+      break;
+    case PointerKind::wheel:
+      _host->emit_wheel(e);
+      break;
+    case PointerKind::none:
+      break;
+  }
+}
+
+// 窗口关掉（或 `NOTIFICATION_WM_CLOSE_REQUEST`）时打一行收尾：开放模式没有帧数上限，
+// 正常玩下去只会这样结束 —— 这一行就是「跑到第几帧、时钟走到哪」的证据。
+void LfwGodot::_notification(int p_what) {
+  if (p_what != NOTIFICATION_WM_CLOSE_REQUEST) return;
+  if (!_running || _lfw == nullptr || _host == nullptr) return;
+  char buf[256];
+  std::snprintf(buf, sizeof(buf), "[godot] exit: frames=%d clock=%.0fms steps=%lld pages=%s",
+                _frames, _host->clock().now(), _host->steps(), ui_pages_text().c_str());
+  print_line(buf);
+}
+
+LfwGodot::Args::ClickAt* LfwGodot::inject_clicks(int frame) {
+  if (_args.clicks.empty() || _host == nullptr || _lfw == nullptr) return nullptr;
+  Args::ClickAt* first = nullptr;
+  for (Args::ClickAt& click : _args.clicks) {
+    if (click.frame != frame) continue;
+    _host->click_ui(*_lfw, click.x, click.y);
+    if (first == nullptr) first = &click;
+  }
+  return first;
+}
+
+// UI 的层/页栈（`<层号>:<该层栈顶页 id>`）：点击有没有把页面推下去的**直接**证据。
+std::string LfwGodot::ui_pages_text() const {
+  lfw::ui::UILayers* const layers = _lfw->ui_layers();
+  if (layers == nullptr) return "<no layers>";
+  std::string out;
+  for (lfw::ui::UILayer* const layer : layers->all()) {
+    if (layer == nullptr) continue;
+    if (!out.empty()) out += " ";
+    out += to_utf8(lfw::number_to_string(layer->index()));
+    out += ":";
+    lfw::ui::UINode* const page = layer->ui();
+    out += page != nullptr ? to_utf8(lfw::to_string(page->id())) : "-";
+  }
+  return out.empty() ? "<empty>" : out;
 }
 
 // 引擎侧唯一一处把 `GodotDrawItem` 变成像素的地方（§G5「只在边界转换」）。

@@ -6,6 +6,7 @@
 //   lfw_run --root <dir> --zip <dir> [--zip <dir> ...] [--stage <id>] [--frames 600]
 //           [--players 2] [--fighter <id>] [--time <ms>] [--every 60] [--dev]
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -20,6 +21,7 @@
 #include "lfw/bg/background.h"
 #include "lfw/bot/bot_controller.h"
 #include "lfw/core/state_hash.h"
+#include "lfw/core/js_string.h"
 #include "lfw/core/json5.h"
 #include "lfw/core/value.h"
 #include "lfw/defines/defines_data.h"
@@ -27,6 +29,8 @@
 #include "lfw/entity/entity_ref.h"
 #include "lfw/lfw.h"
 #include "lfw/stage/stage.h"
+#include "lfw/ui/uilayer.h"
+#include "lfw/ui/uinode.h"
 #include "lfw/utils/container_help/field_or.h"
 #include "lfw/utils/cross_bounding.h"
 #include "lfw/utils/type_check.h"
@@ -53,11 +57,38 @@ struct Args {
   // `--vs`：按 TS 的「对战模式」构造场景（`GamePrepareLogic.start_game` 的 VS 分支 +
   // `VsModeLogic.on_start`），而不是宿主原来的闯关模式口径。
   bool vs = false;
+  // `--click <x>,<y>[@<frame>]`：在第 `frame` 帧注入一次完整点击（按下 + 抬起），坐标是
+  // **UI 逻辑像素**（左上原点、794×450 那套，与截图 1:1）。`--click-frame N` 给没写 `@frame`
+  // 的那些点击定帧（缺省 60）。
+  struct ClickAt {
+    int frame = 0;
+    double x = 0;
+    double y = 0;
+  };
+  std::vector<ClickAt> clicks;
+  std::vector<std::string> click_specs;  // 原文（`--click` 的顺序无关：帧号在解析末尾才定）
+  int click_frame = 60;
 };
 
 std::string to_utf8(const std::u16string& s) {
   const std::vector<uint8_t> buf = lfw::encode_utf8(s);
   return std::string(buf.begin(), buf.end());
+}
+
+// UI 的层/页栈（`<层号>:<该层栈顶页 id>`）：点击有没有把页面推下去的**直接**证据。
+std::string ui_pages_text(lfw::LFW& lfw) {
+  lfw::ui::UILayers* const layers = lfw.ui_layers();
+  if (layers == nullptr) return "<no layers>";
+  std::string out;
+  for (lfw::ui::UILayer* const layer : layers->all()) {
+    if (layer == nullptr) continue;
+    if (!out.empty()) out += " ";
+    out += to_utf8(lfw::number_to_string(layer->index()));
+    out += ":";
+    lfw::ui::UINode* const page = layer->ui();
+    out += page != nullptr ? to_utf8(lfw::to_string(page->id())) : "-";
+  }
+  return out.empty() ? "<empty>" : out;
 }
 
 // `Value` 里取字符串（`lfw` 侧同名的 `as_str` 是 lfw.cpp 的文件内助手，不是公开 API）。
@@ -74,9 +105,29 @@ void usage() {
   std::printf(
       "usage: lfw_run --root <dir> --zip <dir> [--zip <dir> ...] [--stage <id>] [--frames N]\n"
       "               [--players N] [--fighter <id>] [--time ms] [--every N] [--dev]\n"
+      "               [--click <x>,<y>[@<frame>]] [--click-frame N]\n"
       "  --root    import 根目录（含 builtin_data/…），可重复\n"
       "  --zip     数据包目录（已解包），可重复；按给定顺序 load\n"
-      "  --fighter 指定出场的角色 id，可重复（缺省用数据包里的前几个）\n");
+      "  --fighter 指定出场的角色 id，可重复（缺省用数据包里的前几个）\n"
+      "  --click   在第 `--click-frame` 帧（或 `@frame`）注入一次完整点击（按下 + 抬起）；\n"
+      "            坐标是 UI 逻辑像素（左上原点、`dataset.screen_w × screen_h` 那套）。可重复。\n"
+      "  --click-frame  没写 `@frame` 的点击落在哪一帧（缺省 60）\n");
+}
+
+// `--click <x>,<y>[@<frame>]`：坐标取 `Number(...)` 口径（与 `--pos` 解析同源）。
+bool parse_click(const std::string& text, int default_frame, Args::ClickAt& out) {
+  const size_t at = text.find('@');
+  const std::string pos = at == std::string::npos ? text : text.substr(0, at);
+  const size_t comma = pos.find(',');
+  if (comma == std::string::npos) return false;
+  const double x = std::strtod(pos.substr(0, comma).c_str(), nullptr);
+  const double y = std::strtod(pos.substr(comma + 1).c_str(), nullptr);
+  if (!std::isfinite(x) || !std::isfinite(y)) return false;
+  out.x = x;
+  out.y = y;
+  out.frame = default_frame;
+  if (at != std::string::npos) out.frame = std::atoi(text.substr(at + 1).c_str());
+  return out.frame >= 0;
 }
 
 bool parse_args(int argc, char** argv, Args& out) {
@@ -124,6 +175,15 @@ bool parse_args(int argc, char** argv, Args& out) {
       out.dump = true;
     } else if (a == "--vs") {
       out.vs = true;
+    } else if (a == "--click") {
+      const char* v = need(i);
+      if (v == nullptr) return false;
+      out.click_specs.emplace_back(v);
+    } else if (a == "--click-frame") {
+      const char* v = need(i);
+      if (v == nullptr) return false;
+      out.click_frame = std::atoi(v);
+      if (out.click_frame < 0) return false;
     } else if (a == "--help" || a == "-h") {
       usage();
       std::exit(0);
@@ -134,6 +194,14 @@ bool parse_args(int argc, char** argv, Args& out) {
   }
   if (out.zips.empty()) return false;
   if (out.roots.empty()) out.roots.emplace_back(".");
+  for (const std::string& spec : out.click_specs) {
+    Args::ClickAt click;
+    if (!parse_click(spec, out.click_frame, click)) {
+      std::fprintf(stderr, "bad --click value: %s (want <x>,<y>[@<frame>])\n", spec.c_str());
+      return false;
+    }
+    out.clicks.push_back(click);
+  }
   return true;
 }
 
@@ -289,8 +357,18 @@ int main(int argc, char** argv) {
   const double ups = num_field(world.dataset.get(u"UPS"), 60.0);
   const double dt = 1000.0 / (ups > 0 ? ups : 60.0);
   const int every = args.every > 0 ? args.every : 60;
+  const bool scripted = !args.clicks.empty();
+  if (scripted) std::printf("[ui] pages before clicks: %s\n", ui_pages_text(lfw).c_str());
   std::string digest;
   for (int frame = 0; frame < args.frames; ++frame) {
+    // 注入点击：命令先入队，再由**这一步**的 `World::step`（`handle_cmds`）消化 ⇒
+    // 「点在第 N 帧」就是第 N 帧生效（与 Godot 的 `_input` 走同一条路径）。
+    for (const Args::ClickAt& click : args.clicks) {
+      if (click.frame != frame) continue;
+      host.click_ui(lfw, click.x, click.y);
+      std::printf("[click] frame=%d at=(%.1f, %.1f) pages=%s\n", frame, click.x, click.y,
+                  ui_pages_text(lfw).c_str());
+    }
     clock.advance(dt);
     world.update_once(dt);
     if (frame % every == 0 || frame == args.frames - 1) {
@@ -298,6 +376,7 @@ int main(int argc, char** argv) {
       std::printf("[frame %6d] entities=%zu ghosts=%zu hp=%.1f digest=%s\n", frame,
                   world.entities.size(), world.ghosts.size(), lfw::host::total_hp(world),
                   digest.c_str());
+      if (scripted) std::printf("[ui] pages: %s\n", ui_pages_text(lfw).c_str());
       // 诊断行：各实体的 state / frame.id / 位置 + bg 运动（看帧链有没有在推进）
       std::printf("[  state]");
       for (Entity* const e : world.entities) {
@@ -349,6 +428,7 @@ int main(int argc, char** argv) {
     }
   }
 
+  if (scripted) std::printf("[ui] pages after run: %s\n", ui_pages_text(lfw).c_str());
   std::printf(
       "[lfw_run] done: frames=%d ups=%.0f digest=%s warns=%d errors=%d ignored_images=%lld "
       "renderer(+-)=%lld/%lld clock=%.1fms\n",

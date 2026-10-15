@@ -165,6 +165,9 @@ native/
       lfw_thin.cpp                      `lfw_thin`：与 `lfw_run` 同参数，打印/落盘绘制记录
     lfw_run.cpp                      `lfw_run`：装数据包 → 起世界 → 推帧（每 N 帧打摘要）
     common/lfw_boot.{h,cpp}          宿主无关的装配（选 stage/bg → 造战士）+ 一帧摘要：两宿主共用
+    common/ui_input_handle.{h,cpp}   UI 输入那一半：指针事件 → 命中测试（`UINode` 模型上的矩形）
+                                     → `POINTER_*` 命令（`--paths/--pages/--points`）。镜像
+                                     `src/DittoImpl/ui/HeadlessUIInputHandle.ts`，**无引擎类型**
     godot/                           ★ Godot 宿主（GDExtension；见「Godot 宿主」节）
       lfw_godot_host.{h,cpp}         `LfwGodotHost : HeadlessHost`：注入虚拟时钟 + 固定步长累加器
                                      + `create_world_renderer` / `create_ui_node_renderer`（覆写那两处空实现）
@@ -295,6 +298,24 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
 
 （`--dump` 会打印各表前两条与全部 id，挑 `--fighter` / `--stage` 用。）
 
+**脚本化点击**（无头也能"点 UI"：注入 `enter → move → down → up`，与 `src/ui_test.ts` 同一次序；
+坐标是 **UI 逻辑像素**，左上原点、794×450 那套、与截图 1:1）：
+
+```
+native\build\msvc-x64\bin\lfw_run.exe --root dist ^
+  --zip native\build\host-data\prel --frames 400 --every 100 ^
+  --click 397,225 --click-frame 10
+# [ui] pages before clicks: 0:init
+# [click] frame=10 at=(397.0, 225.0) pages=0:init
+# [ui] pages: 0:init …（第 300 帧）[ui] pages: 0:entry     ← 点击把启动页推进到了入口页
+```
+
+`--click` 可重复、支持 `x,y@frame` 写法定帧（没写就用 `--click-frame`，缺省 60）；带 `--click`
+时摘要行会多打一行 `[ui] pages:`（层号:栈顶页 id）。`--dev` 下每次按下还会打一行命中列表与整棵
+子树的 `path(geo)v/d`（"为什么没点中"就靠它）。
+⚠ **PowerShell 下坐标要加引号**：逗号在 PS 里是数组分隔符，`--click 397,225` 会被拆成两个参数
+（扩展会报 `bad --click value: 397 225`）⇒ 写成 `--click '397,225'` / `--click '397,225@10'`。
+
 ### 跑起来（录制型薄宿主，`host/thin/`）
 
 `lfw_thin` 与 `lfw_run` **同参数、同装配、同推帧路线**（共用 `host/common/lfw_boot.*`），
@@ -403,11 +424,20 @@ UV 动画 / 文字 / `clip_children` 裁剪；`create_ui_node_renderer` 覆写�
 
 **一条命令跑起来**（前置都在位之后；dll 缺就先编、`.godot` 缺就先 `--import`，都会自己补）：
 
+**两种跑法**（`--play` 是岔路口；`npm run godot` = 玩，`npm run godot:headless` = 验收）：
+
 ```
-npm run godot                                  # 开窗跑默认那套（`--root dist` + 两个包，`--frames 900`）
-npm run godot:headless                         # 同一条路但 `--headless`，只打摘要
-npm run godot '--' --ui-page main_page         # 透传扩展自己的参数
+npm run godot                                  # 开放模式：开窗从数据自己的首页 init 开始玩，关窗口才结束
+npm run godot:headless                         # 验收：`--headless` + 缺省 `--frames 900 --delta 0.017`，只打摘要
+npm run godot '--' --ui-page main_page         # 透传扩展自己的参数（PS 里 `--` 要写成 `'--'`）
+npm run godot '--' --play --every 300          # 开放模式 + 每 300 帧一行心跳（想看它跑到第几帧时用）
 ```
+
+* **开放模式**（`--play`，或 `--frames 0` 的帧数那一半）：**不** `boot_scene`（不替玩家摆场景，入口是
+  数据自己的首页 `init`）、**不**限帧数（关窗口才结束）、缺省**不打**帧摘要、节拍用 Godot 给的真
+  `delta`（真时间）⇒ 这一支**不进三条摘要**（它不是验收口径）。
+* **验收模式**（给 `--frames N`，`npm run godot:headless` 走的这条）：与 `lfw_run` 同形 —— 强制
+  `boot_scene` 造场景、固定步长 + `--delta` 节拍、每 `--every`（缺省 60）帧一行摘要。**三条摘要靠这一支。**
 
 ⚠ **在 PowerShell 里 `--` 必须写成 `'--'`**：PS 会把裸 `--` 当成自己的分隔符**吃掉**，npm 于是把
 后面的 `--stage` 之类当自己的配置项吃掉，参数一个都传不到（实测症状：跑的是默认值、且 `bad
@@ -421,6 +451,14 @@ arguments` 时打印的 usage 里那串参数是"裸值"没有标志名）。`cm
 （`ManualClock::add → 0` ⇒ 端口自己的 `Ticker` 不自驱；这正是 wasm 那边「一帧走两步」的坑）。
 `_process(delta)` 只把 `delta` 当**节拍**喂进累加器，够一个步长才
 `clock.advance(step)` + `world.update_once(step)`；`--delta` 只换节拍，不换步长。
+
+**指针输入**：`_input()` 是平台事件唯一的入口（`_ready` 里 `set_process_input(true)`，GDExtension
+必须显式开）—— 鼠标按下/抬起/移动/滚轮 → `LfwPointingEvent` → `HeadlessHost::emit_pointer_*`
+→ `host/common/ui_input_handle.{h,cpp}` 的命中测试 → `POINTER_*` 命令 → `UINode` 分发。
+坐标换算与 UI 的绘制**互为逆**：`_draw()` 直接按逻辑屏幕像素画（`GodotUINodeRenderer` 的 `_box_*`），
+窗口/视口就是 794×450（`project.godot`，无 stretch）⇒ 视口像素 = UI 逻辑像素，
+`scene = x/w*2-1, -(y/h)*2+1`。`--click <x>,<y>[@<frame>]` 用同一套坐标注入一次完整点击
+（与 `lfw_run --click` 同一条路径），供开窗截图/回归用。
 它同时覆写 `create_world_renderer`（`LfwGodotHost::create_world_renderer`）返回 Godot 的世界渲染器，
 与 `create_ui_node_renderer`（每个 `UINode` 一份 `GodotUINodeRenderer`，所有权归节点）——
 后者把 UI 模型树翻成**同一批**绘制项，落进世界渲染器"正在写的那一帧"（`ui_begin/append/end_layer`，
@@ -471,6 +509,32 @@ $root  = (Get-Location).Path               # 仓库根
 
 三条摘要与 `lfw_run` **逐位一致**（连 `warns` / `ignored_images` / `renderer(±)` / `clock=` 都对得上）
 —— 见下一节。
+
+### 开放模式现在能走到哪（照实记）
+
+从数据自己的首页 `init` 开始、只用指针（`--click` 与真鼠标走同一条链）：
+
+```
+init（启动页：CLICK ANYWHERE TO CONTINUE）-- 点任意处 --> init 的介绍动画 --> entry（入口菜单）
+entry：点 Settings           ⇒ 1:settings（层 1 压上设置页）        ✅ 指针可用
+entry：点 Game Start         ⇒ 0:loading 之后**卡住**：`load_data()` 报
+                                [host:warn] Failed to load, reason [host] import_as_json not found: data.zip.json?time=…
+main_page：点 Stage Mode     ⇒ stage_mode_prepare_page（八人/选人页）  ✅ 指针可用
+选人页：                     ❌ 只认键盘（`CharMenuLogic::on_key_down`，没有指针处理）⇒ 指针点不动
+```
+
+所以**从菜单点进一场对局目前走不通**，缺的不是"造人"（`GamePrepareLogic::start_game()` 已移植：
+`create_entity_with_player/_with_bot`），而是两格：
+
+1. **数据包那一格**：`Game Start` 走的是 `load_data()`（`LFW.ZIPS.slice(1)` = `data.zip.json`）——
+   宿主按 URL 找文件时**不剥 `?time=…` 这个缓存击穿尾巴**，而真读一个 `.zip`（PKZIP）也还没做
+   （`FsZip` 现在只把**目录**当包用）⇒ 这一支在登录页就停住。开窗玩时数据是 `--zip` 预装好的，
+   只有"从菜单再加载一遍"这一步走不通。
+2. **键盘那一格**：选人页（`CharMenuLogic`）与对局的 `KEY_EVENT` 都只认键（`LfwKeyboardCallback`
+   这条缝在宿主侧还没接），指针到不了那里。
+
+想知道开放模式没崩、还在推帧：`npm run godot '--' --play --every 300` 会每 300 帧打一行
+（实测跑到 3300 帧以上、窗口仍活着）；关窗口会有 `[godot] exit: frames=… pages=…` 一行收尾。
 
 ## 验收：宿主三条摘要（改完必跑）
 
@@ -790,11 +854,20 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
 - `ui-char-select.png`（第 300 帧）—— 八人框 `char_menu`：8 个玩家槽（`CMA@4x.png` 的提示图 +
   `Player/Fighter/Team` 标签），**背景里是世界那一遍**（山景 + 角色），
   说明 UI 与世界两半在同一个宿主里叠在一条绘制序上。
+- `ui-before-click.png` / `ui-after-click.png` —— **开放模式**（`--play`，真窗口、真节拍）的一对
+  点击前后：前者是启动页（`init`：整页底色 + 平铺背景 + 居中的 `CLICK ANYWHERE TO CONTINUE`
+  + 声音警告 + 版本号），后者是同一进程里**点了一下（397,225）之后**的入口菜单页（`entry`：
+  `Little Fighter 2` 标题图、左右两张角色大脸、竖直菜单 `Game Start / Add Mods / Custom Game /
+  Network Game / Settings`，`Game Start` 高亮）—— 这一对就是"指针真的接上了"的画面证据。
 
 开窗截图的跑法（**别加 `--headless`**；`--ui-page` 是"装载后点进这一页"，缺省就是数据自己的首页 `init`）：
 
 ```
 $R = (Get-Location).Path; $g = "C:\Users\Gim\Desktop\Godot_v4.7.1-stable_win64_console.exe"
+# 点击前后那一对（开放模式：不 boot_scene、真节拍；点击走 --click）
+npm run godot '--' --play --screenshot native\host\godot\shots\ui-before-click.png --shot-frame 200
+npm run godot '--' --play --click 397,225@5 `
+    --screenshot native\host\godot\shots\ui-after-click.png --shot-frame 400
 # 启动页（世界那一遍不用 --ui-page）
 & $g --path native\host\godot\project -- --root "$R\dist" `
     --zip "$R\native\build\host-data\prel" --frames 200 --every 200 --delta 0.017 `

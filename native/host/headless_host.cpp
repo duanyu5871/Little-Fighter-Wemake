@@ -103,6 +103,36 @@ void HeadlessHost::pointings_callback_del(LFW&, LfwPointingsCallback* cb) {
                       _pt_callbacks.end());
 }
 
+// `this.pointings.callback.add(new I.Ditto.UIInputHandle(this))`：句柄由宿主持有（TS 里靠回调表
+// 引着），注册进同一张回调表 —— 于是「平台事件 → UI 句柄 → `POINTER_*` 命令」这条链在端口接通。
+void HeadlessHost::pointings_add_ui_input(LFW& lfw) {
+  if (_ui_input == nullptr) _ui_input = std::make_unique<UiInputHandle>(lfw);
+  pointings_callback_add(lfw, _ui_input.get());
+}
+
+// TS `__Pointings.grab/ungrab/grabbing`：持有者 + 世代。世代在每次指针按下时 +1 ⇒ 上一次抓取
+// 自动作废（`grabbing` 只在 `_grab_prev_epoch === _grab_epoch` 时返回持有者）。
+bool HeadlessHost::pointings_grab(LFW&, const void* who) {
+  if (_grabbing != nullptr && _grabbing != who && _grab_prev_epoch == _grab_epoch) return false;
+  _grabbing = who;
+  _grab_prev_epoch = _grab_epoch;
+  return true;
+}
+
+void HeadlessHost::pointings_ungrab(LFW&, const void* who) {
+  if (_grabbing == who) _grabbing = nullptr;
+}
+
+const void* HeadlessHost::pointings_grabbing(LFW&) {
+  return _grabbing != nullptr && _grab_prev_epoch == _grab_epoch ? _grabbing : nullptr;
+}
+
+void HeadlessHost::pointings_dispose() {
+  _pt_callbacks.clear();
+  _grabbing = nullptr;
+  _grab_prev_epoch = -1;
+}
+
 void HeadlessHost::sounds_callback_add(LFW&, LfwSoundsCallback* cb) {
   if (cb == nullptr) return;
   if (std::find(_sd_callbacks.begin(), _sd_callbacks.end(), cb) == _sd_callbacks.end()) {
@@ -125,6 +155,74 @@ void HeadlessHost::emit_key_up(LfwKeyEvent& e) {
   for (LfwKeyboardCallback* cb : _kb_callbacks) {
     if (cb != nullptr) cb->on_key_up(e);
   }
+}
+
+// ---- 指针注入 ----
+// 每条都迭代回调表的**副本**：回调里 `pointings_callback_del` 自己也会改 `_pt_callbacks`
+//（TS 的 `Callbacks.call` 同样是迭代副本）。
+void HeadlessHost::emit_pointer_down(LfwPointingEvent& e) {
+  ++_grab_epoch;  // `__Pointings._on_pointer_down` 的 `grab_begin()`
+  const std::vector<LfwPointingsCallback*> cbs = _pt_callbacks;
+  for (LfwPointingsCallback* const cb : cbs) {
+    if (cb != nullptr) cb->on_pointer_down(e);
+  }
+}
+
+void HeadlessHost::emit_pointer_move(LfwPointingEvent& e) {
+  const std::vector<LfwPointingsCallback*> cbs = _pt_callbacks;
+  for (LfwPointingsCallback* const cb : cbs) {
+    if (cb != nullptr) cb->on_pointer_move(e);
+  }
+}
+
+void HeadlessHost::emit_pointer_up(LfwPointingEvent& e) {
+  const std::vector<LfwPointingsCallback*> cbs = _pt_callbacks;
+  for (LfwPointingsCallback* const cb : cbs) {
+    if (cb != nullptr) cb->on_pointer_up(e);
+  }
+}
+
+void HeadlessHost::emit_pointer_cancel(LfwPointingEvent& e) {
+  const std::vector<LfwPointingsCallback*> cbs = _pt_callbacks;
+  for (LfwPointingsCallback* const cb : cbs) {
+    if (cb != nullptr) cb->on_pointer_cancel(e);
+  }
+}
+
+void HeadlessHost::emit_click(LfwPointingEvent& e) {
+  const std::vector<LfwPointingsCallback*> cbs = _pt_callbacks;
+  for (LfwPointingsCallback* const cb : cbs) {
+    if (cb != nullptr) cb->on_click(e);
+  }
+}
+
+void HeadlessHost::emit_wheel(LfwPointingEvent& e) {
+  const std::vector<LfwPointingsCallback*> cbs = _pt_callbacks;
+  for (LfwPointingsCallback* const cb : cbs) {
+    if (cb != nullptr) cb->on_wheel(e);
+  }
+}
+
+void HeadlessHost::emit_pointer_enter(LfwPointingEvent& e) {
+  if (_ui_input != nullptr) _ui_input->on_pointer_enter(e);
+}
+
+void HeadlessHost::emit_pointer_leave(LfwPointingEvent& e) {
+  if (_ui_input != nullptr) _ui_input->on_pointer_leave(e);
+}
+
+void HeadlessHost::click_ui(LFW& lfw, double x, double y, double button) {
+  LfwPointingEvent e;
+  e.x = x;
+  e.y = y;
+  e.button = button;
+  ui_scene_of_point(lfw.world(), x, y, e.scene_x, e.scene_y);
+  // 与 TS 的无头 UI 测试同一个次序（`src/ui_test.ts` 的 `click_ui`）：进入 → 移动 → 按下 → 抬起。
+  // 前两条让「悬停/进入」类的控件先就位（`ScrollView._armed`、`HoverBehavior`…），后两条才是点击。
+  emit_pointer_enter(e);
+  emit_pointer_move(e);
+  emit_pointer_down(e);
+  emit_pointer_up(e);
 }
 
 void HeadlessHost::cache_forget(const std::u16string&, double) {}
