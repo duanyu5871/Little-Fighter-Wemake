@@ -5,6 +5,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <memory>
 #include <string>
 #include <system_error>
@@ -29,6 +31,7 @@
 #include <godot_cpp/variant/packed_string_array.hpp>
 #include <godot_cpp/variant/rect2.hpp>
 #include <godot_cpp/variant/string.hpp>
+#include <godot_cpp/variant/transform2d.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 #include <godot_cpp/variant/vector2.hpp>
 #include <godot_cpp/variant/vector2i.hpp>
@@ -38,6 +41,7 @@
 #include "lfw/base/clock.h"
 #include "lfw/core/js_string.h"
 #include "lfw/core/value.h"
+#include "lfw/defines/cmd.h"
 #include "lfw/ui/uilayer.h"
 #include "lfw/utils/container_help/field_or.h"
 #include "lfw/utils/utf8.h"
@@ -73,6 +77,38 @@ double num_field(const Value& v, double fallback) {
 void print_line(const std::string& text) { UtilityFunctions::print(String::utf8(text.c_str())); }
 
 void print_error(const std::string& text) { UtilityFunctions::printerr(String::utf8(text.c_str())); }
+
+// 控件表里那两路音量（只有它们有悬停弹层）。
+bool is_volume_control(int index) {
+  const auto& list = lfw::host::titlebar_controls();
+  if (index < 0 || index >= static_cast<int>(list.size())) return false;
+  const lfw::host::TitleAction action = list[static_cast<std::size_t>(index)].action;
+  return action == lfw::host::TitleAction::bgm_mute || action == lfw::host::TitleAction::sound_mute;
+}
+
+// 整个文件读成字节（顶栏那 11 张 PNG 在仓库的 `src/assets` 里，不在数据包里 ⇒ 不走 `IZip`）。
+bool read_file_bytes(const std::filesystem::path& path, std::string& out) {
+  std::ifstream in(path, std::ios::binary);
+  if (!in) return false;
+  out.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+  return !out.empty();
+}
+
+// 从 `start` 一路往上找"含 `src/assets/btn_1_1.png` 的目录"（= 仓库根）。Godot 跑工程时会把 cwd
+// 切到**工程目录**（`--path` 的副作用）⇒ 从 `native/host/godot/project` 往上 4 层就是仓库根。
+std::filesystem::path find_repo_root(std::filesystem::path start) {
+  std::error_code ec;
+  for (int depth = 0; depth < 8; ++depth) {
+    if (start.empty()) break;
+    if (std::filesystem::is_regular_file(start / "src" / "assets" / "btn_1_1.png", ec)) {
+      return start;
+    }
+    const std::filesystem::path parent = start.parent_path();
+    if (parent == start) break;
+    start = parent;
+  }
+  return {};
+}
 
 // 报错时把「进程当前目录」一起带上：Godot 跑工程时会把 cwd 切到**工程目录**（`--path` 的副作用）
 // ⇒ `--zip` 给相对路径时最常见的失败就是这个。
@@ -137,7 +173,9 @@ const char* LfwGodot::usage() {
          "               [--zip <dir> ...] [--fighter <id>] [--stage <id>] [--players N]\n"
          "               [--frames N] [--every N] [--time ms] [--delta seconds] [--vs]\n"
          "               [--play] [--click <x>,<y>[@<frame>]] [--click-window <x>,<y>[@<frame>]]\n"
-         "               [--click-frame N] [--titlebar native|none|custom] [--window-scale N]\n"
+         "               [--hover-window <x>,<y>[@<frame>]] [--click-frame N]\n"
+         "               [--titlebar native|none|custom] [--window-scale N]\n"
+         "               [--window-size WxH] [--icons <dir>]\n"
          "               [--key <name>[@<frame>]] [--key-down <name>[@<frame>]]\n"
          "               [--key-up <name>[@<frame>]] [--key-frame N] [--key-tap N]\n"
          "               [--screenshot <file.png>] [--shot-frame N] [--ui-dump] [--ui-page <id>]\n"
@@ -152,6 +190,8 @@ const char* LfwGodot::usage() {
          "             坐标是 UI 逻辑像素（左上原点、794×450 那套，与截图 1:1）。可重复。\n"
          "  --click-window  同上，但坐标是**窗口像素**：走 `push_input(ev, local=false)` ⇒ 引擎按\n"
          "             窗口缩放反算回逻辑像素（与 OS 点击同一条路）—— 证「换算对不对」用这条。\n"
+         "  --hover-window  只推一条 `InputEventMouseMotion`（窗口像素）—— 悬停态（顶栏的拖拽层高亮、\n"
+         "             控件缩 0.8、音量弹层）只有它能推；`--click*` 只推按钮事件。\n"
          "  --key          在第 `--key-frame` 帧（或 `@frame`）按一下（按下 + `--key-tap` 帧后抬起），\n"
          "             走 `HeadlessHost::key_down/key_up`（与真键盘的 `_input` 同一条链）；\n"
          "             键名取小写 `KeyboardEvent.key`（`space` / `esc` / `up` / `j`…）。可重复。\n"
@@ -159,8 +199,13 @@ const char* LfwGodot::usage() {
          "  --key-frame    没写 `@frame` 的按键落在哪一帧（缺省 60）\n"
          "  --key-tap      「按一下」的按下 → 抬起间隔（帧，缺省 2）\n"
          "  --titlebar 窗口那一套：native（系统边框）/ none（无边框、不画栏）/ custom（无边框 +\n"
-         "             自绘栏：拖拽区 + 最小化/最大化/关闭）。缺省：`--play` 时 custom，其余 native。\n"
+         "             自绘栏，照 Electron 那份顶栏：11 个 `btn_*.png` 控件 + 拖拽层 + 音量弹层）。\n"
+         "             缺省：`--play` 时 custom，其余 native。\n"
+         "  --icons    顶栏那 11 张 `btn_*.png` 的目录（缺省 = 从仓库根解析出来的 `src/assets`；\n"
+         "             它们**不在数据包里**，导出/打包时得自己带上）。\n"
          "  --window-scale  窗口 = 逻辑视口（794×450）× N；逻辑视口不变（`project.godot` 的 stretch）。\n"
+         "  --window-size  直接给窗口像素尺寸 `WxH`（可不等比，压过 `--window-scale`）；窗口可自由拉伸，\n"
+         "             下限是逻辑视口 794×450；画面按 stretch 的 `aspect=keep` 等比 contain + 居中（补黑边）。\n"
          "             缺省：`--play` 时 1.5（对齐 Electron 的 1191×675），其余 1.0。\n"
          "  --screenshot  画到第 `--shot-frame` 帧后存一张 PNG（**别加 --headless**：headless\n"
          "                没有渲染，存出来是空白）；给绝对路径\n"
@@ -246,6 +291,9 @@ bool LfwGodot::parse_args(const std::vector<std::string>& argv, Args& out) const
     } else if (a == "--click-window") {
       if (!need(i, v)) return false;
       out.window_click_specs.push_back(v);
+    } else if (a == "--hover-window") {
+      if (!need(i, v)) return false;
+      out.hover_specs.push_back(v);
     } else if (a == "--titlebar") {
       if (!need(i, v)) return false;
       if (v == "native") {
@@ -267,6 +315,21 @@ bool LfwGodot::parse_args(const std::vector<std::string>& argv, Args& out) const
         return false;
       }
       out.window_scale_given = true;
+    } else if (a == "--window-size") {
+      if (!need(i, v)) return false;
+      // `WxH`（大小写都认，分隔符 `x` 或 `X`）——与 Godot 自己的 `--resolution WxH` 同形。
+      int w = 0;
+      int h = 0;
+      if (std::sscanf(v.c_str(), "%dx%d", &w, &h) != 2 || w < 1 || h < 1 || w > 16384 || h > 16384) {
+        print_error("[godot] bad --window-size value: " + v + " (want WxH, e.g. 1191x675)");
+        return false;
+      }
+      out.window_w = w;
+      out.window_h = h;
+    } else if (a == "--icons") {
+      if (!need(i, v)) return false;
+      out.icons = std::filesystem::path(v);
+      out.icons_given = true;
     } else if (a == "--click-frame") {
       if (!need(i, v)) return false;
       out.click_frame = std::atoi(v.c_str());
@@ -318,6 +381,16 @@ bool LfwGodot::parse_args(const std::vector<std::string>& argv, Args& out) const
     click.window_space = true;
     out.clicks.push_back(click);
   }
+  for (const std::string& spec : out.hover_specs) {
+    Args::ClickAt click;
+    if (!parse_click_spec(spec, out.click_frame, click.x, click.y, click.frame)) {
+      print_error("[godot] bad --hover-window value: " + spec + " (want <x>,<y>[@<frame>])");
+      return false;
+    }
+    click.window_space = true;
+    click.hover = true;
+    out.clicks.push_back(click);
+  }
   for (const Args::KeySpec& spec : out.key_specs) {
     const size_t at = spec.text.find('@');
     const std::string name = at == std::string::npos ? spec.text : spec.text.substr(0, at);
@@ -360,6 +433,7 @@ void LfwGodot::_ready() {
   }
   // 窗口放在装包**之前**：无边框要在第一帧之前就设上（不然系统边框会闪一下），而且它不依赖数据。
   apply_window_setup();
+  setup_icons();  // 自绘顶栏那 11 张图：与数据无关（在仓库的 `src/assets` 里，不在数据包里）
   if (!setup()) {
     quit_with(1);
     return;
@@ -367,6 +441,8 @@ void LfwGodot::_ready() {
   // ⚠ GDExtension 必须显式打开输入处理，不然引擎不会调 `_input`（默认关）。
   set_process_input(true);
   _running = true;
+  // 证据行：这一局开窗时条上有哪几个控件（`src/App.tsx` 那 11 个 `Show show=` 的求值结果）。
+  if (titlebar_visible()) report_titlebar_controls();
 }
 
 bool LfwGodot::setup() {
@@ -594,8 +670,8 @@ void LfwGodot::_process(double p_delta) {
     if (clicked != nullptr) {
       char buf[256];
       std::snprintf(buf, sizeof(buf), "[godot] %s @frame %d at=(%.1f, %.1f) pages=%s",
-                    clicked->window_space ? "click-win" : "click", frame, clicked->x, clicked->y,
-                    ui_pages_text().c_str());
+                    clicked->hover ? "hover-win" : (clicked->window_space ? "click-win" : "click"),
+                    frame, clicked->x, clicked->y, ui_pages_text().c_str());
       print_line(buf);
     }
     if (keyed != nullptr) {
@@ -652,6 +728,29 @@ void LfwGodot::ui_screen_size(double& w, double& h) const {
 // `display/window/stretch/*` = `canvas_items`）⇒ 缩放全在引擎那一侧：`_draw()` 照样按逻辑像素画，
 // OS 的窗口像素由引擎按 `Window::get_final_transform()`（`= window_transform * stretch_transform`）
 // 的反变换换算回逻辑像素后才进 `_input`（`--click-window` 走的就是同一条）⇒ 宿主不做缩放补偿。
+// 边缘方向 → 缩放游标形状。⚠ 两个**对角**形状（`FDIAGSIZE` / `BDIAGSIZE`）的命名在 Godot 里
+// 没有逐个核对过（有的 UI 把正向对角当 `\`、有的当 `/`）⇒ 万一反了只是光标图标镜像，不影响拖拽。
+inline godot::DisplayServer::CursorShape cursor_for_edge(TitleEdge edge) {
+  using DS = godot::DisplayServer;
+  switch (edge) {
+    case TitleEdge::left:
+    case TitleEdge::right:
+      return DS::CURSOR_HSIZE;
+    case TitleEdge::top:
+    case TitleEdge::bottom:
+      return DS::CURSOR_VSIZE;
+    case TitleEdge::top_left:
+    case TitleEdge::bottom_right:
+      return DS::CURSOR_FDIAGSIZE;
+    case TitleEdge::top_right:
+    case TitleEdge::bottom_left:
+      return DS::CURSOR_BDIAGSIZE;
+    case TitleEdge::none:
+    default:
+      return DS::CURSOR_ARROW;
+  }
+}
+
 void LfwGodot::apply_window_setup() {
   using godot::DisplayServer;
   DisplayServer* const ds = DisplayServer::get_singleton();
@@ -675,11 +774,21 @@ void LfwGodot::apply_window_setup() {
   const godot::Vector2i logical =
       viewport != nullptr ? godot::Vector2i(viewport->get_visible_rect().size) : ds->window_get_size();
   const double scale = _args.window_scale;
-  const godot::Vector2i want(static_cast<int>(std::lround(static_cast<double>(logical.x) * scale)),
+  const bool explicit_size = _args.window_w > 0 && _args.window_h > 0;
+  const godot::Vector2i want =
+      explicit_size
+          ? godot::Vector2i(_args.window_w, _args.window_h)
+          : godot::Vector2i(static_cast<int>(std::lround(static_cast<double>(logical.x) * scale)),
                             static_cast<int>(std::lround(static_cast<double>(logical.y) * scale)));
+  // **允许自由拉伸**：`RESIZE_DISABLED` 明确关掉（无边框窗口在 Windows 上是 `WS_POPUP` ⇒ 没有原生
+  // 可拖的边框，边缘那条 6 像素带自己叫 `window_start_resize`，见 `titlebar_edge_at`）。
+  // 下限取逻辑视口 794×450 —— 与 Electron 桌面端的 `minWidth/minHeight: 794/450` 同口径
+  //（再小就等于把逻辑屏幕缩没，UI 命中与文字度量都开始失真）。
+  ds->window_set_flag(DisplayServer::WINDOW_FLAG_RESIZE_DISABLED, false);
+  ds->window_set_min_size(logical);
   if (ds->window_get_size() != want) {
     ds->window_set_size(want);
-    if (scale != 1.0) {
+    if (scale != 1.0 || explicit_size) {
       // 窗口从左上角长大 ⇒ 放大后自己居中一下（不然会往右下溢出屏幕）。
       const int screen = ds->window_get_current_screen();
       const godot::Vector2i screen_pos = ds->screen_get_position(screen);
@@ -693,14 +802,33 @@ void LfwGodot::apply_window_setup() {
   const godot::Vector2i now = ds->window_get_size();
   const godot::Vector2i deco = ds->window_get_size_with_decorations();
   const godot::Vector2i pos = ds->window_get_position();
-  char buf[384];
+  // 内容在窗口里的矩形（= contain 之后的黑边量）：`get_final_transform()` 就是「逻辑像素 → 窗口像素」
+  // 那一步（`window_transform * stretch_transform`），它的平移量就是那圈黑边的偏移 ⇒ 左右/上下是否
+  // **对称居中**由这两个数一眼看出（`aspect=keep` 时 Godot 取 `min(w/794, h/450)` 并居中）。
+  int cx = 0;
+  int cy = 0;
+  int cw = logical.x;
+  int ch = logical.y;
+  if (const godot::Viewport* const vp = get_viewport(); vp != nullptr) {
+    const godot::Transform2D t = vp->get_final_transform();
+    const godot::Vector2 o = t.xform(godot::Vector2());
+    const godot::Vector2 s = vp->get_visible_rect().size * t.get_scale();
+    cx = static_cast<int>(std::lround(o.x));
+    cy = static_cast<int>(std::lround(o.y));
+    cw = static_cast<int>(std::lround(s.x));
+    ch = static_cast<int>(std::lround(s.y));
+  }
+  char buf[448];
   std::snprintf(buf, sizeof(buf),
                 "[godot] window: display=%s titlebar=%s scale=%.2f borderless=%d size=%dx%d "
-                "deco=%dx%d pos=%d,%d mode=%d logical=%dx%d",
+                "deco=%dx%d pos=%d,%d mode=%d logical=%dx%d resizable=%d min=%dx%d "
+                "content=%dx%d+%d+%d",
                 display.c_str(), titlebar_name(_args.titlebar), scale,
                 ds->window_get_flag(DisplayServer::WINDOW_FLAG_BORDERLESS) ? 1 : 0, now.x, now.y,
                 deco.x, deco.y, pos.x, pos.y, static_cast<int>(ds->window_get_mode()), logical.x,
-                logical.y);
+                logical.y,
+                ds->window_get_flag(DisplayServer::WINDOW_FLAG_RESIZE_DISABLED) ? 0 : 1,
+                ds->window_get_min_size().x, ds->window_get_min_size().y, cw, ch, cx, cy);
   print_line(buf);
 }
 
@@ -715,28 +843,316 @@ bool LfwGodot::titlebar_visible() const {
          mode != godot::DisplayServer::WINDOW_MODE_EXCLUSIVE_FULLSCREEN;
 }
 
+// ---- 自绘顶栏（`--titlebar custom`）：可见性 / 选中态 / 动作 ----
+//
+// `lfw_godot_titlebar.h` 只管几何与一张条件表；这里把端口现成的状态填进去（`src/App.tsx` 的每个
+// `Show show=` / `ToggleImgButton.src` 逐条对位），并把点击接到端口已有的那些面上
+//（`LFW::push_cmd(CMD.F*)` / `LFW::sounds_*` / `DisplayServer` 的窗口 API）。
+
+// 可见性表。求值不了的两条照实写在 README 里：
+//   * `is_mobile_container` / `toy_mobile`（UA + 触摸判定）⇒ 桌面宿主恒 false；
+//   * `window.runtime`（Wails/Electron 的桥）⇒ 用"真窗口"（`_windowed`）代替。
+lfw::host::TitleBarConditions LfwGodot::titlebar_conditions() const {
+  lfw::host::TitleBarConditions c;
+  if (_lfw == nullptr) return c;
+  const lfw::World& world = _lfw->world();
+  c.cheat_gim_ink = _lfw->is_cheat(lfw::cmd::kGIM_INK);
+  lfw::ui::UILayers* const layers = _lfw->ui_layers();
+  const lfw::ui::UINode* const ui = layers != nullptr ? layers->ui() : nullptr;
+  c.has_ui = ui != nullptr;
+  c.settings_page = ui != nullptr && lfw::to_string(ui->id()) == u"settings";
+  const lfw::ui::UILayer* const bottom = layers != nullptr ? layers->bottom() : nullptr;
+  c.bottom_pages = bottom != nullptr ? static_cast<int>(bottom->pages().size()) : 0;
+  if (const lfw::Background* const bg = world.bg()) {
+    c.bg_is_void = lfw::to_string(bg->id()) == u"VOID_BG";
+  }
+  c.first_page_init_demo = _lfw->first_page == u"init_demo";
+  c.has_window = _windowed;
+  c.mobile_or_toy = false;
+  if (godot::DisplayServer* const ds = godot::DisplayServer::get_singleton()) {
+    const godot::DisplayServer::WindowMode mode = ds->window_get_mode();
+    c.fullscreen = mode == godot::DisplayServer::WINDOW_MODE_FULLSCREEN ||
+                   mode == godot::DisplayServer::WINDOW_MODE_EXCLUSIVE_FULLSCREEN;
+  }
+  return c;
+}
+
+// 每个控件的 `checked`（决定显示 `src[0]` 还是 `src[1]`，见 `lfw_godot_titlebar.h` 那条反直觉的规则）。
+// 来源逐条对 `src/App.tsx`：`app_state.bgm_muted` / `sound_muted` 在端口的等价物就是宿主那两位
+//（`LFW::sounds_*`）；`paused` = `world.paused()`；`is_fullscreen` / `is_maximised` = 窗口模式；
+// `dev_ui_open` 端口没有（恒 false）。
+bool LfwGodot::titlebar_checked(lfw::host::TitleAction action) const {
+  using lfw::host::TitleAction;
+  if (_lfw == nullptr) return false;
+  godot::DisplayServer* const ds = godot::DisplayServer::get_singleton();
+  const godot::DisplayServer::WindowMode mode =
+      ds != nullptr ? ds->window_get_mode() : godot::DisplayServer::WINDOW_MODE_WINDOWED;
+  switch (action) {
+    case TitleAction::bgm_mute:
+      return _lfw->sounds_bgm_muted();
+    case TitleAction::sound_mute:
+      return _lfw->sounds_sound_muted();
+    case TitleAction::f1:
+      return _lfw->world().paused();
+    case TitleAction::f5:  // `checked={lfw?.world.dataset.playrate != 1}`
+      return lfw::to_number(_lfw->world().dataset.get(u"playrate")) != 1.0;
+    case TitleAction::fullscreen:
+      return mode == godot::DisplayServer::WINDOW_MODE_FULLSCREEN ||
+             mode == godot::DisplayServer::WINDOW_MODE_EXCLUSIVE_FULLSCREEN;
+    case TitleAction::maximize:
+      return mode == godot::DisplayServer::WINDOW_MODE_MAXIMIZED;
+    case TitleAction::dev_ui:
+    case TitleAction::f4:
+    case TitleAction::settings:
+    case TitleAction::minimize:
+    case TitleAction::close:
+    case TitleAction::none:
+      break;
+  }
+  return false;
+}
+
+// 点下去干什么。能做的都与 Electron 那一行等义；做不了的只有 `dev_ui`（端口没有那个面板）。
+void LfwGodot::titlebar_activate(int index) {
+  using lfw::host::TitleAction;
+  const auto& list = lfw::host::titlebar_controls();
+  if (_lfw == nullptr || index < 0 || index >= static_cast<int>(list.size())) return;
+  godot::DisplayServer* const ds = godot::DisplayServer::get_singleton();
+  const TitleAction action = list[static_cast<std::size_t>(index)].action;
+  switch (action) {
+    case TitleAction::dev_ui:
+      // Electron 那边是 `set_app_state(d => d.dev_ui_open = !d.dev_ui_open)` —— 端口没有那个面板
+      // ⇒ 按键/悬停都照做，动作只打一行（照实说，不假装）。
+      print_line("[godot] titlebar: dev-ui (no dev panel in this host)");
+      break;
+    case TitleAction::f4:
+      _lfw->push_cmd({std::u16string(lfw::cmd::kF4)});
+      print_line("[godot] titlebar: f4 pages=" + ui_pages_text());
+      break;
+    case TitleAction::f1:
+      _lfw->push_cmd({std::u16string(lfw::cmd::kF1)});
+      print_line("[godot] titlebar: f1 pages=" + ui_pages_text());
+      break;
+    case TitleAction::f5:
+      _lfw->push_cmd({std::u16string(lfw::cmd::kF5)});
+      print_line("[godot] titlebar: f5 pages=" + ui_pages_text());
+      break;
+    case TitleAction::settings: {
+      _lfw->push_cmd({std::u16string(lfw::cmd::kF2)});
+      lfw::ui::UILayers* const layers = _lfw->ui_layers();
+      lfw::ui::UINode* const ui = layers != nullptr ? layers->ui() : nullptr;
+      lfw::ui::UILayer* const layer = ui != nullptr ? ui->layer() : nullptr;
+      if (layer != nullptr && lfw::to_string(ui->id()) == u"settings") {
+        layer->pop(lfw::ui::UIPopPageOpts{});  // `lfw.ui.layer?.pop()`
+        print_line("[godot] titlebar: settings (pop) pages=" + ui_pages_text());
+      } else if (layers != nullptr) {
+        auto opts = std::make_shared<lfw::Object>();
+        opts->set(u"id", Value(std::u16string(u"settings")));
+        layers->set_page(Value(std::move(opts)), 1.0);  // `layers.set_page({id:"settings"}, 1)`
+        print_line("[godot] titlebar: settings (set_page) pages=" + ui_pages_text());
+      }
+      break;
+    }
+    case TitleAction::bgm_mute: {
+      const bool muted = !_lfw->sounds_bgm_muted();
+      _lfw->sounds_set_bgm_muted(muted);
+      print_line(std::string("[godot] titlebar: bgm_muted=") + (muted ? "true" : "false"));
+      break;
+    }
+    case TitleAction::sound_mute: {
+      const bool muted = !_lfw->sounds_sound_muted();
+      _lfw->sounds_set_sound_muted(muted);
+      print_line(std::string("[godot] titlebar: sound_muted=") + (muted ? "true" : "false"));
+      break;
+    }
+    case TitleAction::fullscreen: {
+      if (ds == nullptr) break;
+      const bool full = titlebar_checked(TitleAction::fullscreen);
+      ds->window_set_mode(full ? godot::DisplayServer::WINDOW_MODE_WINDOWED
+                               : godot::DisplayServer::WINDOW_MODE_FULLSCREEN);
+      print_line(std::string("[godot] titlebar: fullscreen=") + (full ? "false" : "true"));
+      break;
+    }
+    case TitleAction::minimize:
+      if (ds == nullptr) break;
+      ds->window_set_mode(godot::DisplayServer::WINDOW_MODE_MINIMIZED);
+      print_line("[godot] titlebar: minimize (" + window_state_text(ds) + ")");
+      break;
+    case TitleAction::maximize: {
+      if (ds == nullptr) break;
+      const bool maximized = ds->window_get_mode() == godot::DisplayServer::WINDOW_MODE_MAXIMIZED;
+      ds->window_set_mode(maximized ? godot::DisplayServer::WINDOW_MODE_WINDOWED
+                                    : godot::DisplayServer::WINDOW_MODE_MAXIMIZED);
+      print_line(std::string("[godot] titlebar: ") + (maximized ? "restore (" : "maximize (") +
+                 window_state_text(ds) + ")");
+      break;
+    }
+    case TitleAction::close:
+      print_line("[godot] titlebar: close");
+      print_exit_summary();
+      quit_with(0);
+      break;
+    case TitleAction::none:
+      break;
+  }
+  queue_redraw();
+}
+
+// 悬停态：照 `.volume_hover:hover` 的意义——指针在某个音量控件上、或**在它自己的弹层里** ⇒ 那一层
+// 开着；否则关（同时只可能开一个）。拖滑杆期间不关（`setPointerCapture` 的等价物）。
+// `drag_hover` = 指针在 `.wails_drag` 那一层上（`#88888855` 那块高亮）。变了才 `queue_redraw()`。
+void LfwGodot::titlebar_update_hover(const lfw::host::TitleBarLayout& layout,
+                                     const lfw::host::TitleHit& hit, double bx, double by) {
+  using lfw::host::TitleBarMetrics;
+  using lfw::host::TitleHitKind;
+  const int hover = hit.kind == TitleHitKind::button ? hit.index : -1;
+  int popup = -1;
+  if (_bar.slider_drag >= 0) {
+    popup = _bar.slider_drag;
+  } else {
+    for (int i = 0; i < TitleBarMetrics::count; ++i) {
+      if (!layout.visible[i] || !is_volume_control(i)) continue;
+      if (hover == i ||
+          lfw::host::titlebar_rect_contains(lfw::host::titlebar_popup_rect(layout.rect[i]), bx,
+                                            by)) {
+        popup = i;
+      }
+    }
+  }
+  const bool drag_hover = hit.kind == TitleHitKind::drag;
+  if (hover == _bar.hover && drag_hover == _bar.drag_hover && popup == _bar.popup) return;
+  _bar.hover = hover;
+  _bar.drag_hover = drag_hover;
+  _bar.popup = popup;
+  queue_redraw();
+}
+
+// 滑杆动了：`VerticalSlider.onChange` 那两句 —— 设音量，且"拖起来就取消静音"。
+void LfwGodot::titlebar_set_volume(int index, double v) {
+  using lfw::host::TitleAction;
+  const auto& list = lfw::host::titlebar_controls();
+  if (_lfw == nullptr || index < 0 || index >= static_cast<int>(list.size())) return;
+  const TitleAction action = list[static_cast<std::size_t>(index)].action;
+  if (action == TitleAction::bgm_mute) {
+    _lfw->sounds_set_bgm_volume(v);
+    if (v > 0.0 && _lfw->sounds_bgm_muted()) _lfw->sounds_set_bgm_muted(false);
+  } else if (action == TitleAction::sound_mute) {
+    _lfw->sounds_set_sound_volume(v);
+    if (v > 0.0 && _lfw->sounds_sound_muted()) _lfw->sounds_set_sound_muted(false);
+  } else {
+    return;
+  }
+  queue_redraw();
+}
+
+// 音量滑杆的位置（0..1）：与 `app_state.bgm_volume` 等价的那位 = 宿主的音量（`HeadlessHost` 存的）。
+double LfwGodot::titlebar_volume(int index) const {
+  using lfw::host::TitleAction;
+  const auto& list = lfw::host::titlebar_controls();
+  if (_lfw == nullptr || index < 0 || index >= static_cast<int>(list.size())) return 0.0;
+  const TitleAction action = list[static_cast<std::size_t>(index)].action;
+  if (action == TitleAction::bgm_mute) return _lfw->sounds_bgm_volume();
+  if (action == TitleAction::sound_mute) return _lfw->sounds_sound_volume();
+  return 0.0;
+}
+
+// 顶栏的「窗口像素」里，条有多宽 = **整个窗口宽**（不是内容区宽）。
+// ⚠ 别退回"内容区宽"：`aspect=keep` 补黑边时内容区比窗口窄（例：窗口 1400×500 ⇒ 内容 882×500 居中），
+// 按内容宽布局会让条只盖到中间那 882 px、右上角按钮跑到内容右缘（用户实测报的 bug）。
+// Electron 那边 `.top_bar` 是 `left:0; right:0` 的 CSS 像素 ⇒ 口径与这里一致。
+double LfwGodot::titlebar_window_width(const godot::Vector2i& window_size) const {
+  return static_cast<double>(window_size.x);
+}
+
+// 可见集合变了就打一行（证据行：哪几个控件在条上）。诊断用，不进摘要。
+void LfwGodot::report_titlebar_controls() {
+  godot::DisplayServer* const ds = godot::DisplayServer::get_singleton();
+  if (ds == nullptr) return;
+  const godot::Vector2i win_size = ds->window_get_size();
+  const double bar_w = titlebar_window_width(win_size);
+  const lfw::host::TitleBarLayout layout = lfw::host::titlebar_layout(bar_w, titlebar_conditions());
+  const auto& list = lfw::host::titlebar_controls();
+  std::string text;
+  for (int i = 0; i < lfw::host::TitleBarMetrics::count; ++i) {
+    if (!layout.visible[i]) continue;
+    if (!text.empty()) text += " ";
+    text += lfw::host::titlebar_action_name(
+        list[static_cast<std::size_t>(i)].action);  // 只看名字（文件名见 README 那张表）
+  }
+  char buf[512];
+  std::snprintf(buf, sizeof(buf), "[godot] titlebar: icons=%s bar=%.0fx%.0f controls(%d)=%s",
+                _icons_dir.empty() ? "<none>" : _icons_dir.c_str(), bar_w,
+                lfw::host::TitleBarMetrics::bar_height, layout.count, text.c_str());
+  const std::string line(buf);
+  if (line == _icon_report) return;
+  _icon_report = line;
+  print_line(line);
+}
+
 // 条上与窗口边缘的事件处理。返回 true = 宿主吃掉（调用方标 handled，别再喂给游戏/UI）。
 //
-// 次序：① 边缘缩放带（窗口像素，压过按钮 —— 与原生边框同口径）→ ② 条内（按钮动作 / 拖拽 / 一律吞）
-// → ③ 起手在条上、现在跑到条外的 move/up 也吞（免得松手那一下点着游戏里的按钮）。
+// 次序（照 Electron 的层序）：① 边缘缩放带（**窗口**像素，压过一切 —— 与原生边框同口径）
+// → ② 音量弹层（`z-index: 2`，挂在条下沿、盖住画面那一带）→ ③ 控件盒 → ④ `.wails_drag`
+// → ⑤ 起手在条上/弹层里、现在跑到外面的 move/up 也吞（免得松手那一下点着游戏里的按钮）。
+// ⚠ 条上没有背景、拖拽层只占 90% 高、`.top_bar` 又是 `pointer-events: none` ⇒ 底部那 3.2 像素的
+// 缝在 Electron 上是**漏给画面**的，这里也一样（只有按钮盒/弹层/拖拽层吞）。
 bool LfwGodot::titlebar_consume(const godot::Ref<godot::InputEvent>& event) {
+  using lfw::host::TitleBarMetrics;
+  using lfw::host::TitleHit;
+  using lfw::host::TitleHitKind;
   if (!titlebar_visible()) return false;
   LfwPointingEvent e;
   const PointerKind kind = to_pointing_event(event, e);
   if (kind == PointerKind::none) return false;
   godot::DisplayServer* const ds = godot::DisplayServer::get_singleton();
   if (ds == nullptr) return false;
-  double screen_w = 794;
-  double screen_h = 450;
-  ui_screen_size(screen_w, screen_h);
+  const godot::Viewport* const vp = get_viewport();
+  if (vp == nullptr) return false;
 
+  // 窗口像素（`get_final_transform()` 的正变换）。条自己就是**窗口像素**里的一层（绘制那边设的是
+  // `final.affine_inverse()`，条上 (0,0) = 窗口左上角）⇒ 命中坐标**不减** letterbox 偏移。
+  const godot::Transform2D final = vp->get_final_transform();
+  const godot::Vector2 win =
+      final.xform(godot::Vector2(static_cast<float>(e.x), static_cast<float>(e.y)));
+  const godot::Vector2i win_size = ds->window_get_size();
+  const double bx = static_cast<double>(win.x);
+  const double by = static_cast<double>(win.y);
+  const double bar_w = titlebar_window_width(win_size);
+  const lfw::host::TitleBarConditions cond = titlebar_conditions();
+  const lfw::host::TitleBarLayout layout = lfw::host::titlebar_layout(bar_w, cond);
+  report_titlebar_controls();
+
+  // 弹层几何（只有音量那两个控件有；开着的那个才吃事件）。
+  const bool popup_open = _bar.popup >= 0 && layout.visible[_bar.popup];
+  const lfw::host::TitleBarRect popup_rect =
+      popup_open ? lfw::host::titlebar_popup_rect(layout.rect[_bar.popup])
+                 : lfw::host::TitleBarRect{};
+  const TitleHit hit = lfw::host::titlebar_hit(bx, by, layout);
+  const bool in_popup = popup_open && lfw::host::titlebar_rect_contains(popup_rect, bx, by);
+
+  // 悬停态（控件/拖拽层/弹层）：移动**与按下**都先刷一遍 —— 按下的位置就是指针的位置，
+  // 所以「从控件挪到自己的弹层上」这一步在真实事件流里一定先有一条 move，这里等价补齐。
+  if (kind == PointerKind::move || kind == PointerKind::down) {
+    titlebar_update_hover(layout, hit, bx, by);
+  }
+
+  // 悬停到边缘 ⇒ 换成对应方向的缩放游标；音量滑杆那一带是 `cursor: pointer`。只在形状变化时调。
+  if (kind == PointerKind::move) {
+    using DS = godot::DisplayServer;
+    DS::CursorShape shape = cursor_for_edge(titlebar_edge_at(win.x, win.y, win_size.x, win_size.y));
+    const bool on_volume = in_popup || (hit.kind == TitleHitKind::button &&
+                                        is_volume_control(hit.index));
+    if (shape == DS::CURSOR_ARROW && on_volume) shape = DS::CURSOR_POINTING_HAND;
+    if (static_cast<int>(shape) != _cursor_shape) {
+      _cursor_shape = static_cast<int>(shape);
+      ds->cursor_set_shape(shape);
+    }
+  }
+
+  // 拖拽/缩放那两条：压过条上的一切（与原生边框同口径）。
   if (kind == PointerKind::down && e.button == 0.0 &&
       ds->window_get_mode() == godot::DisplayServer::WINDOW_MODE_WINDOWED &&
       !ds->window_get_flag(godot::DisplayServer::WINDOW_FLAG_RESIZE_DISABLED)) {
-    const godot::Viewport* const vp = get_viewport();
-    const godot::Vector2 local(static_cast<float>(e.x), static_cast<float>(e.y));
-    const godot::Vector2 win = vp != nullptr ? vp->get_final_transform().xform(local) : local;
-    const godot::Vector2i win_size = ds->window_get_size();
     const TitleEdge edge = titlebar_edge_at(win.x, win.y, win_size.x, win_size.y);
     if (edge != TitleEdge::none) {
       char buf[128];
@@ -749,57 +1165,77 @@ bool LfwGodot::titlebar_consume(const godot::Ref<godot::InputEvent>& event) {
     }
   }
 
-  if (titlebar_in_strip(e.x, e.y, screen_w)) {
-    if (kind == PointerKind::down) {
-      _bar_capture = true;
-    } else if (kind == PointerKind::up) {
-      _bar_capture = false;
+  // ---- 移动：悬停/弹层已经在上面刷过，这里只管滑杆拖动与"吞不吞"----
+  if (kind == PointerKind::move) {
+    if (_bar.slider_drag >= 0) {
+      // 正在拖滑杆（`setPointerCapture` 的等价物）：弹层不关，值跟着 y 走。
+      // 轨道按**当前**布局重算（拖的过程中页面可能换了、条上的格子在挪）。
+      lfw::host::TitleBarRect drag_popup;
+      lfw::host::TitleBarRect drag_track;
+      lfw::host::titlebar_popup_rects(layout.rect[_bar.slider_drag], drag_popup, drag_track);
+      titlebar_set_volume(_bar.slider_drag, lfw::host::titlebar_slider_value(drag_track, by));
+      return true;
     }
-    if (kind == PointerKind::move) {
-      const TitleAction hover = titlebar_action_at(e.x, e.y, screen_w);
-      const bool hover_drag = hover == TitleAction::none;
-      if (hover != _bar_hover || hover_drag != _bar_hover_drag) {
-        _bar_hover = hover;
-        _bar_hover_drag = hover_drag;
-        queue_redraw();
+    if (hit.kind == TitleHitKind::none && !in_popup) return false;  // 缝里/条外的移动照旧给游戏
+    return true;
+  }
+
+  // ---- 按下 ----
+  if (kind == PointerKind::down) {
+    // 按下就落在弹层里（指针从控件挪到弹层上）⇒ 弹层几何要按**刚刷过**的状态重算一次。
+    lfw::host::TitleBarRect down_popup;
+    lfw::host::TitleBarRect down_track;
+    bool down_in_popup = false;
+    if (_bar.popup >= 0 && layout.visible[_bar.popup]) {
+      lfw::host::titlebar_popup_rects(layout.rect[_bar.popup], down_popup, down_track);
+      down_in_popup = lfw::host::titlebar_rect_contains(down_popup, bx, by);
+    }
+    if (e.button != 0.0) {
+      // 非左键：条上/弹层里的按下照样吞（别漏给游戏），但不做动作。
+      return hit.kind != TitleHitKind::none || down_in_popup;
+    }
+    if (down_in_popup) {
+      _bar_capture = true;
+      // 弹层里：先按点到哪设到哪（`on_pointer_down` 的第一句），再抓住这个滑杆（`setPointerCapture`）。
+      titlebar_set_volume(_bar.popup, lfw::host::titlebar_slider_value(down_track, by));
+      _bar.slider_drag = _bar.popup;
+      return true;
+    }
+    if (hit.kind == TitleHitKind::button) {
+      _bar_capture = true;
+      titlebar_activate(hit.index);
+      return true;
+    }
+    if (hit.kind == TitleHitKind::drag) {
+      _bar_capture = true;
+      // 拖拽区。`window_start_drag` 在 Windows 上就是
+      // `SendMessage(WM_SYSCOMMAND, SC_MOVE | HTCAPTION)` ⇒ 这一段**阻塞**到松开为止
+      //（Godot 自己的标题栏同款）⇒ 重入用 `_bar_dragging` 挡掉。
+      if (!_bar_dragging) {
+        _bar_dragging = true;
+        print_line("[godot] titlebar: drag");
+        ds->window_start_drag();
+        _bar_dragging = false;
       }
       return true;
     }
-    if (kind == PointerKind::down && e.button == 0.0) {
-      switch (titlebar_action_at(e.x, e.y, screen_w)) {
-        case TitleAction::minimize:
-          ds->window_set_mode(godot::DisplayServer::WINDOW_MODE_MINIMIZED);
-          print_line("[godot] titlebar: minimize (" + window_state_text(ds) + ")");
-          break;
-        case TitleAction::maximize: {
-          const bool maximized =
-              ds->window_get_mode() == godot::DisplayServer::WINDOW_MODE_MAXIMIZED;
-          ds->window_set_mode(maximized ? godot::DisplayServer::WINDOW_MODE_WINDOWED
-                                        : godot::DisplayServer::WINDOW_MODE_MAXIMIZED);
-          print_line(std::string("[godot] titlebar: ") + (maximized ? "restore (" : "maximize (") +
-                     window_state_text(ds) + ")");
-          break;
-        }
-        case TitleAction::close:
-          print_line("[godot] titlebar: close");
-          print_exit_summary();
-          quit_with(0);
-          break;
-        case TitleAction::none:
-          // 拖拽区。`window_start_drag` 在 Windows 上就是
-          // `SendMessage(WM_SYSCOMMAND, SC_MOVE | HTCAPTION)` ⇒ 这一段**阻塞**到松开为止
-          //（Godot 自己的标题栏同款）⇒ 重入用 `_bar_dragging` 挡掉。
-          if (!_bar_dragging) {
-            _bar_dragging = true;
-            print_line("[godot] titlebar: drag");
-            ds->window_start_drag();
-            _bar_dragging = false;
-          }
-          break;
-      }
-    }
-    return true;
+    return false;  // 底部那 3.2 像素的缝 ⇒ 漏给画面（同 Electron）
   }
+
+  // ---- 抬起 / 滚轮 ----
+  if (kind == PointerKind::up) {
+    if (_bar.slider_drag >= 0) {
+      _bar.slider_drag = -1;
+      _bar_capture = false;
+      return true;
+    }
+    if (hit.kind != TitleHitKind::none || in_popup) {
+      _bar_capture = false;
+      return true;
+    }
+  }
+  if (kind == PointerKind::wheel) return hit.kind != TitleHitKind::none || in_popup;
+  if (in_popup) return true;
   if (_bar_capture) {
     if (kind == PointerKind::up) _bar_capture = false;
     return true;
@@ -807,48 +1243,132 @@ bool LfwGodot::titlebar_consume(const godot::Ref<godot::InputEvent>& event) {
   return false;
 }
 
-// 自绘栏的画面：一条半透明底 + 右侧三个按钮（最小化=横线 / 最大化=方框 / 关闭=叉）。
-// 拖拽区悬停时整条亮一点（Electron 的 `-webkit-app-region: drag` hover `#88888855`），
-// 按钮悬停时给自己加一块底。⚠ 只是"能用"的程度：没有用 Electron 那几张 `btn_*.png`（它们在 TS 的
-// `src/assets/` 里，不在数据包里），也不做圆角/阴影/主题。
-void LfwGodot::draw_titlebar() {
-  double screen_w = 794;
-  double screen_h = 450;
-  ui_screen_size(screen_w, screen_h);
-  const float w = static_cast<float>(screen_w);
-  const float h = static_cast<float>(TitleBarMetrics::height);
-  draw_rect(Rect2(0.0f, 0.0f, w, h),
-            _bar_hover_drag ? Color(0.10f, 0.12f, 0.17f, 0.88f) : Color(0.08f, 0.10f, 0.14f, 0.72f),
-            true);
-  draw_rect(Rect2(0.0f, h - 1.0f, w, 1.0f), Color(1.0f, 1.0f, 1.0f, 0.12f), true);
-  TitleBarButton buttons[TitleBarMetrics::count];
-  titlebar_layout(screen_w, buttons);
-  const Color fg(0.84f, 0.87f, 0.94f, 1.0f);
-  for (const TitleBarButton& button : buttons) {
-    const float x = static_cast<float>(button.rect.x);
-    const float y = static_cast<float>(button.rect.y);
-    const float bw = static_cast<float>(button.rect.w);
-    const float bh = static_cast<float>(button.rect.h);
-    if (button.action == _bar_hover) {
-      draw_rect(Rect2(x, y, bw, bh), Color(1.0f, 1.0f, 1.0f, 0.16f), true);
-    }
-    const float cx = x + bw * 0.5f;
-    const float cy = y + bh * 0.5f;
-    switch (button.action) {
-      case TitleAction::minimize:
-        draw_line(Vector2(cx - 5.0f, cy + 4.0f), Vector2(cx + 5.0f, cy + 4.0f), fg, 1.0f);
-        break;
-      case TitleAction::maximize:
-        draw_rect(Rect2(cx - 4.5f, cy - 4.5f, 9.0f, 9.0f), fg, false, 1.0f);
-        break;
-      case TitleAction::close:
-        draw_line(Vector2(cx - 4.0f, cy - 4.0f), Vector2(cx + 4.0f, cy + 4.0f), fg, 1.0f);
-        draw_line(Vector2(cx + 4.0f, cy - 4.0f), Vector2(cx - 4.0f, cy + 4.0f), fg, 1.0f);
-        break;
-      case TitleAction::none:
-        break;
-    }
+// 图标目录：`--icons <dir>` 优先；否则从**进程 cwd**与**可执行文件所在目录**往上找 `src/assets`。
+// 找不到就打印一次并退回"只画命中盒"（那 11 张 PNG **不在数据包里** ⇒ 导出/打包要自己带上，见 README）。
+void LfwGodot::setup_icons() {
+  std::vector<std::filesystem::path> probes;
+  if (_args.icons_given) probes.push_back(_args.icons);
+  std::error_code ec;
+  probes.push_back(std::filesystem::current_path(ec));
+  if (godot::OS* const os = godot::OS::get_singleton()) {
+    probes.push_back(std::filesystem::path(os->get_executable_path().utf8().get_data())
+                         .parent_path());
   }
+  for (const std::filesystem::path& probe : probes) {
+    if (probe.empty()) continue;
+    std::error_code stat_ec;
+    // ① 直接指到放图的那一层；② 指到仓库根（自己找 `src/assets`）。
+    if (std::filesystem::is_regular_file(probe / "btn_1_1.png", stat_ec)) {
+      _icons_dir = probe.generic_string();
+    } else {
+      const std::filesystem::path root = find_repo_root(probe);
+      if (!root.empty()) _icons_dir = (root / "src" / "assets").generic_string();
+    }
+    if (!_icons_dir.empty()) break;
+  }
+  if (_icons_dir.empty()) {
+    print_error("[godot] titlebar icons: no btn_1_1.png (给 `--icons <dir>`；条上只画命中盒)");
+    return;
+  }
+  const std::string dir = _icons_dir;
+  _icons = std::make_unique<GodotTextureCache>(
+      [dir](const std::string& name, std::string& out) {
+        return read_file_bytes(std::filesystem::path(dir) / name, out);
+      });
+  print_line("[godot] titlebar icons: " + dir);
+}
+
+// 自绘顶栏的画面。全部按 **DOM 的规则**来：
+//   * 条**没有背景**（`.top_bar` 只有布局）—— 只有 `.wails_drag` 悬停时那层 `#88888855`（90% 高）；
+//   * 每个可见控件的 32×32 图缩在盒子正中（0.6，悬停 0.8）；
+//   * 悬停那两路音量时，条下沿挂一个竖直音量条（`.volume_popup`）。
+// 画之前把画布换到"窗口像素"（`get_final_transform()` 的逆）⇒ 这里所有数字都是 CSS 像素。
+void LfwGodot::draw_titlebar() {
+  using lfw::host::TitleBarMetrics;
+  using lfw::host::TitleBarRect;
+  godot::DisplayServer* const ds = godot::DisplayServer::get_singleton();
+  const godot::Viewport* const vp = get_viewport();
+  if (ds == nullptr || vp == nullptr) return;
+  const godot::Transform2D final = vp->get_final_transform();
+  const double bar_w = titlebar_window_width(ds->window_get_size());
+  const lfw::host::TitleBarLayout layout = lfw::host::titlebar_layout(bar_w, titlebar_conditions());
+  if (!(bar_w > 0.0)) return;
+  report_titlebar_controls();  // 只在可见集合变化时打一行（证据行）
+  draw_set_transform_matrix(final.affine_inverse());
+
+  const float drag_h = static_cast<float>(TitleBarMetrics::drag_height);
+  if (_bar.drag_hover) {
+    // `src/App.module.scss:57-63` 的 `.wails_drag:hover { background-color: #88888855 }`。
+    draw_rect(Rect2(0.0f, 0.0f, static_cast<float>(bar_w), drag_h),
+              Color(0x88 / 255.0f, 0x88 / 255.0f, 0x88 / 255.0f, 0x55 / 255.0f), true);
+  }
+
+  const auto& list = lfw::host::titlebar_controls();
+  for (int i = 0; i < TitleBarMetrics::count; ++i) {
+    if (!layout.visible[i]) continue;
+    const lfw::host::TitleBarControl& control = list[static_cast<std::size_t>(i)];
+    const bool checked = titlebar_checked(control.action);
+    const TitleBarRect icon = lfw::host::titlebar_icon_rect(layout.rect[i], _bar.hover == i);
+    godot::Ref<godot::ImageTexture> tex;
+    if (_icons != nullptr) tex = _icons->get(lfw::host::titlebar_control_image(control, checked));
+    if (tex.is_null()) {
+      // 图没解出来（没给 `--icons` 或目录不对）：留一个浅色占位盒，别静默什么都不画。
+      draw_rect(Rect2(static_cast<float>(icon.x), static_cast<float>(icon.y),
+                      static_cast<float>(icon.w), static_cast<float>(icon.h)),
+                Color(0.85f, 0.88f, 0.95f, 0.18f), true);
+      continue;
+    }
+    draw_texture_rect(tex,
+                      Rect2(static_cast<float>(icon.x), static_cast<float>(icon.y),
+                            static_cast<float>(icon.w), static_cast<float>(icon.h)),
+                      false, Color(1.0f, 1.0f, 1.0f, 1.0f));
+  }
+
+  // 音量弹层（`z-index: 2`，挂在那两个控件下面）。
+  if (_bar.popup >= 0 && layout.visible[_bar.popup]) {
+    TitleBarRect popup;
+    TitleBarRect track;
+    lfw::host::titlebar_popup_rects(layout.rect[_bar.popup], popup, track);
+    const double v = titlebar_volume(_bar.popup);
+    const double clamped = v < 0.0 ? 0.0 : (v > 1.0 ? 1.0 : v);
+    // `.volume_popup_inner { background-color: #0F1830CC; border-radius: 8px }`（圆角用角上的圆近似：
+    // `draw_rect` 没有圆角；阴影 `box-shadow: 0 0 12px #00000066` 也略去）。
+    draw_rounded_rect(popup, TitleBarMetrics::popup_radius, Color(0x0F / 255.0f, 0x18 / 255.0f,
+                                                                  0x30 / 255.0f, 0xCC / 255.0f));
+    // `.vertical_slider { background: #00000088; border-radius: 3px }`
+    draw_rounded_rect(track, TitleBarMetrics::slider_w * 0.5, Color(0.0f, 0.0f, 0.0f, 0x88 / 255.0f));
+    // `.fill { background-color: #5A88E0 }`（`bottom: 0; height: v * 100%`）
+    draw_rounded_rect(lfw::host::titlebar_fill_rect(track, clamped), TitleBarMetrics::slider_w * 0.5,
+                      Color(0x5A / 255.0f, 0x88 / 255.0f, 0xE0 / 255.0f, 1.0f));
+    // `.knob { width: 14px; height: 14px; border-radius: 50%; background: #FFF }`
+    const TitleBarRect knob = lfw::host::titlebar_knob_rect(track, clamped);
+    draw_circle(Vector2(static_cast<float>(knob.x), static_cast<float>(knob.y)),
+                static_cast<float>(knob.w * 0.5), Color(1.0f, 1.0f, 1.0f, 1.0f));
+  }
+  draw_set_transform_matrix(godot::Transform2D());  // 画布还给逻辑像素（下一帧的绘制项照旧）
+}
+
+// 圆角矩形（Godot 的 `draw_rect` 没有半径）：两块矩形 + 四个角上的圆。
+void LfwGodot::draw_rounded_rect(const lfw::host::TitleBarRect& r, double radius,
+                                 const godot::Color& color) {
+  const double limit = r.w < r.h ? r.w : r.h;
+  const float rad = static_cast<float>(radius > limit * 0.5 ? limit * 0.5 : radius);
+  if (!(rad > 0.0f)) {
+    draw_rect(Rect2(static_cast<float>(r.x), static_cast<float>(r.y), static_cast<float>(r.w),
+                    static_cast<float>(r.h)),
+              color, true);
+    return;
+  }
+  const float x = static_cast<float>(r.x);
+  const float y = static_cast<float>(r.y);
+  const float w = static_cast<float>(r.w);
+  const float h = static_cast<float>(r.h);
+  draw_rect(Rect2(x + rad, y, w - 2.0f * rad, h), color, true);
+  draw_rect(Rect2(x, y + rad, w, h - 2.0f * rad), color, true);
+  draw_circle(Vector2(x + rad, y + rad), rad, color);
+  draw_circle(Vector2(x + w - rad, y + rad), rad, color);
+  draw_circle(Vector2(x + rad, y + h - rad), rad, color);
+  draw_circle(Vector2(x + w - rad, y + h - rad), rad, color);
 }
 
 // `--click-window`：把一次完整点击按**窗口像素**推进引擎的真实事件路径
@@ -866,6 +1386,19 @@ void LfwGodot::push_window_click(double x, double y) {
     mb->set_global_position(mb->get_position());
     vp->push_input(mb, false);
   }
+}
+
+// `--hover-window`：只推一条 `InputEventMouseMotion`（同一套窗口像素口径）—— 顶栏的悬停态
+//（拖拽层那层 `#88888855`、控件缩 0.8、音量弹层弹出来）只有它推得动（`--click*` 只推按钮事件）。
+void LfwGodot::push_window_hover(double x, double y) {
+  godot::Viewport* const vp = get_viewport();
+  if (vp == nullptr) return;
+  godot::Ref<godot::InputEventMouseMotion> mm;
+  mm.instantiate();
+  mm->set_position(Vector2(static_cast<float>(x), static_cast<float>(y)));
+  mm->set_global_position(mm->get_position());
+  mm->set_relative(Vector2(0.0f, 0.0f));
+  vp->push_input(mm, false);
 }
 
 LfwGodot::PointerKind LfwGodot::to_pointing_event(const godot::Ref<godot::InputEvent>& event,
@@ -1046,7 +1579,9 @@ LfwGodot::Args::ClickAt* LfwGodot::inject_clicks(int frame) {
   Args::ClickAt* first = nullptr;
   for (Args::ClickAt& click : _args.clicks) {
     if (click.frame != frame) continue;
-    if (click.window_space) {
+    if (click.hover) {
+      push_window_hover(click.x, click.y);
+    } else if (click.window_space) {
       push_window_click(click.x, click.y);
     } else {
       _host->click_ui(*_lfw, click.x, click.y);

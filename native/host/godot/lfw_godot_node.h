@@ -28,15 +28,17 @@
 //     `lfw_run --click` 走同一条注入路径；
 //   * `--screenshot <png>` + `--shot-frame N`：画到第 N 帧后存一张视口 PNG（⚠ 别加 `--headless`）。
 //   * `--ui-page <id>` + `--ui-dump`：装载后把某一页设到第 0 层（拍 UI 用）/ 逐 UI 节点打一行事实。
-//   * `--titlebar <native|none|custom>` + `--window-scale N`：窗口那一套（见下面「窗口」）。
+//   * `--titlebar <native|none|custom>` + `--window-scale N` + `--icons <dir>`：窗口那一套（见「窗口」）。
 //   * `--click-window <x>,<y>[@<frame>]`：`--click` 的窗口像素版（走引擎的真实事件路径，见下）。
 //
 // **窗口**（Electron 端那一套的引擎侧等价物：`desktop/app/main.mjs` 的 `frame: false` + `src/App.tsx`
-// 自绘的三个按钮）：`--play`（玩）缺省 = **无边框 + 自绘标题栏 + 1.5× 窗口**（1191×675）；
+// 自绘的那一整簇控件）：`--play`（玩）缺省 = **无边框 + 自绘标题栏 + 1.5× 窗口**（1191×675）；
 // 验收/诊断（给 `--frames`、headless）缺省 = 原样（系统边框、794×450）⇒ 三条摘要与既有截图不动。
 // 逻辑视口**永远是** 794×450（`project.godot` 的 `display/window/stretch/*`，`canvas_items`）；窗口只
 // 是把它画大：`_draw()` 与 UI 命中都还在逻辑像素里，输入由引擎按 `Window::get_final_transform()` 的
 // 反变换从窗口像素换算回逻辑像素（正是 OS 事件走的那一条）⇒ 宿主不做任何缩放补偿。
+// ⚠ 只有自绘标题栏那一层反过来：它是 **DOM 的 CSS 像素**（= 窗口像素），绘制时按 `get_final_transform()`
+// 的逆换到画布、命中时按正变换换回来（`lfw_godot_titlebar.h` 只管那一套几何）。
 #pragma once
 
 #include <filesystem>
@@ -47,6 +49,8 @@
 #include <godot_cpp/classes/font.hpp>
 #include <godot_cpp/classes/input_event.hpp>
 #include <godot_cpp/classes/node2d.hpp>
+#include <godot_cpp/variant/color.hpp>
+#include <godot_cpp/variant/vector2i.hpp>
 
 #include "host/fs_zip.h"
 #include "host/godot/lfw_godot_host.h"
@@ -120,6 +124,14 @@ class LfwGodot : public Node2D {
     // `--window-scale N`：窗口 = 逻辑视口 × N（缺省：`--play` 时 1.5，其余 1.0）。
     double window_scale = 1.0;
     bool window_scale_given = false;
+    // `--window-size WxH`：直接给窗口像素尺寸（**允许不等比**；给了就压过 `--window-scale`）。
+    // 0 = 没给。窗口可自由拉伸 ⇒ 这两个数只是"开窗时的初始尺寸"，之后由用户拖。
+    int window_w = 0;
+    int window_h = 0;
+    // `--icons <dir>`：自绘顶栏那 11 个 `btn_*.png` 所在的目录（缺省 = 从仓库根解析出来的
+    // `src/assets`，见 `resolve_icons_dir`）。**不在数据包里** ⇒ 打包/导出时得自己带上这些 PNG。
+    std::filesystem::path icons;
+    bool icons_given = false;
     std::filesystem::path screenshot;  // 空 = 不截图
     int shot_frame = -1;               // < 0 = 缺省（有截图时取 120）
     bool ui_dump = false;              // `--ui-dump`：最后一帧逐 UI 节点打一行事实
@@ -134,10 +146,14 @@ class LfwGodot : public Node2D {
       double x = 0;
       double y = 0;
       bool window_space = false;
+      // `--hover-window`：只推一条 `InputEventMouseMotion`（悬停/移开），不按不抬 ——
+      // 顶栏的悬停态（拖拽层高亮 + 控件放大 + 音量弹层）只有它推得动。
+      bool hover = false;
     };
-    std::vector<ClickAt> clicks;  // `--click` 与 `--click-window` 混在一条队列里
+    std::vector<ClickAt> clicks;  // `--click` / `--click-window` / `--hover-window` 混在一条队列里
     std::vector<std::string> click_specs;
     std::vector<std::string> window_click_specs;
+    std::vector<std::string> hover_specs;
     int click_frame = 60;
     // `--key <name>[@<frame>]` / `--key-down` / `--key-up`：往宿主喂一次键盘事件
     //（`HeadlessHost::key_down/key_up`，与真键盘走 `_input` 同一条）。键名是**小写
@@ -178,16 +194,41 @@ class LfwGodot : public Node2D {
   const Args::KeyAt* inject_keys(int frame);
   // `--click-window`：把一次完整点击按**窗口像素**推进引擎（`push_input(ev, /*local=*/false)`）。
   void push_window_click(double x, double y);
+  // `--hover-window`：只推一条 `InputEventMouseMotion`（同一套窗口像素口径）—— 顶栏的悬停态靠它。
+  void push_window_hover(double x, double y);
   std::string ui_pages_text() const;
   void draw_item(const GodotDrawItem& item);
   void draw_text_item(const GodotDrawItem& item);
   // ---- 窗口 / 自绘标题栏（`--titlebar` / `--window-scale`）----
   // 无边框 + 窗口尺寸（`_ready` 里、装包之前就跑：别让系统边框闪一下）。逻辑视口不动，见头注释。
   void apply_window_setup();
-  bool titlebar_visible() const;  // `custom` 且**不全屏**（镜像 Electron：全屏时那三个按钮消失）
+  bool titlebar_visible() const;  // `custom` 且**不全屏**（镜像 Electron：全屏时整簇按钮消失）
   // 条上/边缘的事件处理：true = 已吞掉（调用方把它标成 handled，别再喂给游戏/UI）。
   bool titlebar_consume(const godot::Ref<godot::InputEvent>& event);
   void draw_titlebar();
+  // ---- 自绘顶栏的 11 个控件（`lfw_godot_titlebar.h` 只管几何；这里管"能不能求值/点了干什么"）----
+  // 从端口现有的状态填那张可见性表（`src/App.tsx` 的 `Show show=` 逐条对位）。
+  lfw::host::TitleBarConditions titlebar_conditions() const;
+  // 每个控件的 `checked`（`ToggleImgButton` 的 `src[0]` / `src[1]` 选哪张）。
+  bool titlebar_checked(lfw::host::TitleAction action) const;
+  // 点下去干什么（`f1`/`f4`/`f5`/`f2` 走 `LFW::push_cmd`，静音/全屏/窗口那三个各有对应 API）。
+  void titlebar_activate(int index);
+  // 音量滑杆：读当前值 / 写回去（`VerticalSlider` 那两句：设音量 + "拖起来就取消静音"）。
+  double titlebar_volume(int index) const;
+  void titlebar_set_volume(int index, double v);
+    // 悬停态：指针在哪（控件 / 拖拽层 / 自己的弹层里）⇒ 刷 `_bar`（变了就 `queue_redraw()`）。
+    // 移动与按下都调它（按下的位置就是指针的位置，等价于真实事件流里那条 move）。
+    void titlebar_update_hover(const lfw::host::TitleBarLayout& layout,
+                               const lfw::host::TitleHit& hit, double bx, double by);
+  // 圆角矩形（Godot 的 `draw_rect` 没有半径）：两块矩形 + 四个角上的圆。
+  void draw_rounded_rect(const lfw::host::TitleBarRect& r, double radius, const godot::Color& color);
+  // 顶栏的坐标系：**窗口像素**（= DOM 的 CSS 像素）。`_draw` 里用 `get_final_transform()` 的逆映射
+  // 回逻辑画布，`_input` 里用正变换把逻辑点映回来。返回条宽（= 逻辑视口宽 × 窗口缩放）。
+  double titlebar_window_width(const godot::Vector2i& window_size) const;
+  // 图标目录（`--icons` 或从仓库根解析出来的 `src/assets`；空 = 找不到 ⇒ 不画图，只留命中盒）。
+  void setup_icons();
+  // 可见集合变了就打一行（证据行：哪几个控件现在在条上、为什么）。
+  void report_titlebar_controls();
   void print_exit_summary() const;  // 关窗口 / 点 close 按钮共用的收尾行
   bool capture_screenshot();       // 视口 → PNG
   void finish();
@@ -198,6 +239,11 @@ class LfwGodot : public Node2D {
   std::vector<std::unique_ptr<FsZip>> _zips;
   std::unique_ptr<lfw::LFW> _lfw;
   std::unique_ptr<GodotTextureCache> _textures;
+  // 顶栏那 11 个 `btn_*.png` 的缓存：**另一份** `GodotTextureCache`（同一份实现、换一个
+  // `load` —— 字节来自仓库里的 `src/assets`，不是数据包/根目录）。
+  std::unique_ptr<GodotTextureCache> _icons;
+  std::string _icons_dir;      // 解析出来的图标目录（空 = 没找到 ⇒ 画不出来）
+  std::string _icon_report;    // 上一次打过的可见集合（变了才再打一行）
   godot::Ref<godot::Font> _font;  // 引擎的默认字体（文字度量 + `_draw` 的 `draw_string`）
   bool _running = false;
   int _frames = 0;
@@ -205,11 +251,14 @@ class LfwGodot : public Node2D {
   bool _captured = false;         // 截过图（只截一张）
   bool _windowed = false;         // 真窗口（headless 时 false：窗口 API 一概不碰、栏也不画）
   // 标题栏的交互状态：`_bar_capture` = 这次按下起在条上（后续 move/up 也吞），`_bar_dragging` =
-  // 正在 `window_start_drag()` 的嵌套消息循环里（防重入）。
+  // 正在 `window_start_drag()` 的嵌套消息循环里（防重入）。悬停/弹层/滑杆拖动的状态在 `_bar`
+  //（`lfw_godot_titlebar.h` 的 `TitleBarState`：控件表下标，不是"第几个可见的"）。
   bool _bar_capture = false;
   bool _bar_dragging = false;
-  lfw::host::TitleAction _bar_hover = lfw::host::TitleAction::none;  // 悬停的按钮
-  bool _bar_hover_drag = false;                                      // 悬停在拖拽区（条上非按钮处）
+  lfw::host::TitleBarState _bar;
+  // 最近一次设过的游标形状（`DisplayServer::CursorShape` 的整数值；-1 = 还没设过）。
+  // 只在变化时调 `cursor_set_shape`，别每个 move 都调。
+  int _cursor_shape = -1;
 };
 
 }  // namespace lfw::host

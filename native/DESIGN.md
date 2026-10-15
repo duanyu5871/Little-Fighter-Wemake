@@ -1745,13 +1745,18 @@ const m = await createLfw({ locateFile: (f) => `/wasm/${f}` })
 ### G2. 两种集成形态
 
 **窗口外观（已落地）**：照 Electron 桌面端（`desktop/app/main.mjs:915` `frame: false`、
-`src/App.tsx:788-811` 自绘三个按钮 + `-webkit-app-region: drag`）：Godot 宿主也设
-`WINDOW_FLAG_BORDERLESS` 并自绘顶栏（`native/host/godot/lfw_godot_titlebar.h` 只管布局/命中，
-`window_start_drag` 拖拽、三个按钮 = 最小化/最大化⇄还原/关闭、全屏隐藏、条上点击先被
-`titlebar_consume` 吞掉；`borderless` 在 Windows 是 `WS_POPUP` ⇒ 另留 6 像素 `window_start_resize` 带）。
+`src/App.tsx:705-813` 自绘的 **11 个控件** + `src/App.module.scss` 的 `.top_bar` / `.wails_drag`）：
+Godot 宿主也设 `WINDOW_FLAG_BORDERLESS` 并自绘顶栏（`native/host/godot/lfw_godot_titlebar.h` 只管布局/命中，
+`lfw_godot_node.cpp` 管可见性求值与动作）：`.wails_drag` 拖拽层（悬停 `#88888855`）、11 个 `btn_*.png`
+控件（32×32 缩 0.6 / 悬停 0.8、右对齐、次序 = DOM 次序、按 `src/App.tsx` 那个 `Show show=` 一条条求值）、
+两个音量控件的悬停竖直滑杆（`sounds_set_bgm_volume` / `sounds_set_sound_volume`）、全屏隐藏、条上点击先被
+`titlebar_consume` 吞掉（只有控件盒 + 拖拽层 + 打开的弹层吞，条底那 3.2 像素的缝照 Electron 漏给画布；
+`borderless` 在 Windows 是 `WS_POPUP` ⇒ 另留 6 像素 `window_start_resize` 带）。
 窗口默认 `1.5×`（= Electron 的 1191×675），靠 `project.godot` 的 `stretch/mode=canvas_items` 放大 ⇒
-**逻辑视口恒 794×450**，UI/世界的坐标与三条摘要都不受影响。开关：`--titlebar native|none|custom`
-（缺省 `custom`）、`--window-scale N`（缺省 1.5）。
+**逻辑视口恒 794×450**，UI/世界的坐标与三条摘要都不受影响；**只有顶栏那一层按 DOM 的 CSS 像素判**
+（绘制时用 `Viewport::get_final_transform()` 的逆贴回画布）。开关：`--titlebar native|none|custom`
+（缺省 `custom`）、`--window-scale N`（缺省 1.5）、`--icons <dir>`（那 11 张 PNG 在仓库的 `src/assets`，
+**不在数据包里**）。
 
 **(a) GDExtension（推荐）**：Godot 拥有进程与主循环，端口编成静态库 `lfw_core`
 （`native/lfw/CMakeLists.txt:1`）链进扩展，宿主在 `_process` 里驱动。

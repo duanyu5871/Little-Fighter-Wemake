@@ -473,35 +473,94 @@ npm run godot '--' --play --every 300          # 开放模式 + 每 300 帧一�
 * **验收模式**（给 `--frames N`，`npm run godot:headless` 走的这条）：与 `lfw_run` 同形 —— 强制
   `boot_scene` 造场景、固定步长 + `--delta` 节拍、每 `--every`（缺省 60）帧一行摘要。**三条摘要靠这一支。**
 
-**窗口外观：无系统顶栏 + 自绘顶栏（照 Electron 端那套）**
+**窗口外观：无系统顶栏 + 自绘顶栏（照 Electron 端那套，整簇 11 个控件）**
 
 桌面端（`desktop/app/main.mjs:915`）是 `frame: false`，窗口 `1191×675 = 794×450 × 1.5`（**没给顶栏留高度**
-⇒ 顶栏是盖在画面上的），三个按钮由应用自绘（`src/App.tsx:788-811` + `-webkit-app-region: drag`）。
-Godot 宿主照同一口径：
+⇒ 顶栏是盖在画面上的），顶栏那一整簇控件由应用自绘（`src/App.tsx:705-813` + `src/App.module.scss:33-81`
+的 `.top_bar` / `.wails_drag`）。Godot 宿主照同一口径：
 
 ```
 npm run godot                                  # 缺省：borderless + 自绘顶栏 + 1.5×（1191×675）
 npm run godot '--' --titlebar native --window-scale 1    # 想要系统顶栏 / 1:1 逻辑像素时
 npm run godot '--' --titlebar none --window-scale 1      # 无边框但**不**画顶栏（只剩 alt+F4/任务栏可关）
+npm run godot '--' --icons D:\path\to\assets             # 那 11 张 btn_*.png 换一个目录
 ```
 
-* `--titlebar native|none|custom`（缺省 `custom`）：`native` 用系统边框；`none`/`custom` 都设
-  `WINDOW_FLAG_BORDERLESS`，后者再画我们自己的条（高 20 逻辑像素，右侧三格：最小化 / 最大化⇄还原 /
-  关闭，次序与 Electron 一致；**全屏时隐藏**，同 `src/App.tsx:788` 的 `show={!is_fullscreen && …}`）。
-  条上拖拽走 `DisplayServer::window_start_drag()`；`borderless` 在 Windows 上是 `WS_POPUP` ⇒ 没有原生
-  可拖的边框，故自己留了 6 像素的 `window_start_resize` 带。
+* `--window-size WxH`（缺省没给）：直接指定**窗口像素**尺寸，**允许不等比**（给了就压过
+  `--window-scale`；`--window-scale 1.5` ≡ `--window-size 1191x675`）。窗口**可以自由拉伸**：
+  `WINDOW_FLAG_RESIZE_DISABLED` 明确关掉，下限取逻辑视口 **794×450**（与 Electron 的
+  `minWidth/minHeight` 同口径），边缘 6 像素带自己叫 `window_start_resize`，悬停时按方向换缩放游标
+  （`titlebar_edge_to_cursor`；两个**对角**形状的命名没逐个核对，反了只是图标镜像）。
+  画面按 `project.godot` 的 `stretch/mode=canvas_items` + **`aspect=keep`** 等比 **contain + 居中**
+  （补黑边）—— `[godot] window:` 行里的 `content=宽x高+左+上` 就是它，对称即居中：
+  实测窗口 `1400x500` ⇒ `content=882x500+259+0`（左右各 259 黑边）。
+  ⚠ 顶栏画在**窗口像素**里（`final.affine_inverse()`），所以条铺满**整窗宽**、按钮贴**窗口**右上角
+  （不是内容区右缘）：`1400x500` 时 `bar=1400x32`。
+  ⚠ `--screenshot` 抓的是**视口（内容区）**，不含黑边 ⇒ 非等比尺寸下截图里看不到顶栏；要看顶栏用
+  缺省的等比尺寸（`1191x675`，此时内容 = 窗口）。
+  `WINDOW_FLAG_BORDERLESS`，后者再画我们自己的条。条的几何 = **DOM 的 CSS 像素**（= 窗口像素，1.5× 开窗
+  时 = 逻辑像素 × 1.5）：`.top_bar` 是 `justify-content: flex-end` ⇒ 控件**右对齐**、DOM 次序 = 从左到右；
+  每个控件占 **32×32**（`transform` 不参与布局），32×32 的图缩 **0.6**、悬停 **0.8**；**条上没有背景**
+  （只有 `.wails_drag` 悬停时那层 `#88888855`，高 90% = 28.8 像素），**全屏时整条隐藏**
+  （同 `src/App.tsx:788` 的 `show={!is_fullscreen && …}`）。拖拽走 `DisplayServer::window_start_drag()`；
+  `borderless` 在 Windows 上是 `WS_POPUP` ⇒ 没有原生可拖的边框，故自己留了 6 像素的
+  `window_start_resize` 带。绘制时用 `Viewport::get_final_transform()` 的**逆**把"窗口像素"贴回逻辑画布，
+  命中时用**正**变换换回来（`lfw_godot_titlebar.h` 只管这套几何，`lfw_godot_node.cpp` 只管"能不能求值 /
+  点了干什么"）。
+
+  11 个控件（次序 = Electron 的 DOM 次序；`checked` 走 `ToggleImgButton` 那条反直觉的规则：
+  **`checked == true` 显示 `src[1]`、false 显示 `src[0]`** —— 静音时看到的是划掉的那张）：
+
+| # | 控件（`TitleAction`） | 图 `src[0]` / `src[1]` | 可见条件（`src/App.tsx`） | 点了干什么 |
+|---|---|---|---|---|
+| 1 | `dev_ui` | `btn_1_2` / `btn_1_3` | `lfw.is_cheat(GIM_INK)` | ⚠ 端口没有那个开发者面板 ⇒ 只打一行、不做动作 |
+| 2 | `f4` | `btn_2_3`（单张） | `ui_id && layers.bottom.pages.length > 1` | `push_cmd(CMD.F4)` |
+| 3 | `bgm_mute` | `btn_2_0` / `btn_3_0` | 恒显示 | `sounds_set_bgm_muted(!muted)`；悬停出音量条 |
+| 4 | `sound_mute` | `btn_0_3` / `btn_1_0` | 恒显示 | `sounds_set_sound_muted(!muted)`；悬停出音量条 |
+| 5 | `f1` | `btn_2_1` / `btn_2_2` | `bg_id != VOID_BG && ui_id != "settings"` | `push_cmd(CMD.F1)`（`checked` = `world.paused()`） |
+| 6 | `f5` | `btn_4_3`（单张） | 上面那条 **且** `first_page == 'init_demo'` | `push_cmd(CMD.F5)` |
+| 7 | `settings` | `btn_1_1`（单张） | 恒显示 | `push_cmd(CMD.F2)` + 当前页是 `settings` 就 `layer.pop()`，否则 `set_page({id:"settings"}, 1)` |
+| 8 | `fullscreen` | `btn_3_1` / `btn_3_2` | `!is_mobile_container && !toy_mobile && first_page != 'init_demo'` | 全屏 ⇄ 窗口 |
+| 9 | `minimize` | `btn_0_4`（单张） | `!is_fullscreen && window.runtime` | 最小化 |
+| 10 | `maximize` | `btn_1_4` / `btn_2_4` | 同上 | 最大化 ⇄ 还原 |
+| 11 | `close` | `btn_3_3`（单张） | 同上 | 关窗口（打 `[godot] exit:` 那行） |
+
+* **求值不了的三条**（照实说，不假装）：`is_mobile_container` / `toy_mobile`（UA + 触摸判定 ⇒ 桌面宿主恒
+  false）、`window.runtime`（Wails/Electron 的桥 ⇒ 用"真窗口"代替）。**`f5` 在这个端口里永远不显示**：
+  它的条件多一条 `first_page == 'init_demo'`，而那一档只在 web demo（路径带 `/demo`）里设
+  （`src/App.tsx:400-408`），桌面端与端口都是 `init`。想复现最全的一簇（10/11）= 进对局（`bg_id` 非 VOID
+  ⇒ 出 `f1`）+ 页栈 > 1（⇒ 出 `f4`）+ 用 `--key` 敲出 `gim.ink` 开 `GIM_INK`（⇒ 出 `dev_ui`），见「画面存档」。
+* **音量弹层**：悬停那两个音量控件（或其弹层）时，条下沿挂一个竖直音量条（`.volume_popup`：圆角 8、底
+  `#0F1830CC`、内边距 `8/10/10`、轨道 6×84 `#00000088`、填充 `#5A88E0`、白色 14 像素圆滑块）。按下=抓
+  住、拖动=按 `y` 反算 `clamp(1 - (y-track.top)/84)` 并调 `sounds_set_bgm_volume` / `sounds_set_sound_volume`
+  （与 TS 的 `VerticalSlider` 同一套公式；拖起来若非 0 还顺手取消静音）。滑块圆角/阴影是**近似**：
+  `draw_rect` 没有圆角（用四个角上的圆补）、`box-shadow` 略去。
+* **图从哪来**：那 11 张 `btn_*.png`（外加 `btn_any.png` 共 24 张）在**仓库的 `src/assets/`** 里，
+  **不在数据包里**。缺省按"含 `src/assets/btn_1_1.png` 的目录"从**进程 cwd**与**可执行文件目录**往上找
+  （Godot 跑工程会把 cwd 切到工程目录 ⇒ 往上 4 层就是仓库根），可用 `--icons <dir>` 覆盖；找不到就打印
+  一次并只留命中盒。⚠ **打包/导出（`--export-release` 或把宿主拷到别处）时这 11 张 PNG 不会跟着走** ——
+  得把它们一起发出去并用 `--icons` 指过去（或改走 `--root` 那份 `builtin_data` 的解析路径）。
 * `--window-scale N`（缺省 1.5）：`project.godot` 的 `stretch/mode=canvas_items` +
   `aspect=keep` 把整块画布等比放大，**逻辑视口始终 794×450**（UI/世界照旧在逻辑像素里画），
   窗口像素由引擎按 `Window::get_final_transform()` 的反变换换回逻辑像素后才进 `_input` ⇒ 宿主不做补偿。
   实测：1.5× 下用**窗口坐标**点 `595,337`（= 逻辑 397,225）点中启动页，再点 `595,483` 命中主菜单
   Settings（`pages=0:entry 1:settings`）；点自绘条右端的关闭格（窗口 `1176,15`）窗口即关并打
-  `[godot] exit: … pages=…`。
-* ⚠ 自绘条那一带（含 6 像素缩放带）在进游戏之前就被吞掉（`titlebar_consume` + `set_input_as_handled()`）
-  —— 条上的点击是**窗口**动作，不会漏给游戏/UI。
+  `[godot] exit: … pages=…`；点设置格（窗口 `1047,16`）时 `[godot] titlebar: settings (set_page)
+  pages=0:stage_mode_page 1:settings` —— 条上的点击既落了动作、又没漏给底下的游戏（见「画面存档」那两张）。
+* ⚠ 自绘条那一带在进游戏之前就被吞掉（`titlebar_consume` + `set_input_as_handled()`）—— 条上的点击是
+  **窗口**动作，不会漏给游戏/UI。吞的范围与 Electron 一致：**只有控件盒 + 拖拽层（0..28.8）+ 打开的弹层**；
+  条底那 3.2 像素的缝在那边也是漏给画布的（`.top_bar` 有 `pointer-events: none`、拖拽层只有 90% 高、
+  条自己没有背景），这里同样漏。边缘那 6 像素缩放带仍然按**整个窗口**判、压过一切。
 * ⚠ 照实记：拖拽/缩放走的是 OS 那条 API，**没能自动化验证**（要真人按住拖鼠标）；自动测过的是
   "系统边框真没了"（`[godot] window:` 行里 `size` 与 `deco`：`custom` 时 `1191x675 == 1191x675`，
-  `native` 时 `794x450` 对 `810x489`，差的就是那圈装饰）、"条被画出来"（`--titlebar none` 与 `custom`
-  同帧对拍，顶部 60 行 50% 像素不同）、"按钮生效"（关闭格真把窗口关了）、"缩放后点击不偏"。
+  `native` 时 `794x450` 对 `810x489`，差的就是那圈装饰）、"条被画出来且有哪几个控件、画在哪"
+  （`[godot] titlebar: icons=… controls(N)=…` 那行会在集合变化时打一次；截图里逐格量过：10 格时中心
+  在 `871+32i+16`，9 格时在 `903+32i+16`）、"点击生效 / 不漏给游戏"（关闭格真把窗口关了；设置格真把
+  `settings` 页压到第 1 层，且同一帧 `f1` 那一格从条上消失）、"悬停真的换状态"（`--hover-window` 停在
+  BGM 那一格 ⇒ 音符从 15 像素宽变 19 像素宽 = 0.6 → 0.8，弹层同时弹出来）、"滑杆真的写了回去"
+  （点 `951,100` 后滑块落到 32%、蓝条跟着缩 —— 而画的位置读的就是 `sounds_bgm_volume()`）、
+  "拖拽层高亮只在 0..28.8"（`--hover-window 300,15` 量到 y<29 整条变亮 `(53,61,108)`、y=29 起回到
+  `(11,23,94)`，与 `.wails_drag:hover` 的 `#88888855` 同口径）、"缩放后点击不偏"。
 
 ⚠ **在 PowerShell 里 `--` 必须写成 `'--'`**：PS 会把裸 `--` 当成自己的分隔符**吃掉**，npm 于是把
 后面的 `--stage` 之类当自己的配置项吃掉，参数一个都传不到（实测症状：跑的是默认值、且 `bad
@@ -961,6 +1020,23 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
     数据包里的角色）、各自头顶血条（`Man. 1 - HP: 500`）、`STAGE 1-1` 与右下 `Stage mode (Difficult)`。
   - `match-running-later.png`（第 2400 帧，同一场）—— 600 帧之后：右边那位 `HP: 50`（打起来了）、
     两人位置都变了（左上的木桩怪还在原地，主角跑到右侧平台）⇒ 「在动」的证据。
+- `titlebar-icons.png` / `titlebar-settings-click.png`（1191×675）—— **自绘顶栏那一簇控件**（照 Electron
+  的 `src/assets/btn_*.png`，见「窗口外观」那张表）：
+  - `titlebar-icons.png`（第 1800 帧，真对局里）—— 那一局能显示的**全部 10 个控件**（`controls(10)=`
+    那行）：`dev_ui`（靠 `--key` 敲出 `gim.ink` 开的 `GIM_INK`）、`f4`（页栈 > 1）、`bgm` / `sound`
+    （未静音 ⇒ 纯音符 / 有声波的喇叭）、`f1`（对局的 `bg_id` 非 VOID ⇒ 出现，未暂停 ⇒ 暂停条）、
+    `settings`（齿轮）、`fullscreen`（向外四箭头）、`minimize`（横线）、`maximize`（单方块）、
+    `close`（叉）。`f5` 不在（它只在 web demo 的 `init_demo` 里出现，端口永远走不到那一条）。
+  - `titlebar-settings-click.png`（第 1950 帧，同一条命令 + 一次**窗口坐标**点击 `1047,16`）—— 点了设置
+    那一格之后：`settings` 页被压到第 1 层（`pages=0:stage_mode_page 1:settings`，画面上就是 Misc
+    Settings 那一页），**`f1` 那一格同时从条上消失**（`ui_id == "settings"` 那条条件）⇒ 既是"控件真能
+    点"，也是"条件真的在求值"的证据。两次 `controls(N)` 的差值就是 `f1` 那一张。
+  - `titlebar-hover.png`（第 1800 帧 + 一条 `--hover-window 951,16@1700`）—— 指针停在 BGM 那一格上：
+    图缩到 **0.8**，条下沿弹出**竖直音量条**（`100%` 音量 ⇒ 滑块贴顶、蓝条满格）。悬停态只有
+    `--hover-window`（一条 `InputEventMouseMotion`）推得动。
+  - `titlebar-volume-drag.png`（同一条命令再补一次**窗口坐标**点击 `951,100`）—— 点在滑杆上：滑块/填充
+    落到约 **31%**（`1 - (100-42)/84`），画面上的位置读的正是 `lfw.sounds_bgm_volume()`（宿主那位）
+    ⇒ 拖动真的写回了 `sounds_set_bgm_volume`；同一张图里 BGM 那格已回到 0.6（指针在弹层上，不在按钮上）。
 
 开窗截图的跑法（**别加 `--headless`**；`--ui-page` 是"装载后点进这一页"，缺省就是数据自己的首页 `init`）：
 
@@ -1007,7 +1083,38 @@ $cm_args = @(); foreach ($k in $cm_keys) { $cm_args += @('--key', $k) }
 & $g --path native\host\godot\project -- --play --root "$R\dist" --delta 0.017 `
     --zip "$R\native\build\host-data\prel" --click '397,225@10' @cm_args `
     --frames 820 --screenshot "$R\native\host\godot\shots\match-char-menu.png" --shot-frame 760
+# 自绘顶栏那一簇的两张（同一场对局；`--play` + 同一串 `--key`）：
+# ① 能显示的 10 个控件全在：开头多敲 g i m . i n k（= 作弊码 `GIM_INK` ⇒ `dev_ui` 那一格出现），
+#    对局里 `bg_id` 非 VOID ⇒ `f1` 出现，页栈 > 1 ⇒ `f4` 出现。
+$cheat = @('g@20','i@25','m@30','.@35','i@40','n@45','k@50')
+$tk_args = @(); foreach ($k in $cheat) { $tk_args += @('--key', $k) }
+& $g --path native\host\godot\project -- --play --root "$R\dist" --delta 0.017 `
+    --zip "$R\native\build\host-data\prel" --click '397,225@10' @tk_args @key_args `
+    --frames 1900 --screenshot "$R\native\host\godot\shots\titlebar-icons.png" --shot-frame 1800
+# ② 同一场里用**窗口坐标**点设置那一格（1047,16 = 1191 宽窗口上第 6 格的中心）：`settings` 页压到第 1 层、
+#    `f1` 那一格同时消失（`ui_id == "settings"`）—— 条上的点击只落在条上，没漏给底下的游戏。
+& $g --path native\host\godot\project -- --play --root "$R\dist" --delta 0.017 `
+    --zip "$R\native\build\host-data\prel" --click '397,225@10' --click-window '1047,16@1850' `
+    @tk_args @key_args --frames 2000 `
+    --screenshot "$R\native\host\godot\shots\titlebar-settings-click.png" --shot-frame 1950
+# ③ 悬停那两格音量（`--hover-window` = 只推一条 `InputEventMouseMotion`，只有它推得动悬停态）：
+#    951,16 是 BGM 那一格的中心（10 个控件时 = 1191 - 8×32 - 16）。
+& $g --path native\host\godot\project -- --play --root "$R\dist" --delta 0.017 `
+    --zip "$R\native\build\host-data\prel" --click '397,225@10' --hover-window '951,16@1700' `
+    @tk_args @key_args --frames 1900 --screenshot "$R\native\host\godot\shots\titlebar-hover.png" `
+    --shot-frame 1800
+# ④ 同一条再加一次窗口坐标点击 951,100（落在弹层的滑杆上）⇒ 音量被设成 `1 - (100-42)/84 ≈ 0.31`。
+& $g --path native\host\godot\project -- --play --root "$R\dist" --delta 0.017 `
+    --zip "$R\native\build\host-data\prel" --click '397,225@10' --hover-window '951,16@1700' `
+    --click-window '951,100@1740' @tk_args @key_args --frames 1900 `
+    --screenshot "$R\native\host\godot\shots\titlebar-volume-drag.png" --shot-frame 1800
 ```
+
+⚠ **顶栏那几张的坐标**：条上的一切都按**窗口像素**判（1.5× 下 = 逻辑像素 × 1.5），所以要用
+`--click-window` 而不是 `--click`（后者直接注入逻辑坐标，**绕过** `_input` ⇒ 走不到 `titlebar_consume`）。
+`1047,16` 落在 `settings` 那一格：条从右边排，`settings` 右边固定有 `fullscreen / minimize / maximize /
+close` 四格 ⇒ 它的中心恒为 `窗口宽 - 4×32 - 16`。悬停（拖拽层高亮 / 控件缩 0.8 / 音量弹层）要用
+**`--hover-window <x>,<y>[@<frame>]`** —— `--click*` 只推按钮事件，推不出悬停态。
 
 ⚠ **关于 `!launch/bg.png`**（曾经以为"数据缺件"，**不是**）：TS 的 `Ditto.Importer.get_possible_url_list`
 带 `roots = ["builtin_data"]`，路径若不以 `builtin_data/` 开头会**再试一遍 `builtin_data/<路径>`**
