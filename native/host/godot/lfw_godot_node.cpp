@@ -128,6 +128,8 @@ const char* titlebar_name(LfwGodot::TitlebarMode mode) {
       return "none";
     case LfwGodot::TitlebarMode::custom:
       return "custom";
+    case LfwGodot::TitlebarMode::frame:
+      return "frame";
   }
   return "?";
 }
@@ -178,7 +180,7 @@ const char* LfwGodot::usage() {
          "               [--frames N] [--every N] [--time ms] [--delta seconds] [--vs]\n"
          "               [--play] [--click <x>,<y>[@<frame>]] [--click-window <x>,<y>[@<frame>]]\n"
          "               [--hover-window <x>,<y>[@<frame>]] [--click-frame N]\n"
-         "               [--titlebar native|none|custom] [--window-scale N]\n"
+         "               [--titlebar native|none|custom|frame] [--window-scale N]\n"
          "               [--window-size WxH] [--icons <dir>]\n"
          "               [--key <name>[@<frame>]] [--key-down <name>[@<frame>]]\n"
          "               [--key-up <name>[@<frame>]] [--key-frame N] [--key-tap N]\n"
@@ -202,8 +204,10 @@ const char* LfwGodot::usage() {
          "  --key-down/--key-up  只按下 / 只抬起（要「按住」就用这一对）。\n"
          "  --key-frame    没写 `@frame` 的按键落在哪一帧（缺省 60）\n"
          "  --key-tap      「按一下」的按下 → 抬起间隔（帧，缺省 2）\n"
-         "  --titlebar 窗口那一套：native（系统边框）/ none（无边框、不画栏）/ custom（无边框 +\n"
-         "             自绘栏，照 Electron 那份顶栏：11 个 `btn_*.png` 控件 + 拖拽层 + 音量弹层）。\n"
+         "  --titlebar 窗口那一套：native（系统边框 + 系统标题栏）/ none（无边框、不画栏）/ custom\n"
+         "             （无边框 + 自绘栏，照 Electron 那份顶栏：11 个 `btn_*.png` 控件 + 拖拽层 +\n"
+         "             音量弹层）/ frame（**原生边框但不要系统标题栏**：`EXTEND_TO_TITLE`，照 Electron\n"
+         "             的 `frame:false`）+ 自绘栏）。\n"
          "             缺省：`--play` 时 custom，其余 native。\n"
          "  --icons    顶栏那 11 张 `btn_*.png` 的目录（缺省 = 从仓库根解析出来的 `src/assets`；\n"
          "             它们**不在数据包里**，导出/打包时得自己带上）。\n"
@@ -312,8 +316,10 @@ bool LfwGodot::parse_args(const std::vector<std::string>& argv, Args& out) const
         out.titlebar = TitlebarMode::none;
       } else if (v == "custom") {
         out.titlebar = TitlebarMode::custom;
+      } else if (v == "frame") {
+        out.titlebar = TitlebarMode::frame;
       } else {
-        print_error("[godot] bad --titlebar value: " + v + " (want native|none|custom)");
+        print_error("[godot] bad --titlebar value: " + v + " (want native|none|custom|frame)");
         return false;
       }
       out.titlebar_given = true;
@@ -920,8 +926,33 @@ void LfwGodot::apply_window_setup() {
     return;
   }
   _windowed = true;
-  if (_args.titlebar != TitlebarMode::native) {
+  // 无边框（Windows 上是 `WS_POPUP`）只给 `none`/`custom`；`native` 与 `frame` 都保留系统边框。
+  const bool borderless =
+      _args.titlebar == TitlebarMode::none || _args.titlebar == TitlebarMode::custom;
+  if (borderless) {
     ds->window_set_flag(DisplayServer::WINDOW_FLAG_BORDERLESS, true);
+  } else if (_args.titlebar == TitlebarMode::frame) {
+    // `frame`：**留着**系统边框（`WS_THICKFRAME` 那一套 ⇒ 原生缩放 / Aero Snap / 最大化 / DWM 阴影），
+    // 只把客户区顶到标题栏位置（`EXTEND_TO_TITLE`）⇒ 看不见系统标题栏 —— 就是 Electron `frame:false`
+    // 在 Windows 上做的那件事（保留 `WS_THICKFRAME`、用 `WM_NCCALCSIZE` 让出 caption 那一块）。
+    // ⚠ **实测（Godot 4.7.1 / Windows）：这一枚是空操作** —— `platform/windows/**` 里根本没有
+    // `extend_to_title`（只在 macOS 后端实现；`doc/classes/DisplayServer.xml` 也写着 implemented only
+    // on macOS）：设完读回来还是 0，`deco` 仍比 `size` 高一条 caption，Win32 的 `WS_CAPTION` 也还在
+    //（外部 GetWindowLong 量过）。所以这一档只用来说明"Godot 现在办不到"，见下面的 verdict 行与
+    // `native/README.md`「窗口外观」那张表。
+    ds->window_set_flag(DisplayServer::WINDOW_FLAG_EXTEND_TO_TITLE, true);
+    const bool took = ds->window_get_flag(DisplayServer::WINDOW_FLAG_EXTEND_TO_TITLE);
+    const godot::Vector2i win = ds->window_get_size();
+    const godot::Vector2i decorated = ds->window_get_size_with_decorations();
+    char verdict[224];
+    std::snprintf(verdict, sizeof(verdict),
+                  "[godot] titlebar: frame -> extend_to_title read-back=%d feature=%d "
+                  "size=%dx%d deco=%dx%d %s",
+                  took ? 1 : 0, ds->has_feature(DisplayServer::FEATURE_EXTEND_TO_TITLE) ? 1 : 0,
+                  win.x, win.y, decorated.x, decorated.y,
+                  took ? "(customer area covers the caption area)"
+                       : "(NO-OP on this platform: the OS caption is still there)");
+    print_line(verdict);
   }
   // 窗口 = **逻辑屏幕** × `--window-scale`。逻辑屏幕在装载之前从 `project.godot` 的
   // `display/window/size/viewport_*` 读（`_logical_w/_logical_h`），**不**读
@@ -952,8 +983,9 @@ void LfwGodot::apply_window_setup() {
       ds->window_set_position(screen_pos + (screen_size - want) / 2);
     }
   }
-  // 证据行（`native/README.md` 的「窗口」一节引的就是它）：`borderless=1` = 无边框真的设上了；
-  // `deco=size` = 没有非客户区（无边框窗口的装饰矩形与客户区矩形重合；有系统边框时 deco > size）；
+  // 证据行（`native/README.md` 的「窗口」一节引的就是它）：`borderless=1` = 无边框真的设上了、
+  // `extend=1` = 客户区顶到标题栏位置（`frame` 档那一枚）；`deco=size` = 没有非客户区
+  //（无边框窗口的装饰矩形与客户区矩形重合；有系统边框**和**系统标题栏时 deco > size）；
   // `logical=794x450` = 逻辑屏幕没被窗口尺寸带跑（`project.godot` 的 `viewport_*`）。
   const godot::Vector2i now = ds->window_get_size();
   const godot::Vector2i deco = ds->window_get_size_with_decorations();
@@ -964,15 +996,16 @@ void LfwGodot::apply_window_setup() {
   // 把缩放与过采样也报出来）。
   const godot::Transform2D contain = contain_transform(now);
   const godot::Rect2 content = contain_rect(now);
-  char buf[448];
+  char buf[512];
   std::snprintf(buf, sizeof(buf),
-                "[godot] window: display=%s titlebar=%s scale=%.2f borderless=%d size=%dx%d "
-                "deco=%dx%d pos=%d,%d mode=%d logical=%dx%d resizable=%d min=%dx%d "
+                "[godot] window: display=%s titlebar=%s scale=%.2f borderless=%d extend=%d "
+                "size=%dx%d deco=%dx%d pos=%d,%d mode=%d logical=%dx%d resizable=%d min=%dx%d "
                 "content=%.0fx%.0f+%.0f+%.0f",
                 display.c_str(), titlebar_name(_args.titlebar), scale,
-                ds->window_get_flag(DisplayServer::WINDOW_FLAG_BORDERLESS) ? 1 : 0, now.x, now.y,
-                deco.x, deco.y, pos.x, pos.y, static_cast<int>(ds->window_get_mode()), logical.x,
-                logical.y,
+                ds->window_get_flag(DisplayServer::WINDOW_FLAG_BORDERLESS) ? 1 : 0,
+                ds->window_get_flag(DisplayServer::WINDOW_FLAG_EXTEND_TO_TITLE) ? 1 : 0, now.x,
+                now.y, deco.x, deco.y, pos.x, pos.y, static_cast<int>(ds->window_get_mode()),
+                logical.x, logical.y,
                 ds->window_get_flag(DisplayServer::WINDOW_FLAG_RESIZE_DISABLED) ? 0 : 1,
                 ds->window_get_min_size().x, ds->window_get_min_size().y, content.size.x,
                 content.size.y, content.position.x, content.position.y);
@@ -980,15 +1013,15 @@ void LfwGodot::apply_window_setup() {
   report_stretch(contain, content);
 }
 
-// 自绘栏在 `--titlebar custom` + 真窗口时**一直存在，全屏也画**（Electron 那边全屏只藏那三个窗口按钮：
-// `src/App.tsx:788/793/805` 的 `show={!is_fullscreen && window.runtime?.…}`，而静音/设置/全屏那几个
-// `Show` 里没有 `!is_fullscreen`）⇒ 全屏时仍旧要能点设置/退出全屏。
+// 自绘栏在 `--titlebar custom|frame` + 真窗口时**一直存在，全屏也画**（Electron 那边全屏只藏那三个
+// 窗口按钮：`src/App.tsx:788/793/805` 的 `show={!is_fullscreen && window.runtime?.…}`，而静音/设置/
+// 全屏那几个 `Show` 里没有 `!is_fullscreen`）⇒ 全屏时仍旧要能点设置/退出全屏。
 bool LfwGodot::titlebar_visible() const {
-  if (!_windowed || _args.titlebar != TitlebarMode::custom) return false;
+  if (!_windowed || !titlebar_drawn()) return false;
   return godot::DisplayServer::get_singleton() != nullptr;
 }
 
-// ---- 自绘顶栏（`--titlebar custom`）：可见性 / 选中态 / 动作 ----
+// ---- 自绘顶栏（`--titlebar custom` / `--titlebar frame`）：可见性 / 选中态 / 动作 ----
 //
 // `lfw_godot_titlebar.h` 只管几何与一张条件表；这里把端口现成的状态填进去（`src/App.tsx` 的每个
 // `Show show=` / `ToggleImgButton.src` 逐条对位），并把点击接到端口已有的那些面上
@@ -1045,7 +1078,8 @@ bool LfwGodot::titlebar_checked(lfw::host::TitleAction action) const {
       return mode == godot::DisplayServer::WINDOW_MODE_FULLSCREEN ||
              mode == godot::DisplayServer::WINDOW_MODE_EXCLUSIVE_FULLSCREEN;
     case TitleAction::maximize:
-      return _maximized;  // 自己维护（见 `maximize` 动作：不再用 `WINDOW_MODE_MAXIMIZED`）
+      // `frame` 档走系统那一档 ⇒ 选中态读窗口模式；无边框那两档读宿主自己记的还原位。
+      return native_frame() ? mode == godot::DisplayServer::WINDOW_MODE_MAXIMIZED : _maximized;
     case TitleAction::dev_ui:
     case TitleAction::f4:
     case TitleAction::settings:
@@ -1132,6 +1166,16 @@ void LfwGodot::titlebar_activate(int index) {
       break;
     case TitleAction::maximize: {
       if (ds == nullptr) break;
+      // `frame` 档：窗口有**原生边框** ⇒ 最大化/还原用引擎那一档（就是 Windows 自己那一套：
+      // 最大化到工作区、系统记还原点、Aero Snap 同一份几何），不再自己做"铺满工作区"的模拟。
+      if (native_frame()) {
+        const bool maxed = ds->window_get_mode() == godot::DisplayServer::WINDOW_MODE_MAXIMIZED;
+        ds->window_set_mode(maxed ? godot::DisplayServer::WINDOW_MODE_WINDOWED
+                                  : godot::DisplayServer::WINDOW_MODE_MAXIMIZED);
+        print_line(std::string("[godot] titlebar: ") + (maxed ? "restore" : "maximize") +
+                   " (native frame) (" + window_state_text(ds) + ")");
+        break;
+      }
       // **自己做"最大化"**，不用 `WINDOW_MODE_MAXIMIZED`：无边框窗口（Windows 上是 `WS_POPUP`）走引擎那条
       // 会盖住任务栏、而且"还原"回到的尺寸不可靠（用户实测：点还原回不到原尺寸）。
       // 改成显式记"还原点" + 用**工作区**矩形（`screen_get_usable_rect` 已排除任务栏）——
@@ -1343,9 +1387,12 @@ bool LfwGodot::titlebar_consume(const godot::Ref<godot::InputEvent>& event) {
   }
 
   // 悬停到边缘 ⇒ 换成对应方向的缩放游标；音量滑杆那一带是 `cursor: pointer`。只在形状变化时调。
+  // ⚠ `frame` 档的缩放带归**系统**（窗口有原生边框，Windows 自己会给游标/命中）⇒ 这条自绘带整条不参与。
   if (kind == PointerKind::move) {
     using DS = godot::DisplayServer;
-    DS::CursorShape shape = cursor_for_edge(titlebar_edge_at(bx, by, win_w, win_h));
+    DS::CursorShape shape =
+        native_frame() ? DS::CURSOR_ARROW
+                       : cursor_for_edge(titlebar_edge_at(bx, by, win_w, win_h));
     const bool on_volume = in_popup || (hit.kind == TitleHitKind::button &&
                                         is_volume_control(hit.index));
     if (shape == DS::CURSOR_ARROW && on_volume) shape = DS::CURSOR_POINTING_HAND;
@@ -1356,7 +1403,9 @@ bool LfwGodot::titlebar_consume(const godot::Ref<godot::InputEvent>& event) {
   }
 
   // 拖拽/缩放那两条：压过条上的一切（与原生边框同口径）。
-  if (kind == PointerKind::down && e.button == 0.0 &&
+  // ⚠ `frame` 档**不**做这条自绘缩放带：窗口还有 `WS_THICKFRAME`，边界那几像素是**非客户区**、
+  // 归 Windows（原生缩放 + Aero Snap + 双击边=最大化）；自绘带在这儿只会跟它抢同一块像素。
+  if (!native_frame() && kind == PointerKind::down && e.button == 0.0 &&
       ds->window_get_mode() == godot::DisplayServer::WINDOW_MODE_WINDOWED &&
       !ds->window_get_flag(godot::DisplayServer::WINDOW_FLAG_RESIZE_DISABLED)) {
     const TitleEdge edge = titlebar_edge_at(bx, by, win_w, win_h);
@@ -1921,7 +1970,8 @@ void LfwGodot::_draw() {
     apply_game_clip(win);
     const GodotFrame& frame = renderer->take_frame();
     if (frame.valid) {
-      draw_set_transform_matrix(final_transform().affine_inverse() * contain);
+      _item_xform = final_transform().affine_inverse() * contain;
+      draw_set_transform_matrix(_item_xform);
       static const int kPasses[3] = {-1, 0, 1};
       for (const int pass : kPasses) {
         for (const GodotDrawItem& item : frame.items) {
@@ -1934,6 +1984,7 @@ void LfwGodot::_draw() {
         }
       }
       draw_set_transform_matrix(godot::Transform2D());  // 画布还给窗口像素
+      _item_xform = godot::Transform2D();
     }
     if (_args.clip_probe) draw_clip_probe(contain);
   }
@@ -2019,11 +2070,17 @@ void LfwGodot::draw_item(const GodotDrawItem& item) {
                   static_cast<float>(item.sw * item.tex_scale),
                   static_cast<float>(item.sh * item.tex_scale));
   // 一次「blit」：`画在哪 + 什么颜色`。镜像用等价的水平翻转变换（TS 的 `flip_x` 是 UV 镜像）。
+  // ⚠ `draw_set_transform*` 是**绝对**的：这里只能叠在 `_item_xform`（= 当前这一层的 contain 矩阵）
+  // 之上，画完再换回来。直接 `draw_set_transform()` + `draw_set_transform_matrix(单位阵)` 会把 contain
+  // 缩放整条冲掉 —— 镜像项**自己**以及它之后的所有项都会按逻辑像素 1:1 画进窗口（窗口越大越离谱）。
   const auto blit = [&](float ox, float oy, const Color& c) {
     if (item.flip_x) {
-      draw_set_transform(Vector2(x + ox + w, y + oy), 0.0f, Vector2(-1.0f, 1.0f));
+      godot::Transform2D mirror;
+      mirror.set_scale(Vector2(-1.0f, 1.0f));
+      mirror.set_origin(Vector2(x + ox + w, y + oy));
+      draw_set_transform_matrix(_item_xform * mirror);
       draw_texture_rect_region(tex, Rect2(0.0f, 0.0f, w, h), src, c);
-      draw_set_transform(Vector2(0, 0), 0.0f, Vector2(1.0f, 1.0f));
+      draw_set_transform_matrix(_item_xform);
     } else {
       draw_texture_rect_region(tex, Rect2(x + ox, y + oy, w, h), src, c);
     }

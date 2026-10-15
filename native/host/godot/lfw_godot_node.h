@@ -28,7 +28,7 @@
 //     `lfw_run --click` 走同一条注入路径；
 //   * `--screenshot <png>` + `--shot-frame N`：画到第 N 帧后存一张视口 PNG（⚠ 别加 `--headless`）。
 //   * `--ui-page <id>` + `--ui-dump`：装载后把某一页设到第 0 层（拍 UI 用）/ 逐 UI 节点打一行事实。
-//   * `--titlebar <native|none|custom>` + `--window-scale N` + `--icons <dir>`：窗口那一套（见「窗口」）。
+//   * `--titlebar <native|none|custom|frame>` + `--window-scale N` + `--icons <dir>`：窗口那一套（见「窗口」）。
 //   * `--click-window <x>,<y>[@<frame>]`：`--click` 的窗口像素版（走引擎的真实事件路径，见下）。
 //
 // **窗口**（Electron 端那一套的引擎侧等价物：`desktop/app/main.mjs` 的 `frame: false` + `src/App.tsx`
@@ -96,11 +96,17 @@ class LfwGodot : public Node2D {
   void _notification(int p_what);
   void _draw() override;
 
-  // `--titlebar` 的三个取值：
-  //   * `native`：系统边框（"验收/诊断"那一档的缺省，与切片之前逐位一致）；
+  // `--titlebar` 的四个取值：
+  //   * `native`：系统边框 + **系统**标题栏（"验收/诊断"那一档的缺省，与切片之前逐位一致）；
   //   * `none`  ：无边框、不画栏（只剩 `--window-scale` 那一半）；
-  //   * `custom`：无边框 + 本节点自绘的标题栏（`--play` 的缺省）。
-  enum class TitlebarMode { native, none, custom };
+  //   * `custom`：无边框（Windows 上 = `WS_POPUP`）+ 本节点自绘的标题栏（`--play` 的缺省）；
+  //   * `frame` ：**原生边框**（Windows 上保留 `WS_THICKFRAME` 那一套：原生缩放、Aero Snap、
+  //     原生最大化/还原、DWM 阴影）**但不要系统标题栏**（`WINDOW_FLAG_EXTEND_TO_TITLE` 把客户区
+  //     顶到标题栏位置）+ 仍由本节点自绘标题栏 —— Electron `frame:false` 在 Windows 上的等价物。
+  //     ⚠ 实测（Godot 4.7.1/Windows）：那一枚 flag 是**空操作**（只在 macOS 后端实现）⇒ 这一档
+  //     出来的是"系统标题栏 + 我们的自绘栏"两层，**不是**可用的 Electron 等价物；留着是为了
+  //     一条命令复现这个结论（`window_setup` 里那行 verdict）。
+  enum class TitlebarMode { native, none, custom, frame };
 
  protected:
   static void _bind_methods();
@@ -230,14 +236,24 @@ class LfwGodot : public Node2D {
   // `--hover-window`：只推一条 `InputEventMouseMotion`（同一套窗口像素口径）—— 顶栏的悬停态靠它。
   void push_window_hover(double x, double y);
   std::string ui_pages_text() const;
+  // ⚠ 镜像绘制要**在这个矩阵里**做（见 `lfw_godot_node.cpp` 的 `draw_item`）：`draw_set_transform*` 是
+  // **绝对**设置（不叠加），落在绘制项中间就会把这一层的 contain 变换冲掉。
   void draw_item(const GodotDrawItem& item);
+  godot::Transform2D _item_xform;  // 当前这一批绘制项用的矩阵（`_draw()` 设、`draw_item` 镜像后还回去）
   void draw_text_item(const GodotDrawItem& item);
   // `--clip-probe` 那一圈（逻辑屏幕边界内外各 8 像素；见 `Args::clip_probe`）。
   void draw_clip_probe(const godot::Transform2D& contain);
   // ---- 窗口 / 自绘标题栏（`--titlebar` / `--window-scale`）----
   // 无边框 + 窗口尺寸（`_ready` 里、装包之前就跑：别让系统边框闪一下）。逻辑屏幕不动，见头注释。
   void apply_window_setup();
-  bool titlebar_visible() const;  // `custom` 且**不全屏**（镜像 Electron：全屏时整簇按钮消失）
+  bool titlebar_visible() const;  // `custom`/`frame` 且**不全屏**（镜像 Electron：全屏时整簇按钮消失）
+  // 自绘栏由我们画：`custom`（无边框）与 `frame`（原生边框 + `EXTEND_TO_TITLE`）两档。
+  bool titlebar_drawn() const {
+    return _args.titlebar == TitlebarMode::custom || _args.titlebar == TitlebarMode::frame;
+  }
+  // `frame` 档：窗口仍有 Windows 的原生边框（`WS_THICKFRAME` 那一套）⇒ 缩放 / Aero Snap / 最大化
+  // 都归系统，宿主那条 6 像素自绘缩放带与"自己做的最大化"在这一档**不参与**（否则两套会打架）。
+  bool native_frame() const { return _args.titlebar == TitlebarMode::frame; }
   // 条上/边缘的事件处理：true = 已吞掉（调用方把它标成 handled，别再喂给游戏/UI）。
   bool titlebar_consume(const godot::Ref<godot::InputEvent>& event);
   void draw_titlebar();

@@ -156,6 +156,8 @@ native/
   tools/
     native.mjs                       configure / build / lint / test / godot（GDExtension）
     check_lfw_cpp_includes.mjs       分层规则检查
+    shots_compare.mjs                整窗截图 → 逻辑屏幕网格的归一化叠图/逐像素差（窗口那套改动的证据）
+    win_window_modes.ps1             --titlebar 四档的外部证据（Win32 style 位 / 非客户区尺寸 / 屏幕截图）
   host/                              ★ 宿主实现（M1：headless 可运行入口）
     fs_zip.{h,cpp}                   目录当 zip 用（`IZip` / `IZipObject` 的读盘实现）：`--zip <dir>`
     common/zip_file.{h,cpp}          **真 `.zip`**（中央目录 + stored/deflate，自带 inflate）+ 真 MD5
@@ -483,6 +485,7 @@ npm run godot '--' --play --every 300          # 开放模式 + 每 300 帧一�
 npm run godot                                  # 缺省：borderless + 自绘顶栏 + 1.5×（1191×675）
 npm run godot '--' --titlebar native --window-scale 1    # 想要系统顶栏 / 1:1 逻辑像素时
 npm run godot '--' --titlebar none --window-scale 1      # 无边框但**不**画顶栏（只剩 alt+F4/任务栏可关）
+npm run godot '--' --titlebar frame --window-scale 1.5   # 想试"原生边框但不显示系统标题栏"——**实测办不到**（见下）
 npm run godot '--' --icons D:\path\to\assets             # 那 11 张 btn_*.png 换一个目录
 ```
 
@@ -497,7 +500,12 @@ npm run godot '--' --icons D:\path\to\assets             # 那 11 张 btn_*.png 
   现在 contain + 居中由**宿主自己做**（`lfw_godot_node.cpp` 的 `contain_transform()`，口径照
   `Window::_update_viewport_size()` 的 keep 分支：内容尺寸 `floor`、居中偏移 `round`、逐轴缩放），
   一个矩阵管三件事：
-  * **绘制**：游戏那一层按逻辑像素画、套这个矩阵（画布 = 窗口像素时 `final_transform()` 是单位阵）；
+  * **绘制**：游戏那一层按逻辑像素画、套这个矩阵（画布 = 窗口像素时 `final_transform()` 是单位阵）。
+    ⚠ 绘制项里的**镜像**（`flip_x`，UI 的 `mirror_x` / 世界里的 `facing < 0`）也必须**叠在这个矩阵上**
+    （`_item_xform * mirror`）：`draw_set_transform*` 是**绝对**设置，夹在绘制项中间就会把游戏那一层的
+    contain 整条冲掉 —— 镜像项**自己**以及它**之后**的所有项（同帧的文字/标题图/UI，世界那一遍还有朝左
+    的实体）会按**逻辑像素 1:1** 画进窗口，于是"窗口越大越离谱"、画面上还多一份小号的镜像鬼影
+    （修之前的样子见 `shots/window-entry-bug-before-1920x1030.png`）；
   * **裁剪**：`contain_rect()` 交给 `canvas_item_set_custom_rect` + `canvas_item_set_clip` ⇒ 游戏被
     裁在内容矩形里（逻辑屏幕外的东西不会漏进黑边；`--clip-probe` 是这一条的观测量，见下）；
   * **输入**：`_input()` 用它的逆把画布/窗口像素换回逻辑像素（`--click-window` 走的正是这条）。
@@ -535,6 +543,39 @@ npm run godot '--' --icons D:\path\to\assets             # 那 11 张 btn_*.png 
   实测：`maximize (mode=2 size=1920x1030 …)` → `restore (mode=0 size=1191x675 …)`。
   ⚠ **最大化后拖拽区不拖**（Windows 的最大化窗口不是"整屏窗口"）：`titlebar: drag ignored (maximized)`；
   但**双击拖拽区 = 最大化/还原**（Windows 标准）。
+
+  **第四档 `frame`：能不能"像 Electron 那样用原生边框、但不显示原生顶栏"？——实测：Windows 上办不到。**
+  Electron 在 Windows 上的 `frame: false` **不是** `WS_POPUP`：它保留 `WS_THICKFRAME`（原生缩放 / Aero
+  Snap / 原生最大化 / DWM 阴影都还在），只用 `WM_NCCALCSIZE` 把 caption 那一块让出来。Godot 端对应的
+  那一枚是 `DisplayServer.WINDOW_FLAG_EXTEND_TO_TITLE`（`frame` 档：设它、**不**设 `BORDERLESS`、自绘栏
+  照画）。**实测（Godot 4.7.1 / Windows）它是空操作**：
+  * 设完**读回来还是 0**、`has_feature(FEATURE_EXTEND_TO_TITLE)` 也是 0（宿主 `_ready()` 里那行 verdict：
+    `titlebar: frame -> extend_to_title read-back=0 feature=0 size=794x450 deco=810x489 (NO-OP …)`）；
+  * `deco` 仍比 `size` 高一条 caption（`1191x675` vs `1207x714` = 左右各 8 + 上 31），外部
+    `GetWindowLongW(GWL_STYLE)` 给 `0x16CF0000`、`WS_CAPTION` 还在（量法见下）；
+  * 源头也对得上：`platform/windows/**` 里根本没有 `extend_to_title`（只在 macOS 后端实现，
+    `doc/classes/DisplayServer.xml` 自己写着 implemented only on macOS）。
+  ⇒ 这一档画出来是"**系统标题栏 + 我们自绘的条**"两层，**不是**可用的 Electron 等价物：留着只为
+  "一条命令复现这个结论"。**缺省不动**（`--play` → `custom`）。四档的实测对照（窗口 `1191x675`、缩放 1.5）：
+
+| `--titlebar` | 无边框 flag | Win32 `GWL_STYLE` | window / client | 非客户区 | 自绘栏 | 缩放/贴边 | 最大化/还原 |
+|---|---|---|---|---|---|---|---|
+| `native` | 0 | `0x16CF0000` `WS_CAPTION\|WS_THICKFRAME\|WS_SYSMENU\|MIN\|MAX` | 1207x714 / 1191x675 | 16x39 | 无 | 系统 | 系统 |
+| `custom`（缺省） | 1 | `0x960B0000` `WS_POPUP\|WS_SYSMENU\|MIN\|MAX` | 1191x675 / 1191x675 | 0x0 | 有 | 自绘 6 px 带 | 自绘（工作区） |
+| `none` | 1 | 同 `custom` | 同 `custom` | 0x0 | 无 | 自绘 6 px 带 | 自绘（工作区） |
+| `frame` | **0** | 同 `native`（= 那个 flag 没生效） | 1207x714 / 1191x675 | 16x39 | **有**（在系统标题栏**下面**） | 系统 | 系统 |
+
+  `frame` 档顺带量到的两条（**就算那个 flag 将来真生效也用得上**）：① 有原生边框时那条 6 像素自绘缩放带
+  **不参与**（边界是**非客户区**、归 Windows：`non-client=16x39`）；② 最大化/还原改走**引擎那一档**，
+  实测 `maximize (native frame) (mode=2 size=1920x1009 deco=1936x1048 pos=3840,23)` →
+  `restore (native frame) (mode=0 size=1191x675 deco=1207x714 pos=4204,202)`（**正好回到原矩形**，不用
+  宿主那套工作区模拟；`custom` 那档仍是宿主自己记还原点：`maximize (mode=2 size=1920x1030 …)`）。
+  DPI 不变式两档一样：`--titlebar frame --window-scale 1.5 --display-scale 1.5` ⇒
+  `bar=794x32 icon=19.2 scale=1.500`（条高/图不变，只有 `scale=` 从 1.000 变 1.500）。
+  截图：`shots/window-frame-os-caption.png`（frame：系统的 `LFW (Godot host) (DEBUG)` 条**和**它下面我们
+  自己的条，就是上面那个结论的样子）/ `shots/window-custom-no-os-frame.png`（custom：一点 OS 边框都没有）。
+  这两张是**屏幕截图**（窗口 + 30 像素桌面边），不是宿主视口截图 —— OS 的标题栏/边框在**客户区之外**，
+  `--screenshot` 抓不到。
 
   11 个控件（次序 = Electron 的 DOM 次序；`checked` 走 `ToggleImgButton` 那条反直觉的规则：**`checked == true` 显示 `src[1]`、false 显示 `src[0]`** —— 静音时看到的是划掉的那张）：
 
@@ -1118,6 +1159,23 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
   洋红、两条黑边里 **0** 像素；`1191x900` 的上下黑边同理 12 / 0）⇒ 逻辑屏幕外的绘制不会漏进黑边。
 - `window-bug-before-1400x500.png` —— **修之前**同一条命令抓出来的样子（对照用：那时截图只有内容区
   882×500，右上角那一簇按钮压根不在图里、画面上也被切掉）。
+- `window-entry-*.png` / `window-norm-*.png` —— **contain 缩放的归一化对照**（同一帧、三种窗口尺寸）。
+  入口页（`--play --click '397,225@10'`，第 400 帧）分别在 `1191x675`（1.5×）、`1920x1030`（2.288×，
+  左右各 52 黑边）、`1400x500`（1.111×，左右各 259 黑边）下各抓一张整窗图，再各自裁到 `window:` 那行的
+  `content=宽x高+左+上`、按自己的 `scale=` 缩回 794×450 叠成一张（工具见下）：
+  - `window-entry-bug-before-1191x675.png` / `window-entry-bug-before-1920x1030.png` —— **修之前**：
+    标题图/文字挤在左上、"右脸"大图还多出一份 1:1 的小号镜像（那把 contain 冲掉的 bug）；
+  - `window-entry-1191x675.png` / `window-entry-1920x1030.png` / `window-entry-1400x500.png` —— 修之后；
+  - `window-norm-1191x675-vs-1920x1030.png`（修之后叠图，1191 在上）/ `window-norm-1191x675-vs-1400x500.png`
+    （非等比）/ `window-norm-bug-before-*.png`（修之前叠图）/ `window-norm-diff-1191x675-vs-1920x1030.png`
+    （修之后的逐像素差，放大 8 倍，肉眼可核对"剩下的只有文字笔画边缘"）。
+  数字（`--blur 1 --skip-top 25`：顶栏那一层在**窗口像素**里、归一到逻辑网格后两张图必然不重合，故排除
+  顶上 25 行）：修之前 `mean=6.173 px>2=59864 px>8=56097 px>24=30323 max=243.8`；修之后
+  `mean=0.186 px>2=4185 px>8=475 px>24=33 max=34.8`（1400×500 那张 `mean=0.403 px>8=2757 px>24=234`）。
+  剩下的差异只在文字/图边（两张的字体过采样 1.5 vs 2.289 不同，糊一下就掉）；**几何**另有两条硬证据：
+  ① 周期性背景（`launch/bg.png`，逻辑周期 39.7 px）在窗口像素里的实测周期 = 40 / 44 / 59 / 79 / 91 px
+  （对应 scale 1 / 1.11083 / 1.5 / 2 / 2.28841），② 标题图外框的位置与 1191×675 那张的预测值逐边相差
+  ≤0.9 逻辑像素（阈值量出来的粒度本身就有 ±1 窗口像素）。
 
 开窗截图的跑法（**别加 `--headless`**；`--ui-page` 是"装载后点进这一页"，缺省就是数据自己的首页 `init`）：
 
@@ -1131,6 +1189,25 @@ npm run godot '--' --play --click-window '595,337@20' `
 npm run godot '--' --play --screenshot native\host\godot\shots\ui-before-click.png --shot-frame 200
 npm run godot '--' --play --click '397,225@5' `
     --screenshot native\host\godot\shots\ui-after-click.png --shot-frame 400
+# contain 缩放的归一化对照（入口页、同一帧、三种窗口尺寸；修 contain 那个 bug 之前的样子用 git 里的
+# 提交跑同一条 —— `window-entry-bug-before-*.png` 就是它）：每张都**不加** --headless
+npm run godot '--' --play --click '397,225@10' --screenshot native\host\godot\shots\window-entry-1191x675.png --shot-frame 400
+npm run godot '--' --play --click '397,225@10' --window-size 1920x1030 --screenshot native\host\godot\shots\window-entry-1920x1030.png --shot-frame 400
+npm run godot '--' --play --click '397,225@10' --window-size 1400x500 --screenshot native\host\godot\shots\window-entry-1400x500.png --shot-frame 400
+# 再各自裁到 content=… 的内容矩形、缩回 794×450 叠图 + 逐像素差（工具自带 PNG 读/写，只用 Node 的 zlib）
+node native\tools\shots_compare.mjs --blur 1 --skip-top 25 `
+    --out native\host\godot\shots\window-norm-1191x675-vs-1920x1030.png `
+    --diff native\host\godot\shots\window-norm-diff-1191x675-vs-1920x1030.png `
+    native\host\godot\shots\window-entry-1191x675.png `
+    native\host\godot\shots\window-entry-1920x1030.png:52,0,1817,1030
+node native\tools\shots_compare.mjs --blur 1 --skip-top 25 `
+    --out native\host\godot\shots\window-norm-1191x675-vs-1400x500.png `
+    native\host\godot\shots\window-entry-1191x675.png `
+    native\host\godot\shots\window-entry-1400x500.png:259,0,882,500
+# 四档 --titlebar 的外部证据（Windows：Win32 style 位 + 窗口/客户区矩形 + 屏幕截图）。
+# 脚本自己起 Godot、量完杀进程；两张 screen-*.png 就是 shots/window-frame-os-caption.png /
+# shots/window-custom-no-os-frame.png 的来源（**屏幕**截图，不是 --screenshot）。
+powershell -File native\tools\win_window_modes.ps1 -Modes "native,custom,frame"
 # 下面这几张是 1:1 逻辑像素的老参照图（**加 `--titlebar native --window-scale 1`** 才复现得出来）
 & $g --path native\host\godot\project -- --root "$R\dist" --titlebar native --window-scale 1 `
     --zip "$R\native\build\host-data\prel" --frames 200 --every 200 --delta 0.017 `
