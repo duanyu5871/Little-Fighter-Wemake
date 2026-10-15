@@ -439,10 +439,42 @@ npm run godot '--' --play --every 300          # 开放模式 + 每 300 帧一�
 * **验收模式**（给 `--frames N`，`npm run godot:headless` 走的这条）：与 `lfw_run` 同形 —— 强制
   `boot_scene` 造场景、固定步长 + `--delta` 节拍、每 `--every`（缺省 60）帧一行摘要。**三条摘要靠这一支。**
 
+**窗口外观：无系统顶栏 + 自绘顶栏（照 Electron 端那套）**
+
+桌面端（`desktop/app/main.mjs:915`）是 `frame: false`，窗口 `1191×675 = 794×450 × 1.5`（**没给顶栏留高度**
+⇒ 顶栏是盖在画面上的），三个按钮由应用自绘（`src/App.tsx:788-811` + `-webkit-app-region: drag`）。
+Godot 宿主照同一口径：
+
+```
+npm run godot                                  # 缺省：borderless + 自绘顶栏 + 1.5×（1191×675）
+npm run godot '--' --titlebar native --window-scale 1    # 想要系统顶栏 / 1:1 逻辑像素时
+npm run godot '--' --titlebar none --window-scale 1      # 无边框但**不**画顶栏（只剩 alt+F4/任务栏可关）
+```
+
+* `--titlebar native|none|custom`（缺省 `custom`）：`native` 用系统边框；`none`/`custom` 都设
+  `WINDOW_FLAG_BORDERLESS`，后者再画我们自己的条（高 20 逻辑像素，右侧三格：最小化 / 最大化⇄还原 /
+  关闭，次序与 Electron 一致；**全屏时隐藏**，同 `src/App.tsx:788` 的 `show={!is_fullscreen && …}`）。
+  条上拖拽走 `DisplayServer::window_start_drag()`；`borderless` 在 Windows 上是 `WS_POPUP` ⇒ 没有原生
+  可拖的边框，故自己留了 6 像素的 `window_start_resize` 带。
+* `--window-scale N`（缺省 1.5）：`project.godot` 的 `stretch/mode=canvas_items` +
+  `aspect=keep` 把整块画布等比放大，**逻辑视口始终 794×450**（UI/世界照旧在逻辑像素里画），
+  窗口像素由引擎按 `Window::get_final_transform()` 的反变换换回逻辑像素后才进 `_input` ⇒ 宿主不做补偿。
+  实测：1.5× 下用**窗口坐标**点 `595,337`（= 逻辑 397,225）点中启动页，再点 `595,483` 命中主菜单
+  Settings（`pages=0:entry 1:settings`）；点自绘条右端的关闭格（窗口 `1176,15`）窗口即关并打
+  `[godot] exit: … pages=…`。
+* ⚠ 自绘条那一带（含 6 像素缩放带）在进游戏之前就被吞掉（`titlebar_consume` + `set_input_as_handled()`）
+  —— 条上的点击是**窗口**动作，不会漏给游戏/UI。
+* ⚠ 照实记：拖拽/缩放走的是 OS 那条 API，**没能自动化验证**（要真人按住拖鼠标）；自动测过的是
+  "系统边框真没了"（`[godot] window:` 行里 `size` 与 `deco`：`custom` 时 `1191x675 == 1191x675`，
+  `native` 时 `794x450` 对 `810x489`，差的就是那圈装饰）、"条被画出来"（`--titlebar none` 与 `custom`
+  同帧对拍，顶部 60 行 50% 像素不同）、"按钮生效"（关闭格真把窗口关了）、"缩放后点击不偏"。
+
 ⚠ **在 PowerShell 里 `--` 必须写成 `'--'`**：PS 会把裸 `--` 当成自己的分隔符**吃掉**，npm 于是把
 后面的 `--stage` 之类当自己的配置项吃掉，参数一个都传不到（实测症状：跑的是默认值、且 `bad
 arguments` 时打印的 usage 里那串参数是"裸值"没有标志名）。`cmd` 下原样 `--` 即可；绕开 npm 用
 `node native/tools/native.mjs godot-run --stage 2` 也最省事。
+⚠ **带逗号的值也要加引号**：PS 里逗号是数组分隔符，`--click 397,225` 会被拆成两个参数 ⇒ 写
+`--click '397,225'`（`--click-window` 同理）。
 `GODOT_BIN` 可指定 Godot 可执行文件；不设就按 `PATH`（`godot4`/`godot`）→ 桌面上的
 `Godot_v*_win64*.exe`（同版本优先 `_console` 变体，Windows 上只有它会把 `[godot]` 那几行打到 stdout）。
 
@@ -455,10 +487,11 @@ arguments` 时打印的 usage 里那串参数是"裸值"没有标志名）。`cm
 **指针输入**：`_input()` 是平台事件唯一的入口（`_ready` 里 `set_process_input(true)`，GDExtension
 必须显式开）—— 鼠标按下/抬起/移动/滚轮 → `LfwPointingEvent` → `HeadlessHost::emit_pointer_*`
 → `host/common/ui_input_handle.{h,cpp}` 的命中测试 → `POINTER_*` 命令 → `UINode` 分发。
-坐标换算与 UI 的绘制**互为逆**：`_draw()` 直接按逻辑屏幕像素画（`GodotUINodeRenderer` 的 `_box_*`），
-窗口/视口就是 794×450（`project.godot`，无 stretch）⇒ 视口像素 = UI 逻辑像素，
-`scene = x/w*2-1, -(y/h)*2+1`。`--click <x>,<y>[@<frame>]` 用同一套坐标注入一次完整点击
-（与 `lfw_run --click` 同一条路径），供开窗截图/回归用。
+坐标换算与 UI 的绘制**互为逆**：`_draw()` 在逻辑屏幕像素里画（`GodotUINodeRenderer` 的 `_box_*`），
+逻辑视口恒为 794×450（`project.godot` 的 `stretch/mode=canvas_items`，窗口可以更大）⇒ 视口像素 = UI
+逻辑像素（`scene = x/w*2-1, -(y/h)*2+1`），窗口像素由引擎换回逻辑像素后才进 `_input`（宿主不补偿）。
+注入用两个口：`--click <x>,<y>[@<frame>]` 走**逻辑**坐标、`--click-window <x>,<y>[@<frame>]` 走**窗口**
+像素（用来验证缩放换算：1.5× 下窗口 595,337 = 逻辑 397,225），与 `lfw_run --click` 同一条链。
 它同时覆写 `create_world_renderer`（`LfwGodotHost::create_world_renderer`）返回 Godot 的世界渲染器，
 与 `create_ui_node_renderer`（每个 `UINode` 一份 `GodotUINodeRenderer`，所有权归节点）——
 后者把 UI 模型树翻成**同一批**绘制项，落进世界渲染器"正在写的那一帧"（`ui_begin/append/end_layer`，
@@ -854,6 +887,9 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
 - `ui-char-select.png`（第 300 帧）—— 八人框 `char_menu`：8 个玩家槽（`CMA@4x.png` 的提示图 +
   `Player/Fighter/Team` 标签），**背景里是世界那一遍**（山景 + 角色），
   说明 UI 与世界两半在同一个宿主里叠在一条绘制序上。
+- `ui-custom-titlebar.png` / `ui-click-window.png`（1191×675）—— **当前缺省开窗样子**（无系统边框 +
+  自绘顶栏 + 1.5×）：前者是启动页，后者是"用**窗口坐标**点击后"的入口页（证明缩放后点击不偏）。
+  上面那批 794×450 的是 `--window-scale 1`（1:1 逻辑像素，便于与 TS 逐像素比对；那时还是系统顶栏）。
 - `ui-before-click.png` / `ui-after-click.png` —— **开放模式**（`--play`，真窗口、真节拍）的一对
   点击前后：前者是启动页（`init`：整页底色 + 平铺背景 + 居中的 `CLICK ANYWHERE TO CONTINUE`
   + 声音警告 + 版本号），后者是同一进程里**点了一下（397,225）之后**的入口菜单页（`entry`：
@@ -864,20 +900,22 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
 
 ```
 $R = (Get-Location).Path; $g = "C:\Users\Gim\Desktop\Godot_v4.7.1-stable_win64_console.exe"
-# 点击前后那一对（开放模式：不 boot_scene、真节拍；点击走 --click）
+# 当前缺省开窗样子（borderless + 自绘顶栏 + 1.5×）：启动页 / 用窗口坐标点击后的入口页
+npm run godot '--' --play --screenshot native\host\godot\shots\ui-custom-titlebar.png --shot-frame 150
+npm run godot '--' --play --click-window '595,337@20' `
+    --screenshot native\host\godot\shots\ui-click-window.png --shot-frame 400
+# 点击前后那一对（开放模式：不 boot_scene、真节拍；点击走 --click，PS 里逗号值要加引号）
 npm run godot '--' --play --screenshot native\host\godot\shots\ui-before-click.png --shot-frame 200
-npm run godot '--' --play --click 397,225@5 `
+npm run godot '--' --play --click '397,225@5' `
     --screenshot native\host\godot\shots\ui-after-click.png --shot-frame 400
-# 启动页（世界那一遍不用 --ui-page）
-& $g --path native\host\godot\project -- --root "$R\dist" `
+# 下面这几张是 1:1 逻辑像素的老参照图（**加 `--titlebar native --window-scale 1`** 才复现得出来）
+& $g --path native\host\godot\project -- --root "$R\dist" --titlebar native --window-scale 1 `
     --zip "$R\native\build\host-data\prel" --frames 200 --every 200 --delta 0.017 `
     --screenshot "$R\native\host\godot\shots\ui-launch-early.png" --shot-frame 30
-# 主页 / 八人框
-& $g --path native\host\godot\project -- --root "$R\dist" `
+& $g --path native\host\godot\project -- --root "$R\dist" --titlebar native --window-scale 1 `
     --zip "$R\native\build\host-data\prel" --ui-page main_page --frames 400 --every 400 `
     --delta 0.017 --screenshot "$R\native\host\godot\shots\ui-main-menu.png" --shot-frame 400
-# 世界那一遍的老跑法不变（`--zip data` + `--fighter/--stage`）
-& $g --path native\host\godot\project -- --root "$R\dist" `
+& $g --path native\host\godot\project -- --root "$R\dist" --titlebar native --window-scale 1 `
     --zip "$R\native\build\host-data\prel" --zip "$R\native\build\host-data\data" `
     --fighter 1 --fighter 4 --stage 1 --frames 900 --delta 0.017 `
     --screenshot "$R\native\host\godot\shots\shot-stage1.png" --shot-frame 300

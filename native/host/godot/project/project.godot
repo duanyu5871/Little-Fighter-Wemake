@@ -15,10 +15,17 @@ paths=["res://lfw_godot.gdextension"]
 [display]
 
 ; 逻辑视口就是数据里的 `dataset.screen_w × screen_h`（794×450）⇒ 窗口默认按它开，
-; 1 世界单位 = 1 像素（截图出来的 PNG 也就是 794×450，不需要再裁）。
+; 1 世界单位 = 1 像素（`--window-scale 1` 时截图出来的 PNG 也就是 794×450，不需要再裁）。
 ; ⚠ 截图（`--screenshot`）必须**不加** `--headless`：headless 没有渲染，视口纹理是空的。
 window/size/viewport_width=794
 window/size/viewport_height=450
+; 窗口可以比逻辑视口大（`--window-scale`，`--play` 缺省 1.5 = Electron 的 1191×675）：
+; `canvas_items` 把整块画布按 `content_scale_size`（= 上面那对 viewport_*）等比放大 ⇒ **逻辑视口
+; 永远是 794×450**：`_draw()` 与 UI 命中还在逻辑像素里，窗口像素由引擎按 `Window::get_final_transform()`
+; 的反变换换算回逻辑像素后才进 `_input`（与 OS 事件同一条）⇒ 宿主不做缩放补偿。
+; `aspect=keep`：窗口比例被改坏（最大化到别的比例）时补黑边，不偷偷改逻辑视口尺寸。
+window/stretch/mode="canvas_items"
+window/stretch/aspect="keep"
 
 [rendering]
 

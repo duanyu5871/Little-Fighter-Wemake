@@ -1719,7 +1719,8 @@ const m = await createLfw({ locateFile: (f) => `/wasm/${f}` })
 | `IZip` / `IZipObject` | `lfw/ditto/zip/i_zip.h:15-31`（`name` / `file(string)` / `file(regex)` / `md5`）、`i_zip_object.h:16-29`（`name` / `json` / `text` / `blob_url` / `array_buffer` / `image_bitmap`） | 需要一个**能读 zip 的 IO 层**（Godot 侧候选：`ZIPReader`，需验证）。现在只有"目录当 zip"（G6） |
 | `IXML` / `IXMLElement` | `lfw/ditto/xml/i_xml.h:16`、`i_xml_element.h:35` | **不需要 Godot**：端口已有纯逻辑 `ToolXML`（`native/lfw/ditto/xml/tool_xml.*`），headless 就是这么接的（`host/headless_host.cpp:327`） |
 | `IUIEvent` | `lfw/ui/ui_event.h:14-18`（`stopped()` / `stop_propagation()` / `stop_immediate_propagation()`） | **不需要 Godot**：纯状态类（同文件 `LFWUIEvent` / `LFWPointerEvent` / `LFWKeyEvent`），输入事件在 `native/host/godot/**` 里翻译成它 |
-| 指针入径（**不在 `ILfwHost` 上**，宿主侧的注入面） | `host/headless_host.h` 的 `emit_pointer_down/move/up/cancel/click/wheel` + `emit_pointer_enter/leave` + `click_ui(x,y)`（命令走 `LFW::push_cmd`）；命中测试在 `host/common/ui_input_handle.{h,cpp}`（引擎无关，镜像 `DittoImpl/ui/HeadlessUIInputHandle.ts`） | Godot 的 `_input`（`_ready` 里 `set_process_input(true)`）：`InputEventMouseButton`（含 4 向滚轮）/ `InputEventMouseMotion` / `InputEventPanGesture` → `LfwPointingEvent` → 注入面。坐标 = **逻辑屏幕像素**（与 `_draw()` 同一套；794×450 无 stretch ⇒ 视口像素 = UI 逻辑像素） |
+| 指针入径（**不在 `ILfwHost` 上**，宿主侧的注入面） | `host/headless_host.h` 的 `emit_pointer_down/move/up/cancel/click/wheel` + `emit_pointer_enter/leave` + `click_ui(x,y)`（命令走 `LFW::push_cmd`）；命中测试在 `host/common/ui_input_handle.{h,cpp}`（引擎无关，镜像 `DittoImpl/ui/HeadlessUIInputHandle.ts`） | Godot 的 `_input`（`_ready` 里 `set_process_input(true)`）：`InputEventMouseButton`（含 4 向滚轮）/ `InputEventMouseMotion` / `InputEventPanGesture` → `LfwPointingEvent` → 注入面。坐标 = **逻辑屏幕像素**（与 `_draw()` 同一套；`stretch/mode=canvas_items` 下逻辑视口恒 794×450、
+窗口像素由引擎按 `Window::get_final_transform()` 的反变换换回逻辑像素 ⇒ 视口像素 = UI 逻辑像素） |
 | `IUIImgLoaderNode` | `lfw/ui/ui_img_loader.h:20-28`（`lfw()` / `set_image(Value)` / `resize(w,h)`） | **不需要 Godot**：端口内已有 `UINodeImgAdapter`（同文件 `:72`） |
 
 ⚠ 两个容易踩的点：
@@ -1732,6 +1733,15 @@ const m = await createLfw({ locateFile: (f) => `/wasm/${f}` })
    宿主打 `UI render calls: N (unhandled: M)`），别指望编译器。
 
 ### G2. 两种集成形态
+
+**窗口外观（已落地）**：照 Electron 桌面端（`desktop/app/main.mjs:915` `frame: false`、
+`src/App.tsx:788-811` 自绘三个按钮 + `-webkit-app-region: drag`）：Godot 宿主也设
+`WINDOW_FLAG_BORDERLESS` 并自绘顶栏（`native/host/godot/lfw_godot_titlebar.h` 只管布局/命中，
+`window_start_drag` 拖拽、三个按钮 = 最小化/最大化⇄还原/关闭、全屏隐藏、条上点击先被
+`titlebar_consume` 吞掉；`borderless` 在 Windows 是 `WS_POPUP` ⇒ 另留 6 像素 `window_start_resize` 带）。
+窗口默认 `1.5×`（= Electron 的 1191×675），靠 `project.godot` 的 `stretch/mode=canvas_items` 放大 ⇒
+**逻辑视口恒 794×450**，UI/世界的坐标与三条摘要都不受影响。开关：`--titlebar native|none|custom`
+（缺省 `custom`）、`--window-scale N`（缺省 1.5）。
 
 **(a) GDExtension（推荐）**：Godot 拥有进程与主循环，端口编成静态库 `lfw_core`
 （`native/lfw/CMakeLists.txt:1`）链进扩展，宿主在 `_process` 里驱动。

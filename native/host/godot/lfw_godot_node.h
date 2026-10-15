@@ -28,6 +28,15 @@
 //     `lfw_run --click` 走同一条注入路径；
 //   * `--screenshot <png>` + `--shot-frame N`：画到第 N 帧后存一张视口 PNG（⚠ 别加 `--headless`）。
 //   * `--ui-page <id>` + `--ui-dump`：装载后把某一页设到第 0 层（拍 UI 用）/ 逐 UI 节点打一行事实。
+//   * `--titlebar <native|none|custom>` + `--window-scale N`：窗口那一套（见下面「窗口」）。
+//   * `--click-window <x>,<y>[@<frame>]`：`--click` 的窗口像素版（走引擎的真实事件路径，见下）。
+//
+// **窗口**（Electron 端那一套的引擎侧等价物：`desktop/app/main.mjs` 的 `frame: false` + `src/App.tsx`
+// 自绘的三个按钮）：`--play`（玩）缺省 = **无边框 + 自绘标题栏 + 1.5× 窗口**（1191×675）；
+// 验收/诊断（给 `--frames`、headless）缺省 = 原样（系统边框、794×450）⇒ 三条摘要与既有截图不动。
+// 逻辑视口**永远是** 794×450（`project.godot` 的 `display/window/stretch/*`，`canvas_items`）；窗口只
+// 是把它画大：`_draw()` 与 UI 命中都还在逻辑像素里，输入由引擎按 `Window::get_final_transform()` 的
+// 反变换从窗口像素换算回逻辑像素（正是 OS 事件走的那一条）⇒ 宿主不做任何缩放补偿。
 #pragma once
 
 #include <filesystem>
@@ -43,6 +52,7 @@
 #include "host/godot/lfw_godot_host.h"
 #include "host/godot/lfw_godot_renderer.h"
 #include "host/godot/lfw_godot_textures.h"
+#include "host/godot/lfw_godot_titlebar.h"
 #include "lfw/base/clock.h"
 #include "lfw/lfw.h"
 
@@ -69,12 +79,19 @@ class LfwGodot : public Node2D {
   void _process(double p_delta) override;
   // 平台指针/键盘事件进来的唯一入口（GDExtension 要先 `set_process_input(true)`）：翻成
   // `LfwPointingEvent` 交给 `HeadlessHost::emit_pointer_*`（与 `lfw_run --click` 同一条注入路径）。
+  // 自绘标题栏那一带（`--titlebar custom`）先在这里被吞掉，不往下走。
   void _input(const godot::Ref<godot::InputEvent>& p_event) override;
   // 窗口关掉时打一行收尾（开放模式没有帧数上限，正常运行只会这样结束）。
   // ⚠ 不能写 `override`：godot-cpp 的 `Wrapped::_notification` 不是虚函数，靠成员指针比较
   // （`wrapped.hpp:264-275`）认出来 —— 名字隐藏就行。
   void _notification(int p_what);
   void _draw() override;
+
+  // `--titlebar` 的三个取值：
+  //   * `native`：系统边框（"验收/诊断"那一档的缺省，与切片之前逐位一致）；
+  //   * `none`  ：无边框、不画栏（只剩 `--window-scale` 那一半）；
+  //   * `custom`：无边框 + 本节点自绘的标题栏（`--play` 的缺省）。
+  enum class TitlebarMode { native, none, custom };
 
  protected:
   static void _bind_methods();
@@ -95,19 +112,32 @@ class LfwGodot : public Node2D {
     bool vs = false;
     // `--play`：开放模式（= `--frames 0` + 不 `boot_scene`）。`npm run godot` 就是它。
     bool play = false;
+    // ---- 窗口（Electron 端那一套：无边框 + 自绘标题栏 + 缩放）----
+    // `--titlebar <native|none|custom>`：系统边框 / 无边框且**不**画 / 无边框 + 自绘（默认值按跑法
+    // 定：`--play` 缺省 `custom`，其余缺省 `native` ⇒ 验收与既有截图的口径不变）。
+    TitlebarMode titlebar = TitlebarMode::native;
+    bool titlebar_given = false;
+    // `--window-scale N`：窗口 = 逻辑视口 × N（缺省：`--play` 时 1.5，其余 1.0）。
+    double window_scale = 1.0;
+    bool window_scale_given = false;
     std::filesystem::path screenshot;  // 空 = 不截图
     int shot_frame = -1;               // < 0 = 缺省（有截图时取 120）
     bool ui_dump = false;              // `--ui-dump`：最后一帧逐 UI 节点打一行事实
     std::u16string ui_page;             // `--ui-page <id>`：装载后把这一页设到第 0 层（等价点进去）
     // `--click <x>,<y>[@<frame>]`：在第 `frame` 帧注入一次完整点击（按下 + 抬起）。坐标是
     // UI 逻辑像素（左上原点，与截图 1:1）。`--click-frame N` 给没写 `@frame` 的定帧（缺省 60）。
+    // `--click-window <x>,<y>[@<frame>]`：同一次点击，但坐标是**窗口像素**，走 `push_input(ev,false)`
+    // ⇒ 引擎按 `Window::get_final_transform()` 反算回逻辑像素（与 OS 事件同一条）—— 缩放 ≠ 1 时
+    // 「换算对不对」靠它证（`--click` 是直接注入逻辑坐标，证不了换算）。
     struct ClickAt {
       int frame = 0;
       double x = 0;
       double y = 0;
+      bool window_space = false;
     };
-    std::vector<ClickAt> clicks;
+    std::vector<ClickAt> clicks;  // `--click` 与 `--click-window` 混在一条队列里
     std::vector<std::string> click_specs;
+    std::vector<std::string> window_click_specs;
     int click_frame = 60;
   };
 
@@ -128,9 +158,19 @@ class LfwGodot : public Node2D {
   PointerKind to_pointing_event(const godot::Ref<godot::InputEvent>& event,
                                 LfwPointingEvent& out) const;
   Args::ClickAt* inject_clicks(int frame);  // `--click`：返回这一帧点过的第一个（没有则 nullptr）
+  // `--click-window`：把一次完整点击按**窗口像素**推进引擎（`push_input(ev, /*local=*/false)`）。
+  void push_window_click(double x, double y);
   std::string ui_pages_text() const;
   void draw_item(const GodotDrawItem& item);
   void draw_text_item(const GodotDrawItem& item);
+  // ---- 窗口 / 自绘标题栏（`--titlebar` / `--window-scale`）----
+  // 无边框 + 窗口尺寸（`_ready` 里、装包之前就跑：别让系统边框闪一下）。逻辑视口不动，见头注释。
+  void apply_window_setup();
+  bool titlebar_visible() const;  // `custom` 且**不全屏**（镜像 Electron：全屏时那三个按钮消失）
+  // 条上/边缘的事件处理：true = 已吞掉（调用方把它标成 handled，别再喂给游戏/UI）。
+  bool titlebar_consume(const godot::Ref<godot::InputEvent>& event);
+  void draw_titlebar();
+  void print_exit_summary() const;  // 关窗口 / 点 close 按钮共用的收尾行
   bool capture_screenshot();       // 视口 → PNG
   void finish();
   void quit_with(int code) const;
@@ -145,6 +185,13 @@ class LfwGodot : public Node2D {
   int _frames = 0;
   bool _capture_pending = false;  // 这一帧要截图（上一帧的绘制已经落进视口）
   bool _captured = false;         // 截过图（只截一张）
+  bool _windowed = false;         // 真窗口（headless 时 false：窗口 API 一概不碰、栏也不画）
+  // 标题栏的交互状态：`_bar_capture` = 这次按下起在条上（后续 move/up 也吞），`_bar_dragging` =
+  // 正在 `window_start_drag()` 的嵌套消息循环里（防重入）。
+  bool _bar_capture = false;
+  bool _bar_dragging = false;
+  lfw::host::TitleAction _bar_hover = lfw::host::TitleAction::none;  // 悬停的按钮
+  bool _bar_hover_drag = false;                                      // 悬停在拖拽区（条上非按钮处）
 };
 
 }  // namespace lfw::host
