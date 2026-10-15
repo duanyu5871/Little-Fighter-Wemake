@@ -302,6 +302,11 @@ class LfwGodot : public Node2D {
   // 最近一次设过的游标形状（`DisplayServer::CursorShape` 的整数值；-1 = 还没设过）。
   // 只在变化时调 `cursor_set_shape`，别每个 move 都调。
   int _cursor_shape = -1;
+  // 自己维护的"最大化"状态 + 还原点（见 `maximize` 动作：不用 `WINDOW_MODE_MAXIMIZED`）。
+  // `_maximized` 同时决定最大化按钮的 `checked`（该显示"两个方块"还是"一个方块"）。
+  bool _maximized = false;
+  godot::Vector2i _restore_size{0, 0};
+  godot::Vector2i _restore_pos{0, 0};
 };
 
 }  // namespace lfw::host

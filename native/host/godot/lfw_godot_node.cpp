@@ -162,9 +162,11 @@ godot::DisplayServer::WindowResizeEdge to_window_edge(TitleEdge edge) {
 std::string window_state_text(const godot::DisplayServer* ds) {
   const godot::Vector2i size = ds->window_get_size();
   const godot::Vector2i deco = ds->window_get_size_with_decorations();
-  char buf[128];
-  std::snprintf(buf, sizeof(buf), "mode=%d size=%dx%d deco=%dx%d",
-                static_cast<int>(ds->window_get_mode()), size.x, size.y, deco.x, deco.y);
+  const godot::Vector2i pos = ds->window_get_position();
+  char buf[160];
+  std::snprintf(buf, sizeof(buf), "mode=%d size=%dx%d deco=%dx%d pos=%d,%d",
+                static_cast<int>(ds->window_get_mode()), size.x, size.y, deco.x, deco.y, pos.x,
+                pos.y);
   return buf;
 }
 
@@ -978,15 +980,12 @@ void LfwGodot::apply_window_setup() {
   report_stretch(contain, content);
 }
 
-// 自绘栏只在 `--titlebar custom`、真窗口、且**不是全屏**时存在（镜像 Electron：全屏时整簇按钮
-// `show={!is_fullscreen && …}` 消失）。栏没了 ⇒ 条上也不吞点击，全屏的指针全给游戏。
+// 自绘栏在 `--titlebar custom` + 真窗口时**一直存在，全屏也画**（Electron 那边全屏只藏那三个窗口按钮：
+// `src/App.tsx:788/793/805` 的 `show={!is_fullscreen && window.runtime?.…}`，而静音/设置/全屏那几个
+// `Show` 里没有 `!is_fullscreen`）⇒ 全屏时仍旧要能点设置/退出全屏。
 bool LfwGodot::titlebar_visible() const {
   if (!_windowed || _args.titlebar != TitlebarMode::custom) return false;
-  godot::DisplayServer* const ds = godot::DisplayServer::get_singleton();
-  if (ds == nullptr) return false;
-  const godot::DisplayServer::WindowMode mode = ds->window_get_mode();
-  return mode != godot::DisplayServer::WINDOW_MODE_FULLSCREEN &&
-         mode != godot::DisplayServer::WINDOW_MODE_EXCLUSIVE_FULLSCREEN;
+  return godot::DisplayServer::get_singleton() != nullptr;
 }
 
 // ---- 自绘顶栏（`--titlebar custom`）：可见性 / 选中态 / 动作 ----
@@ -1046,7 +1045,7 @@ bool LfwGodot::titlebar_checked(lfw::host::TitleAction action) const {
       return mode == godot::DisplayServer::WINDOW_MODE_FULLSCREEN ||
              mode == godot::DisplayServer::WINDOW_MODE_EXCLUSIVE_FULLSCREEN;
     case TitleAction::maximize:
-      return mode == godot::DisplayServer::WINDOW_MODE_MAXIMIZED;
+      return _maximized;  // 自己维护（见 `maximize` 动作：不再用 `WINDOW_MODE_MAXIMIZED`）
     case TitleAction::dev_ui:
     case TitleAction::f4:
     case TitleAction::settings:
@@ -1116,6 +1115,13 @@ void LfwGodot::titlebar_activate(int index) {
       const bool full = titlebar_checked(TitleAction::fullscreen);
       ds->window_set_mode(full ? godot::DisplayServer::WINDOW_MODE_WINDOWED
                                : godot::DisplayServer::WINDOW_MODE_FULLSCREEN);
+      // 退出全屏：引擎把窗口退回"进全屏之前"的窗口化矩形；如果我们当时是**最大化**（自己那套），
+      // 就再按工作区摆一次（否则会退回到一个既非最大化、也不是用户记的那个尺寸的样子）。
+      if (full && _maximized) {
+        const godot::Rect2i usable = ds->screen_get_usable_rect(ds->window_get_current_screen());
+        ds->window_set_position(usable.position);
+        ds->window_set_size(usable.size);
+      }
       print_line(std::string("[godot] titlebar: fullscreen=") + (full ? "false" : "true"));
       break;
     }
@@ -1126,11 +1132,32 @@ void LfwGodot::titlebar_activate(int index) {
       break;
     case TitleAction::maximize: {
       if (ds == nullptr) break;
-      const bool maximized = ds->window_get_mode() == godot::DisplayServer::WINDOW_MODE_MAXIMIZED;
-      ds->window_set_mode(maximized ? godot::DisplayServer::WINDOW_MODE_WINDOWED
-                                    : godot::DisplayServer::WINDOW_MODE_MAXIMIZED);
-      print_line(std::string("[godot] titlebar: ") + (maximized ? "restore (" : "maximize (") +
-                 window_state_text(ds) + ")");
+      // **自己做"最大化"**，不用 `WINDOW_MODE_MAXIMIZED`：无边框窗口（Windows 上是 `WS_POPUP`）走引擎那条
+      // 会盖住任务栏、而且"还原"回到的尺寸不可靠（用户实测：点还原回不到原尺寸）。
+      // 改成显式记"还原点" + 用**工作区**矩形（`screen_get_usable_rect` 已排除任务栏）——
+      // Electron 对无边框窗口做的就是这件事。
+      if (_maximized) {
+        // ⚠ 先把引擎那一档压回 `WINDOWED`：把窗口铺满工作区时 Windows 会把它当**最大化**
+        //（实测 `mode=2` = `WINDOW_MODE_MAXIMIZED`），而最大化档位下 `window_set_size` 被钉回整屏
+        // ⇒ 不压这一下，"还原"会原地不动（用户实测报的第二个 bug）。
+        if (ds->window_get_mode() == godot::DisplayServer::WINDOW_MODE_MAXIMIZED) {
+          ds->window_set_mode(godot::DisplayServer::WINDOW_MODE_WINDOWED);
+        }
+        if (_restore_size.x > 0 && _restore_size.y > 0) {
+          ds->window_set_size(_restore_size);
+          ds->window_set_position(_restore_pos);
+        }
+        _maximized = false;
+        print_line("[godot] titlebar: restore (" + window_state_text(ds) + ")");
+      } else {
+        _restore_size = ds->window_get_size();
+        _restore_pos = ds->window_get_position();
+        const godot::Rect2i usable = ds->screen_get_usable_rect(ds->window_get_current_screen());
+        ds->window_set_position(usable.position);
+        ds->window_set_size(usable.size);
+        _maximized = true;
+        print_line("[godot] titlebar: maximize (" + window_state_text(ds) + ")");
+      }
       break;
     }
     case TitleAction::close:
@@ -1387,6 +1414,31 @@ bool LfwGodot::titlebar_consume(const godot::Ref<godot::InputEvent>& event) {
     }
     if (hit.kind == TitleHitKind::drag) {
       _bar_capture = true;
+      // 最大化时**不许拖**：Windows 的最大化窗口不是"整屏窗口"，拖它要么不动、要么按系统规矩先还原再跟随
+      //（我们这种"铺满工作区"的自绘最大化更不该被拖着跑 —— 用户实测报的 bug）。
+      const bool maxed =
+          _maximized || ds->window_get_mode() == godot::DisplayServer::WINDOW_MODE_MAXIMIZED;
+      if (maxed) {
+        // 但**双击**拖拽区 = 切最大化/还原（Windows 的标准行为，用户按直觉会去双击）。
+        bool dbl = false;
+        if (const godot::InputEventMouseButton* const mb =
+                godot::Object::cast_to<godot::InputEventMouseButton>(event.ptr());
+            mb != nullptr) {
+          dbl = mb->is_double_click();
+        }
+        if (dbl) {
+          const auto& list = lfw::host::titlebar_controls();
+          for (int i = 0; i < static_cast<int>(list.size()); ++i) {
+            if (list[static_cast<std::size_t>(i)].action == lfw::host::TitleAction::maximize) {
+              titlebar_activate(i);
+              break;
+            }
+          }
+        } else {
+          print_line("[godot] titlebar: drag ignored (maximized)");
+        }
+        return true;
+      }
       // 拖拽区。`window_start_drag` 在 Windows 上就是
       // `SendMessage(WM_SYSCOMMAND, SC_MOVE | HTCAPTION)` ⇒ 这一段**阻塞**到松开为止
       //（Godot 自己的标题栏同款）⇒ 重入用 `_bar_dragging` 挡掉。
