@@ -519,15 +519,24 @@ npm run godot '--' --icons D:\path\to\assets             # 那 11 张 btn_*.png 
   `WINDOW_FLAG_BORDERLESS`，后者再画我们自己的条。条的几何 = **DOM 的 CSS 像素**（= OS 的**逻辑**像素，
   见下一条的 DPI 说明）：`.top_bar` 是 `justify-content: flex-end` ⇒ 控件**右对齐**、DOM 次序 = 从左到右；
   每个控件占 **32×32**（`transform` 不参与布局），32×32 的图缩 **0.6**、悬停 **0.8**；**条上没有背景**
-  （只有 `.wails_drag` 悬停时那层 `#88888855`，高 90% = 28.8 像素），**全屏时整条隐藏**
-  （同 `src/App.tsx:788` 的 `show={!is_fullscreen && …}`）。拖拽走 `DisplayServer::window_start_drag()`；
-  `borderless` 在 Windows 上是 `WS_POPUP` ⇒ 没有原生可拖的边框，故自己留了 6 像素的
-  `window_start_resize` 带。绘制时用 `Viewport::get_final_transform()` 的**逆**把"窗口像素"贴回逻辑画布，
-  命中时用**正**变换换回来（`lfw_godot_titlebar.h` 只管这套几何，`lfw_godot_node.cpp` 只管"能不能求值 /
-  点了干什么"）。
+  （只有 `.wails_drag` 悬停时那层 `#88888855`，高 90% = 28.8 像素），**全屏时只藏那三个窗口按钮、
+整条不消失**（Electron 的 `show={!is_fullscreen && window.runtime?.…}` 只管 minimize/maximize/quit；
+静音/设置/全屏那几个 `Show` 里没有 `!is_fullscreen` ⇒ 全屏时仍能点设置、点退出全屏。实测：
+`titlebar: fullscreen=true` 之后 `controls(4)=bgm sound settings fullscreen`）。
+  拖拽走 `DisplayServer::window_start_drag()`；`borderless` 在 Windows 上是 `WS_POPUP` ⇒ 没有原生可拖的
+  边框，故自己留了 6 像素的 `window_start_resize` 带。绘制时用 `Viewport::get_final_transform()` 的**逆**
+  把"窗口像素"贴回逻辑画布，命中时用**正**变换换回来（`lfw_godot_titlebar.h` 只管这套几何，
+  `lfw_godot_node.cpp` 只管"能不能求值 / 点了干什么"）。
 
-  11 个控件（次序 = Electron 的 DOM 次序；`checked` 走 `ToggleImgButton` 那条反直觉的规则：
-  **`checked == true` 显示 `src[1]`、false 显示 `src[0]`** —— 静音时看到的是划掉的那张）：
+  **最大化/还原是宿主自己做的**（不用 `WINDOW_MODE_MAXIMIZED`）：无边框窗口走引擎那一档会盖住任务栏，
+  而且"还原"回到的尺寸不可靠。这里记下还原点（尺寸+位置）后用 `screen_get_usable_rect()`（已排除任务栏）
+  摆窗口，还原时**先把 mode 压回 `WINDOWED`** 再放回还原点（把窗口铺满工作区时 Windows 会自己把它当成
+  最大化 `mode=2`，那一档下 `window_set_size` 会被钉回整屏 —— 不压这一下"还原"原地不动）。
+  实测：`maximize (mode=2 size=1920x1030 …)` → `restore (mode=0 size=1191x675 …)`。
+  ⚠ **最大化后拖拽区不拖**（Windows 的最大化窗口不是"整屏窗口"）：`titlebar: drag ignored (maximized)`；
+  但**双击拖拽区 = 最大化/还原**（Windows 标准）。
+
+  11 个控件（次序 = Electron 的 DOM 次序；`checked` 走 `ToggleImgButton` 那条反直觉的规则：**`checked == true` 显示 `src[1]`、false 显示 `src[0]`** —— 静音时看到的是划掉的那张）：
 
 | # | 控件（`TitleAction`） | 图 `src[0]` / `src[1]` | 可见条件（`src/App.tsx`） | 点了干什么 |
 |---|---|---|---|---|
