@@ -58,6 +58,7 @@
 #include <godot_cpp/variant/vector2i.hpp>
 
 #include "host/fs_zip.h"
+#include "host/godot/lfw_godot_font.h"
 #include "host/godot/lfw_godot_host.h"
 #include "host/godot/lfw_godot_renderer.h"
 #include "host/godot/lfw_godot_textures.h"
@@ -155,6 +156,11 @@ class LfwGodot : public Node2D {
     // 裁剪失效 ⇒ 黑边里各多出 8 像素洋红。截图里一眼可辨（见 README「窗口外观」）。
     bool clip_probe = false;
     std::u16string ui_page;             // `--ui-page <id>`：装载后把这一页设到第 0 层（等价点进去）
+    // `--lang <code>`：UI 语言码（`LFW::set_lang`，**在 `load` 之前**）。空 = 用系统区域
+    //（`OS::get_locale()`；Web 版那一半是 `navigator.language.toLowerCase()`）。
+    std::u16string lang;
+    // `--version-name <text>`：左下角那行版本号（`VERSION_NAME`）。空 = 从 `<root>/version.json` 拼。
+    std::string version_name;
     // `--click <x>,<y>[@<frame>]`：在第 `frame` 帧注入一次完整点击（按下 + 抬起）。坐标是
     // UI 逻辑像素（左上原点，与截图 1:1）。`--click-frame N` 给没写 `@frame` 的定帧（缺省 60）。
     // `--click-window <x>,<y>[@<frame>]`：同一次点击，但坐标是**窗口像素**，走 `push_input(ev,false)`
@@ -299,7 +305,15 @@ class LfwGodot : public Node2D {
   std::unique_ptr<GodotTextureCache> _icons;
   std::string _icons_dir;      // 解析出来的图标目录（空 = 没找到 ⇒ 画不出来）
   std::string _icon_report;    // 上一次打过的可见集合（变了才再打一行）
-  godot::Ref<godot::Font> _font;  // 引擎的默认字体（文字度量 + `_draw` 的 `draw_string`）
+  // 字体解析与缓存（`style.font` 的 CSS 简写 → 引擎的 `Font`；见 `lfw_godot_font.h`）。
+  // 文字**度量**与 `_draw()` 都走它 ⇒ 量出来的尺寸与画出来的字是同一个字体、同一个字号。
+  lfw::host::FontCache _fonts;
+
+  // `style.font` 原文 → 字体（解析不到字族时返回引擎的 fallback 字体）。
+  godot::Ref<godot::Font> font_for_css(const std::string& css);
+
+  // 左下角那行 `VERSION_NAME`：`--version-name` 优先，否则读 `<root>/version.json`。
+  std::string resolve_version_name() const;
   bool _running = false;
   int _frames = 0;
   bool _capture_pending = false;  // 这一帧要截图（上一帧的绘制已经落进视口）

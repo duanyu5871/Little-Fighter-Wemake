@@ -1,6 +1,7 @@
 #include "host/godot/lfw_godot_node.h"
 
 #include <cmath>
+#include <cctype>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -41,6 +42,7 @@
 #include "host/common/lfw_boot.h"
 #include "host/common/ui_input_handle.h"
 #include "lfw/base/clock.h"
+#include "lfw/core/json.h"
 #include "lfw/core/js_string.h"
 #include "lfw/core/value.h"
 #include "lfw/defines/cmd.h"
@@ -184,9 +186,16 @@ const char* LfwGodot::usage() {
          "               [--window-size WxH] [--icons <dir>]\n"
          "               [--key <name>[@<frame>]] [--key-down <name>[@<frame>]]\n"
          "               [--key-up <name>[@<frame>]] [--key-frame N] [--key-tap N]\n"
+         "               [--lang <code>] [--version-name <text>]\n"
          "               [--screenshot <file.png>] [--shot-frame N] [--ui-dump] [--ui-page <id>]\n"
          "  --root     import 根目录（含 builtin_data/…），可重复；缺省 `.`\n"
          "  --zip      数据包目录（已解包），可重复；按给定顺序 load\n"
+         "  --lang     UI 语言码（`zh-cn` / `en-us`…，与 Web 版的 `navigator.language.toLowerCase()`\n"
+         "             同一口径；走 `LFW::set_lang`，**在 `load` 之前**设）。缺省 = 系统区域\n"
+         "             （`OS::get_locale()`，`_` 换 `-`）。\n"
+         "  --version-name  左下角那行版本号（`init.ui.json` 的 `version_name` 节点读 `VERSION_NAME`）。\n"
+         "             缺省 = 读 `<root>/version.json` 拼成 Web 版同一串 `v<版本>-<commit7>[-dirty] <时间>`；\n"
+         "             读不到就是 `v0.0.0`。\n"
          "  --fighter  指定出场的角色 id，可重复（缺省用数据包里的前 `--players` 个）\n"
          "  --play     开放模式：不 `boot_scene`（由数据入口页 `init` 驱动）、不限帧数（关窗口才\n"
          "             结束）、缺省不打帧摘要、节拍用 Godot 的真 `delta`。= `--frames 0` + 不造场景。\n"
@@ -296,6 +305,12 @@ bool LfwGodot::parse_args(const std::vector<std::string>& argv, Args& out) const
       out.shot_frame = std::atoi(v.c_str());
     } else if (a == "--vs") {
       out.vs = true;
+    } else if (a == "--lang") {
+      if (!need(i, v)) return false;
+      out.lang = from_utf8(v);
+    } else if (a == "--version-name") {
+      if (!need(i, v)) return false;
+      out.version_name = v;
     } else if (a == "--play") {
       out.play = true;
       out.frames = 0;  // 开放模式：帧数不限（窗口关掉才结束）
@@ -501,7 +516,37 @@ bool LfwGodot::setup() {
     print_line(buf);
   }
 
+  // ⚠ 版本号必须在 **`LFW` 构造之前**写：构造函数就把 `VERSION_NAME` 塞进 i18n 的基准表
+  //（`lfw.cpp:269`），晚了 `version_name` 那个节点拿到的还是 `v0.0.0`。
+  // TS 那边同理：`init.ts:86` 在模块加载期就设了静态量，早于任何实例。
+  const std::string version_text = resolve_version_name();
+  LFW::VERSION_NAME() = from_utf8(version_text);
+  print_line("[godot] version name: " + version_text);
+
   _lfw = std::make_unique<lfw::LFW>(*_host, false);
+
+  // ---- 语言（也在 `load` **之前**）----
+  // Web 版那边在 `useLFW` 的 `setup(lfw)` 里、`lfw.load(...)` 之前设：
+  //   `lfw.lang = params.lang ?? navigator.language.toLowerCase()`（`App.tsx:404-411`）
+  // 端口这边 `load` 是**同步**的、建 UI 节点就在里面 ⇒ 必须在此之前设好，
+  // 否则整页文字停在旧语言（`set_lang` 的"重写节点文本"那一半只在改语言时起作用）。
+  {
+    std::u16string lang = _args.lang;
+    if (lang.empty()) {
+      const godot::String locale = godot::OS::get_singleton()->get_locale();  // 例：`zh_CN`
+      std::string s = locale.utf8().get_data();
+      for (char& c : s) {
+        if (c == '_') c = '-';
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+      }
+      lang = from_utf8(s);
+    }
+    if (!lang.empty()) {
+      _lfw->set_lang(Value(lang));
+      print_line("[godot] ui lang: " + to_utf8(lang));
+    }
+  }
+
   std::u16string error;
   if (!_lfw->load(items, error)) {
     print_error("[godot] load failed: " + to_utf8(error));
@@ -519,6 +564,8 @@ bool LfwGodot::setup() {
                   _lfw->datas().bots().size(), _lfw->datas().moves().size());
     print_line(buf);
   }
+  // 证据行：UI 用到了哪些字族、引擎最后给的是哪个字体（`style.font` 里的 `Arial` 解析没解析到）。
+  print_line("[godot] ui fonts: " + _fonts.describe());
 
   // ---- 装好这场对局：与 `lfw_run` 共用 `boot_scene`（不另写一条装配路径）----
   // ⚠ 开放模式（`--play`）**不**走这里：那是"玩"，入口是数据自己的首页 `init`（启动页 → 点
@@ -596,69 +643,92 @@ bool LfwGodot::setup() {
   return true;
 }
 
-// 文字度量：D4 把字体度量划给宿主（"允许宿主差异"），这一份用**引擎自己的默认字体**算。
+// 文字度量：D4 把字体度量划给宿主。这一份按 `style.font` 里的**字族**挑字体（`Arial` 等，
+// 与浏览器 `ctx.font` 同一口径），量不到的落回引擎的 fallback 字体。
 // 口径与 TS 的 `ImageMgr.measure_text` 对齐：返回 `{text, style, w, h, scale}`，核心的
 // `auto_size_by_text` 读 `w/h/scale` 定节点尺寸（`uinode.cpp:193-203`）。
-// ⚠ 字体与浏览器不同（TS 是 canvas 的 Arial）⇒ **同一台机器上稳定、与 TS 不逐位同宽**；
-// 取不到字体时落回零尺寸（等于 headless 桩）。
+// ⚠ 与浏览器**同一个字族**、同一台机器上稳定；字族缺失时才落回引擎字体（那时宽度会有偏差）。
 void LfwGodot::install_text_metrics() {
   if (_host == nullptr) return;
   godot::ThemeDB* const db = godot::ThemeDB::get_singleton();
-  if (db != nullptr) _font = db->get_fallback_font();
-  if (_font.is_null()) {
+  _fonts.set_fallback(db != nullptr ? db->get_fallback_font() : godot::Ref<godot::Font>());
+  if (_fonts.fallback().is_null()) {
     print_line("[godot] ui text metrics: no fallback font (零尺寸桩)");
   } else {
-    char buf[160];
-    std::snprintf(buf, sizeof(buf), "[godot] ui text metrics: engine fallback font (%s)",
-                  _font->get_font_name().utf8().get_data());
+    char buf[200];
+    std::snprintf(buf, sizeof(buf), "[godot] ui text metrics: fallback font (%s)",
+                  _fonts.fallback()->get_font_name().utf8().get_data());
     print_line(buf);
   }
   _host->set_measure_text([this](const Value& text_v, const Value& style_v) -> Value {
     const std::u16string s = lfw::to_string(text_v);
     const std::string utf8 = to_utf8(s);
-    double font_size = 9.0;
+    // `DEFAULT_FONT`（`TextMesh.ts:11-12`）：没写 `style.font` 时是 `9px Arial`。
+    CssFont spec;
+    spec.family = "Arial";
+    spec.size_px = 9;
     const lfw::Object* const style = lfw::as_object(style_v);
+    std::string css;
     if (style != nullptr) {
       const Value* const font = style->get(u"font");
       if (font != nullptr) {
         const std::u16string* const f = std::get_if<std::u16string>(font);
-        if (f != nullptr) {
-          const std::string fs = to_utf8(*f);
-          for (std::size_t i = 0; i + 1 < fs.size(); ++i) {
-            if (fs[i] != 'p' || fs[i + 1] != 'x') continue;
-            std::size_t k = i;
-            while (k > 0 && (std::isdigit(static_cast<unsigned char>(fs[k - 1])) != 0 ||
-                             fs[k - 1] == '.')) {
-              --k;
-            }
-            if (k == i) continue;
-            const double n = std::strtod(fs.substr(k, i - k).c_str(), nullptr);
-            if (n > 0.0) font_size = n;
-            break;
-          }
-        }
+        if (f != nullptr && !f->empty()) css = to_utf8(*f);
       }
+    }
+    if (!css.empty()) {
+      const CssFont parsed = parse_css_font(css);
+      spec.family = parsed.family.empty() ? spec.family : parsed.family;
+      if (parsed.size_px > 0) spec.size_px = parsed.size_px;
+      spec.weight = parsed.weight;
+      spec.italic = parsed.italic;
+    }
+    double font_size = spec.size_px > 0 ? spec.size_px : 9;
+    const godot::Ref<godot::Font> font = _fonts.get(spec);
+    // ⚠ TS 的 `measure_text` 走 `TextMesh.split_text_to_lines`，它把**内边距**算进 `w/h`：
+    // `w += padding_l + padding_r`、`h += padding_t + padding_b`（`TextMesh.ts:28-29`），
+    // 缺省四边都是 2（`UITextRenderer._normalize_style`）。节点尺寸就是按这个 `w/h` 定的
+    //（`auto_size_by_text`）⇒ 少了它就比 Web 版**窄 4、矮 4**（对拍时一眼能看出：`version_name`
+    // 172.6×14 ↔ 169×11）。
+    double pad_l = 2.0;
+    double pad_r = 2.0;
+    double pad_t = 2.0;
+    double pad_b = 2.0;
+    if (style != nullptr) {
+      const auto pad_of = [style](const char16_t* key) {
+        const Value* const v = style->get(key);
+        if (v == nullptr) return 2.0;
+        const double n = to_number(*v);
+        return std::isnan(n) ? 2.0 : n;
+      };
+      pad_l = pad_of(u"padding_l");
+      pad_r = pad_of(u"padding_r");
+      pad_t = pad_of(u"padding_t");
+      pad_b = pad_of(u"padding_b");
     }
     double w = 0.0;
     double h = 0.0;
-    if (!_font.is_null()) {
+    if (!font.is_null()) {
       const int size = static_cast<int>(std::lround(font_size));
       const int px = size > 0 ? size : 1;
-      // 逐行：`w` 取最宽的一行、`h` 累加（TS `split_text_to_lines` 同一口径）。
+      // 逐行：`w` 取最宽的一行、`h` 累加（TS `split_text_to_lines` 同一口径：**只按 `\n` 切**、
+      // 不折行 —— 那一侧画布尺寸就是文字的自然尺寸）。
       std::size_t start = 0;
       int lines = 0;
       while (true) {
         const std::size_t nl = utf8.find('\n', start);
         const std::string line = utf8.substr(start, nl == std::string::npos ? std::string::npos
                                                                             : nl - start);
-        const godot::Vector2 sz = _font->get_string_size(String::utf8(line.c_str()),
+        const godot::Vector2 sz = font->get_string_size(String::utf8(line.c_str()),
                                                         godot::HORIZONTAL_ALIGNMENT_LEFT, -1.0f, px);
         if (static_cast<double>(sz.x) > w) w = static_cast<double>(sz.x);
         ++lines;
         if (nl == std::string::npos) break;
         start = nl + 1;
       }
-      h = static_cast<double>(_font->get_height(px)) * static_cast<double>(lines);
+      h = static_cast<double>(font->get_height(px)) * static_cast<double>(lines);
+      w += pad_l + pad_r;
+      h += pad_t + pad_b;
     }
     auto info = std::make_shared<lfw::Object>();
     info->set(u"text", text_v);
@@ -668,6 +738,56 @@ void LfwGodot::install_text_metrics() {
     info->set(u"scale", Value(1.0));
     return Value(info);
   });
+}
+
+godot::Ref<godot::Font> LfwGodot::font_for_css(const std::string& css) {
+  CssFont spec;
+  spec.family = "Arial";  // `DEFAULT_FONT`
+  spec.size_px = 9;
+  if (!css.empty()) {
+    const CssFont parsed = parse_css_font(css);
+    if (!parsed.family.empty()) spec.family = parsed.family;
+    if (parsed.size_px > 0) spec.size_px = parsed.size_px;
+    spec.weight = parsed.weight;
+    spec.italic = parsed.italic;
+  }
+  return _fonts.get(spec);
+}
+
+// 左下角那行版本号。Web 版那一串在 `init.ts:86-89` 拼：
+//   `v${VERSION_NAME}-${GIT_COMMIT_ID.substring(0,7)}${GIT_COMMIT_DIRTY ? '-' + dirty : ''}` + ' ' + BUILD_TIME
+// 同一批字段就写在同一份构建产物里（`vite.config.ts:38-44` 的 `version.json`）⇒ 直接读它，
+// 免得端口这边再走一遍 git/时间（那反而和 Web 版对不上）。
+std::string LfwGodot::resolve_version_name() const {
+  if (!_args.version_name.empty()) return _args.version_name;
+  for (const std::filesystem::path& root : _args.roots) {
+    const std::filesystem::path file = root / "version.json";
+    std::error_code ec;
+    if (!std::filesystem::is_regular_file(file, ec)) continue;
+    std::ifstream in(file, std::ios::binary);
+    if (!in) continue;
+    const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    const std::optional<Value> parsed = json_parse(from_utf8(text));
+    if (!parsed.has_value()) continue;
+    const lfw::Object* const obj = lfw::as_object(*parsed);
+    if (obj == nullptr) continue;
+    const auto field = [obj](const char16_t* key) -> std::string {
+      const Value* const v = obj->get(key);
+      if (v == nullptr) return std::string();
+      const std::u16string* const s = std::get_if<std::u16string>(v);
+      if (s != nullptr) return to_utf8(*s);
+      return to_utf8(lfw::to_string(*v));
+    };
+    const std::string version = field(u"version");
+    if (version.empty()) continue;
+    std::string name = "v" + version;    const std::string commit = field(u"commit");
+    if (!commit.empty()) name += "-" + commit.substr(0, 7);
+    if (field(u"dirty") == "true") name += "-dirty";
+    const std::string time = field(u"time");
+    if (!time.empty()) name += " " + time;
+    return name;
+  }
+  return "v0.0.0";
 }
 
 void LfwGodot::_process(double p_delta) {
@@ -2005,20 +2125,31 @@ void LfwGodot::_draw() {
 // UI 文字（`UITextRenderer` / `TextMesh` 的口径）：字号来自 `style.font`、颜色来自 `fill_style`、
 // 对齐来自 `text_align`、左上各 2 像素内边距（`UITextRenderer._normalize_style`）。逐行画
 //（TS 也是在画布上逐行 `fillText`），基线用字体的 ascent。
+//
+// ⚠ **不能把 `item.w` 交给 `draw_string` 的 `width`**：那一档会让 Godot 自己折行，而 TS 的
+// `split_text_to_lines` **只按 `\n` 切**（`TextMesh.ts:20`），量出来的 `w/h` 就是文字的自然尺寸。
+// 于是同一段文字在两边行数不同（入口页/准备页一眼可见）。这里改成 `width = -1`（不折行），
+// 对齐锚点自己算 —— 与 TS 的 `padding_l + l.x` 逐项对齐（`TextMesh.ts:19-32,297-299`）：
+//   left   → x + padding_l；center → x + w/2；right → x + w - padding_r。
 void LfwGodot::draw_text_item(const GodotDrawItem& item) {
   if (item.text.empty()) return;
-  godot::Ref<godot::Font> font = _font;
+  godot::Ref<godot::Font> font = font_for_css(item.font_css);
   if (font.is_null()) return;
   const int size = static_cast<int>(std::lround(item.font_size > 0.0 ? item.font_size : 9.0));
   const int font_size = size > 0 ? size : 1;
   const Color color(static_cast<float>(item.r), static_cast<float>(item.g),
                     static_cast<float>(item.b), static_cast<float>(item.a));
-  const godot::HorizontalAlignment align =
-      item.text_align == 1   ? godot::HORIZONTAL_ALIGNMENT_CENTER
-      : item.text_align == 2 ? godot::HORIZONTAL_ALIGNMENT_RIGHT
-                             : godot::HORIZONTAL_ALIGNMENT_LEFT;
   const float pad = 2.0f;
   const float width = static_cast<float>(item.w);
+  godot::HorizontalAlignment align = godot::HORIZONTAL_ALIGNMENT_LEFT;
+  float anchor_x = static_cast<float>(item.x) + pad;
+  if (item.text_align == 1) {
+    align = godot::HORIZONTAL_ALIGNMENT_CENTER;
+    anchor_x = static_cast<float>(item.x) + width * 0.5f;
+  } else if (item.text_align == 2) {
+    align = godot::HORIZONTAL_ALIGNMENT_RIGHT;
+    anchor_x = static_cast<float>(item.x) + width - pad;
+  }
   const float line_h = font->get_height(font_size);
   float y = static_cast<float>(item.y) + pad;
   std::size_t start = 0;
@@ -2027,8 +2158,8 @@ void LfwGodot::draw_text_item(const GodotDrawItem& item) {
     const std::string line = item.text.substr(start, nl == std::string::npos ? std::string::npos
                                                                             : nl - start);
     if (!line.empty()) {
-      draw_string(font, Vector2(static_cast<float>(item.x) + pad, y + font->get_ascent(font_size)),
-                  String::utf8(line.c_str()), align, width, font_size, color);
+      draw_string(font, Vector2(anchor_x, y + font->get_ascent(font_size)),
+                  String::utf8(line.c_str()), align, -1.0f, font_size, color);
     }
     if (nl == std::string::npos) break;
     y += line_h;

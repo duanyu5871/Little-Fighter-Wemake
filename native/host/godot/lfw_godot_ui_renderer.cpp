@@ -355,6 +355,7 @@ void GodotUINodeRenderer::sync_model() {
   // ---- 文字（TS `UITextRenderer.update` + `TextMesh` 的样式口径）----
   _text.clear();
   _font_size = 9.0;
+  _font_css.clear();
   _text_align = 0;
   _tr = _tg = _tb = _ta = 1.0;
   const Value& tv = n.text();
@@ -364,6 +365,7 @@ void GodotUINodeRenderer::sync_model() {
     if (!_text.empty()) {
       Value style = lfw::field_or(tv, u"style");
       if (nullish(style)) style = n.style.data();
+      _font_css = to_utf8(str16_or(lfw::field_or(style, u"font")));
       _font_size = parse_font_size(str16_or(lfw::field_or(style, u"font")));
       const std::u16string align = str16_or(lfw::field_or(style, u"text_align"));
       if (align == u"center") {
@@ -515,6 +517,7 @@ bool GodotUINodeRenderer::emit_node() {
     it.h = h;
     it.text = _text;
     it.font_size = _font_size * std::fabs(_gsy);
+    it.font_css = _font_css;
     it.text_align = _text_align;
     it.r = _tr;
     it.g = _tg;

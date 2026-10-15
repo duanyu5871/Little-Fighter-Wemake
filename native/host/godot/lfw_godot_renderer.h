@@ -81,6 +81,10 @@ struct GodotDrawItem {
   std::string text;
   double font_size = 0;
   int text_align = 0;
+  // `style.font` 的原文（CSS 简写，如 `"bold 18px Arial"`）。字号已经单独抽出来了，
+  // 这里留着是为了让 `_draw()` 能按**字族**挑字体 —— 浏览器就是按它渲染的
+  //（`TextMesh.ts:66` 直接把整串塞给 `ctx.font`）。
+  std::string font_css;
   // UI 的裁剪（祖先 `clip_children` 求交；`has_clip` 为假即不裁）。⚠ `_draw()` 只能整项取舍
   //（CanvasItem 的 `draw_*` 没有逐项裁剪）⇒ 部分越界的项照画（见报告）。
   bool has_clip = false;

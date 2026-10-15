@@ -475,6 +475,38 @@ npm run godot '--' --play --every 300          # 开放模式 + 每 300 帧一�
 * **验收模式**（给 `--frames N`，`npm run godot:headless` 走的这条）：与 `lfw_run` 同形 —— 强制
   `boot_scene` 造场景、固定步长 + `--delta` 节拍、每 `--every`（缺省 60）帧一行摘要。**三条摘要靠这一支。**
 
+**宿主替数据补的那几件事（语言 / 版本号 / 字体）**
+
+Web 端有几步是**宿主注入**的（不在数据包里）；宿主不补，Godot 这边的画面就和 Web 版对不上
+（拿 Web 版对拍时一眼可见：整页英文、左下角 `v0.0.0`、字宽不同）。三件事的对应关系：
+
+| 事项 | Web 端（`src/…`） | Godot 宿主 |
+|---|---|---|
+| UI 语言 | `useLFW.setup`：`lfw.lang = navigator.language.toLowerCase()`（`App.tsx:404-411`） | `OS::get_locale()`（`_`→`-`、转小写）⇒ `LFW::set_lang`；`--lang <code>` 可覆盖 |
+| 版本号 | `init.ts:86-89` 拼 `` `v${VERSION_NAME}-${GIT_COMMIT_ID[:7]}${dirty ? '-' + dirty : ''}` + ' ' + BUILD_TIME `` | `--version-name <text>`；缺省读 `<root>/version.json`（vite 插件写的**同一批字段**，`vite.config.ts:38-44`） |
+| 字体 | `ctx.font = style.font`（`TextMesh.ts:66`，数据里是 `NNpx Arial` / `bold 18px Arial` / `Arial Black`） | `lfw_godot_font.{h,cpp}`：CSS 简写 → 字族 + 字重 → `SystemFont`；解析不到才落回引擎字体 |
+
+```
+npm run godot '--' --lang en-us                        # 强制英文（缺省跟系统区域）
+npm run godot '--' --version-name 'v9.9.9'             # 覆盖左下角那行
+```
+
+证据行（开窗就有）：`[godot] ui lang: zh-cn` / `[godot] version name: v0.1.61-3f19bf7-dirty …` /
+`[godot] ui fonts: Arial|400|u -> Arial, Arial|900|u -> Arial Black, Monospace|400|u -> Courier New`。
+
+⚠ 三条**踩过的**硬约束：
+
+* **版本号必须在 `LFW` **构造之前**写**：构造函数就把 `VERSION_NAME` 塞进 i18n 的基准表
+  （`lfw.cpp:269`）⇒ 构造之后再写，`version_name` 节点拿到的还是 `v0.0.0`（实测）。
+  TS 同理：`init.ts` 是模块加载期设的静态量。
+* **语言必须在 `load` 之前设**：端口这边 `load` 是**同步**的、UI 节点就在里面建（文本按当时的 i18n
+  定死）；`set_lang` 的"重写节点文本 + 重度量"那一半只在**改语言**时起作用（见下面「与 Web 版
+  对不上的地方」第 3 条）。
+* **`Arial Black` 在 Windows 上不是独立字族**：DirectWrite 把它归到 `Arial` + Black 字重
+  ⇒ `OS::get_system_font_path("Arial Black")` 给空串、引擎按字族名**找不到**，而浏览器直接就能解析
+  （`prel.zip` 的 `ui/*.ui.json5` 里 `gogogo` / `char_menu` 那批标题就是它）。所以 CSS 简写里的
+  字族名要**拆后缀**：`Arial Black` ⇒ `Arial`@900（`Semibold` / `Bold` / `Light` / `Thin` 同理）。
+
 **窗口外观：无系统顶栏 + 自绘顶栏（照 Electron 端那套，整簇 11 个控件）**
 
 桌面端（`desktop/app/main.mjs:915`）是 `frame: false`，窗口 `1191×675 = 794×450 × 1.5`（**没给顶栏留高度**
@@ -781,6 +813,19 @@ $R = (Get-Location).Path; $g = "$env:USERPROFILE\Desktop\Godot_v4.7.1-stable_win
 想知道开放模式没崩、还在推帧：`npm run godot '--' --play --every 300` 会每 300 帧打一行
 （实测跑到 3300 帧以上、窗口仍活着）；关窗口会有 `[godot] exit: frames=… pages=…` 一行收尾。
 
+### 与 Web 版对不上的地方（照实记）
+
+拿上面「与 Web 版对拍」那条流水线跑出来的账（`webcmp-*` 截图 + 两侧的 UI 节点树对数值）。**已经修掉的**
+记在「画面存档」那一节的描述里，这里是**还差**的：
+
+| # | 现象（Godot ↔ Web） | 根因（已查到） | 状态 |
+|---|---|---|---|
+| 1 | `main_page` 菜单**少两项**：`生存排行` / `双人生存排行` | `MainMenuLogic.apply()` 按 `lfw.survival_rank_available` 显示/隐藏这两个入口（`src/LFW/ui/component/MainMenuLogic.ts:31-40`）；Web 侧由 App 调 `init_survival_rank(lfw)` 置真（`src/survival_rank.ts:243-262`，本机构建注了 `RANK_API_URL` ⇒ 列表会真的去 `lfj.gim.ink` 拉） | **缺口**：要真做就得给宿主加 HTTP 面（`get_rank_list_api` / `get_my_rank_api` / 上报），再把 `set_survival_rank_data` 灌进去 |
+| 2 | 每行文字的高度**多 1 像素**（`version_name` 15 ↔ 14、`sound_warning` 46 ↔ 44、`long_text` 88 ↔ 84），宽度已经逐项对齐（±1） | 行高口径不同：TS 是 canvas 的 `fontBoundingBoxAscent + fontBoundingBoxDescent`，端口是 `Font::get_height(size)`（Arial 上 ≈1.167em ↔ ≈1.111em）。**宽度**那一半已经修好（字族 + 四边内边距 2，见上） | 允许偏差（`DESIGN.md:1526`：字体/设备相关）；再多行节点上差到几个像素 |
+| 3 | 运行期切语言（设置页）不会更新已建出来的 UI 文本 | `set_lang` 的"重写节点文本 + 按新语言重度量"那一半在宿主侧（`ILfwHost::lang_apply`，`lfw.h:265`）；`HeadlessHost` 只切 i18n 表（`headless_host.cpp:484-489`，README 旧账）；首发语言因为设在 `load` 之前所以**不受影响** | 缺口（要照 `LFW.ts:157-197` 那三步实现：收集 → 改 `_i18n.lang` → 重度量/重设文本） |
+| 4 | 入口页两张背景大脸（`bg_l_face` / `bg_r_face`，各 14 帧 `RandomVisible`）落在**不同的帧**上 | 两侧取的时刻不同（Web 那次 entry 是点完 4.7s；Godot 是第 400 帧 × `--delta 0.017`）⇒ `lifetime` 不同。不是"帧选择逻辑"不一致 | 观察值，不做结论（要判定得让两边落在同一个 `lifetime`） |
+| 5 | 顶栏那一簇控件在 `main_page` 上个数可能不同 | 两侧的**显示条件**都读同一批状态（`c.bg_is_void` / `settings_page` / `first_page_init_demo` / 页栈深），但 Web 顶栏是 React 组件、Godot 是宿主自绘表；`first_page_init_demo` 只在 `/demo` 路径下为真 | 待逐格核对（截图上的小图标人眼/视觉模型都不可靠，得按 `--click-window` 逐格点） |
+
 ## 验收：宿主三条摘要（改完必跑）
 
 同一份数据、同一命令**逐位可复现**；三条都过才算没打破 headless 行为：
@@ -1086,11 +1131,58 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
 `FacingFlag.Right`、`slot_info.team || new_team`），没有改 —— 一是保持 DESIGN §140/DESIGN §141 那两条摘要基线
 可比（`d9b00db799724a2b` / `eeecc812075e8b74`），二是这块要按 TS 补齐属于独立的切片。
 
+## 与 Web 版对拍（参照实现）
+
+完善 Godot 端最省事的办法：**把 Web 版跑起来当参照物**，同状态截图、归一到同一张「逻辑屏幕」再相减。
+两个脚本都是零依赖（只用 node 内置模块）：
+
+```
+# 终端 1：把构建产物（`dist/`）当静态站点伺服
+node native/tools/serve_dist.mjs --port 5177
+
+# 终端 2：无头 Chrome + CDP 按脚本走完 init → entry → main_page → 关卡准备页 → 真对局，逐张截图
+node native/tools/web_shots.mjs --out native\build\web
+```
+
+产出 `native\build\web\web-{init,entry,main-page,stage-prepare,match-running}.png`（**整窗**：DOM 顶栏 +
+画布），状态与 Godot 那边一一对应（Godot 的生成命令见「画面存档」里 `webcmp-*` 那些）。
+为什么不用 Electron：本机 `app.whenReady()` 会**卡死**（`--no-sandbox` / `--disable-gpu` 都试过）；
+无头 Chrome + 手写 CDP 反而稳（Node 22 自带 `WebSocket`，不需要 puppeteer）。
+
+| 参数 | 作用 |
+|---|---|
+| `--probe` / `--probe-only` | 打页面状态（`window.lfw` / `ui.id` / 脚本侧请求表 / 异常 / 网络）——「卡在装载页」时先跑它 |
+| `--dump-ui` | 每张截图顺带打 UI 节点树（`cross`/`geo` + 文本）——与宿主 `--ui-dump` 的 `box=` **逐节点比数值** |
+| `--every-s N` | 按 N 秒连拍（诊断用）；`--eval <js>` 在页面里跑一段表达式（支持 `await`） |
+| `--headful` | 用真窗口跑（无头排查不出来时用；`--swiftshader` 退回软件 GL） |
+| `--width` / `--height` / `--scale` | 窗口尺寸（缺省 794×450 逻辑 × 1.5） |
+
+归一化相减（Godot 那张整窗**就是**内容矩形；Web 那张要裁到画布的 box —— 实测 `76,0,1022,579`）：
+
+```
+node native/tools/shots_compare.mjs --scale 1 --blur 1 --skip-top 26 `
+     --out native\build\web\norm-entry.png --diff native\build\web\norm-entry-diff.png `
+     native\host\godot\shots\webcmp-entry-1191x675.png `
+     native\build\web\web-entry.png:76,0,1022,579
+```
+
+⚠ **静态服务器对缺文件必须回 404**（`serve_dist.mjs` 里那条注释就是它）：TS 的 `Importer.import_as`
+是**并发试多个候选 URL、取第一个成功**的（`src/DittoImpl/Importer.ts:74-100`），把 `./launch/bg.png`
+这类缺文件当 SPA 路由回 `200 + text/html` 会被当成"命中" ⇒ `createImageBitmap(html)` 失败后退到
+`new Image()` + blob URL ⇒ 图片永不 `load` ⇒ **整个装载页卡死**（症状：`builtin_data/launch/*.ui.json`
+请求到一半就不动了；排查了半天才发现是自己的服务器在说谎）。只有**无扩展名**的路径才回退
+`index.html`（SPA 路由），带扩展名的缺文件一律 404。
+
 ## 画面存档（Godot 宿主）
 
 跑出来的截图留在 `native/host/godot/shots/`，便于直接打开查看（生成命令见下）：
 
 - `shot-stage1.png` / `shot-vs-stage0.png` —— 世界那一遍：狮林 bg_2，两名角色（含武器与影子）
+- **`webcmp-{init,entry,main-page,stage-prepare,match}-1191x675.png`（第 10/400/700/760/1800 帧）** ——
+  **与 Web 版一一对应的那五张**（生成命令见本节末）。同名状态下 Web 那边的截图在
+  `native\build\web\web-*.png`（不进仓库），归一化后的叠图 + 差值图是
+  `native\build\web\norm-*.png` / `norm-*-diff.png`。逐节点数值对比（`--ui-dump` ↔ `--dump-ui`）的
+  差值清单在上一节「与 Web 版对不上的地方」。
 - `ui-launch-early.png`（第 30 帧）/ `ui-launch.png`（第 300 帧）—— UI 那一遍：启动页（`init`）。
   第 30 帧那张还带着**加载指示器**（`SMALL_LOADING` 的 `ImgLoop` 换格）与 `loading: …` 状态文字；
   第 300 帧指示器已被逻辑隐藏。两张都是：整页底色（`rgb(16,32,108)`）+ 平铺背景（`launch/bg.png`，
@@ -1181,6 +1273,13 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
 
 ```
 $R = (Get-Location).Path; $g = "C:\Users\Gim\Desktop\Godot_v4.7.1-stable_win64_console.exe"
+# 与 Web 版对拍的那五张（缺省开窗：borderless + 自绘顶栏 + 1.5×；键串与 README 上面那条一样）
+npm run godot '--' --play --frames 200 --screenshot native\host\godot\shots\webcmp-init-1191x675.png --shot-frame 200
+npm run godot '--' --play --frames 400 --click '397,225@10' --screenshot native\host\godot\shots\webcmp-entry-1191x675.png --shot-frame 400
+npm run godot '--' --play --frames 700 --click '397,225@10' --key 'j@450' --screenshot native\host\godot\shots\webcmp-main-page-1191x675.png --shot-frame 700
+npm run godot '--' --play --frames 760 --click '397,225@10' --key 'j@450' --key 's@500' --key 'j@520' --screenshot native\host\godot\shots\webcmp-stage-prepare-1191x675.png --shot-frame 760
+#   对局那张：`--key` 用上面「开放模式」那条完整键串（…'j@1440','w@1520','w@1540','j@1560'）+ `--shot-frame 1800`
+npm run godot '--' --play --delta 0.017 --frames 1900 --click '397,225@10' @tk @ka --screenshot native\host\godot\shots\webcmp-match-1191x675.png --shot-frame 1800
 # 当前缺省开窗样子（borderless + 自绘顶栏 + 1.5×）：启动页 / 用窗口坐标点击后的入口页
 npm run godot '--' --play --screenshot native\host\godot\shots\ui-custom-titlebar.png --shot-frame 150
 npm run godot '--' --play --click-window '595,337@20' `

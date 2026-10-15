@@ -117,6 +117,7 @@ class GodotUINodeRenderer : public ui::IUINodeRenderer {
   // 文字（TS `UITextRenderer` + `TextMesh` 的样式口径）
   std::string _text;
   double _font_size = 9;
+  std::string _font_css;  // `style.font` 原文（CSS 简写）—— 交给宿主按字族挑字体
   int _text_align = 0;  // 0 左 / 1 中 / 2 右
   double _tr = 1, _tg = 1, _tb = 1, _ta = 1;
 };
