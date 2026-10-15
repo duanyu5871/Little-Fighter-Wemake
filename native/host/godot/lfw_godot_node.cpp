@@ -22,7 +22,9 @@
 #include <godot_cpp/classes/input_event_mouse_motion.hpp>
 #include <godot_cpp/classes/input_event_pan_gesture.hpp>
 #include <godot_cpp/classes/os.hpp>
+#include <godot_cpp/classes/project_settings.hpp>
 #include <godot_cpp/classes/rendering_server.hpp>
+#include <godot_cpp/classes/window.hpp>
 #include <godot_cpp/classes/scene_tree.hpp>
 #include <godot_cpp/classes/theme_db.hpp>
 #include <godot_cpp/classes/viewport.hpp>
@@ -203,14 +205,20 @@ const char* LfwGodot::usage() {
          "             缺省：`--play` 时 custom，其余 native。\n"
          "  --icons    顶栏那 11 张 `btn_*.png` 的目录（缺省 = 从仓库根解析出来的 `src/assets`；\n"
          "             它们**不在数据包里**，导出/打包时得自己带上）。\n"
-         "  --window-scale  窗口 = 逻辑视口（794×450）× N；逻辑视口不变（`project.godot` 的 stretch）。\n"
+         "  --display-scale  覆盖顶栏那一层用的显示缩放（CSS 像素 → 窗口物理像素；缺省 = 屏幕自己的\n"
+         "             `DisplayServer::screen_get_scale()`）。诊断用：屏幕缩放恰为 1 时靠它把 DPI 那一档\n"
+         "             跑起来（1.5 ⇒ 条高 32×1.5 = 48 物理像素、图 19.2×1.5 = 28.8）。\n"
+         "  --window-scale  窗口 = 逻辑屏幕（794×450）× N；逻辑屏幕不变（`project.godot` 的 viewport_*）。\n"
          "  --window-size  直接给窗口像素尺寸 `WxH`（可不等比，压过 `--window-scale`）；窗口可自由拉伸，\n"
-         "             下限是逻辑视口 794×450；画面按 stretch 的 `aspect=keep` 等比 contain + 居中（补黑边）。\n"
+         "             下限是逻辑屏幕 794×450；画面由宿主按 contain + 居中摆进窗口（补黑边），\n"
+         "             自绘栏铺满整窗宽、贴窗口右上角。\n"
          "             缺省：`--play` 时 1.5（对齐 Electron 的 1191×675），其余 1.0。\n"
-         "  --screenshot  画到第 `--shot-frame` 帧后存一张 PNG（**别加 --headless**：headless\n"
-         "                没有渲染，存出来是空白）；给绝对路径\n"
+         "  --screenshot  画到第 `--shot-frame` 帧后存一张 PNG（整窗：黑边 + 条 + 画面；\n"
+         "                **别加 --headless**：headless 没有渲染，存出来是空白）；给绝对路径\n"
          "  --shot-frame  截图的帧号（缺省 120）\n"
          "  --ui-dump     最后一帧逐 UI 节点打一行事实（诊断，不进摘要）\n"
+         "  --clip-probe  在逻辑屏幕边界内外各 8 像素贴一圈洋红（画在游戏之上）：证明游戏那一层\n"
+         "                真的被裁在内容矩形里（看得见边界**里面**那半圈、黑边干净 = 裁剪生效）。\n"
          "  --ui-page     装载后把这一页设到第 0 层（id 取自烹饪好的 UI 表；缺省用首页 `init`）\n";
 }
 
@@ -348,6 +356,12 @@ bool LfwGodot::parse_args(const std::vector<std::string>& argv, Args& out) const
       if (out.key_tap < 1) return false;
     } else if (a == "--ui-dump") {
       out.ui_dump = true;
+    } else if (a == "--clip-probe") {
+      out.clip_probe = true;
+    } else if (a == "--display-scale") {
+      if (!need(i, v)) return false;
+      out.display_scale = std::strtod(v.c_str(), nullptr);
+      if (!(out.display_scale > 0.0)) return false;
     } else if (a == "--ui-page") {
       if (!need(i, v)) return false;
       out.ui_page = from_utf8(v);
@@ -430,6 +444,14 @@ void LfwGodot::_ready() {
     print_line(usage());
     quit_with(64);
     return;
+  }
+  // 开窗/缩放那一半的"逻辑屏幕"：`project.godot` 的 `display/window/size/viewport_*`（= 数据里的
+  // 794×450；`logical_size()` 在装载之前就用它）。stretch 关掉后 `get_visible_rect()` 不再等于它
+  // ⇒ 只能从这里读。装载之后一律以数据里那份为准（`ui_screen_size()`）。
+  if (godot::ProjectSettings* const settings = godot::ProjectSettings::get_singleton()) {
+    _logical_w = static_cast<int>(settings->get_setting("display/window/size/viewport_width", _logical_w));
+    _logical_h =
+        static_cast<int>(settings->get_setting("display/window/size/viewport_height", _logical_h));
   }
   // 窗口放在装包**之前**：无边框要在第一帧之前就设上（不然系统边框会闪一下），而且它不依赖数据。
   apply_window_setup();
@@ -710,24 +732,157 @@ void LfwGodot::render_world_frame(long long renders_before) {
 
 // ---- 指针：平台事件 → `LfwPointingEvent` → `POINTER_*` 命令 ----
 //
-// 坐标：`_draw()` 直接按**逻辑屏幕像素**画（`GodotUINodeRenderer` 的 `_box_*`，左上原点、y 向下），
-// 而窗口/视口就是 794×450（`project/project.godot` 的 `display/window/size/viewport_*`，没有 stretch）
-// ⇒ 「视口像素 = UI 逻辑像素」，`scene(NDC)` 由 `ui_scene_of_point` 反算（与 `UiInputHandle`
-// 的 `to_ui` 互逆：`sx = x/w*2-1`、`sy = -(y/h)*2+1`）。控件（`ScrollView` 等）自己也是按这两条
-// 公式从 `scene_x/scene_y` 反算的，所以对得上。
+// 坐标：绘制项按**逻辑屏幕像素**画（`GodotUINodeRenderer` 的 `_box_*`，左上原点、y 向下），
+// 事件进来时是**画布像素**（OS 事件与 `push_input(ev, false)` 都按 `final_transform()` 的逆换过
+// 一遍）⇒ `_input()` 里再按 `contain_transform()` 的逆换回逻辑像素（`ui_scene_of_point` 也按它反算
+// `scene`，与 `UiInputHandle` 的 `to_ui` 互逆：`sx = x/w*2-1`、`sy = -(y/h)*2+1`）。控件（`ScrollView`
+// 等）自己也是按这两条公式从 `scene_x/scene_y` 反算的，所以对得上。
 void LfwGodot::ui_screen_size(double& w, double& h) const {
   const lfw::host::UiScreenSize s = lfw::host::ui_screen_size(_lfw->world());
   w = s.w;
   h = s.h;
 }
 
+// ---- 窗口像素 ⇄ 逻辑像素：宿主自己做的 contain + 居中（`project.godot` 的 stretch 是 disabled）----
+//
+// 引擎在 `canvas_items` 下替宿主做的那三件事（缩放/偏移、输入换算、把画布关在内容区里），stretch
+// 关掉之后一件也不剩 ⇒ 全在这里补上，口径照 `Window::_update_viewport_size()` 的 keep 分支
+//（`desired_res` = 逻辑尺寸、`screen_size` 先 floor、偏移 round、逐轴缩放）。四舍五入的半像素按
+// `round` 走（与引擎同：1191×900 ⇒ 上下黑边 113/112，不是 112/113）。
+void LfwGodot::logical_size(double& w, double& h) const {
+  if (_lfw != nullptr) {  // 装载之后以**端口**的逻辑屏幕为准（`ui_screen_size()` 那一份）
+    ui_screen_size(w, h);
+    return;
+  }
+  w = static_cast<double>(_logical_w);  // 装载之前 = `project.godot` 的开窗尺寸（同一个数）
+  h = static_cast<double>(_logical_h);
+}
+
+godot::Rect2 LfwGodot::contain_rect(const godot::Vector2i& window_size) const {
+  double lw = 0.0;
+  double lh = 0.0;
+  logical_size(lw, lh);
+  const double vw = static_cast<double>(window_size.x);
+  const double vh = static_cast<double>(window_size.y);
+  if (!(vw > 0.0) || !(vh > 0.0) || !(lw > 0.0) || !(lh > 0.0)) return godot::Rect2();
+  const double aspect_l = lw / lh;
+  const double aspect_v = vw / vh;
+  // 比例相同就不补黑边（引擎那一侧用的是 `is_equal_approx`：相对容差 1e-5）；否则等比 contain。
+  const bool same = aspect_l == aspect_v || std::fabs(aspect_l - aspect_v) <
+                                                 std::max(1e-5 * std::fabs(aspect_l), 1e-5);
+  double sx = vw;
+  double sy = vh;
+  if (!same) {
+    if (aspect_l < aspect_v) {
+      sx = vh * aspect_l;  // 窗口更宽 ⇒ 左右补黑边
+    } else {
+      sy = vw / aspect_l;  // 窗口更高 ⇒ 上下补黑边
+    }
+  }
+  sx = std::floor(sx);
+  sy = std::floor(sy);
+  const double ox = sx < vw ? std::round((vw - sx) * 0.5) : 0.0;
+  const double oy = sy < vh ? std::round((vh - sy) * 0.5) : 0.0;
+  return godot::Rect2(static_cast<float>(ox), static_cast<float>(oy), static_cast<float>(sx),
+                      static_cast<float>(sy));
+}
+
+godot::Transform2D LfwGodot::contain_transform(const godot::Vector2i& window_size) const {
+  double lw = 0.0;
+  double lh = 0.0;
+  logical_size(lw, lh);
+  const godot::Rect2 rect = contain_rect(window_size);
+  if (!(lw > 0.0) || !(lh > 0.0) || !(rect.size.x > 0.0f) || !(rect.size.y > 0.0f)) {
+    return godot::Transform2D();
+  }
+  godot::Transform2D xform;
+  xform.set_scale(godot::Vector2(static_cast<float>(rect.size.x / lw),
+                                 static_cast<float>(rect.size.y / lh)));
+  xform.set_origin(godot::Vector2(rect.position));
+  return xform;
+}
+
+godot::Vector2i LfwGodot::window_size_px() const {
+  godot::DisplayServer* const ds = godot::DisplayServer::get_singleton();
+  if (_windowed && ds != nullptr && ds->window_get_size() != godot::Vector2i()) {
+    return ds->window_get_size();
+  }
+  const godot::Viewport* const vp = get_viewport();
+  return vp != nullptr ? godot::Vector2i(vp->get_visible_rect().size) : godot::Vector2i();
+}
+
+godot::Transform2D LfwGodot::final_transform() const {
+  const godot::Viewport* const vp = get_viewport();
+  return vp != nullptr ? vp->get_final_transform() : godot::Transform2D();
+}
+
+// 游戏那一层的裁剪：`clip` + `custom_rect`（这一项**自己的**命令与其子项都按矩形裁，见
+// `renderer_canvas_cull.cpp` 的 `ci->final_clip_rect` / `ci->final_clip_owner`，渲染时是一刀的
+// scissor）⇒ 逻辑屏幕外的绘制（刚出界一点点的实体/UI）不会漏进黑边。矩形给的是**画布坐标**
+//（内容矩形经 `final_transform()` 的逆；stretch 关掉后画布就是窗口像素，平时这两个数一样）。
+// ⚠ 自绘顶栏就在同一项上画，它必须**越过**这条裁剪 ⇒ `_draw()` 里 `canvas_item_add_clip_ignore`。
+void LfwGodot::apply_game_clip(const godot::Vector2i& window_size) {
+  godot::RenderingServer* const rs = godot::RenderingServer::get_singleton();
+  if (rs == nullptr || !_windowed) return;
+  const godot::RID item = get_canvas_item();
+  rs->canvas_item_set_custom_rect(item, true,
+                                  final_transform().affine_inverse().xform(contain_rect(window_size)));
+  rs->canvas_item_set_clip(item, true);
+}
+
+// 字体过采样：引擎在 `canvas_items` 下自动取的就是 `MAX(内容缩放)`（`Viewport::_set_size()`）
+// —— stretch 关掉后它变成 1.0，文字会按 1.0 光栅化再被 contain 的矩阵放大 ⇒ 1.5× 开窗时糊。
+// `set_oversampling_override` 自己会重跑一遍 `_set_size()`（值没变就是空操作）。
+void LfwGodot::apply_font_oversampling(const godot::Transform2D& contain) {
+  godot::Viewport* const vp = get_viewport();
+  if (vp == nullptr) return;
+  const godot::Vector2 scale = contain.get_scale();
+  const double over = std::max(static_cast<double>(scale.x), static_cast<double>(scale.y));
+  if (!(over > 0.0)) return;
+  vp->set_oversampling_override(static_cast<float>(over));
+}
+
+// 证据行（`native/README.md`「窗口外观」引的就是它）：stretch 关掉之后 `window:` 那一行里的
+// `content=` 不再来自引擎（`get_final_transform()` 只在 canvas_items 下带那道缩放），
+// 所以缩放/偏移/过采样在这里单独打一行，值变了（改窗口尺寸）再打。
+void LfwGodot::report_stretch(const godot::Transform2D& contain, const godot::Rect2& content) {
+  double lw = 0.0;
+  double lh = 0.0;
+  logical_size(lw, lh);
+  const godot::Vector2 scale = contain.get_scale();
+  const double over = std::max(static_cast<double>(scale.x), static_cast<double>(scale.y));
+  // `viewport=` / `final=` 是"画布是什么"的自证：stretch 关掉后视口 = 整窗、`final_transform()` 只剩
+  // DPI/`display/window/stretch/scale` 那一档（本机都是 1 ⇒ 单位阵）。`screen_scale=` 是**屏幕**的缩放
+  //（顶栏按它换算 CSS 像素 → 物理像素，`--display-scale` 可覆盖），`content_scale=` 是引擎自己那一位。
+  const godot::Vector2i vp_size = window_size_px();
+  const godot::Transform2D final = final_transform();
+  const double screen_scale = titlebar_display_scale();
+  double content_scale = 1.0;
+  if (godot::Viewport* const vp = get_viewport()) {
+    if (const godot::Window* const win = godot::Object::cast_to<godot::Window>(vp)) {
+      content_scale = static_cast<double>(win->get_content_scale_factor());
+    }
+  }
+  char buf[448];
+  std::snprintf(buf, sizeof(buf),
+                "[godot] stretch: mode=disabled logical=%.0fx%.0f content=%.0fx%.0f+%.0f+%.0f "
+                "scale=%.5fx%.5f oversampling=%.3f viewport=%dx%d final=%.5fx%.5f "
+                "screen_scale=%.3f content_scale=%.3f",
+                lw, lh, content.size.x, content.size.y, content.position.x, content.position.y,
+                scale.x, scale.y, over, vp_size.x, vp_size.y, final.get_scale().x,
+                final.get_scale().y, screen_scale, content_scale);
+  const std::string line(buf);
+  if (line == _stretch_report) return;
+  _stretch_report = line;
+  print_line(line);
+}
+
 // ---- 窗口：无边框 + 自绘标题栏 + 缩放（Electron 端那一套的引擎侧等价物）----
 //
 // 对位 `desktop/app/main.mjs:915` 的 `frame: false`、`src/App.tsx:788-811` 自绘的那三个按钮，以及
-// 那边 `1191×675 = 794×450 × 1.5` 的窗口。逻辑视口**永远是** 794×450（`project.godot` 的
-// `display/window/stretch/*` = `canvas_items`）⇒ 缩放全在引擎那一侧：`_draw()` 照样按逻辑像素画，
-// OS 的窗口像素由引擎按 `Window::get_final_transform()`（`= window_transform * stretch_transform`）
-// 的反变换换算回逻辑像素后才进 `_input`（`--click-window` 走的就是同一条）⇒ 宿主不做缩放补偿。
+// 那边 `1191×675 = 794×450 × 1.5` 的窗口。逻辑屏幕**永远是** 794×450，`project.godot` 的 stretch 是
+// **disabled** ⇒ contain/缩放/输入换算/裁剪全在宿主这一侧（`contain_transform()` 那一节），
+// 自绘顶栏则按**窗口像素**画（`get_final_transform()` 的逆；stretch 关掉后基本就是单位阵）。
 // 边缘方向 → 缩放游标形状。⚠ 两个**对角**形状（`FDIAGSIZE` / `BDIAGSIZE`）的命名在 Godot 里
 // 没有逐个核对过（有的 UI 把正向对角当 `\`、有的当 `/`）⇒ 万一反了只是光标图标镜像，不影响拖拽。
 inline godot::DisplayServer::CursorShape cursor_for_edge(TitleEdge edge) {
@@ -766,13 +921,12 @@ void LfwGodot::apply_window_setup() {
   if (_args.titlebar != TitlebarMode::native) {
     ds->window_set_flag(DisplayServer::WINDOW_FLAG_BORDERLESS, true);
   }
-  // 窗口 = **逻辑视口** × `--window-scale`。逻辑视口从视口自己读（`project.godot` 的
-  // `window/size/viewport_*` ⇒ stretch 的 `content_scale_size`），**不**读 `window_get_size()`：
-  // 刚把系统边框摘掉那一刻客户区还带着原来的非客户区尺寸（实测 794×450 的窗口报 810×489）⇒
-  // 按它缩放会把窗口放大成 1.53×/1.63×、比例也歪掉（内容就被 letterbox 了）。
-  const godot::Viewport* const viewport = get_viewport();
-  const godot::Vector2i logical =
-      viewport != nullptr ? godot::Vector2i(viewport->get_visible_rect().size) : ds->window_get_size();
+  // 窗口 = **逻辑屏幕** × `--window-scale`。逻辑屏幕在装载之前从 `project.godot` 的
+  // `display/window/size/viewport_*` 读（`_logical_w/_logical_h`），**不**读
+  // `viewport->get_visible_rect()`、也不读 `window_get_size()`：stretch 关掉之后前者就是窗口尺寸，
+  // 而刚把系统边框摘掉那一刻客户区还带着原来的非客户区尺寸（实测 794×450 的窗口报 810×489）
+  // ⇒ 按它缩放会把窗口放大成 1.53×/1.63×、比例也歪掉（内容就被 letterbox 了）。
+  const godot::Vector2i logical(_logical_w, _logical_h);
   const double scale = _args.window_scale;
   const bool explicit_size = _args.window_w > 0 && _args.window_h > 0;
   const godot::Vector2i want =
@@ -782,7 +936,7 @@ void LfwGodot::apply_window_setup() {
                             static_cast<int>(std::lround(static_cast<double>(logical.y) * scale)));
   // **允许自由拉伸**：`RESIZE_DISABLED` 明确关掉（无边框窗口在 Windows 上是 `WS_POPUP` ⇒ 没有原生
   // 可拖的边框，边缘那条 6 像素带自己叫 `window_start_resize`，见 `titlebar_edge_at`）。
-  // 下限取逻辑视口 794×450 —— 与 Electron 桌面端的 `minWidth/minHeight: 794/450` 同口径
+  // 下限取逻辑屏幕 794×450 —— 与 Electron 桌面端的 `minWidth/minHeight: 794/450` 同口径
   //（再小就等于把逻辑屏幕缩没，UI 命中与文字度量都开始失真）。
   ds->window_set_flag(DisplayServer::WINDOW_FLAG_RESIZE_DISABLED, false);
   ds->window_set_min_size(logical);
@@ -798,38 +952,30 @@ void LfwGodot::apply_window_setup() {
   }
   // 证据行（`native/README.md` 的「窗口」一节引的就是它）：`borderless=1` = 无边框真的设上了；
   // `deco=size` = 没有非客户区（无边框窗口的装饰矩形与客户区矩形重合；有系统边框时 deco > size）；
-  // `logical=794x450` = 逻辑视口没被窗口尺寸带跑（stretch 的 content_scale_size）。
+  // `logical=794x450` = 逻辑屏幕没被窗口尺寸带跑（`project.godot` 的 `viewport_*`）。
   const godot::Vector2i now = ds->window_get_size();
   const godot::Vector2i deco = ds->window_get_size_with_decorations();
   const godot::Vector2i pos = ds->window_get_position();
-  // 内容在窗口里的矩形（= contain 之后的黑边量）：`get_final_transform()` 就是「逻辑像素 → 窗口像素」
-  // 那一步（`window_transform * stretch_transform`），它的平移量就是那圈黑边的偏移 ⇒ 左右/上下是否
-  // **对称居中**由这两个数一眼看出（`aspect=keep` 时 Godot 取 `min(w/794, h/450)` 并居中）。
-  int cx = 0;
-  int cy = 0;
-  int cw = logical.x;
-  int ch = logical.y;
-  if (const godot::Viewport* const vp = get_viewport(); vp != nullptr) {
-    const godot::Transform2D t = vp->get_final_transform();
-    const godot::Vector2 o = t.xform(godot::Vector2());
-    const godot::Vector2 s = vp->get_visible_rect().size * t.get_scale();
-    cx = static_cast<int>(std::lround(o.x));
-    cy = static_cast<int>(std::lround(o.y));
-    cw = static_cast<int>(std::lround(s.x));
-    ch = static_cast<int>(std::lround(s.y));
-  }
+  // 内容在窗口里的矩形（= contain 之后的黑边量）：**宿主自己**算的那一份（`contain_rect()`，口径照
+  // `Window::_update_viewport_size()` 的 keep 分支）—— stretch 关掉后引擎的 `get_final_transform()`
+  // 不再带这道缩放 ⇒ 左右/上下是否**对称居中**由这两个数一眼看出（同时 `[godot] stretch:` 那一行
+  // 把缩放与过采样也报出来）。
+  const godot::Transform2D contain = contain_transform(now);
+  const godot::Rect2 content = contain_rect(now);
   char buf[448];
   std::snprintf(buf, sizeof(buf),
                 "[godot] window: display=%s titlebar=%s scale=%.2f borderless=%d size=%dx%d "
                 "deco=%dx%d pos=%d,%d mode=%d logical=%dx%d resizable=%d min=%dx%d "
-                "content=%dx%d+%d+%d",
+                "content=%.0fx%.0f+%.0f+%.0f",
                 display.c_str(), titlebar_name(_args.titlebar), scale,
                 ds->window_get_flag(DisplayServer::WINDOW_FLAG_BORDERLESS) ? 1 : 0, now.x, now.y,
                 deco.x, deco.y, pos.x, pos.y, static_cast<int>(ds->window_get_mode()), logical.x,
                 logical.y,
                 ds->window_get_flag(DisplayServer::WINDOW_FLAG_RESIZE_DISABLED) ? 0 : 1,
-                ds->window_get_min_size().x, ds->window_get_min_size().y, cw, ch, cx, cy);
+                ds->window_get_min_size().x, ds->window_get_min_size().y, content.size.x,
+                content.size.y, content.position.x, content.position.y);
   print_line(buf);
+  report_stretch(contain, content);
 }
 
 // 自绘栏只在 `--titlebar custom`、真窗口、且**不是全屏**时存在（镜像 Electron：全屏时整簇按钮
@@ -1056,12 +1202,35 @@ double LfwGodot::titlebar_volume(int index) const {
   return 0.0;
 }
 
-// 顶栏的「窗口像素」里，条有多宽 = **整个窗口宽**（不是内容区宽）。
-// ⚠ 别退回"内容区宽"：`aspect=keep` 补黑边时内容区比窗口窄（例：窗口 1400×500 ⇒ 内容 882×500 居中），
-// 按内容宽布局会让条只盖到中间那 882 px、右上角按钮跑到内容右缘（用户实测报的 bug）。
+// 顶栏的「CSS 像素」里，条有多宽 = **整个窗口宽** / 显示缩放（窗口是物理像素）。
+// ⚠ 别退回"内容区宽"：窗口比例与 794×450 不同时内容区比窗口窄（例：窗口 1400×500 ⇒ 内容 882×500
+// 居中），按内容宽布局会让条只盖到中间那 882 px、右上角按钮跑到内容右缘（用户实测报的 bug）。
 // Electron 那边 `.top_bar` 是 `left:0; right:0` 的 CSS 像素 ⇒ 口径与这里一致。
 double LfwGodot::titlebar_window_width(const godot::Vector2i& window_size) const {
-  return static_cast<double>(window_size.x);
+  return static_cast<double>(window_size.x) / titlebar_display_scale();
+}
+
+// 顶栏那一层唯一的缩放：**DOM 的 CSS 像素 → 窗口物理像素**。
+//
+// Electron 的顶栏是 CSS 布局（`src/App.module.scss` 的 `.top_bar` / `.wails_drag`），CSS 像素 = OS 的
+// **逻辑**像素；Godot 这边的"窗口像素"是**物理**像素（`DisplayServer::window_get_size()` /
+// `_input` 的坐标 / `--screenshot` 的 PNG 尺寸都是它 —— 见 `[godot] stretch:` 那一行里的
+// `viewport=` / `final=`：stretch 关掉后画布 = 窗口，`final_transform()` 只剩 DPI/`stretch/scale`
+// 那一档）⇒ 在 125% / 150% 缩放的屏上，不乘 `screen_get_scale()` 的话条与图会比 Electron **小**
+// 一档。乘上之后：条高 32 CSS = 32×s 物理、图 19.2 CSS = 19.2×s 物理（实测 1.5 倍时 48 / 28.8）。
+//
+// ⚠ **不变的量**：条高（32 CSS）、控件盒（32 CSS）、32×32 的图缩 0.6 / 悬停 0.8、拖拽层 28.8 CSS、
+// 边缘带 6 CSS —— 它们**既不看窗口尺寸、也不看游戏 contain 的缩放**（`--window-scale` / `--window-size`
+// 改了窗口，条与图一个像素都不变；实测 1191×675 与 2382×1350 两档的图标逐行像素轮廓相同），
+// 只随**显示缩放**整体放大。回归的口子在 `[godot] titlebar:` 那一行的 `bar=` / `icon=` / `scale=`。
+//
+// `--display-scale N`（诊断）覆盖它：本机屏幕缩放恰为 1 时用它把 DPI 那一档跑起来（见 README）。
+double LfwGodot::titlebar_display_scale() const {
+  if (_args.display_scale > 0.0) return _args.display_scale;
+  godot::DisplayServer* const ds = godot::DisplayServer::get_singleton();
+  if (ds == nullptr || !_windowed) return 1.0;
+  const double s = ds->screen_get_scale(godot::DisplayServer::SCREEN_OF_MAIN_WINDOW);
+  return s > 0.0 ? s : 1.0;
 }
 
 // 可见集合变了就打一行（证据行：哪几个控件在条上）。诊断用，不进摘要。
@@ -1080,9 +1249,14 @@ void LfwGodot::report_titlebar_controls() {
         list[static_cast<std::size_t>(i)].action);  // 只看名字（文件名见 README 那张表）
   }
   char buf[512];
-  std::snprintf(buf, sizeof(buf), "[godot] titlebar: icons=%s bar=%.0fx%.0f controls(%d)=%s",
+  // `bar=` / `icon=` 是 **CSS 像素**（DOM 口径：条高 32、图 19.2；不随窗口尺寸/contain 缩放变化），
+  // `scale=` = 顶栏那一层用的显示缩放（CSS → 窗口物理像素）⇒ 物理尺寸 = 这两个数相乘。
+  std::snprintf(buf, sizeof(buf),
+                "[godot] titlebar: icons=%s bar=%.0fx%.0f icon=%.1f scale=%.3f controls(%d)=%s",
                 _icons_dir.empty() ? "<none>" : _icons_dir.c_str(), bar_w,
-                lfw::host::TitleBarMetrics::bar_height, layout.count, text.c_str());
+                lfw::host::TitleBarMetrics::bar_height,
+                lfw::host::TitleBarMetrics::button * lfw::host::TitleBarMetrics::icon_scale,
+                titlebar_display_scale(), layout.count, text.c_str());
   const std::string line(buf);
   if (line == _icon_report) return;
   _icon_report = line;
@@ -1091,11 +1265,14 @@ void LfwGodot::report_titlebar_controls() {
 
 // 条上与窗口边缘的事件处理。返回 true = 宿主吃掉（调用方标 handled，别再喂给游戏/UI）。
 //
-// 次序（照 Electron 的层序）：① 边缘缩放带（**窗口**像素，压过一切 —— 与原生边框同口径）
+// 次序（照 Electron 的层序）：① 边缘缩放带（**CSS 像素**，压过一切 —— 与原生边框同口径）
 // → ② 音量弹层（`z-index: 2`，挂在条下沿、盖住画面那一带）→ ③ 控件盒 → ④ `.wails_drag`
 // → ⑤ 起手在条上/弹层里、现在跑到外面的 move/up 也吞（免得松手那一下点着游戏里的按钮）。
 // ⚠ 条上没有背景、拖拽层只占 90% 高、`.top_bar` 又是 `pointer-events: none` ⇒ 底部那 3.2 像素的
 // 缝在 Electron 上是**漏给画面**的，这里也一样（只有按钮盒/弹层/拖拽层吞）。
+// ⚠ 坐标口径 = **DOM 的 CSS 像素**（不是窗口物理像素）：事件先按 `final` 换成窗口像素，再除
+// `titlebar_display_scale()`；绘制那边是同一个数字**乘**上去 ⇒ 两边永远对得上（见
+// `titlebar_display_scale()` 的注释）。
 bool LfwGodot::titlebar_consume(const godot::Ref<godot::InputEvent>& event) {
   using lfw::host::TitleBarMetrics;
   using lfw::host::TitleHit;
@@ -1109,14 +1286,16 @@ bool LfwGodot::titlebar_consume(const godot::Ref<godot::InputEvent>& event) {
   const godot::Viewport* const vp = get_viewport();
   if (vp == nullptr) return false;
 
-  // 窗口像素（`get_final_transform()` 的正变换）。条自己就是**窗口像素**里的一层（绘制那边设的是
-  // `final.affine_inverse()`，条上 (0,0) = 窗口左上角）⇒ 命中坐标**不减** letterbox 偏移。
+  // 窗口像素（`get_final_transform()` 的正变换）→ CSS 像素（÷ 显示缩放）。
   const godot::Transform2D final = vp->get_final_transform();
   const godot::Vector2 win =
       final.xform(godot::Vector2(static_cast<float>(e.x), static_cast<float>(e.y)));
+  const double scale = titlebar_display_scale();
   const godot::Vector2i win_size = ds->window_get_size();
-  const double bx = static_cast<double>(win.x);
-  const double by = static_cast<double>(win.y);
+  const double bx = static_cast<double>(win.x) / scale;
+  const double by = static_cast<double>(win.y) / scale;
+  const double win_w = static_cast<double>(win_size.x) / scale;  // CSS 像素
+  const double win_h = static_cast<double>(win_size.y) / scale;
   const double bar_w = titlebar_window_width(win_size);
   const lfw::host::TitleBarConditions cond = titlebar_conditions();
   const lfw::host::TitleBarLayout layout = lfw::host::titlebar_layout(bar_w, cond);
@@ -1139,7 +1318,7 @@ bool LfwGodot::titlebar_consume(const godot::Ref<godot::InputEvent>& event) {
   // 悬停到边缘 ⇒ 换成对应方向的缩放游标；音量滑杆那一带是 `cursor: pointer`。只在形状变化时调。
   if (kind == PointerKind::move) {
     using DS = godot::DisplayServer;
-    DS::CursorShape shape = cursor_for_edge(titlebar_edge_at(win.x, win.y, win_size.x, win_size.y));
+    DS::CursorShape shape = cursor_for_edge(titlebar_edge_at(bx, by, win_w, win_h));
     const bool on_volume = in_popup || (hit.kind == TitleHitKind::button &&
                                         is_volume_control(hit.index));
     if (shape == DS::CURSOR_ARROW && on_volume) shape = DS::CURSOR_POINTING_HAND;
@@ -1153,11 +1332,11 @@ bool LfwGodot::titlebar_consume(const godot::Ref<godot::InputEvent>& event) {
   if (kind == PointerKind::down && e.button == 0.0 &&
       ds->window_get_mode() == godot::DisplayServer::WINDOW_MODE_WINDOWED &&
       !ds->window_get_flag(godot::DisplayServer::WINDOW_FLAG_RESIZE_DISABLED)) {
-    const TitleEdge edge = titlebar_edge_at(win.x, win.y, win_size.x, win_size.y);
+    const TitleEdge edge = titlebar_edge_at(bx, by, win_w, win_h);
     if (edge != TitleEdge::none) {
       char buf[128];
-      std::snprintf(buf, sizeof(buf), "[godot] titlebar: resize edge=%d at=(%.0f, %.0f)",
-                    static_cast<int>(edge), win.x, win.y);
+      std::snprintf(buf, sizeof(buf), "[godot] titlebar: resize edge=%d at=(%.0f, %.0f)",  // CSS 像素
+                    static_cast<int>(edge), bx, by);
       print_line(buf);
       _bar_capture = true;  // 嵌套的尺寸循环里那些 move/up 也别漏给游戏
       ds->window_start_resize(to_window_edge(edge));  // 阻塞到松开（Godot 自己的边框同款）
@@ -1282,7 +1461,10 @@ void LfwGodot::setup_icons() {
 //   * 条**没有背景**（`.top_bar` 只有布局）—— 只有 `.wails_drag` 悬停时那层 `#88888855`（90% 高）；
 //   * 每个可见控件的 32×32 图缩在盒子正中（0.6，悬停 0.8）；
 //   * 悬停那两路音量时，条下沿挂一个竖直音量条（`.volume_popup`）。
-// 画之前把画布换到"窗口像素"（`get_final_transform()` 的逆）⇒ 这里所有数字都是 CSS 像素。
+// 画之前把画布换到"**DOM 的 CSS 像素**"（`get_final_transform()` 的逆 × 显示缩放）⇒ 这里所有数字
+// 都是 `.top_bar` / `.wails_drag` 那套 CSS 数字（条高 32、控件盒 32、图 19.2/25.6、拖拽层 28.8）
+// —— **与窗口尺寸、与游戏的 contain 缩放都无关**，只随显示缩放整体放大（命中那边用同一个数字除，
+// 见 `titlebar_display_scale()`）。
 void LfwGodot::draw_titlebar() {
   using lfw::host::TitleBarMetrics;
   using lfw::host::TitleBarRect;
@@ -1293,8 +1475,14 @@ void LfwGodot::draw_titlebar() {
   const double bar_w = titlebar_window_width(ds->window_get_size());
   const lfw::host::TitleBarLayout layout = lfw::host::titlebar_layout(bar_w, titlebar_conditions());
   if (!(bar_w > 0.0)) return;
-  report_titlebar_controls();  // 只在可见集合变化时打一行（证据行）
-  draw_set_transform_matrix(final.affine_inverse());
+  report_titlebar_controls();  // 只在可见集合变了时打一行（证据行）
+  // 画布换成 **CSS 像素**：`final` 的逆（画布 → 窗口物理像素）再乘显示缩放（CSS → 物理）
+  // ⇒ 这里所有数字都是 `.top_bar` 那套 CSS 数字（条高 32、图 19.2），与窗口尺寸/contain 无关。
+  // ⚠ 命中那边（`titlebar_consume`）是**同一个** `titlebar_display_scale()` 的除法 ⇒ 两边同源。
+  godot::Transform2D css_to_canvas;
+  css_to_canvas.set_scale(godot::Vector2(static_cast<float>(titlebar_display_scale()),
+                                         static_cast<float>(titlebar_display_scale())));
+  draw_set_transform_matrix(final.affine_inverse() * css_to_canvas);
 
   const float drag_h = static_cast<float>(TitleBarMetrics::drag_height);
   if (_bar.drag_hover) {
@@ -1345,7 +1533,29 @@ void LfwGodot::draw_titlebar() {
     draw_circle(Vector2(static_cast<float>(knob.x), static_cast<float>(knob.y)),
                 static_cast<float>(knob.w * 0.5), Color(1.0f, 1.0f, 1.0f, 1.0f));
   }
-  draw_set_transform_matrix(godot::Transform2D());  // 画布还给逻辑像素（下一帧的绘制项照旧）
+  draw_set_transform_matrix(godot::Transform2D());  // 画布还给**窗口像素**（条自己那一层）
+}
+
+// `--clip-probe`：证明"游戏那一层真的被裁在内容矩形里"的那一圈观测量 —— 贴着**逻辑屏幕**的边界，
+// **内外各 8 像素**画一圈洋红（画在游戏**之上**，所以它一定看得见）：
+//   * 裁剪生效 ⇒ 只剩边界**里面**那 8 像素（黑边干净）；
+//   * 裁剪失效 ⇒ 黑边里会各多出 8 像素洋红。
+// 注意它走的是**游戏那一层**的矩阵（`contain`），不是窗口像素那一层。
+void LfwGodot::draw_clip_probe(const godot::Transform2D& contain) {
+  double lw = 0.0;
+  double lh = 0.0;
+  logical_size(lw, lh);
+  if (!(lw > 0.0) || !(lh > 0.0)) return;
+  const float w = static_cast<float>(lw);
+  const float h = static_cast<float>(lh);
+  const float b = 8.0f;
+  const godot::Color color(1.0f, 0.0f, 1.0f, 0.85f);
+  draw_set_transform_matrix(contain);
+  draw_rect(Rect2(-b, -b, w + 2.0f * b, 2.0f * b), color, true);
+  draw_rect(Rect2(-b, h - b, w + 2.0f * b, 2.0f * b), color, true);
+  draw_rect(Rect2(-b, -b, 2.0f * b, h + 2.0f * b), color, true);
+  draw_rect(Rect2(w - b, -b, 2.0f * b, h + 2.0f * b), color, true);
+  draw_set_transform_matrix(godot::Transform2D());
 }
 
 // 圆角矩形（Godot 的 `draw_rect` 没有半径）：两块矩形 + 四个角上的圆。
@@ -1539,6 +1749,15 @@ void LfwGodot::_input(const godot::Ref<godot::InputEvent>& p_event) {
   LfwPointingEvent e;
   const PointerKind kind = to_pointing_event(p_event, e);
   if (kind == PointerKind::none) return;
+  // 换算：事件进来时是**画布像素**（OS 事件与 `push_input(ev, false)` 都按 `final_transform()` 的逆
+  // 换过一遍），游戏的输入口径是**逻辑像素** ⇒ 画布 →（`final`）→ 窗口 →（`contain` 的逆）→ 逻辑
+  //（`--click-window` 走的正是这条 ⇒ 它证明的是整条换算，不只是"注入"）。滚轮/触控板的 delta 已经
+  // 是逻辑口径（见 `to_pointing_event`）。⛔ 上面 `titlebar_consume()` 用的是**窗口像素**，别换。
+  const godot::Vector2 port =
+      (contain_transform(window_size_px()).affine_inverse() * final_transform())
+          .xform(godot::Vector2(static_cast<float>(e.x), static_cast<float>(e.y)));
+  e.x = static_cast<double>(port.x);
+  e.y = static_cast<double>(port.y);
   ui_scene_of_point(_lfw->world(), e.x, e.y, e.scene_x, e.scene_y);
   switch (kind) {
     case PointerKind::down:
@@ -1570,6 +1789,12 @@ void LfwGodot::print_exit_summary() const {
 }
 
 void LfwGodot::_notification(int p_what) {
+  // 窗口被拉伸/最大化：条与内容矩形都得按新尺寸重排。`_draw()` 每次都重算（所以只是叫一次重绘）
+  // —— 游戏跑着的时候本来就每帧 `queue_redraw()`，暂停/验收模式不会自己醒，得靠这一条。
+  if (p_what == NOTIFICATION_WM_SIZE_CHANGED) {
+    queue_redraw();
+    return;
+  }
   if (p_what != NOTIFICATION_WM_CLOSE_REQUEST) return;
   print_exit_summary();
 }
@@ -1629,31 +1854,49 @@ std::string LfwGodot::ui_pages_text() const {
 // 三趟扫：`pass` -1 = UI 背景、0 = 世界、+1 = UI 前景 —— 这是 D1(a) 的五遍次序
 //（UI 背景 → 背景/实体/前景 → UI 前景）。同一趟内保持收集次序（世界那一趟是画家次序，
 // UI 那两趟已按 (z, 树序) 排好）。
+//
+// 坐标：绘制项是**逻辑像素**（794×450 那一套），而 stretch 关掉后画布就是**窗口像素**
+// ⇒ 游戏那一层套 `contain_transform()`（等比缩放 + 居中；画布 = 窗口时 `final_transform()` 是
+// 单位阵），并用 `clip` + `custom_rect` 裁在内容矩形里。自绘顶栏反过来按 **DOM 的 CSS 像素**画
+//（`final` 的逆 × 显示缩放，见 `titlebar_display_scale()`），且必须**越过**那条裁剪。
 void LfwGodot::_draw() {
   GodotWorldRenderer* const renderer = _host != nullptr ? _host->world_renderer() : nullptr;
-  if (renderer == nullptr) {
-    if (titlebar_visible()) draw_titlebar();
-    return;
-  }
-  const GodotFrame& frame = renderer->take_frame();
-  if (!frame.valid) {
-    // 这一帧没有世界/UI 的绘制项（比如刚起来还没推过步）：栏照画。
-    if (titlebar_visible()) draw_titlebar();
-    return;
-  }
-  static const int kPasses[3] = {-1, 0, 1};
-  for (const int pass : kPasses) {
-    for (const GodotDrawItem& item : frame.items) {
-      if (item.pass != pass) continue;
-      if (!item.text.empty()) {
-        draw_text_item(item);
-      } else {
-        draw_item(item);
+  if (renderer != nullptr) {
+    const godot::Vector2i win = window_size_px();
+    const godot::Transform2D contain = contain_transform(win);
+    report_stretch(contain, contain_rect(win));  // 值变了（改窗口尺寸）才打一行
+    apply_font_oversampling(contain);
+    apply_game_clip(win);
+    const GodotFrame& frame = renderer->take_frame();
+    if (frame.valid) {
+      draw_set_transform_matrix(final_transform().affine_inverse() * contain);
+      static const int kPasses[3] = {-1, 0, 1};
+      for (const int pass : kPasses) {
+        for (const GodotDrawItem& item : frame.items) {
+          if (item.pass != pass) continue;
+          if (!item.text.empty()) {
+            draw_text_item(item);
+          } else {
+            draw_item(item);
+          }
+        }
       }
+      draw_set_transform_matrix(godot::Transform2D());  // 画布还给窗口像素
     }
+    if (_args.clip_probe) draw_clip_probe(contain);
   }
-  // 自绘标题栏压在**所有**绘制项之上（它就是"窗口的边框"，与 Electron 在 DOM 最后画那一层同理）。
-  if (titlebar_visible()) draw_titlebar();
+  // 自绘标题栏压在**所有**绘制项之上（它就是"窗口的边框"，与 Electron 在 DOM 最后画那一层同理），
+  // 而且是 **DOM 的 CSS 像素**里的一层：`draw_titlebar()` 自己把画布换成
+  // 「`final` 的逆 × 显示缩放」。
+  // `clip_ignore` 是一枚命令（`renderer_canvas_render_rd.cpp` 的 `TYPE_CLIP_IGNORE`）：它之后的命令
+  // 另起一批、**不带**上面那条 scissor ⇒ 条能画进黑边里（`ScrollContainer` 把滚动条画到裁剪框外
+  // 也是这一条）。
+  if (titlebar_visible()) {
+    godot::RenderingServer* const rs = godot::RenderingServer::get_singleton();
+    if (rs != nullptr) rs->canvas_item_add_clip_ignore(get_canvas_item(), true);
+    draw_titlebar();
+    if (rs != nullptr) rs->canvas_item_add_clip_ignore(get_canvas_item(), false);
+  }
 }
 
 // UI 文字（`UITextRenderer` / `TextMesh` 的口径）：字号来自 `style.font`、颜色来自 `fill_style`、

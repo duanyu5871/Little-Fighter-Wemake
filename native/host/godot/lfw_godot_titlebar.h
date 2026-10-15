@@ -6,10 +6,16 @@
 // `button { transform: scale(0.6, 0.6) }`、`hover → scale(0.8, 0.8)`、`transition: all 255ms`。
 // ⚠ `transform` **不参与布局** ⇒ 每个按钮的盒子是 32×32（图缩在正中：0.6 时 19.2、0.8 时 25.6）。
 //
-// 坐标：**窗口像素**（= DOM 的 CSS 像素 —— Electron 的顶栏就是 CSS 布局，窗口多大条就多宽）。
-// 宿主在 `_draw` 里用 `Viewport::get_final_transform()` 的**逆**把它映射回逻辑画布、在 `_input`
-// 里用**正**变换把逻辑点映回窗口像素（`lfw_godot_node.cpp` 的「窗口」一节）⇒ 这一层永远按窗口
-// 像素判。只有「边缘缩放带」是宿主自己加的（照旧按窗口像素）。
+// 坐标：**DOM 的 CSS 像素**（= OS 的**逻辑**像素 —— Electron 的顶栏就是 CSS 布局，窗口多大条就多宽）。
+// ⚠ 与 Godot 的"窗口像素"**不是一回事**：那边是**物理**像素（125% / 150% 缩放的屏上两者差一档）
+// ⇒ 宿主在 `_draw` 里把画布换成「`final` 的逆（画布 → 窗口物理像素）× 显示缩放
+// （`DisplayServer::screen_get_scale()`）」、在 `_input` 里把窗口物理像素除**同一个**显示缩放映回来
+//（`lfw_godot_node.cpp` 的 `titlebar_display_scale()`）⇒ 这一层永远按 CSS 像素判，且画与命中同源。
+//
+// ⚠ **不变的量**（改窗口尺寸 / `--window-scale` / 游戏 contain 的缩放都不许动它们）：条高 32、
+// 控件盒 32、图 19.2（悬停 25.6）、拖拽层 28.8、边缘缩放带 6 —— 全是 CSS 像素，只随**显示缩放**
+// 整体放大。`[godot] titlebar:` 那一行的 `bar=宽x32 icon=19.2 scale=…` 就是这三个数的证据。
+// 只有「边缘缩放带」是宿主自己加的（照旧按 CSS 像素）。
 #pragma once
 
 #include <array>
@@ -53,14 +59,14 @@ struct TitleBarRect {
 };
 
 struct TitleBarMetrics {
-  // 单位 = **窗口像素**（= DOM 的 CSS 像素）。
+  // 单位 = **DOM 的 CSS 像素**（宿主按显示缩放换算到窗口物理像素；见文件头那两条 ⚠）。
   // 条高 = 一排 32×32 的按钮（`transform` 不参与布局）⇒ `.top_bar` 的高度就是 32。
   static constexpr double bar_height = 32.0;
   static constexpr double button = 32.0;
   static constexpr double icon_scale = 0.6;        // button { transform: scale(0.6, 0.6) }
   static constexpr double icon_scale_hover = 0.8;  // button:hover { transform: scale(0.8, 0.8) }
   static constexpr double drag_height = 28.8;      // .wails_drag { height: 90% }（32 × 0.9）
-  // 边缘缩放带的宽度（**窗口**像素）。`borderless` 在 Windows 上是 `WS_POPUP` ⇒ 没有原生可拖的
+  // 边缘缩放带的宽度（**CSS 像素**）。`borderless` 在 Windows 上是 `WS_POPUP` ⇒ 没有原生可拖的
   // 边框（`platform/windows/display_server_windows.cpp` 的 `_get_window_style`），所以自己留一条。
   static constexpr double resize_band = 6.0;
   static constexpr int count = 11;
@@ -261,11 +267,12 @@ inline bool titlebar_rect_contains(const TitleBarRect& r, double x, double y) {
   return x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h;
 }
 
-// 命中：坐标都是窗口像素。
+// 命中：坐标都是 CSS 像素。
 //   `button` = 落在这个控件盒子里（盒子在最上层：图占满盒子 ⇒ 拖拽层压不住它）；
 //   `drag`   = 落在 `.wails_drag` 那一层（0..28.8）⇒ 拖窗口；
 //   `none`   = 条上剩下那 3.2 像素的缝**不吞**（`.top_bar` 有 `pointer-events:none`、拖拽层只有 90%
 //              高、条自己没有背景 ⇒ 那一带在 Electron 上是漏给画布的）。
+// ⚠ 与窗口尺寸**无关**：`layout` 里已经按窗口（CSS）宽排好位了。
 enum class TitleHitKind { none, drag, button };
 
 struct TitleHit {

@@ -488,18 +488,36 @@ npm run godot '--' --icons D:\path\to\assets             # 那 11 张 btn_*.png 
 
 * `--window-size WxH`（缺省没给）：直接指定**窗口像素**尺寸，**允许不等比**（给了就压过
   `--window-scale`；`--window-scale 1.5` ≡ `--window-size 1191x675`）。窗口**可以自由拉伸**：
-  `WINDOW_FLAG_RESIZE_DISABLED` 明确关掉，下限取逻辑视口 **794×450**（与 Electron 的
+  `WINDOW_FLAG_RESIZE_DISABLED` 明确关掉，下限取逻辑屏幕 **794×450**（与 Electron 的
   `minWidth/minHeight` 同口径），边缘 6 像素带自己叫 `window_start_resize`，悬停时按方向换缩放游标
   （`titlebar_edge_to_cursor`；两个**对角**形状的命名没逐个核对，反了只是图标镜像）。
-  画面按 `project.godot` 的 `stretch/mode=canvas_items` + **`aspect=keep`** 等比 **contain + 居中**
-  （补黑边）—— `[godot] window:` 行里的 `content=宽x高+左+上` 就是它，对称即居中：
-  实测窗口 `1400x500` ⇒ `content=882x500+259+0`（左右各 259 黑边）。
-  ⚠ 顶栏画在**窗口像素**里（`final.affine_inverse()`），所以条铺满**整窗宽**、按钮贴**窗口**右上角
-  （不是内容区右缘）：`1400x500` 时 `bar=1400x32`。
-  ⚠ `--screenshot` 抓的是**视口（内容区）**，不含黑边 ⇒ 非等比尺寸下截图里看不到顶栏；要看顶栏用
-  缺省的等比尺寸（`1191x675`，此时内容 = 窗口）。
-  `WINDOW_FLAG_BORDERLESS`，后者再画我们自己的条。条的几何 = **DOM 的 CSS 像素**（= 窗口像素，1.5× 开窗
-  时 = 逻辑像素 × 1.5）：`.top_bar` 是 `justify-content: flex-end` ⇒ 控件**右对齐**、DOM 次序 = 从左到右；
+  ⚠ **`project.godot` 的 stretch 是 `disabled`**（曾经是 `canvas_items` + `aspect=keep`）：那一档下引擎
+  把"画布"整个压进内容区、**渲染目标本身就只等于内容区**（实测 1400×500 的窗口里视口纹理只有
+  882×500）⇒ 画到窗口右端的自绘顶栏会被切掉（用户实测报的 bug），`--screenshot` 也抓不到黑边。
+  现在 contain + 居中由**宿主自己做**（`lfw_godot_node.cpp` 的 `contain_transform()`，口径照
+  `Window::_update_viewport_size()` 的 keep 分支：内容尺寸 `floor`、居中偏移 `round`、逐轴缩放），
+  一个矩阵管三件事：
+  * **绘制**：游戏那一层按逻辑像素画、套这个矩阵（画布 = 窗口像素时 `final_transform()` 是单位阵）；
+  * **裁剪**：`contain_rect()` 交给 `canvas_item_set_custom_rect` + `canvas_item_set_clip` ⇒ 游戏被
+    裁在内容矩形里（逻辑屏幕外的东西不会漏进黑边；`--clip-probe` 是这一条的观测量，见下）；
+  * **输入**：`_input()` 用它的逆把画布/窗口像素换回逻辑像素（`--click-window` 走的正是这条）。
+  自绘顶栏反过来按**窗口像素**铺满整窗（`final.affine_inverse()` + `canvas_item_add_clip_ignore`
+  越过上面那条裁剪）。`[godot] window:` 行里的 `content=宽x高+左+上` 现在是**宿主算的**那一份，
+  同一份数字由 `[godot] stretch:` 那一行连带缩放与过采样一起报出来：
+  实测窗口 `1400x500` ⇒ `content=882x500+259+0 scale=1.11083x1.11111 oversampling=1.111`
+  （左右各 259 黑边）；`1191x675` ⇒ `content=1191x675+0+0`（无黑边）；`1191x900` ⇒
+  `content=1191x675+0+113`（上下 113/112）。字体过采样补成引擎在 `canvas_items` 下的自动值
+  （`MAX(内容缩放)`）⇒ 1.5× 开窗时文字的光栅化与切片之前**逐像素一致**（`1191x675` 那张旧截图
+  与新截图 0 像素差）。
+  ⚠ 顶栏画在**CSS 像素**里（DOM 口径），所以条铺满**整窗宽**、按钮贴**窗口**右上角（不是内容区右缘）：
+  `1400x500` 时 `titlebar:` 那行给 `bar=1400x32 scale=1.000`（`bar` 是 CSS 宽 —— 见下一条的 DPI 说明），
+  窗口再高（`1191x900`）也在最顶上一行。
+  ⚠ `--screenshot` 抓的是**整个视口 = 整窗**（黑边 + 条 + 画面都在图里）。
+  `--clip-probe`（诊断，不进摘要）：贴着逻辑屏幕的边界**内外各 8 像素**画一圈洋红 ——
+  裁剪生效时只看得到边界**里面**那半圈、黑边里一个像素洋红都没有（`shots/window-clip-probe.png`
+  那张在 1400×500 下：黑边 0 像素洋红、边界内 9 像素；1191×900 的上下黑边同理）。
+  `WINDOW_FLAG_BORDERLESS`，后者再画我们自己的条。条的几何 = **DOM 的 CSS 像素**（= OS 的**逻辑**像素，
+  见下一条的 DPI 说明）：`.top_bar` 是 `justify-content: flex-end` ⇒ 控件**右对齐**、DOM 次序 = 从左到右；
   每个控件占 **32×32**（`transform` 不参与布局），32×32 的图缩 **0.6**、悬停 **0.8**；**条上没有背景**
   （只有 `.wails_drag` 悬停时那层 `#88888855`，高 90% = 28.8 像素），**全屏时整条隐藏**
   （同 `src/App.tsx:788` 的 `show={!is_fullscreen && …}`）。拖拽走 `DisplayServer::window_start_drag()`；
@@ -530,6 +548,29 @@ npm run godot '--' --icons D:\path\to\assets             # 那 11 张 btn_*.png 
   它的条件多一条 `first_page == 'init_demo'`，而那一档只在 web demo（路径带 `/demo`）里设
   （`src/App.tsx:400-408`），桌面端与端口都是 `init`。想复现最全的一簇（10/11）= 进对局（`bg_id` 非 VOID
   ⇒ 出 `f1`）+ 页栈 > 1（⇒ 出 `f4`）+ 用 `--key` 敲出 `gim.ink` 开 `GIM_INK`（⇒ 出 `dev_ui`），见「画面存档」。
+* **顶栏的尺寸不随窗口变**（不变式，回归看 `[godot] titlebar:` 那行的 `bar=` / `icon=` / `scale=`）：
+  条高 **32 CSS**、控件盒 **32 CSS**、32×32 的图缩 **0.6**（悬停 0.8 ⇒ 25.6）、拖拽层 **28.8 CSS**、
+  边缘缩放带 **6 CSS** —— 它们**既不随窗口尺寸、也不随游戏 contain 的缩放**变化
+  （`--window-scale` / `--window-size` 改了窗口，条与图一个像素都不动；实测窗口 `1191x675` 与
+  `2382x1350` 两档的图标逐行像素轮廓相同：亮行都在 y=8..23）。
+* ⚠ **DPI：顶栏那一层按 CSS 像素判，游戏与窗口按物理像素判。** Electron 的顶栏是 CSS 布局 ⇒ CSS 像素
+  = OS 的**逻辑**像素；Godot 的窗口像素（`window_get_size()` / `_input` 坐标 / `--screenshot` 的 PNG
+  尺寸）是**物理**像素（`[godot] stretch:` 那行的 `viewport=` 与 `final=` 是自证：stretch 关掉后
+  视口 = 整窗，`final_transform()` 只剩 DPI/`display/window/stretch/scale` 那一档）⇒ 不换算的话
+  125% / 150% 的屏上我们的条会比 Electron **小一档**。所以：绘制时把画布换成
+  「`final` 的逆 × `screen_get_scale()`」、命中时把窗口像素除**同一个**数
+  （`titlebar_display_scale()`，一处数字两条路）⇒ 条高 32 CSS = 32×s 物理、图 19.2 CSS = 19.2×s 物理。
+  实测（本机 `screen_get_scale()` = **1.000**，`content_scale_factor` = 1.000 ⇒ 真实 DPI 那一档在本机
+  跑不到，只能用 `--display-scale` 强制）：
+  | `--display-scale` | `titlebar:` 行 | 拖拽层实测高（截图逐行量） | 图标轮廓实测（高 × 宽） |
+  |---|---|---|---|
+  | 1.000 | `bar=1191x32 icon=19.2 scale=1.000` | 0..28 = **29 px**（28.8×1） | 17 × 239 px |
+  | 1.500 | `bar=794x32 icon=19.2 scale=1.500` | 0..42 = **43 px**（28.8×1.5） | 26 × 359 px（17×1.53 / 239×1.50） |
+  两档的 `icon=19.2` 与 `32` **没变**（只乘 `scale`）⇒ 不变式成立；命中也跟着走：`--display-scale 1.5`
+  下窗口 `975,16` 命中 `settings`（`[godot] titlebar: settings (set_page) pages=0:init 1:settings`）、
+  窗口 `1167,16` 命中 `close`（窗口即关）—— 画的格子与命中的格子是同一份数字。
+  `--display-scale N` 是这一档的**诊断口**（覆盖 `screen_get_scale()`；本机屏幕缩放恰为 1，用它把
+  DPI 路径跑起来）。⚠ 换个屏幕缩放或换个显示器时 `screen_get_scale()` 会自己变 ⇒ 正常用不传这个参数。
 * **音量弹层**：悬停那两个音量控件（或其弹层）时，条下沿挂一个竖直音量条（`.volume_popup`：圆角 8、底
   `#0F1830CC`、内边距 `8/10/10`、轨道 6×84 `#00000088`、填充 `#5A88E0`、白色 14 像素圆滑块）。按下=抓
   住、拖动=按 `y` 反算 `clamp(1 - (y-track.top)/84)` 并调 `sounds_set_bgm_volume` / `sounds_set_sound_volume`
@@ -540,13 +581,17 @@ npm run godot '--' --icons D:\path\to\assets             # 那 11 张 btn_*.png 
   （Godot 跑工程会把 cwd 切到工程目录 ⇒ 往上 4 层就是仓库根），可用 `--icons <dir>` 覆盖；找不到就打印
   一次并只留命中盒。⚠ **打包/导出（`--export-release` 或把宿主拷到别处）时这 11 张 PNG 不会跟着走** ——
   得把它们一起发出去并用 `--icons` 指过去（或改走 `--root` 那份 `builtin_data` 的解析路径）。
-* `--window-scale N`（缺省 1.5）：`project.godot` 的 `stretch/mode=canvas_items` +
-  `aspect=keep` 把整块画布等比放大，**逻辑视口始终 794×450**（UI/世界照旧在逻辑像素里画），
-  窗口像素由引擎按 `Window::get_final_transform()` 的反变换换回逻辑像素后才进 `_input` ⇒ 宿主不做补偿。
+* `--window-scale N`（缺省 1.5）：窗口 = **逻辑屏幕 794×450** × N，逻辑屏幕本身不动（UI/世界照旧在
+  逻辑像素里画）—— contain/缩放/输入换算全在宿主这一侧（见上面 `--window-size` 那一条，
+  `project.godot` 的 stretch 是 `disabled`），自绘顶栏按**窗口像素**铺满整窗。
   实测：1.5× 下用**窗口坐标**点 `595,337`（= 逻辑 397,225）点中启动页，再点 `595,483` 命中主菜单
   Settings（`pages=0:entry 1:settings`）；点自绘条右端的关闭格（窗口 `1176,15`）窗口即关并打
   `[godot] exit: … pages=…`；点设置格（窗口 `1047,16`）时 `[godot] titlebar: settings (set_page)
   pages=0:stage_mode_page 1:settings` —— 条上的点击既落了动作、又没漏给底下的游戏（见「画面存档」那两张）。
+  **非等比尺寸**（窗口 `1400x500`，content `882x500+259+0`）下同样成立：窗口 `700,250`
+  = `contain⁻¹` = 逻辑 `397,225`（`--click-window` 与 `--click` 两条命令给出同一状态）、窗口
+  `1250,16` 命中设置格（`[godot] titlebar: settings (set_page) pages=0:init 1:settings`）、窗口
+  `1380,16` 命中关闭格（条宽 `bar=1400x32` ⇒ 最右那格 = 窗口 1368..1400）。
 * ⚠ 自绘条那一带在进游戏之前就被吞掉（`titlebar_consume` + `set_input_as_handled()`）—— 条上的点击是
   **窗口**动作，不会漏给游戏/UI。吞的范围与 Electron 一致：**只有控件盒 + 拖拽层（0..28.8）+ 打开的弹层**；
   条底那 3.2 像素的缝在那边也是漏给画布的（`.top_bar` 有 `pointer-events: none`、拖拽层只有 90% 高、
@@ -554,7 +599,7 @@ npm run godot '--' --icons D:\path\to\assets             # 那 11 张 btn_*.png 
 * ⚠ 照实记：拖拽/缩放走的是 OS 那条 API，**没能自动化验证**（要真人按住拖鼠标）；自动测过的是
   "系统边框真没了"（`[godot] window:` 行里 `size` 与 `deco`：`custom` 时 `1191x675 == 1191x675`，
   `native` 时 `794x450` 对 `810x489`，差的就是那圈装饰）、"条被画出来且有哪几个控件、画在哪"
-  （`[godot] titlebar: icons=… controls(N)=…` 那行会在集合变化时打一次；截图里逐格量过：10 格时中心
+  （`[godot] titlebar: icons=… bar=… icon=… scale=… controls(N)=…` 那行会在集合变化时打一次；截图里逐格量过：10 格时中心
   在 `871+32i+16`，9 格时在 `903+32i+16`）、"点击生效 / 不漏给游戏"（关闭格真把窗口关了；设置格真把
   `settings` 页压到第 1 层，且同一帧 `f1` 那一格从条上消失）、"悬停真的换状态"（`--hover-window` 停在
   BGM 那一格 ⇒ 音符从 15 像素宽变 19 像素宽 = 0.6 → 0.8，弹层同时弹出来）、"滑杆真的写了回去"
@@ -581,10 +626,12 @@ arguments` 时打印的 usage 里那串参数是"裸值"没有标志名）。`cm
 必须显式开）—— 鼠标按下/抬起/移动/滚轮 → `LfwPointingEvent` → `HeadlessHost::emit_pointer_*`
 → `host/common/ui_input_handle.{h,cpp}` 的命中测试 → `POINTER_*` 命令 → `UINode` 分发。
 坐标换算与 UI 的绘制**互为逆**：`_draw()` 在逻辑屏幕像素里画（`GodotUINodeRenderer` 的 `_box_*`），
-逻辑视口恒为 794×450（`project.godot` 的 `stretch/mode=canvas_items`，窗口可以更大）⇒ 视口像素 = UI
-逻辑像素（`scene = x/w*2-1, -(y/h)*2+1`），窗口像素由引擎换回逻辑像素后才进 `_input`（宿主不补偿）。
+逻辑屏幕恒为 794×450（窗口可以更大；`project.godot` 的 stretch 是 `disabled` ⇒ 缩放/居中/裁剪
+由宿主自己做，见「窗口外观」）⇒ UI 逻辑像素（`scene = x/w*2-1, -(y/h)*2+1`）是**全局口径**，
+窗口像素进 `_input` 后由宿主的 `contain_transform()` 逆变换换回逻辑像素。
 注入用两个口：`--click <x>,<y>[@<frame>]` 走**逻辑**坐标、`--click-window <x>,<y>[@<frame>]` 走**窗口**
-像素（用来验证缩放换算：1.5× 下窗口 595,337 = 逻辑 397,225），与 `lfw_run --click` 同一条链。
+像素（用来验证换算：1.5× 下窗口 595,337 = 逻辑 397,225；1400×500 下窗口 700,250 = 逻辑 397,225），
+与 `lfw_run --click` 同一条链。
 它同时覆写 `create_world_renderer`（`LfwGodotHost::create_world_renderer`）返回 Godot 的世界渲染器，
 与 `create_ui_node_renderer`（每个 `UINode` 一份 `GodotUINodeRenderer`，所有权归节点）——
 后者把 UI 模型树翻成**同一批**绘制项，落进世界渲染器"正在写的那一帧"（`ui_begin/append/end_layer`，
@@ -736,8 +783,11 @@ $R = (Get-Location).Path; $P = "native\host\godot\project"
 
 `--screenshot <file.png> --shot-frame N`：推够 N 帧后把视口存成 PNG（`--shot-frame` 缺省 120）。
 ⚠ **不加 `--headless`** —— headless 没有渲染，存出来是空白（`Viewport::get_texture()->get_image()`
-拿到空图）。⚠ 路径写**绝对路径**（cwd = 工程目录，见上面 ⚠①）。窗口与逻辑视口都是 794×450
-（`project/project.godot` 的 `display/window/size/viewport_*`）⇒ 存出来的 PNG 就是 1:1 的逻辑像素。
+拿到空图）。⚠ 路径写**绝对路径**（cwd = 工程目录，见上面 ⚠①）。
+⚠ stretch 关掉之后（见「窗口外观」）**视口 = 整个窗口** ⇒ 存出来的 PNG 就是**整窗**：
+黑边 + 自绘顶栏 + 画面都在里面，尺寸 = 窗口像素（`794×450` 的窗口就是 1:1 的逻辑像素；
+`1191×675` 的缺省窗口是 1.5× 的放大图；`1400×500` 那种非等比窗口是 `1400x500` + 左右各 259 黑边）。
+（切片之前抓的是"内容区"：非等比窗口下顶栏与黑边都不在图里 —— 用户看不出条被切掉了。）
 
 ```
 $R = (Get-Location).Path; $P = "native\host\godot\project"
@@ -1037,6 +1087,28 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
   - `titlebar-volume-drag.png`（同一条命令再补一次**窗口坐标**点击 `951,100`）—— 点在滑杆上：滑块/填充
     落到约 **31%**（`1 - (100-42)/84`），画面上的位置读的正是 `lfw.sounds_bgm_volume()`（宿主那位）
     ⇒ 拖动真的写回了 `sounds_set_bgm_volume`；同一张图里 BGM 那格已回到 0.6（指针在弹层上，不在按钮上）。
+- `window-1400x500.png` / `window-1191x900.png` / `window-1191x675.png`（第 300 帧，`--titlebar custom`）
+  —— **这一刀修的那个 bug**（"拉长窗口后，有按钮显示不了"）：切片的画布被 letterbox 关在内容区里
+  （视口纹理本身就只等于内容区），自绘条画到窗口右端也被切掉。三张都是**整窗**截图，条铺满整窗宽、
+  控件贴**窗口**右上角：
+  - `window-1400x500.png`（非等比窗口）—— 内容 `882x500+259+0` 居中、左右各 259 黑边，
+    8 个控件全在窗口右上角（`bar=1400x32`）。
+  - `window-1191x900.png`（**用户那种"拉高"的窗口**）—— 内容 `1191x675+0+113` 居中，条在最顶上一行。
+  - `window-1191x675.png`（缺省 1.5×）—— 内容 = 窗口、没有黑边；这张与切片之前的同名截图
+    **逐像素相同**（0 像素差）⇒ 等比窗口下的渲染没被这一刀碰过。
+- `window-dpi-auto.png` / `window-dpi-1p5.png`（`1191x675` + 一条 `--hover-window 300,10@60` 把
+  `.wails_drag` 高亮那一层画出来）—— **顶栏尺寸不变式 + DPI 那一档**的实测：前者用屏幕自己的缩放
+  （本机 **1.000**，与 `--display-scale 1` 逐像素相同），后者 `--display-scale 1.5` 强制 1.5 倍。
+  与 `--titlebar none` 的同一帧相减（差值就是条自己画的像素）量到：拖拽层高 **29 px → 43 px**
+  （28.8×1 → 28.8×1.5），图标轮廓 **17×239 px → 26×359 px**（比值 1.53 / 1.50），
+  而 `titlebar:` 那行的 `icon=19.2` 与条高 `32` **两档一样**（只有 `scale=` 从 1.000 变 1.500）⇒
+  条与图只随显示缩放放大、不随窗口尺寸变。命中同样跟着缩放走：`--display-scale 1.5` 下窗口
+  `975,16` 命中 `settings`、`1167,16` 命中 `close`（见「窗口外观」那张表）。
+- `window-clip-probe.png`（`1400x500` + `--clip-probe`）—— **游戏那一层真的被裁在内容矩形里**的量化
+  证据：贴着逻辑屏幕边界**内外各 8 像素**画的洋红圈，只有边界**里面**那半圈出现（左边界内 4536 像素
+  洋红、两条黑边里 **0** 像素；`1191x900` 的上下黑边同理 12 / 0）⇒ 逻辑屏幕外的绘制不会漏进黑边。
+- `window-bug-before-1400x500.png` —— **修之前**同一条命令抓出来的样子（对照用：那时截图只有内容区
+  882×500，右上角那一簇按钮压根不在图里、画面上也被切掉）。
 
 开窗截图的跑法（**别加 `--headless`**；`--ui-page` 是"装载后点进这一页"，缺省就是数据自己的首页 `init`）：
 
@@ -1108,6 +1180,28 @@ $tk_args = @(); foreach ($k in $cheat) { $tk_args += @('--key', $k) }
     --zip "$R\native\build\host-data\prel" --click '397,225@10' --hover-window '951,16@1700' `
     --click-window '951,100@1740' @tk_args @key_args --frames 1900 `
     --screenshot "$R\native\host\godot\shots\titlebar-volume-drag.png" --shot-frame 1800
+# ⑤ 整窗截图那一组（这一刀修的 bug：条曾被 letterbox 切掉；三张都是**整窗**）+ 裁剪观测量。
+npm run godot '--' --titlebar custom --window-size 1400x500 --frames 300 --delta 0.017 `
+    --screenshot native\host\godot\shots\window-1400x500.png --shot-frame 300
+npm run godot '--' --titlebar custom --window-size 1191x900 --frames 300 --delta 0.017 `
+    --screenshot native\host\godot\shots\window-1191x900.png --shot-frame 300
+npm run godot '--' --titlebar custom --window-scale 1.5 --frames 300 --delta 0.017 `
+    --screenshot native\host\godot\shots\window-1191x675.png --shot-frame 300
+npm run godot '--' --titlebar custom --window-size 1400x500 --frames 120 --delta 0.017 --clip-probe `
+    --screenshot native\host\godot\shots\window-clip-probe.png --shot-frame 120
+# ⑥ 顶栏尺寸不变式 + DPI 那一档（本机屏幕缩放 = 1.000 ⇒ 用 --display-scale 强制；见「窗口外观」）
+npm run godot '--' --titlebar custom --window-scale 1.5 --frames 120 --delta 0.017 `
+    --hover-window '300,10@60' --screenshot native\host\godot\shots\window-dpi-auto.png --shot-frame 120
+npm run godot '--' --titlebar custom --window-scale 1.5 --display-scale 1.5 --frames 120 --delta 0.017 `
+    --hover-window '300,10@60' --screenshot native\host\godot\shots\window-dpi-1p5.png --shot-frame 120
+#   两条配对的对照图（量差值用，不进 shots/）：同帧同场面 + `--titlebar none`
+npm run godot '--' --titlebar none --window-scale 1.5 --display-scale 1 --frames 120 --delta 0.017 `
+    --screenshot native\build\none-1.png --shot-frame 120
+npm run godot '--' --titlebar none --window-scale 1.5 --display-scale 1.5 --frames 120 --delta 0.017 `
+    --screenshot native\build\none-1p5.png --shot-frame 120
+# 修之前同一条命令抓出来的样子（只在内容区里 ⇒ 右上角按钮被切掉；留作对照）
+npm run godot '--' --titlebar custom --window-size 1400x500 --frames 300 --delta 0.017 `
+    --screenshot native\host\godot\shots\window-bug-before-1400x500.png --shot-frame 300
 ```
 
 ⚠ **顶栏那几张的坐标**：条上的一切都按**窗口像素**判（1.5× 下 = 逻辑像素 × 1.5），所以要用

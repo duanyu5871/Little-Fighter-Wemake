@@ -1728,8 +1728,8 @@ const m = await createLfw({ locateFile: (f) => `/wasm/${f}` })
 | `IZip` / `IZipObject` | `lfw/ditto/zip/i_zip.h:15-31`（`name` / `file(string)` / `file(regex)` / `md5`）、`i_zip_object.h:16-29`（`name` / `json` / `text` / `blob_url` / `array_buffer` / `image_bitmap`） | **已落地**（`host/common/zip_file.{h,cpp}`：中央目录 + stored/deflate，引擎无关）；`--zip <dir>` 那条仍走"目录当 zip"（G6）。Godot 的 `ZIPReader` 没走这条路（它的入参是 `PackedByteArray`，而包是宿主按 URL 自己读进来的） |
 | `IXML` / `IXMLElement` | `lfw/ditto/xml/i_xml.h:16`、`i_xml_element.h:35` | **不需要 Godot**：端口已有纯逻辑 `ToolXML`（`native/lfw/ditto/xml/tool_xml.*`），headless 就是这么接的（`host/headless_host.cpp:327`） |
 | `IUIEvent` | `lfw/ui/ui_event.h:14-18`（`stopped()` / `stop_propagation()` / `stop_immediate_propagation()`） | **不需要 Godot**：纯状态类（同文件 `LFWUIEvent` / `LFWPointerEvent` / `LFWKeyEvent`），输入事件在 `native/host/godot/**` 里翻译成它 |
-| 指针入径（**不在 `ILfwHost` 上**，宿主侧的注入面） | `host/headless_host.h` 的 `emit_pointer_down/move/up/cancel/click/wheel` + `emit_pointer_enter/leave` + `click_ui(x,y)`（命令走 `LFW::push_cmd`）；命中测试在 `host/common/ui_input_handle.{h,cpp}`（引擎无关，镜像 `DittoImpl/ui/HeadlessUIInputHandle.ts`） | Godot 的 `_input`（`_ready` 里 `set_process_input(true)`）：`InputEventMouseButton`（含 4 向滚轮）/ `InputEventMouseMotion` / `InputEventPanGesture` → `LfwPointingEvent` → 注入面。坐标 = **逻辑屏幕像素**（与 `_draw()` 同一套；`stretch/mode=canvas_items` 下逻辑视口恒 794×450、
-窗口像素由引擎按 `Window::get_final_transform()` 的反变换换回逻辑像素 ⇒ 视口像素 = UI 逻辑像素） |
+| 指针入径（**不在 `ILfwHost` 上**，宿主侧的注入面） | `host/headless_host.h` 的 `emit_pointer_down/move/up/cancel/click/wheel` + `emit_pointer_enter/leave` + `click_ui(x,y)`（命令走 `LFW::push_cmd`）；命中测试在 `host/common/ui_input_handle.{h,cpp}`（引擎无关，镜像 `DittoImpl/ui/HeadlessUIInputHandle.ts`） | Godot 的 `_input`（`_ready` 里 `set_process_input(true)`）：`InputEventMouseButton`（含 4 向滚轮）/ `InputEventMouseMotion` / `InputEventPanGesture` → `LfwPointingEvent` → 注入面。坐标 = **逻辑屏幕像素**（与 `_draw()` 同一套；逻辑屏幕恒 794×450，
+`project.godot` 的 stretch 是 `disabled` ⇒ 窗口像素由宿主的 `contain_transform()` 逆变换换回逻辑像素） |
 | 键盘入径（**不在 `ILfwHost` 上**，宿主侧的注入面） | `host/headless_host.h` 的 `key_down(key, device_type)` / `key_up(...)`（`times` 从 **0** 起算，重复按下递增；`_kb_callbacks` 快照迭代）+ `pressed_keys()`；`--key*` 的键名口径在 `host/common/key_code.h` | Godot 的 `_input`：`InputEventKey` → 小写 `KeyboardEvent.key`（`dom_key_of_godot`：控制键查表 + 其余走 `get_unicode()`，`Shift+A` 落回 `a`）→ 注入面；`--key <name>[@frame]` / `--key-down` / `--key-up` 是同一注入面的脚本口 |
 | `IUIImgLoaderNode` | `lfw/ui/ui_img_loader.h:20-28`（`lfw()` / `set_image(Value)` / `resize(w,h)`） | **不需要 Godot**：端口内已有 `UINodeImgAdapter`（同文件 `:72`） |
 
@@ -1752,9 +1752,21 @@ Godot 宿主也设 `WINDOW_FLAG_BORDERLESS` 并自绘顶栏（`native/host/godot
 两个音量控件的悬停竖直滑杆（`sounds_set_bgm_volume` / `sounds_set_sound_volume`）、全屏隐藏、条上点击先被
 `titlebar_consume` 吞掉（只有控件盒 + 拖拽层 + 打开的弹层吞，条底那 3.2 像素的缝照 Electron 漏给画布；
 `borderless` 在 Windows 是 `WS_POPUP` ⇒ 另留 6 像素 `window_start_resize` 带）。
-窗口默认 `1.5×`（= Electron 的 1191×675），靠 `project.godot` 的 `stretch/mode=canvas_items` 放大 ⇒
-**逻辑视口恒 794×450**，UI/世界的坐标与三条摘要都不受影响；**只有顶栏那一层按 DOM 的 CSS 像素判**
-（绘制时用 `Viewport::get_final_transform()` 的逆贴回画布）。开关：`--titlebar native|none|custom`
+窗口默认 `1.5×`（= Electron 的 1191×675）。⚠ **contain + 居中由宿主自己做**（`project.godot` 的
+`stretch/mode` 是 `disabled`）：那一档 `canvas_items` + `aspect=keep` 会把"画布"整个压进内容区、
+**渲染目标本身就只等于内容区** ⇒ 画到窗口右端的自绘顶栏被切掉、`--screenshot` 也抓不到黑边。
+现在一份矩阵（`lfw_godot_node.cpp` 的 `contain_transform()`，口径照 `Window::_update_viewport_size()`
+的 keep 分支）同时管三件事：游戏那一层的**绘制**缩放/居中、`_input()` 里窗口像素 → 逻辑像素的
+**换算**、`contain_rect()` 交给 `canvas_item_set_clip` + `custom_rect` 的**裁剪**（逻辑屏幕外的绘制
+不漏进黑边；`--clip-probe` 是它的观测量）⇒ **逻辑屏幕恒 794×450**，UI/世界的坐标与三条摘要都不受
+影响；字体过采样补成引擎在 `canvas_items` 下的自动值（`MAX(内容缩放)`）⇒ 1.5× 的文字光栅化与切片
+之前逐像素一致。**只有顶栏那一层按 DOM 的 CSS 像素判**（绘制时用 `Viewport::get_final_transform()` 的逆 ×
+`DisplayServer::screen_get_scale()` 贴回画布 —— CSS 像素是 OS 的**逻辑**像素，Godot 的窗口像素是**物理**
+像素，不换算的话 125%/150% 的屏上条会小一档；命中时除**同一个**数，`titlebar_display_scale()` 一处数字
+两条路；并用 `canvas_item_add_clip_ignore` 越过上面那条裁剪）⇒ 条铺满整窗宽、按钮贴**窗口**右上角；
+**条高 32 / 控件盒 32 / 图 19.2 / 拖拽层 28.8 / 边缘带 6 都是 CSS 常量**：既不随窗口尺寸、也不随 contain
+缩放变化，只随显示缩放整体放大（`[godot] titlebar:` 行的 `bar=` / `icon=` / `scale=` 是回归口）；
+`--screenshot` 抓的是**整窗**（黑边 + 条 + 画面）。开关：`--titlebar native|none|custom`
 （缺省 `custom`）、`--window-scale N`（缺省 1.5）、`--icons <dir>`（那 11 张 PNG 在仓库的 `src/assets`，
 **不在数据包里**）。
 
