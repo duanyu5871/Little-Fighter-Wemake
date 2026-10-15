@@ -13,7 +13,9 @@
 #include <godot_cpp/classes/display_server.hpp>
 #include <godot_cpp/classes/image.hpp>
 #include <godot_cpp/classes/engine.hpp>
+#include <godot_cpp/classes/global_constants.hpp>
 #include <godot_cpp/classes/input_event.hpp>
+#include <godot_cpp/classes/input_event_key.hpp>
 #include <godot_cpp/classes/input_event_mouse_button.hpp>
 #include <godot_cpp/classes/input_event_mouse_motion.hpp>
 #include <godot_cpp/classes/input_event_pan_gesture.hpp>
@@ -30,6 +32,7 @@
 #include <godot_cpp/variant/utility_functions.hpp>
 #include <godot_cpp/variant/vector2.hpp>
 #include <godot_cpp/variant/vector2i.hpp>
+#include "host/common/key_code.h"
 #include "host/common/lfw_boot.h"
 #include "host/common/ui_input_handle.h"
 #include "lfw/base/clock.h"
@@ -135,6 +138,8 @@ const char* LfwGodot::usage() {
          "               [--frames N] [--every N] [--time ms] [--delta seconds] [--vs]\n"
          "               [--play] [--click <x>,<y>[@<frame>]] [--click-window <x>,<y>[@<frame>]]\n"
          "               [--click-frame N] [--titlebar native|none|custom] [--window-scale N]\n"
+         "               [--key <name>[@<frame>]] [--key-down <name>[@<frame>]]\n"
+         "               [--key-up <name>[@<frame>]] [--key-frame N] [--key-tap N]\n"
          "               [--screenshot <file.png>] [--shot-frame N] [--ui-dump] [--ui-page <id>]\n"
          "  --root     import 根目录（含 builtin_data/…），可重复；缺省 `.`\n"
          "  --zip      数据包目录（已解包），可重复；按给定顺序 load\n"
@@ -147,6 +152,12 @@ const char* LfwGodot::usage() {
          "             坐标是 UI 逻辑像素（左上原点、794×450 那套，与截图 1:1）。可重复。\n"
          "  --click-window  同上，但坐标是**窗口像素**：走 `push_input(ev, local=false)` ⇒ 引擎按\n"
          "             窗口缩放反算回逻辑像素（与 OS 点击同一条路）—— 证「换算对不对」用这条。\n"
+         "  --key          在第 `--key-frame` 帧（或 `@frame`）按一下（按下 + `--key-tap` 帧后抬起），\n"
+         "             走 `HeadlessHost::key_down/key_up`（与真键盘的 `_input` 同一条链）；\n"
+         "             键名取小写 `KeyboardEvent.key`（`space` / `esc` / `up` / `j`…）。可重复。\n"
+         "  --key-down/--key-up  只按下 / 只抬起（要「按住」就用这一对）。\n"
+         "  --key-frame    没写 `@frame` 的按键落在哪一帧（缺省 60）\n"
+         "  --key-tap      「按一下」的按下 → 抬起间隔（帧，缺省 2）\n"
          "  --titlebar 窗口那一套：native（系统边框）/ none（无边框、不画栏）/ custom（无边框 +\n"
          "             自绘栏：拖拽区 + 最小化/最大化/关闭）。缺省：`--play` 时 custom，其余 native。\n"
          "  --window-scale  窗口 = 逻辑视口（794×450）× N；逻辑视口不变（`project.godot` 的 stretch）。\n"
@@ -260,6 +271,18 @@ bool LfwGodot::parse_args(const std::vector<std::string>& argv, Args& out) const
       if (!need(i, v)) return false;
       out.click_frame = std::atoi(v.c_str());
       if (out.click_frame < 0) return false;
+    } else if (a == "--key" || a == "--key-down" || a == "--key-up") {
+      if (!need(i, v)) return false;
+      out.key_specs.push_back(Args::KeySpec{
+          a == "--key" ? "tap" : (a == "--key-down" ? "down" : "up"), v});
+    } else if (a == "--key-frame") {
+      if (!need(i, v)) return false;
+      out.key_frame = std::atoi(v.c_str());
+      if (out.key_frame < 0) return false;
+    } else if (a == "--key-tap") {
+      if (!need(i, v)) return false;
+      out.key_tap = std::atoi(v.c_str());
+      if (out.key_tap < 1) return false;
     } else if (a == "--ui-dump") {
       out.ui_dump = true;
     } else if (a == "--ui-page") {
@@ -295,6 +318,25 @@ bool LfwGodot::parse_args(const std::vector<std::string>& argv, Args& out) const
     click.window_space = true;
     out.clicks.push_back(click);
   }
+  for (const Args::KeySpec& spec : out.key_specs) {
+    const size_t at = spec.text.find('@');
+    const std::string name = at == std::string::npos ? spec.text : spec.text.substr(0, at);
+    int frame = out.key_frame;
+    if (at != std::string::npos) frame = std::atoi(spec.text.substr(at + 1).c_str());
+    if (name.empty() || frame < 0) {
+      print_error("[godot] bad --key value: " + spec.text + " (want <name>[@<frame>])");
+      return false;
+    }
+    const std::u16string key = dom_key_of_name(name);
+    if (spec.kind == "tap") {
+      out.keys.push_back(Args::KeyAt{frame, true, key});
+      out.keys.push_back(Args::KeyAt{frame + out.key_tap, false, key});
+    } else {
+      out.keys.push_back(Args::KeyAt{frame, spec.kind == "down", key});
+    }
+  }
+  std::stable_sort(out.keys.begin(), out.keys.end(),
+                   [](const Args::KeyAt& a, const Args::KeyAt& b) { return a.frame < b.frame; });
   return !out.zips.empty() && (out.play || out.frames > 0);
 }
 
@@ -544,6 +586,7 @@ void LfwGodot::_process(double p_delta) {
     const int frame = _frames;
     // `--click`：命令先入队，接着这一步的 `World::step` 消化掉 ⇒ 打完这一帧再报页面。
     Args::ClickAt* const clicked = inject_clicks(frame);
+    const Args::KeyAt* const keyed = inject_keys(frame);
     _host->push_frame(_lfw->world());
     render_world_frame(before);
     stepped = true;
@@ -552,6 +595,15 @@ void LfwGodot::_process(double p_delta) {
       char buf[256];
       std::snprintf(buf, sizeof(buf), "[godot] %s @frame %d at=(%.1f, %.1f) pages=%s",
                     clicked->window_space ? "click-win" : "click", frame, clicked->x, clicked->y,
+                    ui_pages_text().c_str());
+      print_line(buf);
+    }
+    if (keyed != nullptr) {
+      const auto pressed = _host->pressed_keys().find(keyed->key);
+      char buf[256];
+      std::snprintf(buf, sizeof(buf), "[godot] key @frame %d %s %s times=%d pages=%s", frame,
+                    keyed->down ? "down" : "up", to_utf8(keyed->key).c_str(),
+                    pressed == _host->pressed_keys().end() ? 0 : pressed->second,
                     ui_pages_text().c_str());
       print_line(buf);
     }
@@ -881,6 +933,50 @@ LfwGodot::PointerKind LfwGodot::to_pointing_event(const godot::Ref<godot::InputE
   return PointerKind::none;
 }
 
+// Godot 的 `Key` → 真 `KeyboardEvent.key`（小写；口径见 `src/DittoImpl/Keyboard.ts` 的
+// `e.key?.toLowerCase()`）。两档：① 控制键/编辑键这种「有名字」的按 DOM 名字给；
+// ② 剩下的看 `get_unicode()`（引擎已经按当前键盘布局解出了字符）——`Shift+A` 给 "A"，宿主
+// 照 TS 一样再 `.toLowerCase()`。取不到（如纯修饰键之外的死键）⇒ 空串（`LFW` 那边自然不匹配）。
+std::u16string dom_key_of_godot(const godot::Ref<godot::InputEventKey>& key) {
+  struct Entry {
+    godot::Key code;
+    const char16_t* name;
+  };
+  static const Entry kTable[] = {
+      {godot::KEY_LEFT, u"arrowleft"},     {godot::KEY_RIGHT, u"arrowright"},
+      {godot::KEY_UP, u"arrowup"},         {godot::KEY_DOWN, u"arrowdown"},
+      {godot::KEY_ENTER, u"enter"},        {godot::KEY_KP_ENTER, u"enter"},
+      {godot::KEY_ESCAPE, u"escape"},      {godot::KEY_TAB, u"tab"},
+      {godot::KEY_BACKSPACE, u"backspace"},{godot::KEY_DELETE, u"delete"},
+      {godot::KEY_INSERT, u"insert"},      {godot::KEY_HOME, u"home"},
+      {godot::KEY_END, u"end"},            {godot::KEY_PAGEUP, u"pageup"},
+      {godot::KEY_PAGEDOWN, u"pagedown"},  {godot::KEY_SHIFT, u"shift"},
+      {godot::KEY_CTRL, u"control"},       {godot::KEY_ALT, u"alt"},
+      {godot::KEY_META, u"meta"},          {godot::KEY_CAPSLOCK, u"capslock"},
+      {godot::KEY_SPACE, u" "},            {godot::KEY_PERIOD, u"."},
+      {godot::KEY_COMMA, u","},            {godot::KEY_SLASH, u"/"},
+      {godot::KEY_SEMICOLON, u";"},        {godot::KEY_APOSTROPHE, u"'"},
+      {godot::KEY_BRACKETLEFT, u"["},      {godot::KEY_BRACKETRIGHT, u"]"},
+      {godot::KEY_BACKSLASH, u"\\"},       {godot::KEY_MINUS, u"-"},
+      {godot::KEY_EQUAL, u"="},            {godot::KEY_QUOTELEFT, u"`"},
+  };
+  const godot::Key code = key->get_keycode();
+  for (const Entry& entry : kTable) {
+    if (code == entry.code) return entry.name;
+  }
+  // 功能键 F1..F12（Godot 的 `KEY_F1` 是连续的）。
+  if (code >= godot::KEY_F1 && code <= godot::KEY_F12) {
+    return u"f" + std::u16string(1, static_cast<char16_t>(u'1' + (code - godot::KEY_F1)));
+  }
+  // 其余看 `get_unicode()`（引擎已经按当前键盘布局解出了字符）：`Shift+A` 给 "A"，
+  // 这里照 TS 的 `.toLowerCase()` 再落到小写。
+  const char32_t unicode = key->get_unicode();
+  if (unicode < 32 || unicode > 0x7e) return std::u16string();
+  char16_t c = static_cast<char16_t>(unicode);
+  if (c >= u'A' && c <= u'Z') c = static_cast<char16_t>(c - u'A' + u'a');
+  return std::u16string(1, c);
+}
+
 // 平台事件进来的唯一入口。**只**推事件、不改模拟：命令入队后由下一步的 `World::step` 消化
 //（与 `lfw_run --click` 同一条路径 ⇒ 无头脚本化点击能证明这条链是通的）。
 // ⚠ 自绘标题栏那一带先吞（`titlebar_consume`）：条上/边缘的点击是**窗口**的动作，不许落到游戏/UI
@@ -889,6 +985,22 @@ void LfwGodot::_input(const godot::Ref<godot::InputEvent>& p_event) {
   if (!_running || _host == nullptr || _lfw == nullptr || p_event.is_null()) return;
   if (titlebar_consume(p_event)) {
     if (godot::Viewport* const vp = get_viewport()) vp->set_input_as_handled();
+    return;
+  }
+  // 键盘：`InputEventKey` → `KeyboardEvent.key`（DOM 口径）→ `HeadlessHost::key_down/key_up`
+  //（与 `--key` 注入、`lfw_run --key` 同一条链）。`echo` = 操作系统的重复按下 ⇒ 事件里的
+  // `times` 递增（`LFW::on_key_down` 只在 `times == 0` 时把按下翻成 `KEY_EVENT`，重复不再翻）。
+  if (const godot::Ref<godot::InputEventKey> key_event = p_event; !key_event.is_null()) {
+    const std::u16string key = dom_key_of_godot(key_event);
+    if (key.empty()) return;
+    if (key_event->is_pressed()) {
+      const bool first = _host->pressed_keys().find(key) == _host->pressed_keys().end();
+      _host->key_down(key);
+      if (first) print_line("[godot] key: down " + to_utf8(key));
+    } else {
+      _host->key_up(key);
+      print_line("[godot] key: up " + to_utf8(key));
+    }
     return;
   }
   LfwPointingEvent e;
@@ -940,6 +1052,23 @@ LfwGodot::Args::ClickAt* LfwGodot::inject_clicks(int frame) {
       _host->click_ui(*_lfw, click.x, click.y);
     }
     if (first == nullptr) first = &click;
+  }
+  return first;
+}
+
+// `--key` / `--key-down` / `--key-up`：把这一帧的按键喂进宿主。次序与 `inject_clicks` 一样 ——
+// 事件先入队（`LFW::on_key_down` 变成 `KEY_EVENT` 命令），由**这一步**的 `World::step` 消化。
+const LfwGodot::Args::KeyAt* LfwGodot::inject_keys(int frame) {
+  if (_args.keys.empty() || _host == nullptr || _lfw == nullptr) return nullptr;
+  const Args::KeyAt* first = nullptr;
+  for (const Args::KeyAt& key : _args.keys) {
+    if (key.frame != frame) continue;
+    if (key.down) {
+      _host->key_down(key.key);
+    } else {
+      _host->key_up(key.key);
+    }
+    if (first == nullptr) first = &key;
   }
   return first;
 }

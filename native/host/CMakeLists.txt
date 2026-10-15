@@ -1,7 +1,9 @@
 # headless 宿主 + 可运行入口（`lfw_run`）：把 `ILfwHost` 接到 `LFW` 上，读真实数据包推帧。
 add_executable(lfw_run
+  common/key_code.cpp
   common/lfw_boot.cpp
   common/ui_input_handle.cpp
+  common/zip_file.cpp
   fs_zip.cpp
   headless_host.cpp
   lfw_run.cpp

@@ -561,7 +561,7 @@ zip/renderer）、`IWorldRenderer`、`IPlayerInfoHost`、`IXML`/`IXMLElement`、
 - ~~`ui_component.h:125-129` `debug/warn/log` 空转 + `make_debugging` 未移植~~ **已结清（前述）**：`base/debugging.{h,cpp}` 装上真闭包体、走 `lfw().host()` 的 `debug|warn|log` 缝，
   改道过的告警也归位（`move_table_logic.cpp` 的 `warn(...)`）。TS 对位 `UIComponent.ts:53-57` +
   `base\Debugging.ts:10-29`。**S**（~30 行）
-- `headless_host.cpp:146` `md5`（注释自认「不是真 MD5」）⇔ `DittoImpl\md5.ts`(19)；`ui_load_img` 的键用它。**S**
+- ~~`headless_host.cpp:146` `md5`（注释自认「不是真 MD5」）⇔ `DittoImpl\md5.ts`(19)；`ui_load_img` 的键用它。**S**~~ **已结清**：真 MD5（RFC 1321）落在 `host/common/zip_file.cpp`（`md5_hex`），字符串按 UTF-8 喂 —— 与 SparkMD5 同值（`dist/data.zip` = 清单里的 `6143b821…`）。
 - `sounds_play*`（`headless_host.cpp:191-205` 只计数）+ `world.cpp:144` `play_sound` 默认空转 ⇔
   `Sounds.ts`122 + `Modern.ts`307 + `Fallback.ts`171。**L**
 - `NullWorldRenderer`（`headless_host.h:37-46` 只计数）⇔ `WorldRenderer.ts`392 + `EntityMainRender.ts`757。**L**
@@ -574,7 +574,9 @@ zip/renderer）、`IWorldRenderer`、`IPlayerInfoHost`、`IXML`/`IXMLElement`、
   统计行 `UI render calls: N (unhandled: M)`（D4）。**L**
 - `image_bitmap` 明确拒绝（`fs_zip.cpp:94-98`）+ `import_as_image_bitmap`（`headless_host.cpp:318-324`）⇔
   `ImageMgr.ts`404 + `handle_image_operation.ts`67。**L**
-- `FsZip` 只认**解包目录**、无 DEFLATE/中央目录（`fs_zip.h:15`）⇔ `DittoImpl\Zip.ts`154。**M**
+- ~~`FsZip` 只认**解包目录**、无 DEFLATE/中央目录（`fs_zip.h:15`）⇔ `DittoImpl\Zip.ts`154。**M**~~
+  **已结清**：真 `.zip` 在 `host/common/zip_file.{h,cpp}`（中央目录 + stored/deflate + 自带 inflate），
+  `FsZip` 保留给 `--zip <dir>` 那条路。
 - `measure_text` 近似（`headless_host.cpp:211`）⇔ `ImageMgr` / `TextMesh.ts`276（`UINode.ts:438/470` 用）。**M**
 - 细项：`dat_mgr.cpp:227` 跳过逐地形告警、`preprocess_entity_data.cpp:264` 不收集错误、
   `fighter_thumb.h:16` `on_show` 桩（`PlayerScore` 已搬、只是没接线）、`world.h:135 gen_field`。**S–M**
@@ -600,16 +602,20 @@ zip/renderer）、`IWorldRenderer`、`IPlayerInfoHost`、`IXML`/`IXMLElement`、
 **忠实的什么都不做**（`images_init` / `keyboard_init` / `pointings_init` / `*_dispose`，
 `headless_host.h:83-160`）、
 **偷工减料**（就是 K2 那张表）、**忠实且完整**（`IXML` 293+517 行 vs TS 274+62、JSON/JSON5、文件 I/O、
-`FsZip` 索引）。
+`FsZip` 索引、`host/common/zip_file.{h,cpp}` 的真 `.zip` + 真 MD5）。
 
 **依赖顺序（省到贵，括号=成本）**
 
 1. ~~`make_debugging`（S）~~ **已结清** —— 真 `Ditto.debug/warn/Log` 路由
    已恢复，改道过的告警已归位。
-2. 真 MD5（S）—— 抹掉一条自认的谎；真图片/zip 键的前提。
+2. ~~真 MD5（S）~~ **已结清** —— 真 MD5 在 `host/common/zip_file.cpp`（`md5_hex`），
+   走 `HeadlessHost::md5`（`ui_load_img` 的键）与 `zip_download` 的校验。
 3. 真 `IClock`/`ITimeout`/`IRenderScheduler`（S–M）—— `Ticker` 自驱，台面不必手推帧。
 4. 真 `IPlayerInfoHost` 缓存（S，`HeadlessHost` 已有真实现）—— 删掉 `FakePlayerHost` 及其 K1 覆写。
-5. 真 `IZip`（DEFLATE + 中央目录，M）—— 与第 10 步配对，`FakeZip*` 才能退。
+5. ~~真 `IZip`（DEFLATE + 中央目录，M）~~ **已结清** —— `host/common/zip_file.{h,cpp}`（stored/deflate +
+   自带 inflate + ZIP64 明确拒绝），`HeadlessHost::zip_read_blob/read_buf/download` 接上；
+   `--zip-diff` 逐条比对过 `prel.zip` 161/161、`data.zip` 633/633（名字 + 大小 + 内容 MD5）。
+   `FakeZip*` 那一簇退不退是台面的事（它们测的是 `ZipMgr` 的记账，不是读包）。
 6. `IXML` 根元素 `data`（S–M）—— `resources.h:18-46` 自己记了「脚本化标记」的偏差。
 7. ~~`IUINodeRenderer` 的接口面 + 每层调用点~~ **已结清**（D4）；**会画的 `UINodeRenderer` 实现**
    也已落地（Godot 宿主，§G2「UI 那一遍」）—— 与真 `IWorldRenderer` 分成了**两刀**（原先写"必须同刀"，
@@ -623,7 +629,8 @@ zip/renderer）、`IWorldRenderer`、`IPlayerInfoHost`、`IXML`/`IXMLElement`、
     `event.stopped()` 早退与 `KEY_EVENT` 的 `stage.control_disabled` 可真覆盖；`set_local_cursor`
     还要等光标渲染路径（`CursorRender.ts` 250）⇒ 在第 8/10 之后。
 
-**已复核**（抽查）：`headless_host.cpp` 的 `md5` 注释自认「不是真 MD5」✓；
+**已复核**（抽查）：~~`headless_host.cpp` 的 `md5` 注释自认「不是真 MD5」~~ **已不再成立**（真 MD5 已落地，
+见 §7.2 K2）；
 `create_ui_node_renderer` 默认 `nullptr`（`lfw.h:179-182`）✓；`FakeComp` 派生真 `UIComponent` 且经真
 `Factory::register_component` 注册 ✓。
 
@@ -1501,7 +1508,9 @@ JSZip 的 `file()` / `file()` + 正则索引是**同步**的（`Zip.ts:122-141`�
 
 * 键 → `LFW::on_key_down/up`（`lfw.h:411-412`；`LFW` 自己就是 `LfwKeyboardCallback`，
   `lfw.h:297-299`），注册走 `keyboard_add_callback`（`lfw.h:145`，TS 侧是
-  `Keyboard.ts:44-50` 的 `callback.add`）。
+  `Keyboard.ts:44-50` 的 `callback.add`）。**已落地**：`HeadlessHost::keyboard_add_callback`
+  把 `LFW` 登记进 `_kb_callbacks`，平台事件的一侧是 `HeadlessHost::key_down/key_up`
+  （Godot 的 `_input`、`lfw_run --key` / Godot `--key` 都走它；`times` 从 0 起算）。
 * 指针 → **端口的 `UIInputHandle` 已落地**：`host/common/ui_input_handle.{h,cpp}` 是
   `DittoImpl/ui/HeadlessUIInputHandle.ts` 的逐条镜像（在 `UINode` 模型上做矩形命中测试、
   组 `--paths/--pages/--points` 再 `push_cmd(CMD.POINTER_*)`，**无引擎类型**），注册点是
@@ -1716,11 +1725,12 @@ const m = await createLfw({ locateFile: (f) => `/wasm/${f}` })
 | `IUINodeRenderer` | `lfw/ui/ui_node_renderer.h:32-70`。接口面齐了：9 个生命周期/焦点转发（`del_self` / `on_start` / `on_stop` / `on_resume` / `on_pause` / `on_show` / `on_hide` / `on_foucs` / `on_blur`）+ 7 个渲染面（`render` / `add` / `del` / `parent` / `x` / `y` / `visible`），**全是带默认体的非纯虚**（不实现也能编过；`render` 的默认体只记 `unhandled`）。核心每帧每层调一次（`world.cpp` 的 `render_ui_layers`） | 每个 `UINode` 一个 `Control`/`CanvasItem`（需验证）；**只剩"画"没写**：递归与可见规则照 TS 哪一份实现自定（G4） |
 | `IResourcesHost` | `lfw/resources.h:30-49`（`import_as_json` / `blob_url` / `array_buffer` / `image_bitmap` / `text` + `xml_parse`）。⚠ 与 `ILfwHost` 是**两个**接口，`LFW` 同时继承它（`lfw.h:297-299`） | `import_as_*` 走 Godot 文件 API（需验证）；`image_bitmap` 得先有真解码（G7） |
 | `IPlayerInfoHost` | `lfw/player_info.h:45-56`（`cache_get` / `cache_del` / `cache_put` + `warn`） | `user://` 存档（需验证）；headless 的真实现是内存 map（`host/headless_host.cpp:221-239`） |
-| `IZip` / `IZipObject` | `lfw/ditto/zip/i_zip.h:15-31`（`name` / `file(string)` / `file(regex)` / `md5`）、`i_zip_object.h:16-29`（`name` / `json` / `text` / `blob_url` / `array_buffer` / `image_bitmap`） | 需要一个**能读 zip 的 IO 层**（Godot 侧候选：`ZIPReader`，需验证）。现在只有"目录当 zip"（G6） |
+| `IZip` / `IZipObject` | `lfw/ditto/zip/i_zip.h:15-31`（`name` / `file(string)` / `file(regex)` / `md5`）、`i_zip_object.h:16-29`（`name` / `json` / `text` / `blob_url` / `array_buffer` / `image_bitmap`） | **已落地**（`host/common/zip_file.{h,cpp}`：中央目录 + stored/deflate，引擎无关）；`--zip <dir>` 那条仍走"目录当 zip"（G6）。Godot 的 `ZIPReader` 没走这条路（它的入参是 `PackedByteArray`，而包是宿主按 URL 自己读进来的） |
 | `IXML` / `IXMLElement` | `lfw/ditto/xml/i_xml.h:16`、`i_xml_element.h:35` | **不需要 Godot**：端口已有纯逻辑 `ToolXML`（`native/lfw/ditto/xml/tool_xml.*`），headless 就是这么接的（`host/headless_host.cpp:327`） |
 | `IUIEvent` | `lfw/ui/ui_event.h:14-18`（`stopped()` / `stop_propagation()` / `stop_immediate_propagation()`） | **不需要 Godot**：纯状态类（同文件 `LFWUIEvent` / `LFWPointerEvent` / `LFWKeyEvent`），输入事件在 `native/host/godot/**` 里翻译成它 |
 | 指针入径（**不在 `ILfwHost` 上**，宿主侧的注入面） | `host/headless_host.h` 的 `emit_pointer_down/move/up/cancel/click/wheel` + `emit_pointer_enter/leave` + `click_ui(x,y)`（命令走 `LFW::push_cmd`）；命中测试在 `host/common/ui_input_handle.{h,cpp}`（引擎无关，镜像 `DittoImpl/ui/HeadlessUIInputHandle.ts`） | Godot 的 `_input`（`_ready` 里 `set_process_input(true)`）：`InputEventMouseButton`（含 4 向滚轮）/ `InputEventMouseMotion` / `InputEventPanGesture` → `LfwPointingEvent` → 注入面。坐标 = **逻辑屏幕像素**（与 `_draw()` 同一套；`stretch/mode=canvas_items` 下逻辑视口恒 794×450、
 窗口像素由引擎按 `Window::get_final_transform()` 的反变换换回逻辑像素 ⇒ 视口像素 = UI 逻辑像素） |
+| 键盘入径（**不在 `ILfwHost` 上**，宿主侧的注入面） | `host/headless_host.h` 的 `key_down(key, device_type)` / `key_up(...)`（`times` 从 **0** 起算，重复按下递增；`_kb_callbacks` 快照迭代）+ `pressed_keys()`；`--key*` 的键名口径在 `host/common/key_code.h` | Godot 的 `_input`：`InputEventKey` → 小写 `KeyboardEvent.key`（`dom_key_of_godot`：控制键查表 + 其余走 `get_unicode()`，`Shift+A` 落回 `a`）→ 注入面；`--key <name>[@frame]` / `--key-down` / `--key-up` 是同一注入面的脚本口 |
 | `IUIImgLoaderNode` | `lfw/ui/ui_img_loader.h:20-28`（`lfw()` / `set_image(Value)` / `resize(w,h)`） | **不需要 Godot**：端口内已有 `UINodeImgAdapter`（同文件 `:72`） |
 
 ⚠ 两个容易踩的点：
@@ -1848,12 +1858,13 @@ WASM 宿主已经用同一招证明过自己 —— `native/README.md:310`：**�
     这类路径解析不到（TS 找得到）。
   - Godot：`res://`（只读资源）/ `user://`（可写）/ 外部数据目录（需验证）三套模型，导出后 `res://`
     在 pck 里（需验证）。
-- ⚠ **现在的 `native/host/fs_zip.{h,cpp}` 只是"目录当 zip 用"**：`fs_zip.h:15-17` 自述「只支持「已解包的
-  包」——压缩包本体（中央目录 / DEFLATE）留到宿主 zip 那一刀」；README 的偏差表也记着
-  （`native/README.md:436`：`host/FsZip` 只吃「已解包」的目录）。`image_bitmap` 明确拒绝
-  （`host/fs_zip.cpp:94-98`）。
-  ⇒ **真 zip 就在 Godot 这一刀换掉**（G7 第 5 行）；Godot 侧有现成的 zip 读法（候选 `ZIPReader`，
-  需验证），不必自己写 DEFLATE。
+- ⚠ **`native/host/fs_zip.{h,cpp}` 只是"目录当 zip 用"**：`fs_zip.h:15-17` 自述「只支持「已解包的
+  包」」。**真 `.zip` 已经补上**：`native/host/common/zip_file.{h,cpp}`（中央目录 + stored/deflate，
+  ZIP64 明确拒绝）接在 `HeadlessHost::zip_read_blob/read_buf/download` 上，`--zip <dir>` 那条路仍走
+  `FsZip`。`image_bitmap` 仍明确拒绝（`host/fs_zip.cpp` / `host/common/zip_file.cpp`），
+  宿主自己解码（§G2 第二半）。
+  ⇒ 两种包对象在 Godot 侧都要能读字节：`GodotWorldRenderer::read_resource` 认
+  `FsZipObject` 与 `ZipFileObject` 两种（`--zip` 的目录 / 菜单 `load_data()` 装进来的真 `.zip`）。
 - 数据怎么进宿主：WASM 那套是"JS 先灌 MEMFS，**端口零改动**"（`native/README.md:318-319`）。Godot 同款
   思路：把**解包目录或 zip** 放到 Godot 读得到的地方，`FsZip` / 新的 zip 实现照旧按条目名读 ⇒ **核心零改动**。
 
@@ -1864,15 +1875,16 @@ WASM 宿主已经用同一招证明过自己 —— `native/README.md:310`：**�
 
 | # | 假货（现状，已核对代码） | Godot 侧候选（需验证） | "done" 的判据 |
 |---|---|---|---|
-| 1 | **MD5**：`host/headless_host.cpp:146-147` 注释自认「⚠ 不是真 MD5：只保证「同输入同输出」」 | 需要一份 MD5（候选 `HashingContext`，需验证） | 与 `DittoImpl/md5.ts`（SparkMD5）**逐位一致** —— DESIGN 的 W11 表把 `md5` 标成"**必须逐位**"（`DESIGN.md:1529`，理由是 `ui_load_img.cpp:65-68` 用它拼图片 key） |
+| 1 | ~~**MD5**：`host/headless_host.cpp:146-147` 注释自认「⚠ 不是真 MD5：只保证「同输入同输出」」~~ **已结清**（自写 RFC 1321，`host/common/zip_file.cpp`；Godot 的 `HashingContext` 没用上） | —— | 与 `DittoImpl/md5.ts`（SparkMD5）**逐位一致**：`dist/data.zip` = 清单里的 `6143b821a34cc4a0f0d05270f2b43e28` ✓ |
 | 2 | **sounds**：`host/headless_host.cpp:186-209` 只计数（`sounds_play` / `sounds_play_bgm` / `sounds_load`…）；`World::play_sound` 默认空转（§7.2 K2） | `AudioStreamPlayer` / `AudioStreamPlayer2D`（需验证） | `ILfwHost` 注释里那套语义（音量 clamp / 同值早退 / 变更发 `on_*_volume_changed`，`lfw.h:222-256`）落地；`sounds_play_bgm` 回一个**真能停** BGM 的闭包 |
 | 3 | **images**：`import_as_image_bitmap` 明确拒绝（`host/headless_host.cpp:318-324`）、`fs_zip.cpp:94-98` 同 | `Image` / `ImageTexture`（需验证） | `ui_image_load` 的 w/h/scale 口径对得上（`@nX` 缩放）；DESIGN 允许与 TS 有设备差，但**同设备同版本内必须稳定**（`DESIGN.md:1527`） |
 | 4 | **文本度量**：`measure_text` 近似（`host/headless_host.cpp:211`） | `Font` 度量（需验证） | 允许偏差（`DESIGN.md:1526`：允许字体/设备相关，**同设备同版本内必须稳定**）；`auto_size_by_text` 有 key 缓存（`uinode.cpp:176-201`），别每帧重算 |
-| 5 | **zip**：`FsZip` 只认解包目录、无 DEFLATE/中央目录（`host/fs_zip.h:15-17`、`native/README.md:436`） | zip 读取（候选 `ZIPReader`，需验证） | 真包（`dist/*.zip`）直接能装；`file_regex` 那 4 条固定模式（`lfw/ditto/zip/i_zip.h:33-56`）行为不变 |
+| 5 | ~~**zip**：`FsZip` 只认解包目录、无 DEFLATE/中央目录（`host/fs_zip.h:15-17`、`native/README.md:436`）~~ **已结清**（`host/common/zip_file.{h,cpp}`：中央目录 + stored/deflate + 自写 inflate；没用 Godot 的 `ZIPReader` —— 那一层要 `PackedByteArray`，而这里的包是宿主自己按 URL 读进来的） | —— | 真包（`dist/*.zip`）直接能装：`--zip-diff` 逐条比对 161/161 与 633/633（名字 + 大小 + 内容 MD5）；`file_regex` 那 4 条固定模式（`lfw/ditto/zip/i_zip.h:33-56`）行为不变 |
 | 6 | **时钟/定时器**：`ManualClock::add→0` / `NoopTimeout::add→0`（`host/headless_host.h:20-34`） | **不换！** | 换真货 = 改成"固定步长 + 注入虚拟时钟"（G3 第 2/3 条），**不是**接 Godot 的真实时间 |
 | 7 | **光标**：端口能读出指针状态（`get_pointer_cursors`，`lfw/cmds/cmd_pointer_events.cpp:362-365`），但**渲染路径没有**（`MouseShadow` 那一支；§7.2 依赖顺序第 12 条也记着 `set_local_cursor` 要等光标渲染路径） | `TextureRect` / `Node2D` 画光标（需验证） | 跟 G4 的契约走：**先有 UI 渲染面，再谈光标** |
 
-⚠ **顺序约束**（照 §7.2 那张"省到贵"表）：真 MD5 是**真图片 / zip 键的前提**；`IUINodeRenderer` 与真
+⚠ **顺序约束**（照 §7.2 那张"省到贵"表）：~~真 MD5 是**真图片 / zip 键的前提**~~（已在**核心之外**
+落地：`host/common/zip_file.cpp`）；`IUINodeRenderer` 与真
 `IWorldRenderer` 当年写成"**必须同刀**"（第 7 条）——**已实测可拆**（Godot 宿主先落世界、后落 UI，
 两次都没动核心）；sounds 与 images 排在渲染之后。**别按"哪条最容易"排期。**
 
@@ -1959,7 +1971,9 @@ WASM 宿主已经用同一招证明过自己 —— `native/README.md:310`：**�
   `host/common/ui_input_handle.{h,cpp}`（引擎无关、镜像 `HeadlessUIInputHandle.ts`）；
   Godot 侧只做"平台事件 → `LfwPointingEvent`"（`lfw_godot_node.cpp` 的 `_input`，
   坐标换算与 `_draw` 用的逻辑屏幕像素同一套）⇒ **别在 `host/godot/**` 里再写一套命中测试**，
-  也别去改端口的几何。
+  也别去改端口的几何。键盘同理：`_input` 里只把 `InputEventKey` 翻成小写
+  `KeyboardEvent.key`（`dom_key_of_godot`）再喂 `HeadlessHost::key_down/key_up` ——
+  核心只认这个字符串口径（TS 的 `Keyboard.ts` 就是这么把 DOM 键交给 `LFW` 的）。
 
 ### G10. 机检
 
@@ -2087,13 +2101,13 @@ headless 的形状，再把空实现逐个换掉（S7 的切片）—— `native
 | 需求面 | 落在哪（端口，已读） | "够用"是什么 |
 |---|---|---|
 | **窗口 / 指针（含悬停与抓取）** | `ILfwHost::pointings_init` / `pointings_add_ui_input` / `pointings_callback_add` / `…_del`（`lfw.h:143,147,153-154`）；抓取族 `pointings_grab` / `pointings_ungrab` / `pointings_grabbing`（`lfw.h:157-170`，默认体 `false` / 空 / `nullptr`）；事件形状 `LfwPointingEvent`（`lfw.h:87-95`）与 `LfwPointingsCallback`（`lfw.h:98-107`，其中 `on_pointer_move` 就是悬停） | **已落定**：命中测试在 `host/common/ui_input_handle.{h,cpp}`（引擎无关，镜像 `HeadlessUIInputHandle.ts`），`HeadlessHost::pointings_add_ui_input` 注册它、`emit_pointer_*` 是平台事件的注入面，抓取族在 `HeadlessHost` 里按 `__Pointings` 的**世代 + 持有者**语义实现；宿主只负责"平台事件 → `LfwPointingEvent`"（Godot 的 `_input`）。`on_enter/leave` 这条缝仍在 `LfwPointingsCallback` 之外（只有句柄认） |
-| **按键映射** | `LfwKeyEvent`（`lfw.h:70-76`）、`LfwKeyboardCallback`（`lfw.h:80-84`）、`keyboard_add_callback` / `keyboard_callback_add` / `…_del`（`lfw.h:145,150-151`） | 把宿主键码翻成端口认识的**字符串** `key`（核心只认字符串），按下 / 抬起各触发一次 |
+| **按键映射** | `LfwKeyEvent`（`lfw.h:70-76`）、`LfwKeyboardCallback`（`lfw.h:80-84`）、`keyboard_add_callback` / `keyboard_callback_add` / `…_del`（`lfw.h:145,150-151`） | 把宿主键码翻成端口认识的**字符串** `key`（核心只认字符串），按下 / 抬起各触发一次。**已落定**：平台键 → 小写 `KeyboardEvent.key`（`host/common/key_code.h` 的别名表 + Godot 的 `dom_key_of_godot`）→ `HeadlessHost::key_down/key_up`（`times` 从 **0** 起算，重复按下递增）→ `LFW::on_key_down` → `KEY_EVENT`；`keyboard_add_callback` 把 `LFW` 自己登记进回调表（原先空实现 ⇒ 键盘整条链没人收） |
 | **2D 精灵批** | `IWorldRenderer`（`world.h:61-68`：`add_entity` / `del_entity` / `render(dt)` / `dispose`），调用点 `world.cpp:392 / :455 / :1077 / :1308`；另有一层 `IEntityRenderer`（`entity.h:34-37`，只有 `render(dt, dfactor)`） | **保留式**：进世界建对象、出世界删对象、每帧在 `render(dt)` 里自己遍历活实体重读状态（G4 第一段）。⚠ `IEntityRenderer` 在**全仓没有任何实现**，`Entity::renderer` 也**没有赋值点**（只在 `entity.h:129` 初始化成 `nullptr`）⇒ 第一版**只能**靠 `IWorldRenderer` |
 | **文字与 `measure_text`** | `ILfwHost::measure_text(text, style)`（`lfw.h:242`）；调用点 `ui/cook_ui_info.cpp:607`、`ui/uinode.cpp:128`、`:193`（带 key 缓存，`uinode.cpp:178-201`） | 回一个 `{text, style, width, height}` 的 `Object`（形状照 `headless_host.cpp:211-219`）。headless 给的是**零尺寸** ⇒ 桌面宿主这里会**第一次**把真实布局撑开（见 S6 的跨宿主告警） |
 | **音频** | `lfw.h:208-232` 的 `sounds_*`（含音量 / 静音的 getter+setter）与 `LfwSoundsCallback`（`lfw.h:111-132`，变更事件） | 播放 / 停止 + BGM 停止闭包 + 音量 clamp 0..1 + 同值早退 + 变更发事件（语义逐条写在 `lfw.h` 的注释里）；headless 只计数（`headless_host.cpp:186-209`） |
 | **定时器与虚拟时钟** | `IClock` / `ITimeout`（`clock.h:11-27`）+ 全局槽 `set_clock` / `set_timeout`（`clock.h:36,45`）；`IRenderScheduler`（`render_scheduler.h:15-20`，槽在 `:29`） | **按 S5 装**：虚拟时钟 + 固定步长；`IRenderScheduler` **故意不装**（槽空 ⇒ `render_add` 回 0，`render_scheduler.h:32-34`） |
-| **文件与 zip** | `ILfwHost::import_as_*`（`lfw.h:250-259`）、`zip_*`（`lfw.h:269-287`）、`IZip` / `IZipObject`（`i_zip.h:15-25`、`i_zip_object.h:16-30`） | 第一版直接复用 `host/fs_zip.{h,cpp}`（目录当 zip，`fs_zip.h:14-17`）；**真 zip**（DEFLATE / 中央目录）留到 S7 的 S3 —— 与 G7 第 5 行是同一件事。⚠ `file_regex` 只认 4 条固定模式（`i_zip.h:30-58`），换宿主别去动它 |
-| **MD5** | `ILfwHost::md5`（`lfw.h:193`） | **必须与 TS 逐位一致**（W11 的判据，`DESIGN.md:1529`：`ui_load_img` 用它拼图片 key）。headless 是占位哈希（`headless_host.cpp:146-163`，注释自认"不是真 MD5"）⇒ 这是薄宿主**顺手就该换掉**的一条 |
+| **文件与 zip** | `ILfwHost::import_as_*`（`lfw.h:250-259`）、`zip_*`（`lfw.h:269-287`）、`IZip` / `IZipObject`（`i_zip.h:15-25`、`i_zip_object.h:16-30`） | 两条路并存：`host/fs_zip.{h,cpp}`（目录当 zip，`fs_zip.h:14-17`）与**真 `.zip`** `host/common/zip_file.{h,cpp}`（DEFLATE / 中央目录，已落地）。⚠ `file_regex` 只认 4 条固定模式（`i_zip.h:30-58`），换宿主别去动它 |
+| **MD5** | `ILfwHost::md5`（`lfw.h:193`） | **必须与 TS 逐位一致**（W11 的判据，`DESIGN.md:1529`：`ui_load_img` 用它拼图片 key）。headless 已有**真 MD5**（`host/common/zip_file.cpp`，与 SparkMD5 同值）⇒ 薄宿主/其它宿主直接复用 |
 | **光标表** | `get_pointer_cursors(world)`（`cmds/cmd_pointer_events.h:42`，实现 `cmd_pointer_events.cpp:362`） | 核心能**读出**当前光标，但**没有画它**的路径（§7.2 依赖顺序第 12 条、G7 第 7 行）⇒ 顺序与 Godot 一致：**先有 UI 渲染面，再谈光标** |
 | **日志** | `warn` / `error` / `log` / `debug_msg`（`lfw.h:199-205`） | 打到 stdout / stderr。⚠ `warn` 的**条数**会进摘要行（`lfw_run.cpp:352-356`），别把日志变成噪声源 |
 
@@ -2124,8 +2138,8 @@ headless 的形状，再把空实现逐个换掉（S7 的切片）—— `native
 | 该放 `native/host/common/**`（引擎中立、桌面宿主都要） | 留在各自宿主里（换引擎就换） |
 |---|---|
 | 固定步长累加器 + 注入式虚拟时钟（`ManualClock` 的形状） | 窗口 / 输入翻译、音频后端 |
-| 真 zip 的 `IZip`（`FsZip` 的真货版）+ 路径处理 | 精灵批 / 文字度量 / 光标画法 |
-| 真 MD5（与 `DittoImpl/md5.ts` 逐位一致） | 打包与部署 |
+| ~~真 zip 的 `IZip`（`FsZip` 的真货版）+ 路径处理~~ **已落地：`common/zip_file.{h,cpp}`** | 精灵批 / 文字度量 / 光标画法 |
+| ~~真 MD5（与 `DittoImpl/md5.ts` 逐位一致）~~ **已落地：`common/zip_file.cpp` 的 `md5_hex`** | 打包与部署 |
 | 装配 + 推帧 + digest 的那段"台面"入口（已落地：`common/lfw_boot.{h,cpp}`） | 引擎自己的事件循环 / 生命周期接入 |
 
 ⚠ **为什么不能放 `native/lfw/**`**：README 硬规则（`native/README.md:16-30`）与它的机检
@@ -2203,7 +2217,7 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
 |---|---|---|
 | **S1 骨架 + 假渲染器** | 起 `LFW`、收一个 `ILfwHost` 实现；时钟用 `ManualClock` 的形状、世界渲染器先用计数版（`NullWorldRenderer`）；装配照 `host/common/lfw_boot.cpp:43`（`boot_scene`）、推帧照 `lfw_run.cpp:289-295`。**已落地**：`native/host/thin/**`（`lfw_thin`）就是这一片 —— 同一批源文件 + 覆写 `create_world_renderer`，渲染器换成**录制版**（不计数、也不画）；它已经按 D1(c) 自己算 `dfactor`、自己留 `p0/p1`，`--sync-render FPS_120 --sub-render N` 能把插值那条路跑起来 | **三条摘要逐位一致** —— 唯一能证明"宿主接对了"的硬指标（录制版已实测；换渲染档位 + 一 tick 多渲染之后仍逐位一致） |
 | **S2 真 2D 绘制** | 端口 `IUINodeRenderer` 的渲染面**已补齐**（**引擎通用缺口，属核心侧**：`ui_node_renderer.h:32-70`；每层一次的调用点在 `world.cpp` 的 `render_ui_layers`）→ 剩写薄宿主的 `IWorldRenderer` / `IUINodeRenderer` | 差分台面 + lint 不退化 + **目视**一帧 UI 与世界（判据**未定**） |
-| **S3 文字度量 / 音频 / 真 zip / MD5 / 光标** | 换掉 headless 那批假货里"桌面必需"的几个：`measure_text`（`lfw.h:242`）、`sounds_*`（`lfw.h:208-232`）、真 zip、真 MD5（`lfw.h:193`）、光标（S3 表里"光标表"那一行） | MD5 与 `DittoImpl/md5.ts` **逐位一致**（可自动化）；真包能装；**三条摘要仍逐位一致** —— 换宿主最容易在这一步翻车 |
+| **S3 文字度量 / 音频 / 真 zip / MD5 / 光标** | 换掉 headless 那批假货里"桌面必需"的几个：`measure_text`（`lfw.h:242`）、`sounds_*`（`lfw.h:208-232`）、~~真 zip~~（**已落地**：`host/common/zip_file.{h,cpp}`）、~~真 MD5~~（**已落地**：同文件 `md5_hex`，与 `DittoImpl/md5.ts` 同值）、光标（S3 表里"光标表"那一行） | 剩 `measure_text` / `sounds_*` / 光标；**三条摘要仍逐位一致** —— 换宿主最容易在这一步翻车 |
 | **S4 打包** | 把薄宿主做成"双击能跑"的东西 | **需验证**：静态 / 动态链接、许可、Windows 与 Linux 的产物形态 |
 
 **风险（诚实清单）**：
@@ -10530,23 +10544,38 @@ work 打 `adw|<tag>`）、`lfgp` 全量探针（`lr/ox/wp/b1|b2(含 hp/hr/hm/fr/
 `datas` / `ui` 都有实现，但它们只被差分台面驱动过（`tests/differential/subjects/*`，自带假
 目标不大但真：装包 → 起世界 → 推帧 → 可复现摘要。
 
-### 140.1. 新增 `native/host/`（三件）
+### 140.1. 新增 `native/host/`（四件）
 
 * **`fs_zip.{h,cpp}`** —— 目录当 zip 用（`IZip` / `IZipObject` 的读盘实现）：条目名 = 相对
   `root` 的路径（`/` 分隔、字典序），`file(path)` 直查索引、`file_regex(pattern)` 复用
   `zip_name_matches`（与 TS 的正则口径一致）。`json()` 先 JSON5 再退回严格 JSON（包里的
   `.json5` 与 `.json` 走同一条），`text()` 走 `decode_utf8`，`array_buffer()` 给字节数组，
   `blob_url()` 给条目名（宿主没有 blob 层），`image_bitmap()` 明确拒绝（宿主没有位图解码）。
-  ⚠ M1 只支持**已解包**的包（压缩包本体的中央目录 / DEFLATE 留到后面那刀）。
+  ⚠ 只管**已解包**的包（`--zip <dir>`）；压缩包本体见下一条。
+* **`common/zip_file.{h,cpp}`** —— **真 `.zip`**（`IZip` / `IZipObject` 的内存实现，引擎无关）：
+  中央目录解析（EOCD 从尾巴往前扫 + 注释长度校验，ZIP64 明确拒绝）、`stored`（method 0）与
+  `deflate`（method 8，**自写 inflate**：RFC 1950/1951，含动态/固定 Huffman、adler32 校验）；
+  条目名 → `file()` / `file_regex()` 的**查表序与 TS 的 `files` 对象一致**（首次出现定位置、
+  最后一次出现定值）；`read()` 懒解压并缓存。同文件还给**真 MD5**（RFC 1321，`md5_hex`）——
+  `DittoImpl/md5.ts` 的 SparkMD5 逐位对位（字符串按 UTF-8）。
+* **`common/key_code.{h,cpp}`** —— 注入用键名 → 真 `KeyboardEvent.key`（小写 DOM 口径 + 别名表：
+  `space` / `esc` / `up`…）。`headless_host` 与 Godot 宿主的 `--key*` 共用。
 * **`headless_host.{h,cpp}`** —— `ILfwHost` 的最小可用实现：
-  - 读盘：按 `--root` 顺序找 `builtin_data/...` 这类 import 路径；
+  - 读盘：按 `--root` 顺序找 `builtin_data/...` 这类 import 路径（URL 上的 `?query` / `#hash`
+    先切掉 —— `no_cache_url` 给的 `data.zip.json?time=…` 就靠这一条才找得到文件）；
   - `xml_parse`：转发 `ToolXML`（`ToolXML::parse` 未搬 ⇒ 见 139.4）；
   - 时间：`ManualClock` + `NoopTimeout`（`add` 恒回 0 = 没有句柄）⇒ `Ticker` 自己不会走，
     帧由 app 显式推——**可复现**，也不依赖平台 raf / setInterval；
   - 渲染：`NullWorldRenderer`（只记 `add/del/render` 次数）；UI 图片给零尺寸占位并计数；
-  - 音频 / 指针：空实现（音量/静音按字段存着，回调列表成对增删）；
-  - 存档（`Ditto.Cache` / zip cache）：内存态；`md5()` 是**占位哈希**（FNV-1a ×2，同输入同
-    输出），与 `Ditto.MD5` 逐位一致那件事留到 zip 那刀；
+  - 音频：空实现（音量/静音按字段存着，回调列表成对增删）；
+  - 指针 / 键盘注入：`emit_pointer_*`（含 `UiInputHandle` 注册）与 `key_down/key_up`
+    （镜像 `Keyboard.ts` 的 `_times_map`：**第一次按下的 `times` 是 0**，`LFW::on_key_down`
+    只在 0 时翻 `KEY_EVENT`）+ `keyboard_add_callback` 把 `LFW` 自己登记进回调表；
+  - 存档（`Ditto.Cache` / zip cache / `Zip.get_stored`）：内存态；`md5()` 是**真 MD5**
+    （`common/zip_file.cpp`，与 `Ditto.MD5` 逐位一致）；
+  - `zip_read_blob` / `zip_read_buf` / `zip_download`：真 `.zip`（`common/zip_file.*`）；
+    「blob」用宿主内的**令牌**表示（TS 是 `Blob`），`zip_download` 按 URL 找本地文件 + 真 MD5
+    校验，`zip_get_stored` 是 `get_stored_download` 的内存版；
   - `lang_apply`：只切 i18n 语言表，UI 节点文本的重写留给 UI 文本那一刀。
 * **`lfw_run.cpp`** —— CLI 入口：装包 → `change_bg` → 造 `--players` 个 bot 战士（`set_team`
   / `set_hp(_max)` / `set_mp(_max)` / `set_position`（走 `Ground::segment` + `Ground::y`）
@@ -10555,6 +10584,8 @@ work 打 `adw|<tag>`）、`lfgp` 全量探针（`lr/ox/wp/b1|b2(含 hp/hr/hm/fr/
   摘要」，结尾打实体表快照与宿主统计。摘要 = 实体表（按 id 排序）的
   `position/hp/mp/team/state` 做 FNV-1a（`core/state_hash`）；这一段装配与摘要口径两个宿主
   共享（`host/common/lfw_boot.cpp` 的 `boot_scene()` / `frame_digest()`）。
+  另有两条**不推帧**的诊断口：`--click` / `--key`（脚本化输入，与平台事件同一条链）与
+  `--zip-diff <zip>,<dir>`（真 `.zip` ↔ 解包目录逐条比对：条目名 + 大小 + 内容 MD5）。
 
 ## 141. `ToolXML::parse`（XML 文本 → `IXMLElement`）
 

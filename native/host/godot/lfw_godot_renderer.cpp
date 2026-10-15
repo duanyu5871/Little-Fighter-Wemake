@@ -11,6 +11,7 @@
 #include <system_error>
 #include <vector>
 
+#include "host/common/zip_file.h"
 #include "host/fs_zip.h"
 #include "host/headless_host.h"
 #include "lfw/bg/background.h"
@@ -236,11 +237,17 @@ bool GodotWorldRenderer::read_resource(const std::string& path, std::string& out
   if (_lfw != nullptr) {
     const std::vector<IZipResult> hits = _lfw->zips().find({from_utf8(path)}, /*exact=*/true);
     for (const IZipResult& hit : hits) {
-      // 包对象是 `FsZipObject`（目录当包用）⇒ 字节直接读得出来；`image_bitmap` 那条路
+      if (hit.file == nullptr) continue;
+      std::u16string error;
+      // 包对象两种：`FsZipObject`（`--zip` 的目录当包用）与 `ZipFileObject`（**真 `.zip`**，
+      // 从菜单 `load_data()` 按 URL 加载的那条路）。两种都能直接给字节；`image_bitmap` 那条路
       // 故意拒绝（DESIGN D2），宿主自己解码。
       if (auto* const fs = dynamic_cast<FsZipObject*>(hit.file)) {
-        std::u16string error;
         if (fs->read(out, error)) return true;
+        continue;
+      }
+      if (auto* const zf = dynamic_cast<ZipFileObject*>(hit.file)) {
+        if (zf->read(out, error)) return true;
       }
     }
   }

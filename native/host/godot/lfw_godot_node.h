@@ -139,6 +139,22 @@ class LfwGodot : public Node2D {
     std::vector<std::string> click_specs;
     std::vector<std::string> window_click_specs;
     int click_frame = 60;
+    // `--key <name>[@<frame>]` / `--key-down` / `--key-up`：往宿主喂一次键盘事件
+    //（`HeadlessHost::key_down/key_up`，与真键盘走 `_input` 同一条）。键名是**小写
+    // `KeyboardEvent.key`**（`host/common/key_code.h` 的别名表：`space` / `esc` / `up`…）。
+    struct KeyAt {
+      int frame = 0;
+      bool down = true;
+      std::u16string key;
+    };
+    struct KeySpec {
+      std::string kind;  // "tap" / "down" / "up"
+      std::string text;  // 原文 `<name>[@<frame>]`
+    };
+    std::vector<KeyAt> keys;
+    std::vector<KeySpec> key_specs;
+    int key_frame = 60;
+    int key_tap = 2;  // 一次「按一下」的按下 → 抬起间隔（帧）
   };
 
   static const char* usage();
@@ -158,6 +174,8 @@ class LfwGodot : public Node2D {
   PointerKind to_pointing_event(const godot::Ref<godot::InputEvent>& event,
                                 LfwPointingEvent& out) const;
   Args::ClickAt* inject_clicks(int frame);  // `--click`：返回这一帧点过的第一个（没有则 nullptr）
+  // `--key` / `--key-down` / `--key-up`：把这一帧的按键喂进宿主（返回第一条，供日志）。
+  const Args::KeyAt* inject_keys(int frame);
   // `--click-window`：把一次完整点击按**窗口像素**推进引擎（`push_input(ev, /*local=*/false)`）。
   void push_window_click(double x, double y);
   std::string ui_pages_text() const;

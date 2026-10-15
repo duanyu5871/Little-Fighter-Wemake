@@ -39,8 +39,10 @@ add_library(lfw_godot SHARED
 
 # 与 `lfw_run`（host/CMakeLists.txt）同一批：`host/headless_host.cpp` + `fs_zip.cpp` + 共享装配。
 target_sources(lfw_godot PRIVATE
+  "${LFW_NATIVE_ROOT}/host/common/key_code.cpp"
   "${LFW_NATIVE_ROOT}/host/common/lfw_boot.cpp"
   "${LFW_NATIVE_ROOT}/host/common/ui_input_handle.cpp"
+  "${LFW_NATIVE_ROOT}/host/common/zip_file.cpp"
   "${LFW_NATIVE_ROOT}/host/fs_zip.cpp"
   "${LFW_NATIVE_ROOT}/host/headless_host.cpp"
 )

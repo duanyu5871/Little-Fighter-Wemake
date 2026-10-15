@@ -157,8 +157,11 @@ native/
     native.mjs                       configure / build / lint / test / godot（GDExtension）
     check_lfw_cpp_includes.mjs       分层规则检查
   host/                              ★ 宿主实现（M1：headless 可运行入口）
-    fs_zip.{h,cpp}                   目录当 zip 用（`IZip` / `IZipObject` 的读盘实现）
-    headless_host.{h,cpp}            `ILfwHost` 的最小可用实现 + 手动时钟/定时器 + 空渲染器
+    fs_zip.{h,cpp}                   目录当 zip 用（`IZip` / `IZipObject` 的读盘实现）：`--zip <dir>`
+    common/zip_file.{h,cpp}          **真 `.zip`**（中央目录 + stored/deflate，自带 inflate）+ 真 MD5
+                                     （RFC 1321，与 `DittoImpl/md5.ts` 的 SparkMD5 逐位一致）。引擎无关
+    common/key_code.{h,cpp}          `--key <name>` 的键名 → 真 `KeyboardEvent.key`（DOM 口径 + 别名表）
+    headless_host.{h,cpp}            `ILfwHost` 的最小可用实现 + 手动时钟/定时器 + 空渲染器 + 键盘注入
     thin/                            录制型薄宿主：headless 的超集，只把世界渲染器换成「录制」
       recording_world_renderer.{h,cpp}  `IWorldRenderer` 的录制实现（逐帧快照字段表见文件头）
       thin_host.{h,cpp}                 `ThinHost`（覆写 `create_world_renderer`）+ 推帧口（一 tick N 次）
@@ -260,7 +263,8 @@ VS Code 里也已经指好（`.vscode/settings.json`）：
 ### 跑起来（headless，`host/`）
 
 `lfw_run` 把宿主缝接到真数据上、**手动推帧**（不依赖平台的 raf / setInterval），跑完打
-每帧摘要与实体表快照。M1 只支持「已解包的包」：
+每帧摘要与实体表快照。数据包两种都能装：`--zip <dir>`（`Expand-Archive` 出来的目录）与
+**真 `.zip`**（`--root` 下按 URL 找，例如菜单里 `load_data()` 走的 `data.zip.json` → `data.zip`）。
 
 ```
 # 一次性：把包解开（目录 = 包内容）
@@ -315,6 +319,36 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
 子树的 `path(geo)v/d`（"为什么没点中"就靠它）。
 ⚠ **PowerShell 下坐标要加引号**：逗号在 PS 里是数组分隔符，`--click 397,225` 会被拆成两个参数
 （扩展会报 `bad --click value: 397 225`）⇒ 写成 `--click '397,225'` / `--click '397,225@10'`。
+
+**脚本化键盘**（选人页那种「只认键」的地方也能无头驱动）：键名取**小写 `KeyboardEvent.key`**
+（`space` / `esc` / `up` / `j`…，见 `host/common/key_code.h` 的别名表），事件走
+`HeadlessHost::key_down/key_up` → `LFW::on_key_down` → `KEY_EVENT` 命令 → UI 层 + 按键状态 +
+真人控制器（与 Godot 的 `_input` 同一条链）：
+
+```
+native\build\msvc-x64\bin\lfw_run.exe --root dist ^
+  --zip native\build\host-data\prel --frames 700 --every 100 ^
+  --click '397,225@10'          # init → entry（入口菜单；btn_game_start 自带 auto_focus）
+  --key   'j@450'               # 游戏键 a（玩家 1 的 a = DOM "j"）⇒ Game Start：装 data.zip → main_page
+  --key   's@500' --key 'j@520' # D 换焦点（→ Stage Mode）、a 按下 ⇒ stage_mode_prepare_page（八人框）
+# [key  ] frame=450 down key=j times=0 pages=0:main_page
+# [key  ] frame=520 down key=j times=0 pages=0:stage_mode_prepare_page
+```
+
+`--key <name>[@frame]` 是「按一下」（按下 + `--key-tap` 帧后抬起，缺省 2）；
+要按住不放就用 `--key-down` / `--key-up` 成对写。`--key-frame N` 给没写 `@frame` 的定帧（缺省 60）。
+⚠ 第一次按下的 `times` 是 **0**（`Keyboard.ts` 的 `_times_map` 就是 0 起算，重复按下才递增）——
+`LFW::on_key_down` 只在 `times == 0` 时把这次按下翻成 `KEY_EVENT`，所以注入器必须照这个口径发。
+
+**`--zip-diff`（真 `.zip` ↔ 解包目录逐条比对）**：条目名 + 大小 + 内容 MD5 三项全对才算过，
+差异 ⇒ 退出码 1（不跑游戏，`--root`/`--zip` 可省）：
+
+```
+native\build\msvc-x64\bin\lfw_run.exe --zip-diff 'dist\prel.zip,native\build\host-data\prel'
+# [zip-diff] dist/prel.zip vs native/build/host-data/prel: entries=161 (stored=88 deflate=73 other=0) compared=161 ok=161 missing=0 extra=0 mismatch=0
+native\build\msvc-x64\bin\lfw_run.exe --zip-diff 'dist\data.zip,native\build\host-data\data'
+# [zip-diff] dist/data.zip vs native/build/host-data/data: entries=633 (stored=469 deflate=164 other=0) compared=633 ok=633 missing=0 extra=0 mismatch=0
+```
 
 ### 跑起来（录制型薄宿主，`host/thin/`）
 
@@ -545,26 +579,48 @@ $root  = (Get-Location).Path               # 仓库根
 
 ### 开放模式现在能走到哪（照实记）
 
-从数据自己的首页 `init` 开始、只用指针（`--click` 与真鼠标走同一条链）：
+从数据自己的首页 `init` 开始，指针 + 键盘都走真事件链（`--click` / `--key` 与真鼠标/真键盘同一条）：
 
 ```
 init（启动页：CLICK ANYWHERE TO CONTINUE）-- 点任意处 --> init 的介绍动画 --> entry（入口菜单）
 entry：点 Settings           ⇒ 1:settings（层 1 压上设置页）        ✅ 指针可用
-entry：点 Game Start         ⇒ 0:loading 之后**卡住**：`load_data()` 报
-                                [host:warn] Failed to load, reason [host] import_as_json not found: data.zip.json?time=…
-main_page：点 Stage Mode     ⇒ stage_mode_prepare_page（八人/选人页）  ✅ 指针可用
-选人页：                     ❌ 只认键盘（`CharMenuLogic::on_key_down`，没有指针处理）⇒ 指针点不动
+entry：Game Start            ⇒ 0:loading → **装 `dist/data.zip`**（按 URL：剥掉 `?time=`/`?md5=`，
+                               真 MD5 校验，中央目录 + DEFLATE）→ 0:main_page     ✅ 走得通
+main_page：Stage Mode        ⇒ stage_mode_prepare_page（八人/选人框）  ✅ 指针可用
+选人页（CharMenuLogic）：     ✅ **键盘可用**（`--key` / 真键盘）：a/j 加入、L/R 换人、
+                               U 改队；倒计时走完 → "How many Computer Players?" → 电脑选人 →
+                               Game Setting；`U U a` 命中 `btn_fight` ⇒ 开打
 ```
 
-所以**从菜单点进一场对局目前走不通**，缺的不是"造人"（`GamePrepareLogic::start_game()` 已移植：
-`create_entity_with_player/_with_bot`），而是两格：
+一条命令从入口页走到**真对局**（Godot 宿主；`--play` = 不 `boot_scene`，由数据页面驱动）：
 
-1. **数据包那一格**：`Game Start` 走的是 `load_data()`（`LFW.ZIPS.slice(1)` = `data.zip.json`）——
-   宿主按 URL 找文件时**不剥 `?time=…` 这个缓存击穿尾巴**，而真读一个 `.zip`（PKZIP）也还没做
-   （`FsZip` 现在只把**目录**当包用）⇒ 这一支在登录页就停住。开窗玩时数据是 `--zip` 预装好的，
-   只有"从菜单再加载一遍"这一步走不通。
-2. **键盘那一格**：选人页（`CharMenuLogic`）与对局的 `KEY_EVENT` 都只认键（`LfwKeyboardCallback`
-   这条缝在宿主侧还没接），指针到不了那里。
+```
+$R = (Get-Location).Path; $g = "$env:USERPROFILE\Desktop\Godot_v4.7.1-stable_win64_console.exe"
+& $g --headless --path native\host\godot\project -- --play --frames 1700 --every 200 ^
+    --root "$R\dist" --zip "$R\native\build\host-data\prel" --delta 0.017 ^
+    --click '397,225@10' ^
+    --key 'j@450' --key 's@500' --key 'j@520' `      # Game Start → main_page → Stage Mode（八人框）
+    --key 'j@560' --key 'j@580' --key 'j@600' `      # a ×3：加入（FighterSel→TeamSel→Ready）⇒ 倒计时
+    … --key 'j@640' …'j@860' (10 次) `               # 倒计时里每次按 a 减 500ms ⇒ 提前结束
+    --key 'j@1000' `                                 # 选电脑人数（com_num_7）
+    --key 'j@1020' …'j@1440' (22 次) `               # 逐个电脑选人（每人 2 下）⇒ Game Setting
+    --key 'w@1520' --key 'w@1540' --key 'j@1560'     # U U a ⇒ btn_fight ⇒ start_game
+# [godot] key @frame 520 down j times=0 pages=0:stage_mode_prepare_page
+# [godot] key @frame 1560 down j times=0 pages=0:stage_mode_page
+# [godot frame   1600] entities=2 ghosts=0 hp=550.0 digest=713e8567b6313844
+```
+
+要点（都是这次接线时踩出来的）：
+
+- **`times` 从 0 起算**：`Keyboard.ts` 的 `_times_map.get(key) ?? -1` 先减后加 ⇒ 第一次按下事件里的
+  `times` 就是 0，`LFW::on_key_down` 只在 `times == 0` 时翻 `KEY_EVENT`。宿主 `key_down` 必须照这个发
+  （写成「第一次 = 1」会让所有按键静默失效）。
+- **LFW 自己要进回调表**：`keyboard_add_callback` 原先是个空实现 ⇒ `emit_key_down` 没人收。
+- **入口页的 `btn_game_start` 自带 `auto_focus`**（`entry_page.ui.xml`）⇒ 直接 `a` 就行；
+  main_page 的焦点在第一个可见按钮（VS Mode）上，**再按一次 D 才是 Stage Mode**。
+- **真 `.zip` 装进来的图要能被读**：`GodotWorldRenderer::read_resource` 原先只认
+  `FsZipObject`（`--zip` 的目录）⇒ 菜单加载的 `data.zip` 里的精灵/背景读不出来（角色画成方块）。
+  现在两种包对象都走 `read()`（真 `.zip` 的那条路经 `ZipFileObject`）。
 
 想知道开放模式没崩、还在推帧：`npm run godot '--' --play --every 300` 会每 300 帧打一行
 （实测跑到 3300 帧以上、窗口仍活着）；关窗口会有 `[godot] exit: frames=… pages=…` 一行收尾。
@@ -734,9 +790,9 @@ id 取自烹饪好的 UI 表，缺省用数据自己的首页 `init`）与 `--ui
 | `base/ValExpression` 的宿主面 | TS 的取数器是 `(e: Entity) => number`（`DEFAULT_VARS` 直接读 `e.frame.width` 等、`rand`/`pick`/`bag`/`flip` 读 `e.lfw.mt`）；端口把它收成 **Ctx 概念**：`frame_var(name)` + `mt()` | 端口没有能被 `base/` 依赖的 `Entity`（循环包含）⇒ 照 `Expression<Ctx>` 的既有约定模板化。取数器给 `double`：帧**缺字段**时 TS 拿到 `undefined`，那一支（`range(undefined, undefined)` 提前返回、`pick` 的 `v !== undefined` 过滤）端口不复现，用例只喂有值的帧（见 PROTOCOL §6.105） |
 | `preprocess_opoint` 不写回 `__gen_*` | TS 把编译出来的 `ValExpression` **挂到记录上**；端口把九组编译结果**交还调用方**（`std::map<__gen_* 名, ValExpression>`），编译失败的字段不在表里 | `Value` 只有 7 种类型装不下函数（DESIGN §9.42 的既有结论）。差分时两侧都按「把 `__gen_*` 删掉」对齐（TS 侧由 harness 删），`?? opoint.__gen_x` 的「失败保持原值」语义照旧成立 |
 | `host/`（宿主实现） | 渲染 / 音频 / 指针 / UI 图片是**空实现**（图片给零尺寸占位并计数） | 都是平台侧的东西；M1 只要「能起世界、能推帧」，它们不参与世界推进（DESIGN §140） |
-| `host/HeadlessHost::md5` | 占位哈希（FNV-1a ×2），**不是真 MD5** | 只给 `ui_load_img` 拼 key 用；与 `Ditto.MD5` 逐位一致留到 zip 那刀 |
-| `host/FsZip` | 只吃「已解包」的目录；压缩包本体（中央目录 / DEFLATE / md5 校验）未做 | M1 先用 `Expand-Archive` 出来的目录跑通（DESIGN §5） |
-| `host/` 的 `zip_*` | 下载 / 读 blob / zip 缓存一律「没有」⇒ 只走 `ZipItem{path, IZip*}` 这条**对象**加载路 | 宿主没有 blob / 下载层（DESIGN §5）；`load_zip_from_url` 那条路等 zip 那刀 |
+| `host/HeadlessHost::md5` | **真 MD5**（RFC 1321，`host/common/zip_file.cpp`），与 `Ditto.MD5`（SparkMD5）逐位一致（字符串按 UTF-8 喂） | 与 TS 的差异只剩「上游是 JS 库、这边是自写实现」这一点，值域相同 |
+| `host/FsZip` | 只吃「已解包」的目录（`--zip <dir>`）；**压缩包本体**在 `host/common/zip_file.{h,cpp}`（真 `.zip`：中央目录 + stored/deflate，ZIP64 拒绝） | 两条路并存：`--zip` 给目录、按 URL 加载的包（菜单 `load_data()`）给真 `.zip` |
+| `host/` 的 `zip_*` | 下载 / 读 blob / zip 缓存在**内存里**实现：`zip_download` 按 URL 找本地文件 + 真 MD5 校验（不匹配 ⇒ `md5 mismatch`），`zip_get_stored` 是 `get_stored_download` 的内存版（键 = `md5("lfw-partial:" + url)`），模块 `/` 缓存在 `_zip_cache` | 宿主没有 OPFS/IndexedDB/网络（DESIGN §5）；「blob」用宿主内的**令牌**表示（TS 是 `Blob`），只在本宿主内流通 |
 | `Entity.ts` 底部的模块级 `Factory.register_entity` | 端口用 `entity.cpp` 里一次**静态初始化**顶「模块副作用」 | C++ 没有模块初始化；时间点必须早于任何用户代码，差分台面靠「后注册覆盖」与 TS 对齐 |
 | `ToolXML::parse` 的实体解码 | 只解 `&amp; &lt; &gt; &quot; &apos;`；十进制/十六进制引用（`&#65;` / `&#x42;`）**照抄** | 实测 fast-xml-parser 在这套选项下就不解数字引用（DESIGN §141.2 的探针表） |
 | `ToolXML::parse` 的命名空间 | 只去 `ns:` 前缀，没有额外的 `xmlns` 处理 | 真实数据里 12 个 `.xml` 都不用命名空间（DESIGN §141.2） |
@@ -895,6 +951,16 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
   + 声音警告 + 版本号），后者是同一进程里**点了一下（397,225）之后**的入口菜单页（`entry`：
   `Little Fighter 2` 标题图、左右两张角色大脸、竖直菜单 `Game Start / Add Mods / Custom Game /
   Network Game / Settings`，`Game Start` 高亮）—— 这一对就是"指针真的接上了"的画面证据。
+- `match-char-menu.png` / `match-running.png` / `match-running-later.png` —— **从入口页进对局**
+  （`--click` + `--key` 脚本，一条命令；命令见「开放模式现在能走到哪」）：
+  - `match-char-menu.png`（第 760 帧）—— 八人框，`Player: 1 / Fighter: Davis / Team: Team 1`。
+    "Davis" 来自**数据包**（`--zip` 预装的 prel 里只有 `gim`）⇒ 这张图同时是"菜单把 `data.zip`
+    真读进来了"的证据；空槽是 `Press Attack to join!`（`CMA@4x.png`），中间是
+    `How many Computer Players?`（倒计时走完那一步）。
+  - `match-running.png`（第 1800 帧）—— 真对局：bg_2 的分层森林背景、两个角色精灵（其中一个是
+    数据包里的角色）、各自头顶血条（`Man. 1 - HP: 500`）、`STAGE 1-1` 与右下 `Stage mode (Difficult)`。
+  - `match-running-later.png`（第 2400 帧，同一场）—— 600 帧之后：右边那位 `HP: 50`（打起来了）、
+    两人位置都变了（左上的木桩怪还在原地，主角跑到右侧平台）⇒ 「在动」的证据。
 
 开窗截图的跑法（**别加 `--headless`**；`--ui-page` 是"装载后点进这一页"，缺省就是数据自己的首页 `init`）：
 
@@ -919,6 +985,28 @@ npm run godot '--' --play --click '397,225@5' `
     --zip "$R\native\build\host-data\prel" --zip "$R\native\build\host-data\data" `
     --fighter 1 --fighter 4 --stage 1 --frames 900 --delta 0.017 `
     --screenshot "$R\native\host\godot\shots\shot-stage1.png" --shot-frame 300
+# 从入口页打到真对局的三张（`--key` 脚本；`--play` = 不 `boot_scene`，由数据页面驱动）。
+# 键串 = Game Start → Stage Mode → 加入（a×3）→ 倒计时里 a×13 提前收尾 → 选电脑人数（a×1）
+#        → 逐个电脑选人（a×22）→ U U a 命中 btn_fight；写成数组省得抄三遍。
+$keys = @(
+  'j@450','s@500','j@520','j@560','j@580','j@600','j@620','j@640','j@660','j@680','j@700',
+  'j@720','j@740','j@760','j@780','j@800','j@820','j@840','j@860','j@1000','j@1020','j@1040',
+  'j@1060','j@1080','j@1100','j@1120','j@1140','j@1160','j@1180','j@1200','j@1220','j@1240',
+  'j@1260','j@1280','j@1300','j@1320','j@1340','j@1360','j@1380','j@1400','j@1420','j@1440',
+  'w@1520','w@1540','j@1560')
+$key_args = @(); foreach ($k in $keys) { $key_args += @('--key', $k) }
+& $g --path native\host\godot\project -- --play --root "$R\dist" --delta 0.017 `
+    --zip "$R\native\build\host-data\prel" --click '397,225@10' @key_args `
+    --frames 2000 --screenshot "$R\native\host\godot\shots\match-running.png" --shot-frame 1800
+& $g --path native\host\godot\project -- --play --root "$R\dist" --delta 0.017 `
+    --zip "$R\native\build\host-data\prel" --click '397,225@10' @key_args `
+    --frames 2600 --screenshot "$R\native\host\godot\shots\match-running-later.png" --shot-frame 2400
+# 选人页那一张：键串短一截（多一个 `a@580` = 换掉 Random 挑个真角色），停在第 760 帧
+$cm_keys = 'j@450 s@500 j@520 j@560 a@580 j@600 j@620 j@640 j@660 j@680 j@700 j@720' -split ' '
+$cm_args = @(); foreach ($k in $cm_keys) { $cm_args += @('--key', $k) }
+& $g --path native\host\godot\project -- --play --root "$R\dist" --delta 0.017 `
+    --zip "$R\native\build\host-data\prel" --click '397,225@10' @cm_args `
+    --frames 820 --screenshot "$R\native\host\godot\shots\match-char-menu.png" --shot-frame 760
 ```
 
 ⚠ **关于 `!launch/bg.png`**（曾经以为"数据缺件"，**不是**）：TS 的 `Ditto.Importer.get_possible_url_list`
