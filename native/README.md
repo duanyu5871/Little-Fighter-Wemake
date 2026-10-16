@@ -813,6 +813,12 @@ $R = (Get-Location).Path; $g = "$env:USERPROFILE\Desktop\Godot_v4.7.1-stable_win
 - **真 `.zip` 装进来的图要能被读**：`GodotWorldRenderer::read_resource` 原先只认
   `FsZipObject`（`--zip` 的目录）⇒ 菜单加载的 `data.zip` 里的精灵/背景读不出来（角色画成方块）。
   现在两种包对象都走 `read()`（真 `.zip` 的那条路经 `ZipFileObject`）。
+- **真键盘的坑 `--key` 量不出来**：`--key <name>` 给的就是键名，**绕过**了"平台键 → DOM 键名"
+  那一档（`dom_key_of_godot`）。真键盘必须让窗口自己收到 `InputEventKey`（`--play` + 真窗口，
+  或 `PostMessage` 真 `WM_KEYDOWN/UP`）⇒ 开放模式下 `_input` 会把**每一条**键盘事件打一行
+  `[godot] keyraw#<序号>: down|up dom='…' keycode=… phys=… uni=… echo=…`（序号连不连得上就知道
+  日志有没有丢行），`keyfocus` 那行与 `[godot frame N]` 那行都带上了 `pages=`。
+  「按攻击没反应」那个 bug 正是这条量出来的，见「2026-10-16」那节最后一条。
 
 想知道开放模式没崩、还在推帧：`npm run godot '--' --play --every 300` 会每 300 帧打一行
 （实测跑到 3300 帧以上、窗口仍活着）；关窗口会有 `[godot] exit: frames=… pages=…` 一行收尾。
@@ -830,6 +836,7 @@ $R = (Get-Location).Path; $g = "$env:USERPROFILE\Desktop\Godot_v4.7.1-stable_win
 | 4 | **世界那一遍的背景层**没有 UV 偏移动画（UI 那一遍 2026-10-16 已补） | TS 是 `BgLayerRender.render`（`BgLayerRender.ts:110-174`）：`offsetX/Y += sec*offsetAnim*`，周期 = `min(源图, 目标)`，再 `tex.offset = pos_mod(offset, 周期)/周期`；端口 `lfw_godot_renderer.cpp` 里连 `offsetAnim` 都没读 | **缺口**（照上面那份口径补一份就行：世界端没有 `anim_r` 旋转，只有 X/Y） |
 | 5 | 入口页两张背景大脸（`bg_l_face` / `bg_r_face`，各 14 帧 `RandomVisible`）落在**不同的帧**上 | 两侧取的时刻不同（Web 那次 entry 是点完 4.7s；Godot 是第 400 帧 × `--delta 0.017`）⇒ `lifetime` 不同。不是"帧选择逻辑"不一致 | 观察值，不做结论（要判定得让两边落在同一个 `lifetime`） |
 | 6 | 顶栏那一簇控件在 `main_page` 上个数可能不同 | 两侧的**显示条件**都读同一批状态（`c.bg_is_void` / `settings_page` / `first_page_init_demo` / 页栈深），但 Web 顶栏是 React 组件、Godot 是宿主自绘表；`first_page_init_demo` 只在 `/demo` 路径下为真 | 待逐格核对（截图上的小图标人眼/视觉模型都不可靠，得按 `--click-window` 逐格点） |
+| 7 | 八人框里 `Picture.set_src` 会**失败 3 次**（`[Picture::set_src]Error: type of 'IUIImgInfo.dw' must be positive integer, but got NaN`，`ignored_images` 因此 +3） | `CharMenuHead.join()` 里 `head_pic.set_src(path)` 用 `Picture.width() = props.width ?? node.w`；那一刻 `node.w`（`size.x`）是 NaN。奇怪的是同一节点的 `--ui-dump` 打出 `ui/head box=(230.0,93.0 0.0x0.0)` 而 `crop=(0.0,0.0 120.0x120.0)`（= 加载时的 `dw` 确实是 120），所以是**某个时刻尺寸被改写成 0/NaN** 之后再 `set_src` | **缺口（待查）**：先量"谁在什么时候把 `head` 的 `size` 改成 0/NaN"（`CharMenuState_*` 的布局 / `PlayerName` 那批组件的 `resize`） |
 
 ### 2026-10-16：用户玩的时候报的（都已修）
 
@@ -854,11 +861,34 @@ $R = (Get-Location).Path; $g = "$env:USERPROFILE\Desktop\Godot_v4.7.1-stable_win
   ⇒ 每个瓦片都被"挤"了一下、边缘那一行/列看起来被拉长。改成 TS 的**正模** `pos_mod`
   （`((a % b) + b) % b`，`BgLayerRender.ts` 用的就是它）⇒ 源窗口恒在 `[0, lw)`、`s + sw ≤ lw` ✓。
   与修之前同一帧相减：`mean=0.110 max=8 px>2=36548`（变化就落在图案错位的那些像素上）。
-* **"按攻击无法触发高亮 UI 的点击 / 角色选择选不了"** —— **脚本化按键复现不出来**（`--key` 与真键盘
-  进的是**同一个** `HeadlessHost::key_down/key_up`）：VS 与闯关两条准备页都测过，连按攻击
-  （`j` 或 `↓`）都能推进 `加入 → 角色(随机) → 队伍 → 倒计时`（`ui/vs_mode_prepare_page` 的
-  `player_name=1 / FighterName=随机 / player_countdown=3`）。⇒ 先按**半新半旧 dll**那条坑排查
-  （上面 ③ 的守卫就是为它加的），不是的话需要报"哪个页面 / 哪个键 / 鼠标在哪"。
+* **"按攻击无法触发高亮 UI 的点击 / 角色选择选不了 / 上下只能切前两个"（三条报的是同一个 bug）** ——
+  真因在**宿主侧把 Godot 的键**翻成 DOM 键名时的**抬起那一半**：`dom_key_of_godot` 原先只有
+  "查表（控制键）+ `get_unicode()`"两档，而 **Godot 的 `InputEventKey` 在抬起时不填 `unicode`**。
+  实测（`--play` 下新加的 `keyraw#` 诊断，一条一行原始字段）：
+  ```
+  [godot] keyraw#1: down dom='j' keycode=74 phys=4194313 uni=74 echo=0
+  [godot] keyraw#2: up   dom=''  keycode=74 phys=4194313 uni=0  echo=0   ← 抬起被静默丢掉
+  [godot] keyraw#9: down dom='enter' keycode=4194309 ... uni=0           ← 查表那档反而没事
+  ```
+  ⇒ `HeadlessHost::key_up` 从没被调用 ⇒ 那个键永远留在 `pressed_keys` 里 ⇒ 下一次按下
+  `times = prev + 1 != 0`，而 `LFW::on_key_down` **只在 `times == 0` 时翻 `KEY_EVENT`**
+  ⇒ **任何字母/数字键"按一次之后就再也不响"**。这正好对上三条抱怨：
+  `j`（玩家 1 的攻击）按第二次起无效 ⇒ "攻击键按了没反应"；`s`/`w`（玩家 1 的上下）第二次起无效
+  ⇒ "按上下只能切前两个"；选人页里连按攻击本来是 `a` 重复推进 `加入 → 角色 → 队伍 → 倒计时`
+  ⇒ "角色选择菜单也没法用了"。（`↓`/`↑` 是**有名字的**键，走查表那档，所以我头一次用 `↓`
+  脚本化对拍时没复现出来 —— 教训：**`--key` 给的是键名，绕过了"平台键 → 键名"这一档**，
+  真键盘的坑只能在真键盘（或真窗口的 `InputEventKey`）上量。）
+  修法：`dom_key_of_godot` 加第三档 —— `unicode` 为空时用 `keycode` 兜**字母/数字**
+  （`KEY_A=65`…、`KEY_0=48`…），顺手补齐**小键盘**（`KEY_KP_0..9` / `KP_PERIOD` …：DOM 的 `key`
+  与小键盘无关，而玩家 2 的攻击键正是 `0`）。改完实测（真窗口 + `PostMessage` 真 `WM_KEYDOWN/
+  UP`，一条命令走到 vs 准备页）：**6 次真按下 `j` 全部打出 `down j` + `up j` 成对**，
+  页序 `init → entry → main_page → vs_mode_prepare_page`，且准备页里每按一次 `j` 后
+  `[godot frame N] … pages=0:vs_mode_prepare_page digest=` 都变（= 状态机真的往前走），
+  最后停在"有多少个电脑玩家?"那一步 —— 存图 `shots/realkeys-vs-prepare.png`。
+  三条宿主摘要（`lfw_run` 的 3 条 + Godot 的 3 条）改前改后逐位相同。
+  顺带把诊断补齐（都只在 `--play` / `--every` 生效）：`_input` 每条键盘事件打一行
+  `keyraw#<序号>: down/up dom='…' keycode/phys/uni/echo`（序号能看出日志有没有丢行）、
+  `keyfocus` 行加上 `pages=`、`[godot frame N]` 行加上 `pages=`。
 
 ## 验收：宿主三条摘要（改完必跑）
 
@@ -1236,6 +1266,11 @@ node native/tools/shots_compare.mjs --scale 1 --blur 1 --skip-top 26 `
   + 声音警告 + 版本号），后者是同一进程里**点了一下（397,225）之后**的入口菜单页（`entry`：
   `Little Fighter 2` 标题图、左右两张角色大脸、竖直菜单 `Game Start / Add Mods / Custom Game /
   Network Game / Settings`，`Game Start` 高亮）—— 这一对就是"指针真的接上了"的画面证据。
+- `realkeys-vs-prepare.png`（第 2300 帧）—— **真键盘**（`PostMessage` 真 `WM_KEYDOWN/UP`，
+  见「2026-10-16」那条"按攻击没反应"）走到 vs 准备页的样子：`玩家: 1 / 角色: 随机 / 队伍: 无队`
+  + 中间 `有多少个电脑玩家? 0..7`，8 个槽里其余 7 个还是 `Press Attack to join!`（`CMA@4x.png`）。
+  这张是"**连按攻击真的能选到角色**"的图：从 `main_page` 起 6 次真 `j` 一路推进到这一步
+  （生成脚本：`native\build\realkeys_probe.ps1`，不进仓库）。
 - `match-char-menu.png` / `match-running.png` / `match-running-later.png` —— **从入口页进对局**
   （`--click` + `--key` 脚本，一条命令；命令见「开放模式现在能走到哪」）：
   - `match-char-menu.png`（第 760 帧）—— 八人框，`Player: 1 / Fighter: Davis / Team: Team 1`。

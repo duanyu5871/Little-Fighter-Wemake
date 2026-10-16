@@ -1730,7 +1730,7 @@ const m = await createLfw({ locateFile: (f) => `/wasm/${f}` })
 | `IUIEvent` | `lfw/ui/ui_event.h:14-18`（`stopped()` / `stop_propagation()` / `stop_immediate_propagation()`） | **不需要 Godot**：纯状态类（同文件 `LFWUIEvent` / `LFWPointerEvent` / `LFWKeyEvent`），输入事件在 `native/host/godot/**` 里翻译成它 |
 | 指针入径（**不在 `ILfwHost` 上**，宿主侧的注入面） | `host/headless_host.h` 的 `emit_pointer_down/move/up/cancel/click/wheel` + `emit_pointer_enter/leave` + `click_ui(x,y)`（命令走 `LFW::push_cmd`）；命中测试在 `host/common/ui_input_handle.{h,cpp}`（引擎无关，镜像 `DittoImpl/ui/HeadlessUIInputHandle.ts`） | Godot 的 `_input`（`_ready` 里 `set_process_input(true)`）：`InputEventMouseButton`（含 4 向滚轮）/ `InputEventMouseMotion` / `InputEventPanGesture` → `LfwPointingEvent` → 注入面。坐标 = **逻辑屏幕像素**（与 `_draw()` 同一套；逻辑屏幕恒 794×450，
 `project.godot` 的 stretch 是 `disabled` ⇒ 窗口像素由宿主的 `contain_transform()` 逆变换换回逻辑像素） |
-| 键盘入径（**不在 `ILfwHost` 上**，宿主侧的注入面） | `host/headless_host.h` 的 `key_down(key, device_type)` / `key_up(...)`（`times` 从 **0** 起算，重复按下递增；`_kb_callbacks` 快照迭代）+ `pressed_keys()`；`--key*` 的键名口径在 `host/common/key_code.h` | Godot 的 `_input`：`InputEventKey` → 小写 `KeyboardEvent.key`（`dom_key_of_godot`：控制键查表 + 其余走 `get_unicode()`，`Shift+A` 落回 `a`）→ 注入面；`--key <name>[@frame]` / `--key-down` / `--key-up` 是同一注入面的脚本口 |
+| 键盘入径（**不在 `ILfwHost` 上**，宿主侧的注入面） | `host/headless_host.h` 的 `key_down(key, device_type)` / `key_up(...)`（`times` 从 **0** 起算，重复按下递增；`_kb_callbacks` 快照迭代）+ `pressed_keys()`；`--key*` 的键名口径在 `host/common/key_code.h` | Godot 的 `_input`：`InputEventKey` → 小写 `KeyboardEvent.key`（`dom_key_of_godot`：控制键查表 + `get_unicode()`；**抬起事件没有 `unicode`**，字母/数字用 `keycode` 兜底，`Shift+A` 落回 `a`）→ 注入面；`--key <name>[@frame]` / `--key-down` / `--key-up` 是同一注入面的脚本口 |
 | `IUIImgLoaderNode` | `lfw/ui/ui_img_loader.h:20-28`（`lfw()` / `set_image(Value)` / `resize(w,h)`） | **不需要 Godot**：端口内已有 `UINodeImgAdapter`（同文件 `:72`） |
 
 ⚠ 两个容易踩的点：
@@ -1991,6 +1991,11 @@ WASM 宿主已经用同一招证明过自己 —— `native/README.md:310`：**�
   也别去改端口的几何。键盘同理：`_input` 里只把 `InputEventKey` 翻成小写
   `KeyboardEvent.key`（`dom_key_of_godot`）再喂 `HeadlessHost::key_down/key_up` ——
   核心只认这个字符串口径（TS 的 `Keyboard.ts` 就是这么把 DOM 键交给 `LFW` 的）。
+  ⚠ **抬起事件也必须翻得出同一个键名**：Godot 的 `InputEventKey` 在**抬起**时不填 `unicode`
+  （实测 `j` 的 up 是 `keycode=74 / uni=0`）⇒ 只按 `unicode` 推名字会把所有字母/数字键的**抬起
+  静默丢掉**，`Keyboard` 那边 `times` 就永远不回到 0，第二次按下被当成操作系统的重复
+  （`LFW::on_key_down` 只在 `times == 0` 时翻 `KEY_EVENT`）⇒ **按一次之后那个键就死了**。
+  所以 `dom_key_of_godot` 是"查表 → `unicode` → `keycode`（字母/数字）"三档，见 README 那条实测。
 
 ### G10. 机检
 
@@ -2118,7 +2123,7 @@ headless 的形状，再把空实现逐个换掉（S7 的切片）—— `native
 | 需求面 | 落在哪（端口，已读） | "够用"是什么 |
 |---|---|---|
 | **窗口 / 指针（含悬停与抓取）** | `ILfwHost::pointings_init` / `pointings_add_ui_input` / `pointings_callback_add` / `…_del`（`lfw.h:143,147,153-154`）；抓取族 `pointings_grab` / `pointings_ungrab` / `pointings_grabbing`（`lfw.h:157-170`，默认体 `false` / 空 / `nullptr`）；事件形状 `LfwPointingEvent`（`lfw.h:87-95`）与 `LfwPointingsCallback`（`lfw.h:98-107`，其中 `on_pointer_move` 就是悬停） | **已落定**：命中测试在 `host/common/ui_input_handle.{h,cpp}`（引擎无关，镜像 `HeadlessUIInputHandle.ts`），`HeadlessHost::pointings_add_ui_input` 注册它、`emit_pointer_*` 是平台事件的注入面，抓取族在 `HeadlessHost` 里按 `__Pointings` 的**世代 + 持有者**语义实现；宿主只负责"平台事件 → `LfwPointingEvent`"（Godot 的 `_input`）。`on_enter/leave` 这条缝仍在 `LfwPointingsCallback` 之外（只有句柄认） |
-| **按键映射** | `LfwKeyEvent`（`lfw.h:70-76`）、`LfwKeyboardCallback`（`lfw.h:80-84`）、`keyboard_add_callback` / `keyboard_callback_add` / `…_del`（`lfw.h:145,150-151`） | 把宿主键码翻成端口认识的**字符串** `key`（核心只认字符串），按下 / 抬起各触发一次。**已落定**：平台键 → 小写 `KeyboardEvent.key`（`host/common/key_code.h` 的别名表 + Godot 的 `dom_key_of_godot`）→ `HeadlessHost::key_down/key_up`（`times` 从 **0** 起算，重复按下递增）→ `LFW::on_key_down` → `KEY_EVENT`；`keyboard_add_callback` 把 `LFW` 自己登记进回调表（原先空实现 ⇒ 键盘整条链没人收） |
+| **按键映射** | `LfwKeyEvent`（`lfw.h:70-76`）、`LfwKeyboardCallback`（`lfw.h:80-84`）、`keyboard_add_callback` / `keyboard_callback_add` / `…_del`（`lfw.h:145,150-151`） | 把宿主键码翻成端口认识的**字符串** `key`（核心只认字符串），按下 / 抬起各触发一次。**已落定**：平台键 → 小写 `KeyboardEvent.key`（`host/common/key_code.h` 的别名表 + Godot 的 `dom_key_of_godot`）→ `HeadlessHost::key_down/key_up`（`times` 从 **0** 起算，重复按下递增）→ `LFW::on_key_down` → `KEY_EVENT`；`keyboard_add_callback` 把 `LFW` 自己登记进回调表（原先空实现 ⇒ 键盘整条链没人收）。⚠ **抬起也必须翻出同一个名字**（Godot 的抬起事件不填 `unicode`，见 §G9 那段 ⚠），否则 `times` 不回 0 ⇒ 那个键按一次之后永久失效 |
 | **2D 精灵批** | `IWorldRenderer`（`world.h:61-68`：`add_entity` / `del_entity` / `render(dt)` / `dispose`），调用点 `world.cpp:392 / :455 / :1077 / :1308`；另有一层 `IEntityRenderer`（`entity.h:34-37`，只有 `render(dt, dfactor)`） | **保留式**：进世界建对象、出世界删对象、每帧在 `render(dt)` 里自己遍历活实体重读状态（G4 第一段）。⚠ `IEntityRenderer` 在**全仓没有任何实现**，`Entity::renderer` 也**没有赋值点**（只在 `entity.h:129` 初始化成 `nullptr`）⇒ 第一版**只能**靠 `IWorldRenderer` |
 | **文字与 `measure_text`** | `ILfwHost::measure_text(text, style)`（`lfw.h:242`）；调用点 `ui/cook_ui_info.cpp:607`、`ui/uinode.cpp:128`、`:193`（带 key 缓存，`uinode.cpp:178-201`） | 回一个 `{text, style, width, height}` 的 `Object`（形状照 `headless_host.cpp:211-219`）。headless 给的是**零尺寸** ⇒ 桌面宿主这里会**第一次**把真实布局撑开（见 S6 的跨宿主告警） |
 | **音频** | `lfw.h:208-232` 的 `sounds_*`（含音量 / 静音的 getter+setter）与 `LfwSoundsCallback`（`lfw.h:111-132`，变更事件） | 播放 / 停止 + BGM 停止闭包 + 音量 clamp 0..1 + 同值早退 + 变更发事件（语义逐条写在 `lfw.h` 的注释里）；headless 只计数（`headless_host.cpp:186-209`） |

@@ -319,6 +319,7 @@ class LfwGodot : public Node2D {
   void report_key_focus(const std::u16string& key);
   bool _running = false;
   int _frames = 0;
+  int _key_seq = 0;  // `_input` 收到的**每一条**键盘事件（含抬起/丢弃）的序号，只为诊断
   bool _capture_pending = false;  // 这一帧要截图（上一帧的绘制已经落进视口）
   bool _captured = false;         // 截过图（只截一张）
   bool _windowed = false;         // 真窗口（headless 时 false：窗口 API 一概不碰、栏也不画）

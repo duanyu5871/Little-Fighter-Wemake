@@ -830,7 +830,7 @@ void LfwGodot::report_key_focus(const std::u16string& key) {
     }
   }
   print_line("[godot] keyfocus: key=" + to_utf8(key) + " focused=" + id +
-             " click=" + (has_click ? "yes" : "no"));
+             " click=" + (has_click ? "yes" : "no") + " pages=" + ui_pages_text());
 }
 
 void LfwGodot::_process(double p_delta) {
@@ -1941,9 +1941,10 @@ LfwGodot::PointerKind LfwGodot::to_pointing_event(const godot::Ref<godot::InputE
 }
 
 // Godot 的 `Key` → 真 `KeyboardEvent.key`（小写；口径见 `src/DittoImpl/Keyboard.ts` 的
-// `e.key?.toLowerCase()`）。两档：① 控制键/编辑键这种「有名字」的按 DOM 名字给；
-// ② 剩下的看 `get_unicode()`（引擎已经按当前键盘布局解出了字符）——`Shift+A` 给 "A"，宿主
-// 照 TS 一样再 `.toLowerCase()`。取不到（如纯修饰键之外的死键）⇒ 空串（`LFW` 那边自然不匹配）。
+// `e.key?.toLowerCase()`）。三档：① 控制键/编辑键这种「有名字」的按 DOM 名字给；② `get_unicode()`
+//（引擎已经按当前键盘布局解出了字符）——`Shift+A` 给 "A"、`Shift+1` 给 "!"，宿主照 TS 一样再
+// `.toLowerCase()`；③ 抬起事件没有 `unicode`（见下面的 ⚠）⇒ 用 `keycode` 兜字母/数字。
+// 都取不到（如纯修饰键之外的死键）⇒ 空串（`LFW` 那边自然不匹配）。
 std::u16string dom_key_of_godot(const godot::Ref<godot::InputEventKey>& key) {
   struct Entry {
     godot::Key code;
@@ -1967,21 +1968,47 @@ std::u16string dom_key_of_godot(const godot::Ref<godot::InputEventKey>& key) {
       {godot::KEY_BACKSLASH, u"\\"},       {godot::KEY_MINUS, u"-"},
       {godot::KEY_EQUAL, u"="},            {godot::KEY_QUOTELEFT, u"`"},
   };
+  // 小键盘：DOM 的 `key` 与小键盘**无关**（数字键盘 0 的 `key` 就是 "0"）；`uni` 那一档在
+  // **抬起**时是 0，只有这张表能兜住，见下面 ⚠。
+  static const Entry kKeypad[] = {
+      {godot::KEY_KP_0, u"0"}, {godot::KEY_KP_1, u"1"}, {godot::KEY_KP_2, u"2"},
+      {godot::KEY_KP_3, u"3"}, {godot::KEY_KP_4, u"4"}, {godot::KEY_KP_5, u"5"},
+      {godot::KEY_KP_6, u"6"}, {godot::KEY_KP_7, u"7"}, {godot::KEY_KP_8, u"8"},
+      {godot::KEY_KP_9, u"9"}, {godot::KEY_KP_PERIOD, u"."}, {godot::KEY_KP_DIVIDE, u"/"},
+      {godot::KEY_KP_MULTIPLY, u"*"}, {godot::KEY_KP_SUBTRACT, u"-"}, {godot::KEY_KP_ADD, u"+"},
+  };
   const godot::Key code = key->get_keycode();
   for (const Entry& entry : kTable) {
+    if (code == entry.code) return entry.name;
+  }
+  for (const Entry& entry : kKeypad) {
     if (code == entry.code) return entry.name;
   }
   // 功能键 F1..F12（Godot 的 `KEY_F1` 是连续的）。
   if (code >= godot::KEY_F1 && code <= godot::KEY_F12) {
     return u"f" + std::u16string(1, static_cast<char16_t>(u'1' + (code - godot::KEY_F1)));
   }
-  // 其余看 `get_unicode()`（引擎已经按当前键盘布局解出了字符）：`Shift+A` 给 "A"，
-  // 这里照 TS 的 `.toLowerCase()` 再落到小写。
+  // 其余看 `get_unicode()`（引擎已经按当前键盘布局解出了字符）：`Shift+A` 给 "A"，`Shift+1` 给
+  // "!"，这里照 TS 的 `.toLowerCase()` 再落到小写（⇒ 带 Shift 的标点也照 DOM 给）。
   const char32_t unicode = key->get_unicode();
-  if (unicode < 32 || unicode > 0x7e) return std::u16string();
-  char16_t c = static_cast<char16_t>(unicode);
-  if (c >= u'A' && c <= u'Z') c = static_cast<char16_t>(c - u'A' + u'a');
-  return std::u16string(1, c);
+  if (unicode >= 32 && unicode <= 0x7e) {
+    char16_t c = static_cast<char16_t>(unicode);
+    if (c >= u'A' && c <= u'Z') c = static_cast<char16_t>(c - u'A' + u'a');
+    return std::u16string(1, c);
+  }
+  // ⚠ 走到这儿就是"没字符"的键：**Godot 的抬起事件不填 `unicode`**（实测 `j` 的 `up` 是
+  // `keycode=74 / uni=0`，而 `down` 是 `keycode=74 / uni=74`）⇒ 只看 `unicode` 会让**所有字母/
+  // 数字键的抬起被静默丢掉**：`HeadlessHost::key_up` 不执行 ⇒ 那个键永远留在按下表里 ⇒
+  // 下一次按下算成操作系统的重复（`times != 0`）⇒ `LFW::on_key_down` 不再翻 `KEY_EVENT`，
+  // 表现是"攻击/移动键按一次之后就再也不响"（真人对局里还会一直持着那个键）。
+  // 字母/数字的 `keycode` 就是 ASCII（`KEY_A=65`…、`KEY_0=48`…），拿它兜底。
+  if (code >= godot::KEY_A && code <= godot::KEY_Z) {
+    return std::u16string(1, static_cast<char16_t>(code - godot::KEY_A + u'a'));
+  }
+  if (code >= godot::KEY_0 && code <= godot::KEY_9) {
+    return std::u16string(1, static_cast<char16_t>(code));
+  }
+  return std::u16string();
 }
 
 // 平台事件进来的唯一入口。**只**推事件、不改模拟：命令入队后由下一步的 `World::step` 消化
@@ -1999,6 +2026,15 @@ void LfwGodot::_input(const godot::Ref<godot::InputEvent>& p_event) {
   // `times` 递增（`LFW::on_key_down` 只在 `times == 0` 时把按下翻成 `KEY_EVENT`，重复不再翻）。
   if (const godot::Ref<godot::InputEventKey> key_event = p_event; !key_event.is_null()) {
     const std::u16string key = dom_key_of_godot(key_event);
+    if (_args.play) {
+      print_line("[godot] keyraw#" + std::to_string(++_key_seq) + ": " +
+                 (key_event->is_pressed() ? "down" : "up") + " dom='" + to_utf8(key) +
+                 "' keycode=" + std::to_string(static_cast<long long>(key_event->get_keycode())) +
+                 " phys=" +
+                 std::to_string(static_cast<long long>(key_event->get_physical_keycode())) +
+                 " uni=" + std::to_string(static_cast<long long>(key_event->get_unicode())) +
+                 " echo=" + (key_event->is_echo() ? "1" : "0"));
+    }
     if (key.empty()) return;
     if (key_event->is_pressed()) {
       const bool first = _host->pressed_keys().find(key) == _host->pressed_keys().end();
@@ -2331,9 +2367,11 @@ bool LfwGodot::capture_screenshot() {
 void LfwGodot::report_frame(int frame) const {
   const lfw::World& world = _lfw->world();
   const std::string digest = frame_digest(world, frame);
-  char buf[256];
-  std::snprintf(buf, sizeof(buf), "[godot frame %6d] entities=%zu ghosts=%zu hp=%.1f digest=%s",
-                frame, world.entities.size(), world.ghosts.size(), total_hp(world), digest.c_str());
+  char buf[384];
+  std::snprintf(buf, sizeof(buf),
+                "[godot frame %6d] entities=%zu ghosts=%zu hp=%.1f digest=%s pages=%s", frame,
+                world.entities.size(), world.ghosts.size(), total_hp(world), digest.c_str(),
+                ui_pages_text().c_str());
   print_line(buf);
 }
 
