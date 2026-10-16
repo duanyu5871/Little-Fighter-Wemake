@@ -1936,6 +1936,14 @@ WASM 宿主已经用同一招证明过自己 —— `native/README.md:310`：**�
     回退解析出条目名，字节经 `FsZipObject::read` 从数据包读（`image_bitmap` 那条拒绝路**没动**，
     核心一个字节都不碰）；三份 bg/角色/影子都是**贴了图的**（`textures=18 ok/0 fail`）。
     次序照 `WorldRenderer.render_layers`（背景层 → 影子 → 实体按组 z 远→近 → 前景层）。
+  - **背景层那几条口径**（照 TS `BgRender` / `BgLayerRender`，2026-10-16 落定，实测见
+    `README.md`「2026-10-16」那条"纯色 bg 层"）：① `dst_w/dst_h = has_pic ? (dw ?? 源图宽) : (w || width)`；
+    ② **颜色只在没有纹理时生效**（`if (!src_texture && color !== void 0) m.color.set(color)`），纯色层
+    画成一块**纯填色矩形**（`GodotDrawItem.flat`，不查纹理、不画"取不到图"的占位色块）；③ 颜色值的口径 =
+    three.js `Color.set`（**数字 = `0xRRGGBB`** / 字符串 = `#rgb`·`#rrggbb`·`rgb()`·`rgba()`），**不是** UI 那套
+    ARGB 的 `int_to_rgba`；④ `absolute` 层挂 `cam_node`（`position.x = cam_x`、y 不动）⇒ 屏幕上
+    `x ≡ info.x`、与相机/zoom 无关；非 absolute 才走 `cam*(1-zoom) + x + parallax - cam`。
+    **还没做**：`offsetAnim*` 的 UV 偏移动画、`opacity < 1`（见 `README.md` 缺口表 #4）。
   - **UI 那一遍已落定**：`native/host/godot/lfw_godot_ui_renderer.{h,cpp}`（`IUINodeRenderer` 的实现：
     锚点矩形 / 父子坐标系累计 / `z` 升序 / 可见与递归 / 图片裁剪 + `@Nx` + 平铺 + UV 动画 / **九宫格** /
     文字 / `clip_children` 求交 / `background|foreground` 两遍叠加 → 同一批**引擎无关**的绘制项，按

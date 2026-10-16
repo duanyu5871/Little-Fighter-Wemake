@@ -846,7 +846,7 @@ $R = (Get-Location).Path; $g = "$env:USERPROFILE\Desktop\Godot_v4.7.1-stable_win
 | 1 | `main_page` 菜单**少两项**：`生存排行` / `双人生存排行` | `MainMenuLogic.apply()` 按 `lfw.survival_rank_available` 显示/隐藏这两个入口（`src/LFW/ui/component/MainMenuLogic.ts:31-40`）；Web 侧由 App 调 `init_survival_rank(lfw)` 置真（`src/survival_rank.ts:243-262`，本机构建注了 `RANK_API_URL` ⇒ 列表会真的去 `lfj.gim.ink` 拉） | **缺口**：要真做就得给宿主加 HTTP 面（`get_rank_list_api` / `get_my_rank_api` / 上报），再把 `set_survival_rank_data` 灌进去 |
 | 2 | 每行文字的高度**多 1 像素**（`version_name` 15 ↔ 14、`sound_warning` 46 ↔ 44、`long_text` 88 ↔ 84），宽度已经逐项对齐（±1） | 行高口径不同：TS 是 canvas 的 `fontBoundingBoxAscent + fontBoundingBoxDescent`，端口是 `Font::get_height(size)`（Arial 上 ≈1.167em ↔ ≈1.111em）。**宽度**那一半已经修好（字族 + 四边内边距 2，见上） | 允许偏差（`DESIGN.md:1526`：字体/设备相关）；再多行节点上差到几个像素 |
 | 3 | 运行期切语言（设置页）不会更新已建出来的 UI 文本 | `set_lang` 的"重写节点文本 + 按新语言重度量"那一半在宿主侧（`ILfwHost::lang_apply`，`lfw.h:265`）；`HeadlessHost` 只切 i18n 表（`headless_host.cpp:484-489`，README 旧账）；首发语言因为设在 `load` 之前所以**不受影响** | 缺口（要照 `LFW.ts:157-197` 那三步实现：收集 → 改 `_i18n.lang` → 重度量/重设文本） |
-| 4 | **世界那一遍的背景层**没有 UV 偏移动画（UI 那一遍 2026-10-16 已补） | TS 是 `BgLayerRender.render`（`BgLayerRender.ts:110-174`）：`offsetX/Y += sec*offsetAnim*`，周期 = `min(源图, 目标)`，再 `tex.offset = pos_mod(offset, 周期)/周期`；端口 `lfw_godot_renderer.cpp` 里连 `offsetAnim` 都没读 | **缺口**（照上面那份口径补一份就行：世界端没有 `anim_r` 旋转，只有 X/Y） |
+| 4 | **世界那一遍的背景层**没有 UV 偏移动画（UI 那一遍 2026-10-16 已补），`opacity < 1` 的层也没乘（`mat.opacity` 那一档） | TS 是 `BgLayerRender.render`（`BgLayerRender.ts:110-174`）：`offsetX/Y += sec*offsetAnim*`，周期 = `min(源图, 目标)`，再 `tex.offset = pos_mod(offset, 周期)/周期`；`update_uv` 里 `opacity = info.opacity ?? 1` ⇒ `mat.opacity = opacity`。端口 `lfw_godot_renderer.cpp` 里连 `offsetAnim` 都没读、`it.a` 也恒 1 | **缺口**（照上面那份口径补一份就行：世界端没有 `anim_r` 旋转，只有 X/Y） |
 | 5 | 入口页两张背景大脸（`bg_l_face` / `bg_r_face`，各 14 帧 `RandomVisible`）落在**不同的帧**上 | 两侧取的时刻不同（Web 那次 entry 是点完 4.7s；Godot 是第 400 帧 × `--delta 0.017`）⇒ `lifetime` 不同。不是"帧选择逻辑"不一致 | 观察值，不做结论（要判定得让两边落在同一个 `lifetime`） |
 | 6 | 顶栏那一簇控件在 `main_page` 上个数可能不同 | 两侧的**显示条件**都读同一批状态（`c.bg_is_void` / `settings_page` / `first_page_init_demo` / 页栈深），但 Web 顶栏是 React 组件、Godot 是宿主自绘表；`first_page_init_demo` 只在 `/demo` 路径下为真 | 待逐格核对（截图上的小图标人眼/视觉模型都不可靠，得按 `--click-window` 逐格点） |
 
@@ -951,6 +951,39 @@ $R = (Get-Location).Path; $g = "$env:USERPROFILE\Desktop\Godot_v4.7.1-stable_win
   （`player_name geo=(170,156.5 290,175.5)`，两边 `--ui-dump` ↔ `--dump-ui` 逐位相同）的墨迹中心也在
   **230** ✓ ⇒ 两边同一条口径。纵向不动（仍是"盒顶 + padding + ascent"）：块高 ≡ 盒高时两者恒等
   （自动定尺寸的节点），显式 `size` 的节点差 ~0.5 像素。
+* **"很多 bg 有纯色且相对相机不移动的 Layer，这些 layer 渲染得不对"**（用户截图上狮林那一块"棕色台子"）
+  —— 症状：bg_2 第 7 层 `{absolute: 1, color: "rgb(16,79,16)", w/h: 794×172, x: 0, y: 194, z: -4}`
+  本该是屏幕底部那一整条深绿底块，Godot 里画成了**棕褐色块（217,135,97）** + 右边缘一条黑缝
+  （15,18,25 = 窗口底色）。`217 = 0.85×255`、`97 ≈ 0.85×0.45×255` 正是"取不到图"占位色块那条公式
+  `Color::from_hsv(hash(tag), 0.55, 0.85)` 的两个端值（`lfw_godot_node.cpp` 的 `draw_item`）。
+  三个根因：
+  ① `parse_color` 只认 `#hex`。烹饪出来的纯色层写的是 `rgb(r,g,b)` **字符串**（`dat_translator/bg_data.cpp`
+  的 `bg_color_translate`），而 `rf-lf2` 那批手写 json5 写的是**数字**（`color: 4144959` = `0x3F3F3F`）
+  ⇒ 前者解析失败、后者连图层都进不去（`str_or(color)` 给空串）。已按 three.js `Color.set` 的口径重写：
+  **数字 = `0xRRGGBB`**、字符串 = `#rgb` / `#rrggbb` / `rgb()` / `rgba()`（⚠ 别拿 UI 那套
+  `ui/utils/int_to_rgba` 当替身 —— 那个是 **ARGB**，`0x3F3F3F` 按它解出来 alpha = 0、整层透明）。
+  ② 就算颜色解出来了也白搭：纯色层没有 `flat` ⇒ 掉进"没纹理"的占位那一档（占位块压根不看 `it.r/g/b`）。
+  ③ `absolute: 1` 的层被算成 `world_x = 0` 再减相机 ⇒ 整层跟着相机跑。
+  修法（都照 TS `BgLayerRender.build_nodes/render` + `BgRender.render`）：尺寸走
+  `has_pic ? (dw ?? 源图宽) : (w || width)`（JS 的 `||`，`0` 落回后一个）；颜色**只在没有图时**生效
+  （TS `if (!src_texture && color !== void 0) m.color.set(color)`）、纯色层 `flat = true`（一块纯填色
+  矩形：不查纹理、不画占位）；`absolute` 层的坐标照 TS 挂在 `cam_node` 上（`position.x = cam_x`、`y` 不动）
+  ⇒ 屏幕上 `x` 恒 = `info.x`、**与相机和 zoom 都无关**（非 absolute 仍是
+  `cam*(1-zoom) + x + parallax - cam`）。实测：
+  - 三条宿主摘要改前改后逐位相同 ✓（渲染不碰模拟）。
+  - 世界那一遍（`--stage 0 … --vs` 第 600 帧、`cam=20.9`，与归档的 `shot-vs-stage0.png` 同一状态）：
+    底块那一遍 **794 列全部落到纯 `(16,79,16)`**（`y ∈ [250.7, 427.3]`，被前面地面图挡住的行除外）；
+    改前占位块只覆盖 `x ∈ [-20.9, 773.1]` ⇒ 右边 21 列直接露窗口底色。像素差的主项就是
+    `(217,135,97) → (16,79,16)`（30660 像素）与 `(15,18,25) → 绿`（6103 像素）。
+  - 与 Web 对拍（入口页键串走到真对局、`cam=0`；Web 侧 `native\build\bgfix\web\web-match-running.png`
+    裁 `:76,0,625,354`）整帧 `mean 35.891 → 7.217`、`px>24 100435 → 45419`（残差主要是两边对局状态/招式
+    不同）；底块 `y ∈ [255.3,427.3]`、`x ∈ [0,793.3]`，与 Web 那一带**逐像素同色**。
+  - "不跟相机跑"这条不变量：同一局里按住 `d` 走到 `cam=105.5`，底块仍覆盖 `x ∈ [0,793.3]` ✓。
+  - 顺带：以前 `--ui-page` 只能点世界之外的那些页 ⇒ 想要"只看世界那一遍"的干净图没有别的办法；
+    现在配 `--ui-page center_pause_label`（只有几个文字节点的一页）就能拿到 —— `shot-vs-stage0.png`
+    就是这么重出的（命令见「画面存档」，**改之前**那一张留在 `bg-color-before-vs-stage0.png`）。
+  - **还差**（本次没动，见缺口表 #4）：`offsetAnim*` 的 UV 偏移动画、`opacity < 1` 那两档背景层
+    （`ash_forest` 的 `ash_drop` 就是 `opacity: 0.5`）。
 
 ## 验收：宿主三条摘要（改完必跑）
 
@@ -1308,7 +1341,10 @@ node native/tools/shots_compare.mjs --scale 1 --blur 1 --skip-top 26 `
 
 跑出来的截图留在 `native/host/godot/shots/`，便于直接打开查看（生成命令见下）：
 
-- `shot-stage1.png` / `shot-vs-stage0.png` —— 世界那一遍：狮林 bg_2，两名角色（含武器与影子）
+- `shot-stage1.png` / `shot-vs-stage0.png` —— 世界那一遍：狮林 bg_2，两名角色（含武器与影子）。
+  `shot-vs-stage0.png` 2026-10-16 **重出**过（配 `--ui-page center_pause_label` 才看得干净：那一页只有几个
+  文字节点，缺省落在首页 `init` 会把整个世界盖住）；**改之前**那一张留在 `bg-color-before-vs-stage0.png`
+  —— 底下那一条是棕褐色占位块（217,135,97）+ 右侧黑缝，见「2026-10-16」那条"纯色 bg 层"。
 - **`webcmp-{init,entry,main-page,stage-prepare,match}-1191x675.png`（第 10/400/700/760/1800 帧）** ——
   **与 Web 版一一对应的那五张**（生成命令见本节末）。同名状态下 Web 那边的截图在
   `native\build\web\web-*.png`（不进仓库），归一化后的叠图 + 差值图是
@@ -1461,6 +1497,13 @@ powershell -File native\tools\win_window_modes.ps1 -Modes "native,custom,frame"
     --zip "$R\native\build\host-data\prel" --zip "$R\native\build\host-data\data" `
     --fighter 1 --fighter 4 --stage 1 --frames 900 --delta 0.017 `
     --screenshot "$R\native\host\godot\shots\shot-stage1.png" --shot-frame 300
+# 世界那一遍（同一场但 `--vs`：第 600 帧就摆好了架势）。`--ui-page center_pause_label` 是"只看世界"的
+# 钥匙：缺省那页（数据首页 `init`）会把整个画面盖住。`shot-vs-stage0.png` 就是这条重出的
+# （**改之前**那一张留作对照：`shots\bg-color-before-vs-stage0.png`）。
+& $g --path native\host\godot\project -- --root "$R\dist" --titlebar native --window-scale 1 `
+    --zip "$R\native\build\host-data\prel" --zip "$R\native\build\host-data\data" `
+    --stage 0 --fighter 1 --fighter 4 --vs --ui-page center_pause_label --frames 600 --delta 0.017 `
+    --screenshot "$R\native\host\godot\shots\shot-vs-stage0.png" --shot-frame 600
 # 从入口页打到真对局的三张（`--key` 脚本；`--play` = 不 `boot_scene`，由数据页面驱动）。
 # 键串 = Game Start → Stage Mode → 加入（a×3）→ 倒计时里 a×13 提前收尾 → 选电脑人数（a×1）
 #        → 逐个电脑选人（a×22）→ U U a 命中 btn_fight；写成数组省得抄三遍。

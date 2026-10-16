@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <functional>
@@ -55,6 +56,12 @@ double num_at(const Value& v, double fallback = 0.0) {
   return std::isnan(n) ? fallback : n;
 }
 
+// JS 的 `a || b`：`a` 是假值（缺字段 / `null` / `0` / `NaN`）时落回 `b`。
+double falsy_or(const Value& v, double fallback) {
+  const double n = num_at(v, 0.0);
+  return n == 0.0 ? fallback : n;
+}
+
 const std::u16string* as_str(const Value& v) { return std::get_if<std::u16string>(&v); }
 
 std::string str_or(const Value& v, const std::string& fallback) {
@@ -62,18 +69,19 @@ std::string str_or(const Value& v, const std::string& fallback) {
   return s != nullptr ? to_utf8(*s) : fallback;
 }
 
-// `#rgb` / `#rrggbb` / `#rrggbbaa`（数据里写的就是这一种；其它写法落回白）。
-bool parse_color(const std::string& text, double& r, double& g, double& b) {
+int hex_digit(char c) {
+  if (c >= '0' && c <= '9') return c - '0';
+  if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+  if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+  return -1;
+}
+
+// `#rgb` / `#rrggbb`（three.js `Color.setStyle` 里那两种；`#rrggbbaa` 浏览器认、three 不认）。
+bool parse_hex_color(const std::string& text, double& r, double& g, double& b) {
   if (text.size() < 4 || text[0] != '#') return false;
-  auto hex = [](char c) -> int {
-    if (c >= '0' && c <= '9') return c - '0';
-    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
-    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
-    return -1;
-  };
   const std::string body = text.substr(1);
   if (body.size() == 3 || body.size() == 4) {
-    const int h[3] = {hex(body[0]), hex(body[1]), hex(body[2])};
+    const int h[3] = {hex_digit(body[0]), hex_digit(body[1]), hex_digit(body[2])};
     if (h[0] < 0 || h[1] < 0 || h[2] < 0) return false;
     r = h[0] / 15.0;
     g = h[1] / 15.0;
@@ -81,8 +89,8 @@ bool parse_color(const std::string& text, double& r, double& g, double& b) {
     return true;
   }
   if (body.size() >= 6) {
-    const int h[6] = {hex(body[0]), hex(body[1]), hex(body[2]),
-                      hex(body[3]), hex(body[4]), hex(body[5])};
+    const int h[6] = {hex_digit(body[0]), hex_digit(body[1]), hex_digit(body[2]),
+                      hex_digit(body[3]), hex_digit(body[4]), hex_digit(body[5])};
     for (const int d : h) {
       if (d < 0) return false;
     }
@@ -92,6 +100,59 @@ bool parse_color(const std::string& text, double& r, double& g, double& b) {
     return true;
   }
   return false;
+}
+
+// `rgb(r,g,b)` / `rgba(r,g,b,a)`（a 是 0..1 小数；与 `Color.setStyle` 同一口径）。
+bool parse_rgb_call(const std::string& text, double& r, double& g, double& b, double& a) {
+  const std::size_t open = text.find('(');
+  if (open == std::string::npos || text.empty() || text.back() != ')') return false;
+  const std::string head = text.substr(0, open);
+  int want = 0;
+  if (head == "rgb") want = 3;
+  else if (head == "rgba") want = 4;
+  else return false;
+  std::vector<double> nums;
+  std::size_t at = open + 1;
+  while (at < text.size()) {
+    std::size_t comma = text.find(',', at);
+    if (comma == std::string::npos) comma = text.size();
+    const std::string piece = text.substr(at, comma - at);
+    const char* const begin = piece.c_str();
+    char* end = nullptr;
+    const double v = std::strtod(begin, &end);
+    if (end == begin) return false;
+    nums.push_back(v);
+    at = comma + 1;
+  }
+  if (static_cast<int>(nums.size()) != want) return false;
+  r = nums[0] / 255.0;
+  g = nums[1] / 255.0;
+  b = nums[2] / 255.0;
+  a = want == 4 ? nums[3] : 1.0;
+  return true;
+}
+
+// `Color.set(value)` 的口径（three.js）：**数字 = `0xRRGGBB`**、字符串 = CSS（`#rgb` / `#rrggbb` /
+// `rgb()` / `rgba()`）。⚠ 一个坑：烹饪出来的背景数据里纯色层写的是 **`rgb(r,g,b)` 字符串**
+//（`dat_translator/bg_data.cpp` 的 `bg_color_translate` 产物），而 `rf-lf2` 那批手写 json5 里
+// 写的是**数字**（`0x3F3F3F` 那种）—— 只认 `#hex` 的话这两类全都落空（数字连图层都进不去）。
+// ⚠ `ui/utils/int_to_rgba` 是 **ARGB**（那是 UI 的 `parse_rgba` 口径），背景层**不能**用它当替身：
+// `0x3F3F3F` 按 ARGB 解出来 alpha = 0（整层透明）。
+bool parse_color(const Value& value, double& r, double& g, double& b, double& a) {
+  a = 1.0;
+  if (const double* const num = std::get_if<double>(&value)) {
+    if (!std::isfinite(*num)) return false;
+    const long long hex = static_cast<long long>(*num);
+    r = static_cast<double>((hex >> 16) & 0xff) / 255.0;
+    g = static_cast<double>((hex >> 8) & 0xff) / 255.0;
+    b = static_cast<double>(hex & 0xff) / 255.0;
+    return true;
+  }
+  const std::u16string* const str = as_str(value);
+  if (str == nullptr) return false;
+  const std::string text = to_utf8(*str);
+  if (!text.empty() && text[0] == '#') return parse_hex_color(text, r, g, b);
+  return parse_rgb_call(text, r, g, b, a);
 }
 
 // PNG 的 IHDR（宽/高各 4 字节大端，偏移 16/20）：只要有头就够，不解码。
@@ -292,10 +353,13 @@ void GodotWorldRenderer::build_background(const World& world, GodotFrame& frame,
     const std::string file = str_or(lfw::field_or(info, u"file"), "");
     const Resolved& res = file.empty() ? resolve_path("") : resolve_path(file);
     const bool has_pic = !res.path.empty();
-    // 目标尺寸：有图 ⇒ `dw ?? 一倍图宽`；无图（纯色层）⇒ `w`/`width`。
+    // 目标尺寸：有图 ⇒ `dw ?? 一倍图宽`；无图（纯色层）⇒ `w || width`（JS 的 `||`：0 落回后一个）。
     const double layer_width = num_or(info, u"width");
-    const double dst_w = has_pic ? num_or(info, u"dw", res.img_w) : num_or(info, u"w", layer_width);
-    const double dst_h = has_pic ? num_or(info, u"dh", res.img_h) : num_or(info, u"h", 0.0);
+    const double dst_w = has_pic ? num_or(info, u"dw", res.img_w)
+                                 : falsy_or(lfw::field_or(info, u"w"), layer_width);
+    const double dst_h = has_pic ? num_or(info, u"dh", res.img_h)
+                                 : falsy_or(lfw::field_or(info, u"h"),
+                                            num_or(info, u"height"));
     if (!(dst_w > 0.0) || !(dst_h > 0.0)) continue;
     // 视差：`BgLayerRender.render`（非 absolute 层按相机平移）。
     const double cam_x = frame.cam_x;
@@ -303,30 +367,44 @@ void GodotWorldRenderer::build_background(const World& world, GodotFrame& frame,
                                 ? (bg_width - layer_width) * cam_x / (bg_width - frame.screen_w)
                                 : (bg_width - layer_width) * cam_x;
     const bool absolute = lfw::truthy(lfw::field_or(info, u"absolute"));
-    const double world_x = (absolute ? 0.0 : num_or(info, u"x") + (absolute ? 0.0 : parallax));
-    const double world_y = num_or(info, u"y");
-    // 背景层画在**自己那套**节点里（`BgRender.render`：`root.position = cam * (1 - zoom)`、
-    // 节点自身不缩放）⇒ 映射与实体不同：整体乘 `zoom`。缺省 `zoom = 1` 时两者一致。
+    // 节点在世界里的位置（TS `BgRender.build_nodes` + `render`）：非 absolute 层挂在
+    // `root_node`（`position = cam * (1 - zoom)` + 层自己那点视差）上，absolute 层挂在
+    // `cam_node`（`position.x = cam_x`，y 不动）上 ⇒ **absolute 层在屏幕上不随相机平移**
+    //（`cam_node` 补上的正好是相机那一段）。⚠ 这里曾经写成 `world_x = absolute ? 0 : …`，
+    // 于是 absolute 层被画到 `-cam_x` 上、跟着相机跑（2026-10-16 用户报的"纯色且相对相机不移动的
+    // Layer 渲染得不对"）。
+    const double info_x = num_or(info, u"x");
+    const double info_y = num_or(info, u"y");
+    const double node_x = absolute ? (cam_x + info_x)
+                                   : (cam_x * (1.0 - zoom_x) + info_x + parallax);
+    const double node_y = absolute ? info_y : (frame.cam_y * (1.0 - zoom_y) + info_y);
     GodotDrawItem it;
     it.kind = foreground ? "fg" : "bg";
     it.tag = str_or(lfw::field_or(info, u"name"), str_or(bg->id(), "bg"));
     it.depth = z;
-    it.x = world_x - cam_x * zoom_x;
-    it.y = frame.screen_h - (world_y - frame.cam_y * zoom_y);
+    it.x = node_x - cam_x;
+    it.y = frame.screen_h - (node_y - frame.cam_y);
     it.w = dst_w;
     it.h = dst_h;
     it.path = res.path;
     it.tex_scale = res.scale;
     it.sw = res.img_w;
     it.sh = res.img_h;
-    const std::string color = str_or(lfw::field_or(info, u"color"), "");
-    double cr = 1, cg = 1, cb = 1;
-    if (parse_color(color, cr, cg, cb)) {
+    // 颜色：TS 是 `if (!src_texture && color !== void 0) m.color.set(color)` ⇒ **有图就不看颜色**；
+    // 无图的纯色层是"一块填色"，宿主必须按 `flat` 填矩形（否则会掉进"取不到图"的占位色块那一档）。
+    const Value color_v = lfw::field_or(info, u"color");
+    const bool has_color = !std::holds_alternative<std::monostate>(color_v) &&
+                           !std::holds_alternative<NullTag>(color_v);
+    double cr = 1, cg = 1, cb = 1, ca = 1;
+    const bool color_ok = !has_pic && has_color && parse_color(color_v, cr, cg, cb, ca);
+    if (color_ok) {
       it.r = cr;
       it.g = cg;
       it.b = cb;
+      it.a = ca;
+      it.flat = true;
     }
-    if (has_pic || !color.empty()) picked.push_back(One{z, it});
+    if (has_pic || has_color) picked.push_back(One{z, it});
   }
   // 同一遍内 z 远→近（画家次序）。
   std::stable_sort(picked.begin(), picked.end(),
@@ -364,8 +442,8 @@ void GodotWorldRenderer::emit_sprite(GodotFrame& frame, const Entity& e, const V
   // 换色（`mix_color` + `mix_strength`）：宿主用第二遍 `modulate` 叠出来（见 `_draw`）。
   const double mix = e.mix_strength();
   if (mix > 0.0) {
-    double cr = 1, cg = 1, cb = 1;
-    if (parse_color(to_utf8(e.mix_color()), cr, cg, cb)) {
+    double cr = 1, cg = 1, cb = 1, ca = 1;
+    if (parse_color(e.mix_color(), cr, cg, cb, ca)) {
       it.mix_r = cr;
       it.mix_g = cg;
       it.mix_b = cb;
@@ -377,8 +455,8 @@ void GodotWorldRenderer::emit_sprite(GodotFrame& frame, const Entity& e, const V
   const double oa = e.outline_alpha();
   const double ow = e.outline_width();
   if (!oc.empty() && oa > 0.0 && lfw::truthy(e.outline_enabled()) && ow > 0.0) {
-    double cr = 0, cg = 0, cb = 0;
-    if (parse_color(oc, cr, cg, cb)) {
+    double cr = 0, cg = 0, cb = 0, ca = 1;
+    if (parse_color(e.outline_color(), cr, cg, cb, ca)) {
       it.outline_r = cr;
       it.outline_g = cg;
       it.outline_b = cb;
