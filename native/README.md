@@ -844,6 +844,12 @@ $R = (Get-Location).Path; $g = "$env:USERPROFILE\Desktop\Godot_v4.7.1-stable_win
   与 Web 版同向 ✓。⚠ 只有 `_uv_y` **反号**：TS 加的是 three.js 的 v 轴（`flipY=true` ⇒ v=0 在图底），
   而这里喂的 `crop_y` 是图顶向下的行号 —— 这条是**推导**出来的（那张网格是自相似的 32×32 平铺，
   周期内相关法分不出上下，实测不出结论），注释写在 `lfw_godot_ui_renderer.cpp` 的积分处。
+* **"bg uv 溢出变成最后一像素延申"（接在上面那条后面报的）** —— 真因是**取模的符号**：
+  `std::fmod` 跟着被除数的符号走（`fmod(-1.5, 32) == -1.5`），而 `_uv_y` 恰恰是**负**的
+  ⇒ `cy`/`sy0` 变成负数 ⇒ `draw_texture_rect_region` 的**源矩形越界**，引擎把源夹到纹理边界
+  ⇒ 每个瓦片都被"挤"了一下、边缘那一行/列看起来被拉长。改成 TS 的**正模** `pos_mod`
+  （`((a % b) + b) % b`，`BgLayerRender.ts` 用的就是它）⇒ 源窗口恒在 `[0, lw)`、`s + sw ≤ lw` ✓。
+  与修之前同一帧相减：`mean=0.110 max=8 px>2=36548`（变化就落在图案错位的那些像素上）。
 
 ## 验收：宿主三条摘要（改完必跑）
 

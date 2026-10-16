@@ -69,6 +69,14 @@ double js_round(double v) {
   return std::floor(v + 0.5);
 }
 
+// 正模（TS `pos_mod`：`((a % b) + b) % b`）。⚠ 别用 `std::fmod` 代替 —— 它跟被除数的符号走
+// （`fmod(-1.5, 32) == -1.5`），负的纹理窗口起点会被引擎夹到边界（见 `emit_image` 里那条注释）。
+double pos_mod(double a, double b) {
+  if (!(b > 0.0) || !std::isfinite(a)) return 0.0;
+  const double r = std::fmod(a, b);
+  return r < 0.0 ? r + b : r;
+}
+
 // `Style.font` / `TextMesh` 的 `DEFAULT_FONT_SIZE`：抓第一个 `NNpx`。
 double parse_font_size(const std::u16string& font) {
   const std::string s = to_utf8(font);
@@ -581,8 +589,12 @@ bool GodotUINodeRenderer::emit_image(const GodotDrawItem& proto, double x, doubl
   const double ch = _crop_h > 0.0 ? _crop_h : lh;
   if (!(cw > 0.0) || !(ch > 0.0) || !(lw > 0.0) || !(lh > 0.0)) return false;
   // UV 动画把纹理平移折进裁剪窗口（TS `apply()` 里 `set_clip` 那一行的 `% (w/scale)`）。
-  const double cx = std::fmod(_crop_x + _uv_x * cw / _repeat_x, lw);
-  const double cy = std::fmod(_crop_y + _uv_y * ch / _repeat_y, lh);
+  // ⚠ 一律用**正模**（TS 的 `pos_mod`，`BgLayerRender.ts` 里就是它）：`std::fmod` 会跟着被除数的
+  // 符号走（`fmod(-1.5, 32) == -1.5`），负的窗口起点交给 `draw_texture_rect_region` 会被引擎
+  // **夹到纹理边界**⇒ 只剩边缘那一像素被拉成一条（实测：`_uv_y` 是负的（见 `step_local` 里那条
+  // "y 反号"），于是整片背景每一瓦片都多一条"最后一像素延申"的竖/横带）。
+  const double cx = pos_mod(_crop_x + _uv_x * cw / _repeat_x, lw);
+  const double cy = pos_mod(_crop_y + _uv_y * ch / _repeat_y, lh);
 
   long long nx = static_cast<long long>(std::llround(_repeat_x));
   long long ny = static_cast<long long>(std::llround(_repeat_y));
@@ -601,8 +613,8 @@ bool GodotUINodeRenderer::emit_image(const GodotDrawItem& proto, double x, doubl
   bool drew = false;
   for (long long i = 0; i < nx; ++i) {
     for (long long j = 0; j < ny; ++j) {
-      const double sx0 = std::fmod(sweep_x0 + static_cast<double>(i) * cw, lw);
-      const double sy0 = std::fmod(sweep_y0 + static_cast<double>(j) * ch, lh);
+      const double sx0 = pos_mod(sweep_x0 + static_cast<double>(i) * cw, lw);
+      const double sy0 = pos_mod(sweep_y0 + static_cast<double>(j) * ch, lh);
       // 窗口在纹理边界折回（wrap）⇒ 切成 ≤2 段，每段一个矩形（一次 blit）。
       const double xsegs[2][2] = {{sx0, std::min(win_w, lw - sx0)},
                                   {0.0, std::max(0.0, win_w - (lw - sx0))}};
