@@ -2259,11 +2259,18 @@ void LfwGodot::draw_text_item(const GodotDrawItem& item) {
     start = nl + 1;
   }
   const double block_w = line_max + pad * 2.0;
-  const double content_x = item.x + item.w * 0.5 - block_w * 0.5 + pad;
   const float line_h = font->get_height(font_size);
-  const double baseline0 =
-      static_cast<double>(item.y) + pad + static_cast<double>(font->get_ascent(font_size));
-  double y = baseline0;
+  const double block_h = static_cast<double>(lines.size()) * static_cast<double>(line_h) + pad * 2.0;
+  const double content_x = item.x + item.w * 0.5 - block_w * 0.5 + pad;
+  // ⚠ 纵向：块的**中心**压在节点矩形中心上 —— TS 里文字 mesh 是**居中几何**（1×1 平面缩到块尺寸
+  // `w×h`），位置取 `UITextRenderer.update()` 的 `round(nodeH*(cy-0.5))`，而那一点正是矩形中心
+  // ⇒ 块与矩形同心。这里曾经把块的**顶边**钉在 `矩形顶 + padding`：盒高 ≡ 块高（`auto_size_by_text`
+  // 的节点，尺寸由 `measure_text` 按同一个块算出）时两者等价，**盒比自己那块文字大**时文字就偏上
+  //（2026-10-16 用户报的"语言那一行的箭头不居中"：`arrow_left` 是显式 `size: "40,36"`、里面只有一个
+  // "◀"（块 22×25）⇒ 偏上 (36-25)/2 = 5.5 像素；同级的 `arrow_left_hl` 没有显式尺寸 ⇒ 它的盒子就是
+  // 那块 22×25、正好压在 (224,18) 上，可以当"TS 该画在哪"的参照）。
+  const double block_top = item.y + item.h * 0.5 - block_h * 0.5;
+  double y = block_top + pad + static_cast<double>(font->get_ascent(font_size));
   for (const std::pair<std::string, double>& line : lines) {
     if (!line.first.empty()) {
       double ax = content_x;
