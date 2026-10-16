@@ -1378,8 +1378,12 @@ void LfwGodot::titlebar_activate(int index) {
   queue_redraw();
 }
 
-// 悬停态：照 `.volume_hover:hover` 的意义——指针在某个音量控件上、或**在它自己的弹层里** ⇒ 那一层
-// 开着；否则关（同时只可能开一个）。拖滑杆期间不关（`setPointerCapture` 的等价物）。
+// 悬停态：照 `.volume_hover:hover .volume_popup { display: block }` 的意义——指针在**按钮盒**里
+// ⇒ 那一层开着；开着之后指针落进**它自己那块弹层**（`.volume_popup` 是 `.volume_hover` 的后代
+// ⇒ 祖先的 `:hover` 仍成立）也保持开着；两者都不满足就关（同时只可能开一个）。拖滑杆期间不关
+// （`setPointerCapture` 的等价物）。
+// ⚠ 弹层**关着**时 `display: none` ⇒ 它不参与命中测试：判断"在弹层里"必须先要求那一层**已经在开**
+// （曾经漏了这一条 ⇒ 指针只要跑到按钮下面那条弹层带上，条就自己冒出来；用户报的正是这个）。
 // `drag_hover` = 指针在 `.wails_drag` 那一层上（`#88888855` 那块高亮）。变了才 `queue_redraw()`。
 void LfwGodot::titlebar_update_hover(const lfw::host::TitleBarLayout& layout,
                                      const lfw::host::TitleHit& hit, double bx, double by) {
@@ -1392,9 +1396,10 @@ void LfwGodot::titlebar_update_hover(const lfw::host::TitleBarLayout& layout,
   } else {
     for (int i = 0; i < TitleBarMetrics::count; ++i) {
       if (!layout.visible[i] || !is_volume_control(i)) continue;
+      const bool open = _bar.popup == i;
       if (hover == i ||
-          lfw::host::titlebar_rect_contains(lfw::host::titlebar_popup_rect(layout.rect[i]), bx,
-                                            by)) {
+          (open && lfw::host::titlebar_rect_contains(lfw::host::titlebar_popup_rect(layout.rect[i]),
+                                                     bx, by))) {
         popup = i;
       }
     }

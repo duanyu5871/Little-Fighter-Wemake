@@ -666,11 +666,15 @@ npm run godot '--' --icons D:\path\to\assets             # 那 11 张 btn_*.png 
   窗口 `1167,16` 命中 `close`（窗口即关）—— 画的格子与命中的格子是同一份数字。
   `--display-scale N` 是这一档的**诊断口**（覆盖 `screen_get_scale()`；本机屏幕缩放恰为 1，用它把
   DPI 路径跑起来）。⚠ 换个屏幕缩放或换个显示器时 `screen_get_scale()` 会自己变 ⇒ 正常用不传这个参数。
-* **音量弹层**：悬停那两个音量控件（或其弹层）时，条下沿挂一个竖直音量条（`.volume_popup`：圆角 8、底
+* **音量弹层**：悬停那两个音量控件时，条下沿挂一个竖直音量条（`.volume_popup`：圆角 8、底
   `#0F1830CC`、内边距 `8/10/10`、轨道 6×84 `#00000088`、填充 `#5A88E0`、白色 14 像素圆滑块）。按下=抓
   住、拖动=按 `y` 反算 `clamp(1 - (y-track.top)/84)` 并调 `sounds_set_bgm_volume` / `sounds_set_sound_volume`
   （与 TS 的 `VerticalSlider` 同一套公式；拖起来若非 0 还顺手取消静音）。滑块圆角/阴影是**近似**：
   `draw_rect` 没有圆角（用四个角上的圆补）、`box-shadow` 略去。
+  ⚠ **开的条件只有"指针在按钮盒里"**（照 `.volume_hover:hover .volume_popup { display: block }`）：
+  弹层**关着**时它是 `display: none`（不参与命中测试）⇒ 指针跑到按钮**下面**那条弹层带上**不该**弹出来；
+  弹层**开着**之后指针落进它自己那块弹层才保持开着（`.volume_popup` 是 `.volume_hover` 的后代 ⇒ 祖先的
+  `:hover` 仍成立）。这一条曾经漏掉前半截（把"在弹层里"无条件算进开的条件），见「2026-10-16」最后一条。
 * **图从哪来**：那 11 张 `btn_*.png`（外加 `btn_any.png` 共 24 张）在**仓库的 `src/assets/`** 里，
   **不在数据包里**。缺省按"含 `src/assets/btn_1_1.png` 的目录"从**进程 cwd**与**可执行文件目录**往上找
   （Godot 跑工程会把 cwd 切到工程目录 ⇒ 往上 4 层就是仓库根），可用 `--icons <dir>` 覆盖；找不到就打印
@@ -1026,6 +1030,27 @@ $R = (Get-Location).Path; $g = "$env:USERPROFILE\Desktop\Godot_v4.7.1-stable_win
   差分台面 **261/261 照样过** —— 因为 `world_fixture.h` 与 TS 的 `world.ts` **两边都显式传一张空
   `States`**（那条缝就是为台面留的），正好把 LFW 这条真实装配路径漏在外面。这是本片最该记住的一条：
   **台面绿 ≠ 装配对**。
+
+* **"顶栏两个音量条：鼠标在按钮下方（调节条的位置）就弹出来"** —— 真因是**开的条件多了一半**：
+  `titlebar_update_hover` 里写成 `hover == i || 指针在弹层矩形里`，而 TS 的规则是
+  `.volume_hover:hover .volume_popup { display: block }`（`src/App.module.scss:116`）——
+  弹层**关着**时它是 `display: none`（不计入命中测试），只有指针在**按钮盒**（= `.volume_hover` 的盒子，
+  里面就那一个按钮）里才开；开着之后指针落进它自己那块弹层才保持开着（弹层是 `.volume_hover` 的**后代**
+  ⇒ 祖先的 `:hover` 仍成立）。于是"指针在弹层矩形里"这一条必须先要求**那一层已经在开**。
+  修法：`if (hover == i || (_bar.popup == i && rect_contains(popup_rect, bx, by)))`。
+  实测（`--play` + `--window-size 1191x675 --display-scale 1.5` ⇒ `bar=794x32`、bgm 格 = CSS `570..602`，
+  窗口 `879,24` = 按钮、窗口 `879,120` = 弹层带里那一点；量的是弹层那块矩形 `x∈[859,898] y∈[48,204]`
+  的"深色像素"）：
+  ```text
+  改前：指针在弹层带（879,120）  dark=4677/6084   ← 条自己冒出来（用户报的）
+        指在按钮上（879,24）    dark=4677/6084
+  改后：指针在弹层带（879,120）  dark=0/6084      ← 不出来 ✓
+        指在按钮上（879,24）    dark=4677/6084   ← 正常 ✓
+        先按钮、再挪进弹层     dark=4677/6084   ← 保持开着 ✓（`--hover-window` 两条）
+  ```
+  存图：`shots/titlebar-volume-hover-1191x675.png`（指在按钮上：弹出竖条）/
+  `shots/titlebar-volume-below-only-1191x675.png`（只指在按钮下方：干净，没有竖条）。
+  与模拟无关：三条摘要逐位不变。
 
 ## 验收：宿主三条摘要（改完必跑）
 
@@ -1462,6 +1487,11 @@ node native/tools/shots_compare.mjs --scale 1 --blur 1 --skip-top 26 `
   - `titlebar-volume-drag.png`（同一条命令再补一次**窗口坐标**点击 `951,100`）—— 点在滑杆上：滑块/填充
     落到约 **31%**（`1 - (100-42)/84`），画面上的位置读的正是 `lfw.sounds_bgm_volume()`（宿主那位）
     ⇒ 拖动真的写回了 `sounds_set_bgm_volume`；同一张图里 BGM 那格已回到 0.6（指针在弹层上，不在按钮上）。
+  - `titlebar-volume-hover-1191x675.png` / `titlebar-volume-below-only-1191x675.png`（各第 120 帧，
+    `1191x675` + `--display-scale 1.5`；BGM 那一格 = CSS `570..602` ⇒ 窗口 `879,24` 是按钮盒里、
+    `879,120` 是**按钮下方那条弹层带**）—— 前者 `--hover-window 879,24`：弹出竖条 ✓；
+    后者 `--hover-window 879,120`：**什么都没有**（弹层关着时它 `display:none`、不算命中）
+    —— 这一对就是「2026-10-16」最后那条"鼠标在按钮下方也弹条"的取证（改前两张一模一样）。
 - `window-1400x500.png` / `window-1191x900.png` / `window-1191x675.png`（第 300 帧，`--titlebar custom`）
   —— **这一刀修的那个 bug**（"拉长窗口后，有按钮显示不了"）：切片的画布被 letterbox 关在内容区里
   （视口纹理本身就只等于内容区），自绘条画到窗口右端也被切掉。三张都是**整窗**截图，条铺满整窗宽、
