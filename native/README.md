@@ -182,7 +182,7 @@ native/
       lfw_godot_ui_renderer.{h,cpp}  `IUINodeRenderer` 的实现：UI 模型树 → 同一批**引擎无关**的绘制项
       lfw_godot_textures.{h,cpp}     资源路径 → `ImageTexture` 缓存（字节走数据包，解码走引擎的 PNG 解码器）
       lfw_godot_node.{h,cpp}         `LfwGodot : Node2D`：命令行 → `boot_scene` → 推帧 → `_draw()`（引擎类型只到这里）
-      shots/                         跑出来的画面存档（世界 + UI；见「画面存档」节）
+      shots/                         跑出来的画面存档（世界 + UI；见「画面存档」节；**在 .gitignore 里**，只留本地）
       register_types.cpp             扩展入口（`lfw_godot_library_init`，`.gdextension` 的 entry_symbol）
       CMakeLists.txt                 链 `godot-cpp` + `lfw_core` + headless 宿主源码 → `project/bin/lfw_godot.dll`
       project/                       Godot 工程：`project.godot` / `lfw_godot.gdextension` / `main.tscn`
@@ -1406,7 +1406,9 @@ node native/tools/shots_compare.mjs --scale 1 --blur 1 --skip-top 26 `
 
 ## 画面存档（Godot 宿主）
 
-跑出来的截图留在 `native/host/godot/shots/`，便于直接打开查看（生成命令见下）：
+跑出来的截图留在 `native/host/godot/shots/`，便于直接打开查看（生成命令见下）。
+⚠ 这个目录**在 `.gitignore` 里**（2026-10-16 起从 git 移除、文件保留在本地）：证据图随跑随换、
+只对本地这一台机器有意义，要看某一张就照下面各条列出的命令**重跑**一遍（每条命令都给了完整参数）。
 
 - `shot-stage1.png` / `shot-vs-stage0.png` —— 世界那一遍：狮林 bg_2，两名角色（含武器与影子）。
   `shot-vs-stage0.png` 2026-10-16 **重出**过（配 `--ui-page center_pause_label` 才看得干净：那一页只有几个
