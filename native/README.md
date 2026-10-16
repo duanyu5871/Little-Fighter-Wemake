@@ -297,8 +297,8 @@ native\build\msvc-x64\bin\lfw_run.exe --root dist ^
 [lfw_run] loaded: fighters=1 weapons=0 balls=0 entities=1 stages=2 bg=3
 [lfw_run] spawn p1 gim @(-80.0, 0.0, 0.0) team=1
 [lfw_run] stage=tutorial bg=ash_forest entities=2
-[frame    299] entities=2 ghosts=0 hp=1000.0 digest=7335aa25f4e1ce86
-[lfw_run] done: frames=300 ups=60 digest=7335aa25f4e1ce86 warns=0 errors=0 …
+[frame    299] entities=2 ghosts=0 hp=893.0 digest=a7edd32e19a43ea9
+[lfw_run] done: frames=300 ups=60 digest=a7edd32e19a43ea9 warns=0 errors=0 …
 ```
 
 `digest` 是「实体表（按 id 排序）的位置/血量/队/状态」的 FNV-1a —— 同参数**逐位可复现**
@@ -374,10 +374,10 @@ native\build\msvc-x64\bin\lfw_run.exe --zip-diff 'dist\data.zip,native\build\hos
 ```
 native\build\msvc-x64\bin\lfw_thin.exe --root dist ^
   --zip native\build\host-data\prel --frames 300 --every 300
-# [frame    299] entities=2 ghosts=0 hp=1000.0 digest=7335aa25f4e1ce86 renders=300 rec=2
+# [frame    299] entities=2 ghosts=0 hp=893.0 digest=a7edd32e19a43ea9 renders=300 rec=2
 # [   draw] E id=101 data=gim type=8.0000 pos=21.0000,… frame=running_0 state=2 tex=0
 #            crop=0.0000,160.0000,79.0000,79.0000 … outline=#4f9bff@0.8000,1.0000 …
-# [thin] done: frames=300 ups=60 digest=7335aa25f4e1ce86 renders=300 added=2 removed=0 …
+# [thin] done: frames=300 ups=60 digest=a7edd32e19a43ea9 renders=300 added=6 removed=4 …
 # [thin] UI render calls: 300 (unhandled: 300)
 ```
 
@@ -403,9 +403,9 @@ native\build\msvc-x64\bin\lfw_thin.exe --root dist ^
   --zip native\build\host-data\prel --zip native\build\host-data\data ^
   --fighter 1 --fighter 4 --stage 1 --frames 900 --every 900 ^
   --sync-render FPS_120 --sub-render 4 --dump native\build\thin-interp.dump
-# [thin] done: frames=900 … digest=e4a9437292047044 renders=3600 … ents_rec=23420 df01=17565 interp=4791 …
-#   帧头 df=0/0.25/0.5/0.75 各 900 帧；23420 条实体记录里 17565 条 0<dfactor<1、6388 条 p0!=p1
-#   E id=101 … pos=52.2500,0.0000,-91.6000 prev=48.0000,0.0000,-90.0000 … lerp=49.0625,0.0000,-90.4000
+# [thin] done: frames=900 … digest=13945ad1144c968d renders=3600 … ents_rec=21820 df01=16365 interp=10161 …
+#   帧头 df=0/0.25/0.5/0.75 各 900 帧；21820 条实体记录里 16365 条 0<dfactor<1、10161 条 p0!=p1、13548 条 moved
+#   E id=102 data=4 … pos=110.2250,30.1180,-135.1000 prev=101.2250,27.8960,-130.1000 … state=5 ← 跑跳悬空那一拍
 ```
 
 `df01` = `0 < dfactor < 1` 的记录条数、`interp` = 其中 `p0 != p1` 的（真在插）、`moved` = `p0 != p1`。
@@ -447,7 +447,7 @@ node native/web/smoke.mjs --profile 1 --live
 ```
 
 产物 `native/build/wasm/bin/lfw_wasm.{mjs,wasm}`（67 KB + 2.8 MB）。冒烟结论是硬的：**三条摘要与 MSVC 的
-`lfw_run` 逐位一致**（`7335aa25f4e1ce86` / `e4a9437292047044` / `f29d3bb1ea330c32`）；
+`lfw_run` 逐位一致**（`a7edd32e19a43ea9` / `13945ad1144c968d` / `61c42c78c9d0bcac`）；
 `fighters=26 weapons=19 balls=24 stages=28 bg=21 bots=22 moves=24` 全装进来；`--profile 1` 连跑两遍输出逐字节相同。
 
 ⚠ **一条必须记住的坑**：`LFW` 构造里会 `world.start_update()` ⇒ **端口自己的 Ticker 也在推帧**。
@@ -812,7 +812,7 @@ $R = (Get-Location).Path; $g = "$env:USERPROFILE\Desktop\Godot_v4.7.1-stable_win
     --key 'w@1520' --key 'w@1540' --key 'j@1560'     # U U a ⇒ btn_fight ⇒ start_game
 # [godot] key @frame 520 down j times=0 pages=0:stage_mode_prepare_page
 # [godot] key @frame 1560 down j times=0 pages=0:stage_mode_page
-# [godot frame   1600] entities=2 ghosts=0 hp=550.0 digest=713e8567b6313844
+# [godot frame   1600] entities=2 ghosts=0 hp=550.0 digest=4df88d26eaa707b2
 ```
 
 要点（都是这次接线时踩出来的）：
@@ -985,6 +985,48 @@ $R = (Get-Location).Path; $g = "$env:USERPROFILE\Desktop\Godot_v4.7.1-stable_win
   - **还差**（本次没动，见缺口表 #4）：`offsetAnim*` 的 UV 偏移动画、`opacity < 1` 那两档背景层
     （`ash_forest` 的 `ash_drop` 就是 `opacity: 0.5`）。
 
+* **"角色似乎无法离开地面，无论跑跳还是普通跳、甚至被打倒都不会向上飞"** —— 这不是渲染问题，
+  是**模拟**问题，而且根因只有一行：`LFW` 构造里给世界/工厂的状态表是**新建的空表**
+  （`_states = std::make_unique<state::States>()`，2026-10-08 的 LFW 门面切片就带进来了）。
+  TS 那边 `Entity` / `common_creator` 的 `states` 缺省值是**全局**的 `ENTITY_STATES`
+  （`src/LFW/state/ENTITY_STATES.ts` ⇒ 端口 `state::entity_states()`），端口这条缝却自己造了一张空表：
+  ⇒ 每次 `set_state` 都 **miss**、退化成 `States::fallback` 现造的 `CharacterState_Base`/`WeaponState_Base`
+  ⇒ **写在状态对象里的逻辑全部不跑**（`CharacterState_Jump::enter` 的起跳初速度、`CharacterState_Dash::enter`
+  的冲刺初速度、`on_landing` / `on_leave_ground` / `get_gravity` / `get_auto_frame` …），
+  只剩**数据帧自己带的 `dvx`/`dvz`** 还在生效 ⇒ 水平跑动正常、垂直方向永远起不来。
+  量出来的铁证（改前，`lfw_run --stage 1 … --every 1`）：场上 6 个实体**每一帧 `y` 都是 0.00**，
+  进 `state=5`（Dash = 跑跳）之后就卡在那一帧链上（`x` 冻在 65.0、`wait` 归零、`is_on_ground` 一直 1），
+  血量 600 帧不变（打不着）；临时在 `Entity::set_state` 里打一行就能看到
+  `miss=1`、`global=0`，而且那张空表被 `fallback` 越填越大（`n=1,2,3…`）。
+  修法：`LFW::_states` 改成**指向全局表**（`lfw.h` 一个字段类型 + `lfw.cpp` 一行赋值）。
+  改后同一场景（`--every 10`）：
+  ```text
+  [  state] 102{state=5 frame=213 x=86.5 y=27.9 …}      ← 跑跳真的离地了
+  [  state] 102{state=15 frame=219 x=235.5 y=0.0 …}     ← 落地回到站姿
+  [  state] 102{state=3 frame=81 x=241.1 y=45.3 …}      ← 空中攻击（y=45.3）
+  [  state] 102{state=12 frame=180 x=182.8 y=0.1 hp=393} ← 被打了：Falling + 掉血
+  ```
+  Godot 宿主里拿**真人**那一档复了一遍（`--play` 走到对局后按住 `k` = 玩家 1 的跳，
+  临时诊断打印每个实体的 `state/x/y/vy/og`）：
+  ```text
+  101 st=4 x=48.25 y=0.000  vy=0.000 og=1   ← Jump 刚进
+  101 st=4 x=48.25 y=18.582 vy=8.913 og=0   ← 离地
+  101 st=4 x=48.25 y=85.866 vy=4.543 og=0
+  101 st=4 x=48.25 y=109.449 vy=0.172 og=0  ← 最高点（≈109 逻辑像素）
+  101 st=4 x=48.25 y=25.496 vy=-8.568 og=0
+  101 st=0 x=48.25 y=0.000  vy=0.000 og=1   ← 落地回 Standing
+  ```
+  存图：`shots/match-air-dash-1191x675.png`（`--stage 1 --fighter 1 --fighter 4` 第 549 tick、
+  `--ui-page center_pause_label` 只看世界那一遍：场上有人**悬在草地上方**）、
+  `shots/match-states-1191x675.png`（第 2216 tick：躺着/跪着/站着三种状态 + 地上的武器/瓶子）。
+  ⚠ **三条宿主摘要的值全变了**（下面那节已按新值改）：旧的 `7335aa25f4e1ce86` / `e4a9437292047044` /
+  `f29d3bb1ea330c32` 是"状态机死掉"那一版的基线（改前三条在 `lfw_run` 与 Godot 上都逐位可复现 ——
+  所以它们**只能证明两份宿主一致，证明不了与 TS 一致**）；现在
+  `a7edd32e19a43ea9` / `13945ad1144c968d` / `61c42c78c9d0bcac`，`lfw_run` / `lfw_thin` / Godot 三边仍逐位相同。
+  差分台面 **261/261 照样过** —— 因为 `world_fixture.h` 与 TS 的 `world.ts` **两边都显式传一张空
+  `States`**（那条缝就是为台面留的），正好把 LFW 这条真实装配路径漏在外面。这是本片最该记住的一条：
+  **台面绿 ≠ 装配对**。
+
 ## 验收：宿主三条摘要（改完必跑）
 
 同一份数据、同一命令**逐位可复现**；三条都过才算没打破 headless 行为：
@@ -992,15 +1034,15 @@ $R = (Get-Location).Path; $g = "$env:USERPROFILE\Desktop\Godot_v4.7.1-stable_win
 ```
 native\build\msvc-x64\bin\lfw_run.exe --root dist ^
   --zip native\build\host-data\prel --frames 300 --every 300
-  ⇒ digest=7335aa25f4e1ce86（warns=0）
+  ⇒ digest=a7edd32e19a43ea9（warns=0）
 
 … --zip native\build\host-data\prel --zip native\build\host-data\data ^
   --fighter 1 --fighter 4 --stage 1 --frames 900 --every 900
-  ⇒ digest=e4a9437292047044（warns=1）
+  ⇒ digest=13945ad1144c968d（warns=1）
 
 … --zip native\build\host-data\prel --zip native\build\host-data\data ^
   --stage 0 --fighter 1 --fighter 4 --vs --frames 600 --every 600
-  ⇒ digest=f29d3bb1ea330c32（warns=1）
+  ⇒ digest=61c42c78c9d0bcac（warns=1）
 ```
 
 Godot 宿主跑**同三条**（`--delta 0.017` 只是节拍、不进模拟；绝对路径见上一节 ⚠①）：
@@ -1015,11 +1057,11 @@ $R = (Get-Location).Path; $P = "native\host\godot\project"
 & $godot --headless --path $P -- --root "$R\dist" `
     --zip "$R\native\build\host-data\prel" --zip "$R\native\build\host-data\data" `
     --stage 0 --fighter 1 --fighter 4 --vs --frames 600 --every 600 --delta 0.017
-# [godot] done: frames=300 ups=60 digest=7335aa25f4e1ce86 warns=0 errors=0 ignored_images=311 renderer(+-)=2/0 clock=5000.0ms
+# [godot] done: frames=300 ups=60 digest=a7edd32e19a43ea9 warns=0 errors=0 ignored_images=311 renderer(+-)=6/4 clock=5000.0ms
 # [godot] UI render calls: 300 (unhandled: 0)
-# [godot] done: frames=900 ups=60 digest=e4a9437292047044 warns=1 errors=0 ignored_images=313 renderer(+-)=37/30 clock=15000.0ms
+# [godot] done: frames=900 ups=60 digest=13945ad1144c968d warns=1 errors=0 ignored_images=313 renderer(+-)=52/47 clock=15000.0ms
 # [godot] UI render calls: 900 (unhandled: 0)
-# [godot] done: frames=600 ups=60 digest=f29d3bb1ea330c32 warns=1 errors=0 ignored_images=313 renderer(+-)=28/24 clock=10000.0ms
+# [godot] done: frames=600 ups=60 digest=61c42c78c9d0bcac warns=1 errors=0 ignored_images=313 renderer(+-)=21/18 clock=10000.0ms
 # [godot] UI render calls: 600 (unhandled: 0)
 ```
 
@@ -1345,6 +1387,15 @@ node native/tools/shots_compare.mjs --scale 1 --blur 1 --skip-top 26 `
   `shot-vs-stage0.png` 2026-10-16 **重出**过（配 `--ui-page center_pause_label` 才看得干净：那一页只有几个
   文字节点，缺省落在首页 `init` 会把整个世界盖住）；**改之前**那一张留在 `bg-color-before-vs-stage0.png`
   —— 底下那一条是棕褐色占位块（217,135,97）+ 右侧黑缝，见「2026-10-16」那条"纯色 bg 层"。
+- `match-air-dash-1191x675.png` / `match-states-1191x675.png` —— **状态机接上之后的对局**（2026-10-16
+  那条"角色离不开地面"的取证；都是 `--stage 1 --fighter 1 --fighter 4` + `--ui-page center_pause_label`，
+  所以图里只有世界那一遍，没有 HUD 盖着）：
+  前者第 549 tick（`tick = thin dump 的 FRAME / 4`：那一档用了 `--sync-render FPS_120 --sub-render 4`）
+  —— 场上有人**悬在草地上方**（`E id=196 pos=y 79.5`，`state=4` Jump）；后者第 2216 tick ——
+  同一场里躺着 / 跪着 / 站着三种状态同框，地上还有武器与瓶子（`state` 真在跑）。
+  生成命令：`npm run godot '--' --root <abs>\dist --zip <abs>\native\build\host-data\prel --zip
+  <abs>\native\build\host-data\data --fighter 1 --fighter 4 --stage 1 --frames <N> --window-size
+  1191x675 --delta 0.017 --ui-page center_pause_label --screenshot <out>.png --shot-frame <N>`。
 - **`webcmp-{init,entry,main-page,stage-prepare,match}-1191x675.png`（第 10/400/700/760/1800 帧）** ——
   **与 Web 版一一对应的那五张**（生成命令见本节末）。同名状态下 Web 那边的截图在
   `native\build\web\web-*.png`（不进仓库），归一化后的叠图 + 差值图是
@@ -1383,6 +1434,9 @@ node native/tools/shots_compare.mjs --scale 1 --blur 1 --skip-top 26 `
   这张干净，专门用来看槽内部（生成：同一份 `realkeys_probe.ps1` 把 `--shot-frame` 改成 1900）。
 - `match-char-menu.png` / `match-running.png` / `match-running-later.png` —— **从入口页进对局**
   （`--click` + `--key` 脚本，一条命令；命令见「开放模式现在能走到哪」）：
+  ⚠ 这三张是**状态对象还没接上**那个构建拍的（见「2026-10-16」最后一条"角色离不开地面"）；
+  同一套脚本在修完的构建上会看到角色真的在跳/被打飞 —— 修完之后的图是
+  `match-air-dash-1191x675.png` 与 `match-states-1191x675.png`。
   - `match-char-menu.png`（第 760 帧）—— 八人框，`Player: 1 / Fighter: Davis / Team: Team 1`。
     "Davis" 来自**数据包**（`--zip` 预装的 prel 里只有 `gim`）⇒ 这张图同时是"菜单把 `data.zip`
     真读进来了"的证据；空槽是 `Press Attack to join!`（`CMA@4x.png`），中间是

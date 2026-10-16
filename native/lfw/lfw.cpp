@@ -22,6 +22,7 @@
 #include "lfw/entity/entity_ref.h"
 #include "lfw/entity/entity_type_check.h"
 #include "lfw/loader/stage_val_getters.h"
+#include "lfw/state/entity_states.h"
 #include "lfw/ui/component/component_registry.h"
 #include "lfw/ui/cook_ui_info.h"
 #include "lfw/ui/uilayer.h"
@@ -241,8 +242,8 @@ LFW::LFW(ILfwHost& host, bool dev) : host_(&host), zips_(), _mt(host.now()) {
     _players.push_back({id, std::make_unique<PlayerInfo>(this, id, Value(), Value(), Value())});
   }
 
-  _states = std::make_unique<state::States>();
-  world_ = std::make_unique<World>(*this, *host_->create_world_renderer(*this), _states.get());
+  _states = &state::entity_states();
+  world_ = std::make_unique<World>(*this, *host_->create_world_renderer(*this), _states);
   world_->start_update();
   world_->start_render();
   instances_ref().push_back(this);
@@ -898,7 +899,7 @@ const std::vector<Entity*>& LFW::world_ghosts() { return world_->ghosts; }
 void LFW::del_entities(const std::vector<Entity*>& list) { world_->del_entities(list); }
 
 Entity* LFW::create_entity(const Value& data) {
-  return factory.create_entity(world_.get(), data, _states.get());
+  return factory.create_entity(world_.get(), data, _states);
 }
 
 controller::BaseController* LFW::create_ctrl(const Value& oid, const std::u16string& player_id,
@@ -974,7 +975,7 @@ std::shared_ptr<Randoming> LFW::datas_randoming_by_group(const Value& oid) {
 Entity* LFW::create_entity_with_bot(const Value& data) {
   // 切片 4CV（ck8）：`IItemEntity` 退役 ⇒ 直接给真实体（原来包一层 `EntityItem` 适配器 +
   // `entity_items_` 缓存；实体本来就由工厂/世界持有，适配器没有别的用途）。
-  return factory.create_entity_with_bot(std::u16string(), world_.get(), data, _states.get());
+  return factory.create_entity_with_bot(std::u16string(), world_.get(), data, _states);
 }
 
 Value LFW::get_random_bg(const std::vector<Value>& groups) {

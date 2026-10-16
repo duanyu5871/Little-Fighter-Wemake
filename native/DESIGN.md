@@ -1018,6 +1018,16 @@ holding 一族、`world_*` / `ref_*` / `ctrl_*` / `datas_find*`、`ground_segmen
    SameValueZero 上不同（记在偏差表）。
 6. `create_entity` / `create_entity_with_bot` 的 `states` 实参：台面两侧都不传（端口是
    `state::States*`）。
+7. ⚠ **`states` 的缺省值必须落到全局 `ENTITY_STATES` 上**（`state::entity_states()`）。
+   TS 里 `Entity.constructor` / `reset` 的形参缺省值是 `ENTITY_STATES`
+   （`src/LFW/entity/Entity.ts:586` / `:595`），`common_creator(world, data, states?)` 也是**可选**的
+   （`Entity.ts:2628`）⇒ 真实装配路径（`LFW` → `World` → `Factory` → `common_creator`）拿到的是
+   **那张全局表**。端口曾经在 `LFW` 构造里 `std::make_unique<state::States>()` 造了一张**空表**
+   （2026-10-08 的 LFW 门面切片）⇒ `set_state` 每次 miss、退化成 `States::fallback` 现造的兜底状态，
+   **状态对象里的跳/冲刺/落地/受伤逻辑全都不跑**（只剩数据帧自带的 `dvx`/`dvz`）——
+   用户报的"角色离不开地面"就是这个。现在 `LFW::_states` 直接指向 `state::entity_states()`。
+   ⚠ 差分台面**量不出这条**：`world_fixture.h` 与 TS 的 `world.ts:514` 两边都显式传一张空 `States`
+   （那条缝是给台面用的），LFW 的真实装配路径不在台面覆盖范围内 ⇒ **台面绿不等于装配对**。
 
 ### 8.26. `stage/Expressions` + `stage/Status` + `bg/Background` + `bg/Layer` —— 有意不覆盖
 
@@ -1822,15 +1832,15 @@ Godot 宿主也设 `WINDOW_FLAG_BORDERLESS` 并自绘顶栏（`native/host/godot
 ```
 native\build\msvc-x64\bin\lfw_run.exe --root dist ^
   --zip native\build\host-data\prel --frames 300 --every 300
-  ⇒ digest=7335aa25f4e1ce86（warns=0）
+  ⇒ digest=a7edd32e19a43ea9（warns=0）
 
 … --zip native\build\host-data\prel --zip native\build\host-data\data ^
   --fighter 1 --fighter 4 --stage 1 --frames 900 --every 900
-  ⇒ digest=e4a9437292047044（warns=1）
+  ⇒ digest=13945ad1144c968d（warns=1）
 
 … --zip native\build\host-data\prel --zip native\build\host-data\data ^
   --stage 0 --fighter 1 --fighter 4 --vs --frames 600 --every 600
-  ⇒ digest=f29d3bb1ea330c32（warns=1）
+  ⇒ digest=61c42c78c9d0bcac（warns=1）
 ```
 
 （`digest` 口径见 `native/README.md:260`：「实体表（按 id 排序）的位置/血量/队/状态」的 FNV-1a。
@@ -1922,7 +1932,7 @@ WASM 宿主已经用同一招证明过自己 —— `native/README.md:310`：**�
   虚拟时钟 + 固定步长（G3）；⚠ `IWorldRenderer` 当时就是 `HeadlessHost` 的 `NullWorldRenderer`（计数版）
   —— **G2 第二半已把它换成会画的那一份**（`LfwGodotHost::create_world_renderer`）。
   **验收**：✅ **已落定** —— Godot 4.7.1 headless 里三条摘要与 `lfw_run` **逐位一致**
-  （`7335aa25f4e1ce86` / `e4a9437292047044` / `f29d3bb1ea330c32`；连 `warns` / `ignored_images` /
+  （`a7edd32e19a43ea9` / `13945ad1144c968d` / `61c42c78c9d0bcac`；连 `warns` / `ignored_images` /
   `renderer(±)` / `clock=` 也对得上）。跑法见 `native/README.md`「Godot 宿主」。
   ⚠ 三条实测（都会让人白花一天）：Godot 跑工程时 **cwd = 工程目录**（`--path` 的副作用）⇒ 数据路径写绝对；
   本 target **不许 `/GR-`**（`Object::cast_to<T>` 走 `dynamic_cast`，见 §G9 第 1 条）；
@@ -1954,7 +1964,7 @@ WASM 宿主已经用同一招证明过自己 —— `native/README.md:310`：**�
     统计行 `UI render calls: N (unhandled: 0)`。**没画的**：逐像素描边、`clip_children` 的
     部分越界（`draw_*` 没有逐项裁剪 ⇒ 整项取舍）、文字的下划线/阴影/描边、3D 模型。
   - **验收**：差分台面与 lint 不退化（`npm run native all`）+ **三条摘要逐位不变**（渲不渲染都不许动
-    模拟：`7335aa25f4e1ce86` / `e4a9437292047044` / `f29d3bb1ea330c32`，`renderer(±)` / `ignored_images`
+    模拟：`a7edd32e19a43ea9` / `13945ad1144c968d` / `61c42c78c9d0bcac`，`renderer(±)` / `ignored_images`
     也逐位相同）+ **目视**：`--screenshot <png> --shot-frame N`（窗口跑，别加 `--headless`）存一张
     794×450 的图 —— 见 `native/README.md`「画面存档」。⚠ 目视仍**无自动化判据**（"画得对不对"这一条
     记**未定**）；世界那一遍没画的：3D 模型帧、名字/血条、调试指标层、`greyscale`、逐图旋转。
@@ -2208,15 +2218,15 @@ headless 的形状，再把空实现逐个换掉（S7 的切片）—— `native
 ```
 native\build\msvc-x64\bin\lfw_run.exe --root dist ^
   --zip native\build\host-data\prel --frames 300 --every 300
-  ⇒ digest=7335aa25f4e1ce86（warns=0）
+  ⇒ digest=a7edd32e19a43ea9（warns=0）
 
 … --zip native\build\host-data\prel --zip native\build\host-data\data ^
   --fighter 1 --fighter 4 --stage 1 --frames 900 --every 900
-  ⇒ digest=e4a9437292047044（warns=1）
+  ⇒ digest=13945ad1144c968d（warns=1）
 
 … --zip native\build\host-data\prel --zip native\build\host-data\data ^
   --stage 0 --fighter 1 --fighter 4 --vs --frames 600 --every 600
-  ⇒ digest=f29d3bb1ea330c32（warns=1）
+  ⇒ digest=61c42c78c9d0bcac（warns=1）
 ```
 
 （同一招 WASM 与 Godot 都用过：`native/README.md:310-312` 与 G3 的验收段。）
