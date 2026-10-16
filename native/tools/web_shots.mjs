@@ -27,6 +27,7 @@ let scale = 1.5;
 let keepOpen = false;
 let everyS = 0; // > 0 = 按这个间隔连拍（诊断"卡在装载页"用）
 let dumpUi = false; // `--dump-ui`：每拍一张图顺带把 UI 节点树（`cross`/`geo`）打出来
+let uiPage = ""; // `--ui-page <id>`：装载完直接把这一页设到第 0 层，只拍这一页（与宿主同名开关对齐）
 for (let i = 0; i < argv.length; i++) {
   if (argv[i] === "--out") out = argv[++i];
   else if (argv[i] === "--url") url = argv[++i];
@@ -35,6 +36,7 @@ for (let i = 0; i < argv.length; i++) {
   else if (argv[i] === "--scale") scale = Number(argv[++i]);
   else if (argv[i] === "--every-s") everyS = Number(argv[++i]);
   else if (argv[i] === "--dump-ui") dumpUi = true;
+  else if (argv[i] === "--ui-page") uiPage = argv[++i];
   else if (argv[i] === "--keep-open") keepOpen = true;
 }
 mkdirSync(out, { recursive: true });
@@ -364,7 +366,72 @@ if (argv.includes("--probe") || argv.includes("--probe-only")) {
 }
 
 // 连拍模式：诊断"一直卡在装载页"时用（`--every-s 5`）。每拍打一行页面状态与网络，便于定位阶段。
-if (everyS > 0) {
+// `--ui-page <id>`：装载完把这一页设到第 0 层、只拍这一页 —— 与宿主 `--ui-page <id>` 一一对应
+//（拿它当参照物做逐像素/逐节点对比时，不用为了看一页把整条流程点出来）。
+if (uiPage) {
+  console.log("  等装载完成（首页 `init` 出现）…");
+  const t0 = Date.now();
+  for (;;) {
+    const ok = await evaluate(
+      "(() => { const i = window.lfw; return !!(i && i.ui && i.ui.id && i.uis && i.uis.all && i.uis.all.length); })()",
+    );
+    if (ok) break;
+    if (Date.now() - t0 > 300000) {
+      console.log("  ! 等装载超时");
+      break;
+    }
+    await sleep(500);
+  }
+  // 目标页在**哪张表**里取决于它是谁：内建启动页（`builtin_data/launch/*`）一进场就在，prel/data 那两张
+  // 表要等「点一下启动页」把包 import 进来才会 `uis.add` ⇒ 先等 20s，还没出现就点一下再接着等。
+  const has_page = () =>
+    evaluate(`(window.lfw.uis.all || []).some((v) => v.id === ${JSON.stringify(uiPage)})`);
+  let clicked = false;
+  const tWait = Date.now();
+  for (;;) {
+    if (await has_page()) break;
+    if (!clicked && Date.now() - tWait > 20000) {
+      const b = JSON.parse(
+        await evaluate(
+          "(() => { const r = document.querySelector('canvas').getBoundingClientRect(); return JSON.stringify({ l: r.left, t: r.top, w: r.width, h: r.height }); })()",
+        ),
+      );
+      console.log("  目标页还不在表里 ⇒ 点一下启动页，把 prel/data 那两张表 import 进来");
+      await click(b.l + b.w / 2, b.t + b.h / 2);
+      clicked = true;
+    }
+    if (Date.now() - tWait > 300000) {
+      console.log("  ! 等目标页超时");
+      break;
+    }
+    await sleep(500);
+  }
+  const set = await evaluate(
+    `(async () => {
+      const i = window.lfw;
+      const id = ${JSON.stringify(uiPage)};
+      const all = (i.uis.all || []).map((v) => v.id);
+      if (!all.includes(id)) return "no such page id; have: " + all.join(",");
+      i.layers.set_page({ id }, 0);
+      await new Promise((r) => setTimeout(r, 600));
+      return "ok ui.id=" + i.ui.id;
+    })()`,
+    true,
+  );
+  console.log(`  set_page ${uiPage}: ${set}`);
+  // 画布在页面里的 box（Web 侧也是 contain 缩放）—— 归一化相减时按它裁。
+  const cbox = await evaluate(
+    "(() => { const r = document.querySelector('canvas').getBoundingClientRect(); return JSON.stringify({ l: Math.round(r.left), t: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) }); })()",
+  );
+  console.log(`  canvas box: ${cbox}`);
+  await sleep(2500); // 图片解码 + 第一帧 UI + 平滑收敛
+  await shot(`web-ui-page-${uiPage}`);
+  if (!keepOpen) {
+    ws.close();
+    cleanup();
+    process.exit(0);
+  }
+} else if (everyS > 0) {
   for (let i = 1; i * everyS <= 120; i++) {
     await sleep(everyS * 1000);
     const info = await evaluate(`(() => {
@@ -451,6 +518,9 @@ if (everyS > 0) {
   await shot("web-stage-prepare");
 
   for (let i = 0; i < 40; i++) await tap("j");
+  // 加入之后的那一档（= 宿主 `realkeys-vs-prepare.png`）：八人框里有玩家，头像 + 名字/角色/队伍
+  // 三行文字都在 —— 对"头像 + 头像下方文字"这类只在**加入之后**才出现的东西，这是参照物。
+  await shot("web-stage-prepare-joined");
   await tap("w");
   await tap("w");
   await tap("j");

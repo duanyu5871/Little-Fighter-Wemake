@@ -284,12 +284,18 @@ bool HeadlessHost::ui_image_load(const std::u16string& img_key, const Value& pat
   (void)error;
   // 渲染 / 位图在平台侧，headless 只把「这张图存在」这件事记下来：给一个零尺寸的描述，
   // 让 UI 树能照 TS 的形状建起来（组件按 `txt_info` 取宽高，画不画由渲染宿主决定）。
+  // `w`/`h`/`scale` 三个数**必须**给（`0 / 1`）：核心侧 `UIImgLoader::load` 会算
+  // `node.resize(w / scale, h / scale)`，缺字段就是 `undefined / undefined` ⇒ `NaN` 写进节点尺寸
+  //（TS 那边这三个数由浏览器解码给出，永远不会缺）。真正的尺寸由平台宿主覆写（`LfwGodotHost`）。
   ++_ignored_images;
   Object info;
   info.set(u"key", Value(img_key));
   info.set(u"path", path);
   info.set(u"width", Value(0.0));
   info.set(u"height", Value(0.0));
+  info.set(u"w", Value(0.0));
+  info.set(u"h", Value(0.0));
+  info.set(u"scale", Value(1.0));
   out = Value(std::make_shared<Object>(std::move(info)));
   return true;
 }

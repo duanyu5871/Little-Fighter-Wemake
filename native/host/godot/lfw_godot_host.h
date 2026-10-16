@@ -78,6 +78,14 @@ class LfwGodotHost : public HeadlessHost {
   void set_measure_text(MeasureTextFn fn) { _measure_text = std::move(fn); }
   Value measure_text(const Value& text, const Value& style) override;
 
+  // ---- 图片尺寸（DESIGN 允许的"设备侧差异"那一格）----
+  // `ui_image_load` 的结果里 `w`/`h`/`scale` 是**图片尺寸**：TS 是浏览器解码出来的（`ImageInfo`），
+  // 端口这一侧由资源表（命中条目里的 `@Nx` + PNG 头）算出来。不补这三个数，`UIImgLoader::load`
+  // 的 `node.resize(w / scale, h / scale)` 就会算出 `NaN` —— 那会把节点尺寸写成 NaN：盒子 0×0
+  // 画不出来，`cook_ui_info` 按 `img_info` 补零轴那一步也一起失效。
+  bool ui_image_load(const std::u16string& img_key, const Value& path, const Value& ops, Value& out,
+                     std::u16string& error) override;
+
  private:
   double _step_ms = 1000.0 / 60.0;
   double _accumulator_ms = 0.0;

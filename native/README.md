@@ -228,20 +228,33 @@ VS Code 里也已经指好（`.vscode/settings.json`）：
 
 ### IntelliSense
 
-`.vscode/c_cpp_properties.json` 把 C++ 扩展指向 **CMake 导出的编译数据库**：
+`.vscode/c_cpp_properties.json` 把 C++ 扩展指向 **一份合并的编译数据库**：
 
 ```jsonc
-"compileCommands": "${workspaceFolder}/native/build/msvc-x64/compile_commands.json"
+"compileCommands": "${workspaceFolder}/native/build/compile_commands.json"
 ```
 
-⇒ **先跑一次 `npm run native configure`**（或 `all`）。没这一步时编辑器会报
-`cannot open source file "memory"` / `"vector"` 这类标准库缺失的错（不是代码问题）。
+⇒ **先跑一次 `npm run native configure`**（或 `godot` / `all` / `intellisense`）。没这一步时编辑器会
+报 `cannot open source file "memory"` / `"vector"` 这类标准库缺失的错（不是代码问题）。
 
-- `native/CMakePresets.json` 的 `msvc-x64` / `wasm` 预设都带 `CMAKE_EXPORT_COMPILE_COMMANDS=ON`；
-- `native/tools/native.mjs configure` 在 `compile_commands.json` 缺失时会**重跑** configure
-  （只有 `build/` 存在但缺这个文件时才补，不会每次白跑）；
-- `compileCommands` 不存在时才退到配置里的 `includePath` / `compilerPath` 兜底；
-  `compilerPath` 跟着 VS 版本走，升级 VS 后可能要改（当前 14.41.34120）。
+**为什么要"合并"**（2026-10-16 用户报的 `cannot open source file "godot_cpp/classes/image_texture.hpp"`）：
+
+- 工程有**两个** CMake 构建目录、各自一份 `compile_commands.json`：`native/build/msvc-x64`
+  （core + 测试，853 条）与 `native/build/godot`（Godot 扩展，含 `godot-cpp/**` 的 1594 条）。
+  扩展那边单独 configure（`native.mjs godot`），所以 `msvc-x64` 那份里**一条** `native/host/godot/**`
+  都没有 ⇒ 打开扩展的源文件时所有 `godot_cpp/...` 头都解析不出来。
+- `native/tools/native.mjs` 的 `writeIntellisenseDb()` 把两份按**core 在后**（core 覆盖 godot）的顺序
+  合并成 `native/build/compile_commands.json`：`native/lfw/**` 因此**永远看不到** godot-cpp 的
+  include 路径（`DESIGN.md` §G8 的硬规则："核心不许依赖引擎"）。
+- 顺带两件事：① `-external:I` 归一成 `-I`（cpptools 1.34.4 认得 `-external:I`，这里是双保险）；
+  ② **头文件也要有条目** —— 只有源文件的话，打开 `.h` 仍会退到老一套 include 解析（真正
+  `#include <godot_cpp/classes/image_texture.hpp>` 的正是 `lfw_godot_textures.h`）。做法是给
+  `native/` 下的每个头文件从"同目录/最近祖先目录里那条源文件条目"换掉 input 那一项、派生一条。
+  合并后 1007 条（491 源 + 516 头，其中 15 条 `native/host/godot/**`）。
+- `npm run native intellisense` 可以单独重算这一份；`configure` / `godot` 跑完也会自动重算。
+- `compileCommands` 不存在时才退到配置里的 `includePath` / `compilerPath` 兜底（配置里那三条
+  godot-cpp 目录是编辑器侧的保险）；`compilerPath` 跟着 VS 版本走，升级 VS 后可能要改
+  （当前 14.41.34120）。
 
 ### 增量构建为什么快（以及别把它弄慢）
 
@@ -836,7 +849,9 @@ $R = (Get-Location).Path; $g = "$env:USERPROFILE\Desktop\Godot_v4.7.1-stable_win
 | 4 | **世界那一遍的背景层**没有 UV 偏移动画（UI 那一遍 2026-10-16 已补） | TS 是 `BgLayerRender.render`（`BgLayerRender.ts:110-174`）：`offsetX/Y += sec*offsetAnim*`，周期 = `min(源图, 目标)`，再 `tex.offset = pos_mod(offset, 周期)/周期`；端口 `lfw_godot_renderer.cpp` 里连 `offsetAnim` 都没读 | **缺口**（照上面那份口径补一份就行：世界端没有 `anim_r` 旋转，只有 X/Y） |
 | 5 | 入口页两张背景大脸（`bg_l_face` / `bg_r_face`，各 14 帧 `RandomVisible`）落在**不同的帧**上 | 两侧取的时刻不同（Web 那次 entry 是点完 4.7s；Godot 是第 400 帧 × `--delta 0.017`）⇒ `lifetime` 不同。不是"帧选择逻辑"不一致 | 观察值，不做结论（要判定得让两边落在同一个 `lifetime`） |
 | 6 | 顶栏那一簇控件在 `main_page` 上个数可能不同 | 两侧的**显示条件**都读同一批状态（`c.bg_is_void` / `settings_page` / `first_page_init_demo` / 页栈深），但 Web 顶栏是 React 组件、Godot 是宿主自绘表；`first_page_init_demo` 只在 `/demo` 路径下为真 | 待逐格核对（截图上的小图标人眼/视觉模型都不可靠，得按 `--click-window` 逐格点） |
-| 7 | 八人框里 `Picture.set_src` 会**失败 3 次**（`[Picture::set_src]Error: type of 'IUIImgInfo.dw' must be positive integer, but got NaN`，`ignored_images` 因此 +3） | `CharMenuHead.join()` 里 `head_pic.set_src(path)` 用 `Picture.width() = props.width ?? node.w`；那一刻 `node.w`（`size.x`）是 NaN。奇怪的是同一节点的 `--ui-dump` 打出 `ui/head box=(230.0,93.0 0.0x0.0)` 而 `crop=(0.0,0.0 120.0x120.0)`（= 加载时的 `dw` 确实是 120），所以是**某个时刻尺寸被改写成 0/NaN** 之后再 `set_src` | **缺口（待查）**：先量"谁在什么时候把 `head` 的 `size` 改成 0/NaN"（`CharMenuState_*` 的布局 / `PlayerName` 那批组件的 `resize`） |
+
+（第 7 条"八人框里 `Picture.set_src` 失败 3 次"已修 —— 根因是宿主的 `ui_image_load` 没给图片尺寸，
+见下面「2026-10-16」的最后两条。）
 
 ### 2026-10-16：用户玩的时候报的（都已修）
 
@@ -889,6 +904,53 @@ $R = (Get-Location).Path; $g = "$env:USERPROFILE\Desktop\Godot_v4.7.1-stable_win
   顺带把诊断补齐（都只在 `--play` / `--every` 生效）：`_input` 每条键盘事件打一行
   `keyraw#<序号>: down/up dom='…' keycode/phys/uni/echo`（序号能看出日志有没有丢行）、
   `keyfocus` 行加上 `pages=`、`[godot frame N]` 行加上 `pages=`。
+
+* **"ninepatch有问题"** —— 症状：`nine_patch_test` 那一页整张 18×18 的框被**拉成** 400×200
+  （圆角半径 ≈155 像素），而 Web 那边是正常的 7 逻辑像素边框。真因：UI 那一遍**根本没画九宫格**
+  （`emit_image` 只有"整图 / 裁剪 / 平铺"一条路，`nine_patch` 那几个字段从烹饪期读进来之后没人用）。
+  已按 TS `NinePatchGeometry` + `UINodeRenderer.next_geometry` + `shader/outline.frag` 补上
+  （`GodotUINodeRenderer::emit_nine_patch`）：源窗口 = `us * clip_w + clip_x`（一倍图逻辑像素）、
+  目标格子 = `t_s * l_w * |gsx|`（`t_s = 1/@Nx`）、镜像（全局缩放为负）= 列序反过来 + 每格内容再翻一次。
+  实测（`--ui-page nine_patch_test`，与 Web 同区域归一化相减）：`items=1 → 9`、dump 里出现
+  `np=28,28,28,28/72x72`（`!sprite/frame@4x.png`：72×72 的图、四边各 28 ⇒ 7 逻辑像素），
+  `mean=34.2 → 4.5`（`px>24` 从 226232 掉到 889），像素列序与 Web 逐列一致；`有多少个电脑玩家?`
+  那个框也跟着对上了（面板对面板 `mean=8.6`，残差是文字抗锯齿）。用了它的页：`how_many_computer` /
+  `game_prepare_menu` / `dialog_bottom_right` / `dialog_bottom_long` / `nine_patch_test`。
+* **"角色头像没显示"**（同一根因也解释了原来记在缺口表里的"八人框里 `Picture.set_src` 失败 3 次"）——
+  症状：`CharMenuHead.join()` 之后头像那一格**什么都没有**，而 `--ui-dump` 打出
+  `ui/head box=(230.0,93.0 0.0x0.0)` / `crop=(0.0,0.0 120.0x120.0)`（图**是**命中了的），
+  同时每 `join` 一次报一条 `[Picture::set_src]Error: type of 'IUIImgInfo.dw' must be positive
+  integer, but got NaN`。真因在**宿主边界**：`UIImgLoader::load` 照 TS 拿加载结果里的 `w`/`h`/`scale`
+  去 `node.resize(w / scale, h / scale)`，而 `HeadlessHost::ui_image_load` 给的"零尺寸占位"里
+  **没有这三个键** ⇒ `undefined / undefined = NaN` 写进节点尺寸 ⇒ 盒子 0×0 什么都画不出来；
+  下一次 `set_src` 又拿 `Picture.width() = node.w()` = NaN 当 `dw` 上报 ⇒ 校验直接拒。
+  （Godot 宿主继承的就是 `HeadlessHost`、自己也没覆写，所以它一样给不出尺寸。）修法两条：
+  ① `HeadlessHost` 的占位改成 TS 口径的 `w/h/scale = 0/0/1`（零尺寸但**有限**，`0/1` 不再是 NaN）；
+  ② `LfwGodotHost::ui_image_load` 覆写：用世界渲染器那张"命中条目 + `@Nx` + PNG 头"的表给真值
+  （`w/h` = **结果位图**的自然像素；带 `crop` 操作时 = `dw/dh × scale`，见 `handle_image_operation_crop`）。
+  实测（真键盘那一档）：`ui/head box=(170.0,33.0 120.0x120.0)` ✓、`set_src` 告警 **3 → 0** ✓、
+  头像真画出来了（`sprite/RFACE@4x.png` 那张 `? / RANDOM / 隨機選角`，墨迹 `x∈[186,272]` 居在
+  120 宽的盒子里）✓。
+  顺手修好的还有同款的第二处：`cook_ui_info` 里"按 `img_info` 的 `w/h/scale` 给零轴补尺寸"那一步
+  以前**永远跳过**（`img_info` 里没这三个键）⇒ 数据里只写 `img: {path}`、不写 `w/h` 的节点
+  （`settings_ctrl` 的 `CS2..CS7` 那几张控制方式图标）尺寸一直是 0×0、画不出来；现在照 TS 取图片自身尺寸。
+  两侧逐节点对过（`--ui-page settings_ctrl`）：Web `no_id_1710 cross=(0.0,0.0 106.0x91.0)`
+  ↔ 宿主 `box=(40.0,28.5 106.0x91.0)`（同一张 `sprite/CS6.png`）✓。
+* **"头像下方文字未能居中"** —— 症状：八人框里名字 / 角色 / 队伍三行文字贴在 120 宽的格子左边。
+  真因是**文字块的摆放口径**：TS 里文字是"块尺寸"的一张网格，**块中心压在节点矩形中心上**
+  （`mesh.position = round(w*(0.5-cx))` / `round(h*(cy-0.5))` —— 与节点矩形的平移 `_tran_x/_tran_y`
+  是同一个式子），`text_align` 只在**块内部**排（`split_text_to_lines` 的 `l.x` 用的是"最宽一行 +
+  左右 padding"，**不是**节点宽度）。端口以前把"块内部的那点偏移"直接当成"块在盒子里的偏移" ⇒ 等于**贴左**。
+  一直没被发现的原因：数据里几乎没有"显式 `size` + 静态文字"的节点（静态文字节点的尺寸都由
+  `auto_size_by_text` 按量出来的文字尺寸定 ⇒ 块宽 ≡ 节点宽，两种口径分不出来），
+  `player_name` / `FighterName` / `player_team` 是少数"显式 `size: "120, 19"` + 运行时文字"的节点。
+  修法：先量一遍所有行（块宽 = 最宽一行 + 4），块左边界 = 盒中心 − 块宽/2，再按 `text_align` 在块内排。
+  实测（第 1900 / 2300 帧两张图，墨迹 = 亮度 > 128 的像素包围盒）：`player_name "1"` 墨迹中心 **229**
+  （盒中心 230）、`FighterName "随 机"` `215..245` ⇒ 230、`player_team "无队伍"` `210..249` ⇒ 229.5、
+  未加入那几格的 `加 入?` `339..377` ⇒ 358（盒中心 359）—— 全部落在盒中心 ✓。Web 侧同一个节点、同一个盒
+  （`player_name geo=(170,156.5 290,175.5)`，两边 `--ui-dump` ↔ `--dump-ui` 逐位相同）的墨迹中心也在
+  **230** ✓ ⇒ 两边同一条口径。纵向不动（仍是"盒顶 + padding + ascent"）：块高 ≡ 盒高时两者恒等
+  （自动定尺寸的节点），显式 `size` 的节点差 ~0.5 像素。
 
 ## 验收：宿主三条摘要（改完必跑）
 
@@ -1208,8 +1270,11 @@ node native/tools/serve_dist.mjs --port 5177
 node native/tools/web_shots.mjs --out native\build\web
 ```
 
-产出 `native\build\web\web-{init,entry,main-page,stage-prepare,match-running}.png`（**整窗**：DOM 顶栏 +
-画布），状态与 Godot 那边一一对应（Godot 的生成命令见「画面存档」里 `webcmp-*` 那些）。
+产出 `native\build\web\web-{init,entry,main-page,stage-prepare,stage-prepare-joined,match-running}.png`
+（**整窗**：DOM 顶栏 + 画布），状态与 Godot 那边一一对应（Godot 的生成命令见「画面存档」里
+`webcmp-*` 那些）。`stage-prepare-joined` 是**加入之后**的那一拍（连按攻击 40 次之后、`w w j` 开打之前）——
+`web-init` 那一类"页面刚进来"的拍法看不到头像与三行文字，凡是只在"加入之后"才出现的东西
+（头像、名字 / 角色 / 队伍）都拿它当参照物。
 为什么不用 Electron：本机 `app.whenReady()` 会**卡死**（`--no-sandbox` / `--disable-gpu` 都试过）；
 无头 Chrome + 手写 CDP 反而稳（Node 22 自带 `WebSocket`，不需要 puppeteer）。
 
@@ -1220,6 +1285,8 @@ node native/tools/web_shots.mjs --out native\build\web
 | `--every-s N` | 按 N 秒连拍（诊断用）；`--eval <js>` 在页面里跑一段表达式（支持 `await`） |
 | `--headful` | 用真窗口跑（无头排查不出来时用；`--swiftshader` 退回软件 GL） |
 | `--width` / `--height` / `--scale` | 窗口尺寸（缺省 794×450 逻辑 × 1.5） |
+| `--ui-page <id>` | 装载完直接把这一页设到第 0 层、只拍这一页（与宿主 `--ui-page` 一一对应）——不用为看一页把整条流程点出来；目标页不在表里时会先点一下启动页把 `prel`/`data` 两张表 import 进来 |
+| `--keep-open` | 拍完不关浏览器（继续手工看/继续挥脚本） |
 
 归一化相减（Godot 那张整窗**就是**内容矩形；Web 那张要裁到画布的 box —— 实测 `76,0,1022,579`）：
 
@@ -1268,9 +1335,16 @@ node native/tools/shots_compare.mjs --scale 1 --blur 1 --skip-top 26 `
   Network Game / Settings`，`Game Start` 高亮）—— 这一对就是"指针真的接上了"的画面证据。
 - `realkeys-vs-prepare.png`（第 2300 帧）—— **真键盘**（`PostMessage` 真 `WM_KEYDOWN/UP`，
   见「2026-10-16」那条"按攻击没反应"）走到 vs 准备页的样子：`玩家: 1 / 角色: 随机 / 队伍: 无队`
-  + 中间 `有多少个电脑玩家? 0..7`，8 个槽里其余 7 个还是 `Press Attack to join!`（`CMA@4x.png`）。
+  + 中间 `有多少个电脑玩家? 0..7`（那个框是九宫格画的），8 个槽里其余 7 个还是
+  `Press Attack to join!`（`CMA@4x.png`）。这一档同时是「头像 + 三行文字」两处修复的取证：
+  1 号槽里有头像（`sprite/RFACE@4x.png` 那张 `? / RANDOM / 隨機選角`），三行文字的中心都落在
+  120 宽的格子中心上（量法与数值见「2026-10-16」最后两条）。
   这张是"**连按攻击真的能选到角色**"的图：从 `main_page` 起 6 次真 `j` 一路推进到这一步
   （生成脚本：`native\build\realkeys_probe.ps1`，不进仓库）。
+- `charmenu-joined.png`（第 1900 帧，同一串真键盘）—— **加入之后、倒计时还在走**的那一拍：
+  1 号槽的头像 + `1 / 随 机 / 无队伍` 三行文字（都居中），其余 7 个槽还是 `CMA@4x.png` 的
+  `Press Attack to join!` 提示图 —— `realkeys-vs-prepare.png` 那一拍有"电脑人数"对话框压在中路，
+  这张干净，专门用来看槽内部（生成：同一份 `realkeys_probe.ps1` 把 `--shot-frame` 改成 1900）。
 - `match-char-menu.png` / `match-running.png` / `match-running-later.png` —— **从入口页进对局**
   （`--click` + `--key` 脚本，一条命令；命令见「开放模式现在能走到哪」）：
   - `match-char-menu.png`（第 760 帧）—— 八人框，`Player: 1 / Fighter: Davis / Team: Team 1`。

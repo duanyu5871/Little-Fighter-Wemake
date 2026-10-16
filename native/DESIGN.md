@@ -417,7 +417,10 @@ using Value = std::variant<
 
 ### 5.23. 宿主（`native/host/`，M1 headless 入口） —— 偏差与限制（同时登记在 README 的偏差表）
 
-1. 宿主不渲染 / 不出声 / 不解图 / 不接指针：`ui_image_load` 给零尺寸占位并计数，`md5` 是
+1. 宿主不渲染 / 不出声 / 不解图 / 不接指针：`ui_image_load` 给零尺寸占位并计数（但 `w`/`h`/`scale`
+   **三个键必须给**：`0/0/1` —— 核心侧 `UIImgLoader::load` 会算 `node.resize(w / scale, h / scale)`，
+   缺字段就是 `undefined / undefined = NaN` 写进节点尺寸，那个节点从此什么都不画；能真解图的宿主
+   应当覆写成真值，见 `LfwGodotHost::ui_image_load`），`md5` 是
    占位哈希，`Ditto.Cache` 只在内存里，`zip_*`（下载 / 读 blob / 缓存）一律「没有」——
    所以只走 `ZipItem{path, IZip*}` 这条**对象**加载路，不走 `load_zip_from_url`。
 3. `--zip` 必须给**已解包**目录（README 里给了 `Expand-Archive` 两行），压缩包本体留到
@@ -1544,7 +1547,7 @@ JSZip 的 `file()` / `file()` + 正则索引是**同步**的（`Zip.ts:122-141`�
 | `now()`（`lfw.h:198`） | 允许（墙钟） | `new MersenneTwister(Date.now())`；`Clock.now = performance.now`（`Clock.ts:3-6`） |
 | 步进时机（raf / timeout / MessageChannel 触发） | 允许 | `Render.ts` / `Clock.ts` 本身就是墙钟 |
 | `measure_text` 的返回值（`lfw.h:242`） | 允许（字体/设备相关），但**同设备同版本内必须稳定** | `ImageMgr.ts:184-190` 走 canvas `measureText` |
-| 图片尺寸/缩放（`ui_image_load` 的 w/h/scale） | 允许 | 设备解码 + 文件名里的 `@nX` |
+| 图片尺寸/缩放（`ui_image_load` 的 w/h/scale） | 允许（**但不许缺**：核心侧 `UIImgLoader::load` 拿它算 `node.resize(w / scale, h / scale)`、`cook_ui_info` 拿它给零轴补尺寸，缺了就是 `NaN` 写进节点尺寸） | 设备解码 + 文件名里的 `@nX`；`HeadlessHost` 给 `0/0/1`（有限占位），`LfwGodotHost` 覆写成"命中条目 + PNG 头"的真值 |
 | 音频、下载进度 | 允许 | 纯平台 |
 | `md5`（`lfw.h:193`） | **必须逐位**（与 SparkMD5 一致） | `ui_load_img.cpp:65-68` 用 md5 拼图片 key；`Zip.ts` 用它做缓存名 |
 
@@ -1934,11 +1937,13 @@ WASM 宿主已经用同一招证明过自己 —— `native/README.md:310`：**�
     核心一个字节都不碰）；三份 bg/角色/影子都是**贴了图的**（`textures=18 ok/0 fail`）。
     次序照 `WorldRenderer.render_layers`（背景层 → 影子 → 实体按组 z 远→近 → 前景层）。
   - **UI 那一遍已落定**：`native/host/godot/lfw_godot_ui_renderer.{h,cpp}`（`IUINodeRenderer` 的实现：
-    锚点矩形 / 父子坐标系累计 / `z` 升序 / 可见与递归 / 图片裁剪 + `@Nx` + 平铺 + UV 动画 / 文字 /
-    `clip_children` 求交 / `background|foreground` 两遍叠加 → 同一批**引擎无关**的绘制项，按
+    锚点矩形 / 父子坐标系累计 / `z` 升序 / 可见与递归 / 图片裁剪 + `@Nx` + 平铺 + UV 动画 / **九宫格** /
+    文字 / `clip_children` 求交 / `background|foreground` 两遍叠加 → 同一批**引擎无关**的绘制项，按
     `pass = -1|0|+1` 落进五遍次序的 UI 那两遍）+ `LfwGodotHost::create_ui_node_renderer` 覆写
-    （每节点一份，所有权归节点）+ 宿主侧文字度量（`ThemeDB` 的默认字体；见 D5-10）。
-    统计行 `UI render calls: N (unhandled: 0)`。**没画的**：九宫格、逐像素描边、`clip_children` 的
+    （每节点一份，所有权归节点）+ 宿主侧文字度量（`ThemeDB` 的默认字体；见 D5-10）+
+    **`LfwGodotHost::ui_image_load` 覆写**（把 `w/h/scale` 补成真值 —— 核心侧 `UIImgLoader::load`
+    与 `cook_ui_info` 都要这三个数，缺了就是 NaN，见 §G2 末段）。
+    统计行 `UI render calls: N (unhandled: 0)`。**没画的**：逐像素描边、`clip_children` 的
     部分越界（`draw_*` 没有逐项裁剪 ⇒ 整项取舍）、文字的下划线/阴影/描边、3D 模型。
   - **验收**：差分台面与 lint 不退化（`npm run native all`）+ **三条摘要逐位不变**（渲不渲染都不许动
     模拟：`7335aa25f4e1ce86` / `e4a9437292047044` / `f29d3bb1ea330c32`，`renderer(±)` / `ignored_images`
@@ -2439,11 +2444,13 @@ Godot 这一支做到了，**headless / thin 仍然没有位图**。契约层面
   `LfwGodotHost::create_ui_node_renderer`（每节点一份，所有权归节点）+ 宿主侧文字度量
   （`ThemeDB` 的默认字体，装进 `LfwGodotHost::set_measure_text`；D5-10 那条"允许宿主差异"）。
   按下面那张语义表落的：锚点矩形 / 父子坐标系累计 / `z` 升序（同 z 保模型树序）/ 可见与递归 /
-  图片裁剪 + `@Nx` + `repeatX×repeatY` 平铺 + `offsetAnim*` 的 UV 动画 / 文字 / `clip_children`
-  求交 / 位置与缩放的指数平滑 / `lifetime` 一变同步一次 / `global_opacity` 的 0.5 缓动 /
-  `z<0` 落 UI 背景（`pass=-1`，`_draw()` 三趟扫 = 五遍次序）。
+  图片裁剪 + `@Nx` + `repeatX×repeatY` 平铺 + `offsetAnim*` 的 UV 动画 / **九宫格** / 文字
+  （含"文字块中心压在节点矩形中心上"那条摆放口径）/ `clip_children` 求交 / 位置与缩放的指数平滑 /
+  `lifetime` 一变同步一次 / `global_opacity` 的 0.5 缓动 /
+  `z<0` 落 UI 背景（`pass=-1`，`_draw()` 三趟扫 = 五遍次序）——
+  还有 `LfwGodotHost::ui_image_load` 覆写（`w`/`h`/`scale` 三个数）。
   仍然空的：`create_ui_node_renderer` 的**默认实现**仍是 `nullptr`（`lfw.h:179-182`，`HeadlessHost`
-  也没覆写 ⇒ 另外两份宿主的 UI 依旧不画）、九宫格 / 逐像素描边 / `clip_children` 的部分越界 /
+  也没覆写 ⇒ 另外两份宿主的 UI 依旧不画）、逐像素描边 / `clip_children` 的部分越界 /
   文字的下划线阴影描边 —— 以及**递归/可见规则**只按 TS 那份"会画"的实现落（`HeadlessUINodeRenderer`
   的规则不同，端口不预设）。
 - ⇒ 这一条属 G0 允许的"**引擎通用缺口**"：接口面与调用点**都在核心侧**补，与"将来挂哪一份宿主"
@@ -2457,8 +2464,8 @@ Godot 这一支做到了，**headless / thin 仍然没有位图**。契约层面
 | **坐标约定** | UI 模型里 **y 向下**；画到世界时 **y 反号**（`(x, −y, z)`）（`UINodeRenderer.ts:356-366`）⇒ 契约必须写明，否则"UI 上下颠倒"是必然 |
 | **父子 / z 层** | 父子关系来自**模型树**（`parent = ui.parent?.renderer`）；`z < 0` 落 **UI 背景层**，否则落 **UI 前景层**（`UINodeRenderer.ts:154-172`）—— 与 D1(a) 的五遍次序对齐 |
 | **可见** | `ui.visible`；子节点只在"自己可见 **或** 与渲染器的可见态不一致"时才被递归绘制（`UINodeRenderer.ts:412-420`）⇒ 契约要的是"不可见的子树不产生绘制" |
-| **图片** | 图片 + **裁剪**（`clip_x/y/w/h`）+ 九宫格 + **UV 动画**（`offsetAnimX/Y/R` 按 dt 积分）+ 像素密度 `scale`（`UINodeRenderer.ts:198-245`、`:369-391`） |
-| **文字** | 文本 + 样式；尺寸与基线来自**宿主的文字度量**（`measure_text`，`lfw.h:242`；调用点 `ui/uinode.cpp:128`、`:193`，带 key 缓存 `:178-203`）⚠ 这一项**允许宿主差异**（W11 表），但"同设备同版本内必须稳定" |
+| **图片** | 图片 + **裁剪**（`clip_x/y/w/h`）+ **九宫格**（`NinePatchGeometry.ensure_parameters` 那套默认值 + `t_s = 1/scale` 的角块 1:1、边与中间拉伸；源窗口 `u * clip_w + clip_x`）+ **UV 动画**（`offsetAnimX/Y/R` 按 dt 积分）+ 像素密度 `scale`（`UINodeRenderer.ts:198-245`、`:369-391`、`NinePatchGeometry.ts`、`shader/outline.frag`） |
+| **文字** | 文本 + 样式；**摆放口径**：文字块（= 一块按"块尺寸"缩放的网格）的**中心压在节点矩形的中心上**（`mesh.position = round(w*(0.5−cx))` / `round(h*(cy−0.5))`，与矩形平移 `_tran_x/_tran_y` 同一个式子）⇒ 与 `text_align` 无关；`text_align` 只在**块内部**排，块内锚点 = `padding_l + l.x`，`l.x` 用"最宽一行 + 左右 padding"（`TextMesh.ts:19-32`、`:297-299`、`UITextRenderer.ts:73-79`）；尺寸与基线来自**宿主的文字度量**（`measure_text`，`lfw.h:242`；调用点 `ui/uinode.cpp:128`、`:193`，带 key 缓存 `:178-203`）⚠ 这一项**允许宿主差异**（W11 表），但"同设备同版本内必须稳定" |
 | **颜色 / 不透明度** | 有图 ⇒ `color` 当**混合色 + 强度**；无图 ⇒ `color` 当**覆盖色**；`global_opacity` 是**累计**不透明度（从根算下来）（`UINodeRenderer.ts:258-286`） |
 | **裁剪（`clip_children`）** | 祖先里每个带 `clip_children` 的节点各出一个有效矩形，**求交集**；子树超出交集的部分不画（`UINodeRenderer.ts:423-470`） |
 | **两条时钟口径** | 模型的变化（图/文本/颜色/不透明度）在 `world.lifetime` 变化时**同步一次**；**位置与缩放**每帧做**指数平滑**（系数 `1 − exp(−dt / (1000/60))`）⇒ 契约要分开写，否则 UI 会抖或会顿（`UINodeRenderer.ts:393-400`、`:532-541`） |

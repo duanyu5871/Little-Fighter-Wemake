@@ -20,9 +20,10 @@
 //     父节点那句 `child.visible || (child.visible != child.renderer.visible)`）。
 //   * 裁剪：祖先里每个 `clip_children` 的矩形求交（`effective_clip_rect`）。
 //
-// **没画的**（数据在、实现没做，见报告）：九宫格（`nine_patch`）、逐像素描边（`outline*`）、
-// `background/foreground` 的着色器内合成（这里是两遍叠加）、`clip_children` 的**部分**越界
-// （CanvasItem 的 `draw_*` 没有逐项裁剪 ⇒ 整项取舍）、3D 模型/GLB、文字的下划线/阴影/描边。
+// **没画的**（数据在、实现没做，见报告）：逐像素描边（`outline*`）、`background/foreground`
+// 的着色器内合成（这里是两遍叠加）、`clip_children` 的**部分**越界（CanvasItem 的 `draw_*`
+// 没有逐项裁剪 ⇒ 整项取舍）、3D 模型/GLB、文字的下划线/阴影/描边、`flip_y`。
+// 九宫格（`nine_patch`）画了 —— 见 `emit_nine_patch`。
 #pragma once
 
 #include <string>
@@ -68,6 +69,10 @@ class GodotUINodeRenderer : public ui::IUINodeRenderer {
   bool emit_node();            // 出一个节点的绘制项；返回"画了没有"
   bool emit_image(const GodotDrawItem& proto, double x, double y, double w, double h,
                   bool mirror_x);
+  // 九宫格（`img.nine_patch`）：3×3 共 9 块各出一次项（四角 1:1、四边与中间拉伸）。
+  bool emit_nine_patch(const GodotDrawItem& proto, double x, double y, double w, double h,
+                       bool mirror_x);
+  void parse_nine_patch(const Value& img);  // 读 `img.nine_patch`（缺省按 TS `ensure_parameters`）
   std::string node_tag() const;
   GodotUINodeRenderer* parent_renderer() const;
   // 这一项落在哪一遍（D4：`z < 0` 落 UI 背景）。层根与其**直接子节点**按自己的 `z` 判，
@@ -106,6 +111,12 @@ class GodotUINodeRenderer : public ui::IUINodeRenderer {
   double _crop_x = 0, _crop_y = 0, _crop_w = 0, _crop_h = 0;
   bool _flip_x = false, _flip_y = false;
   double _repeat_x = 1, _repeat_y = 1;
+  // 九宫格（`img.nine_patch`，TS `NinePatchGeometry`）：尺寸都在**纹理像素**上（角尺寸要除以
+  // `@Nx` 倍数才是几何尺寸）。`f_*` 是框内边距、`l_w/t_h/r_w/b_h` 是四边角尺寸。
+  bool _np_on = false;
+  double _np_fw = 1, _np_fh = 1;
+  double _np_fl = 0, _np_ft = 0, _np_fr = 0, _np_fb = 0;
+  double _np_lw = 0, _np_th = 0, _np_rw = 0, _np_bh = 0;
   double _anim_x = 0, _anim_y = 0, _anim_r = 0;
   double _uv_x = 0, _uv_y = 0, _uv_angle = 0;  // UV 动画的积分（纹理单位 / 弧度）
   // 颜色（TS `update_img`：有图 ⇒ 混色 + 强度；无图 ⇒ 覆盖色 + 强度）

@@ -11,7 +11,17 @@ const REPO = resolve(NATIVE, "..");
 const BUILD_DIR = join(NATIVE, "build", "msvc-x64");
 
 const GODOT_PROJECT = join(NATIVE, "host", "godot", "project");
+const GODOT_BUILD_DIR = join(NATIVE, "build", "godot");
 const HOST_DATA = join(NATIVE, "build", "host-data");
+
+// IntelliSense（`.vscode/c_cpp_properties.json` 的 `compileCommands`）用的**合并**编译数据库。
+// 两份库覆盖的翻译单元不一样：`msvc-x64` 那份有 `native/lfw` + `tests` + `host/`（godot 除外），
+// godot 那份多出 `native/host/godot/**` —— 而 C/C++ 扩展一次只认**一份**库。
+// 合并规则：core 的条目优先。这样 `native/lfw/**` 在编辑器里也永远看不到 godot-cpp 的 include
+// 路径（DESIGN §G8 的硬规则），`native/host/godot/**` 又拿得到真正的构建参数。
+const CC_CORE_DB = join(BUILD_DIR, "compile_commands.json");
+const CC_GODOT_DB = join(GODOT_BUILD_DIR, "compile_commands.json");
+const CC_MERGED_DB = join(NATIVE, "build", "compile_commands.json");
 
 const GEN_DIR = join(NATIVE, "build", "gen");
 
@@ -129,13 +139,127 @@ function step(name, fn) {
   console.log(C.green(`v ${name}`));
 }
 
+function readCompileDb(path) {
+  if (!existsSync(path)) return null;
+  try {
+    const rows = JSON.parse(readFileSync(path, "utf8"));
+    return Array.isArray(rows) ? rows : null;
+  } catch {
+    return null;
+  }
+}
+
+// 只要**本仓库、且不在 `build/` 下**的翻译单元：godot 那份库里还有 godot-cpp 自己的上千条源码
+// （在 `build/godot/host/godot/godot-cpp/**`），编辑器用不上，只会让文件大几倍。
+function isEditorRelevant(file) {
+  const f = file.replace(/\//g, "\\").toLowerCase();
+  return f.startsWith(`${NATIVE.toLowerCase()}\\`) && !f.startsWith(`${join(NATIVE, "build").toLowerCase()}\\`);
+}
+
+// CMake 3.25+ 的 MSVC 生成器把 godot-cpp 的路径标成 `-external:I<dir>`（`/external:I` 的连字符写法，
+// 语义只是"把这份头文件的警告降级"）。C/C++ 扩展对它的解析不稳 —— 不认识的开关会被整条丢掉 ⇒
+// 又回到"cannot open source file godot_cpp/classes/…"。合并时降级成普通 `-I`：include 解析一致，
+// 差别只在 external 警告等级（编辑器不编代码，无所谓）。
+function normalizeExternalFlags(row) {
+  if (typeof row.command !== "string") return row;
+  if (!row.command.includes("-external:") && !row.command.includes("/external:")) return row;
+  const command = row.command
+    .replace(/-external:I/g, "-I")
+    .replace(/\/external:I/g, "-I")
+    .replace(/\s[-\/]external:W\d+/g, "");
+  return { ...row, command };
+}
+
+// 头文件自己不会出现在库里（没人单独编它），但 C/C++ 扩展是**按"编辑器里打开的那个文件"**查条目的：
+// 头文件查不到 ⇒ 退回 `includePath`/`defines`（godot 宿主那半边就又缺 godot-cpp 了，用户报的就是
+// `lfw_godot_textures.h` 里的 `<godot_cpp/classes/image_texture.hpp>`）。
+// 所以给每个头文件补一条：拿**同目录**（没有就沿父目录往上找，不出 `native/`）里某个源文件的
+// 命令行，把输入文件那个 token 换成这个头。flags 逐字照抄 ⇒ core 的头拿 core 的 flags，
+// godot 的头拿 godot 的（含 `-I…godot-cpp/gen/include`）。
+function listHeaderFiles(dir = NATIVE, acc = []) {
+  for (const ent of readdirSync(dir, { withFileTypes: true })) {
+    if (ent.name === "build" || ent.name === ".git") continue;
+    const full = join(dir, ent.name);
+    if (ent.isDirectory()) listHeaderFiles(full, acc);
+    else if (/\.(h|hpp)$/i.test(ent.name)) acc.push(full);
+  }
+  return acc;
+}
+
+function templateFor(dir, byDir) {
+  const stop = NATIVE.toLowerCase();
+  for (let d = dir; d.toLowerCase().startsWith(stop); d = dirname(d)) {
+    const tmpl = byDir.get(d.replace(/\//g, "\\").toLowerCase());
+    if (tmpl) return tmpl;
+  }
+  return null;
+}
+
+function addHeaderEntries(merged) {
+  const byDir = new Map();
+  for (const row of merged.values()) {
+    if (!/\.(c|cc|cpp|cxx)$/i.test(row.file)) continue;
+    const dir = dirname(row.file.replace(/\//g, "\\")).toLowerCase();
+    if (!byDir.has(dir)) byDir.set(dir, row);
+  }
+  let added = 0;
+  for (const file of listHeaderFiles()) {
+    const key = file.replace(/\//g, "\\").toLowerCase();
+    if (merged.has(key)) continue;
+    const tmpl = templateFor(dirname(file), byDir);
+    if (!tmpl || typeof tmpl.command !== "string") continue;
+    merged.set(key, { directory: tmpl.directory, file, command: tmpl.command.replace(tmpl.file, () => file) });
+    added += 1;
+  }
+  return added;
+}
+
+// 合并两份库；两份都不在（还没 configure 过）时返回 null。
+function mergeCompileDb() {
+  const merged = new Map();
+  for (const rows of [readCompileDb(CC_GODOT_DB), readCompileDb(CC_CORE_DB)]) {
+    for (const row of rows ?? []) {
+      if (!row?.file || !isEditorRelevant(row.file)) continue;
+      merged.set(row.file.replace(/\//g, "\\").toLowerCase(), normalizeExternalFlags(row)); // 后写的赢 ⇒ core 优先
+    }
+  }
+  if (merged.size === 0) return null;
+  const headers = addHeaderEntries(merged);
+  const out = [...merged.values()].sort((a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : 0));
+  writeFileSync(CC_MERGED_DB, `${JSON.stringify(out, null, 1)}\n`);
+  return {
+    count: out.length,
+    headers,
+    host: out.filter((r) => /host[\\/]godot/i.test(r.file)).length,
+  };
+}
+
+function writeIntellisenseDb() {
+  const r = mergeCompileDb();
+  if (!r) {
+    console.log(C.dim(`  IntelliSense：两份编译数据库都没有，先跑 configure`));
+    return 0;
+  }
+  console.log(
+    C.dim(
+      `  IntelliSense -> ${CC_MERGED_DB}（${r.count} 条：源文件 + ${r.headers} 个头文件，其中 host/godot ${r.host}）`,
+    ),
+  );
+  return 0;
+}
+
+function cmdIntellisense() {
+  return writeIntellisenseDb();
+}
+
 function cmdConfigure() {
   const stamp = join(BUILD_DIR, "compile_commands.json");
   if (existsSync(BUILD_DIR) && existsSync(stamp)) {
     console.log(C.dim(`  ${BUILD_DIR} exists, skipping`));
+    writeIntellisenseDb();
     return 0;
   }
-  return runCmake([
+  const code = runCmake([
     "-S",
     NATIVE,
     "-B",
@@ -145,6 +269,9 @@ function cmdConfigure() {
     "-DCMAKE_BUILD_TYPE=Release",
     "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON",
   ]);
+  if (code !== 0) return code;
+  writeIntellisenseDb();
+  return 0;
 }
 
 function cmdBuild() {
@@ -224,7 +351,7 @@ function cmdGodot() {
     console.error("  run in that folder: <godot-console> --headless --dump-extension-api --dump-gdextension-interface");
     return 2;
   }
-  const dir = join(NATIVE, "build", "godot");
+  const dir = GODOT_BUILD_DIR;
   const code = runCmake([
     "-S",
     NATIVE,
@@ -233,12 +360,15 @@ function cmdGodot() {
     "-G",
     "Ninja",
     "-DCMAKE_BUILD_TYPE=Release",
+    // IntelliSense 那一半靠它（见 CC_MERGED_DB 的注释）：显式传，别指望环境变量里碰巧有
+    "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON",
     "-DLFW_GODOT_HOST=ON",
     `-DLFW_GODOT_CPP_DIR=${cppDir}`,
     `-DGODOTCPP_CUSTOM_API_FILE=${apiFile}`,
     "-DGODOTCPP_TARGET=template_debug",
   ]);
   if (code !== 0) return code;
+  writeIntellisenseDb();
   const built = runCmake(["--build", dir, "--target", "lfw_godot"]);
   if (built !== 0) return built;
   console.log(C.dim(`  -> ${join(NATIVE, "host", "godot", "project", "bin", "lfw_godot.dll")}`));
@@ -359,6 +489,7 @@ const table = {
   test: () => step("test", cmdTest),
   godot: () => step("godot", cmdGodot),
   "godot-run": cmdGodotRun,
+  intellisense: () => step("intellisense", cmdIntellisense),
   all: () => {
     step("configure", cmdConfigure);
     step("build", cmdBuild);

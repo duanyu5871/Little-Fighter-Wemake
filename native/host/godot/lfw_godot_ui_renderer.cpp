@@ -197,14 +197,21 @@ void GodotUINodeRenderer::render_subtree(double dt) {
   }
   compute_global();
   if (_world->ui_dump_on()) {
+    char np[64];
+    if (_np_on) {
+      std::snprintf(np, sizeof(np), "%.0f,%.0f,%.0f,%.0f/%.0fx%.0f", _np_lw, _np_th, _np_rw,
+                    _np_bh, _np_fw, _np_fh);
+    } else {
+      std::snprintf(np, sizeof(np), "-");
+    }
     char line[512];
     std::snprintf(line, sizeof(line),
                   "[ui] %-28s pass=%2d box=(%.1f,%.1f %.1fx%.1f) vis=%d z=%.0f alpha=%.2f img=%s "
-                  "crop=(%.1f,%.1f %.1fx%.1f) rep=%.0fx%.0f text=%zu/%s",
+                  "crop=(%.1f,%.1f %.1fx%.1f) rep=%.0fx%.0f np=%s text=%zu/%s",
                   node_tag().c_str(), pass_of(), _box_x0, _box_y0, _box_x1 - _box_x0,
                   _box_y1 - _box_y0, _visible ? 1 : 0, _gz, _alpha,
                   _img_path.empty() ? (_wants_img ? "<missing>" : "-") : _img_path.c_str(), _crop_x,
-                  _crop_y, _crop_w, _crop_h, _repeat_x, _repeat_y, _text.size(),
+                  _crop_y, _crop_w, _crop_h, _repeat_x, _repeat_y, np, _text.size(),
                   _text.empty() ? "" : _text.c_str());
     _world->ui_dump_lines().emplace_back(line);
   }
@@ -307,6 +314,7 @@ void GodotUINodeRenderer::sync_model() {
   _flip_x = _flip_y = false;
   _repeat_x = _repeat_y = 1;
   _anim_x = _anim_y = _anim_r = 0;
+  parse_nine_patch(data_img);
   if (!path.empty()) {
     const GodotWorldRenderer::Resolved& res = _world->probe_path(path);
     _img_path = res.path;
@@ -572,6 +580,99 @@ bool GodotUINodeRenderer::emit_node() {
   return drew;
 }
 
+// `img.nine_patch`（TS `INinePatch`）：缺的键按 `NinePatchGeometry.ensure_parameters` 的默认值
+// （`l_w = f_w * 0.4` 那一套），值都在**纹理像素**上。
+void GodotUINodeRenderer::parse_nine_patch(const Value& img) {
+  _np_on = false;
+  _np_fw = 1, _np_fh = 1;
+  _np_fl = _np_ft = _np_fr = _np_fb = 0;
+  _np_lw = _np_th = _np_rw = _np_bh = 0;
+  const Value np = lfw::field_or(img, u"nine_patch");
+  if (nullish(np) || as_object(np) == nullptr) return;
+  _np_fw = num_or(np, u"f_w", 1.0);
+  _np_fh = num_or(np, u"f_h", 1.0);
+  if (!(_np_fw > 0.0)) _np_fw = 1.0;
+  if (!(_np_fh > 0.0)) _np_fh = 1.0;
+  _np_fl = num_or(np, u"f_l", 0.0);
+  _np_ft = num_or(np, u"f_t", 0.0);
+  _np_fr = num_or(np, u"f_r", 0.0);
+  _np_fb = num_or(np, u"f_b", 0.0);
+  _np_lw = num_or(np, u"l_w", _np_fw * 0.4);
+  _np_th = num_or(np, u"t_h", _np_fh * 0.4);
+  _np_rw = num_or(np, u"r_w", _np_fw * 0.4);
+  _np_bh = num_or(np, u"b_h", _np_fh * 0.4);
+  _np_on = true;
+}
+
+// 九宫格（TS `NinePatchGeometry` + `UINodeRenderer.next_geometry`）：3×3 共 9 块，四角按纹理
+// 1:1（`t_s = 1 / @Nx`）、四边与中间**拉伸**（`repeatX/Y` 的平铺不叠在九宫格上，数据里没有这种组合）。
+//   * 源窗口：着色器里 `uv_x = vUv.x * w / ow + x / ow`（`x/w` = 裁剪窗口，一倍图逻辑像素），
+//     九宫格的 `vUv` 是「按框尺寸 `f_w/f_h` 归一化」的图内坐标 ⇒ 换算成**逻辑像素**就是
+//     `u * clip_w + clip_x`。
+//   * 目标尺寸：几何体里是 `t_s * l_w`（逻辑像素），再乘全局缩放后才是屏幕像素。
+//   * 镜像（全局缩放为负）：目标整块左右翻 ⇒ 列序反过来、每块内容也翻（与一图那条同一口径）。
+bool GodotUINodeRenderer::emit_nine_patch(const GodotDrawItem& proto, double x, double y, double w,
+                                          double h, bool mirror_x) {
+  const double iw = _img_lw > 0.0 ? _img_lw : _crop_w;
+  const double ih = _img_lh > 0.0 ? _img_lh : _crop_h;
+  const double cw = _crop_w > 0.0 ? _crop_w : iw;
+  const double ch = _crop_h > 0.0 ? _crop_h : ih;
+  if (!(cw > 0.0) || !(ch > 0.0) || !(w > 0.0) || !(h > 0.0)) return false;
+  const double ts = _tex_scale > 0.0 ? 1.0 / _tex_scale : 1.0;
+  const double u0 = _np_fl / _np_fw, u3 = (_np_fw - _np_fr) / _np_fw;
+  const double u1 = u0 + _np_lw / _np_fw, u2 = u3 - _np_rw / _np_fw;
+  const double v0 = _np_ft / _np_fh, v3 = (_np_fh - _np_fb) / _np_fh;
+  const double v1 = v0 + _np_th / _np_fh, v2 = v3 - _np_bh / _np_fh;
+  const double us[4] = {u0, u1, u2, u3};
+  const double vs[4] = {v0, v1, v2, v3};
+  double sx[4], sy[4];
+  for (int i = 0; i < 4; ++i) {
+    sx[i] = _crop_x + us[i] * cw;
+    sy[i] = _crop_y + vs[i] * ch;
+  }
+  // 目标格线（屏幕像素，相对盒子左上角）。盒子比角还小的时候把中间那一格挤到 0。
+  double dx[4] = {0.0, ts * _np_lw * std::fabs(_gsx), w, w};
+  double dy[4] = {0.0, ts * _np_th * std::fabs(_gsy), h, h};
+  dx[2] = std::min(std::max(w - ts * _np_rw * std::fabs(_gsx), 0.0), w);
+  dy[2] = std::min(std::max(h - ts * _np_bh * std::fabs(_gsy), 0.0), h);
+  dx[1] = std::min(std::max(dx[1], 0.0), dx[2]);
+  dy[1] = std::min(std::max(dy[1], 0.0), dy[2]);
+  bool drew = false;
+  for (int j = 0; j < 3; ++j) {
+    const double cell_h = dy[j + 1] - dy[j];
+    if (!(cell_h > 0.0)) continue;
+    for (int i = 0; i < 3; ++i) {
+      const double cell_w = dx[i + 1] - dx[i];
+      if (!(cell_w > 0.0)) continue;
+      const double src_w = sx[i + 1] - sx[i];
+      const double src_h = sy[j + 1] - sy[j];
+      if (!(src_w > 0.0) || !(src_h > 0.0)) continue;
+      GodotDrawItem it = proto;
+      it.path = _img_path;
+      it.tex_scale = _tex_scale;
+      it.x = x + (mirror_x ? w - dx[i + 1] : dx[i]);
+      it.y = y + dy[j];
+      it.w = cell_w;
+      it.h = cell_h;
+      it.sx = sx[i];
+      it.sy = sy[j];
+      it.sw = src_w;
+      it.sh = src_h;
+      it.flip_x = _flip_x != mirror_x;
+      it.flip_y = _flip_y;
+      it.mix_a = _has_color ? _ca : 0.0;
+      it.mix_r = _has_color ? _cr : 1.0;
+      it.mix_g = _has_color ? _cg : 1.0;
+      it.mix_b = _has_color ? _cb : 1.0;
+      it.a = _alpha;
+      _world->ui_append(std::move(it));
+      ++_world->ui_stats().items;
+      drew = true;
+    }
+  }
+  return drew;
+}
+
 // 图片：裁剪窗口（一倍图逻辑像素）+ `@Nx` 倍数 + 平铺。返回"画了没有"。
 //
 // 平铺的数学照 TS 的着色器（`outline.frag` 的 `uv_x = vUv.x * w / ow + x / ow`，其中
@@ -583,6 +684,11 @@ bool GodotUINodeRenderer::emit_node() {
 // `clip_w > lw`（一张图上重复多次）这里不展开（最多显示前 `lw`）。
 bool GodotUINodeRenderer::emit_image(const GodotDrawItem& proto, double x, double y, double w,
                                      double h, bool mirror_x) {
+  // 九宫格：数据给了 `nine_patch` 就换成 3×3 那 9 块（TS 里 `next_geometry` 也是二选一 ——
+  // 几何体一换就不再是「一图一张」）。和平铺的组合数据里没有，真凑一起还是走下面那条。
+  if (_np_on && std::llround(_repeat_x) <= 1 && std::llround(_repeat_y) <= 1) {
+    return emit_nine_patch(proto, x, y, w, h, mirror_x);
+  }
   const double lw = _img_lw;
   const double lh = _img_lh;
   const double cw = _crop_w > 0.0 ? _crop_w : lw;

@@ -184,10 +184,14 @@ const GodotWorldRenderer::Resolved& GodotWorldRenderer::resolve_path(const std::
   Resolved res;
   std::vector<std::u16string> fallbacks;
   std::u16string suffix;
+  // 名字前缀（`ImageMgr.create_img_info` 的 `?` 模糊 / `!` 精确）在查包之前去掉 —— 它是标记、
+  // 不是文件名的一部分（UI 那两处调用方各自也要用它，见 `lfw_godot_ui_renderer.cpp:305`）。
+  std::string name = path;
+  while (!name.empty() && (name[0] == '!' || name[0] == '?')) name.erase(name.begin());
   // 与 TS 同一张回退表（`native/lfw/loader/get_import_fallbacks`）：`@Nx` / `@Nx/` / `.webp`。
   // ⚠ 一个候选算数要**字节真的读得出来**：包（`--zip`）与根目录（`--root`）都认
   //（UI 的图片路径是相对 root 的：`builtin_data/launch/bg.png` 在 `dist/` 里，不在任何包里）。
-  if (!path.empty() && lfw::loader::get_import_fallbacks(Value(from_utf8(path)), fallbacks, suffix)) {
+  if (!name.empty() && lfw::loader::get_import_fallbacks(Value(from_utf8(name)), fallbacks, suffix)) {
     for (const std::u16string& cand : fallbacks) {
       const std::string candidate = to_utf8(cand);
       std::string bytes;
