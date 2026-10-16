@@ -823,8 +823,27 @@ $R = (Get-Location).Path; $g = "$env:USERPROFILE\Desktop\Godot_v4.7.1-stable_win
 | 1 | `main_page` 菜单**少两项**：`生存排行` / `双人生存排行` | `MainMenuLogic.apply()` 按 `lfw.survival_rank_available` 显示/隐藏这两个入口（`src/LFW/ui/component/MainMenuLogic.ts:31-40`）；Web 侧由 App 调 `init_survival_rank(lfw)` 置真（`src/survival_rank.ts:243-262`，本机构建注了 `RANK_API_URL` ⇒ 列表会真的去 `lfj.gim.ink` 拉） | **缺口**：要真做就得给宿主加 HTTP 面（`get_rank_list_api` / `get_my_rank_api` / 上报），再把 `set_survival_rank_data` 灌进去 |
 | 2 | 每行文字的高度**多 1 像素**（`version_name` 15 ↔ 14、`sound_warning` 46 ↔ 44、`long_text` 88 ↔ 84），宽度已经逐项对齐（±1） | 行高口径不同：TS 是 canvas 的 `fontBoundingBoxAscent + fontBoundingBoxDescent`，端口是 `Font::get_height(size)`（Arial 上 ≈1.167em ↔ ≈1.111em）。**宽度**那一半已经修好（字族 + 四边内边距 2，见上） | 允许偏差（`DESIGN.md:1526`：字体/设备相关）；再多行节点上差到几个像素 |
 | 3 | 运行期切语言（设置页）不会更新已建出来的 UI 文本 | `set_lang` 的"重写节点文本 + 按新语言重度量"那一半在宿主侧（`ILfwHost::lang_apply`，`lfw.h:265`）；`HeadlessHost` 只切 i18n 表（`headless_host.cpp:484-489`，README 旧账）；首发语言因为设在 `load` 之前所以**不受影响** | 缺口（要照 `LFW.ts:157-197` 那三步实现：收集 → 改 `_i18n.lang` → 重度量/重设文本） |
-| 4 | 入口页两张背景大脸（`bg_l_face` / `bg_r_face`，各 14 帧 `RandomVisible`）落在**不同的帧**上 | 两侧取的时刻不同（Web 那次 entry 是点完 4.7s；Godot 是第 400 帧 × `--delta 0.017`）⇒ `lifetime` 不同。不是"帧选择逻辑"不一致 | 观察值，不做结论（要判定得让两边落在同一个 `lifetime`） |
-| 5 | 顶栏那一簇控件在 `main_page` 上个数可能不同 | 两侧的**显示条件**都读同一批状态（`c.bg_is_void` / `settings_page` / `first_page_init_demo` / 页栈深），但 Web 顶栏是 React 组件、Godot 是宿主自绘表；`first_page_init_demo` 只在 `/demo` 路径下为真 | 待逐格核对（截图上的小图标人眼/视觉模型都不可靠，得按 `--click-window` 逐格点） |
+| 4 | **世界那一遍的背景层**没有 UV 偏移动画（UI 那一遍 2026-10-16 已补） | TS 是 `BgLayerRender.render`（`BgLayerRender.ts:110-174`）：`offsetX/Y += sec*offsetAnim*`，周期 = `min(源图, 目标)`，再 `tex.offset = pos_mod(offset, 周期)/周期`；端口 `lfw_godot_renderer.cpp` 里连 `offsetAnim` 都没读 | **缺口**（照上面那份口径补一份就行：世界端没有 `anim_r` 旋转，只有 X/Y） |
+| 5 | 入口页两张背景大脸（`bg_l_face` / `bg_r_face`，各 14 帧 `RandomVisible`）落在**不同的帧**上 | 两侧取的时刻不同（Web 那次 entry 是点完 4.7s；Godot 是第 400 帧 × `--delta 0.017`）⇒ `lifetime` 不同。不是"帧选择逻辑"不一致 | 观察值，不做结论（要判定得让两边落在同一个 `lifetime`） |
+| 6 | 顶栏那一簇控件在 `main_page` 上个数可能不同 | 两侧的**显示条件**都读同一批状态（`c.bg_is_void` / `settings_page` / `first_page_init_demo` / 页栈深），但 Web 顶栏是 React 组件、Godot 是宿主自绘表；`first_page_init_demo` 只在 `/demo` 路径下为真 | 待逐格核对（截图上的小图标人眼/视觉模型都不可靠，得按 `--click-window` 逐格点） |
+
+### 2026-10-16：用户玩的时候报的两条（都已修）
+
+* **"Launch 页文字歪了"** —— 症状是**所有居中/右对齐的文字整段往右铺**，量出来的数：
+  警示文字本该在逻辑 `x∈[188,606]`（盒子中心 397），实际画在 `x∈[397,793]`（从盒子中心起画、并被右边界切掉）。
+  根因：`CanvasItem::draw_string` 的 `alignment` 一栏**在 `width < 0` 时不生效**（那一档不会去算对齐偏移），
+  而 `width = item.w`（折行）那条路又和 TS"只按 `\n` 切、不折行"的口径冲突。⇒ 改成
+  **自己量行宽、自己摆 x**：`alignment` 固定 LEFT、`width` 固定 -1，锚点照 TS 的
+  `padding_l + round(...)`（`lfw_godot_node.cpp` 的 `draw_text_item`）。修完实测
+  警示文字 `x∈[286,905]`（窗口像素，×1.5 ⇒ 逻辑 `[190.7,603.3]`）= 盒子里居中 ✓。
+* **"背景网格的 UV 移动动画怎么没了"** —— 不是"没了"：`_anim_x/_anim_y/_anim_r` 从 `cook` 期就一直在读
+  （`sync_model`），但**没有一行代码用它们** ⇒ 启动页那张 `repeat 20x11` 的平铺网格在 Godot 里一直静止。
+  已按 TS `UINodeRenderer.update_texture_attributes`（`UINodeRenderer.ts:369-388`）补上积分：
+  先按 `offsetAnimR` 累进角度、再把 `offsetAnimX/Y` 旋进 `_uv_x/_uv_y`。侧向实测（第 200 帧 vs 第 220 帧，
+  以 20 帧为单位）：图案右移 **12 窗口像素**（0.6 px/帧；解析值 0.506 px/帧，相关法的分辨率是 ±0.1 px/帧），
+  与 Web 版同向 ✓。⚠ 只有 `_uv_y` **反号**：TS 加的是 three.js 的 v 轴（`flipY=true` ⇒ v=0 在图底），
+  而这里喂的 `crop_y` 是图顶向下的行号 —— 这条是**推导**出来的（那张网格是自相似的 32×32 平铺，
+  周期内相关法分不出上下，实测不出结论），注释写在 `lfw_godot_ui_renderer.cpp` 的积分处。
 
 ## 验收：宿主三条摘要（改完必跑）
 

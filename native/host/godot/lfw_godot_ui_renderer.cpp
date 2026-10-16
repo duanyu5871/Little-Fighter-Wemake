@@ -237,6 +237,25 @@ void GodotUINodeRenderer::step_local(double dt) {
   _pos_y += (ty - _pos_y) * t;
   _scale_x += (sx - _scale_x) * t;
   _scale_y += (sy - _scale_y) * t;
+  // 纹理 UV 动画的积分（TS `update_texture_attributes`，`UINodeRenderer.ts:369-388`）：
+  // 先按 `offsetAnimR` 累进角度，再把 `offsetAnimX/Y` **按当前角度旋进** offset。
+  // ⚠ `_anim_x/_anim_y/_anim_r` 从 `cook` 期就一直在读（`sync_model` 里那三行），但**没人用** ⇒
+  // 启动页那张平铺网格（`launch/bg.png`，`offsetAnimX/Y = 0.5`，`repeat 20x11`）在 Godot 里是静止的，
+  // 而 Web 版是斜着滚动的（2026-10-16 用户报的"背景网格的 UV 移动动画怎么没了"）。
+  if (_anim_x != 0.0 || _anim_y != 0.0 || _anim_r != 0.0) {
+    const double sec = finite_or(dt, 0.0) / 1000.0;
+    if (_anim_r != 0.0) _uv_angle += sec * _anim_r;
+    if (_anim_x != 0.0 || _anim_y != 0.0) {
+      const double c = std::cos(_uv_angle);
+      const double s = std::sin(_uv_angle);
+      _uv_x += sec * (_anim_x * c - _anim_y * s);
+      // ⚠ **y 反号**（x 不反）：TS 加的是 three.js 的 `Texture.offset.y`（v 轴，`flipY=true` ⇒
+      // v=0 在**图底**），而这里的 `_uv_y` 喂给 `cy = crop_y + _uv_y * ch / repeat_y`、`crop_y`
+      // 是**图顶向下**的行号（`emit_image`）⇒ 同一个物理平移在两套坐标里符号相反。
+      // 这条只改了"方向"，`anim_r` 的旋转也跟着落在同一套坐标里（`_uv_angle` 只喂这一处）。
+      _uv_y -= sec * (_anim_x * s + _anim_y * c);
+    }
+  }
 }
 
 void GodotUINodeRenderer::sync_model() {

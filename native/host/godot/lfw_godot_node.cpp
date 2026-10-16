@@ -2126,11 +2126,13 @@ void LfwGodot::_draw() {
 // 对齐来自 `text_align`、左上各 2 像素内边距（`UITextRenderer._normalize_style`）。逐行画
 //（TS 也是在画布上逐行 `fillText`），基线用字体的 ascent。
 //
-// ⚠ **不能把 `item.w` 交给 `draw_string` 的 `width`**：那一档会让 Godot 自己折行，而 TS 的
-// `split_text_to_lines` **只按 `\n` 切**（`TextMesh.ts:20`），量出来的 `w/h` 就是文字的自然尺寸。
-// 于是同一段文字在两边行数不同（入口页/准备页一眼可见）。这里改成 `width = -1`（不折行），
-// 对齐锚点自己算 —— 与 TS 的 `padding_l + l.x` 逐项对齐（`TextMesh.ts:19-32,297-299`）：
-//   left   → x + padding_l；center → x + w/2；right → x + w - padding_r。
+// ⚠ **`draw_string` 的 `alignment` 一栏在 `width < 0` 时不起作用**（实测：`width = -1` 下
+// `align=CENTER` 的文字整段从 `pos.x` 往右铺，居中的警告文字被推到盒子中心往右半个盒宽 ——
+// 2026-10-16 用户报的"Launch 页文字歪了"就是它）。而 `width = item.w`（原本的做法）会让 Godot
+// **自己折行**，与 TS 的 `split_text_to_lines`（只按 `\n` 切、不折行）口径不同。
+// ⇒ 两头都不能用：**自己量行宽、自己摆 x**，`alignment` 固定 LEFT、`width` 固定 -1。
+// 锚点照 TS 的 `padding_l + l.x`（`TextMesh.ts:19-32,297-299`）：
+//   left   → `padding_l`；center → `padding_l + round((w - pl - pr)/2)`；right → `padding_l + round(w - pl - pr)`。
 void LfwGodot::draw_text_item(const GodotDrawItem& item) {
   if (item.text.empty()) return;
   godot::Ref<godot::Font> font = font_for_css(item.font_css);
@@ -2139,30 +2141,37 @@ void LfwGodot::draw_text_item(const GodotDrawItem& item) {
   const int font_size = size > 0 ? size : 1;
   const Color color(static_cast<float>(item.r), static_cast<float>(item.g),
                     static_cast<float>(item.b), static_cast<float>(item.a));
-  const float pad = 2.0f;
-  const float width = static_cast<float>(item.w);
-  godot::HorizontalAlignment align = godot::HORIZONTAL_ALIGNMENT_LEFT;
-  float anchor_x = static_cast<float>(item.x) + pad;
-  if (item.text_align == 1) {
-    align = godot::HORIZONTAL_ALIGNMENT_CENTER;
-    anchor_x = static_cast<float>(item.x) + width * 0.5f;
-  } else if (item.text_align == 2) {
-    align = godot::HORIZONTAL_ALIGNMENT_RIGHT;
-    anchor_x = static_cast<float>(item.x) + width - pad;
-  }
+  const double pad = 2.0;  // `UITextRenderer._normalize_style` 的四边缺省值
+  const double box_x = static_cast<double>(item.x);
+  const double box_w = static_cast<double>(item.w);
+  const double center_axis = box_x + pad + std::round((box_w - pad * 2.0) * 0.5);
+  const double right_axis = box_x + pad + std::round(box_w - pad * 2.0);
   const float line_h = font->get_height(font_size);
-  float y = static_cast<float>(item.y) + pad;
+  const double baseline0 = static_cast<double>(item.y) + pad +
+                           static_cast<double>(font->get_ascent(font_size));
+  double y = baseline0;
   std::size_t start = 0;
   while (start <= item.text.size()) {
     const std::size_t nl = item.text.find('\n', start);
     const std::string line = item.text.substr(start, nl == std::string::npos ? std::string::npos
                                                                             : nl - start);
     if (!line.empty()) {
-      draw_string(font, Vector2(anchor_x, y + font->get_ascent(font_size)),
-                  String::utf8(line.c_str()), align, -1.0f, font_size, color);
+      const double lw = static_cast<double>(
+          font->get_string_size(String::utf8(line.c_str()), godot::HORIZONTAL_ALIGNMENT_LEFT,
+                                -1.0f, font_size)
+              .x);
+      double ax = box_x + pad;
+      if (item.text_align == 1) {
+        ax = center_axis - lw * 0.5;
+      } else if (item.text_align == 2) {
+        ax = right_axis - lw;
+      }
+      draw_string(font, Vector2(static_cast<float>(ax), static_cast<float>(y)),
+                  String::utf8(line.c_str()), godot::HORIZONTAL_ALIGNMENT_LEFT, -1.0f, font_size,
+                  color);
     }
     if (nl == std::string::npos) break;
-    y += line_h;
+    y += static_cast<double>(line_h);
     start = nl + 1;
   }
 }
