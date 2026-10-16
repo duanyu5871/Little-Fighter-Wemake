@@ -1,10 +1,8 @@
 
-import FingerprintJS, { type GetResult } from '@fingerprintjs/fingerprintjs';
-
 export class Ewents {
 
   static readonly TAG: string = 'Events'
-  static readonly VERSION: string = '1'
+  static readonly VERSION: string = '2'
   static readonly VERSION_KEY: string = `events_fingerprint#version`
   static readonly DATA_KEY: string = `events_fingerprint#data`
   static readonly CLICK_SIGNAL: string = 'ewents-click'
@@ -19,7 +17,7 @@ export class Ewents {
     }
   }
   private _handle_popstate = () => this.submit_visit()
-  private _fingerprint: GetResult | null = null;
+  private _fingerprint: string = '';
   filter: <T extends object>(type: string, event: T) => Promise<boolean> = () => Promise.resolve(true);
 
   constructor() {
@@ -27,38 +25,31 @@ export class Ewents {
   }
 
   private init() {
-    const version = localStorage.getItem(Ewents.VERSION_KEY)
-    let raw_str: string | null = localStorage.getItem(Ewents.DATA_KEY)
-    if (Ewents.VERSION !== version) {
+    if (localStorage.getItem(Ewents.VERSION_KEY) !== Ewents.VERSION) {
       localStorage.removeItem(Ewents.VERSION_KEY)
       localStorage.removeItem(Ewents.DATA_KEY)
-      raw_str = null;
     }
-
-    if (raw_str) {
-      try {
-        this._fingerprint = JSON.parse(raw_str) as GetResult
-      } catch (e: unknown) {
-        console.error(`[${Ewents.TAG}::init_fingerprint] failed, reason: `, e)
-      }
-    }
+    this._fingerprint = localStorage.getItem(Ewents.DATA_KEY) ?? ''
     if (!this._fingerprint) {
-      this.read_fingerprint().catch(e => {
-        console.error(`[${Ewents.TAG}::init_fingerprint] failed, cant read_fingerprint, reason: `, e)
-      });
+      this.read_fingerprint()
     }
   }
 
-  async read_fingerprint(): Promise<GetResult> {
-    const f = await FingerprintJS.load();
-    this._fingerprint = await f.get();
-    const text = JSON.stringify(this._fingerprint);
-    localStorage.setItem(Ewents.DATA_KEY, text);
-    localStorage.setItem(Ewents.VERSION_KEY, Ewents.VERSION_KEY);
-    return this._fingerprint;
+  read_fingerprint(): string {
+    const id = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `e${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`
+    this._fingerprint = id
+    try {
+      localStorage.setItem(Ewents.DATA_KEY, id)
+      localStorage.setItem(Ewents.VERSION_KEY, Ewents.VERSION)
+    } catch (e: unknown) {
+      console.error(`[${Ewents.TAG}::read_fingerprint] failed, reason: `, e)
+    }
+    return id
   }
 
-  async get_fingerprint(): Promise<GetResult> {
+  async get_fingerprint(): Promise<string> {
     return this._fingerprint || this.read_fingerprint()
   }
 
@@ -123,7 +114,7 @@ export class Ewents {
       if (!r) return
       const headers = {
         'Content-Type': 'application/json',
-        "Fingerprint": r.visitorId,
+        "Fingerprint": r,
       }
       return fetch(`https://gim.ink/api/events/add?type=${type}`, {
         method: 'POST',
