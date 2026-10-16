@@ -47,6 +47,8 @@
 #include "lfw/core/value.h"
 #include "lfw/defines/cmd.h"
 #include "lfw/ui/uilayer.h"
+#include "lfw/ui/uinode.h"
+#include "lfw/ui/value_spread.h"
 #include "lfw/utils/container_help/field_or.h"
 #include "lfw/utils/utf8.h"
 #include "lfw/world.h"
@@ -788,6 +790,47 @@ std::string LfwGodot::resolve_version_name() const {
     return name;
   }
   return "v0.0.0";
+}
+
+// 每次按键都打一行"这个键落到了哪个**聚焦**节点、它有没有 `click` 动作"。
+//
+// 查的是"**按攻击没反应**"这一类：UI 里 `a`（攻击）只在**聚焦**节点上触发它的 `click`
+//（`UINode::on_key_down` 那三行 `focused() && game_key … && click`），而**指针悬停**是另一层
+// 高亮（悬停 ≠ 聚焦）⇒ "看着高亮、按了没反应"多半是聚焦在别的节点上（或压根没有聚焦节点）。
+// 只在 `--play`（玩）时打，验收口径不受影响。
+void LfwGodot::report_key_focus(const std::u16string& key) {
+  if (!_args.play || _lfw == nullptr) return;
+  const ui::UINode* focused = nullptr;
+  const auto walk = [&focused](const ui::UINode* n, const auto& self) -> void {
+    if (n == nullptr || focused != nullptr) return;
+    if (n->focused()) {
+      focused = n;
+      return;
+    }
+    for (ui::UINode* const c : n->children()) {
+      self(c, self);
+      if (focused != nullptr) return;
+    }
+  };
+  for (ui::UINode* const layer : _lfw->layer_nodes()) {
+    if (layer == nullptr) continue;
+    walk(layer, walk);
+    if (focused != nullptr) break;
+  }
+  std::string id = "(none)";
+  bool has_click = false;
+  if (focused != nullptr) {
+    const Value& data = focused->data();
+    if (const Value* const raw_id = ui::field_of(data, u"id")) {
+      if (const std::u16string* const s = std::get_if<std::u16string>(raw_id)) id = to_utf8(*s);
+    }
+    const Value* const actions = ui::field_of(data, u"actions");
+    if (actions != nullptr) {
+      if (const Value* const click = ui::field_of(*actions, u"click")) has_click = truthy(*click);
+    }
+  }
+  print_line("[godot] keyfocus: key=" + to_utf8(key) + " focused=" + id +
+             " click=" + (has_click ? "yes" : "no"));
 }
 
 void LfwGodot::_process(double p_delta) {
@@ -1960,7 +2003,10 @@ void LfwGodot::_input(const godot::Ref<godot::InputEvent>& p_event) {
     if (key_event->is_pressed()) {
       const bool first = _host->pressed_keys().find(key) == _host->pressed_keys().end();
       _host->key_down(key);
-      if (first) print_line("[godot] key: down " + to_utf8(key));
+      if (first) {
+        print_line("[godot] key: down " + to_utf8(key));
+        report_key_focus(key);
+      }
     } else {
       _host->key_up(key);
       print_line("[godot] key: up " + to_utf8(key));
@@ -2046,6 +2092,7 @@ const LfwGodot::Args::KeyAt* LfwGodot::inject_keys(int frame) {
     if (key.frame != frame) continue;
     if (key.down) {
       _host->key_down(key.key);
+      report_key_focus(key.key);
     } else {
       _host->key_up(key.key);
     }

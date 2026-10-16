@@ -181,9 +181,9 @@ function cmdCoverage() {
 // 之后，ninja 可能只重编了一部分 `.o` ⇒ 类的布局/虚表一半新一半旧，表现是"跑得好好的、退出时崩"
 // 或者**某些 UI 行为莫名其妙**（不是崩，就是反应不对 —— 比崩更难查）。
 //
-// 所以在 configure/build 之前自己判一次：`native/host` 或 `native/lfw` 下**任一**文件比
+// 所以在 configure/build 之前自己判一次：`native/host` 或 `native/lfw` 下**任一 `.h/.hpp`** 比
 // `lfw_godot.dir` 里最新的 `.obj` 还新 ⇒ 把整个对象目录删掉、全量重编（约 2.5 分钟）。
-// 正常人改完 header 只会走一条命令（`npm run native godot`），这一步就把那条坑封住了。
+// 只看头文件：`.cpp` 自己的 mtime ninja 是**确定**跟踪的（那条不用我们兜）。
 function newestMtime(dir, pred) {
   let ret = 0;
   if (!existsSync(dir)) return ret;
@@ -196,17 +196,17 @@ function newestMtime(dir, pred) {
   return ret;
 }
 
+const isHeader = (f) => f.endsWith(".h") || f.endsWith(".hpp") || f.endsWith(".inc");
+
 function guardGodotStaleObjects() {
   const objDir = join(NATIVE, "build", "godot", "host", "godot", "CMakeFiles", "lfw_godot.dir");
   if (!existsSync(objDir)) return false;
   const objMs = newestMtime(objDir, (f) => f.endsWith(".obj"));
   if (objMs === 0) return false;
-  const srcMs = Math.max(
-    newestMtime(join(NATIVE, "host"), (f) => f.endsWith(".h") || f.endsWith(".cpp") || f.endsWith(".hpp")),
-    newestMtime(join(NATIVE, "lfw"), (f) => f.endsWith(".h") || f.endsWith(".cpp") || f.endsWith(".hpp")),
-  );
-  if (srcMs <= objMs) return false;
-  console.log(C.dim("  host/lfw 下有比 .obj 更新的源文件 ⇒ 删掉 lfw_godot 的对象目录，全量重编"));
+  const headerMs = Math.max(newestMtime(join(NATIVE, "host"), isHeader),
+                            newestMtime(join(NATIVE, "lfw"), isHeader));
+  if (headerMs <= objMs) return false;
+  console.log(C.dim("  host/lfw 下有比 .obj 更新的头文件 ⇒ 删掉 lfw_godot 的对象目录，全量重编"));
   rmSync(objDir, { recursive: true, force: true });
   return true;
 }

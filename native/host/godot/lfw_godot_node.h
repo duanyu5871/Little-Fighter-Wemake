@@ -314,6 +314,9 @@ class LfwGodot : public Node2D {
 
   // 左下角那行 `VERSION_NAME`：`--version-name` 优先，否则读 `<root>/version.json`。
   std::string resolve_version_name() const;
+
+  // `--play` 下每次按键打一行"聚焦节点 + 有没有 click 动作"（查"按攻击没反应"用）。
+  void report_key_focus(const std::u16string& key);
   bool _running = false;
   int _frames = 0;
   bool _capture_pending = false;  // 这一帧要截图（上一帧的绘制已经落进视口）
