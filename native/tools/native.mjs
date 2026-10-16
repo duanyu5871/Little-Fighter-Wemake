@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -177,12 +177,47 @@ function cmdCoverage() {
 //   GODOT_CPP_DIR            godot-cpp 的检出目录（仓库外）
 //   native/build/godot-api/  由本机 Godot 自己 dump 的 `extension_api.json`
 // 产物：`native/host/godot/project/bin/lfw_godot.dll`（`project/bin/` 已忽略）。
+// ⚠ 这一支的头文件依赖**不可靠**（README「Godot 宿主」那条实测坑）：改了 `host/godot/**` 的 header
+// 之后，ninja 可能只重编了一部分 `.o` ⇒ 类的布局/虚表一半新一半旧，表现是"跑得好好的、退出时崩"
+// 或者**某些 UI 行为莫名其妙**（不是崩，就是反应不对 —— 比崩更难查）。
+//
+// 所以在 configure/build 之前自己判一次：`native/host` 或 `native/lfw` 下**任一**文件比
+// `lfw_godot.dir` 里最新的 `.obj` 还新 ⇒ 把整个对象目录删掉、全量重编（约 2.5 分钟）。
+// 正常人改完 header 只会走一条命令（`npm run native godot`），这一步就把那条坑封住了。
+function newestMtime(dir, pred) {
+  let ret = 0;
+  if (!existsSync(dir)) return ret;
+  for (const ent of readdirSync(dir, { withFileTypes: true })) {
+    if (ent.name === ".git" || ent.name === "build") continue;
+    const full = join(dir, ent.name);
+    if (ent.isDirectory()) ret = Math.max(ret, newestMtime(full, pred));
+    else if (pred(full)) ret = Math.max(ret, statSync(full).mtimeMs);
+  }
+  return ret;
+}
+
+function guardGodotStaleObjects() {
+  const objDir = join(NATIVE, "build", "godot", "host", "godot", "CMakeFiles", "lfw_godot.dir");
+  if (!existsSync(objDir)) return false;
+  const objMs = newestMtime(objDir, (f) => f.endsWith(".obj"));
+  if (objMs === 0) return false;
+  const srcMs = Math.max(
+    newestMtime(join(NATIVE, "host"), (f) => f.endsWith(".h") || f.endsWith(".cpp") || f.endsWith(".hpp")),
+    newestMtime(join(NATIVE, "lfw"), (f) => f.endsWith(".h") || f.endsWith(".cpp") || f.endsWith(".hpp")),
+  );
+  if (srcMs <= objMs) return false;
+  console.log(C.dim("  host/lfw 下有比 .obj 更新的源文件 ⇒ 删掉 lfw_godot 的对象目录，全量重编"));
+  rmSync(objDir, { recursive: true, force: true });
+  return true;
+}
+
 function cmdGodot() {
   const cppDir = process.env.GODOT_CPP_DIR;
   if (!cppDir) {
     console.error(C.red("GODOT_CPP_DIR is not set (path to a godot-cpp checkout, outside this repo)"));
     return 2;
   }
+  guardGodotStaleObjects();
   const apiFile = join(NATIVE, "build", "godot-api", "extension_api.json");
   if (!existsSync(apiFile)) {
     console.error(C.red(`missing ${apiFile}`));

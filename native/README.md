@@ -759,8 +759,12 @@ $root  = (Get-Location).Path               # 仓库根
 `_HAS_EXCEPTIONS`（RTTI 不改任何 `std::` 类型的布局，与 `/GR-` 的 `lfw_core` 混编对 `Value` 这条边界安全）。
 **③ 改了 `host/godot/**` 的**头文件**就当"全量"重编**：ninja 这边**没有头文件依赖**（改 header 不触发
 依赖它的 `.o` 重编）⇒ 类的布局/虚表一半新一半旧，表现是**退出时** `signal 11`（实测：跑得好好的、
-摘要也照旧，一 `quit()` 就崩）。实测过的做法是先删 `native\build\godot\host\godot\CMakeFiles\lfw_godot.dir`
-再 `npm run native godot`（`native\build\msvc-x64` 那边同一类坑照老规矩办：删 `.obj`/`.lib`/`.exe`）。
+摘要也照旧，一 `quit()` 就崩），**或者更阴的"某些 UI 行为莫名其妙"**（不崩、就是反应不对）。
+现在 `npm run native godot` **自己会判**：`native/host` / `native/lfw` 下任一源文件比
+`lfw_godot.dir` 里最新的 `.obj` 还新 ⇒ 先把整个对象目录删掉再全量重编（打一行
+`host/lfw 下有比 .obj 更新的源文件 ⇒ 删掉 lfw_godot 的对象目录，全量重编`）。
+手工作废那一步（`native\build\msvc-x64` 那边同一类坑照老规矩办：删 `.obj`/`.lib`/`.exe`）：
+先删 `native\build\godot\host\godot\CMakeFiles\lfw_godot.dir` 再 `npm run native godot`。
 
 三条摘要与 `lfw_run` **逐位一致**（连 `warns` / `ignored_images` / `renderer(±)` / `clock=` 都对得上）
 —— 见下一节。
@@ -827,7 +831,7 @@ $R = (Get-Location).Path; $g = "$env:USERPROFILE\Desktop\Godot_v4.7.1-stable_win
 | 5 | 入口页两张背景大脸（`bg_l_face` / `bg_r_face`，各 14 帧 `RandomVisible`）落在**不同的帧**上 | 两侧取的时刻不同（Web 那次 entry 是点完 4.7s；Godot 是第 400 帧 × `--delta 0.017`）⇒ `lifetime` 不同。不是"帧选择逻辑"不一致 | 观察值，不做结论（要判定得让两边落在同一个 `lifetime`） |
 | 6 | 顶栏那一簇控件在 `main_page` 上个数可能不同 | 两侧的**显示条件**都读同一批状态（`c.bg_is_void` / `settings_page` / `first_page_init_demo` / 页栈深），但 Web 顶栏是 React 组件、Godot 是宿主自绘表；`first_page_init_demo` 只在 `/demo` 路径下为真 | 待逐格核对（截图上的小图标人眼/视觉模型都不可靠，得按 `--click-window` 逐格点） |
 
-### 2026-10-16：用户玩的时候报的两条（都已修）
+### 2026-10-16：用户玩的时候报的（都已修）
 
 * **"Launch 页文字歪了"** —— 症状是**所有居中/右对齐的文字整段往右铺**，量出来的数：
   警示文字本该在逻辑 `x∈[188,606]`（盒子中心 397），实际画在 `x∈[397,793]`（从盒子中心起画、并被右边界切掉）。
@@ -850,6 +854,11 @@ $R = (Get-Location).Path; $g = "$env:USERPROFILE\Desktop\Godot_v4.7.1-stable_win
   ⇒ 每个瓦片都被"挤"了一下、边缘那一行/列看起来被拉长。改成 TS 的**正模** `pos_mod`
   （`((a % b) + b) % b`，`BgLayerRender.ts` 用的就是它）⇒ 源窗口恒在 `[0, lw)`、`s + sw ≤ lw` ✓。
   与修之前同一帧相减：`mean=0.110 max=8 px>2=36548`（变化就落在图案错位的那些像素上）。
+* **"按攻击无法触发高亮 UI 的点击 / 角色选择选不了"** —— **脚本化按键复现不出来**（`--key` 与真键盘
+  进的是**同一个** `HeadlessHost::key_down/key_up`）：VS 与闯关两条准备页都测过，连按攻击
+  （`j` 或 `↓`）都能推进 `加入 → 角色(随机) → 队伍 → 倒计时`（`ui/vs_mode_prepare_page` 的
+  `player_name=1 / FighterName=随机 / player_countdown=3`）。⇒ 先按**半新半旧 dll**那条坑排查
+  （上面 ③ 的守卫就是为它加的），不是的话需要报"哪个页面 / 哪个键 / 鼠标在哪"。
 
 ## 验收：宿主三条摘要（改完必跑）
 
