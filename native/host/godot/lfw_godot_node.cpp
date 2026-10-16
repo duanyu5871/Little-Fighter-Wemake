@@ -2312,38 +2312,43 @@ void LfwGodot::draw_item(const GodotDrawItem& item) {
   // ⚠ `draw_set_transform*` 是**绝对**的：这里只能叠在 `_item_xform`（= 当前这一层的 contain 矩阵）
   // 之上，画完再换回来。直接 `draw_set_transform()` + `draw_set_transform_matrix(单位阵)` 会把 contain
   // 缩放整条冲掉 —— 镜像项**自己**以及它之后的所有项都会按逻辑像素 1:1 画进窗口（窗口越大越离谱）。
-  const auto blit = [&](float ox, float oy, const Color& c) {
+  const auto blit = [&](const godot::Ref<godot::ImageTexture>& t, float ox, float oy, const Color& c) {
     if (item.flip_x) {
       godot::Transform2D mirror;
       mirror.set_scale(Vector2(-1.0f, 1.0f));
       mirror.set_origin(Vector2(x + ox + w, y + oy));
       draw_set_transform_matrix(_item_xform * mirror);
-      draw_texture_rect_region(tex, Rect2(0.0f, 0.0f, w, h), src, c);
+      draw_texture_rect_region(t, Rect2(0.0f, 0.0f, w, h), src, c);
       draw_set_transform_matrix(_item_xform);
     } else {
-      draw_texture_rect_region(tex, Rect2(x + ox, y + oy, w, h), src, c);
+      draw_texture_rect_region(t, Rect2(x + ox, y + oy, w, h), src, c);
     }
   };
-  // 描边：TS 是着色器按 alpha 边缘向外扩 `outline_width` 像素。这里用八向偏移的同图叠加做**等价
-  // 形状**的轮廓（颜色是乘性的，不是纯色；宽度=逻辑像素）。真着色器进不了 `draw_*` 这一层
-  //（逐绘制的材质在 CanvasItem 里没有），要逐像素的纯色描边得给每个精灵单开一个 CanvasItem。
+  // 描边：TS 是着色器（`outline.frag`）逐**四邻**看 alpha —— 中心 < 0.5 且上下左右任一 ≥ 0.5
+  // 的像素画**纯色** `outlineColor`（alpha = `outlineAlpha`），偏移量 = `outline_width` 逻辑像素
+  // （`outline_width * img.scale` 在着色器里又除回 `textureSize` ⇒ 逻辑像素；且采样点出裁剪矩形就
+  // 当 0 ⇒ 轮廓**只落在裁剪矩形内**）。
+  // 宿主的等价做法：拿「白剪影」（RGB=白、A 二值化于 0.5）沿上下左右各偏 `d` 画一遍，
+  // `modulate` = 描边色 × `outlineAlpha`。白底乘色 ⇒ **纯色**（不再是乘性染色）；二值 alpha ⇒
+  // 邻接判据与 TS 的 `> 0.5` 逐像素等价；偏移方向只有四邻（没有对角）⇒ 轮廓形状也与 TS 一致，
+  // 而且天然落在裁剪矩形内。画在精灵**底下**：TS 对"中心 alpha ≥ 0.5 但挨着边"的像素是把描边色
+  // 当背景合成（`bgfg`），叠在下面正好等价；差别只剩 TS 那条 `deburr*` 的 smoothstep 去毛刺。
+  // 剪影取不到（解码失败）时退回原图：形状还在，颜色就还是乘性的（并会记进 `last_error`）。
   if (item.outline_w > 0.0 && item.outline_a > 0.0 && !item.path.empty()) {
     const float d = static_cast<float>(item.outline_w);
-    const float q = d * 0.70710678f;
     const Color oc(static_cast<float>(item.outline_r), static_cast<float>(item.outline_g),
                    static_cast<float>(item.outline_b), static_cast<float>(item.outline_a));
-    blit(-d, 0, oc);
-    blit(d, 0, oc);
-    blit(0, -d, oc);
-    blit(0, d, oc);
-    blit(-q, -q, oc);
-    blit(q, -q, oc);
-    blit(-q, q, oc);
-    blit(q, q, oc);
+    godot::Ref<godot::ImageTexture> sil;
+    if (_textures != nullptr) sil = _textures->get_silhouette(item.path);
+    const godot::Ref<godot::ImageTexture>& ot = sil.is_valid() ? sil : tex;
+    blit(ot, 0.0f, -d, oc);
+    blit(ot, 0.0f, d, oc);
+    blit(ot, -d, 0.0f, oc);
+    blit(ot, d, 0.0f, oc);
   }
-  blit(0, 0, color);
+  blit(tex, 0.0f, 0.0f, color);
   if (item.mix_a > 0.0) {
-    blit(0, 0,
+    blit(tex, 0.0f, 0.0f,
          Color(static_cast<float>(item.mix_r), static_cast<float>(item.mix_g),
                static_cast<float>(item.mix_b), static_cast<float>(item.mix_a)));
   }
@@ -2418,11 +2423,12 @@ void LfwGodot::finish() {
     std::snprintf(
         buf, sizeof(buf),
         "[godot] render: bg=%s cam=%.1f,%.1f scale=%.2f,%.2f df=%.3f items=%zu bg_layers=%d "
-        "ents=%d hidden=%d no_pic=%d no_file=%d unnamed_tex=%d outline=%d[%s] textures=%lld ok/%lld "
-        "fail",
+        "ents=%d hidden=%d no_pic=%d no_file=%d unnamed_tex=%d outline=%d[%s] sil=%lld "
+        "textures=%lld ok/%lld fail",
         f.bg_id.c_str(), f.cam_x, f.cam_y, f.scale_x, f.scale_y, f.dfactor, f.items.size(),
         f.bg_layers, f.drawn_entities, f.hidden_entities, f.no_pic_entities, f.no_file_entities,
         f.unnamed_textures, f.outline_items, f.outline_probe.c_str(),
+        _textures != nullptr ? _textures->silhouettes() : 0,
         _textures != nullptr ? _textures->loaded() : 0,
         _textures != nullptr ? _textures->failed() : 0);
     print_line(buf);

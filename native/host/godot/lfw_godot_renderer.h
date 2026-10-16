@@ -29,9 +29,9 @@
 //
 // **没画的**（数据在、实现没做，见报告）：3D 模型帧（`frame.model`）、名字/血条（要字体度量）、
 // 调试指标层（`entity_flags`，缺省 0）、九宫格/UV 动画、`greyscale`（要逐像素着色器）、逐图旋转
-// （`pic.rad`）。⚠ 两处**近似**：① 描边用"同图八向偏移叠加"（**形状对、颜色是乘性的**，TS 是着色器
-// 按 alpha 边缘扩纯色）；② `mix_color` 用第二遍 `modulate` 叠（对最常见的"受击闪白"等价，别的颜色
-// 偏暗）。`UI` 那一遍（`IUINodeRenderer`）本宿主仍回 `nullptr`。
+// （`pic.rad`）。⚠ 一处**近似**：`mix_color` 用第二遍 `modulate` 叠（对最常见的"受击闪白"等价，
+// 别的颜色偏暗）。描边已经按 TS 的判据落（白剪影 + 纯色 `modulate`，四邻偏移 —— 见
+// `lfw_godot_node.cpp::draw_item`）。`UI` 那一遍（`IUINodeRenderer`）本宿主仍回 `nullptr`。
 #pragma once
 
 #include <cstddef>
@@ -66,7 +66,8 @@ struct GodotDrawItem {
   //（TS 是着色器里的 `mix(color.rgb, mixColor, strength)`；两遍叠加对最常见的"受击闪白"
   // 逐位等价，其它颜色的结果会偏暗 —— 见报告）。
   double mix_r = 1, mix_g = 1, mix_b = 1, mix_a = 0;
-  // 描边（`outline_*`；宽度已乘图片倍数）。
+  // 描边（`outline_*`）：宽度是**逻辑像素**的扩张量（TS 里乘图片 `scale` 只是给着色器算 texel，
+  // 折回后仍是逻辑像素）；宿主用"白剪影 + 描边色 `modulate`"画上下左右四个偏移。
   double outline_r = 0, outline_g = 0, outline_b = 0, outline_a = 0, outline_w = 0;
   // 诊断：来源（"bg" / "fg" / "shadow" / "entity"）与标记（实体 id / 图层名）。
   std::string kind;
@@ -111,7 +112,7 @@ struct GodotFrame {
   int drawn_entities = 0, hidden_entities = 0, no_pic_entities = 0, no_file_entities = 0;
   int bg_layers = 0;
   int unnamed_textures = 0;
-  int outline_items = 0;              // 带描边的绘制项（诊断；描边本身还没画对）
+  int outline_items = 0;              // 带描边的绘制项（诊断）
   std::string outline_probe;          // 第一条描边的 `#rrggbb@alpha,width`（诊断）
 };
 
