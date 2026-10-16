@@ -534,7 +534,8 @@ zip/renderer）、`IWorldRenderer`、`IPlayerInfoHost`、`IXML`/`IXMLElement`、
 `ITickerOptions`。
 
 渲染 / 音频的宿主实现（`IWorldRenderer` / `IUINodeRenderer` / sounds）仍只到宿主缝；
-按「改真货」的成本分级见 7.2 的 K2 / K4。
+按「改真货」的成本分级见 7.2 的 K2 / K4。（**音频**这一格 2026-10-16 落进了 Godot 宿主：
+`sounds_*` 的语义 + 算式在 `LfwGodotHost`、解码/播放在 `lfw_godot_node.cpp`，`HeadlessHost` 仍是空实现。）
 
 ### 7.2. 「假货清单」（按「改真货」的可行性分级）
 
@@ -1906,7 +1907,7 @@ WASM 宿主已经用同一招证明过自己 —— `native/README.md:310`：**�
 | # | 假货（现状，已核对代码） | Godot 侧候选（需验证） | "done" 的判据 |
 |---|---|---|---|
 | 1 | ~~**MD5**：`host/headless_host.cpp:146-147` 注释自认「⚠ 不是真 MD5：只保证「同输入同输出」」~~ **已结清**（自写 RFC 1321，`host/common/zip_file.cpp`；Godot 的 `HashingContext` 没用上） | —— | 与 `DittoImpl/md5.ts`（SparkMD5）**逐位一致**：`dist/data.zip` = 清单里的 `6143b821a34cc4a0f0d05270f2b43e28` ✓ |
-| 2 | **sounds**：`host/headless_host.cpp:186-209` 只计数（`sounds_play` / `sounds_play_bgm` / `sounds_load`…）；`World::play_sound` 默认空转（§7.2 K2） | `AudioStreamPlayer` / `AudioStreamPlayer2D`（需验证） | `ILfwHost` 注释里那套语义（音量 clamp / 同值早退 / 变更发 `on_*_volume_changed`，`lfw.h:222-256`）落地；`sounds_play_bgm` 回一个**真能停** BGM 的闭包 |
+| 2 | ~~**sounds**：`host/headless_host.cpp:186-209` 只计数（`sounds_play` / `sounds_play_bgm` / `sounds_load`…）；`World::play_sound` 默认空转（§7.2 K2）~~ **已换真货**（`host/godot/lfw_godot_host.{h,cpp}` 放 `__Modern` 的语义与算式 + `lfw_godot_node.cpp` 做解码/播放，2026-10-16） | `AudioStreamPlayer` + 每槽一条总线 + `AudioEffectPanner`（**实测可用**：驱动 `WASAPI 48kHz` / `Dummy`） | `ILfwHost` 注释里那套语义（音量 clamp / 同值早退 / 变更发 `on_*_volume_changed`，`lfw.h:222-256`）落地；`sounds_play_bgm` 回一个**真能停** BGM 的闭包 ✓（`req_id` 闭包 + `_random_next` 那条 `CMD.BGM '?'` 回环）。⚠ 两处仍需知道：① `AudioStreamPlayer` **没有 pan** ⇒ 用 `gain = (l+r)/2` + `pan = (r-l)/(l+r)` 送进 panner，在 Godot 4.7.1 的法则（`lvol = clamp(1∓pan)`，单声道输入下 `out = gain·(1∓pan)`）下**逐值等于** `(l, r)`；② 音效槽只有 24 个（抢槽时把被顶掉的那条当场还给宿主） |
 | 3 | **images**：`import_as_image_bitmap` 明确拒绝（`host/headless_host.cpp:318-324`）、`fs_zip.cpp:94-98` 同 | `Image` / `ImageTexture`（需验证） | `ui_image_load` 的 w/h/scale 口径对得上（`@nX` 缩放）；DESIGN 允许与 TS 有设备差，但**同设备同版本内必须稳定**（`DESIGN.md:1527`） |
 | 4 | ~~**文本度量**：`measure_text` 近似（`host/headless_host.cpp:211`）~~ **已换真货**（`host/godot/lfw_godot_font.{h,cpp}` + `lfw_godot_node.cpp` 的 `install_text_metrics`）：按 `style.font` 的 CSS 简写挑字族/字重（`SystemFont`，`Arial Black` 拆成 `Arial`@900），并把 `TextMesh.split_text_to_lines` 的**四边内边距 2** 算进 `w/h` | 引擎 `Font` 度量（已落地） | 允许偏差（`DESIGN.md:1526`：允许字体/设备相关，**同设备同版本内必须稳定**）；`auto_size_by_text` 有 key 缓存（`uinode.cpp:176-201`），别每帧重算。⚠ 仍有一处允许偏差：**行高**口径不同 —— TS 是 canvas 的 `fontBoundingBoxAscent + Descent`（Arial ≈1.111em），引擎 `Font::get_height` 是 ≈1.167em ⇒ 每行多 1 像素；宽度已经逐项对齐（±1）。对拍账见 `native/README.md`「与 Web 版对不上的地方」 |
 | 5 | ~~**zip**：`FsZip` 只认解包目录、无 DEFLATE/中央目录（`host/fs_zip.h:15-17`、`native/README.md:436`）~~ **已结清**（`host/common/zip_file.{h,cpp}`：中央目录 + stored/deflate + 自写 inflate；没用 Godot 的 `ZIPReader` —— 那一层要 `PackedByteArray`，而这里的包是宿主自己按 URL 读进来的） | —— | 真包（`dist/*.zip`）直接能装：`--zip-diff` 逐条比对 161/161 与 633/633（名字 + 大小 + 内容 MD5）；`file_regex` 那 4 条固定模式（`lfw/ditto/zip/i_zip.h:33-56`）行为不变 |
@@ -1916,7 +1917,7 @@ WASM 宿主已经用同一招证明过自己 —— `native/README.md:310`：**�
 ⚠ **顺序约束**（照 §7.2 那张"省到贵"表）：~~真 MD5 是**真图片 / zip 键的前提**~~（已在**核心之外**
 落地：`host/common/zip_file.cpp`）；`IUINodeRenderer` 与真
 `IWorldRenderer` 当年写成"**必须同刀**"（第 7 条）——**已实测可拆**（Godot 宿主先落世界、后落 UI，
-两次都没动核心）；sounds 与 images 排在渲染之后。**别按"哪条最容易"排期。**
+两次都没动核心）；~~sounds 与 images 排在渲染之后~~（sounds 已在 2026-10-16 落地）。**别按"哪条最容易"排期。**
 
 ### G8. 切片与验收
 
@@ -10614,7 +10615,8 @@ work 打 `adw|<tag>`）、`lfgp` 全量探针（`lr/ox/wp/b1|b2(含 hp/hr/hm/fr/
   - 时间：`ManualClock` + `NoopTimeout`（`add` 恒回 0 = 没有句柄）⇒ `Ticker` 自己不会走，
     帧由 app 显式推——**可复现**，也不依赖平台 raf / setInterval；
   - 渲染：`NullWorldRenderer`（只记 `add/del/render` 次数）；UI 图片给零尺寸占位并计数；
-  - 音频：空实现（音量/静音按字段存着，回调列表成对增删）；
+  - 音频：空实现（音量/静音按字段存着，回调列表成对增删）；**Godot 宿主**这一格已接真音频
+    （`LfwGodotHost` 放 `__Modern` 的语义与算式、`lfw_godot_node.cpp` 做解码/播放，见 README「2026-10-16」）；
   - 指针 / 键盘注入：`emit_pointer_*`（含 `UiInputHandle` 注册）与 `key_down/key_up`
     （镜像 `Keyboard.ts` 的 `_times_map`：**第一次按下的 `times` 是 0**，`LFW::on_key_down`
     只在 0 时翻 `KEY_EVENT`）+ `keyboard_add_callback` 把 `LFW` 自己登记进回调表；

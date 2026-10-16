@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -13,6 +14,10 @@
 #include <system_error>
 #include <vector>
 
+#include <godot_cpp/classes/audio_server.hpp>
+#include <godot_cpp/classes/audio_stream_mp3.hpp>
+#include <godot_cpp/classes/audio_stream_ogg_vorbis.hpp>
+#include <godot_cpp/classes/audio_stream_wav.hpp>
 #include <godot_cpp/classes/display_server.hpp>
 #include <godot_cpp/classes/image.hpp>
 #include <godot_cpp/classes/engine.hpp>
@@ -497,6 +502,9 @@ bool LfwGodot::setup() {
   // ⚠ 文字度量必须在 `LFW::load` **之前**装好：UI 数据（`cook_ui_info` 的 `txt_info`）在装载期
   // 就按度量定尺寸（`lfw.host().measure_text`），装晚了整页的文本节点都是 0 尺寸。
   install_text_metrics();
+  // 音频插座同理：装载期与页面创建期就会有 `sounds_load` / `sounds_play_bgm`（启动页预载 093、
+  // `CMD.BGM` 起 BGM）。播放器节点在这里建（`setup()` 跑在 `_ready()` 里，node 已经在树上）。
+  install_audio();
   // 时钟 / 定时器在手（`ManualClock::add → 0`）⇒ 端口自己的 `Ticker` 不自驱（§G3 第 2 条）。
   // 必须在 `LFW` 构造**之前**装好：`host.now()` 给 `MersenneTwister` 播种（§G9）。
   lfw::set_clock(&_host->clock());
@@ -835,6 +843,10 @@ void LfwGodot::report_key_focus(const std::u16string& key) {
 
 void LfwGodot::_process(double p_delta) {
   if (!_running) return;
+  // 音频的"回收"这一半：播完的音效通知宿主（= TS 的 `src_node.onended`）、随机 BGM 播完续抽。
+  // 放在这里（每帧一次）而不是信号槽里：`AudioStreamPlayer.finished` 要靠 `_bind_methods` + Callable，
+  // 而 16 ms 的回收延迟对 `1/sqrt(正在播的数量)` 那点衰减完全看不出来。
+  audio_poll();
   // 截图：上一帧已经画完 ⇒ 视口纹理里就是那一帧。取完就收工（`--frames` 不再等）。
   if (_capture_pending) {
     _capture_pending = false;
@@ -2287,6 +2299,336 @@ void LfwGodot::draw_text_item(const GodotDrawItem& item) {
   }
 }
 
+// ---------------------------------------------------------------- 音频（引擎侧那一半）
+//
+// 语义在 `LfwGodotHost`（TS `sounds/Modern.ts` 的算式：音量、静音、左右声道、随机 BGM），这里只做
+// 「资源路径 → `AudioStream`」与「把数字落到播放器上」。三件事值得写下来：
+//   1. **一条总线一个 panner**：`AudioStreamPlayer` 没有 pan 参数（那是 2D 播放器的事），而 TS 的
+//      `get_l_r_vol` 给的是**每声道两个幅度**。宿主送来 `gain=(l+r)/2`、`pan=(r-l)/(l+r)`，落到
+//      Godot 4.7.1 的 panner 法则上（`servers/audio/effects/audio_effect_panner.cpp`：
+//      `lvol = clamp(1-pan,0,1)`、`rvol = clamp(1+pan,0,1)`，`out.left = in.l*lvol + in.r*(1-rvol)`
+//      / `out.right = in.r*rvol + in.l*(1-lvol)`）——**单声道输入**时 `in.l == in.r` ⇒
+//      `out.left = gain·(1-pan) = l`、`out.right = gain·(1+pan) = r`，**逐值等于** TS 的两个增益。
+//      本工程音效全是 mono（`data/*.wav.mp3` 的 MP3 帧头 channel mode = 3）、只有 `bgm/*` 是 stereo，
+//      而 BGM 走的是没有 pan 的那一路（居中，直连 Master）⇒ 这个等价关系覆盖全部素材。
+//      每个音效槽一条自己的总线 + 一个 `AudioEffectPanner` 就是为了这个；换引擎版本要重算这条。
+//   2. **回收靠轮询**：`AudioStreamPlayer.finished` 要 `_bind_methods` + `Callable`；`_process` 里
+//      每帧看一眼 `is_playing()` 更简单，噪声是"最多晚一帧才把 id 还给宿主"（只影响 `1/sqrt(n)`
+//      那个衰减因子）。
+//   3. **随机 BGM**：宿主按 TS 抽好一首（`Randoming('bgm_randoming', …)`）并把 `loop=false` 交下来；
+//      播完由这里回一条 `CMD.BGM '?'`（TS 是 `ele.addEventListener('ended', () => push_cmd(CMD.BGM,'?'))`）。
+namespace {
+
+bool bytes_start_with(const std::string& b, const char* magic, std::size_t n) {
+  return b.size() >= n && std::memcmp(b.data(), magic, n) == 0;
+}
+
+bool looks_like_mp3(const std::string& b) {
+  if (bytes_start_with(b, "ID3", 3)) return true;
+  return b.size() > 1 && static_cast<unsigned char>(b[0]) == 0xFF &&
+         (static_cast<unsigned char>(b[1]) & 0xE0) == 0xE0;
+}
+
+godot::PackedByteArray to_packed(const std::string& bytes) {
+  godot::PackedByteArray out;
+  if (bytes.empty()) return out;
+  out.resize(static_cast<int64_t>(bytes.size()));
+  std::memcpy(out.ptrw(), bytes.data(), bytes.size());
+  return out;
+}
+
+// `AudioStream` 的循环开关：三种具体类型各自一个（基类没有这一档）。
+void set_stream_loop(const godot::Ref<godot::AudioStream>& stream, bool loop) {
+  if (stream.is_null()) return;
+  if (godot::AudioStreamMP3* const mp3 = godot::Object::cast_to<godot::AudioStreamMP3>(stream.ptr());
+      mp3 != nullptr) {
+    mp3->set_loop(loop);
+    return;
+  }
+  if (godot::AudioStreamOggVorbis* const ogg =
+          godot::Object::cast_to<godot::AudioStreamOggVorbis>(stream.ptr());
+      ogg != nullptr) {
+    ogg->set_loop(loop);
+    return;
+  }
+  if (godot::AudioStreamWAV* const wav = godot::Object::cast_to<godot::AudioStreamWAV>(stream.ptr());
+      wav != nullptr) {
+    wav->set_loop_mode(loop ? godot::AudioStreamWAV::LOOP_FORWARD
+                            : godot::AudioStreamWAV::LOOP_DISABLED);
+  }
+}
+
+// WAV：`AudioStreamWAV` 要的是**裸 PCM**（`data` 里不许有 RIFF 头），所以自己剥一遍 fmt/data。
+// 本工程的数据全是 mp3（`*.wav.mp3` / `*.wma.mp3`），这一档是给别的数据包留的。
+godot::Ref<godot::AudioStreamWAV> make_wav(const std::string& bytes) {
+  const auto u16 = [&](std::size_t off) -> unsigned {
+    return static_cast<unsigned>(static_cast<unsigned char>(bytes[off])) |
+           (static_cast<unsigned>(static_cast<unsigned char>(bytes[off + 1])) << 8);
+  };
+  const auto u32 = [&](std::size_t off) -> unsigned {
+    return u16(off) | (u16(off + 2) << 16);
+  };
+  if (bytes.size() < 44) return godot::Ref<godot::AudioStreamWAV>();
+  std::size_t pos = 12;  // 跳过 "RIFF" + size + "WAVE"
+  unsigned channels = 0, rate = 0, bits = 0, fmt_tag = 0;
+  std::size_t data_off = 0, data_len = 0;
+  while (pos + 8 <= bytes.size()) {
+    const unsigned size = u32(pos + 4);
+    const std::string id = bytes.substr(pos, 4);
+    const std::size_t body = pos + 8;
+    if (id == "fmt " && body + 16 <= bytes.size()) {
+      fmt_tag = u16(body);
+      channels = u16(body + 2);
+      rate = u32(body + 4);
+      bits = u16(body + 14);
+    } else if (id == "data") {
+      data_off = body;
+      data_len = std::min<std::size_t>(size, bytes.size() - body);
+    }
+    pos = body + size + (size & 1u);
+  }
+  if (data_len == 0 || rate == 0 || channels == 0 || (bits != 8 && bits != 16)) {
+    return godot::Ref<godot::AudioStreamWAV>();
+  }
+  godot::Ref<godot::AudioStreamWAV> wav;
+  wav.instantiate();
+  wav->set_data(to_packed(bytes.substr(data_off, data_len)));
+  wav->set_format(fmt_tag == 3 ? godot::AudioStreamWAV::FORMAT_16_BITS
+                               : (bits == 8 ? godot::AudioStreamWAV::FORMAT_8_BITS
+                                            : godot::AudioStreamWAV::FORMAT_16_BITS));
+  wav->set_mix_rate(static_cast<int32_t>(rate));
+  wav->set_stereo(channels >= 2);
+  return wav;
+}
+
+}  // namespace
+
+void LfwGodot::install_audio() {
+  if (_host == nullptr) return;
+  godot::AudioServer* const server = godot::AudioServer::get_singleton();
+  _sfx_slots.resize(kSfxSlots);
+  _sfx_pans.resize(kSfxSlots);
+  _sfx_ids.assign(kSfxSlots, std::string());
+  for (int i = 0; i < kSfxSlots; ++i) {
+    godot::AudioStreamPlayer* const player = memnew(godot::AudioStreamPlayer);
+    player->set_name(godot::String("lfw_sfx_") + godot::String::num_int64(i));
+    add_child(player);
+    godot::Ref<godot::AudioEffectPanner> panner;
+    panner.instantiate();
+    panner->set_pan(0.0f);
+    if (server != nullptr) {
+      const int bus = server->get_bus_count();
+      server->add_bus();
+      const godot::String bus_name = godot::String("lfw_sfx_") + godot::String::num_int64(i);
+      server->set_bus_name(bus, bus_name);
+      server->add_bus_effect(bus, panner);
+      player->set_bus(bus_name);
+    }
+    _sfx_slots[static_cast<std::size_t>(i)] = player;
+    _sfx_pans[static_cast<std::size_t>(i)] = panner;
+  }
+  // ⚠ `memnew` 是宏（展开成 `_pre_initialize/… _post_initialize(new …)`）⇒ 前面**不能**再写
+  // `godot::`（`godot::(…)` 直接语法错误）。
+  _bgm_player = memnew(godot::AudioStreamPlayer);
+  _bgm_player->set_name("lfw_bgm");
+  add_child(_bgm_player);
+
+  LfwGodotHost::AudioSink sink;
+  sink.preload = [this](const std::string& path) { audio_preload(path); };
+  sink.play = [this](const std::string& id, const std::string& path, double gain, double pan) {
+    audio_play(id, path, gain, pan);
+  };
+  sink.set_gain = [this](const std::string& id, double gain, double pan) {
+    audio_set_gain(id, gain, pan);
+  };
+  sink.stop_all = [this]() { audio_stop_all(); };
+  sink.play_bgm = [this](const std::string& path, bool loop, double gain) {
+    audio_play_bgm(path, loop, gain);
+  };
+  sink.set_bgm_gain = [this](double gain) { audio_set_bgm_gain(gain); };
+  sink.stop_bgm = [this]() { audio_stop_bgm(); };
+  sink.scale = [this]() { return audio_world_scale(); };
+  _host->set_audio_sink(std::move(sink));
+
+  const std::string driver = server != nullptr
+                                 ? std::string(server->get_driver_name().utf8().get_data())
+                                 : std::string("<none>");
+  char buf[256];
+  std::snprintf(buf, sizeof(buf),
+                "[godot] sounds: mixer %d sfx slots + 1 bgm (per-slot bus + AudioEffectPanner) "
+                "driver=%s mix=%.0fHz",
+                kSfxSlots, driver.c_str(),
+                server != nullptr ? static_cast<double>(server->get_mix_rate()) : 0.0);
+  print_line(buf);
+}
+
+std::string LfwGodot::audio_stream_key(const std::string& path) {
+  if (path.empty()) return std::string();
+  const auto found = _audio_cache.find(path);
+  if (found != _audio_cache.end()) {
+    return found->second.is_valid() ? path : std::string();
+  }
+  _audio_last_path = path;
+  std::string bytes;
+  GodotWorldRenderer* const renderer = _host != nullptr ? _host->world_renderer() : nullptr;
+  // 读字节走与图片同一条（包 `--zip` → 根目录 `--root`：`093.wav.mp3` 在 `dist/builtin_data/…`）。
+  if (renderer == nullptr || !renderer->read_resource(path, bytes) || bytes.empty()) {
+    ++_audio_failed;
+    _audio_cache[path] = godot::Ref<godot::AudioStream>();
+    print_error("[godot] sounds: read failed: " + path);
+    return std::string();
+  }
+  godot::PackedByteArray data = to_packed(bytes);
+  godot::Ref<godot::AudioStream> stream;
+  if (looks_like_mp3(bytes)) {
+    godot::Ref<godot::AudioStreamMP3> mp3;
+    mp3.instantiate();
+    mp3->set_data(data);
+    stream = mp3;
+  } else if (bytes_start_with(bytes, "OggS", 4)) {
+    stream = godot::AudioStreamOggVorbis::load_from_buffer(data);
+  } else if (bytes_start_with(bytes, "RIFF", 4)) {
+    stream = make_wav(bytes);
+  }
+  if (stream.is_null()) {
+    ++_audio_failed;
+    print_error("[godot] sounds: unsupported bytes: " + path);
+  } else {
+    ++_audio_decoded;
+  }
+  _audio_cache[path] = stream;
+  return stream.is_valid() ? path : std::string();
+}
+
+void LfwGodot::audio_play(const std::string& id, const std::string& path, double gain, double pan) {
+  if (_sfx_slots.empty()) return;
+  const std::string key = audio_stream_key(path);
+  if (key.empty()) return;
+  const godot::Ref<godot::AudioStream>& stream = _audio_cache[key];
+  int slot = -1;
+  for (int i = 0; i < static_cast<int>(_sfx_slots.size()); ++i) {
+    if (!_sfx_slots[static_cast<std::size_t>(i)]->is_playing()) {
+      slot = i;
+      break;
+    }
+  }
+  if (slot < 0) {
+    slot = _sfx_next;
+    _sfx_next = (_sfx_next + 1) % static_cast<int>(_sfx_slots.size());
+    // 抢占：被顶掉的那条不会再有 `finished` ⇒ 当场还给宿主（否则 `_playings` 只增不减，
+    // `1/sqrt(playings)` 那档衰减会一直往下压）。
+    const std::string& stolen = _sfx_ids[static_cast<std::size_t>(slot)];
+    if (!stolen.empty()) _host->on_audio_finished(stolen);
+  }
+  godot::AudioStreamPlayer* const player = _sfx_slots[static_cast<std::size_t>(slot)];
+  if (player == nullptr) return;
+  player->set_stream(stream);
+  player->set_volume_linear(static_cast<float>(std::max(0.0, std::min(1.0, gain))));
+  if (_sfx_pans[static_cast<std::size_t>(slot)].is_valid()) {
+    _sfx_pans[static_cast<std::size_t>(slot)]->set_pan(
+        static_cast<float>(std::max(-1.0, std::min(1.0, pan))));
+  }
+  player->play();
+  _sfx_ids[static_cast<std::size_t>(slot)] = id;
+}
+
+void LfwGodot::audio_set_gain(const std::string& id, double gain, double pan) {
+  for (int i = 0; i < static_cast<int>(_sfx_ids.size()); ++i) {
+    if (_sfx_ids[static_cast<std::size_t>(i)] != id) continue;
+    godot::AudioStreamPlayer* const player = _sfx_slots[static_cast<std::size_t>(i)];
+    if (player == nullptr) continue;
+    player->set_volume_linear(static_cast<float>(std::max(0.0, std::min(1.0, gain))));
+    if (_sfx_pans[static_cast<std::size_t>(i)].is_valid()) {
+      _sfx_pans[static_cast<std::size_t>(i)]->set_pan(
+          static_cast<float>(std::max(-1.0, std::min(1.0, pan))));
+    }
+    return;
+  }
+}
+
+void LfwGodot::audio_preload(const std::string& path) { (void)audio_stream_key(path); }
+
+void LfwGodot::audio_play_bgm(const std::string& path, bool loop, double gain) {
+  if (_bgm_player == nullptr) return;
+  const std::string key = audio_stream_key(path);
+  if (key.empty()) return;
+  const godot::Ref<godot::AudioStream>& stream = _audio_cache[key];
+  set_stream_loop(stream, loop);
+  _bgm_player->set_stream(stream);
+  _bgm_player->set_volume_linear(static_cast<float>(std::max(0.0, std::min(1.0, gain))));
+  _bgm_player->play();
+  _bgm_was_playing = true;
+}
+
+void LfwGodot::audio_set_bgm_gain(double gain) {
+  if (_bgm_player == nullptr) return;
+  _bgm_player->set_volume_linear(static_cast<float>(std::max(0.0, std::min(1.0, gain))));
+}
+
+void LfwGodot::audio_stop_bgm() {
+  if (_bgm_player != nullptr) _bgm_player->stop();
+  _bgm_was_playing = false;
+}
+
+void LfwGodot::audio_stop_all() {
+  for (std::size_t i = 0; i < _sfx_slots.size(); ++i) {
+    if (_sfx_slots[i] != nullptr) _sfx_slots[i]->stop();
+    if (i < _sfx_ids.size()) _sfx_ids[i].clear();
+  }
+  audio_stop_bgm();
+}
+
+void LfwGodot::audio_poll() {
+  if (_host == nullptr) return;
+  // 1) 音效：槽里那个 id 播完了 ⇒ 还给宿主（`_playings.erase`）。
+  for (std::size_t i = 0; i < _sfx_slots.size() && i < _sfx_ids.size(); ++i) {
+    if (_sfx_ids[i].empty() || _sfx_slots[i] == nullptr) continue;
+    if (_sfx_slots[i]->is_playing()) continue;
+    const std::string id = _sfx_ids[i];
+    _sfx_ids[i].clear();
+    _host->on_audio_finished(id);
+  }
+  // 2) 随机 BGM：`is_playing()` 由真变假 = 一首放完 ⇒ 再抽一首（TS 的 `ended` 监听）。
+  if (_bgm_player != nullptr) {
+    const bool playing = _bgm_player->is_playing();
+    if (_bgm_was_playing && !playing && _host->audio_bgm_random() && _lfw != nullptr) {
+      _bgm_was_playing = false;
+      _lfw->push_cmd(std::vector<std::u16string>{u"bgm", u"?"});
+    }
+    _bgm_was_playing = playing || _bgm_was_playing;
+  }
+  // 3) 诊断：值变了才打一行（`[godot] sounds:`）。与 `[godot frame N]` 同一档 —— 只在你给了
+  //    `--every`（验收跑法）时打，`--play` 自己玩的时候不留一屏日志；收尾那一行照样打。
+  const std::string report = audio_report();
+  if (report != _audio_report) {
+    _audio_report = report;
+    if (_args.every > 0) print_line("[godot] sounds: " + report);
+  }
+}
+
+double LfwGodot::audio_world_scale() const {
+  // TS `get_l_r_vol` 里的 `world_node.scale.x`：逻辑像素 → 画布的那个比例。
+  const godot::Transform2D contain = contain_transform(window_size_px());
+  const double sx = static_cast<double>(contain.get_scale().x);
+  return sx > 0.0 ? sx : 1.0;
+}
+
+std::string LfwGodot::audio_report() const {
+  if (_host == nullptr) return std::string();
+  char buf[512];
+  std::snprintf(buf, sizeof(buf),
+                "preload=%lld decode=%lld fail=%lld play=%lld bgm=%lld active=%d bgm_playing=%d "
+                "random=%d bgm_path=%s bgm_gain=%.3f last=%s",
+                _host->audio_loaded(), _audio_decoded, _audio_failed, _host->audio_played(),
+                _host->audio_bgm_played(), _host->audio_active(),
+                _bgm_player != nullptr && _bgm_player->is_playing() ? 1 : 0,
+                _host->audio_bgm_random() ? 1 : 0,
+                _host->audio_bgm_path().empty() ? "-" : _host->audio_bgm_path().c_str(),
+                _host->audio_bgm_gain(),
+                _host->audio_last().empty() ? "-" : _host->audio_last().c_str());
+  return std::string(buf);
+}
+
 void LfwGodot::draw_item(const GodotDrawItem& item) {
   if (!(item.w > 0.0) || !(item.h > 0.0)) return;
   // `Rect2` / `Vector2` 吃的是 `godot::real_t`（这份绑定是单精度）⇒ 一开始就落成 float。
@@ -2429,6 +2771,8 @@ void LfwGodot::finish() {
   std::snprintf(buf, sizeof(buf), "[godot] UI render calls: %lld (unhandled: %lld)",
                 world.ui_render_calls(), world.ui_render_unhandled());
   print_line(buf);
+  // 音频面（不改三条摘要）：预载/解码/播放/BGM 的账 + 最后碰过的那个资源路径。
+  print_line("[godot] sounds: " + audio_report());
   // 绘制面（§G2 第二半，本切片新增的观测量；不进三条摘要）：最后一帧的绘制项与纹理统计。
   if (renderer != nullptr) {
     const GodotFrame& f = renderer->take_frame();

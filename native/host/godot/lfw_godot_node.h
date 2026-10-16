@@ -47,10 +47,14 @@
 #pragma once
 
 #include <filesystem>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
 
+#include <godot_cpp/classes/audio_effect_panner.hpp>
+#include <godot_cpp/classes/audio_stream.hpp>
+#include <godot_cpp/classes/audio_stream_player.hpp>
 #include <godot_cpp/classes/font.hpp>
 #include <godot_cpp/classes/input_event.hpp>
 #include <godot_cpp/classes/node2d.hpp>
@@ -294,6 +298,41 @@ class LfwGodot : public Node2D {
   bool capture_screenshot();       // 视口 → PNG
   void finish();
   void quit_with(int code) const;
+
+  // ---- 音频（TS `sounds/Modern.ts` 的**播出侧**；算式在 `LfwGodotHost` 那一半）----
+  // 引擎侧只有三件事：把资源路径解成 `AudioStream`、把数字（音量/声道）落到播放器上、
+  // 播完了通知宿主回收。槽位（`AudioStreamPlayer`）与总线都是这里建的 ——
+  // 每个槽一条自己的总线 + 一个 `AudioEffectPanner`：`AudioStreamPlayer` 没有 pan 参数，
+  // 而 TS 的 `get_l_r_vol` 是**每声道**两个幅度（见 `LfwGodotHost::sound_lr` 的注释）。
+  void install_audio();
+  // 资源路径 → 解码好的 `AudioStream`（缓存；失败空串并 ++`_audio_failed`）。
+  std::string audio_stream_key(const std::string& path);
+  void audio_play(const std::string& id, const std::string& path, double gain, double pan);
+  void audio_set_gain(const std::string& id, double gain, double pan);
+  void audio_preload(const std::string& path);
+  void audio_play_bgm(const std::string& path, bool loop, double gain);
+  void audio_set_bgm_gain(double gain);
+  void audio_stop_bgm();
+  void audio_stop_all();
+  // 每帧回收：播完的槽通知宿主（= TS 的 `src_node.onended`）、随机 BGM 播完续抽（`CMD.BGM '?'`）。
+  void audio_poll();
+  double audio_world_scale() const;  // `get_l_r_vol` 里的 `world_node.scale.x`
+  std::string audio_report() const;  // `[godot] sounds:` 那一行的正文（值变了才打）
+
+  static constexpr int kSfxSlots = 24;
+  // 播放器是 `Node`（`Ref` 不了，见 `godot-cpp` 的 `ref.hpp` 静态断言）→ 裸指针，`add_child`
+  // 交给场景树持有，本节点析构时随父节点一起释放。
+  std::vector<godot::AudioStreamPlayer*> _sfx_slots;
+  std::vector<godot::Ref<godot::AudioEffectPanner>> _sfx_pans;
+  std::vector<std::string> _sfx_ids;  // 每个槽当前播的音效 id（空 = 空槽）
+  int _sfx_next = 0;                  // 没有空槽时从哪一个开始抢
+  godot::AudioStreamPlayer* _bgm_player = nullptr;
+  std::map<std::string, godot::Ref<godot::AudioStream>> _audio_cache;
+  long long _audio_decoded = 0;
+  long long _audio_failed = 0;
+  std::string _audio_last_path;
+  bool _bgm_was_playing = false;  // 随机 BGM 的"播完"沿（`is_playing()` 由真变假）
+  std::string _audio_report;      // 上一次打过的诊断行（值变了才打）
 
   Args _args;
   std::unique_ptr<LfwGodotHost> _host;

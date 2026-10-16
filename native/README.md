@@ -740,6 +740,9 @@ arguments` 时打印的 usage 里那串参数是"裸值"没有标志名）。`cm
 文字度量（D4/D5-10 划给宿主的那一格）由 `ThemeDB` 的默认字体算，在 `LFW::load` **之前**装进宿主
 （UI 数据在装载期就按度量定文本节点尺寸）⇒ 与 headless 的零尺寸桩不同，**代价是布局与 TS 的
 浏览器字体不逐位同宽**。
+**音频**（2026-10-16 落地）：`lfw.sounds` 的语义与算式在 `LfwGodotHost`（`sounds/Modern.ts` 那一份，
+一行 Godot 类型都没有），解码/播放在 `lfw_godot_node.cpp`（24 个音效槽 + 1 个 BGM，每槽一条总线 +
+`AudioEffectPanner`）；诊断行 `[godot] sounds:` 在收尾打一次、给了 `--every` 时随变化打。
 
 一次性准备（godot-cpp 与 API dump 都放在仓库外 / 构建目录，不进仓库）：
 
@@ -1077,6 +1080,51 @@ $R = (Get-Location).Path; $g = "$env:USERPROFILE\Desktop\Godot_v4.7.1-stable_win
   `shots/titlebar-volume-below-only-1191x675.png`（只指在按钮下方：干净，没有竖条）。
   与模拟无关：三条摘要逐位不变。
 
+* **"怎么没有声音"** —— 真因是**一直没接**：端口里 `lfw.sounds` 就是宿主这一层（TS 是 `__Sounds`
+  → `__Modern`），而两份宿主（`HeadlessHost` / `LfwGodotHost`）都只把音量/静音**存成字段**、
+  `sounds_play*` 只打一行 `--dev` 日志 ⇒ 从 WASM 到 Godot 都没有一处真的解码/播放
+  （README 的缺口表与 DESIGN 也一直把音频记成"空实现"）。这一片把**播出侧**补上，语义照 `__Modern`：
+  * **算式仍在宿主那一半**（`LfwGodotHost`，一行 Godot 类型都没有）：`get_l_r_vol`
+    的**每声道**幅度（`finalBaseVol × 左右权重 × scale`，`playings = _playings.size + 1` ⇒ `1/√n` 衰减）、
+    `apply_sound_volume` 只重算**正在播的**、`apply_bgm_volume` 的「静音只是 `gain = 0`，
+    **不停播**」与「请求时就已经静音 ⇒ `ele.paused` 一直为真、解除静音才起播」、
+    `play_bgm` 的 `name !== _prev_bgm_url` 早退 + 返回**请求号**闭包（旧闭包不许停新歌）、
+    `Randoming('bgm_randoming', lfw.bgms, lfw.mt)` 抽 `'?'`、`sounds_bgm()/is_random()`
+    给 `BGMSwitcher` 的真名、以及 `on_bgm_changed`（以前**从没发过** ⇒ 设置页那行「BGM: …」不会随
+    对局换歌而更新）。
+  * **引擎那一半**（`lfw_godot_node.cpp`）只做三件事：资源路径 ⇒ `AudioStream`
+    （MP3 / OGG / WAV 头嗅探，走 `GodotWorldRenderer::read_resource` 同一套取字节：包 → 根目录）、
+    把数字落到播放器上、播完把 `id` 还回宿主（`on_audio_finished` = TS 的 `src_node.onended`）。
+    24 个音效槽 + 1 个 BGM 播放器；**每槽一条自己的总线 + 一个 `AudioEffectPanner`** ——
+    `AudioStreamPlayer` 没有 pan 参数，而 TS 是**每声道**两个增益。
+    送过去的是 `gain = (l+r)/2`、`pan = (r-l)/(l+r)`：在 Godot 4.7.1 的 panner 法则
+    （`lvol = clamp(1-pan)` / `rvol = clamp(1+pan)`，且**单声道**输入下 `out.left = gain·(1-pan)`
+    / `out.right = gain·(1+pan)`）展开后**逐值等于** `(l, r)`（算式写在 `audio_play` 的注释里）。
+    音效实测全是 mono（`data/*.mp3` 的帧头 channel mode = 3）、只有 `bgm/main.wma.mp3` 是 stereo，
+    而 BGM 走的是没有 pan 的那一路 ⇒ 这个等价关系覆盖了所有实际素材。
+  * **音量初值照 TS**：`__Modern` / `App.tsx` 是 `volume 0.3 / bgm_volume 0.5 / sound_volume 1`
+    ⇒ Godot 宿主在自己的构造函数里就设这三个数（`HeadlessHost` 那三个 1.0 **不动**：差分台面的
+    `sndset` 用例把它们钉住了）。顺带把设置页对上了：`--ui-page settings_misc` 里
+    `总音量 30` / `音量(音乐) 50` / `音量(音效) 100`（改前是 `100/100/100`）。
+  实测（一条命令走到真对局，`--play` + 完整键串）：
+  ```text
+  [godot] sounds: mixer 24 sfx slots + 1 bgm (per-slot bus + AudioEffectPanner) driver=WASAPI mix=48000Hz
+  [godot] sounds: preload=1 decode=4 fail=0 play=36 bgm=1 active=1 bgm_playing=1 random=0 bgm_path=bgm/main.wma.mp3 bgm_gain=0.150 last=data/m_ok.wav.mp3
+  ```
+  `decode=4` = 启动音 `builtin_data/launch/093.wav.mp3` + `bgm/main.wma.mp3` + 两个菜单音；
+  `active` 随音效播完**回落**（0…8）⇒ `onended` 那条回环是通的；`fail=0`（没有读不到的资源）；
+  `bgm_gain=0.150 = 0.3 × 0.5` 就是 TS 那两个初值乘出来的数。
+  静音那一档也量过（真窗口 + `--click-window 879,24@…` 点顶栏那个 BGM 喇叭，
+  `--window-size 1191x675 --display-scale 1.5`）：`bgm_gain` **0.150 → 0.000 → 0.150**，
+  而 `bgm_playing=1` 全程不变 ⇒ 正是 TS 的「静音只是 `ele.muted`，**不停播**」；
+  摘要也不动（`digest=8c1776fedfdb678e` 与同参数的 headless 跑逐位相同）。
+  `--headless` 下驱动是 `Dummy`（数字照走 ⇒ 验收脚本不需要声卡），开窗那一档是 `WASAPI 48kHz`。
+  ⚠ **三条宿主摘要逐位不变**（`a7edd32e19a43ea9` / `13945ad1144c968d` / `61c42c78c9d0bcac`）——
+  音频是宿主侧的事，不碰模拟。
+  **还差**：`sounds.play` 那条路没有"解码失败 ⇒ 重试"的对应（TS 是 `load().then(play)` 异步重放）——
+  端口的解码是同步的，读不到就报一行 `[godot] sounds: read failed:`；`[godot] sounds:` 那一行只在
+  你给了 `--every` 时逐次变化打（`--play` 自己玩的时候只在收尾打一行，免得刷屏）。
+
 ## 验收：宿主三条摘要（改完必跑）
 
 同一份数据、同一命令**逐位可复现**；三条都过才算没打破 headless 行为：
@@ -1244,7 +1292,7 @@ id 取自烹饪好的 UI 表，缺省用数据自己的首页 `init`）与 `--ui
 | `State_Frozen::leave` 里 `StateBase_Proxy::leave` 被调了两次 | TS 只调一次 `super.leave(e, next_frame)`，端口在 `e.apply_opoints(ice_piece_opoints())` 之后又多调了一次 | 9m 复核 `apply_opoints` 调用点时发现；`apply_opoints` 的相对顺序与 TS 一致，所以不影响 9m，但这多出来的一次是**真的多**（`get_proxy(e).leave`）⇒ 归状态层复核/修（现有 `entity_states` / `character_state_*` 用例观察不到） |
 | `base/ValExpression` 的宿主面 | TS 的取数器是 `(e: Entity) => number`（`DEFAULT_VARS` 直接读 `e.frame.width` 等、`rand`/`pick`/`bag`/`flip` 读 `e.lfw.mt`）；端口把它收成 **Ctx 概念**：`frame_var(name)` + `mt()` | 端口没有能被 `base/` 依赖的 `Entity`（循环包含）⇒ 照 `Expression<Ctx>` 的既有约定模板化。取数器给 `double`：帧**缺字段**时 TS 拿到 `undefined`，那一支（`range(undefined, undefined)` 提前返回、`pick` 的 `v !== undefined` 过滤）端口不复现，用例只喂有值的帧（见 PROTOCOL §6.105） |
 | `preprocess_opoint` 不写回 `__gen_*` | TS 把编译出来的 `ValExpression` **挂到记录上**；端口把九组编译结果**交还调用方**（`std::map<__gen_* 名, ValExpression>`），编译失败的字段不在表里 | `Value` 只有 7 种类型装不下函数（DESIGN §9.42 的既有结论）。差分时两侧都按「把 `__gen_*` 删掉」对齐（TS 侧由 harness 删），`?? opoint.__gen_x` 的「失败保持原值」语义照旧成立 |
-| `host/`（宿主实现） | 渲染 / 音频 / 指针 / UI 图片是**空实现**（图片给零尺寸占位并计数） | 都是平台侧的东西；M1 只要「能起世界、能推帧」，它们不参与世界推进（DESIGN §140） |
+| `host/`（宿主实现） | 渲染 / 音频 / 指针 / UI 图片是**空实现**（图片给零尺寸占位并计数） | 都是平台侧的东西；M1 只要「能起世界、能推帧」，它们不参与世界推进（DESIGN §140）。这条只针对 `HeadlessHost` / `lfw_thin`：**Godot 宿主**已经把渲染、文字度量、UI 图片、**音频**都接成真实现（音频见「2026-10-16」那条） |
 | `host/HeadlessHost::md5` | **真 MD5**（RFC 1321，`host/common/zip_file.cpp`），与 `Ditto.MD5`（SparkMD5）逐位一致（字符串按 UTF-8 喂） | 与 TS 的差异只剩「上游是 JS 库、这边是自写实现」这一点，值域相同 |
 | `host/FsZip` | 只吃「已解包」的目录（`--zip <dir>`）；**压缩包本体**在 `host/common/zip_file.{h,cpp}`（真 `.zip`：中央目录 + stored/deflate，ZIP64 拒绝） | 两条路并存：`--zip` 给目录、按 URL 加载的包（菜单 `load_data()`）给真 `.zip` |
 | `host/` 的 `zip_*` | 下载 / 读 blob / zip 缓存在**内存里**实现：`zip_download` 按 URL 找本地文件 + 真 MD5 校验（不匹配 ⇒ `md5 mismatch`），`zip_get_stored` 是 `get_stored_download` 的内存版（键 = `md5("lfw-partial:" + url)`），模块 `/` 缓存在 `_zip_cache` | 宿主没有 OPFS/IndexedDB/网络（DESIGN §5）；「blob」用宿主内的**令牌**表示（TS 是 `Blob`），只在本宿主内流通 |

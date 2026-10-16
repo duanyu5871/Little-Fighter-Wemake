@@ -234,9 +234,9 @@ class HeadlessHost : public ILfwHost {
   long long _grab_prev_epoch = -1;
   long long _grab_epoch = 0;
   const void* _grabbing = nullptr;
+ protected:
+  // 声音状态与回调留给子类（Godot 宿主自己接一套真实的播放后端，见 `lfw_godot_host.cpp`）。
   std::vector<LfwSoundsCallback*> _sd_callbacks;
-  std::map<std::u16string, PlayerInfoCachePut> _player_cache;
-  std::map<std::u16string, Value> _zip_cache;
   std::u16string _bgm;
   bool _bgm_random = false;
   bool _bgm_muted = false;
@@ -244,6 +244,10 @@ class HeadlessHost : public ILfwHost {
   double _volume = 1.0;
   double _bgm_volume = 1.0;
   double _sound_volume = 1.0;
+
+ private:
+  std::map<std::u16string, PlayerInfoCachePut> _player_cache;
+  std::map<std::u16string, Value> _zip_cache;
   long long _ignored_images = 0;
   int _warns = 0;
   int _errors = 0;
